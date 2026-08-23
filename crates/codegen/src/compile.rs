@@ -2414,10 +2414,22 @@ impl<'warnings> Compiler<'warnings> {
 
                 if let FBlockDatum::FinallyBody(ref body) = info.fb_datum {
                     // This is an extra copy of the finally body, emitted for the
-                    // path that leaves the try block early. The try statement
-                    // emits its own copies afterwards, so rewind the symbol table
-                    // cursors and leave the nested scopes for those copies.
+                    // path that leaves the try block early. Nested scopes are
+                    // handed out by position, and the cursors are still inside
+                    // the try block's own run of scopes here, so seek them to the
+                    // ones this body opened before compiling it. The try
+                    // statement emits its own copies from the same place
+                    // afterwards, so put the cursors back when the copy is done.
                     let symbol_table_cursors = self.current_symbol_table_cursors();
+                    if let Some(first) = body.first() {
+                        let line = self
+                            .source_file
+                            .to_source_code()
+                            .line_index(first.range().start())
+                            .get()
+                            .to_u32();
+                        self.seek_symbol_table_cursors_to_line(line);
+                    }
                     self.compile_statements(body)?;
                     self.set_symbol_table_cursors(symbol_table_cursors);
                 }
@@ -10352,6 +10364,43 @@ impl<'warnings> Compiler<'warnings> {
         table.next_sub_table = cursors.sub_table;
         table.next_hidden_annotation_block = cursors.hidden_annotation_block;
         table.next_inlined_comprehension_block = cursors.inlined_comprehension_block;
+    }
+
+    /// Advance the nested-scope cursors to the first scope that begins on or
+    /// after `line_number`.
+    ///
+    /// A statement list can be compiled more than once — `finally` bodies are
+    /// re-emitted on every path that leaves the try block early — and each copy
+    /// has to be handed the same scopes as the last. Positioning by line works
+    /// because `finally` is the last clause of its statement: every scope the
+    /// preceding clauses opened begins on an earlier line than the body being
+    /// re-compiled, and every scope that body opens begins on its own line or
+    /// later.
+    fn seek_symbol_table_cursors_to_line(&mut self, line_number: u32) {
+        fn seek(tables: &[SymbolTable], cursor: &mut usize, line_number: u32) {
+            while tables
+                .get(*cursor)
+                .is_some_and(|table| table.line_number < line_number)
+            {
+                *cursor += 1;
+            }
+        }
+
+        let table = self
+            .symbol_table_stack
+            .last_mut()
+            .expect("no current symbol table");
+        seek(&table.sub_tables, &mut table.next_sub_table, line_number);
+        seek(
+            &table.hidden_annotation_blocks,
+            &mut table.next_hidden_annotation_block,
+            line_number,
+        );
+        seek(
+            &table.inlined_comprehension_blocks,
+            &mut table.next_inlined_comprehension_block,
+            line_number,
+        );
     }
 
     fn lookup_comprehension_symbol_table_after_skipped_nested_scopes_in_expr(
