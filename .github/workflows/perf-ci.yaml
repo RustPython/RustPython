@@ -160,6 +160,11 @@ jobs:
           name: perf-ci-binary-head
           path: perf-bin/head
 
+      # Both binaries are measured in the same checkout, so each measure run
+      # purges the bytecode cache and repopulates it with the binary it is
+      # about to measure. Without that, the second run would reuse the .pyc
+      # files the first one compiled and look several percent faster with an
+      # identical interpreter -- a bias towards head that hides regressions.
       - name: Measure base
         run: |
           chmod +x perf-bin/base/rustpython perf-bin/head/rustpython

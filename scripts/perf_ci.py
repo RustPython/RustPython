@@ -22,7 +22,11 @@ but for an interpreter hot-loop it tracks real cost closely and, above all,
 it makes the gate reproducible: a red gate is always caused by the diff.
 
 The interpreter is run with PYTHONHASHSEED=0 so that str/bytes hashing, and
-therefore dict layout, is identical across runs.
+therefore dict layout, is identical across runs. Each measurement run first
+purges the bytecode cache and then repopulates it with the binary it is about
+to measure, so no run is made cheaper by bytecode another run compiled and
+both binaries are measured in the same steady state (see
+purge_bytecode_cache and warm_bytecode_cache).
 
 Usage:
   scripts/perf_ci.py list
@@ -35,6 +39,7 @@ import concurrent.futures
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -119,16 +124,18 @@ DEFAULT_THRESHOLD = 0.02
 def measure_one(binary, name, out_dir):
     argv, extra_env = WORKLOADS[name]
     out_file = os.path.join(out_dir, "callgrind.%s.out" % name)
-    env = dict(os.environ)
-    env["PYTHONHASHSEED"] = "0"
-    env.setdefault("RUSTPYTHONPATH", os.path.join(REPO_ROOT, "Lib"))
-    env.update(extra_env)
+    env = workload_env(extra_env)
     cmd = [
         "valgrind",
         "--tool=callgrind",
         "--callgrind-out-file=%s" % out_file,
         "--quiet",
         binary,
+        # Never write .pyc files. The cache is populated up front by
+        # warm_bytecode_cache; keeping the measured runs read-only means a
+        # workload can neither pay to compile bytecode for a later one nor
+        # race another measurement writing the same file.
+        "-B",
     ] + argv
     start = time.monotonic()
     proc = subprocess.run(cmd, cwd=REPO_ROOT, env=env, capture_output=True, text=True)
@@ -157,6 +164,66 @@ def parse_ir(out_file):
     raise RuntimeError("no summary line in %s" % out_file)
 
 
+def workload_env(extra_env):
+    env = dict(os.environ)
+    env["PYTHONHASHSEED"] = "0"
+    env.setdefault("RUSTPYTHONPATH", os.path.join(REPO_ROOT, "Lib"))
+    env.update(extra_env)
+    return env
+
+
+def purge_bytecode_cache():
+    """Delete every __pycache__ directory the workloads could import from.
+
+    RustPython caches compiled bytecode next to the source it imports, and
+    compiling a stdlib module costs far more than loading it from that cache
+    (measured: ~3.8x total instructions for import_stdlib, ~2x for chaos).
+    A cache left behind by an earlier run therefore makes a measurement depend
+    on what ran before it. Measuring base and then head in one checkout let
+    head reuse the bytecode base had just compiled, so head came out up to 46%
+    "faster" with an identical interpreter -- a bias towards whichever binary
+    is measured second, which is the direction that hides a regression.
+    """
+    removed = 0
+    for root in (os.path.join(REPO_ROOT, "Lib"), os.path.join(REPO_ROOT, PERF_DIR)):
+        for dirpath, dirnames, _ in os.walk(root):
+            if "__pycache__" in dirnames:
+                dirnames.remove("__pycache__")
+                shutil.rmtree(os.path.join(dirpath, "__pycache__"), ignore_errors=True)
+                removed += 1
+    return removed
+
+
+def warm_bytecode_cache(binary, names):
+    """Run each workload once, untimed, to populate the cache for `binary`.
+
+    Purging alone would leave every measurement paying bytecode compilation
+    for the stdlib modules its workload imports. That cost is unrelated to the
+    interpreter hot paths this gate exists to protect: it inflates the job and,
+    worse, dilutes sensitivity, because a regression in the measured code is
+    divided by a much larger total (compiling `os` and `argparse` alone adds
+    ~60% to fannkuch). Warming with the very binary about to be measured keeps
+    the comparison symmetric -- each binary compiles its own bytecode -- while
+    the measured runs observe steady-state execution.
+
+    Run sequentially: concurrent writers of the same .pyc would race.
+    """
+    for name in names:
+        argv, extra_env = WORKLOADS[name]
+        proc = subprocess.run(
+            [binary] + argv,
+            cwd=REPO_ROOT,
+            env=workload_env(extra_env),
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                "warm-up of workload %r failed (exit %d):\n%s"
+                % (name, proc.returncode, proc.stderr[-2000:])
+            )
+
+
 def cmd_measure(args):
     binary = os.path.abspath(args.binary)
     names = args.bench or sorted(WORKLOADS)
@@ -164,6 +231,15 @@ def cmd_measure(args):
     if unknown:
         sys.exit("unknown workloads: %s" % ", ".join(sorted(unknown)))
     jobs = args.jobs or max(1, (os.cpu_count() or 2) - 1)
+    removed = purge_bytecode_cache()
+    print("purged %d stale __pycache__ directories" % removed, flush=True)
+    warm_start = time.monotonic()
+    warm_bytecode_cache(binary, names)
+    print(
+        "warmed bytecode cache with the measured binary in %.0fs"
+        % (time.monotonic() - warm_start),
+        flush=True,
+    )
     results = {}
     wall = time.monotonic()
     with tempfile.TemporaryDirectory() as out_dir:

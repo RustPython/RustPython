@@ -24,6 +24,17 @@ Role split:
   published to the website; long-term trend data, never blocks PRs.
 * This gate — per-PR, deterministic, blocks regressions.
 
+Two runs of the gate share a checkout, so bytecode caching has to be handled
+explicitly: RustPython writes `.pyc` files next to the sources it imports, and
+loading a cached module is far cheaper than compiling it (measured: ~3.8x
+fewer instructions for `import_stdlib`, ~2x for `chaos`). Whichever binary ran
+second would otherwise inherit the first one's compiled bytecode and look up
+to 46% faster with no interpreter change at all. `scripts/perf_ci.py`
+therefore purges the cache at the start of every measurement run and warms it
+with the binary it is about to measure, then measures with `-B` so the timed
+runs cannot mutate it. Both binaries are thus compared in the same steady
+state, and the numbers do not depend on measurement order.
+
 ## Layout
 
 * `micro/` — targeted microbenchmarks written for this gate, one interpreter
