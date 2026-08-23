@@ -1,0 +1,174 @@
+# PR performance regression gate.
+#
+# Role split with the nightly/weekly benchmarks (cron-ci.yaml "benchmark" job):
+#   * cron-ci.yaml collects criterion wall-clock data on a schedule and
+#     publishes it to the website for long-term trend tracking. It never
+#     blocks a PR.
+#   * This workflow runs on pull requests and BLOCKS merges that regress
+#     interpreter performance. There is no overlap in tooling or data:
+#     this gate uses callgrind instruction counts, not criterion.
+#
+# Why instruction counts (callgrind Ir) instead of wall-clock time?
+# GitHub-hosted runners are shared, throttled machines: wall-clock timings
+# routinely vary by 10-40% run to run, so any wall-clock threshold is either
+# too loose to catch real regressions or flaky enough to block unrelated PRs.
+# Retired-instruction counts for a deterministic program are reproducible to
+# well under 0.1% between runs (PYTHONHASHSEED is pinned by the runner
+# script), are immune to CPU contention and frequency scaling, and stay
+# comparable even when measurements run concurrently. The trade-off is a
+# ~50x slowdown under callgrind, which the workload sizes in
+# scripts/perf_ci.py are tuned for. See benches/perf_ci/README.md.
+#
+# Budget: measurement (both binaries, excluding builds) is parallelized and
+# targets well under 10 minutes; builds reuse the shared cargo cache and the
+# base binary is cached by commit SHA, so the base build is usually a
+# cache hit.
+
+name: Performance gate
+
+on:
+  pull_request:
+    types: [unlabeled, opened, synchronize, reopened]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".cargo/config.toml"
+      - "crates/**"
+      - "src/**"
+      - "benches/perf_ci/**"
+      - "scripts/perf_ci.py"
+      - ".github/workflows/perf-ci.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_RELEASE_DEBUG: 0
+  CARGO_TERM_COLOR: always
+  CI: true
+
+jobs:
+  build:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    # Named after the matrix entry rather than left to be named for it (see
+    # the note on generated names in ci.yaml).
+    name: Build rustpython (${{ matrix.rev }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      matrix:
+        rev: [base, head]
+      fail-fast: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve revision to build
+        id: resolve
+        # For "base", measure against the merge base with the target branch so
+        # the comparison only reflects this PR's diff. For "head", measure the
+        # checked-out merge/head commit itself.
+        run: |
+          base_sha=$(git merge-base HEAD "origin/${BASE_REF}")
+          if [ "${REV}" = "base" ]; then
+            echo "sha=${base_sha}" >> "$GITHUB_OUTPUT"
+            git checkout --quiet "${base_sha}"
+          else
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+          REV: ${{ matrix.rev }}
+
+      # The finished binary is cached by commit SHA: every PR against the same
+      # main tip shares one base build, and re-runs skip both builds entirely.
+      - name: Restore built binary
+        id: bin_cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/release/rustpython
+          key: perf-ci-bin-v1-${{ runner.os }}-${{ steps.resolve.outputs.sha }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.bin_cache.outputs.cache-hit != 'true'
+
+      - name: Restore cargo cache
+        if: steps.bin_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
+          restore-keys: |
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
+        continue-on-error: true
+
+      - name: Build release binary
+        if: steps.bin_cache.outputs.cache-hit != 'true'
+        run: cargo build --release --bin rustpython
+
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perf-ci-binary-${{ matrix.rev }}
+          path: target/release/rustpython
+          retention-days: 3
+
+  measure:
+    name: Measure and compare instruction counts
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Workloads and the runner script are always taken from the PR head, so
+      # both binaries execute identical guest code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install valgrind
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: perf-ci-binary-base
+          path: perf-bin/base
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: perf-ci-binary-head
+          path: perf-bin/head
+
+      - name: Measure base
+        run: |
+          chmod +x perf-bin/base/rustpython perf-bin/head/rustpython
+          python3 scripts/perf_ci.py measure --binary perf-bin/base/rustpython -o perf-base.json
+
+      - name: Measure head
+        run: python3 scripts/perf_ci.py measure --binary perf-bin/head/rustpython -o perf-head.json
+
+      - name: Upload measurements
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perf-ci-results
+          path: |
+            perf-base.json
+            perf-head.json
+          retention-days: 30
+
+      - name: Compare against threshold
+        run: python3 scripts/perf_ci.py compare perf-base.json perf-head.json
