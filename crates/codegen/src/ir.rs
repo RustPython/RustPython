@@ -4035,7 +4035,8 @@ impl CodeInfo {
             obj_name: obj_name.clone(),
             qualname: qualname.unwrap_or(obj_name),
 
-            max_stackdepth,
+            // Room for one value is always reserved, even where nothing is pushed.
+            max_stackdepth: max_stackdepth.max(1),
             instructions: CodeUnits::from(assembled.instructions),
             locations,
             constants: constants.into_iter().collect(),

@@ -5,13 +5,13 @@ expression: "dis(r#\"\nasync def test():\n    for stop_exc in (StopIteration('sp
 ---
   0           RESUME                   0
 
-  1           LOAD_CONST               0 (<code object test at 0xdeadbeef file "<?>", line 1>)
+  1           LOAD_CONST               0 (<code object test at 0xdeadbeef, file "<?>", line 1>)
               MAKE_FUNCTION
               STORE_NAME               0 (test)
               LOAD_CONST               1 (None)
               RETURN_VALUE
 
-Disassembly of <code object test at 0xdeadbeef file "<?>", line 1>:
+Disassembly of <code object test at 0xdeadbeef, file "<?>", line 1>:
    1            RETURN_GENERATOR
                 POP_TOP
         L1:     RESUME                   0

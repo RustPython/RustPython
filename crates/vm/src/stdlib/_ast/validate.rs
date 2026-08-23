@@ -19,6 +19,7 @@ fn invalid_syntax_error(vm: &VirtualMachine) -> crate::builtins::PyBaseException
     vm.new_syntax_error(
         &CompileError::Codegen(CodegenError {
             location: None,
+            end_location: None,
             error: CodegenErrorType::SyntaxError("invalid syntax".to_owned()),
             source_path: "<unknown>".to_owned(),
         }),

@@ -113,7 +113,9 @@ impl CompileError {
     #[must_use]
     pub fn python_end_location(&self) -> Option<(usize, usize)> {
         match self {
-            Self::Codegen(_) => None,
+            Self::Codegen(codegen_error) => codegen_error
+                .end_location
+                .map(|end| (end.line.get(), end.character_offset.get())),
             Self::Parse(parse_error) => Some((
                 parse_error.end_location.line.get(),
                 parse_error.end_location.character_offset.get(),
@@ -130,17 +132,19 @@ impl CompileError {
     }
 }
 
+// A syntax error the parser reports counts its columns in characters rather
+// than in the bytes the range is measured in. An offset that lands inside a
+// character walks back to where that character starts, the way decoding the
+// line up to a truncated offset would.
 fn source_location(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
+    let text = source_file.source_text();
+    let mut index = offset.to_usize().min(text.len());
+    while !text.is_char_boundary(index) {
+        index -= 1;
+    }
     source_file
         .to_source_code()
-        .source_location(offset, PositionEncoding::Utf8)
-}
-
-// Call only with UTF-8 character boundaries for Python-facing offsets.
-fn source_location_in_code_points(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
-    source_file
-        .to_source_code()
-        .source_location(offset, PositionEncoding::Utf32)
+        .source_location(TextSize::new(index as u32), PositionEncoding::Utf32)
 }
 
 fn source_locations(
@@ -148,10 +152,9 @@ fn source_locations(
     start: TextSize,
     end: TextSize,
 ) -> (SourceLocation, SourceLocation) {
-    let source_code = source_file.to_source_code();
     (
-        source_code.source_location(start, PositionEncoding::Utf8),
-        source_code.source_location(end, PositionEncoding::Utf8),
+        source_location(source_file, start),
+        source_location(source_file, end),
     )
 }
 
@@ -189,21 +192,6 @@ impl NormalizedParseDiagnostic {
         )
     }
 
-    fn other_in_code_points(
-        source_file: &SourceFile,
-        message: String,
-        start: usize,
-        end: usize,
-    ) -> Self {
-        let start = TextSize::new(start as u32);
-        let end = TextSize::new(end as u32);
-        Self::new(
-            parser::ParseErrorType::OtherError(message),
-            source_location_in_code_points(source_file, start),
-            source_location_in_code_points(source_file, end),
-        )
-    }
-
     const fn with_unclosed_bracket(mut self, is_unclosed_bracket: bool) -> Self {
         self.is_unclosed_bracket = is_unclosed_bracket;
         self
@@ -230,12 +218,12 @@ fn cpython_parse_diagnostic_override(
         };
     }
 
-    if let Some((message, offset)) = invalid_number_literal_error(source_text) {
+    if let Some((message, start, end)) = invalid_number_literal_error(source_text) {
         return Some(NormalizedParseDiagnostic::other(
             source_file,
             message,
-            offset,
-            offset,
+            start,
+            end,
         ));
     }
     source_error!(invalid_legacy_statement_error(source_text));
@@ -274,8 +262,7 @@ fn cpython_parse_diagnostic_override(
     }
 
     if let Some((message, start, end)) = unterminated_string_error(source_text) {
-        // The scanner reports quote positions, which are UTF-8 character boundaries.
-        return Some(NormalizedParseDiagnostic::other_in_code_points(
+        return Some(NormalizedParseDiagnostic::other(
             source_file,
             message,
             start,
@@ -449,6 +436,10 @@ fn adjusted_error_locations(
     let mut locations = source_locations(source_file, range.start(), range.end());
     if locations.1.character_offset.get() == 1 && locations.1.line > locations.0.line {
         locations.1 = source_location(source_file, range.end() - TextSize::from(1));
+        locations.1.character_offset = locations.1.character_offset.saturating_add(1);
+    } else if range.is_empty() {
+        // The parser blames a token, and the narrowest token still covers a
+        // character, so an error reported between two of them spans one.
         locations.1.character_offset = locations.1.character_offset.saturating_add(1);
     }
     locations
@@ -634,7 +625,9 @@ fn invalid_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, 
             None
         };
         if !bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-            return Some((message, sign.unwrap_or(exponent)));
+            // Without a sign the exponent letter is put back, so the position
+            // is the digit before it rather than the letter.
+            return Some((message, sign.unwrap_or_else(|| exponent.saturating_sub(1))));
         }
         if let Some(offset) = decimal_tail_error(bytes, index) {
             return Some((message, offset));
@@ -643,7 +636,10 @@ fn invalid_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, 
     None
 }
 
-fn leading_zero_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize)> {
+fn leading_zero_decimal_literal_error(
+    bytes: &[u8],
+    start: usize,
+) -> Option<(String, usize, usize)> {
     if bytes.get(start) != Some(&b'0') {
         return None;
     }
@@ -670,37 +666,35 @@ fn leading_zero_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(Str
             return Some((
                 "leading zeros in decimal integer literals are not permitted; use an 0o prefix for octal integers".to_owned(),
                 start,
+                index,
             ));
         }
     }
     None
 }
 
-fn invalid_numeric_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize)> {
+fn invalid_numeric_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize, usize)> {
     if bytes.get(start) == Some(&b'0') {
-        match bytes.get(start + 1) {
-            Some(b'x' | b'X') => {
-                return invalid_radix_literal_error(bytes, start, "hexadecimal", |byte| {
-                    byte.is_ascii_hexdigit()
-                });
-            }
-            Some(b'o' | b'O') => {
-                return invalid_radix_literal_error(bytes, start, "octal", |byte| {
-                    matches!(byte, b'0'..=b'7')
-                });
-            }
-            Some(b'b' | b'B') => {
-                return invalid_radix_literal_error(bytes, start, "binary", |byte| {
-                    matches!(byte, b'0' | b'1')
-                });
-            }
-            _ => {}
+        let radix = match bytes.get(start + 1) {
+            Some(b'x' | b'X') => invalid_radix_literal_error(bytes, start, "hexadecimal", |byte| {
+                byte.is_ascii_hexdigit()
+            }),
+            Some(b'o' | b'O') => invalid_radix_literal_error(bytes, start, "octal", |byte| {
+                matches!(byte, b'0'..=b'7')
+            }),
+            Some(b'b' | b'B') => invalid_radix_literal_error(bytes, start, "binary", |byte| {
+                matches!(byte, b'0' | b'1')
+            }),
+            _ => None,
+        };
+        if let Some(radix) = radix {
+            return Some(point_span(radix));
         }
         if let Some(err) = leading_zero_decimal_literal_error(bytes, start) {
             return Some(err);
         }
     }
-    invalid_decimal_literal_error(bytes, start)
+    invalid_decimal_literal_error(bytes, start).map(point_span)
 }
 
 fn consume_exponent(bytes: &[u8], index: usize) -> usize {
@@ -792,7 +786,12 @@ fn skip_quoted_string(bytes: &[u8], mut index: usize) -> usize {
     index
 }
 
-fn invalid_number_literal_error(source: &str) -> Option<(String, usize)> {
+// An error the tokenizer reports at a single position spans nothing.
+fn point_span((message, offset): (String, usize)) -> (String, usize, usize) {
+    (message, offset, offset)
+}
+
+fn invalid_number_literal_error(source: &str) -> Option<(String, usize, usize)> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -823,14 +822,15 @@ fn invalid_number_literal_error(source: &str) -> Option<(String, usize)> {
                 };
                 if end > index {
                     if source[end..].starts_with('⁄') {
-                        return Some(("invalid character '⁄' (U+2044)".to_owned(), end));
+                        return Some(("invalid character '⁄' (U+2044)".to_owned(), end, end));
                     }
                     if bytes
                         .get(end)
                         .is_some_and(|byte| *byte < 128 && is_ascii_identifier_char(*byte))
                         && !numeric_keyword_suffix(&bytes[end..])
                     {
-                        return Some((format!("invalid {kind} literal"), end.saturating_sub(1)));
+                        let offset = end.saturating_sub(1);
+                        return Some((format!("invalid {kind} literal"), offset, offset));
                     }
                 }
                 index = end.max(index + 1);
@@ -3831,7 +3831,7 @@ fn unterminated_string_error(source: &str) -> Option<(String, usize, usize)> {
                             return Some((
                                 unterminated_string_message(line, false, has_escaped_quote),
                                 start,
-                                start + 1,
+                                start,
                             ));
                         }
                         line += 1;
@@ -3869,7 +3869,7 @@ fn unterminated_string_error(source: &str) -> Option<(String, usize, usize)> {
                             has_escaped_quote,
                         ),
                         start,
-                        start + 1,
+                        start,
                     ));
                 }
             }
@@ -4962,11 +4962,31 @@ fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<(Stri
     None
 }
 
+/// The byte-order mark is only stripped while decoding source bytes, so one
+/// that survives into the text is just a non-printable character. The tokenizer
+/// rejects it everywhere except at the very start of the text, which is where
+/// this covers.
+#[doc(hidden)]
+#[must_use]
+pub fn leading_byte_order_mark_error(source_file: &SourceFile) -> Option<CompileError> {
+    source_file.source_text().starts_with('\u{feff}').then(|| {
+        CompileError::from_source_error(
+            source_file,
+            "invalid non-printable character U+FEFF".to_owned(),
+            0,
+            0,
+        )
+    })
+}
+
 fn post_parse_source_error(
     source_file: &SourceFile,
     tokens: &Tokens,
     opts: &CompileOpts,
 ) -> Option<CompileError> {
+    if let Some(error) = leading_byte_order_mark_error(source_file) {
+        return Some(error);
+    }
     if let Some((message, start, end)) =
         too_many_nested_parentheses_error(source_file.source_text())
     {
@@ -5004,6 +5024,119 @@ fn is_compound_stmt(stmt: &ast::Stmt) -> bool {
             | ast::Stmt::Try(_)
             | ast::Stmt::Match(_)
     )
+}
+
+/// Syntax the reference grammar has no rule for, but that this parser accepts.
+///
+/// A bare generator expression is one: `f(x for x in y)` is the `primary
+/// genexp` alternative of a call, and a class header only takes `arguments`,
+/// which has no such alternative. A format spec nested more than two deep is
+/// the other; the tokenizer runs out of nesting levels for it.
+#[doc(hidden)]
+#[must_use]
+pub fn unsupported_grammar_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
+    use ast::visitor::Visitor;
+
+    /// The deepest chain of format specs one string literal may hold.
+    const MAX_FORMAT_SPEC_DEPTH: usize = 2;
+
+    struct Checker<'a> {
+        source_file: &'a SourceFile,
+        error: Option<CompileError>,
+    }
+
+    impl Checker<'_> {
+        fn fail(&mut self, message: &str, range: ruff_text_size::TextRange) {
+            self.error = Some(CompileError::from_source_error(
+                self.source_file,
+                message.to_owned(),
+                range.start().to_usize(),
+                range.end().to_usize(),
+            ));
+        }
+
+        fn check_format_specs(
+            &mut self,
+            kind: &str,
+            elements: &ast::InterpolatedStringElements,
+            depth: usize,
+        ) {
+            for element in elements.interpolations() {
+                let Some(format_spec) = &element.format_spec else {
+                    continue;
+                };
+                if depth == MAX_FORMAT_SPEC_DEPTH {
+                    self.fail(
+                        &alloc::format!("{kind}: expressions nested too deeply"),
+                        format_spec.range,
+                    );
+                    return;
+                }
+                self.check_format_specs(kind, &format_spec.elements, depth + 1);
+                if self.error.is_some() {
+                    return;
+                }
+            }
+        }
+    }
+
+    impl<'a> Visitor<'a> for Checker<'_> {
+        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+            if self.error.is_some() {
+                return;
+            }
+            if let ast::Stmt::ClassDef(class_def) = stmt
+                && let Some(arguments) = &class_def.arguments
+                && let [ast::Expr::Generator(generator)] = &arguments.args[..]
+                && !generator.parenthesized
+            {
+                let range = generator
+                    .generators
+                    .first()
+                    .map_or(generator.range, |comprehension| comprehension.range);
+                self.fail("invalid syntax", range);
+                return;
+            }
+            ast::visitor::walk_stmt(self, stmt);
+        }
+
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            if self.error.is_some() {
+                return;
+            }
+            // Each literal counts its own nesting: one written inside a format
+            // spec starts over.
+            match expr {
+                ast::Expr::FString(fstring) => {
+                    for part in &fstring.value {
+                        if let ast::FStringPart::FString(part) = part {
+                            self.check_format_specs("f-string", &part.elements, 0);
+                        }
+                    }
+                }
+                ast::Expr::TString(tstring) => {
+                    for part in &tstring.value {
+                        self.check_format_specs("t-string", &part.elements, 0);
+                    }
+                }
+                _ => {}
+            }
+            if self.error.is_some() {
+                return;
+            }
+            ast::visitor::walk_expr(self, expr);
+        }
+    }
+
+    let mut checker = Checker {
+        source_file,
+        error: None,
+    };
+    match ast {
+        ast::Mod::Module(module) => checker.visit_body(&module.body),
+        ast::Mod::Expression(expression) => checker.visit_expr(&expression.body),
+    }
+    checker.error
 }
 
 fn single_mode_body_error(body: &[ast::Stmt], source_file: &SourceFile) -> Option<CompileError> {
@@ -5260,6 +5393,9 @@ fn _compile_with_syntax_warning_handler<'a>(
         return Err(error);
     }
     let ast = parsed.into_syntax();
+    if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+        return Err(error);
+    }
     let single_mode_error = matches!(mode, Mode::Single)
         .then(|| single_mode_source_error(&ast, &source_file))
         .flatten();
@@ -5481,6 +5617,45 @@ pub fn compile_symtable(
     _compile_symtable(source_file, mode)
 }
 
+/// Bring a module into the shape the symbol table is built from.
+fn symtable_preprocess_module(
+    module: &mut ast::ModModule,
+    source_file: &SourceFile,
+) -> Result<(), CompileError> {
+    let future_features = codegen::preprocess::checked_future_features_in_body(&module.body)
+        .map_err(|error| future_feature_error(error, source_file))?;
+    let future_annotations =
+        future_features.contains(core::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
+    // Constant folding is left out; the symbol table is built from the parsed
+    // program as written.
+    codegen::preprocess::preprocess_statements(&mut module.body, 0, future_annotations, true);
+    Ok(())
+}
+
+fn future_feature_error(
+    error: codegen::preprocess::FutureFeatureError,
+    source_file: &SourceFile,
+) -> CompileError {
+    let source_code = source_file.to_source_code();
+    let location = source_code.source_location(error.range.start(), PositionEncoding::Utf8);
+    let end_location = source_code.source_location(error.range.end(), PositionEncoding::Utf8);
+    let error = match error.kind {
+        codegen::preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
+            codegen::error::CodegenErrorType::InvalidFutureFeature(feature)
+        }
+        codegen::preprocess::FutureFeatureErrorKind::InvalidBraces => {
+            codegen::error::CodegenErrorType::InvalidFutureBraces
+        }
+    };
+    codegen::error::CodegenError {
+        location: Some(location),
+        end_location: Some(end_location),
+        error,
+        source_path: source_file.name().to_owned(),
+    }
+    .into()
+}
+
 pub fn _compile_symtable(
     source_file: SourceFile,
     mode: Mode,
@@ -5505,12 +5680,18 @@ pub fn _compile_symtable(
             {
                 return Err(error);
             }
-            let ast = ast.into_syntax().expect_module();
+            let ast = ast.into_syntax();
+            if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+                return Err(error);
+            }
+            let ast = ast.expect_module();
             if matches!(mode, Mode::Single)
                 && let Some(error) = single_mode_body_error(&ast.body, &source_file)
             {
                 return Err(error);
             }
+            let mut ast = ast;
+            symtable_preprocess_module(&mut ast, &source_file)?;
             symboltable::SymbolTable::scan_program(&ast, source_file.clone())
         }
         Mode::Eval => {
@@ -5525,10 +5706,13 @@ pub fn _compile_symtable(
             {
                 return Err(error);
             }
-            symboltable::SymbolTable::scan_expr(
-                &ast.into_syntax().expect_expression(),
-                source_file.clone(),
-            )
+            let ast = ast.into_syntax();
+            if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+                return Err(error);
+            }
+            let mut ast = ast;
+            codegen::preprocess::preprocess_mod(&mut ast, 0, false, true);
+            symboltable::SymbolTable::scan_expr(&ast.expect_expression(), source_file.clone())
         }
     };
     res.map_err(|e| e.into_codegen_error(source_file.name().to_owned()).into())

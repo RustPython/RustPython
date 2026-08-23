@@ -99,7 +99,7 @@ impl SyntaxErrorInfo {
                 format!("invalid syntax: {}", self.msg.replace('`', "'"))
             }
 
-            ParseErrorType::UnexpectedExpressionToken => format!("invalid syntax: {}", self.msg),
+            ParseErrorType::UnexpectedExpressionToken => "invalid syntax".into(),
 
             ParseErrorType::ExpectedToken { expected, found } => {
                 Self::handle_expected_token(*expected, *found).into()
@@ -166,6 +166,10 @@ impl SyntaxErrorInfo {
                 "arguments cannot follow var-keyword argument".into()
             }
 
+            ParseErrorType::InvalidAnnotatedAssignmentTarget => {
+                "illegal target for annotation".into()
+            }
+
             ParseErrorType::Lexical(LexicalErrorType::UnrecognizedToken { .. })
             | ParseErrorType::SimpleStatementsOnSameLine
             | ParseErrorType::SimpleAndCompoundStatementOnSameLine
@@ -175,15 +179,32 @@ impl SyntaxErrorInfo {
                 "invalid syntax".into()
             }
 
+            // What the parser says when it cannot continue the list it is
+            // recovering; each of these situations is a plain "invalid syntax".
             ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case(
-                    "Expected a type parameter or the end of the type parameter list",
+                if matches!(
+                    s.as_str(),
+                    "Expected a statement"
+                        | "Expected an `elif` or `else` clause, or the end of the `if` statement."
+                        | "Expected an `except` or `finally` clause or the end of the `try` statement."
+                        | "The keyword is not allowed as a variable declaration name"
+                        | "Expected an assignment target"
+                        | "Expected a type parameter or the end of the type parameter list"
+                        | "Expected an import name or a ')'"
+                        | "Expected an import name"
+                        | "Expected an expression or the end of the slice list"
+                        | "Expected an expression or a ']'"
+                        | "Expected an expression or a '}'"
+                        | "Expected an expression or a ')'"
+                        | "Expected an expression"
+                        | "Expected a pattern or the end of the sequence pattern"
+                        | "Expected a mapping pattern or the end of the mapping pattern"
+                        | "Expected a pattern or a ')'"
+                        | "Expected a delete target"
+                        | "Expected a parameter or the end of the parameter list"
+                        | "Expected an expression or the end of the with item list"
                 ) =>
             {
-                "invalid syntax".into()
-            }
-
-            ParseErrorType::OtherError(s) if s.eq_ignore_ascii_case("Expected a statement") => {
                 "invalid syntax".into()
             }
 
@@ -837,6 +858,18 @@ impl VirtualMachine {
             || msg.starts_with("except expressions without parentheses are")
             || msg.starts_with("Pattern matching is");
         let line_end_binary_operator_error = msg.starts_with("The '@' operator is");
+        let unclosed_bracket_error = cfg_select! {
+            feature = "parser" => {
+                matches!(
+                    error,
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        is_unclosed_bracket: true,
+                        ..
+                    })
+                )
+            }
+            _ => false,
+        };
 
         let syntax_error = self.new_exception_msg(syntax_error_type, msg.into());
 
@@ -860,6 +893,10 @@ impl VirtualMachine {
                         .is_some_and(|ch| ch.is_ascii_whitespace()));
             let (end_lineno, end_offset) = if no_end_offset {
                 (end_lineno, -1)
+            } else if unclosed_bracket_error {
+                // The bracket that was never closed is marked where it opened,
+                // and the span stops there.
+                (end_lineno, 0)
             } else if line_end_binary_operator_error && end_offset == offset_raw {
                 (end_lineno, (end_offset + 1) as isize)
             } else if narrow_caret {
