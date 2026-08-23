@@ -47,6 +47,11 @@ pyperf would also not fit the deterministic instruction-count approach.
 
 ## Running locally
 
+Drive the harness with CPython 3.14 (the version CONTRIBUTING.md requires and
+the one CI uses); the script itself only needs the stdlib, plus `valgrind` on
+the system. All workloads also run unmodified under CPython, which is handy
+for sanity-checking a workload change.
+
 ```shell
 cargo build --release
 python3 scripts/perf_ci.py measure --binary target/release/rustpython -o head.json
