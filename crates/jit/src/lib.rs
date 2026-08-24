@@ -199,6 +199,40 @@ impl Drop for JitEngine {
 unsafe impl Send for JitEngine {}
 unsafe impl Sync for JitEngine {}
 
+/// Whether the backend could plausibly compile this code object.
+///
+/// A cheap pre-filter for callers that compile speculatively: one pass over the
+/// bytecode, ruling out the shapes there is no lowering for at all. Passing is
+/// not a promise that compilation will succeed - the argument types decide much
+/// of that, and they are not visible here.
+pub fn supports_code<C: bytecode::Constant>(code: &bytecode::CodeObject<C>) -> bool {
+    // A frame is never built, so there is nowhere to put varargs, a generator's
+    // suspended state, or an exception handler's stack.
+    if code.flags.intersects(
+        bytecode::CodeFlags::VARARGS
+            | bytecode::CodeFlags::VARKEYWORDS
+            | bytecode::CodeFlags::GENERATOR
+            | bytecode::CodeFlags::COROUTINE
+            | bytecode::CodeFlags::ASYNC_GENERATOR,
+    ) {
+        return false;
+    }
+    if !code.exceptiontable.is_empty() {
+        return false;
+    }
+    // Cells and frees live past `varnames`, which is all the compiler allocates
+    // locals for, and are read through opcodes it has no lowering for.
+    if !code.cellvars.is_empty() || !code.freevars.is_empty() {
+        return false;
+    }
+
+    let mut state = bytecode::OpArgState::default();
+    code.instructions.iter().all(|&word| {
+        let (instruction, _) = state.get(word);
+        instructions::instruction_is_supported(instruction)
+    })
+}
+
 pub fn compile<C: bytecode::Constant>(
     bytecode: &bytecode::CodeObject<C>,
     args: &[JitType],

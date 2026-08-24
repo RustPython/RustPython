@@ -30,6 +30,11 @@ impl Function {
         engine.compile(&self.code, &arg_types, ret_type, safety)
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn code(&self) -> &CodeObject {
+        &self.code
+    }
+
     fn signature(&self) -> (Vec<JitType>, Option<JitType>) {
         let mut arg_types = Vec::new();
         for arg in self.code.arg_names().args {
