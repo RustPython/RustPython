@@ -2179,7 +2179,14 @@ impl Constructor for PyType {
                 name.clone().into_wtf8()
             });
 
-        let mut attributes = dict.to_attributes(vm);
+        let mut attributes = dict.to_attributes(vm, |vm| {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.runtime_warning,
+                format!("non-string key in the __dict__ of class {name}"),
+                1,
+                vm,
+            )
+        })?;
         attributes.shift_remove(identifier!(vm, __qualname__));
 
         // Check __doc__ for surrogates - raises UnicodeEncodeError during type creation

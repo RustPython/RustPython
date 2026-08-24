@@ -547,7 +547,12 @@ pub(crate) mod _thread {
         let args = FuncArgs::new(
             args.to_vec(),
             kwargs
-                .map_or_else(Default::default, |k| k.to_attributes(vm))
+                .map_or_else(
+                    || Ok(Default::default()),
+                    |k| {
+                        k.to_attributes(vm, |vm| Err(vm.new_type_error("keywords must be strings")))
+                    },
+                )?
                 .into_iter()
                 .map(|(k, v)| (k.as_str().to_owned(), v))
                 .collect::<KwArgs>(),
