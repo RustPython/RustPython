@@ -4,7 +4,7 @@ extern crate alloc;
 
 use alloc::fmt;
 use alloc::sync::Arc;
-use core::mem::ManuallyDrop;
+use core::mem::{self, ManuallyDrop};
 use core::sync::atomic::{AtomicU64, Ordering};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
@@ -12,6 +12,16 @@ use cranelift_module::{FuncId, Linkage, Module, ModuleError};
 use instructions::FunctionCompiler;
 use rustpython_compiler_core::bytecode;
 use std::sync::{Mutex, PoisonError};
+
+/// Arguments cross into compiled code through a flat buffer of 64-bit slots:
+/// an int sign-extended, a bool as 0 or 1, a float as its bits. The buffer is
+/// a fixed-size array so that a call allocates nothing, which caps how many
+/// parameters a function can have and still be compiled.
+const MAX_ARGS: usize = 16;
+const SLOT_SIZE: usize = size_of::<u64>();
+
+/// The entry point of a compiled function: `(args, ret)`.
+type JitEntry = unsafe extern "C" fn(*const u64, *mut u64);
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -139,9 +149,100 @@ impl Jit {
         builder.seal_all_blocks();
         builder.finalize();
 
+        // Compiling the body can widen the signature: a return type that was
+        // not annotated is only learned from the return statements.
+        let body_signature = self.ctx.func.signature.clone();
+        self.module.define_function(id, &mut self.ctx)?;
+        self.module.clear_context(&mut self.ctx);
+
+        let entry = self.build_entry(id, body_signature, &sig, unique)?;
+
+        Ok((entry, sig))
+    }
+
+    /// Build the entry point callers go through: it takes a flat buffer of
+    /// 64-bit slots, unpacks them into the parameters the compiled body
+    /// actually takes, and writes the result back into the caller's slot.
+    ///
+    /// This is what makes the call a plain indirect call. Handing the same
+    /// arguments to a foreign-function library instead means describing the
+    /// signature and boxing every argument on every call.
+    fn build_entry(
+        &mut self,
+        target: FuncId,
+        target_signature: Signature,
+        sig: &JitSig,
+        unique: u64,
+    ) -> Result<FuncId, JitCompileError> {
+        let ptr_type = self.module.target_config().pointer_type();
+        // (args, ret)
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+
+        let id = self.module.declare_function(
+            &format!("jit_entry_{unique}"),
+            Linkage::Export,
+            &self.ctx.func.signature,
+        )?;
+
+        let callee = self.module.declare_func_in_func(target, &mut self.ctx.func);
+        // The import carries the signature the target was declared with, which
+        // is the one from before the body widened it.
+        let callee_signature = self.ctx.func.import_signature(target_signature);
+        self.ctx.func.dfg.ext_funcs[callee].signature = callee_signature;
+
+        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+        let block = builder.create_block();
+        builder.append_block_params_for_function_params(block);
+        builder.switch_to_block(block);
+        let args_ptr = builder.block_params(block)[0];
+        let ret_ptr = builder.block_params(block)[1];
+
+        let mut call_args = Vec::with_capacity(sig.args.len());
+        for (i, ty) in sig.args.iter().enumerate() {
+            let offset = i32::try_from(i * SLOT_SIZE).map_err(|_| JitCompileError::NotSupported)?;
+            let mut load = |ty| {
+                builder
+                    .ins()
+                    .load(ty, MemFlags::trusted(), args_ptr, offset)
+            };
+            call_args.push(match ty {
+                JitType::Int => load(types::I64),
+                JitType::Float => load(types::F64),
+                // A slot holds 0 or 1, so the low byte carries the whole value
+                // whichever end of the slot it sits at.
+                JitType::Bool => {
+                    let slot = load(types::I64);
+                    builder.ins().ireduce(types::I8, slot)
+                }
+                JitType::None => return Err(JitCompileError::NotSupported),
+            });
+        }
+
+        let call = builder.ins().call(callee, &call_args);
+        let returned = match sig.ret.as_ref().filter(|ty| ty.to_cranelift().is_some()) {
+            Some(ty) => match *builder.inst_results(call) {
+                [result] => Some((ty, result)),
+                _ => return Err(JitCompileError::NotSupported),
+            },
+            None => None,
+        };
+        if let Some((ty, result)) = returned {
+            let result = if *ty == JitType::Bool {
+                builder.ins().uextend(types::I64, result)
+            } else {
+                result
+            };
+            builder.ins().store(MemFlags::trusted(), result, ret_ptr, 0);
+        }
+        builder.ins().return_(&[]);
+
+        builder.seal_all_blocks();
+        builder.finalize();
+
         self.module.define_function(id, &mut self.ctx)?;
 
-        Ok((id, sig))
+        Ok(id)
     }
 }
 
@@ -169,6 +270,9 @@ impl JitEngine {
         ret: Option<JitType>,
         safety: Safety,
     ) -> Result<CompiledCode, JitCompileError> {
+        if args.len() > MAX_ARGS {
+            return Err(JitCompileError::NotSupported);
+        }
         // Symbol names must be unique within the module, and `obj_name` is not:
         // any two `def f` in different scopes collide.
         let unique = self.next_id.fetch_add(1, Ordering::Relaxed);
@@ -177,13 +281,12 @@ impl JitEngine {
         jit.module.finalize_definitions()?;
         let code = jit.module.get_finalized_function(id);
         drop(jit);
-        // Built once: describing the signature to libffi allocates, and doing
-        // it per call costs more than the compiled body saves.
-        let cif = sig.to_cif();
+        // SAFETY: `build_entry` defined this function with exactly this
+        // signature, and the engine keeps its code alive.
+        let entry = unsafe { mem::transmute::<*const u8, JitEntry>(code) };
         Ok(CompiledCode {
             sig,
-            cif,
-            code,
+            entry,
             _engine: self.clone(),
         })
     }
@@ -247,8 +350,7 @@ pub fn compile<C: bytecode::Constant>(
 
 pub struct CompiledCode {
     sig: JitSig,
-    cif: libffi::middle::Cif,
-    code: *const u8,
+    entry: JitEntry,
     /// Keeps the code memory alive; never read.
     _engine: Arc<JitEngine>,
 }
@@ -264,27 +366,24 @@ impl CompiledCode {
             return Err(JitArgumentError::WrongNumberOfArguments);
         }
 
-        let cif_args = self
-            .sig
-            .args
-            .iter()
-            .zip(args.iter())
-            .map(|(ty, val)| type_check(ty, val).map(|_| val))
-            .map(|v| v.map(AbiValue::to_libffi_arg))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(unsafe { self.invoke_raw(&cif_args) })
+        let mut slots = [0; MAX_ARGS];
+        for ((slot, ty), value) in slots.iter_mut().zip(&self.sig.args).zip(args) {
+            type_check(ty, value)?;
+            *slot = value.to_slot();
+        }
+        Ok(unsafe { self.invoke_raw(&slots) })
     }
 
-    unsafe fn invoke_raw(&self, cif_args: &[libffi::middle::Arg<'_>]) -> Option<AbiValue> {
-        unsafe {
-            let value = self.cif.call::<UnTypedAbiValue>(
-                libffi::middle::CodePtr::from_ptr(self.code as *const _),
-                cif_args,
-            );
-            match self.sig.ret.as_ref() {
-                Some(JitType::None) | None => None,
-                Some(ty) => Some(value.to_typed(ty)),
-            }
+    /// # Safety
+    /// `slots` must hold a value of the right type for each parameter.
+    unsafe fn invoke_raw(&self, slots: &[u64; MAX_ARGS]) -> Option<AbiValue> {
+        let mut ret = 0;
+        // SAFETY: the entry point reads one slot per parameter and writes the
+        // return slot only when the signature says it returns something.
+        unsafe { (self.entry)(slots.as_ptr(), &raw mut ret) }
+        match self.sig.ret.as_ref() {
+            Some(JitType::None) | None => None,
+            Some(ty) => Some(AbiValue::from_slot(ty, ret)),
         }
     }
 }
@@ -292,16 +391,6 @@ impl CompiledCode {
 struct JitSig {
     args: Vec<JitType>,
     ret: Option<JitType>,
-}
-
-impl JitSig {
-    fn to_cif(&self) -> libffi::middle::Cif {
-        let ret = match self.ret {
-            Some(ref ty) => ty.to_libffi(),
-            None => libffi::middle::Type::void(),
-        };
-        libffi::middle::Cif::new(self.args.iter().map(JitType::to_libffi), ret)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -322,15 +411,6 @@ impl JitType {
             Self::None => None,
         }
     }
-
-    fn to_libffi(&self) -> libffi::middle::Type {
-        match self {
-            Self::Int => libffi::middle::Type::i64(),
-            Self::Float => libffi::middle::Type::f64(),
-            Self::Bool => libffi::middle::Type::u8(),
-            Self::None => libffi::middle::Type::void(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -342,11 +422,21 @@ pub enum AbiValue {
 }
 
 impl AbiValue {
-    fn to_libffi_arg(&self) -> libffi::middle::Arg<'_> {
-        match self {
-            Self::Int(i) => libffi::middle::Arg::new(i),
-            Self::Float(f) => libffi::middle::Arg::new(f),
-            Self::Bool(b) => libffi::middle::Arg::new(b),
+    /// Pack into the 64-bit slot the entry point reads.
+    fn to_slot(&self) -> u64 {
+        match *self {
+            Self::Int(i) => i as u64,
+            Self::Float(f) => f.to_bits(),
+            Self::Bool(b) => b.into(),
+        }
+    }
+
+    fn from_slot(ty: &JitType, slot: u64) -> Self {
+        match ty {
+            JitType::Int => Self::Int(slot as i64),
+            JitType::Float => Self::Float(f64::from_bits(slot)),
+            JitType::Bool => Self::Bool(slot != 0),
+            JitType::None => unreachable!("None has no slot"),
         }
     }
 }
@@ -411,32 +501,6 @@ fn type_check(ty: &JitType, val: &AbiValue) -> Result<(), JitArgumentError> {
     }
 }
 
-#[derive(Copy, Clone)]
-union UnTypedAbiValue {
-    float: f64,
-    int: i64,
-    boolean: u8,
-    _void: (),
-}
-
-impl UnTypedAbiValue {
-    unsafe fn to_typed(self, ty: &JitType) -> AbiValue {
-        unsafe {
-            match ty {
-                JitType::Int => AbiValue::Int(self.int),
-                JitType::Float => AbiValue::Float(self.float),
-                JitType::Bool => AbiValue::Bool(self.boolean != 0),
-                JitType::None => unreachable!("None has no ABI value"),
-            }
-        }
-    }
-}
-
-// we don't actually ever touch CompiledCode til we drop it, it should be safe.
-// TODO: confirm with wasmtime ppl that it's not unsound?
-unsafe impl Send for CompiledCode {}
-unsafe impl Sync for CompiledCode {}
-
 impl fmt::Debug for CompiledCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[compiled code]")
@@ -444,7 +508,10 @@ impl fmt::Debug for CompiledCode {
 }
 
 pub struct ArgsBuilder<'a> {
-    values: Vec<Option<AbiValue>>,
+    slots: [u64; MAX_ARGS],
+    /// One bit per filled slot, so a caller can tell an argument it has
+    /// already placed from one still to come.
+    filled: u32,
     code: &'a CompiledCode,
 }
 
@@ -452,44 +519,44 @@ impl<'a> ArgsBuilder<'a> {
     #[must_use]
     fn new(code: &'a CompiledCode) -> Self {
         Self {
-            values: vec![None; code.sig.args.len()],
+            slots: [0; MAX_ARGS],
+            filled: 0,
             code,
         }
     }
 
     pub fn set(&mut self, idx: usize, value: AbiValue) -> Result<(), JitArgumentError> {
-        type_check(&self.code.sig.args[idx], &value).map(|_| {
-            self.values[idx] = Some(value);
+        type_check(&self.code.sig.args[idx], &value).map(|()| {
+            self.slots[idx] = value.to_slot();
+            self.filled |= 1 << idx;
         })
     }
 
     #[must_use]
     pub fn is_set(&self, idx: usize) -> bool {
-        self.values[idx].is_some()
+        self.filled & (1 << idx) != 0
     }
 
     #[must_use]
     pub fn into_args(self) -> Option<Args<'a>> {
-        // Ensure all values are set
-        if self.values.iter().any(|v| v.is_none()) {
-            return None;
-        }
-        Some(Args {
-            values: self.values.into_iter().map(|v| v.unwrap()).collect(),
+        let wanted = (1 << self.code.sig.args.len()) - 1;
+        (self.filled == wanted).then_some(Args {
+            slots: self.slots,
             code: self.code,
         })
     }
 }
 
 pub struct Args<'a> {
-    values: Vec<AbiValue>,
+    slots: [u64; MAX_ARGS],
     code: &'a CompiledCode,
 }
 
 impl Args<'_> {
     #[must_use]
     pub fn invoke(&self) -> Option<AbiValue> {
-        let cif_args: Vec<_> = self.values.iter().map(AbiValue::to_libffi_arg).collect();
-        unsafe { self.code.invoke_raw(&cif_args) }
+        // SAFETY: `into_args` only hands out `Args` once every parameter has a
+        // slot, and `set` type-checked each one against the signature.
+        unsafe { self.code.invoke_raw(&self.slots) }
     }
 }
