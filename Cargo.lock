@@ -3457,7 +3457,6 @@ dependencies = [
  "cranelift",
  "cranelift-jit",
  "cranelift-module",
- "libffi",
  "num-traits",
  "rustpython-compiler-core",
  "rustpython-derive",
