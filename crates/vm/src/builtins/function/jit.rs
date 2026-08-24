@@ -31,9 +31,9 @@ pub(super) enum ArgsError {
 impl ToPyObject for AbiValue {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            AbiValue::Int(i) => i.to_pyobject(vm),
-            AbiValue::Float(f) => f.to_pyobject(vm),
-            AbiValue::Bool(b) => b.to_pyobject(vm),
+            Self::Int(i) => i.to_pyobject(vm),
+            Self::Float(f) => f.to_pyobject(vm),
+            Self::Bool(b) => b.to_pyobject(vm),
             _ => unimplemented!(),
         }
     }
@@ -203,7 +203,10 @@ pub(crate) fn get_jit_args<'a>(
         }
     }
 
-    let (defaults, kwdefaults) = func.defaults_and_kwdefaults.lock().clone();
+    // Held rather than cloned: filling a slot from a default reads the object
+    // but never runs Python code, so nothing can reach the lock again.
+    let defaults_and_kwdefaults = func.defaults_and_kwdefaults.lock();
+    let (defaults, kwdefaults) = &*defaults_and_kwdefaults;
 
     // fill in positional defaults
     if let Some(defaults) = defaults {
