@@ -177,8 +177,12 @@ impl JitEngine {
         jit.module.finalize_definitions()?;
         let code = jit.module.get_finalized_function(id);
         drop(jit);
+        // Built once: describing the signature to libffi allocates, and doing
+        // it per call costs more than the compiled body saves.
+        let cif = sig.to_cif();
         Ok(CompiledCode {
             sig,
+            cif,
             code,
             _engine: self.clone(),
         })
@@ -243,6 +247,7 @@ pub fn compile<C: bytecode::Constant>(
 
 pub struct CompiledCode {
     sig: JitSig,
+    cif: libffi::middle::Cif,
     code: *const u8,
     /// Keeps the code memory alive; never read.
     _engine: Arc<JitEngine>,
@@ -272,8 +277,7 @@ impl CompiledCode {
 
     unsafe fn invoke_raw(&self, cif_args: &[libffi::middle::Arg<'_>]) -> Option<AbiValue> {
         unsafe {
-            let cif = self.sig.to_cif();
-            let value = cif.call::<UnTypedAbiValue>(
+            let value = self.cif.call::<UnTypedAbiValue>(
                 libffi::middle::CodePtr::from_ptr(self.code as *const _),
                 cif_args,
             );
