@@ -809,22 +809,22 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let oparg = namei.get(arg);
                 let name = &bytecode.names[(oparg >> 1) as usize];
 
-                // The only global that resolves here is this function itself,
-                // and it resolves by name. The interpreter reads the globals
-                // dict on every call, so rebinding the name - a decorator
-                // applied later, a test patching the module - makes the two
-                // disagree about what gets called.
-                if self.safety == Safety::Strict {
-                    Err(JitCompileError::NotSupported)
-                } else if name.as_ref() != bytecode.obj_name.as_ref() {
-                    Err(JitCompileError::NotSupported)
-                } else {
-                    self.stack.push(JitValue::FuncRef(func_ref));
-                    if (oparg & 1) != 0 {
-                        self.stack.push(JitValue::Null);
-                    }
-                    Ok(())
+                // The only global with a lowering is this function itself,
+                // matched by name. Strict turns even that down: the interpreter
+                // reads the globals dict on every call, so rebinding the name -
+                // a decorator applied later, a test patching the module - makes
+                // the two disagree about what gets called.
+                let is_self_call = self.safety == Safety::Permissive
+                    && name.as_ref() == bytecode.obj_name.as_ref();
+                if !is_self_call {
+                    return Err(JitCompileError::NotSupported);
                 }
+
+                self.stack.push(JitValue::FuncRef(func_ref));
+                if (oparg & 1) != 0 {
+                    self.stack.push(JitValue::Null);
+                }
+                Ok(())
             }
             Instruction::Nop | Instruction::NotTaken => Ok(()),
             Instruction::PopJumpIfFalse { .. } => {
