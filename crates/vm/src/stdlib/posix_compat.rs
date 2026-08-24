@@ -9,17 +9,34 @@ pub(crate) mod module {
     use crate::{
         Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyStrRef,
-        convert::IntoPyException,
         ospath::OsPath,
         stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
     };
-    use std::fs;
+
+    #[cfg(not(target_os = "wasi"))]
+    use {crate::convert::IntoPyException, std::fs};
+
+    #[cfg(target_os = "wasi")]
+    use crate::exceptions::OSErrorBuilder;
 
     #[pyfunction]
     pub(super) fn access(_path: PyStrRef, _mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
         os_unimpl("os.access", vm)
     }
 
+    #[cfg(target_os = "wasi")]
+    #[pyfunction]
+    #[pyfunction(name = "unlink")]
+    fn remove(
+        path: OsPath,
+        dir_fd: DirFd<'_, { _os::UNLINK_DIR_FD as usize }>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        rustpython_host_env::posix::unlinkat(dir_fd.get_opt(), &path)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+    }
+
+    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     #[pyfunction(name = "unlink")]
     fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {

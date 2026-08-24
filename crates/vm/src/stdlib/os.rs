@@ -229,7 +229,7 @@ pub(super) mod _os {
     const STAT_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const UTIME_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
-    pub(crate) const UNLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    pub(crate) const UNLINK_DIR_FD: bool = cfg!(not(windows));
     const RENAME_DIR_FD: bool = cfg!(any(unix, target_os = "wasi"));
     const RMDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const SCANDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
