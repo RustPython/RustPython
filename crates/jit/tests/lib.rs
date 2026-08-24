@@ -9,3 +9,4 @@ mod int_tests;
 mod misc_tests;
 mod none_tests;
 mod safety_tests;
+mod support_tests;

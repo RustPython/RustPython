@@ -76,6 +76,54 @@ pub(crate) struct FunctionCompiler<'a, 'b> {
     pub(crate) sig: JitSig,
 }
 
+/// Whether [`FunctionCompiler::add_instruction`] has a lowering for this opcode.
+///
+/// This mirrors the match in that method so a caller can rule a code object out
+/// before any compilation state is set up. It only has to be right in one
+/// direction: claiming support for something the match rejects merely wastes a
+/// compile attempt, and denying something it handles only costs an
+/// optimization. Neither can produce wrong code.
+pub(crate) const fn instruction_is_supported(instruction: Instruction) -> bool {
+    matches!(
+        instruction,
+        Instruction::BinaryOp { .. }
+            | Instruction::BuildTuple { .. }
+            | Instruction::Cache
+            | Instruction::Call { .. }
+            | Instruction::CallIntrinsic1 { .. }
+            | Instruction::CompareOp { .. }
+            | Instruction::CopyFreeVars { .. }
+            | Instruction::ExtendedArg
+            | Instruction::JumpBackward { .. }
+            | Instruction::JumpBackwardNoInterrupt { .. }
+            | Instruction::JumpForward { .. }
+            | Instruction::LoadConst { .. }
+            | Instruction::LoadFast { .. }
+            | Instruction::LoadFastBorrow { .. }
+            | Instruction::LoadFastBorrowLoadFastBorrow { .. }
+            | Instruction::LoadFastLoadFast { .. }
+            | Instruction::LoadGlobal { .. }
+            | Instruction::LoadSmallInt { .. }
+            | Instruction::MakeCell { .. }
+            | Instruction::Nop
+            | Instruction::NotTaken
+            | Instruction::PopJumpIfFalse { .. }
+            | Instruction::PopJumpIfTrue { .. }
+            | Instruction::PopTop
+            | Instruction::PushNull
+            | Instruction::Resume { .. }
+            | Instruction::ReturnValue
+            | Instruction::StoreFast { .. }
+            | Instruction::StoreFastLoadFast { .. }
+            | Instruction::StoreFastStoreFast { .. }
+            | Instruction::Swap { .. }
+            | Instruction::ToBool
+            | Instruction::UnaryNegative
+            | Instruction::UnaryNot
+            | Instruction::UnpackSequence { .. }
+    )
+}
+
 /// Whether the machine code emitted for `op` answers the way the interpreter
 /// does for every pair of values of these types.
 ///
