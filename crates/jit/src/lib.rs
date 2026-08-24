@@ -3,12 +3,15 @@ mod instructions;
 extern crate alloc;
 
 use alloc::fmt;
+use alloc::sync::Arc;
 use core::mem::ManuallyDrop;
+use core::sync::atomic::{AtomicU64, Ordering};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleError};
 use instructions::FunctionCompiler;
 use rustpython_compiler_core::bytecode;
+use std::sync::{Mutex, PoisonError};
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -39,7 +42,7 @@ pub enum JitArgumentError {
 struct Jit {
     builder_context: FunctionBuilderContext,
     ctx: codegen::Context,
-    module: JITModule,
+    module: ManuallyDrop<JITModule>,
 }
 
 impl Jit {
@@ -50,15 +53,37 @@ impl Jit {
         Self {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
-            module,
+            module: ManuallyDrop::new(module),
         }
     }
 
+    /// Build one function into the module. The context is reset even when
+    /// compilation fails, so a rejected function leaves nothing behind for the
+    /// next one to trip over.
     fn build_function<C: bytecode::Constant>(
         &mut self,
         bytecode: &bytecode::CodeObject<C>,
         args: &[JitType],
         ret: Option<JitType>,
+        unique: u64,
+    ) -> Result<(FuncId, JitSig), JitCompileError> {
+        let result = self.build_function_inner(bytecode, args, ret, unique);
+        self.module.clear_context(&mut self.ctx);
+        if result.is_err() {
+            // Only `FunctionBuilder::finalize` resets the builder context, and
+            // a rejected function never reaches it. Leaving it dirty makes the
+            // next `FunctionBuilder::new` panic.
+            self.builder_context = FunctionBuilderContext::new();
+        }
+        result
+    }
+
+    fn build_function_inner<C: bytecode::Constant>(
+        &mut self,
+        bytecode: &bytecode::CodeObject<C>,
+        args: &[JitType],
+        ret: Option<JitType>,
+        unique: u64,
     ) -> Result<(FuncId, JitSig), JitCompileError> {
         for arg in args {
             let arg = arg.to_cranelift().ok_or(JitCompileError::NotSupported)?;
@@ -70,7 +95,7 @@ impl Jit {
         }
 
         let id = self.module.declare_function(
-            &format!("jit_{}", bytecode.obj_name.as_ref()),
+            &format!("jit_{}_{unique}", bytecode.obj_name.as_ref()),
             Linkage::Export,
             &self.ctx.func.signature,
         )?;
@@ -101,38 +126,80 @@ impl Jit {
 
         self.module.define_function(id, &mut self.ctx)?;
 
-        self.module.clear_context(&mut self.ctx);
-
         Ok((id, sig))
     }
 }
+
+/// Owns the code memory of every function compiled through it. A
+/// [`CompiledCode`] keeps its engine alive, so machine code is never freed
+/// while something can still call it.
+pub struct JitEngine {
+    jit: Mutex<Jit>,
+    next_id: AtomicU64,
+}
+
+impl JitEngine {
+    #[must_use]
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            jit: Mutex::new(Jit::new()),
+            next_id: AtomicU64::new(0),
+        })
+    }
+
+    pub fn compile<C: bytecode::Constant>(
+        self: &Arc<Self>,
+        bytecode: &bytecode::CodeObject<C>,
+        args: &[JitType],
+        ret: Option<JitType>,
+    ) -> Result<CompiledCode, JitCompileError> {
+        // Symbol names must be unique within the module, and `obj_name` is not:
+        // any two `def f` in different scopes collide.
+        let unique = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let mut jit = self.jit.lock().unwrap_or_else(PoisonError::into_inner);
+        let (id, sig) = jit.build_function(bytecode, args, ret, unique)?;
+        jit.module.finalize_definitions()?;
+        let code = jit.module.get_finalized_function(id);
+        drop(jit);
+        Ok(CompiledCode {
+            sig,
+            code,
+            _engine: self.clone(),
+        })
+    }
+}
+
+impl Drop for JitEngine {
+    fn drop(&mut self) {
+        let jit = self.jit.get_mut().unwrap_or_else(PoisonError::into_inner);
+        // SAFETY: every CompiledCode holds an Arc to this engine, so no
+        // compiled function is reachable any more once we get here.
+        unsafe { ManuallyDrop::take(&mut jit.module).free_memory() }
+    }
+}
+
+// The module is only ever touched under the mutex, and the code pointers it
+// hands out stay valid for as long as the engine lives.
+unsafe impl Send for JitEngine {}
+unsafe impl Sync for JitEngine {}
 
 pub fn compile<C: bytecode::Constant>(
     bytecode: &bytecode::CodeObject<C>,
     args: &[JitType],
     ret: Option<JitType>,
 ) -> Result<CompiledCode, JitCompileError> {
-    let mut jit = Jit::new();
-
-    let (id, sig) = jit.build_function(bytecode, args, ret)?;
-
-    jit.module.finalize_definitions()?;
-
-    let code = jit.module.get_finalized_function(id);
-    Ok(CompiledCode {
-        sig,
-        code,
-        module: ManuallyDrop::new(jit.module),
-    })
+    JitEngine::new().compile(bytecode, args, ret)
 }
 
 pub struct CompiledCode {
     sig: JitSig,
     code: *const u8,
-    module: ManuallyDrop<JITModule>,
+    /// Keeps the code memory alive; never read.
+    _engine: Arc<JitEngine>,
 }
 
 impl CompiledCode {
+    #[must_use]
     pub fn args_builder(&self) -> ArgsBuilder<'_> {
         ArgsBuilder::new(self)
     }
@@ -315,13 +382,6 @@ impl UnTypedAbiValue {
 // TODO: confirm with wasmtime ppl that it's not unsound?
 unsafe impl Send for CompiledCode {}
 unsafe impl Sync for CompiledCode {}
-
-impl Drop for CompiledCode {
-    fn drop(&mut self) {
-        // SAFETY: The only pointer that this memory will also be dropped now
-        unsafe { ManuallyDrop::take(&mut self.module).free_memory() }
-    }
-}
 
 impl fmt::Debug for CompiledCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
