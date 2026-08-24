@@ -603,7 +603,7 @@ impl Py<PyFunction> {
         {
             let mut state = self.jit_state.load(Relaxed);
             if state == aot::UNTRIED && vm.state.config.settings.aot {
-                state = aot::compile_on_first_call(self, vm);
+                state = aot::compile_on_first_call(self, vm)?;
             }
 
             if matches!(state, aot::COMPILED_AUTO | aot::COMPILED_MANUAL) {
