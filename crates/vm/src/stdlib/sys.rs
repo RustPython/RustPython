@@ -9,25 +9,50 @@ pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, modul
 
 #[pymodule(name = "_jit")]
 mod sys_jit {
+    use crate::VirtualMachine;
+
     /// Return True if the current Python executable supports JIT compilation,
     /// and False otherwise.
     #[pyfunction]
     const fn is_available() -> bool {
-        false // RustPython has no JIT
+        cfg!(feature = "jit")
     }
 
     /// Return True if JIT compilation is enabled for the current Python process,
     /// and False otherwise.
     #[pyfunction]
-    const fn is_enabled() -> bool {
-        false // RustPython has no JIT
+    fn is_enabled(vm: &VirtualMachine) -> bool {
+        vm.state.config.settings.aot
     }
 
     /// Return True if the topmost Python frame is currently executing JIT code,
     /// and False otherwise.
     #[pyfunction]
     const fn is_active() -> bool {
-        false // RustPython has no JIT
+        // Compiled code runs without a Python frame and cannot call back into
+        // the interpreter, so no Python code can be running while it is.
+        false
+    }
+
+    /// Return `(compiled, rejected, deoptimized)` for the functions the
+    /// automatic compiler has looked at. RustPython dialect.
+    #[pyfunction]
+    fn _stats(vm: &VirtualMachine) -> (u64, u64, u64) {
+        #[cfg(feature = "jit")]
+        {
+            use core::sync::atomic::Ordering::Relaxed;
+            let stats = &vm.state.aot_stats;
+            (
+                stats.compiled.load(Relaxed),
+                stats.rejected.load(Relaxed),
+                stats.deoptimized.load(Relaxed),
+            )
+        }
+        #[cfg(not(feature = "jit"))]
+        {
+            let _ = vm;
+            (0, 0, 0)
+        }
     }
 }
 

@@ -162,6 +162,10 @@ where
     // Create PyGlobalState (≈ PyInterpreterState)
     let global_state = PyRc::new(PyGlobalState {
         gc: crate::gc_state::GcInterpreterState::new(&ctx),
+        #[cfg(feature = "jit")]
+        jit_engine: rustpython_jit::JitEngine::new(),
+        #[cfg(feature = "jit")]
+        aot_stats: Default::default(),
         interpreter_id,
         runtime_root_id,
         whence,

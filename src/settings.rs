@@ -306,6 +306,20 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
                     }
                 };
             }
+            "aot" => {
+                settings.aot = match value {
+                    None | Some("1") => true,
+                    Some("0") => false,
+                    _ => {
+                        error!(
+                            "Fatal Python error: config_init_aot: \
+                             -X aot=n: n is missing or invalid\n\
+                             Python runtime state: preinitialized"
+                        );
+                        std::process::exit(1);
+                    }
+                };
+            }
             "no_sig_int" => settings.install_signal_handlers = false,
             "no_debug_ranges" => settings.code_debug_ranges = false,
             "int_max_str_digits" => {
@@ -354,6 +368,20 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     settings.faulthandler = settings.faulthandler || env_bool("PYTHONFAULTHANDLER");
     if env_bool("PYTHONNODEBUGRANGES") {
         settings.code_debug_ranges = false;
+    }
+    if let Some(val) = get_env("RUSTPYTHON_AOT") {
+        settings.aot = match val.to_str() {
+            Some("1") => true,
+            Some("0") => false,
+            _ => {
+                error!(
+                    "Fatal Python error: config_init_aot: \
+                     RUSTPYTHON_AOT=N: N is missing or invalid\n\
+                     Python runtime state: preinitialized"
+                );
+                std::process::exit(1);
+            }
+        };
     }
     if let Some(val) = get_env("PYTHON_THREAD_INHERIT_CONTEXT") {
         settings.thread_inherit_context = match val.to_str() {
