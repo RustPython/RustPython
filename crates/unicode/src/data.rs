@@ -19,6 +19,7 @@ use icu_properties::props::{
 };
 use rustpython_wtf8::CodePoint;
 
+include!(concat!(env!("OUT_DIR"), "/generated/membership_3_2.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/unicode_3_2.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/unicode_latest.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/unicode_num_type.rs"));
@@ -70,7 +71,7 @@ impl DecompositionType {
     }
 }
 
-fn lookup_property<T: Copy>(table: &[(u32, u32, T)], ch: char) -> Option<T> {
+fn lookup_table<T: Copy>(table: &[(u32, u32, T)], ch: char) -> Option<T> {
     let ch = ch as u32;
     table
         .binary_search_by(|&(start, end, _)| {
@@ -86,25 +87,34 @@ fn lookup_property<T: Copy>(table: &[(u32, u32, T)], ch: char) -> Option<T> {
         .map(|i| table[i].2)
 }
 
-fn lookup_numeric_val(ch: char, modern: bool) -> Option<f64> {
+fn membership_3_2(ch: u32) -> bool {
+    MEMBERSHIP_3_2
+        .binary_search_by(|&(start, end)| {
+            if ch > end {
+                Ordering::Less
+            } else if ch < start {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            }
+        })
+        .is_ok()
+}
+
+fn lookup_property_diff<T: Copy>(
+    table: &[(u32, u32, T)],
+    diff: &[(u32, u32, T)],
+    ch: char,
+    modern: bool,
+) -> Option<T> {
     if modern {
-        lookup_property(NUMERIC_VALUES, ch)
+        lookup_table(table, ch)
     } else {
         cold_path();
-        lookup_property(NUMERIC_VALUES_DIFF, ch).or_else(|| {
-            NUMERIC_VAL_EXISTS_32
-                .binary_search_by(|&(start, end)| {
-                    let ch = ch as u32;
-                    if ch > end {
-                        Ordering::Less
-                    } else if ch < start {
-                        Ordering::Greater
-                    } else {
-                        Ordering::Equal
-                    }
-                })
-                .ok()
-                .and_then(|_| lookup_property(NUMERIC_VALUES, ch))
+        lookup_table(diff, ch).or_else(|| {
+            membership_3_2(ch as u32)
+                .then(|| lookup_table(table, ch))
+                .flatten()
         })
     }
 }
@@ -154,7 +164,7 @@ impl Ucd {
             Some(GeneralCategory::for_char(c))
         } else {
             cold_path();
-            lookup_property(GENERAL_CATEGORY, c)
+            lookup_table(GENERAL_CATEGORY, c)
         }
         .unwrap_or(GeneralCategory::Unassigned)
         .short_name()
@@ -168,11 +178,13 @@ impl Ucd {
                     Some(BidiClass::for_char(c))
                 } else {
                     cold_path();
-                    lookup_property(BIDI_CLASS, c)
+                    lookup_table(BIDI_CLASS_DIFF, c)
+                        .or_else(|| membership_3_2(c as u32).then(|| BidiClass::for_char(c)))
                 }
             })
-            .unwrap_or(BidiClass::LeftToRight)
-            .short_name()
+            .as_ref()
+            .map(BidiClass::short_name)
+            .unwrap_or_default()
     }
 
     #[must_use]
@@ -192,7 +204,7 @@ impl Ucd {
                     //
                     // Currently, this implementation is incomplete because I can't figure
                     // out what CPython is doing.
-                    lookup_property(EAST_ASIAN_WIDTH, c)
+                    lookup_table(EAST_ASIAN_WIDTH, c)
                 }
             })
             .unwrap_or(EastAsianWidth::Neutral)
@@ -230,7 +242,7 @@ impl Ucd {
                     Some(CanonicalCombiningClass::for_char(c))
                 } else {
                     cold_path();
-                    lookup_property(COMBINING_CLASS, c)
+                    lookup_table(COMBINING_CLASS, c)
                 }
             })
             .unwrap_or(CanonicalCombiningClass::NotReordered)
@@ -296,7 +308,7 @@ impl Ucd {
             NumericType::for_char(ch)
         } else {
             cold_path();
-            lookup_property(NUMERIC_TYPE_DIFF, ch).unwrap_or_else(|| NumericType::for_char(ch))
+            lookup_table(NUMERIC_TYPE_DIFF, ch).unwrap_or_else(|| NumericType::for_char(ch))
         };
 
         expected.contains(&actual).then_some(ch)
@@ -307,7 +319,7 @@ impl Ucd {
     pub fn digit(&self, c: CodePoint) -> Option<u64> {
         let expected = [NumericType::Decimal, NumericType::Digit];
         self.numeric_type_matches(c, &expected).and_then(|ch| {
-            let value = lookup_numeric_val(ch, true)?;
+            let value = lookup_property_diff(NUMERIC_VALUES, &[], ch, true)?;
             let int = value as u64;
             (int as f64 == value).then_some(int)
         })
@@ -318,7 +330,7 @@ impl Ucd {
     pub fn decimal(&self, c: CodePoint) -> Option<u64> {
         let expected = [NumericType::Decimal];
         self.numeric_type_matches(c, &expected).and_then(|ch| {
-            let value = lookup_numeric_val(ch, self.modern)?;
+            let value = lookup_property_diff(NUMERIC_VALUES, NUMERIC_VALUES_DIFF, ch, self.modern)?;
             let int = value as u64;
             (int as f64 == value).then_some(int)
         })
@@ -328,8 +340,9 @@ impl Ucd {
     #[must_use]
     pub fn numeric(&self, c: CodePoint) -> Option<f64> {
         let expected = &NumericType::ALL_VALUES[1..];
-        self.numeric_type_matches(c, expected)
-            .and_then(|ch| lookup_numeric_val(ch, self.modern))
+        self.numeric_type_matches(c, expected).and_then(|ch| {
+            lookup_property_diff(NUMERIC_VALUES, NUMERIC_VALUES_DIFF, ch, self.modern)
+        })
     }
 
     #[must_use]
