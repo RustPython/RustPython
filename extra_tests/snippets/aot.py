@@ -100,6 +100,41 @@ def countdown(a: float) -> float:
 assert original_countdown(3.0) == -1.0
 
 
+# Automatic compilation reads annotations, which under PEP 649 means running
+# `__annotate__`. A name that is not defined yet raises there, and that is
+# none of the program's business: it never asked for its annotations.
+def forward(a: NotDefinedYet) -> int:
+    return 1
+
+
+assert forward(1) == 1
+try:
+    forward.__annotations__
+except NameError:
+    pass
+else:
+    raise AssertionError("expected the forward reference to still be unresolved")
+
+
+if sys._jit.is_enabled():
+    # ... but an interrupt that lands in `__annotate__` belongs to the program.
+    class Boom(BaseException):
+        pass
+
+    def explode():
+        raise Boom
+
+    def annotated(a: explode()) -> int:
+        return 1
+
+    try:
+        annotated(1)
+    except Boom:
+        pass
+    else:
+        raise AssertionError("expected a BaseException to reach the caller")
+
+
 if sys._jit.is_enabled():
     compiled, rejected, deoptimized = sys._jit._stats()
     # `scale` is the one function above the automatic path can take.

@@ -7,7 +7,7 @@
 //! anything once it turns out it cannot be compiled.
 
 use super::PyFunction;
-use crate::{Py, VirtualMachine, builtins::PyCode};
+use crate::{AsObject, Py, PyResult, VirtualMachine, builtins::PyCode};
 use core::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use rustpython_jit::{CompiledCode, Safety};
 
@@ -53,38 +53,55 @@ fn code_is_eligible(code: &Py<PyCode>) -> bool {
     }
 }
 
-fn try_compile(func: &Py<PyFunction>, vm: &VirtualMachine) -> Option<CompiledCode> {
+/// Discard the reason a speculative compile failed, unless it is something
+/// the program has to see.
+///
+/// Reading annotations runs `__annotate__`, which is Python code: a forward
+/// reference raises NameError and is none of our business, but a
+/// KeyboardInterrupt or SystemExit that happens to land there belongs to the
+/// program, not to a compile attempt nobody asked for.
+fn ignore_speculative_error<T>(result: PyResult<T>, vm: &VirtualMachine) -> PyResult<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(err) if err.fast_isinstance(vm.ctx.exceptions.exception_type) => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+fn try_compile(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<Option<CompiledCode>> {
     let code: &Py<PyCode> = &func.code;
     if !code_is_eligible(code) {
-        return None;
+        return Ok(None);
     }
 
-    // Reading `__annotations__` runs `__annotate__`, which is Python code and
-    // can raise for a forward reference. Nobody asked for these annotations, so
-    // whatever it raises is discarded along with the compile attempt. The
-    // pre-filter above keeps this off the vast majority of functions.
-    let arg_types = super::jit::get_jit_arg_types(func, vm).ok()?;
-    let ret_type = super::jit::jit_ret_type(func, vm).ok()?;
+    let Some(arg_types) = ignore_speculative_error(super::jit::get_jit_arg_types(func, vm), vm)?
+    else {
+        return Ok(None);
+    };
+    let Some(ret_type) = ignore_speculative_error(super::jit::jit_ret_type(func, vm), vm)? else {
+        return Ok(None);
+    };
 
-    vm.state
+    Ok(vm
+        .state
         .jit_engine
         .compile(&code.code, &arg_types, ret_type, Safety::Strict)
-        .ok()
+        .ok())
 }
 
 /// Give `func` its one automatic compile attempt and return its new state.
-pub(super) fn compile_on_first_call(func: &Py<PyFunction>, vm: &VirtualMachine) -> u8 {
+pub(super) fn compile_on_first_call(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<u8> {
     // Claim the function before running anything that can re-enter it:
     // evaluating `__annotate__` calls Python, which can reach this same
     // function, and a reentrant attempt has to interpret rather than recurse.
     func.jit_state.store(REJECTED, Relaxed);
 
-    let Some(compiled) = try_compile(func, vm) else {
+    let Some(compiled) = try_compile(func, vm)? else {
         vm.state.aot_stats.rejected.fetch_add(1, Relaxed);
-        return REJECTED;
+        return Ok(REJECTED);
     };
     *func.jitted_code.lock() = Some(compiled);
     func.jit_state.store(COMPILED_AUTO, Relaxed);
     vm.state.aot_stats.compiled.fetch_add(1, Relaxed);
-    COMPILED_AUTO
+    Ok(COMPILED_AUTO)
 }
