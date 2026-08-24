@@ -830,7 +830,7 @@ pub struct PyGlobalState {
     pub require_idref: AtomicBool,
     /// Owns the machine code of every function compiled in this interpreter.
     #[cfg(feature = "jit")]
-    pub jit_engine: std::sync::Arc<rustpython_jit::JitEngine>,
+    pub jit_engine: alloc::sync::Arc<rustpython_jit::JitEngine>,
     /// What the AOT path has compiled, rejected, and given back.
     #[cfg(feature = "jit")]
     pub aot_stats: builtins::function::aot::AotStats,
