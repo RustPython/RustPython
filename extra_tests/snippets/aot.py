@@ -2,6 +2,10 @@
 # whether or not functions were compiled behind our back.
 import sys
 
+# `_stats` is a RustPython addition, so this stays False under CPython even on a
+# build whose own JIT is enabled.
+AOT = sys._jit.is_enabled() and hasattr(sys._jit, "_stats")
+
 
 def scale(a: float, b: float) -> float:
     return a * b + a - b
@@ -116,7 +120,7 @@ else:
     raise AssertionError("expected the forward reference to still be unresolved")
 
 
-if sys._jit.is_enabled():
+if AOT:
     # ... but an interrupt that lands in `__annotate__` belongs to the program.
     class Boom(BaseException):
         pass
@@ -135,7 +139,7 @@ if sys._jit.is_enabled():
         raise AssertionError("expected a BaseException to reach the caller")
 
 
-if sys._jit.is_enabled():
+if AOT:
     compiled, rejected, deoptimized = sys._jit._stats()
     # `scale` is the one function above the automatic path can take.
     assert compiled >= 1, (compiled, rejected, deoptimized)
