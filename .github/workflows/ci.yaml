@@ -147,6 +147,16 @@ jobs:
         run: cargo build --locked --no-default-features --features ssl-openssl-vendor
         if: runner.os == 'Linux'
 
+      # Automatic compilation must not change what a program does, so the
+      # snippet has to pass identically with it on and off.
+      - name: Test aot build
+        run: |
+          cargo build --features aot
+          target/debug/rustpython -X aot=1 extra_tests/snippets/aot.py
+          target/debug/rustpython -X aot=0 extra_tests/snippets/aot.py
+          target/debug/rustpython -X aot=1 extra_tests/snippets/jit.py
+        if: runner.os == 'Linux'
+
       # - name: Install tk-dev for tkinter build
       #   run: sudo apt-get update && sudo apt-get install -y tk-dev
       #   if: runner.os == 'Linux'
