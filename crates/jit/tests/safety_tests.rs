@@ -171,6 +171,18 @@ def mixed(a: int, b: float) -> float:
         );
     }
 
+    /// The self-reference resolves by name, but the interpreter re-reads the
+    /// global on every call, so a rebound name would make them disagree.
+    #[test]
+    fn strict_rejects_self_recursion() {
+        assert_strict_rejects!(countdown => r#"
+def countdown(a: float) -> float:
+    if a > 0.0:
+        return countdown(a - 1.0)
+    return a
+"#);
+    }
+
     #[test]
     fn permissive_still_compiles_int_arithmetic() {
         let code = assert_accepted!(Safety::Permissive, add => r#"
