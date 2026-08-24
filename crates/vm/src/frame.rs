@@ -5948,7 +5948,7 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
-                    if func.is_jitted() {
+                    if func.requires_jit_entry(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     let effective_nargs = nargs + u32::from(self_or_null_is_some);
@@ -6013,7 +6013,7 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
-                        if func.is_jitted() {
+                        if func.requires_jit_entry(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         if !func.has_exact_argcount(nargs + 1) {
@@ -6237,7 +6237,7 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
-                    if func.is_jitted() {
+                    if func.requires_jit_entry(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     if self.specialization_call_recursion_guard(vm) {
@@ -6276,7 +6276,7 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
-                        if func.is_jitted() {
+                        if func.requires_jit_entry(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         if self.specialization_call_recursion_guard(vm) {
@@ -6637,7 +6637,7 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
-                    if func.is_jitted() {
+                    if func.requires_jit_entry(vm) {
                         return self.execute_call_kw_vectorcall(nargs, vm);
                     }
                     if self.specialization_call_recursion_guard(vm) {
@@ -6698,7 +6698,7 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
-                        if func.is_jitted() {
+                        if func.requires_jit_entry(vm) {
                             return self.execute_call_kw_vectorcall(nargs, vm);
                         }
                         let nargs_usize = nargs as usize;
@@ -9957,7 +9957,7 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 1);
 
         if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm) {
-            if self.specialization_eval_frame_active(vm) || func.is_jitted() {
+            if self.specialization_eval_frame_active(vm) || func.requires_jit_entry(vm) {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -10020,7 +10020,7 @@ impl ExecutingFrame<'_> {
                 .function_obj()
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
-                if self.specialization_eval_frame_active(vm) || func.is_jitted() {
+                if self.specialization_eval_frame_active(vm) || func.requires_jit_entry(vm) {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -10315,7 +10315,7 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 2);
 
         if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm) {
-            if self.specialization_eval_frame_active(vm) || func.is_jitted() {
+            if self.specialization_eval_frame_active(vm) || func.requires_jit_entry(vm) {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -10366,7 +10366,7 @@ impl ExecutingFrame<'_> {
                 .function_obj()
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
-                if self.specialization_eval_frame_active(vm) || func.is_jitted() {
+                if self.specialization_eval_frame_active(vm) || func.requires_jit_entry(vm) {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,

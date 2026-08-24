@@ -489,6 +489,10 @@ pub struct PyCode {
     /// this code cannot leave the slot unbalanced, so `with_frame` skips the
     /// exc_info save/restore. Computed once by scanning the instruction stream.
     pub has_exc_handling: bool,
+    /// Cached verdict of the AOT pre-filter: 0 not yet run, 1 eligible,
+    /// 2 rejected. Threads that race here compute the same answer.
+    #[cfg(feature = "jit")]
+    pub aot_precheck: core::sync::atomic::AtomicU8,
 }
 
 impl Deref for PyCode {
@@ -620,6 +624,8 @@ impl PyCode {
             monitoring_data: PyMutex::new(None),
             quickened: core::sync::atomic::AtomicBool::new(false),
             has_exc_handling,
+            #[cfg(feature = "jit")]
+            aot_precheck: core::sync::atomic::AtomicU8::new(0),
         }
     }
 

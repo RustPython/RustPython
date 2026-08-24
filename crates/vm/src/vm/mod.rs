@@ -828,6 +828,12 @@ pub struct PyGlobalState {
     pub id_refcount: AtomicI64,
     /// When true, dropping the last ID ref destroys the interpreter.
     pub require_idref: AtomicBool,
+    /// Owns the machine code of every function compiled in this interpreter.
+    #[cfg(feature = "jit")]
+    pub jit_engine: std::sync::Arc<rustpython_jit::JitEngine>,
+    /// What the AOT path has compiled, rejected, and given back.
+    #[cfg(feature = "jit")]
+    pub aot_stats: builtins::function::aot::AotStats,
 }
 
 impl PyGlobalState {

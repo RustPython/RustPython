@@ -1,4 +1,6 @@
 #[cfg(feature = "jit")]
+pub(crate) mod aot;
+#[cfg(feature = "jit")]
 mod jit;
 
 use super::{
@@ -22,10 +24,12 @@ use crate::{
         Representable,
     },
 };
+#[cfg(feature = "jit")]
+use core::sync::atomic::AtomicU8;
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use itertools::Itertools;
 #[cfg(feature = "jit")]
-use rustpython_jit::CompiledCode;
+use rustpython_jit::{CompiledCode, Safety};
 
 fn format_missing_args(
     qualname: impl core::fmt::Display,
@@ -79,6 +83,10 @@ pub struct PyFunction {
     func_version: AtomicU32,
     #[cfg(feature = "jit")]
     jitted_code: PyMutex<Option<CompiledCode>>,
+    /// One of the `aot` state constants. Read on every call, so it is an
+    /// atomic rather than something behind `jitted_code`'s lock.
+    #[cfg(feature = "jit")]
+    jit_state: AtomicU8,
 }
 
 static FUNC_VERSION_COUNTER: AtomicU32 = AtomicU32::new(1);
@@ -218,6 +226,8 @@ impl PyFunction {
             func_version: AtomicU32::new(next_func_version()),
             #[cfg(feature = "jit")]
             jitted_code: PyMutex::new(None),
+            #[cfg(feature = "jit")]
+            jit_state: AtomicU8::new(aot::UNTRIED),
         };
         Ok(func)
     }
@@ -550,18 +560,37 @@ impl Py<PyFunction> {
         self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
     }
 
-    /// Whether this function currently has native JIT code. Adaptive Python
-    /// call specializations must yield to that entry point.
+    /// Whether this call has to go through [`Self::invoke_with_locals`], which
+    /// is where native code is compiled and entered. Adaptive call
+    /// specializations skip that entry point, so they must yield to it - both
+    /// for a function that already has code and for one that has not had its
+    /// single automatic compile attempt yet.
     #[inline]
-    pub(crate) fn is_jitted(&self) -> bool {
+    pub(crate) fn requires_jit_entry(&self, vm: &VirtualMachine) -> bool {
         #[cfg(feature = "jit")]
         {
-            self.jitted_code.lock().is_some()
+            match self.jit_state.load(Relaxed) {
+                aot::COMPILED_AUTO | aot::COMPILED_MANUAL => true,
+                aot::UNTRIED => vm.state.config.settings.aot,
+                _ => false,
+            }
         }
         #[cfg(not(feature = "jit"))]
         {
+            let _ = vm;
             false
         }
+    }
+
+    /// Drop native code and stop trying.
+    ///
+    /// Only for code the AOT path compiled: an explicit `__jit__()` is a
+    /// standing request, and silently undoing it would be a surprise.
+    #[cfg(feature = "jit")]
+    fn deoptimize(&self, vm: &VirtualMachine) {
+        self.jit_state.store(aot::REJECTED, Relaxed);
+        *self.jitted_code.lock() = None;
+        vm.state.aot_stats.deoptimized.fetch_add(1, Relaxed);
     }
 
     pub fn invoke_with_locals(
@@ -571,17 +600,39 @@ impl Py<PyFunction> {
         vm: &VirtualMachine,
     ) -> PyResult {
         #[cfg(feature = "jit")]
-        if let Some(jitted_code) = self.jitted_code.lock().as_ref() {
-            use crate::convert::ToPyObject;
-            match jit::get_jit_args(self, &func_args, jitted_code, vm) {
-                Ok(args) => {
-                    return Ok(args.invoke().to_pyobject(vm));
+        {
+            let mut state = self.jit_state.load(Relaxed);
+            if state == aot::UNTRIED && vm.state.config.settings.aot {
+                state = aot::compile_on_first_call(self, vm);
+            }
+
+            if matches!(state, aot::COMPILED_AUTO | aot::COMPILED_MANUAL) {
+                // Run the call while holding the lock, but decide what to do
+                // about a failure after releasing it: giving the code back takes it.
+                let outcome = self.jitted_code.lock().as_ref().map(|jitted_code| {
+                    jit::get_jit_args(self, &func_args, jitted_code, vm).map(|args| args.invoke())
+                });
+                match outcome {
+                    Some(Ok(ret)) => {
+                        use crate::convert::ToPyObject;
+                        return Ok(ret.to_pyobject(vm));
+                    }
+                    Some(Err(err)) => {
+                        info!(
+                            "jit: function `{}` is falling back to being interpreted because of \
+                            the error: {}",
+                            self.code.obj_name, err
+                        );
+                        if state == aot::COMPILED_AUTO {
+                            // Nobody asked for this one, and a function whose
+                            // arguments do not fit pays twice over: the failed
+                            // conversion on every call, plus the call
+                            // specialization it displaced.
+                            self.deoptimize(vm);
+                        }
+                    }
+                    None => {}
                 }
-                Err(err) => info!(
-                    "jit: function `{}` is falling back to being interpreted because of the \
-                    error: {}",
-                    self.code.obj_name, err
-                ),
             }
         }
 
@@ -934,6 +985,7 @@ impl PyFunction {
         #[cfg(feature = "jit")]
         {
             *jit_guard = None;
+            self.jit_state.store(aot::UNTRIED, Relaxed);
         }
         self.func_version.store(0, Relaxed);
         Ok(())
@@ -1187,19 +1239,33 @@ impl PyFunction {
         Ok(())
     }
 
+    /// Compile this function to native code, raising `JitError` if it cannot
+    /// be done.
+    ///
+    /// Unlike the automatic AOT path this compiles permissively, so integer
+    /// arithmetic that can trap or wrap is accepted. `force` compiles again over
+    /// code a function already has, and retries one the AOT path rejected.
     #[cfg(feature = "jit")]
     #[pymethod]
-    fn __jit__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        let mut jit_guard = zelf.jitted_code.lock();
-        if jit_guard.is_some() {
+    fn __jit__(zelf: PyRef<Self>, args: JitArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let already_compiled = matches!(
+            zelf.jit_state.load(Relaxed),
+            aot::COMPILED_AUTO | aot::COMPILED_MANUAL
+        );
+        if already_compiled && !args.force.unwrap_or(false) {
             return Ok(());
         }
+
         let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
         let ret_type = jit::jit_ret_type(&zelf, vm)?;
         let code: &Py<PyCode> = &zelf.code;
-        let compiled = rustpython_jit::compile(&code.code, &arg_types, ret_type)
+        let compiled = vm
+            .state
+            .jit_engine
+            .compile(&code.code, &arg_types, ret_type, Safety::Permissive)
             .map_err(|err| jit::new_jit_error(err.to_string(), vm))?;
-        *jit_guard = Some(compiled);
+        *zelf.jitted_code.lock() = Some(compiled);
+        zelf.jit_state.store(aot::COMPILED_MANUAL, Relaxed);
         Ok(())
     }
 }
@@ -1237,6 +1303,13 @@ impl Representable for PyFunction {
             zelf.get_id()
         ))
     }
+}
+
+#[cfg(feature = "jit")]
+#[derive(FromArgs)]
+struct JitArgs {
+    #[pyarg(any, optional)]
+    force: OptionalArg<bool>,
 }
 
 #[derive(FromArgs)]
@@ -1637,7 +1710,7 @@ pub(crate) fn vectorcall_function(
     let code: &Py<PyCode> = &zelf.code;
 
     let has_kwargs = kwnames.is_some_and(|kw| !kw.is_empty());
-    if zelf.is_jitted() {
+    if zelf.requires_jit_entry(vm) {
         let func_args = if has_kwargs {
             FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
         } else {
