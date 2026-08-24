@@ -30,6 +30,18 @@ impl From<ModuleError> for JitCompileError {
     }
 }
 
+/// How far the compiled code is allowed to diverge from interpreted semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Safety {
+    /// Reject every operation whose machine code can trap, wrap, or otherwise
+    /// answer differently from the interpreter. Traps have no handler and kill
+    /// the process, and a wrapped integer is a silently wrong result, so code
+    /// that was compiled without being asked for must not reach either.
+    Strict,
+    /// Compile everything the backend supports.
+    Permissive,
+}
+
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum JitArgumentError {
@@ -66,8 +78,9 @@ impl Jit {
         args: &[JitType],
         ret: Option<JitType>,
         unique: u64,
+        safety: Safety,
     ) -> Result<(FuncId, JitSig), JitCompileError> {
-        let result = self.build_function_inner(bytecode, args, ret, unique);
+        let result = self.build_function_inner(bytecode, args, ret, unique, safety);
         self.module.clear_context(&mut self.ctx);
         if result.is_err() {
             // Only `FunctionBuilder::finalize` resets the builder context, and
@@ -84,6 +97,7 @@ impl Jit {
         args: &[JitType],
         ret: Option<JitType>,
         unique: u64,
+        safety: Safety,
     ) -> Result<(FuncId, JitSig), JitCompileError> {
         for arg in args {
             let arg = arg.to_cranelift().ok_or(JitCompileError::NotSupported)?;
@@ -114,6 +128,7 @@ impl Jit {
                 args,
                 ret,
                 entry_block,
+                safety,
             );
 
             compiler.compile(func_ref, bytecode)?;
@@ -152,12 +167,13 @@ impl JitEngine {
         bytecode: &bytecode::CodeObject<C>,
         args: &[JitType],
         ret: Option<JitType>,
+        safety: Safety,
     ) -> Result<CompiledCode, JitCompileError> {
         // Symbol names must be unique within the module, and `obj_name` is not:
         // any two `def f` in different scopes collide.
         let unique = self.next_id.fetch_add(1, Ordering::Relaxed);
         let mut jit = self.jit.lock().unwrap_or_else(PoisonError::into_inner);
-        let (id, sig) = jit.build_function(bytecode, args, ret, unique)?;
+        let (id, sig) = jit.build_function(bytecode, args, ret, unique, safety)?;
         jit.module.finalize_definitions()?;
         let code = jit.module.get_finalized_function(id);
         drop(jit);
@@ -188,7 +204,7 @@ pub fn compile<C: bytecode::Constant>(
     args: &[JitType],
     ret: Option<JitType>,
 ) -> Result<CompiledCode, JitCompileError> {
-    JitEngine::new().compile(bytecode, args, ret)
+    JitEngine::new().compile(bytecode, args, ret, Safety::Permissive)
 }
 
 pub struct CompiledCode {
