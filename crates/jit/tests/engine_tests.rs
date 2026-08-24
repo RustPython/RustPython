@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use rustpython_jit::JitEngine;
+    use rustpython_jit::{JitEngine, Safety};
 
     /// Two Python functions can share `obj_name`, so the module-level symbol has to
     /// be made unique before they can live in one engine.
@@ -16,9 +16,11 @@ mod tests {
         return b
     "#);
 
-        let first = first.compile_on(&engine).expect("first compile");
+        let first = first
+            .compile_on(&engine, Safety::Permissive)
+            .expect("first compile");
         let second = second
-            .compile_on(&engine)
+            .compile_on(&engine, Safety::Permissive)
             .expect("second compile of the same name");
 
         assert_eq!(
@@ -39,14 +41,14 @@ mod tests {
     def unsupported(a: int) -> int:
         return [a]
     "#);
-        assert!(unsupported.compile_on(&engine).is_err());
+        assert!(unsupported.compile_on(&engine, Safety::Permissive).is_err());
 
         let good = py_function_def!(good => r#"
     def good(a: int, b: int) -> int:
         return a + b
     "#);
         let good = good
-            .compile_on(&engine)
+            .compile_on(&engine, Safety::Permissive)
             .expect("engine still usable after a rejected function");
         assert_eq!(
             good.invoke(&[3i64.into(), 4i64.into()]),
@@ -63,7 +65,7 @@ mod tests {
     def f(a: int) -> int:
         return a
     "#);
-            f.compile_on(&engine).expect("compile")
+            f.compile_on(&engine, Safety::Permissive).expect("compile")
         };
         assert_eq!(code.invoke(&[7i64.into()]), Ok(Some(7i64.into())));
     }

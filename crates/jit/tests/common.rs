@@ -3,7 +3,7 @@ use core::ops::ControlFlow;
 use rustpython_compiler_core::bytecode::{
     CodeObject, ConstantData, Constants, Instruction, OpArg, OpArgState,
 };
-use rustpython_jit::{CompiledCode, JitCompileError, JitEngine, JitType};
+use rustpython_jit::{CompiledCode, JitCompileError, JitEngine, JitType, Safety};
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 use std::collections::HashMap;
 
@@ -24,9 +24,10 @@ impl Function {
     pub(crate) fn compile_on(
         &self,
         engine: &Arc<JitEngine>,
+        safety: Safety,
     ) -> Result<CompiledCode, JitCompileError> {
         let (arg_types, ret_type) = self.signature();
-        engine.compile(&self.code, &arg_types, ret_type)
+        engine.compile(&self.code, &arg_types, ret_type, safety)
     }
 
     fn signature(&self) -> (Vec<JitType>, Option<JitType>) {
