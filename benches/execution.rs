@@ -38,10 +38,21 @@ fn bench_rustpython_code(b: &mut Bencher, name: &str, source: &str) {
     })
 }
 
+/// CodSpeed instruments whatever the harness runs, so its workflow sets this
+/// to keep the CPython comparison benchmarks out of the instrumented set: they
+/// measure CPython's C code rather than RustPython, and a runner-side CPython
+/// upgrade would surface as a regression. Unset -- `cargo bench` and the
+/// scheduled `cargo criterion` job -- they run as before.
+fn skip_cpython() -> bool {
+    std::env::var_os("RUSTPYTHON_BENCH_SKIP_CPYTHON").is_some()
+}
+
 pub fn benchmark_file_execution(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &str) {
-    group.bench_function(BenchmarkId::new(name, "cpython"), |b| {
-        bench_cpython_code(b, contents)
-    });
+    if !skip_cpython() {
+        group.bench_function(BenchmarkId::new(name, "cpython"), |b| {
+            bench_cpython_code(b, contents)
+        });
+    }
     group.bench_function(BenchmarkId::new(name, "rustpython"), |b| {
         bench_rustpython_code(b, name, contents)
     });
@@ -52,6 +63,9 @@ pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, 
     group.bench_function(BenchmarkId::new("rustpython", name), |b| {
         b.iter(|| ruff_python_parser::parse_module(contents).unwrap())
     });
+    if skip_cpython() {
+        return;
+    }
     group.bench_function(BenchmarkId::new("cpython", name), |b| {
         use pyo3::types::PyAnyMethods;
         pyo3::Python::attach(|py| {
@@ -75,9 +89,11 @@ pub fn benchmark_pystone(group: &mut BenchmarkGroup<WallTime>, contents: String)
         let code_str = code_with_loops.as_str();
 
         group.throughput(Throughput::Elements(idx as u64));
-        group.bench_function(BenchmarkId::new("cpython", idx), |b| {
-            bench_cpython_code(b, code_str)
-        });
+        if !skip_cpython() {
+            group.bench_function(BenchmarkId::new("cpython", idx), |b| {
+                bench_cpython_code(b, code_str)
+            });
+        }
         group.bench_function(BenchmarkId::new("rustpython", idx), |b| {
             bench_rustpython_code(b, "pystone", code_str)
         });

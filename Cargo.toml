@@ -71,6 +71,10 @@ harness = false
 name = "microbenchmarks"
 harness = false
 
+[[bench]]
+name = "vm_boot"
+harness = false
+
 [[bin]]
 name = "rustpython"
 path = "src/main.rs"
@@ -206,7 +210,10 @@ cranelift = "0.132.0"
 cranelift-jit = "0.132.0"
 cranelift-module = "0.132.0"
 crc32fast = "1.3.2"
-criterion = { version = "0.8", features = ["html_reports"] }
+# CodSpeed's drop-in criterion replacement: sources keep importing `criterion`,
+# and outside CodSpeed's instrumentation it delegates to criterion as before, so
+# `cargo bench` and the scheduled `cargo criterion` job are unaffected.
+criterion = { package = "codspeed-criterion-compat", version = "5.0.1", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
 csv-core = "0.1.11"
 digest = "0.11"

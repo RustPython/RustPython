@@ -168,10 +168,21 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
     })
 }
 
+/// CodSpeed instruments whatever the harness runs, so its workflow sets this
+/// to keep the CPython comparison benchmarks out of the instrumented set: they
+/// measure CPython's C code rather than RustPython, and a runner-side CPython
+/// upgrade would surface as a regression. Unset -- `cargo bench` and the
+/// scheduled `cargo criterion` job -- they run as before.
+fn skip_cpython() -> bool {
+    std::env::var_os("RUSTPYTHON_BENCH_SKIP_CPYTHON").is_some()
+}
+
 pub fn run_micro_benchmark(c: &mut Criterion, benchmark: MicroBenchmark) {
     let mut group = c.benchmark_group("microbenchmarks");
 
-    bench_cpython_code(&mut group, &benchmark);
+    if !skip_cpython() {
+        bench_cpython_code(&mut group, &benchmark);
+    }
     bench_rustpython_code(&mut group, &benchmark);
 
     group.finish();

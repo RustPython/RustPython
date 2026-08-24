@@ -1,0 +1,93 @@
+# CodSpeed benchmark tracking.
+#
+# Runs the criterion benchmark suites under CodSpeed's instrumentation and
+# uploads the results, which gives per-PR comparison comments and a commit-by-
+# commit dashboard at codspeed.io. Like the callgrind gate in perf-ci.yaml,
+# CodSpeed measures with a modified Callgrind rather than wall-clock time, so
+# the numbers are deterministic on shared runners.
+#
+# How this relates to the other two benchmark workflows:
+#   * perf-ci.yaml -- blocks PRs. Measures whole processes, so it is the only
+#     one that sees end-to-end startup and import cost. Self-contained: no
+#     external service, thresholds under our control.
+#   * cron-ci.yaml "benchmark" job -- scheduled criterion wall-clock runs
+#     published to the website.
+#   * this workflow -- in-process criterion benchmarks, reported to CodSpeed
+#     for trend tracking and PR comments. Informational; it does not block.
+#
+# The upload is tokenless: CodSpeed accepts OIDC from public repositories.
+
+name: CodSpeed
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [unlabeled, opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  CI: true
+
+jobs:
+  benchmarks:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    name: Run benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # setup-python picks the version up from .python-version. The benchmark
+      # binaries link against libpython through pyo3 even when the CPython
+      # comparison benchmarks are skipped, so an interpreter has to be present.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+
+      - name: Restore cargo cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
+          restore-keys: |
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
+        continue-on-error: true
+
+      # Not available through taiki-e/install-action, so install from crates.io.
+      - name: Install cargo-codspeed
+        run: cargo install cargo-codspeed --locked
+
+      # --jobs 1: profile.bench uses thin LTO with codegen-units = 1, and
+      # CodSpeed additionally builds with full debug info for symbolisation.
+      # Linking several bench binaries at once under those settings exhausts
+      # the runner's memory and rustc is OOM-killed.
+      - name: Build benchmarks
+        run: cargo codspeed build --jobs 1 --bench execution --bench microbenchmarks --bench vm_boot
+
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8 # v5.0.3
+        with:
+          mode: simulation
+          run: cargo codspeed run
+        env:
+          # Measure RustPython only; see the note on skip_cpython in
+          # benches/execution.rs.
+          RUSTPYTHON_BENCH_SKIP_CPYTHON: "1"
