@@ -809,7 +809,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let oparg = namei.get(arg);
                 let name = &bytecode.names[(oparg >> 1) as usize];
 
-                if name.as_ref() != bytecode.obj_name.as_ref() {
+                // The only global that resolves here is this function itself,
+                // and it resolves by name. The interpreter reads the globals
+                // dict on every call, so rebinding the name - a decorator
+                // applied later, a test patching the module - makes the two
+                // disagree about what gets called.
+                if self.safety == Safety::Strict {
+                    Err(JitCompileError::NotSupported)
+                } else if name.as_ref() != bytecode.obj_name.as_ref() {
                     Err(JitCompileError::NotSupported)
                 } else {
                     self.stack.push(JitValue::FuncRef(func_ref));

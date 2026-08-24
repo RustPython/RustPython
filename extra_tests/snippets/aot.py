@@ -81,6 +81,25 @@ else:
     raise AssertionError("expected ZeroDivisionError")
 
 
+# A compiled self-call resolves the global by name, but the interpreter reads
+# the globals dict on every call. Rebinding the name has to be observable.
+def countdown(a: float) -> float:
+    if a > 0.0:
+        return countdown(a - 1.0)
+    return a
+
+
+assert countdown(3.0) == 0.0
+original_countdown = countdown
+
+
+def countdown(a: float) -> float:
+    return -1.0
+
+
+assert original_countdown(3.0) == -1.0
+
+
 if sys._jit.is_enabled():
     compiled, rejected, deoptimized = sys._jit._stats()
     # `scale` is the one function above the automatic path can take.
