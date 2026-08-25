@@ -3784,6 +3784,7 @@ class SpawnTests(unittest.TestCase):
         self.assertRaises(ValueError, os.spawnve, os.P_NOWAIT, program, ('',), {})
         self.assertRaises(ValueError, os.spawnve, os.P_NOWAIT, program, [''], {})
 
+    @unittest.expectedFailureIfWindows  # TODO: RUSTPYTHON; AssertionError: "must contain only strings" does not match "expected str, bytes or os.PathLike object, not int"
     @requires_native_spawnv
     def test_spawnv_arg_conversion_errors(self):
         # A non-path argv item gets a TypeError naming the argument...
@@ -5320,6 +5321,7 @@ class TestScandir(unittest.TestCase):
         finally:
             os.chdir(old_dir)
 
+    @unittest.expectedFailureIfWindows  # TODO: RUSTPYTHON; FileNotFoundError
     @unittest.skipIf(sys.platform != 'win32', "Win32 specific test")
     def test_windows_trailing_space_path(self):
         import pathlib
