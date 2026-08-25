@@ -290,14 +290,6 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
-      # Tests that can be flaky when running with multiple processes `-j 2`. We will use `-j 1` for these.
-      FLAKY_MP_TESTS: >-
-        test_class
-        test_concurrent_futures
-        test_eintr
-        test_multiprocessing_fork
-        test_multiprocessing_forkserver
-        test_multiprocessing_spawn
     # Named after the matrix entry rather than left to be named for it: a
     # generated name lists every value in the entry, so adding or removing one
     # renames the check and drops it from the required list.
@@ -378,31 +370,8 @@ jobs:
 
       - name: Run CPython tests
         run: |
-          target/release/rustpython -u -m test --slow-ci -j ${{ steps.cores.outputs.cores }} ${{ join(matrix.extra_test_args, ' ') }} -x ${{ env.FLAKY_MP_TESTS }} ${{ join(matrix.skips, ' ') }}
+          target/release/rustpython -u -m test --slow-ci -j ${{ steps.cores.outputs.cores }} ${{ join(matrix.extra_test_args, ' ') }} ${{ join(matrix.skips, ' ') }}
         timeout-minutes: ${{ matrix.timeout }}
-        env:
-          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-
-      - name: Run flaky MP CPython tests
-        run: |
-          for attempt in $(seq 1 5); do
-            echo "::group::Attempt ${attempt}"
-
-            set +e
-            target/release/rustpython -u -m test --slow-ci -j 1 ${{ join(matrix.extra_test_args, ' ') }} ${{ env.FLAKY_MP_TESTS }}
-            status=$?
-            set -e
-
-            echo "::endgroup::"
-
-            if [ $status -eq 0 ]; then
-              exit 0
-            fi
-          done
-
-          exit 1
-        timeout-minutes: ${{ matrix.timeout }}
-        shell: bash
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
 
