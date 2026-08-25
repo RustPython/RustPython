@@ -4477,10 +4477,15 @@ fn missing_comma_expression_error(source: &str) -> Option<(String, usize, usize)
                         && expression_atom_start(bytes, next)
                         && !expression_continuation_keyword(bytes, next)
                     {
+                        // The diagnostic covers both atoms, so it ends past
+                        // the whole second one.  `next + 1` ended past its
+                        // first byte instead, which is only the same thing
+                        // when that atom is one ASCII character.
+                        let second_end = adjacent_atom_end(bytes, next).unwrap_or(next + 1);
                         return Some((
                             "invalid syntax. Perhaps you forgot a comma?".to_owned(),
                             index,
-                            next + 1,
+                            second_end,
                         ));
                     }
                     index = atom_end;
@@ -5783,6 +5788,40 @@ mod tests {
             "with Barry as BDFL, use '<>' instead of '!='"
         );
         assert_eq!(err.python_location(), (2, 3));
+    }
+
+    #[test]
+    fn missing_comma_diagnostic_spans_the_whole_second_atom() {
+        // `(start, end)` reported as one-based character columns, matching
+        // `SyntaxError.offset` / `.end_offset`.
+        let span = |source: &str| {
+            let err = compile(source, Mode::Eval, "<comma>", CompileOpts::default())
+                .expect_err("two adjacent atoms are a syntax error");
+            assert_eq!(
+                err.to_string(),
+                "invalid syntax. Perhaps you forgot a comma?"
+            );
+            (
+                err.python_location().1,
+                err.python_end_location().unwrap().1,
+            )
+        };
+
+        // A one-character second atom is the case that already worked.
+        assert_eq!(span("(a b)"), (2, 5));
+        // A longer one ends where it ends, not one byte in.
+        assert_eq!(span("(a bb)"), (2, 6));
+        assert_eq!(span("(a bbb)"), (2, 7));
+        assert_eq!(span("(1 22)"), (2, 6));
+        // A non-ASCII atom is one character but several bytes, so counting
+        // bytes here used to stop inside it and round back off the boundary.
+        assert_eq!(span("(a \u{3b2})"), (2, 5));
+        assert_eq!(span("(a \u{3b2}\u{3b2})"), (2, 6));
+        assert_eq!(span("(\u{3b1}\u{3b1} \u{3b2})"), (2, 6));
+        // The first atom's width was never the problem; pin it anyway.
+        assert_eq!(span("(\u{3b1} b)"), (2, 5));
+        // Other bracket kinds take the same path.
+        assert_eq!(span("[\u{3b1} \u{3b2}]"), (2, 5));
     }
 
     #[test]
