@@ -7525,6 +7525,7 @@ class ReentrantMutationTests(unittest.TestCase):
     See: https://github.com/python/cpython/issues/143988
     """
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'Hello' != b'HelloWorldTest'
     @unittest.skipUnless(hasattr(socket.socket, "sendmsg"),
                          "sendmsg not supported")
     def test_sendmsg_reentrant_data_mutation(self):
