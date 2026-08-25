@@ -144,12 +144,178 @@ fn to_op_complex(value: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Compl
     Ok(r)
 }
 
-fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
-    if v2.is_zero() {
-        return Err(vm.new_zero_division_error("complex division by zero"));
+const ONE: Complex64 = Complex64::new(1.0, 0.0);
+
+/// Only the magnitude of an infinite part matters once a product has gone to
+/// nan, so it stands in as a signed one; a nan beside it stands in as a
+/// signed zero.
+fn signed_unit(part: f64) -> f64 {
+    if part.is_infinite() { 1.0 } else { 0.0f64 }.copysign(part)
+}
+
+fn tamed(value: Complex64) -> Complex64 {
+    Complex64::new(signed_unit(value.re), signed_unit(value.im))
+}
+
+fn nans_to_zero(value: Complex64) -> Complex64 {
+    let zeroed = |part: f64| {
+        if part.is_nan() {
+            0.0f64.copysign(part)
+        } else {
+            part
+        }
+    };
+    Complex64::new(zeroed(value.re), zeroed(value.im))
+}
+
+/// Multiply, recovering the infinities that the plain formula turns into nan,
+/// the way C11 Annex G.5.1 does.
+fn prod(a: Complex64, b: Complex64) -> Complex64 {
+    let r = a * b;
+    if !(r.re.is_nan() && r.im.is_nan()) {
+        return r;
     }
 
-    Ok(v1.fdiv(v2))
+    // "Box" an infinite operand into a signed one and turn the other's nans
+    // into signed zeros, so that the infinity survives a second pass.
+    let (mut a, mut b) = (a, b);
+    let a_infinite = a.re.is_infinite() || a.im.is_infinite();
+    if a_infinite {
+        a = tamed(a);
+        b = nans_to_zero(b);
+    }
+    let b_infinite = b.re.is_infinite() || b.im.is_infinite();
+    if b_infinite {
+        b = tamed(b);
+        a = nans_to_zero(a);
+    }
+    // An infinity that overflow lost, rather than one an operand carried.
+    let overflowed = !a_infinite
+        && !b_infinite
+        && ((a.re * b.re).is_infinite()
+            || (a.im * b.im).is_infinite()
+            || (a.re * b.im).is_infinite()
+            || (a.im * b.re).is_infinite());
+    if overflowed {
+        a = nans_to_zero(a);
+        b = nans_to_zero(b);
+    }
+
+    if !(a_infinite || b_infinite || overflowed) {
+        return r;
+    }
+    Complex64::new(
+        f64::INFINITY * (a.re * b.re - a.im * b.im),
+        f64::INFINITY * (a.re * b.im + a.im * b.re),
+    )
+}
+
+/// Divide a real by a complex. Written out rather than routed through `quot`
+/// with a zero imaginary part, which would lose the sign of a zero.
+fn rc_quot(a: f64, b: Complex64) -> Option<Complex64> {
+    let abs_re = b.re.abs();
+    let abs_im = b.im.abs();
+
+    let r = if abs_re >= abs_im {
+        if abs_re == 0.0 {
+            return None;
+        }
+        let ratio = b.im / b.re;
+        let denom = b.re + b.im * ratio;
+        Complex64::new(a / denom, -a * ratio / denom)
+    } else if abs_im >= abs_re {
+        let ratio = b.re / b.im;
+        let denom = b.re * ratio + b.im;
+        Complex64::new(a * ratio / denom, -a / denom)
+    } else {
+        // One part of the divisor is a nan, so neither comparison held.
+        Complex64::new(f64::NAN, f64::NAN)
+    };
+
+    // A quotient that came out as nan recovers the way `recovered_quot` does,
+    // except that a real numerator has no imaginary term to carry a sign.
+    if r.re.is_nan() && r.im.is_nan() && (b.re.is_infinite() || b.im.is_infinite()) && a.is_finite()
+    {
+        let Complex64 { re: x, im: y } = tamed(b);
+        return Some(Complex64::new(0.0 * (a * x), 0.0 * -(a * y)));
+    }
+
+    Some(r)
+}
+
+/// Divide by whichever part of the divisor is larger, so that the ratio the
+/// other part is scaled by cannot overflow. `None` stands for a divisor of
+/// zero.
+fn quot(a: Complex64, b: Complex64) -> Option<Complex64> {
+    let abs_re = b.re.abs();
+    let abs_im = b.im.abs();
+
+    let r = if abs_re >= abs_im {
+        if abs_re == 0.0 {
+            return None;
+        }
+        let ratio = b.im / b.re;
+        let denom = b.re + b.im * ratio;
+        Complex64::new((a.re + a.im * ratio) / denom, (a.im - a.re * ratio) / denom)
+    } else if abs_im >= abs_re {
+        let ratio = b.re / b.im;
+        let denom = b.re * ratio + b.im;
+        Complex64::new((a.re * ratio + a.im) / denom, (a.im * ratio - a.re) / denom)
+    } else {
+        // One part of the divisor is a nan, so neither comparison held.
+        Complex64::new(f64::NAN, f64::NAN)
+    };
+
+    Some(recovered_quot(r, a, b))
+}
+
+/// Recover the infinities and zeros a quotient came out of as nan, the way
+/// C11 Annex G.5.2 does.
+fn recovered_quot(r: Complex64, a: Complex64, b: Complex64) -> Complex64 {
+    if !(r.re.is_nan() && r.im.is_nan()) {
+        return r;
+    }
+
+    if (a.re.is_infinite() || a.im.is_infinite()) && b.re.is_finite() && b.im.is_finite() {
+        let Complex64 { re: x, im: y } = tamed(a);
+        Complex64::new(
+            f64::INFINITY * (x * b.re + y * b.im),
+            f64::INFINITY * (y * b.re - x * b.im),
+        )
+    } else if (b.re.is_infinite() || b.im.is_infinite()) && a.re.is_finite() && a.im.is_finite() {
+        let Complex64 { re: x, im: y } = tamed(b);
+        Complex64::new(0.0 * (a.re * x + a.im * y), 0.0 * (a.im * x - a.re * y))
+    } else {
+        r
+    }
+}
+
+fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
+    quot(v1, v2).ok_or_else(|| vm.new_zero_division_error("division by zero"))
+}
+
+/// Raise to a non-negative integer power by repeated squaring.
+fn pow_unsigned(x: Complex64, n: u32) -> Complex64 {
+    let mut r = ONE;
+    let mut p = x;
+    let mut mask = 1u32;
+    while mask > 0 && n >= mask {
+        if n & mask != 0 {
+            r = prod(r, p);
+        }
+        mask <<= 1;
+        p = prod(p, p);
+    }
+    r
+}
+
+/// Raise to an integer power. `None` stands for zero raised to a negative one.
+fn powi(x: Complex64, n: i32) -> Option<Complex64> {
+    if n > 0 {
+        Some(pow_unsigned(x, n as u32))
+    } else {
+        quot(ONE, pow_unsigned(x, n.unsigned_abs()))
+    }
 }
 
 pub(crate) fn complex_pow(
@@ -157,36 +323,63 @@ pub(crate) fn complex_pow(
     v2: Complex64,
     vm: &VirtualMachine,
 ) -> PyResult<Complex64> {
-    if v1.is_zero() {
-        return if v2.re < 0.0 || v2.im != 0.0 {
-            let msg = format!("{v1} cannot be raised to a negative or complex power");
-            Err(vm.new_zero_division_error(msg))
-        } else if v2.is_zero() {
-            Ok(Complex64::new(1.0, 0.0))
-        } else {
-            Ok(Complex64::new(0.0, 0.0))
-        };
-    }
-
-    let ans = powc(v1, v2);
-    if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
-        Err(vm.new_overflow_error("complex exponentiation"))
+    // A small integer power is reached by multiplying, which stays exact
+    // where going through the polar form would not.
+    let exponent = v2.re as i32;
+    let result = if v2.im == 0.0 && v2.re == f64::from(exponent) && v2.re.abs() <= 100.0 {
+        powi(v1, exponent)
+    } else if v1.is_zero() && (v2.im != 0.0 || v2.re < 0.0) {
+        None
     } else {
-        Ok(ans)
+        Some(powc(v1, v2))
+    };
+
+    let Some(result) = result else {
+        return Err(vm.new_zero_division_error("zero to a negative or complex power"));
+    };
+    if result.re.is_infinite() || result.im.is_infinite() {
+        return Err(vm.new_overflow_error("complex exponentiation"));
     }
+    Ok(result)
 }
 
-// num-complex changed their powc() implementation in 0.4.4, making it incompatible
-// with what the regression tests expect. this is that old formula.
+/// Raise to a power through the polar form.
 fn powc(a: Complex64, exp: Complex64) -> Complex64 {
-    let (r, theta) = a.to_polar();
-    if r.is_zero() {
-        return Complex64::new(r, r);
+    if exp.is_zero() {
+        return ONE;
     }
-    Complex64::from_polar(
-        r.powf(exp.re) * (-exp.im * theta).exp(),
-        exp.re * theta + exp.im * r.ln(),
-    )
+    if a.is_zero() {
+        return Complex64::new(0.0, 0.0);
+    }
+
+    let magnitude = a.norm();
+    let angle = a.arg();
+    let mut len = magnitude.powf(exp.re);
+    let mut phase = angle * exp.re;
+    // An exponent with no imaginary part leaves these alone, and reaching for
+    // them anyway would turn an infinite magnitude into a nan.
+    if exp.im != 0.0 {
+        len *= (-angle * exp.im).exp();
+        phase += exp.im * magnitude.ln();
+    }
+    Complex64::new(len * phase.cos(), len * phase.sin())
+}
+
+/// Whether an underscore sits where a numeric literal does not allow one:
+/// they only ever join two digits.
+fn has_misplaced_underscore(bytes: &[u8]) -> bool {
+    let mut prev = b'\0';
+    for &byte in bytes {
+        if byte == b'_' {
+            if !prev.is_ascii_digit() {
+                return true;
+            }
+        } else if prev == b'_' && !byte.is_ascii_digit() {
+            return true;
+        }
+        prev = byte;
+    }
+    prev == b'_'
 }
 
 impl Constructor for PyComplex {
@@ -219,6 +412,12 @@ impl Constructor for PyComplex {
                         return Err(vm.new_type_error(
                             "complex() can't take second arg if first is a string",
                         ));
+                    }
+                    if has_misplaced_underscore(s.as_wtf8().as_bytes()) {
+                        let repr = val.repr(vm)?;
+                        return Err(vm.new_value_error(format!(
+                            "could not convert string to complex: {repr}"
+                        )));
                     }
                     let (re, im) = rustpython_literal::complex::parse_str(
                         &crate::protocol::numeric_literal_from_str(s),
@@ -476,7 +675,20 @@ impl AsNumber for PyComplex {
                     vm,
                 )
             }),
-            multiply: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a * b, vm)),
+            multiply: Some(|a, b, vm| {
+                PyComplex::complex_real_binop(
+                    a,
+                    b,
+                    prod,
+                    |a_complex, b_real| {
+                        Complex64::new(a_complex.re * b_real, a_complex.im * b_real)
+                    },
+                    |a_real, b_complex| {
+                        Complex64::new(a_real * b_complex.re, a_real * b_complex.im)
+                    },
+                    vm,
+                )
+            }),
             power: Some(|a, b, c, vm| {
                 if vm.is_none(c) {
                     PyComplex::number_op(a, b, complex_pow, vm)
@@ -501,7 +713,25 @@ impl AsNumber for PyComplex {
                 result.to_pyresult(vm)
             }),
             boolean: Some(|number, _vm| Ok(!PyComplex::number_downcast(number).value.is_zero())),
-            true_divide: Some(|a, b, vm| PyComplex::number_op(a, b, inner_div, vm)),
+            true_divide: Some(|a, b, vm| {
+                PyComplex::complex_real_binop(
+                    a,
+                    b,
+                    |a, b| inner_div(a, b, vm),
+                    |a_complex, b_real| {
+                        if b_real == 0.0 {
+                            Err(vm.new_zero_division_error("division by zero"))
+                        } else {
+                            Ok(Complex64::new(a_complex.re / b_real, a_complex.im / b_real))
+                        }
+                    },
+                    |a_real, b_complex| {
+                        rc_quot(a_real, b_complex)
+                            .ok_or_else(|| vm.new_zero_division_error("division by zero"))
+                    },
+                    vm,
+                )
+            }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
