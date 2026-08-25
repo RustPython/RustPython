@@ -255,28 +255,59 @@ pub fn round_float_digits(x: f64, ndigits: i32) -> Option<f64> {
         let s = format!("{:.*}", ndigits as usize, x);
         s.parse().ok()?
     } else {
-        // ndigits < 0: divide-then-round avoids the phantom-tie problem
-        // because dividing typical inputs by 10**|ndigits| produces genuine
-        // half-integer ties rather than synthesizing them.
-        let pow1 = 10.0f64.powi(-ndigits);
-        let y = x / pow1;
-        let z = y.round();
-        #[expect(
-            clippy::float_cmp,
-            reason = "exact half-tie detection for banker's rounding correction"
-        )]
-        let z = if (y - z).abs() == 0.5 {
-            2.0 * (y / 2.0).round()
-        } else {
-            z
-        };
-        z * pow1
+        round_at_power_of_ten(x, (-ndigits) as usize)?
     };
 
     if !result.is_finite() {
         return None;
     }
     Some(result)
+}
+
+/// Round `x` half-to-even at the `10.pow(place)` digit, the way
+/// `_Py_dg_dtoa` in mode 3 does for a negative `ndigits`.
+///
+/// The digits come from the exact decimal expansion rather than from a divide
+/// by `10.pow(place)`, which rounds twice: once when the quotient is stored
+/// and again at the tie.
+fn round_at_power_of_ten(x: f64, place: usize) -> Option<f64> {
+    // `trunc` is exact, so formatting it writes the integer digits themselves.
+    let digits = format!("{:.0}", x.trunc().abs());
+    let has_fraction = x.fract() != 0.0;
+
+    let padded = format!("{digits:0>width$}", width = place + 1);
+    let (kept, dropped) = padded.split_at(padded.len() - place);
+    let mut kept: Vec<u8> = kept.bytes().collect();
+
+    // The dropped digits read as a fraction of the rounding place: "5" then
+    // zeros is the tie, which the fraction below them, if any, tips over.
+    let round_up = match dropped.as_bytes().split_first() {
+        None => false,
+        Some((&first, rest)) => {
+            first > b'5'
+                || (first == b'5'
+                    && (rest.iter().any(|&digit| digit != b'0')
+                        || has_fraction
+                        || kept.last().is_some_and(|digit| (digit - b'0') % 2 == 1)))
+        }
+    };
+
+    if round_up {
+        // The carry stops at the first digit that does not wrap; if none of
+        // them stops it, the number has grown a digit.
+        let carried = kept.iter_mut().rev().all(|digit| {
+            *digit = if *digit == b'9' { b'0' } else { *digit + 1 };
+            *digit == b'0'
+        });
+        if carried {
+            kept.insert(0, b'1');
+        }
+    }
+
+    let mut rounded = String::from_utf8(kept).ok()?;
+    rounded.extend(core::iter::repeat_n('0', place));
+    let magnitude: f64 = rounded.parse().ok()?;
+    Some(magnitude.copysign(x))
 }
 
 /// Error from [`from_hex`], mapping to the exception the caller should raise.
