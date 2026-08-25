@@ -71,6 +71,9 @@ impl IntoPyException for FormatSpecError {
             }
             Self::UnableToConvert => vm.new_value_error("Unable to convert int to float"),
             Self::CodeNotInRange => vm.new_overflow_error("%c arg not in range(0x110000)"),
+            Self::IntTooLargeForCLong => {
+                vm.new_overflow_error("Python int too large to convert to C long")
+            }
             Self::ZeroPadding => {
                 vm.new_value_error("Zero padding is not allowed in complex format specifier")
             }
