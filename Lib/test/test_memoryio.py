@@ -869,7 +869,10 @@ class CBytesIOTest(PyBytesIOTest):
 
     @support.cpython_only
     def test_sizeof(self):
-        basesize = support.calcobjsize('P2n2Pn')
+        if support.Py_GIL_DISABLED:
+            basesize = support.calcobjsize('P2n2Pni')
+        else:
+            basesize = support.calcobjsize('P2n2Pn')
         check = self.check_sizeof
         self.assertEqual(object.__sizeof__(io.BytesIO()), basesize)
         check(io.BytesIO(), basesize )
@@ -924,7 +927,6 @@ class CBytesIOTest(PyBytesIOTest):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by writable
     def test_flags(self):
         return super().test_flags()
-
 
 class CStringIOTest(PyStringIOTest):
     ioclass = io.StringIO
@@ -996,6 +998,7 @@ class CStringIOTest(PyStringIOTest):
     def test_flags(self):
         return super().test_flags()
 
+
 class CStringIOPickleTest(PyStringIOPickleTest):
     UnsupportedOperation = io.UnsupportedOperation
 
@@ -1004,6 +1007,7 @@ class CStringIOPickleTest(PyStringIOPickleTest):
             return pickle.loads(pickle.dumps(io.StringIO(*args, **kwargs)))
         def __init__(self, *args, **kwargs):
             pass
+
 
 if __name__ == '__main__':
     unittest.main()
