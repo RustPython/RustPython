@@ -497,34 +497,26 @@ impl FrameObject {
 
     #[pygetset]
     pub fn f_lineno(&self) -> usize {
-        // If lasti is 0, execution hasn't started yet - use first line number
-        if self.lasti() == 0 {
-            return self
-                .iframe()
-                .code()
-                .first_line_number
-                .map_or(1, |n| n.get());
-        }
-        // For executing frames (on the TLS chain), use prev_line which is
-        // updated at each bytecode instruction *before* the instruction
-        // runs. This gives the correct line even when observed mid-CALL
-        // (where lasti has already advanced past the CALL instruction).
+        let code = self.iframe().code();
+        let first_line = || code.first_line_number.map_or(1, |n| n.get());
+        // A running frame advances lasti past the instruction it is about to
+        // execute, so the line being executed is the one before it. The live
+        // position has to be read rather than this object's copy: a frame
+        // observed from inside a call it made still reports that call's line.
         let live = self.find_live_source_iframe();
-        if !live.is_null() {
-            // Read live prev_line. Use read_volatile to bypass LLVM noalias
-            // on the &mut InterpreterFrame borrow held by the running frame.
-            let prev = unsafe {
-                let field_ptr = core::ptr::addr_of!((*live).prev_line);
-                core::ptr::read_volatile(field_ptr as *const u32)
-            };
-            if prev > 0 {
-                return prev as usize;
-            }
-        }
-        // For returned frames, use lasti-based location lookup. This is
-        // correct for exception tracebacks where prev_line may have been
-        // updated by cleanup instructions after the exception.
-        self.current_location().line.get()
+        let lasti = if live.is_null() {
+            self.lasti()
+        } else {
+            unsafe { (*live).lasti.load(Relaxed) }
+        };
+        let Some(idx) = lasti.checked_sub(1) else {
+            // Execution has not started.
+            return first_line();
+        };
+        // A live lasti can move between the read and the lookup.
+        code.locations
+            .get(idx as usize)
+            .map_or_else(first_line, |(loc, _)| loc.line.get())
     }
 
     #[pygetset(setter)]

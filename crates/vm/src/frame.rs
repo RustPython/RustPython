@@ -3111,24 +3111,6 @@ impl ExecutingFrame<'_> {
             let mut do_extend_arg = false;
             let caches = op.cache_entries();
 
-            // Always update prev_line so f_lineno returns the correct line
-            // even when the frame is observed mid-call (e.g. sys._getframe,
-            // warnings.warn). The lookup is a simple array index, so the
-            // cost is negligible.
-            // Update prev_line for f_lineno. Skip RESUME, ExtendedArg,
-            // and InstrumentedLine (it manages prev_line in its own handler;
-            // updating here first would defeat LINE de-duplication).
-            // Other instrumented opcodes update prev_line via
-            // execute_instrumented.
-            if !matches!(
-                op.into(),
-                Opcode::Resume | Opcode::ExtendedArg | Opcode::InstrumentedLine
-            ) && !op.is_instrumented()
-                && let Some((loc, _)) = self.code.locations.get(idx)
-            {
-                self.prev_line.set(loc.line.get() as u32);
-            }
-
             if vm.use_tracing.get() {
                 // Fire 'opcode' trace event for sys.settrace when f_trace_opcodes
                 // is set. Skip RESUME and ExtendedArg
@@ -7297,20 +7279,6 @@ impl ExecutingFrame<'_> {
             instruction.is_instrumented(),
             "execute_instrumented called with non-instrumented opcode {instruction:?}"
         );
-        // Update prev_line for f_lineno. The main bytecode loop skips
-        // instrumented opcodes to avoid interfering with LINE event
-        // de-duplication in InstrumentedLine. Update here instead, except
-        // for RESUME (prev_line must stay 0 for the first LINE event) and
-        // InstrumentedLine (manages prev_line in its own handler).
-        if !matches!(
-            instruction,
-            Instruction::InstrumentedResume | Instruction::InstrumentedLine
-        ) {
-            let idx = self.lasti() as usize - 1;
-            if let Some((loc, _)) = self.code.locations.get(idx) {
-                self.prev_line.set(loc.line.get() as u32);
-            }
-        }
         self.monitoring_mask = vm.state.monitoring_events.load();
         match instruction {
             Instruction::InstrumentedResume => {
@@ -7623,12 +7591,6 @@ impl ExecutingFrame<'_> {
                 // If the LINE position also had INSTRUCTION, fire that event too
                 if also_instruction {
                     monitoring::fire_instruction(vm, self.code, offset)?;
-                }
-
-                // Update prev_line for f_lineno since the bytecode loop's
-                // update skips all instrumented opcodes.
-                if let Some((loc, _)) = self.code.locations.get(idx) {
-                    self.prev_line.set(loc.line.get() as u32);
                 }
 
                 // Re-dispatch to the real original opcode
