@@ -440,15 +440,7 @@ pub mod module {
         dir_fd: DirFd<'_, { _os::UNLINK_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        #[cfg(not(target_os = "redox"))]
-        if let Some(fd) = dir_fd.raw_opt() {
-            let c_path = path.clone().into_cstring(vm)?;
-            return rustpython_host_env::posix::unlinkat(fd, &c_path)
-                .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm));
-        }
-        #[cfg(target_os = "redox")]
-        let [] = dir_fd.0;
-        crate::host_env::fs::remove_file(&path)
+        rustpython_host_env::posix::unlinkat(dir_fd.get_opt(), &path)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
