@@ -153,9 +153,6 @@ fn format_internal(
                         Some(FormatConversion::Str) => argument.str(vm)?.into(),
                         Some(FormatConversion::Repr) => argument.repr(vm)?.into(),
                         Some(FormatConversion::Ascii) => builtins::ascii(argument, vm)?.into(),
-                        Some(FormatConversion::Bytes) => {
-                            vm.call_method(&argument, identifier!(vm, decode).as_str(), ())?
-                        }
                         None => {
                             return Err(
                                 vm.new_value_error(format!("Unknown conversion specifier {c}"))

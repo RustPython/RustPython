@@ -55,6 +55,12 @@ impl fmt::Display for CFormatError {
 
 pub type CFormatConversion = super::format::FormatConversion;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CFormatContext {
+    Str,
+    Bytes,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum CNumberType {
@@ -98,6 +104,7 @@ pub enum CFormatType {
     Float(CFloatType),
     Character(CCharacterType),
     String(CFormatConversion),
+    Bytes,
 }
 
 impl CFormatType {
@@ -108,6 +115,7 @@ impl CFormatType {
             Self::Float(x) => x as u8 as char,
             Self::Character(x) => x as u8 as char,
             Self::String(x) => x as u8 as char,
+            Self::Bytes => 'b',
         }
     }
 }
@@ -296,14 +304,14 @@ impl FromStr for CFormatSpecKeyed<String> {
             return Err((CFormatErrorType::MissingModuloSign, 1));
         }
 
-        Self::parse(&mut chars)
+        Self::parse(&mut chars, CFormatContext::Str)
     }
 }
 
 pub type ParseIter<I> = Peekable<Enumerate<I>>;
 
 impl<T: FormatBuf> CFormatSpecKeyed<T> {
-    pub fn parse<I>(iter: &mut ParseIter<I>) -> Result<Self, ParsingError>
+    pub fn parse<I>(iter: &mut ParseIter<I>, context: CFormatContext) -> Result<Self, ParsingError>
     where
         I: Iterator<Item = T::Char>,
     {
@@ -313,7 +321,7 @@ impl<T: FormatBuf> CFormatSpecKeyed<T> {
             parse_quantity(iter, isize::MAX as usize, CFormatErrorType::WidthTooBig)?;
         let precision = parse_precision(iter)?;
         consume_length(iter);
-        let format_type = parse_format_type(iter)?;
+        let format_type = parse_format_type(iter, context)?;
 
         let spec = CFormatSpec {
             flags,
@@ -618,7 +626,10 @@ where
     iter.next_if(|(_, c)| matches!(c.to_char_lossy(), 'h' | 'l' | 'L'));
 }
 
-fn parse_format_type<C, I>(iter: &mut ParseIter<I>) -> Result<CFormatType, ParsingError>
+fn parse_format_type<C, I>(
+    iter: &mut ParseIter<I>,
+    context: CFormatContext,
+) -> Result<CFormatType, ParsingError>
 where
     C: FormatChar,
     I: Iterator<Item = C>,
@@ -646,8 +657,8 @@ where
         'c' => CFormatType::Character(CCharacterType::Character),
         'r' => CFormatType::String(CFormatConversion::Repr),
         's' => CFormatType::String(CFormatConversion::Str),
-        'b' => CFormatType::String(CFormatConversion::Bytes),
         'a' => CFormatType::String(CFormatConversion::Ascii),
+        'b' if context == CFormatContext::Bytes => CFormatType::Bytes,
         _ => return Err((CFormatErrorType::UnsupportedFormatChar(c.into()), index)),
     })
 }
@@ -784,7 +795,7 @@ impl<S> CFormatStrOrBytes<S> {
         self.parts.iter_mut()
     }
 
-    pub fn parse<I>(iter: &mut ParseIter<I>) -> Result<Self, CFormatError>
+    pub fn parse<I>(iter: &mut ParseIter<I>, context: CFormatContext) -> Result<Self, CFormatError>
     where
         S: FormatBuf,
         I: Iterator<Item = S::Char>,
@@ -808,10 +819,11 @@ impl<S> CFormatStrOrBytes<S> {
                         ));
                     }
 
-                    let spec = CFormatSpecKeyed::parse(iter).map_err(|err| CFormatError {
-                        typ: err.0,
-                        index: err.1,
-                    })?;
+                    let spec =
+                        CFormatSpecKeyed::parse(iter, context).map_err(|err| CFormatError {
+                            typ: err.0,
+                            index: err.1,
+                        })?;
 
                     parts.push((index, CFormatPart::Spec(spec)));
                     if let Some(&(index, _)) = iter.peek() {
@@ -848,7 +860,7 @@ pub type CFormatBytes = CFormatStrOrBytes<Vec<u8>>;
 impl CFormatBytes {
     pub fn parse_from_bytes(bytes: &[u8]) -> Result<Self, CFormatError> {
         let mut iter = bytes.iter().copied().enumerate().peekable();
-        Self::parse(&mut iter)
+        Self::parse(&mut iter, CFormatContext::Bytes)
     }
 }
 
@@ -859,7 +871,7 @@ impl FromStr for CFormatString {
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let mut iter = text.chars().enumerate().peekable();
-        Self::parse(&mut iter)
+        Self::parse(&mut iter, CFormatContext::Str)
     }
 }
 
@@ -868,7 +880,7 @@ pub type CFormatWtf8 = CFormatStrOrBytes<Wtf8Buf>;
 impl CFormatWtf8 {
     pub fn parse_from_wtf8(s: &Wtf8) -> Result<Self, CFormatError> {
         let mut iter = s.code_points().enumerate().peekable();
-        Self::parse(&mut iter)
+        Self::parse(&mut iter, CFormatContext::Str)
     }
 }
 
