@@ -66,6 +66,15 @@ except ValueError as error:
 else:
     raise AssertionError("expected ValueError for unknown conversion specifier '!x'")
 
+# 'b' is a valid conversion specifier for %-style bytes formatting, but not for str.format().
+try:
+    "{0!b}".format(3)
+except ValueError as error:
+    if str(error) != "Unknown conversion specifier b":
+        raise AssertionError(f"unexpected error message: {error}") from error
+else:
+    raise AssertionError("expected ValueError for unknown conversion specifier '!b'")
+
 assert "{:,}".format(100) == "100"
 assert "{:,}".format(1024) == "1,024"
 assert "{:_}".format(65536) == "65_536"

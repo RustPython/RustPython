@@ -32,38 +32,37 @@ fn spec_format_bytes(
     obj: PyObjectRef,
 ) -> PyResult<Vec<u8>> {
     match &spec.format_type {
-        CFormatType::String(conversion) => match conversion {
-            // Unlike strings, %r and %a are identical for bytes: the behaviour corresponds to
-            // %a for strings (not %r)
-            CFormatConversion::Repr | CFormatConversion::Ascii => {
-                let b = builtins::ascii(obj, vm)?.as_bytes().to_vec();
-                Ok(b)
+        // Unlike strings, %r and %a are identical for bytes: the behaviour corresponds to
+        // %a for strings (not %r)
+        CFormatType::String(CFormatConversion::Repr | CFormatConversion::Ascii) => {
+            let b = builtins::ascii(obj, vm)?.as_bytes().to_vec();
+            Ok(b)
+        }
+        // %b and %s are equivalent for bytes formatting.
+        // Mirrors CPython's format_obj() in bytesobject.c
+        CFormatType::Bytes | CFormatType::String(CFormatConversion::Str) => {
+            if let Some(bytes) = obj.downcast_ref::<PyBytes>() {
+                return Ok(spec.format_bytes(bytes.as_bytes()));
             }
-            // format_obj
-            CFormatConversion::Str | CFormatConversion::Bytes => {
-                if let Some(bytes) = obj.downcast_ref::<PyBytes>() {
-                    return Ok(spec.format_bytes(bytes.as_bytes()));
-                }
-                if let Some(bytearray) = obj.downcast_ref::<PyByteArray>() {
-                    return Ok(spec.format_bytes(&bytearray.borrow_buf()));
-                }
-                if let Some(method) = vm.get_special_method(&obj, identifier!(vm, __bytes__))? {
-                    let bytes = method.invoke((), vm)?;
-                    let bytes = PyBytes::try_from_borrowed_object(vm, &bytes)?;
-                    return Ok(spec.format_bytes(bytes.as_bytes()));
-                }
-                if obj.check_buffer() {
-                    let buffer = PyBuffer::from_object(vm, &obj, BufferFlags::FULL_RO)?;
-                    return Ok(buffer.contiguous_or_collect(|bytes| spec.format_bytes(bytes)));
-                }
-                let msg = format!(
-                    "%b requires a bytes-like object, or an object that \
-                        implements __bytes__, not '{}'",
-                    obj.class().name()
-                );
-                Err(vm.new_type_error(msg))
+            if let Some(bytearray) = obj.downcast_ref::<PyByteArray>() {
+                return Ok(spec.format_bytes(&bytearray.borrow_buf()));
             }
-        },
+            if let Some(method) = vm.get_special_method(&obj, identifier!(vm, __bytes__))? {
+                let bytes = method.invoke((), vm)?;
+                let bytes = PyBytes::try_from_borrowed_object(vm, &bytes)?;
+                return Ok(spec.format_bytes(bytes.as_bytes()));
+            }
+            if obj.check_buffer() {
+                let buffer = PyBuffer::from_object(vm, &obj, BufferFlags::FULL_RO)?;
+                return Ok(buffer.contiguous_or_collect(|bytes| spec.format_bytes(bytes)));
+            }
+            let msg = format!(
+                "%b requires a bytes-like object, or an object that \
+                    implements __bytes__, not '{}'",
+                obj.class().name()
+            );
+            Err(vm.new_type_error(msg))
+        }
         CFormatType::Number(number_type) => match number_type {
             CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
                 match_class!(match &obj {
@@ -166,7 +165,6 @@ fn spec_format_string(
     vm: &VirtualMachine,
     spec: &CFormatSpec,
     obj: PyObjectRef,
-    idx: usize,
 ) -> PyResult<Wtf8Buf> {
     match &spec.format_type {
         CFormatType::String(conversion) => {
@@ -174,15 +172,12 @@ fn spec_format_string(
                 CFormatConversion::Ascii => builtins::ascii(obj, vm)?.as_wtf8().to_owned(),
                 CFormatConversion::Str => obj.str(vm)?.as_wtf8().to_owned(),
                 CFormatConversion::Repr => obj.repr(vm)?.as_wtf8().to_owned(),
-                CFormatConversion::Bytes => {
-                    // idx is the position of the %, we want the position of the b
-                    return Err(vm.new_value_error(format!(
-                        "unsupported format character 'b' (0x62) at index {}",
-                        idx + 1
-                    )));
-                }
             };
             Ok(spec.format_string(result))
+        }
+        CFormatType::Bytes => {
+            // 'b' is rejected at parse time in Str context, see `CFormatContext`.
+            unreachable!("%b cannot be parsed in a str format string")
         }
         CFormatType::Number(number_type) => match number_type {
             CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
@@ -487,12 +482,12 @@ pub(crate) fn cformat_string(
         }
 
         // dict
-        for (idx, part) in format {
+        for (_, part) in format {
             match part {
                 CFormatPart::Literal(literal) => result.push_wtf8(&literal),
                 CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
                     let value = values_obj.get_item(&mapping_key.unwrap(), vm)?;
-                    let part_result = spec_format_string(vm, &spec, value, idx)?;
+                    let part_result = spec_format_string(vm, &spec, value)?;
                     result.push_wtf8(&part_result);
                 }
             }
@@ -510,7 +505,7 @@ pub(crate) fn cformat_string(
 
     let mut value_iter = values.iter();
 
-    for (idx, part) in format {
+    for (_, part) in format {
         match part {
             CFormatPart::Literal(literal) => result.push_wtf8(&literal),
             CFormatPart::Spec(CFormatSpecKeyed { mut spec, .. }) => {
@@ -526,7 +521,7 @@ pub(crate) fn cformat_string(
                     return Err(vm.new_type_error("not enough arguments for format string"));
                 };
 
-                let part_result = spec_format_string(vm, &spec, value.clone(), idx)?;
+                let part_result = spec_format_string(vm, &spec, value.clone())?;
                 result.push_wtf8(&part_result);
             }
         }

@@ -37,7 +37,6 @@ pub enum FormatConversion {
     Str = b's',
     Repr = b'r',
     Ascii = b'b',
-    Bytes = b'a',
 }
 
 impl FormatParse for FormatConversion {
@@ -59,7 +58,6 @@ impl FormatConversion {
             's' => Some(Self::Str),
             'r' => Some(Self::Repr),
             'a' => Some(Self::Ascii),
-            'b' => Some(Self::Bytes),
             _ => None,
         }
     }
