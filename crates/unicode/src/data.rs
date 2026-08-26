@@ -19,6 +19,7 @@ use icu_properties::props::{
 };
 use rustpython_wtf8::CodePoint;
 
+include!(concat!(env!("OUT_DIR"), "/generated/algo_names.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/bidi_class_3_2.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/binary_props_3_2.rs"));
 include!(concat!(
@@ -75,6 +76,37 @@ impl DecompositionType {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum AlgorithmicName {
+    TangutIdeograph,
+}
+
+impl AlgorithmicName {
+    const fn name_base(self) -> &'static str {
+        match self {
+            Self::TangutIdeograph => "TANGUT IDEOGRAPH",
+        }
+    }
+
+    fn to_name(self, ch: char) -> String {
+        match self {
+            Self::TangutIdeograph => format!("{}-{:0X}", self.name_base(), ch as u32),
+        }
+    }
+
+    fn check_name(search_name: &str) -> Option<char> {
+        if let Some(without_base) = search_name.strip_prefix(Self::TangutIdeograph.name_base()) {
+            let cp = u32::from_str_radix(without_base.strip_prefix('-')?.trim(), 16).ok()?;
+            let ch = char::from_u32(cp)?;
+            if lookup_table(ALGO_NAMES, ch)? == Self::TangutIdeograph {
+                return Some(ch);
+            }
+        }
+
+        None
+    }
+}
+
 fn lookup_table<T: Copy>(table: &[(u32, u32, T)], ch: char) -> Option<T> {
     let ch = ch as u32;
     table
@@ -91,7 +123,10 @@ fn lookup_table<T: Copy>(table: &[(u32, u32, T)], ch: char) -> Option<T> {
         .map(|i| table[i].2)
 }
 
-fn membership_3_2(ch: u32) -> bool {
+#[cold]
+#[inline(never)]
+#[must_use]
+pub fn membership_3_2(ch: u32) -> bool {
     MEMBERSHIP_3_2
         .binary_search_by(|&(start, end)| {
             if ch > end {
@@ -136,12 +171,17 @@ pub fn unicode_version() -> String {
 }
 
 /// Look up a character by its Unicode name (`unicodedata.lookup`).
-pub use unicode_names2::character as lookup_character;
+#[must_use]
+pub fn lookup_character(search_name: &str) -> Option<char> {
+    unicode_names2::character(search_name).or_else(|| AlgorithmicName::check_name(search_name))
+}
 
 /// The Unicode name of `ch` (`unicodedata.name`), if any.
 #[must_use]
 pub fn character_name(ch: char) -> Option<String> {
-    unicode_names2::name(ch).map(|name| name.to_string())
+    unicode_names2::name(ch)
+        .map(|name| name.to_string())
+        .or_else(|| lookup_table(ALGO_NAMES, ch).map(|v| v.to_name(ch)))
 }
 
 /// A view over the Unicode character database at a fixed version.
@@ -157,6 +197,17 @@ impl Ucd {
     #[must_use]
     pub const fn new(modern: bool) -> Self {
         Self { modern }
+    }
+
+    #[must_use]
+    pub fn membership(self, ch: char) -> bool {
+        if !self.modern {
+            cold_path();
+            membership_3_2(ch as u32)
+        } else {
+            // Rust chars always "exist" for modern Unicode or else they wouldn't be chars.
+            true
+        }
     }
 
     #[must_use]
