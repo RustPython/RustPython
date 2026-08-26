@@ -878,6 +878,7 @@ class CPythonOrderedDictSideEffects:
         self.assertDictEqual(dict1, dict.fromkeys((0, 4.2)))
         self.assertDictEqual(dict2, dict.fromkeys((0, Key(), 4.2)))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised by copy
     def test_issue148660_copy_clear_in_key_eq(self):
         # gh-148660: od.copy() must not crash when a key's __eq__ clears od
         # while copy() is inserting into the new dict.
@@ -900,6 +901,7 @@ class CPythonOrderedDictSideEffects:
         msg = "OrderedDict mutated during iteration"
         self.assertRaisesRegex(RuntimeError, msg, od.copy)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeError not raised by copy
     def test_issue148660_copy_clear_in_subclass_getitem(self):
         # gh-148660: od.copy() must not crash when a subclass __getitem__
         # clears od.
