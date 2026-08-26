@@ -12,7 +12,9 @@ from http.client import HTTPException
 import sys
 import unicodedata
 import unittest
+import weakref
 from test.support import (
+    gc_collect,
     open_urlresource,
     requires_resource,
     script_helper,
@@ -30,14 +32,33 @@ def iterallchars():
     maxunicode = 0xffff if quicktest else sys.maxunicode
     return map(chr, range(maxunicode + 1))
 
+
+def check_version(testfile):
+    hdr = testfile.readline()
+    return unicodedata.unidata_version in hdr
+
+
+def download_test_data_file(filename):
+    TESTDATAURL = f"http://www.pythontest.net/unicode/{unicodedata.unidata_version}/{filename}"
+
+    try:
+        return open_urlresource(TESTDATAURL, encoding="utf-8", check=check_version)
+    except PermissionError:
+        raise unittest.SkipTest(
+            f"Permission error when downloading {TESTDATAURL} "
+            f"into the test data directory"
+        )
+    except (OSError, HTTPException) as exc:
+        raise unittest.SkipTest(f"Failed to download {TESTDATAURL}: {exc}")
+
+
 class UnicodeMethodsTest(unittest.TestCase):
 
     # update this, if the database changes
-    expectedchecksum = ('486bf97d506d0ccf0e463fd1f40c51029805af5a'
+    expectedchecksum = ('47a99fa654ef1f50e89d2e9697b7b041fccb5a05'
                         if quicktest else
-                        '9e43ee3929471739680c0e705482b4ae1c4122e4')
+                        '8b2615a9fc627676cbc0b6fac0191177df97ef5f')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + 9e43ee3929471739680c0e705482b4ae1c4122e4
     def test_method_checksum(self):
         h = hashlib.sha1()
         for char in iterallchars():
@@ -84,17 +105,9 @@ class UnicodeMethodsTest(unittest.TestCase):
         self.assertEqual(result, self.expectedchecksum)
 
 
-class UnicodeFunctionsTest(unittest.TestCase):
-    db = unicodedata
-    old = False
+class BaseUnicodeFunctionsTest:
 
-    # Update this if the database changes. Make sure to do a full rebuild
-    # (e.g. 'make distclean && make') to get the correct checksum.
-    expectedchecksum = ('1ba453ec456896f1190d849b6e9b7c2e1a4128e0'
-                        if quicktest else
-                        '46ca89d9fe34881d0be3a4a4b29f5aa8c019640c')
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'digit'
+    @unittest.skip  # TODO: RUSTPYTHON; AssertionError: '7bda75e48a961a01ab328358980cefc5c0a1666d' != '68cd01e2c680b851c1fcab012efb5635'
     def test_function_checksum(self):
         db = self.db
         data = []
@@ -118,6 +131,7 @@ class UnicodeFunctionsTest(unittest.TestCase):
         result = h.hexdigest()
         self.assertEqual(result, self.expectedchecksum)
 
+    @unittest.expectedFailure   # TODO: RUSTPYTHON; AssertionError: None != 'TANGUT IDEOGRAPH-17000'
     def test_name(self):
         name = self.db.name
         self.assertRaises(ValueError, name, '\0')
@@ -149,12 +163,16 @@ class UnicodeFunctionsTest(unittest.TestCase):
                          'EGYPTIAN HIEROGLYPH-13460')
         self.assertEqual(name('\U000143FA', None), None if self.old else
                          'EGYPTIAN HIEROGLYPH-143FA')
+        self.assertEqual(name('\U00017000', None), None if self.old else
+                         'TANGUT IDEOGRAPH-17000')
         self.assertEqual(name('\U00018B00', None), None if self.old else
                          'KHITAN SMALL SCRIPT CHARACTER-18B00')
         self.assertEqual(name('\U00018CD5', None), None if self.old else
                          'KHITAN SMALL SCRIPT CHARACTER-18CD5')
         self.assertEqual(name('\U00018CFF', None), None if self.old else
                          'KHITAN SMALL SCRIPT CHARACTER-18CFF')
+        self.assertEqual(name('\U00018D1E', None), None if self.old else
+                         'TANGUT IDEOGRAPH-18D1E')
         self.assertEqual(name('\U0001B170', None), None if self.old else
                          'NUSHU CHARACTER-1B170')
         self.assertEqual(name('\U0001B2FB', None), None if self.old else
@@ -164,8 +182,8 @@ class UnicodeFunctionsTest(unittest.TestCase):
                          'MIDDLE LEFT AND MIDDLE RIGHT TO LOWER CENTRE')
         self.assertEqual(name('\U0002A6D6'), 'CJK UNIFIED IDEOGRAPH-2A6D6')
         self.assertEqual(name('\U0002FA1D'), 'CJK COMPATIBILITY IDEOGRAPH-2FA1D')
-        self.assertEqual(name('\U000323AF', None), None if self.old else
-                         'CJK UNIFIED IDEOGRAPH-323AF')
+        self.assertEqual(name('\U00033479', None), None if self.old else
+                         'CJK UNIFIED IDEOGRAPH-33479')
 
     @requires_resource('cpu')
     def test_name_inverse_lookup(self):
@@ -182,7 +200,7 @@ class UnicodeFunctionsTest(unittest.TestCase):
             char = chr(i)
             self.assertRaises(ValueError, self.db.name, char)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: KeyError not raised by lookup
+    @unittest.expectedFailure   # TODO: RUSTPYTHON; AssertionError: KeyError not raised by lookup
     def test_lookup_nonexistant(self):
         # just make sure that lookup can fail
         for nonexistent in [
@@ -225,7 +243,7 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertRaises(TypeError, self.db.digit, 'xx')
         self.assertRaises(ValueError, self.db.digit, 'x')
 
-    @unittest.skip  # TODO: RUSTPYTHON; - None != 1e+20 (for 3.2.0; passes on latest)
+    @unittest.skip  # TODO: RUSTPYTHON; None != 1e+20 (for 3.2.0; passes on latest)
     def test_numeric(self):
         self.assertEqual(self.db.numeric('A',None), None)
         self.assertEqual(self.db.numeric('9'), 9)
@@ -306,7 +324,6 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertRaises(TypeError, self.db.category)
         self.assertRaises(TypeError, self.db.category, 'xx')
 
-    # NOTE: RUSTPYTHON; This test is from 3.15. See RustPython#8548 for motivation.
     def test_bidirectional(self):
         self.assertEqual(self.db.bidirectional('\uFFFE'), '' if self.old else 'BN')
         self.assertEqual(self.db.bidirectional(' '), 'WS')
@@ -336,7 +353,16 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertRaises(TypeError, self.db.bidirectional)
         self.assertRaises(TypeError, self.db.bidirectional, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'D4CC 11B6' != '1111 1171 11B6'
+    def test_bidirectional_unassigned(self):
+        self.assertEqual(self.db.bidirectional('\u0378'), '' if self.old else 'L')
+        self.assertEqual(self.db.bidirectional('\u077F'), '' if self.old else 'AL')
+        self.assertEqual(self.db.bidirectional('\u20CF'), '' if self.old else 'ET')
+        self.assertEqual(self.db.bidirectional('\u0590'), '' if self.old else 'R')
+        self.assertEqual(self.db.bidirectional('\uFFFF'), '' if self.old else 'BN')
+        self.assertEqual(self.db.bidirectional('\U0001FFFE'), '' if self.old else 'BN')
+        self.assertEqual(self.db.bidirectional('\U00010D01'), '' if self.old else 'AL')
+
+    @unittest.expectedFailure   # TODO: RUSTPYTHON; AssertionError: '<compat> 03A3 != ''
     def test_decomposition(self):
         self.assertEqual(self.db.decomposition('\uFFFE'),'')
         self.assertEqual(self.db.decomposition('\u00bc'), '<fraction> 0031 2044 0034')
@@ -354,6 +380,8 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertEqual(self.db.decomposition('\U0001e06d'), '' if self.old else '<super> 04B1')
         # New in 16.0.0
         self.assertEqual(self.db.decomposition('\U0001CCD6'), '' if self.old else '<font> 0041')
+        # New in 17.0.0
+        self.assertEqual(self.db.decomposition('\uA7F1'), '' if self.old else '<super> 0053')
 
         # Hangul characters
         self.assertEqual(self.db.decomposition('\uAC00'), '1100 1161')
@@ -403,6 +431,8 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertEqual(self.db.combining('\U00010efd'), 0 if self.old else 220)
         # New in 16.0.0
         self.assertEqual(self.db.combining('\u0897'), 0 if self.old else 230)
+        # New in 17.0.0
+        self.assertEqual(self.db.combining('\u1ACF'), 0 if self.old else 230)
 
         self.assertRaises(TypeError, self.db.combining)
         self.assertRaises(TypeError, self.db.combining, 'xx')
@@ -589,6 +619,34 @@ class UnicodeFunctionsTest(unittest.TestCase):
         b = 'C\u0338' * 20  + '\xC7'
         self.assertEqual(self.db.normalize('NFC', a), b)
 
+    def test_long_combining_mark_run(self):
+        # gh-149079: avoid quadratic canonical ordering.
+        payload = "a" + ("\u0300\u0327" * 32)
+        nfd = "a" + ("\u0327" * 32) + ("\u0300" * 32)
+        nfc = "\u00e0" + ("\u0327" * 32) + ("\u0300" * 31)
+
+        self.assertEqual(self.db.normalize("NFD", payload), nfd)
+        self.assertEqual(self.db.normalize("NFKD", payload), nfd)
+        self.assertEqual(self.db.normalize("NFC", payload), nfc)
+        self.assertEqual(self.db.normalize("NFKC", payload), nfc)
+
+    def test_combining_mark_run_fast_paths(self):
+        # gh-149079: cover short runs and already-sorted long runs.
+        short_payload = "a" + ("\u0300\u0327" * 9) + "\u0300"
+        short_nfd = "a" + ("\u0327" * 9) + ("\u0300" * 10)
+        short_nfc = "\u00e0" + ("\u0327" * 9) + ("\u0300" * 9)
+        long_sorted = "a" + ("\u0327" * 30) + ("\u0300" * 30)
+        long_sorted_nfc = "\u00e0" + ("\u0327" * 30) + ("\u0300" * 29)
+
+        self.assertEqual(self.db.normalize("NFD", short_payload), short_nfd)
+        self.assertEqual(self.db.normalize("NFKD", short_payload), short_nfd)
+        self.assertEqual(self.db.normalize("NFC", short_payload), short_nfc)
+        self.assertEqual(self.db.normalize("NFKC", short_payload), short_nfc)
+        self.assertEqual(self.db.normalize("NFD", long_sorted), long_sorted)
+        self.assertEqual(self.db.normalize("NFKD", long_sorted), long_sorted)
+        self.assertEqual(self.db.normalize("NFC", long_sorted), long_sorted_nfc)
+        self.assertEqual(self.db.normalize("NFKC", long_sorted), long_sorted_nfc)
+
     def test_issue29456(self):
         # Fix #29456
         u1176_str_a = '\u1100\u1176\u11a8'
@@ -641,6 +699,8 @@ class UnicodeFunctionsTest(unittest.TestCase):
         # New in 16.0.0
         self.assertEqual(eaw('\u2630'), 'N' if self.old else 'W')
         self.assertEqual(eaw('\U0001FAE9'), 'N' if self.old else 'W')
+        # New in 17.0.0
+        self.assertEqual(eaw('\U00016FF2'), 'N' if self.old else 'W')
 
     @unittest.skip  # TODO: RUSTPYTHON; AssertionError: 'N' != 'W' (passed on latest, fails on 3.2)
     def test_east_asian_width_unassigned(self):
@@ -661,29 +721,433 @@ class UnicodeFunctionsTest(unittest.TestCase):
             self.assertEqual(eaw(char), 'A')
             self.assertIs(self.db.name(char, None), None)
 
+class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
+    db = unicodedata
+    old = False
+
+    # Update this if the database changes. Make sure to do a full rebuild
+    # (e.g. 'make distclean && make') to get the correct checksum.
+    expectedchecksum = ('00b13fa975a60b1d3f490f1fc8c126ab24990c75'
+                        if quicktest else
+                        'ebfc9dd281c2226998fd435744dd2e9321899beb')
+
+    @requires_resource('network')
+    @unittest.expectedFailure   # TODO: RUSTPYTHON; AssertionError: None != 'TANGUT IDEOGRAPH-17000'
+    def test_all_names(self):
+        TESTDATAFILE = "DerivedName.txt"
+        testdata = download_test_data_file(TESTDATAFILE)
+
+        with testdata:
+            self.run_name_tests(testdata)
+
+    def run_name_tests(self, testdata):
+        names_ref = {}
+
+        def parse_cp(s):
+            return int(s, 16)
+
+        # Parse data
+        for line in testdata:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            raw_cp, name = line.split("; ")
+            # Check for a range
+            if ".." in raw_cp:
+                cp1, cp2 = map(parse_cp, raw_cp.split(".."))
+                # remove ‘*’ at the end
+                assert name[-1] == '*', (raw_cp, name)
+                name = name[:-1]
+                for cp in range(cp1, cp2 + 1):
+                    names_ref[cp] = f"{name}{cp:04X}"
+            elif name[-1] == '*':
+                cp = parse_cp(raw_cp)
+                name = name[:-1]
+                names_ref[cp] = f"{name}{cp:04X}"
+            else:
+                assert '*' not in name, (raw_cp, name)
+                cp = parse_cp(raw_cp)
+                names_ref[cp] = name
+
+        for cp in range(0, sys.maxunicode + 1):
+            self.assertEqual(self.db.name(chr(cp), None), names_ref.get(cp))
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'isxidstart'
+    def test_isxidstart(self):
+        self.assertTrue(self.db.isxidstart('S'))
+        self.assertTrue(self.db.isxidstart('\u0AD0'))  # GUJARATI OM
+        self.assertTrue(self.db.isxidstart('\u0EC6'))  # LAO KO LA
+        self.assertTrue(self.db.isxidstart('\u17DC'))  # KHMER SIGN AVAKRAHASANYA
+        self.assertTrue(self.db.isxidstart('\uA015'))  # YI SYLLABLE WU
+        self.assertTrue(self.db.isxidstart('\uFE7B'))  # ARABIC KASRA MEDIAL FORM
+
+        self.assertFalse(self.db.isxidstart(' '))
+        self.assertFalse(self.db.isxidstart('0'))
+        self.assertRaises(TypeError, self.db.isxidstart)
+        self.assertRaises(TypeError, self.db.isxidstart, 'xx')
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'isxidcontinue'
+    def test_isxidcontinue(self):
+        self.assertTrue(self.db.isxidcontinue('S'))
+        self.assertTrue(self.db.isxidcontinue('_'))
+        self.assertTrue(self.db.isxidcontinue('0'))
+        self.assertTrue(self.db.isxidcontinue('\u00BA'))  # MASCULINE ORDINAL INDICATOR
+        self.assertTrue(self.db.isxidcontinue('\u0640'))  # ARABIC TATWEEL
+        self.assertTrue(self.db.isxidcontinue('\u0710'))  # SYRIAC LETTER ALAPH
+        self.assertTrue(self.db.isxidcontinue('\u0B3E'))  # ORIYA VOWEL SIGN AA
+        self.assertTrue(self.db.isxidcontinue('\u17D7'))  # KHMER SIGN LEK TOO
+
+        self.assertFalse(self.db.isxidcontinue(' '))
+        self.assertRaises(TypeError, self.db.isxidcontinue)
+        self.assertRaises(TypeError, self.db.isxidcontinue, 'xx')
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'grapheme_cluster_break'
+    def test_grapheme_cluster_break(self):
+        gcb = self.db.grapheme_cluster_break
+        self.assertEqual(gcb(' '), 'Other')
+        self.assertEqual(gcb('x'), 'Other')
+        self.assertEqual(gcb('\U0010FFFF'), 'Other')
+        self.assertEqual(gcb('\r'), 'CR')
+        self.assertEqual(gcb('\n'), 'LF')
+        self.assertEqual(gcb('\0'), 'Control')
+        self.assertEqual(gcb('\t'), 'Control')
+        self.assertEqual(gcb('\x1F'), 'Control')
+        self.assertEqual(gcb('\x7F'), 'Control')
+        self.assertEqual(gcb('\x9F'), 'Control')
+        self.assertEqual(gcb('\U000E0001'), 'Control')
+        self.assertEqual(gcb('\u0300'), 'Extend')
+        self.assertEqual(gcb('\u200C'), 'Extend')
+        self.assertEqual(gcb('\U000E01EF'), 'Extend')
+        self.assertEqual(gcb('\u1159'), 'L')
+        self.assertEqual(gcb('\u11F9'), 'T')
+        self.assertEqual(gcb('\uD788'), 'LV')
+        self.assertEqual(gcb('\uD7A3'), 'LVT')
+        # New in 5.0.0
+        self.assertEqual(gcb('\u05BA'), 'Extend')
+        self.assertEqual(gcb('\u20EF'), 'Extend')
+        # New in 5.1.0
+        self.assertEqual(gcb('\u2064'), 'Control')
+        self.assertEqual(gcb('\uAA4D'), 'SpacingMark')
+        # New in 5.2.0
+        self.assertEqual(gcb('\u0816'), 'Extend')
+        self.assertEqual(gcb('\uA97C'), 'L')
+        self.assertEqual(gcb('\uD7C6'), 'V')
+        self.assertEqual(gcb('\uD7FB'), 'T')
+        # New in 6.0.0
+        self.assertEqual(gcb('\u093A'), 'Extend')
+        self.assertEqual(gcb('\U00011002'), 'SpacingMark')
+        # New in 6.1.0
+        self.assertEqual(gcb('\U000E0FFF'), 'Control')
+        self.assertEqual(gcb('\U00016F7E'), 'SpacingMark')
+        # New in 6.2.0
+        self.assertEqual(gcb('\U0001F1E6'), 'Regional_Indicator')
+        self.assertEqual(gcb('\U0001F1FF'), 'Regional_Indicator')
+        # New in 6.3.0
+        self.assertEqual(gcb('\u180E'), 'Control')
+        self.assertEqual(gcb('\u1A1B'), 'Extend')
+        # New in 7.0.0
+        self.assertEqual(gcb('\u0E33'), 'SpacingMark')
+        self.assertEqual(gcb('\u0EB3'), 'SpacingMark')
+        self.assertEqual(gcb('\U0001BCA3'), 'Control')
+        self.assertEqual(gcb('\U0001E8D6'), 'Extend')
+        self.assertEqual(gcb('\U0001163E'), 'SpacingMark')
+        # New in 8.0.0
+        self.assertEqual(gcb('\u08E3'), 'Extend')
+        self.assertEqual(gcb('\U00011726'), 'SpacingMark')
+        # New in 9.0.0
+        self.assertEqual(gcb('\u0600'), 'Prepend')
+        self.assertEqual(gcb('\U000E007F'), 'Extend')
+        self.assertEqual(gcb('\U00011CB4'), 'SpacingMark')
+        self.assertEqual(gcb('\u200D'), 'ZWJ')
+        # New in 10.0.0
+        self.assertEqual(gcb('\U00011D46'), 'Prepend')
+        self.assertEqual(gcb('\U00011D47'), 'Extend')
+        self.assertEqual(gcb('\U00011A97'), 'SpacingMark')
+        # New in 11.0.0
+        self.assertEqual(gcb('\U000110CD'), 'Prepend')
+        self.assertEqual(gcb('\u07FD'), 'Extend')
+        self.assertEqual(gcb('\U00011EF6'), 'SpacingMark')
+        # New in 12.0.0
+        self.assertEqual(gcb('\U00011A84'), 'Prepend')
+        self.assertEqual(gcb('\U00013438'), 'Control')
+        self.assertEqual(gcb('\U0001E2EF'), 'Extend')
+        self.assertEqual(gcb('\U00016F87'), 'SpacingMark')
+        # New in 13.0.0
+        self.assertEqual(gcb('\U00011941'), 'Prepend')
+        self.assertEqual(gcb('\U00016FE4'), 'Extend')
+        self.assertEqual(gcb('\U00011942'), 'SpacingMark')
+        # New in 14.0.0
+        self.assertEqual(gcb('\u0891'), 'Prepend')
+        self.assertEqual(gcb('\U0001E2AE'), 'Extend')
+        # New in 15.0.0
+        self.assertEqual(gcb('\U00011F02'), 'Prepend')
+        self.assertEqual(gcb('\U0001343F'), 'Control')
+        self.assertEqual(gcb('\U0001E4EF'), 'Extend')
+        self.assertEqual(gcb('\U00011F3F'), 'SpacingMark')
+        # New in 16.0.0
+        self.assertEqual(gcb('\U000113D1'), 'Prepend')
+        self.assertEqual(gcb('\U0001E5EF'), 'Extend')
+        self.assertEqual(gcb('\U0001612C'), 'SpacingMark')
+        self.assertEqual(gcb('\U00016D63'), 'V')
+        # New in 17.0.0
+        self.assertEqual(gcb('\u1AEB'), 'Extend')
+        self.assertEqual(gcb('\U00011B67'), 'SpacingMark')
+
+        self.assertRaises(TypeError, gcb)
+        self.assertRaises(TypeError, gcb, b'x')
+        self.assertRaises(TypeError, gcb, 120)
+        self.assertRaises(TypeError, gcb, '')
+        self.assertRaises(TypeError, gcb, 'xx')
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'indic_conjunct_break'
+    def test_indic_conjunct_break(self):
+        incb = self.db.indic_conjunct_break
+        self.assertEqual(incb(' '), 'None')
+        self.assertEqual(incb('x'), 'None')
+        self.assertEqual(incb('\U0010FFFF'), 'None')
+        # New in 15.1.0
+        self.assertEqual(incb('\u094D'), 'Linker')
+        self.assertEqual(incb('\u0D4D'), 'Linker')
+        self.assertEqual(incb('\u0915'), 'Consonant')
+        self.assertEqual(incb('\u0D3A'), 'Consonant')
+        self.assertEqual(incb('\u0300'), 'Extend')
+        self.assertEqual(incb('\U0001E94A'), 'Extend')
+        # New in 16.0.0
+        self.assertEqual(incb('\u034F'), 'Extend')
+        self.assertEqual(incb('\U000E01EF'), 'Extend')
+        # New in 17.0.0
+        self.assertEqual(incb('\u1039'), 'Linker')
+        self.assertEqual(incb('\U00011F42'), 'Linker')
+        self.assertEqual(incb('\u1000'), 'Consonant')
+        self.assertEqual(incb('\U00011F33'), 'Consonant')
+        self.assertEqual(incb('\U0001E6F5'), 'Extend')
+
+        self.assertRaises(TypeError, incb)
+        self.assertRaises(TypeError, incb, b'x')
+        self.assertRaises(TypeError, incb, 120)
+        self.assertRaises(TypeError, incb, '')
+        self.assertRaises(TypeError, incb, 'xx')
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'extended_pictographic'
+    def test_extended_pictographic(self):
+        ext_pict = self.db.extended_pictographic
+        self.assertIs(ext_pict(' '), False)
+        self.assertIs(ext_pict('x'), False)
+        self.assertIs(ext_pict('\U0010FFFF'), False)
+        # New in 13.0.0
+        self.assertIs(ext_pict('\xA9'), True)
+        self.assertIs(ext_pict('\u203C'), True)
+        self.assertIs(ext_pict('\U0001FAD6'), True)
+        self.assertIs(ext_pict('\U0001FFFD'), True)
+        # New in 17.0.0
+        self.assertIs(ext_pict('\u2388'), False)
+        self.assertIs(ext_pict('\U0001FA6D'), False)
+
+        self.assertRaises(TypeError, ext_pict)
+        self.assertRaises(TypeError, ext_pict, b'x')
+        self.assertRaises(TypeError, ext_pict, 120)
+        self.assertRaises(TypeError, ext_pict, '')
+        self.assertRaises(TypeError, ext_pict, 'xx')
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'iter_graphemes'
+    def test_grapheme_break(self):
+        def graphemes(*args):
+            return list(map(str, self.db.iter_graphemes(*args)))
+
+        self.assertRaises(TypeError, self.db.iter_graphemes)
+        self.assertRaises(TypeError, self.db.iter_graphemes, b'x')
+        self.assertRaises(TypeError, self.db.iter_graphemes, 'x', 0, 0, 0)
+
+        self.assertEqual(graphemes(''), [])
+        self.assertEqual(graphemes('abcd'), ['a', 'b', 'c', 'd'])
+        self.assertEqual(graphemes('abcd', 1), ['b', 'c', 'd'])
+        self.assertEqual(graphemes('abcd', 1, 3), ['b', 'c'])
+        self.assertEqual(graphemes('abcd', -3), ['b', 'c', 'd'])
+        self.assertEqual(graphemes('abcd', 1, -1), ['b', 'c'])
+        self.assertEqual(graphemes('abcd', 3, 1), [])
+        self.assertEqual(graphemes('abcd', 5), [])
+        self.assertEqual(graphemes('abcd', 0, 5), ['a', 'b', 'c', 'd'])
+        self.assertEqual(graphemes('abcd', -5), ['a', 'b', 'c', 'd'])
+        self.assertEqual(graphemes('abcd', 0, -5), [])
+        # GB3
+        self.assertEqual(graphemes('\r\n'), ['\r\n'])
+        # GB4
+        self.assertEqual(graphemes('\r\u0308'), ['\r', '\u0308'])
+        self.assertEqual(graphemes('\n\u0308'), ['\n', '\u0308'])
+        self.assertEqual(graphemes('\0\u0308'), ['\0', '\u0308'])
+        # GB5
+        self.assertEqual(graphemes('\u06dd\r'), ['\u06dd', '\r'])
+        self.assertEqual(graphemes('\u06dd\n'), ['\u06dd', '\n'])
+        self.assertEqual(graphemes('\u06dd\0'), ['\u06dd', '\0'])
+        # GB6
+        self.assertEqual(graphemes('\u1100\u1160'), ['\u1100\u1160'])
+        self.assertEqual(graphemes('\u1100\uAC00'), ['\u1100\uAC00'])
+        self.assertEqual(graphemes('\u1100\uAC01'), ['\u1100\uAC01'])
+        # GB7
+        self.assertEqual(graphemes('\uAC00\u1160'), ['\uAC00\u1160'])
+        self.assertEqual(graphemes('\uAC00\u11A8'), ['\uAC00\u11A8'])
+        self.assertEqual(graphemes('\u1160\u1160'), ['\u1160\u1160'])
+        self.assertEqual(graphemes('\u1160\u11A8'), ['\u1160\u11A8'])
+        # GB8
+        self.assertEqual(graphemes('\uAC01\u11A8'), ['\uAC01\u11A8'])
+        self.assertEqual(graphemes('\u11A8\u11A8'), ['\u11A8\u11A8'])
+        # GB9
+        self.assertEqual(graphemes('a\u0300'), ['a\u0300'])
+        self.assertEqual(graphemes('a\u200D'), ['a\u200D'])
+        # GB9a
+        self.assertEqual(graphemes('\u0905\u0903'), ['\u0905\u0903'])
+        # GB9b
+        self.assertEqual(graphemes('\u06dd\u0661'), ['\u06dd\u0661'])
+        # GB9c
+        self.assertEqual(graphemes('\u0915\u094d\u0924'),
+                         ['\u0915\u094d\u0924'])
+        self.assertEqual(graphemes('\u0915\u094D\u094D\u0924'),
+                         ['\u0915\u094D\u094D\u0924'])
+        self.assertEqual(graphemes('\u0915\u094D\u0924\u094D\u092F'),
+                         ['\u0915\u094D\u0924\u094D\u092F'])
+        # GB11
+        self.assertEqual(graphemes(
+                '\U0001F9D1\U0001F3FE\u200D\u2764\uFE0F'
+                '\u200D\U0001F48B\u200D\U0001F9D1\U0001F3FC'),
+                ['\U0001F9D1\U0001F3FE\u200D\u2764\uFE0F'
+                '\u200D\U0001F48B\u200D\U0001F9D1\U0001F3FC'])
+        # GB12
+        self.assertEqual(graphemes(
+            '\U0001F1FA\U0001F1E6\U0001F1FA\U0001F1F3'),
+            ['\U0001F1FA\U0001F1E6', '\U0001F1FA\U0001F1F3'])
+        # GB13
+        self.assertEqual(graphemes(
+            'a\U0001F1FA\U0001F1E6\U0001F1FA\U0001F1F3'),
+            ['a', '\U0001F1FA\U0001F1E6', '\U0001F1FA\U0001F1F3'])
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'block'
+    def test_block(self):
+        self.assertEqual(self.db.block('\u0000'), 'Basic Latin')
+        self.assertEqual(self.db.block('\u0041'), 'Basic Latin')
+        self.assertEqual(self.db.block('\u007F'), 'Basic Latin')
+        self.assertEqual(self.db.block('\u0080'), 'Latin-1 Supplement')
+        self.assertEqual(self.db.block('\u00FF'), 'Latin-1 Supplement')
+        self.assertEqual(self.db.block('\u1159'), 'Hangul Jamo')
+        self.assertEqual(self.db.block('\u11F9'), 'Hangul Jamo')
+        self.assertEqual(self.db.block('\uD788'), 'Hangul Syllables')
+        self.assertEqual(self.db.block('\uD7A3'), 'Hangul Syllables')
+        # New in 5.0.0
+        self.assertEqual(self.db.block('\u05BA'), 'Hebrew')
+        self.assertEqual(self.db.block('\u20EF'), 'Combining Diacritical Marks for Symbols')
+        # New in 5.1.0
+        self.assertEqual(self.db.block('\u2064'), 'General Punctuation')
+        self.assertEqual(self.db.block('\uAA4D'), 'Cham')
+        # New in 5.2.0
+        self.assertEqual(self.db.block('\u0816'), 'Samaritan')
+        self.assertEqual(self.db.block('\uA97C'), 'Hangul Jamo Extended-A')
+        self.assertEqual(self.db.block('\uD7C6'), 'Hangul Jamo Extended-B')
+        self.assertEqual(self.db.block('\uD7FB'), 'Hangul Jamo Extended-B')
+        # New in 6.0.0
+        self.assertEqual(self.db.block('\u093A'), 'Devanagari')
+        self.assertEqual(self.db.block('\U00011002'), 'Brahmi')
+        # New in 6.1.0
+        self.assertEqual(self.db.block('\U000E0FFF'), 'No_Block')
+        self.assertEqual(self.db.block('\U00016F7E'), 'Miao')
+        # New in 6.2.0
+        self.assertEqual(self.db.block('\U0001F1E6'), 'Enclosed Alphanumeric Supplement')
+        self.assertEqual(self.db.block('\U0001F1FF'), 'Enclosed Alphanumeric Supplement')
+        # New in 6.3.0
+        self.assertEqual(self.db.block('\u180E'), 'Mongolian')
+        self.assertEqual(self.db.block('\u1A1B'), 'Buginese')
+        # New in 7.0.0
+        self.assertEqual(self.db.block('\u0E33'), 'Thai')
+        self.assertEqual(self.db.block('\u0EB3'), 'Lao')
+        self.assertEqual(self.db.block('\U0001BCA3'), 'Shorthand Format Controls')
+        self.assertEqual(self.db.block('\U0001E8D6'), 'Mende Kikakui')
+        self.assertEqual(self.db.block('\U0001163E'), 'Modi')
+        # New in 8.0.0
+        self.assertEqual(self.db.block('\u08E3'), 'Arabic Extended-A')
+        self.assertEqual(self.db.block('\U00011726'), 'Ahom')
+        # New in 9.0.0
+        self.assertEqual(self.db.block('\u0600'), 'Arabic')
+        self.assertEqual(self.db.block('\U000E007F'), 'Tags')
+        self.assertEqual(self.db.block('\U00011CB4'), 'Marchen')
+        self.assertEqual(self.db.block('\u200D'), 'General Punctuation')
+        # New in 10.0.0
+        self.assertEqual(self.db.block('\U00011D46'), 'Masaram Gondi')
+        self.assertEqual(self.db.block('\U00011D47'), 'Masaram Gondi')
+        self.assertEqual(self.db.block('\U00011A97'), 'Soyombo')
+        # New in 11.0.0
+        self.assertEqual(self.db.block('\U000110CD'), 'Kaithi')
+        self.assertEqual(self.db.block('\u07FD'), 'NKo')
+        self.assertEqual(self.db.block('\U00011EF6'), 'Makasar')
+        # New in 12.0.0
+        self.assertEqual(self.db.block('\U00011A84'), 'Soyombo')
+        self.assertEqual(self.db.block('\U00013438'), 'Egyptian Hieroglyph Format Controls')
+        self.assertEqual(self.db.block('\U0001E2EF'), 'Wancho')
+        self.assertEqual(self.db.block('\U00016F87'), 'Miao')
+        # New in 13.0.0
+        self.assertEqual(self.db.block('\U00011941'), 'Dives Akuru')
+        self.assertEqual(self.db.block('\U00016FE4'), 'Ideographic Symbols and Punctuation')
+        self.assertEqual(self.db.block('\U00011942'), 'Dives Akuru')
+        # New in 14.0.0
+        self.assertEqual(self.db.block('\u0891'), 'Arabic Extended-B')
+        self.assertEqual(self.db.block('\U0001E2AE'), 'Toto')
+        # New in 15.0.0
+        self.assertEqual(self.db.block('\U00011F02'), 'Kawi')
+        self.assertEqual(self.db.block('\U0001343F'), 'Egyptian Hieroglyph Format Controls')
+        self.assertEqual(self.db.block('\U0001E4EF'), 'Nag Mundari')
+        self.assertEqual(self.db.block('\U00011F3F'), 'Kawi')
+        # New in 16.0.0
+        self.assertEqual(self.db.block('\U000113D1'), 'Tulu-Tigalari')
+        self.assertEqual(self.db.block('\U0001E5EF'), 'Ol Onal')
+        self.assertEqual(self.db.block('\U0001612C'), 'Gurung Khema')
+        self.assertEqual(self.db.block('\U00016D63'), 'Kirat Rai')
+        # New in 17.0.0
+        self.assertEqual(self.db.block('\u1AEB'), 'Combining Diacritical Marks Extended')
+        self.assertEqual(self.db.block('\U00011B67'), 'Sharada Supplement')
+        # Unassigned
+        self.assertEqual(self.db.block('\U00100000'), 'Supplementary Private Use Area-B')
+        self.assertEqual(self.db.block('\U0010FFFF'), 'Supplementary Private Use Area-B')
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'block'
+    def test_block_invalid_input(self):
+        self.assertRaises(TypeError, self.db.block)
+        self.assertRaises(TypeError, self.db.block, b'x')
+        self.assertRaises(TypeError, self.db.block, 120)
+        self.assertRaises(TypeError, self.db.block, '')
+        self.assertRaises(TypeError, self.db.block, 'xx')
+
     @unittest.expectedFailure  # TODO: RUSTPYTHON; + N
     def test_east_asian_width_9_0_changes(self):
         return super().test_east_asian_width_9_0_changes()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'D4CC 11B6' != '1111 1171 11B6'
+    def test_decomposition(self):
+        return super().test_decomposition()
 
-class Unicode_3_2_0_FunctionsTest(UnicodeFunctionsTest):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: KeyError not raised by lookup
+    def test_lookup_nonexistant(self):
+        return super().test_lookup_nonexistant()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'digit'
+    def test_function_checksum(self):
+        return super().test_function_checksum()
+
+
+class Unicode_3_2_0_FunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
     db = unicodedata.ucd_3_2_0
     old = True
     expectedchecksum = ('883824cb6c0ccf994e4451ebf281e2d6d479af47'
                         if quicktest else
-                        'caf1a7f2f380f927461837f1901ef20683f98683')
+                        '68cd01e2c680b851c1fcab012efb5635b2229c2b')
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_normalization(self):
         return super().test_normalization()
 
-    @unittest.expectedSuccess  # TODO: RUSTPYTHON
-    def test_combining(self):
-        return super().test_combining()
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'LATIN SMALL LETTER D WITH CURL' != None
     def test_name(self):
         return super().test_name()
+
+    @unittest.expectedSuccess  # TODO: RUSTPYTHON
+    def test_combining(self):
+        return super().test_combining()
 
 
 class UnicodeMiscTest(unittest.TestCase):
@@ -711,6 +1175,23 @@ class UnicodeMiscTest(unittest.TestCase):
         error = "SyntaxError: (unicode error) \\N escapes not supported " \
             "(can't load unicodedata module)"
         self.assertIn(error, result.err.decode("ascii"))
+
+    @unittest.expectedFailure   # TODO: RUSTPYTHON; AssertionError Process return code is 1
+    def test_unicodedata_unload_reload(self):
+        # gh-149449: dropping unicodedata and running gc must not leave the
+        # cached _ucnhash_CAPI pointer dangling.
+        code = (
+            "import gc, sys\n"
+            "assert '\\N{GRINNING FACE}'.encode("
+            "    'ascii', errors='namereplace') == b'\\\\N{GRINNING FACE}'\n"
+            "compile(r\"x = '\\\\N{LATIN CAPITAL LETTER A}'\", '<x>', 'exec')\n"
+            "del sys.modules['unicodedata']\n"
+            "gc.collect()\n"
+            "assert '\\N{WINKING FACE}'.encode("
+            "    'ascii', errors='namereplace') == b'\\\\N{WINKING FACE}'\n"
+            "compile(r\"x = '\\\\N{LATIN CAPITAL LETTER B}'\", '<x>', 'exec')\n"
+        )
+        script_helper.assert_python_ok("-c", code)
 
     def test_decimal_numeric_consistent(self):
         # Test that decimal and numeric are consistent,
@@ -788,13 +1269,20 @@ class UnicodeMiscTest(unittest.TestCase):
                 self.assertEqual(len(lines), 1,
                                  r"%a should not be a linebreak" % c)
 
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'iter_graphemes'
+    def test_segment_object(self):
+        segments = list(unicodedata.iter_graphemes('spa\u0300m'))
+        self.assertEqual(len(segments), 4, segments)
+        segment = segments[2]
+        self.assertEqual(segment.start, 2)
+        self.assertEqual(segment.end, 4)
+        self.assertEqual(str(segment), 'a\u0300')
+        self.assertEqual(repr(segment), '<Segment 2:4>')
+        self.assertRaises(TypeError, iter, segment)
+        self.assertRaises(TypeError, len, segment)
+
 
 class NormalizationTest(unittest.TestCase):
-    @staticmethod
-    def check_version(testfile):
-        hdr = testfile.readline()
-        return unicodedata.unidata_version in hdr
-
     @staticmethod
     def unistr(data):
         data = [int(x, 16) for x in data.split(" ")]
@@ -804,17 +1292,7 @@ class NormalizationTest(unittest.TestCase):
     @requires_resource('cpu')
     def test_normalization(self):
         TESTDATAFILE = "NormalizationTest.txt"
-        TESTDATAURL = f"http://www.pythontest.net/unicode/{unicodedata.unidata_version}/{TESTDATAFILE}"
-
-        # Hit the exception early
-        try:
-            testdata = open_urlresource(TESTDATAURL, encoding="utf-8",
-                                        check=self.check_version)
-        except PermissionError:
-            self.skipTest(f"Permission error when downloading {TESTDATAURL} "
-                          f"into the test data directory")
-        except (OSError, HTTPException) as exc:
-            self.skipTest(f"Failed to download {TESTDATAURL}: {exc}")
+        testdata = download_test_data_file(TESTDATAFILE)
 
         with testdata:
             self.run_normalization_tests(testdata, unicodedata)
@@ -909,6 +1387,71 @@ class NormalizationTest(unittest.TestCase):
                 with self.subTest(form=form, input_str=input_str):
                     self.assertIs(type(normalize(form, input_str)), str)
                     self.assertIs(type(normalize(form, MyStr(input_str))), str)
+
+
+class GraphemeBreakTest(unittest.TestCase):
+    @requires_resource('network')
+    @unittest.expectedFailure   # TODO: RUSTPYTHON; AttributeError module 'unicodedata' has no attribute 'iter_graphemes'
+    def test_grapheme_break(self):
+        TESTDATAFILE = "GraphemeBreakTest.txt"
+        testdata = download_test_data_file(TESTDATAFILE)
+
+        with testdata:
+            self.run_grapheme_break_tests(testdata)
+
+    def run_grapheme_break_tests(self, testdata):
+        for line in testdata:
+            line, _, comment = line.partition('#')
+            line = line.strip()
+            if not line:
+                continue
+            comment = comment.strip()
+
+            chunks = []
+            breaks = []
+            pos = 0
+            for field in line.replace('×', ' ').split():
+                if field == '÷':
+                    chunks.append('')
+                    breaks.append(pos)
+                else:
+                    chunks[-1] += chr(int(field, 16))
+                    pos += 1
+            self.assertEqual(chunks.pop(), '', line)
+            input = ''.join(chunks)
+            with self.subTest(line):
+                result = list(unicodedata.iter_graphemes(input))
+                self.assertEqual(list(map(str, result)), chunks, comment)
+                self.assertEqual([x.start for x in result], breaks[:-1], comment)
+                self.assertEqual([x.end for x in result], breaks[1:], comment)
+                for i in range(1, len(breaks) - 1):
+                    result = list(unicodedata.iter_graphemes(input, breaks[i]))
+                    self.assertEqual(list(map(str, result)), chunks[i:], comment)
+                    self.assertEqual([x.start for x in result], breaks[i:-1], comment)
+                    self.assertEqual([x.end for x in result], breaks[i+1:], comment)
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'iter_graphemes'
+    def test_reference_loops(self):
+        # Test that reference loops involving GraphemeBreakIterator or
+        # Segment can be broken by the garbage collector.
+        class S(str):
+            pass
+
+        s = S('abc')
+        s.ref = unicodedata.iter_graphemes(s)
+        wr = weakref.ref(s)
+        del s
+        self.assertIsNotNone(wr())
+        gc_collect()
+        self.assertIsNone(wr())
+
+        s = S('abc')
+        s.ref = next(unicodedata.iter_graphemes(s))
+        wr = weakref.ref(s)
+        del s
+        self.assertIsNotNone(wr())
+        gc_collect()
+        self.assertIsNone(wr())
 
 
 if __name__ == "__main__":
