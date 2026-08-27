@@ -16,8 +16,8 @@ use super::RawRwLock;
 #[cfg(feature = "threading")]
 use core::cell::Cell;
 use lock_api::{
-    RawRwLock as RawRwLockTrait, RawRwLockDowngrade, RawRwLockRecursive as RawRwLockRecursiveTrait,
-    RawRwLockUpgrade as RawRwLockUpgradeTrait, RawRwLockUpgradeDowngrade,
+    RawRwLock as RawRwLockTrait, RawRwLockDowngrade, RawRwLockUpgrade as RawRwLockUpgradeTrait,
+    RawRwLockUpgradeDowngrade,
 };
 #[cfg(feature = "threading")]
 use std::sync::OnceLock;
@@ -269,18 +269,19 @@ unsafe impl RawRwLockDowngrade for RawDetachingRwLock {
     }
 }
 
-// SAFETY: forwards to the wrapped raw lock.
+// SAFETY: forwards to the wrapped raw lock; `lock_upgradable` only adds a wait
+// that ends with the same lock acquired.
 //
-// None of these detach. `upgrade` runs with the upgradable lock already held,
-// and `lock_shared_recursive` may be the re-entrant take of a lock this thread
-// holds; detaching there would park a thread *holding* the lock, the one thing
-// this type must not do. `lock_upgradable` starts from holding nothing and
-// could detach as safely as `lock_shared` does, but nothing takes an upgradable
-// read of one of these, so it does not.
+// `lock_upgradable` detaches for the same reason `lock_shared` does: it starts
+// from holding nothing, so the wait cannot park a thread that holds the lock.
+// `upgrade` does not, because it runs with the upgradable lock already held.
 unsafe impl RawRwLockUpgradeTrait for RawDetachingRwLock {
     #[inline]
     fn lock_upgradable(&self) {
-        self.0.lock_upgradable()
+        assert_not_stopping_the_world();
+        if !self.0.try_lock_upgradable() {
+            wait_detached(|| self.0.lock_upgradable());
+        }
     }
 
     #[inline]
@@ -318,19 +319,13 @@ unsafe impl RawRwLockUpgradeDowngrade for RawDetachingRwLock {
     }
 }
 
-// SAFETY: forwards to the wrapped raw lock. Does not detach; see the upgrade
-// impl above.
-unsafe impl RawRwLockRecursiveTrait for RawDetachingRwLock {
-    #[inline]
-    fn lock_shared_recursive(&self) {
-        self.0.lock_shared_recursive()
-    }
-
-    #[inline]
-    fn try_lock_shared_recursive(&self) -> bool {
-        self.0.try_lock_shared_recursive()
-    }
-}
+// `RawRwLockRecursive` is deliberately not implemented, so that `read_recursive`
+// does not exist on these locks. It is the one blocking acquire that cannot
+// detach: a recursive read may be the re-entrant take of a lock this thread
+// already holds, and detaching there parks a thread *holding* the lock, which is
+// the deadlock this type exists to avoid. Leaving it implemented but attached
+// would instead leave an acquire that stalls stop-the-world, so neither form of
+// it belongs here.
 
 #[cfg(test)]
 mod tests {
@@ -349,13 +344,14 @@ mod tests {
         // Ordinary use, for contrast.
         drop(lock.write());
 
+        // The panic below is the expected result, so it prints where an
+        // unexpected one would. Silencing it would mean replacing the panic hook,
+        // which is process-wide and would swallow the output of whatever else the
+        // test binary is running at the same time.
         set_world_stopped(true);
-        let hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
         let taken = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
             let _guard = lock.read();
         }));
-        std::panic::set_hook(hook);
         set_world_stopped(false);
 
         assert!(
