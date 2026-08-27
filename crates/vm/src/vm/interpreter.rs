@@ -1669,10 +1669,11 @@ for _ in range(40):
     #[cfg(feature = "threading")]
     #[test]
     fn a_thread_blocked_on_a_lock_does_not_stall_stop_the_world() {
+        use super::super::thread::THREAD_DETACHED;
         use crate::common::lock::PyDetachingRwLock;
         use alloc::sync::Arc;
         use core::{
-            sync::atomic::{AtomicBool, Ordering},
+            sync::atomic::{AtomicU64, Ordering},
             time::Duration,
         };
 
@@ -1680,29 +1681,51 @@ for _ in range(40):
         let state = interp.enter(|vm| vm.state.clone());
 
         let lock: Arc<PyDetachingRwLock<()>> = Arc::new(PyDetachingRwLock::new(()));
-        let at_lock = Arc::new(AtomicBool::new(false));
+        // The worker's thread id, published from inside the interpreter. No
+        // thread has id 0, so it doubles as "not registered yet".
+        let worker_ident = Arc::new(AtomicU64::new(0));
 
         // Held for the whole test, so the worker below blocks and stays blocked.
         let held = lock.write();
 
         let worker_lock = Arc::clone(&lock);
-        let worker_at_lock = Arc::clone(&at_lock);
+        let published_ident = Arc::clone(&worker_ident);
         let worker = interp.enter(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
                 thread_vm.run(|_vm| {
-                    worker_at_lock.store(true, Ordering::Release);
+                    published_ident.store(crate::stdlib::_thread::get_ident(), Ordering::Release);
                     let _read = worker_lock.read();
                 });
             })
         });
 
-        while !at_lock.load(Ordering::Acquire) {
+        // Wait for the worker to have blocked, not merely to have been scheduled
+        // to. It publishes its id while attached, so that slot reaching DETACHED
+        // is the contended acquire leaving the interpreter — the state this test
+        // is about. A sleep here would let the stop below complete with no
+        // blocked waiter at all, and pass without testing anything.
+        //
+        // Bounded, so an acquire that never detaches fails the test instead of
+        // hanging it, as the timeout on the stop below does.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let blocked_detached = |ident| {
+            state
+                .thread_frames
+                .lock()
+                .get(&ident)
+                .is_some_and(|slot| slot.state.load(Ordering::Acquire) == THREAD_DETACHED)
+        };
+        loop {
+            match worker_ident.load(Ordering::Acquire) {
+                ident if ident != 0 && blocked_detached(ident) => break,
+                _ => assert!(
+                    std::time::Instant::now() < deadline,
+                    "the worker never detached for the contended acquire"
+                ),
+            }
             std::thread::yield_now();
         }
-        // The store above only says the worker is about to block, not that it
-        // has; give it the moment it needs to get there.
-        std::thread::sleep(Duration::from_millis(50));
 
         // Stop from a thread of its own so that a stop that never completes
         // fails the test instead of hanging it.
