@@ -79,7 +79,7 @@ mod fcntl {
                         .copy_from_slice(&s)
                 }
                 vm.allow_threads(|| host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len]))
-                    .map_err(|_| vm.new_last_errno_error())?;
+                    .map_err(|err| err.to_pyexception(vm))?;
                 return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
             }
             OptionalArg::Present(Either::B(i)) => i.as_u32_mask(),
@@ -87,7 +87,7 @@ mod fcntl {
         };
         let ret = vm
             .allow_threads(|| host_fcntl::fcntl_int(fd, cmd, int as i32))
-            .map_err(|_| vm.new_last_errno_error())?;
+            .map_err(|err| err.to_pyexception(vm))?;
         Ok(vm.new_pyobj(ret))
     }
 
@@ -127,7 +127,7 @@ mod fcntl {
                                 .allow_threads(|| unsafe {
                                     host_fcntl::ioctl_ptr(fd, request, scratch.as_mut_ptr().cast())
                                 })
-                                .map_err(|_| vm.new_last_errno_error())?;
+                                .map_err(|err| err.to_pyexception(vm))?;
                             rw_arg.borrow_buf_mut().copy_from_slice(&scratch);
                             return Ok(vm.ctx.new_int(ret).into());
                         }
@@ -139,13 +139,13 @@ mod fcntl {
                 vm.allow_threads(|| unsafe {
                     host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast())
                 })
-                .map_err(|_| vm.new_last_errno_error())?;
+                .map_err(|err| err.to_pyexception(vm))?;
                 Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
             }
             Either::B(i) => {
                 let ret = vm
                     .allow_threads(|| host_fcntl::ioctl_int(fd, request, i))
-                    .map_err(|_| vm.new_last_errno_error())?;
+                    .map_err(|err| err.to_pyexception(vm))?;
                 Ok(vm.ctx.new_int(ret).into())
             }
         }
@@ -159,7 +159,7 @@ mod fcntl {
         // be for good.
         let ret = vm
             .allow_threads(|| host_fcntl::flock(fd, operation))
-            .map_err(|_| vm.new_last_errno_error())?;
+            .map_err(|err| err.to_pyexception(vm))?;
         Ok(vm.ctx.new_int(ret).into())
     }
 
