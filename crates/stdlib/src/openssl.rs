@@ -3280,7 +3280,7 @@ mod _ssl {
             // and reaching the caller's buffer takes a lock that every other
             // thread touching the same object waits on. Read aside and take
             // that lock only for the copy.
-            let mut scratch = vec![0u8; read_len];
+            let mut scratch = vm.new_zeroed_bytes(read_len)?;
             let buf = scratch.as_mut_slice();
 
             // BIO mode: no timeout/select logic
