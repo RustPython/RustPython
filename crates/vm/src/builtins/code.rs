@@ -472,6 +472,10 @@ pub struct CoMonitoringData {
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
     pub code: CodeObject,
+    /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
+    /// Derived once so frame-local proxy operations do not repeatedly scan
+    /// merged cell variables.
+    localsplus_names: Box<[&'static PyStrInterned]>,
     source_path: AtomicPtr<PyStrInterned>,
     /// Version counter for lazy re-instrumentation.
     /// Compared against `PyGlobalState::instrumentation_version` at RESUME.
@@ -497,6 +501,26 @@ impl Deref for PyCode {
 impl PyCode {
     pub fn new(code: CodeObject) -> Self {
         let sp = code.source_path as *const PyStrInterned as *mut PyStrInterned;
+        let localsplus_names = {
+            let varname_ids = code
+                .varnames
+                .iter()
+                .map(|name| name.get_id())
+                .collect::<std::collections::HashSet<_>>();
+            let names = code
+                .varnames
+                .iter()
+                .chain(
+                    code.cellvars
+                        .iter()
+                        .filter(|name| !varname_ids.contains(&name.get_id())),
+                )
+                .chain(code.freevars.iter())
+                .copied()
+                .collect::<Box<[_]>>();
+            debug_assert_eq!(names.len(), code.localspluskinds.len());
+            names
+        };
         // The only opcodes that call `vm.set_exception` (mutating the shared
         // exc_info slot); instrumented variants only replace these base opcodes
         // in place, so scanning the freshly-built stream is a sound predicate.
@@ -512,12 +536,18 @@ impl PyCode {
         });
         Self {
             code,
+            localsplus_names,
             source_path: AtomicPtr::new(sp),
             instrumentation_version: AtomicU64::new(0),
             monitoring_data: PyMutex::new(None),
             quickened: core::sync::atomic::AtomicBool::new(false),
             has_exc_handling,
         }
+    }
+
+    #[inline(always)]
+    pub(crate) fn localsplus_name(&self, index: usize) -> &'static PyStrInterned {
+        self.localsplus_names[index]
     }
 
     pub fn source_path(&self) -> &'static PyStrInterned {

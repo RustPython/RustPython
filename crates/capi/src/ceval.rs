@@ -126,8 +126,18 @@ pub extern "C" fn PyEval_GetLocals() -> *mut PyObject {
         let Some(frame) = vm.current_frame() else {
             return Ok(core::ptr::null_mut());
         };
-        let _ = frame.locals(vm)?;
-        Ok(frame.iframe().locals.as_object(vm).as_raw().cast_mut())
+        let locals = frame.locals(vm)?;
+        if frame
+            .iframe()
+            .locals
+            .get()
+            .is_some_and(|mapping| mapping.obj().is(locals.obj()))
+        {
+            return Ok(locals.obj().as_raw().cast_mut());
+        }
+        let cache = frame.locals_snapshot_cache(vm);
+        cache.merge_object(locals.into(), vm)?;
+        Ok(cache.as_object().as_raw().cast_mut())
     })
 }
 
@@ -152,6 +162,45 @@ mod tests {
     use pyo3::exceptions::PyException;
     use pyo3::prelude::*;
 
+    #[pyfunction]
+    fn legacy_local(name: &str) -> (usize, Option<i64>) {
+        let locals = super::PyEval_GetLocals();
+        assert!(!locals.is_null());
+        let name = std::ffi::CString::new(name).unwrap();
+        let value = unsafe { crate::dictobject::PyDict_GetItemString(locals, name.as_ptr()) };
+        let value = if value.is_null() {
+            None
+        } else {
+            Some(unsafe { crate::longobject::PyLong_AsLongLong(value) })
+        };
+        (locals as usize, value)
+    }
+
+    #[pyfunction]
+    fn legacy_locals_is_frame_mapping() -> bool {
+        let locals = super::PyEval_GetLocals();
+        rustpython_vm::vm::thread::with_current_vm(|vm| {
+            let frame = vm.current_frame().unwrap();
+            core::ptr::eq(
+                locals.cast_const(),
+                frame.iframe().locals.as_object(vm).as_raw(),
+            )
+        })
+    }
+
+    #[pyfunction]
+    fn frame_locals_are_fresh() -> bool {
+        let first = super::PyEval_GetFrameLocals();
+        let second = super::PyEval_GetFrameLocals();
+        assert!(!first.is_null() && !second.is_null());
+        let different = first != second;
+        unsafe {
+            crate::refcount::_Py_DecRef(first);
+            crate::refcount::_Py_DecRef(second);
+        }
+        different
+    }
+
     #[test]
     fn code_eval() {
         Python::attach(|py| {
@@ -165,6 +214,57 @@ mod tests {
         Python::attach(|py| {
             let err = py.run(c"raise Exception()", None, None).unwrap_err();
             assert!(err.is_instance_of::<PyException>(py));
+        })
+    }
+
+    #[test]
+    fn legacy_locals_cache_is_lazy_and_does_not_modify_namespaces() {
+        Python::attach(|py| {
+            let globals = pyo3::types::PyDict::new(py);
+            globals
+                .set_item("legacy_local", wrap_pyfunction!(legacy_local, py).unwrap())
+                .unwrap();
+            globals
+                .set_item(
+                    "legacy_locals_is_frame_mapping",
+                    wrap_pyfunction!(legacy_locals_is_frame_mapping, py).unwrap(),
+                )
+                .unwrap();
+            globals
+                .set_item(
+                    "frame_locals_are_fresh",
+                    wrap_pyfunction!(frame_locals_are_fresh, py).unwrap(),
+                )
+                .unwrap();
+            py.run(
+                c"\
+assert legacy_locals_is_frame_mapping()
+
+def optimized():
+    x = 1
+    first_ptr, first_x = legacy_local('x')
+    x = 2
+    second_ptr, second_x = legacy_local('x')
+    return first_ptr == second_ptr, first_x, second_x, frame_locals_are_fresh()
+
+def optimized_with_custom_locals():
+    x = 3
+    legacy_local('x')
+
+optimized_result = optimized()
+custom_locals = {}
+exec(optimized_with_custom_locals.__code__, globals(), custom_locals)
+hidden_result = [legacy_local('hidden_name')[1] for hidden_name in [7]][0]
+hidden_leaked = 'hidden_name' in globals()
+assert optimized_result == (True, 1, 2, True)
+assert custom_locals == {}
+assert hidden_result == 7
+assert not hidden_leaked
+",
+                Some(&globals),
+                None,
+            )
+            .unwrap();
         })
     }
 }

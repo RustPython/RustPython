@@ -791,44 +791,76 @@ impl Py<FrameObject> {
             }
         }
 
-        // Clear fastlocals
-        // SAFETY: FrameObject is not executing (detached or stopped).
-        {
-            let fastlocals = unsafe { self.fastlocals_mut() };
-            for slot in fastlocals.iter_mut() {
-                *slot = None;
-            }
-        }
+        // Move references out before dropping them. Their finalizers may
+        // re-enter this frame, so no locals borrow or cold-data lock may be
+        // held while they run.
+        let fastlocals = {
+            // SAFETY: FrameObject is not executing (detached or stopped).
+            let slots = unsafe { self.fastlocals_mut() };
+            slots
+                .iter_mut()
+                .filter_map(Option::take)
+                .collect::<Vec<_>>()
+        };
 
         // Clear the evaluation stack and cell references
         self.clear_stack_and_cells();
 
-        // Clear temporary refs
-        self.iframe().cold().temporary_refs.lock().clear();
-        self.iframe().cold().f_locals_hidden_overlay.lock().take();
-        self.iframe().cold().f_extra_locals.lock().take();
-        self.iframe().cold().retained_back.lock().take();
+        let cold = self.iframe().cold();
+        let temporary_refs = {
+            let mut guard = cold.temporary_refs.lock();
+            core::mem::take(&mut *guard)
+        };
+        let extra_locals = {
+            let mut guard = cold.f_extra_locals.lock();
+            guard.take()
+        };
+        let locals_cache = {
+            let mut guard = cold.f_locals_cache.lock();
+            guard.take()
+        };
+        let overwritten = {
+            let mut guard = cold.f_overwritten_fast_locals.lock();
+            core::mem::take(&mut *guard)
+        };
+        let retained_back = {
+            let mut guard = cold.retained_back.lock();
+            guard.take()
+        };
+        drop((
+            fastlocals,
+            temporary_refs,
+            extra_locals,
+            locals_cache,
+            overwritten,
+            retained_back,
+        ));
 
         Ok(())
     }
 
     #[pygetset]
     fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
-        // Optimized (function) frames expose a live write-through
-        // FrameLocalsProxy; class/module/exec frames expose their namespace
-        // mapping directly.
-        if self
+        // Matches CPython `_PyFrame_GetLocals` / `frame_locals_get_impl`:
+        // optimized scopes always use a write-through proxy. Unoptimized
+        // scopes (class/module/exec) use the namespace mapping unless PEP 709
+        // hidden comprehension locals are currently bound, in which case a
+        // proxy is required so those names appear only while they are live.
+        let is_optimized = self
             .iframe()
             .code()
             .flags
-            .contains(bytecode::CodeFlags::OPTIMIZED)
-        {
-            self.check_locals_access(vm)?;
+            .contains(bytecode::CodeFlags::OPTIMIZED);
+        if !is_optimized && !self.has_hidden_local_slots() {
+            return Ok(self.iframe().locals.clone_mapping(vm).into());
+        }
+        self.check_locals_access(vm)?;
+        if is_optimized || self.has_active_hidden_locals() {
             self.mark_escaped();
             let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
             Ok(proxy.into_ref(&vm.ctx).into())
         } else {
-            self.f_locals_mapping(vm).map(Into::into)
+            Ok(self.iframe().locals.clone_mapping(vm).into())
         }
     }
 
