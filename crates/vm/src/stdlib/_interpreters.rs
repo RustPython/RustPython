@@ -12,9 +12,7 @@ pub(crate) use _interpreters::{
 pub(crate) mod _interpreters {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{
-            PyBaseExceptionRef, PyCode, PyDict, PyException, PyFunction, PyInt, PyModule, PyStr,
-        },
+        builtins::{PyBaseExceptionRef, PyCode, PyDict, PyException, PyFunction, PyModule, PyStr},
         class::PyClassImpl,
         function::{ArgSpec, FuncArgs},
         protocol::{BufferMethods, PyBuffer},
@@ -26,6 +24,7 @@ pub(crate) mod _interpreters {
         },
     };
     use core::sync::atomic::Ordering;
+    use num_traits::ToPrimitive;
 
     #[pyattr]
     pub(crate) const WHENCE_UNKNOWN: i32 = InterpreterWhence::Unknown as i32;
@@ -172,16 +171,21 @@ pub(crate) mod _interpreters {
 
     /// `_PyInterpreterState_ObjectToID`.
     fn parse_id(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i64> {
-        let Some(n) = obj.downcast_ref::<PyInt>() else {
+        if !obj.number().is_index() {
             return Err(vm.new_type_error(format!(
                 "interpreter ID must be an int, got {}",
                 obj.class().name()
             )));
-        };
-        let id = n.try_to_primitive::<i64>(vm)?;
+        }
+        let n = obj.try_index(vm)?;
+        let id = n
+            .as_bigint()
+            .to_i64()
+            .ok_or_else(|| vm.new_overflow_error("int too big to convert"))?;
         if id < 0 {
+            let repr = obj.repr(vm)?;
             return Err(vm.new_value_error(format!(
-                "interpreter ID must be a non-negative int, got {id}"
+                "interpreter ID must be a non-negative int, got {repr}"
             )));
         }
         Ok(id)

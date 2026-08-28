@@ -1023,10 +1023,13 @@ pub(crate) mod _interpchannels {
             None => true,
         };
         let timeout = parse_timeout(parsed[5].as_deref(), blocking, vm)?;
-        let chan = channels_lookup(cid).map_err(|e| e.into_py(cid, vm))?;
-        let (default_unboundop, default_fallback) = {
+        // The channel is only consulted when one of the arguments needs its default.
+        let (default_unboundop, default_fallback) = if unboundarg < 0 || fallbackarg < 0 {
+            let chan = channels_lookup(cid).map_err(|e| e.into_py(cid, vm))?;
             let state = chan.state.lock();
             (state.unboundop, state.fallback)
+        } else {
+            (-1, -1)
         };
         let unboundop = resolve_unboundop(unboundarg, default_unboundop, vm)?;
         let fallback = resolve_fallback(fallbackarg, default_fallback, vm)?;
