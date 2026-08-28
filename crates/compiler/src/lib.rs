@@ -229,6 +229,7 @@ fn cpython_parse_diagnostic_override(
     source_error!(invalid_legacy_statement_error(source_text));
     source_error!(non_printable_character_error(source_text));
     source_error!(invalid_interpolated_string_error(source_text));
+    source_error!(mixed_tstring_literal_error(error, source_text));
 
     if let Some((message, start, end, unclosed)) = bracket_syntax_error(source_text) {
         return Some(
@@ -3828,8 +3829,21 @@ fn unterminated_string_error(source: &str) -> Option<(String, usize, usize)> {
                     let c = bytes[index];
                     if c == b'\n' {
                         if quote_size == 1 {
+                            if let Some(error) = unclosed_replacement_field_error(
+                                bytes,
+                                start,
+                                start + quote_size,
+                                index,
+                            ) {
+                                return Some(error);
+                            }
                             return Some((
-                                unterminated_string_message(line, false, has_escaped_quote),
+                                unterminated_string_message(
+                                    line,
+                                    false,
+                                    has_escaped_quote,
+                                    interpolated_string_prefix(bytes, start),
+                                ),
                                 start,
                                 start,
                             ));
@@ -3861,12 +3875,18 @@ fn unterminated_string_error(source: &str) -> Option<(String, usize, usize)> {
                     }
                 }
                 if !closed {
+                    if let Some(error) =
+                        unclosed_replacement_field_error(bytes, start, start + quote_size, index)
+                    {
+                        return Some(error);
+                    }
                     let detected_line = if quote_size == 3 { line } else { start_line };
                     return Some((
                         unterminated_string_message(
                             detected_line,
                             quote_size == 3,
                             has_escaped_quote,
+                            interpolated_string_prefix(bytes, start),
                         ),
                         start,
                         start,
@@ -3909,6 +3929,81 @@ fn invalid_interpolated_string_error(source: &str) -> Option<(String, usize, usi
                     invalid_replacement_field_error(bytes, content_start, content_end, prefix)
                 {
                     return Some(error);
+                }
+                index = skip_quoted_string(bytes, index);
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// Whether the literal opened at `quote` carries a `b` in its prefix.
+fn is_bytes_literal(bytes: &[u8], quote: usize) -> bool {
+    let mut start = quote;
+    while quote - start < 2
+        && start > 0
+        && matches!(
+            bytes[start - 1].to_ascii_lowercase(),
+            b'r' | b'b' | b'u' | b'f' | b't'
+        )
+    {
+        start -= 1;
+    }
+    if start > 0 && is_ascii_identifier_char(bytes[start - 1]) {
+        return false;
+    }
+    bytes[start..quote]
+        .iter()
+        .any(|byte| byte.eq_ignore_ascii_case(&b'b'))
+}
+
+/// Which of CPython's two messages a mixed literal concatenation gets. Ruff reports only the
+/// bytes/non-bytes mix, so `t"x" b"y"` arrives here as a bytes error where CPython names the
+/// t-string, and this scanner owns the choice between them.
+///
+/// CPython's `invalid_string_tstring_concat` is an `invalid_` rule, reached only on the error
+/// pass, and the `strings` rule tries `(fstring|string)+` first. That alternative consumes the
+/// concatenation's leading run of non-t-string literals, so a bytes/non-bytes mix among *those*
+/// raises from `_PyPegen_concatenate_strings` on the first pass and the t-string rule never runs.
+/// The bytes message therefore keeps precedence for `"a" b"b" t"c"` but not for `t"x" b"y"`.
+fn mixed_tstring_literal_error(
+    error: &parser::ParseError,
+    source: &str,
+) -> Option<(String, usize, usize)> {
+    let parser::ParseErrorType::OtherError(message) = &error.error else {
+        return None;
+    };
+    if !message.eq_ignore_ascii_case("bytes literal cannot be mixed with non-bytes literals") {
+        return None;
+    }
+
+    let start = error.location.start().to_usize();
+    let end = error.location.end().to_usize();
+    let bytes = source.as_bytes();
+    if end > bytes.len() {
+        return None;
+    }
+
+    let mut index = start;
+    let (mut bytes_seen, mut nonbytes_seen) = (false, false);
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => {
+                if interpolated_string_prefix(bytes, index) == Some("t-string") {
+                    let message = if bytes_seen && nonbytes_seen {
+                        // Reported here rather than left to ruff's error so that the scanners
+                        // further down the chain cannot claim the concatenation instead.
+                        "cannot mix bytes and nonbytes literals"
+                    } else {
+                        "cannot mix t-string literals with string or bytes literals"
+                    };
+                    return Some((message.to_owned(), start, end));
+                }
+                if is_bytes_literal(bytes, index) {
+                    bytes_seen = true;
+                } else {
+                    nonbytes_seen = true;
                 }
                 index = skip_quoted_string(bytes, index);
             }
@@ -4028,10 +4123,12 @@ fn invalid_replacement_field_error(
             b'{' if bytes.get(index + 1) == Some(&b'{') => index += 2,
             b'}' if bytes.get(index + 1) == Some(&b'}') => index += 2,
             b'{' => {
-                if let Some(error) = replacement_field_error(bytes, index, end, prefix) {
+                if let Some(error) = replacement_field_error(bytes, index, end, prefix, 0) {
                     return Some(error);
                 }
-                index += 1;
+                // Resume in the literal text. Inside the field a `#` starts a comment and a `{`
+                // opens no new field, so walking on byte by byte would misread both.
+                index = replacement_field_end(bytes, index, end).unwrap_or(end);
             }
             _ => index += 1,
         }
@@ -4039,44 +4136,219 @@ fn invalid_replacement_field_error(
     None
 }
 
+/// Position just past a replacement field's closing brace. The expression part is code, where a
+/// comment runs to the end of the line; past the separator only nested fields nest.
+fn replacement_field_end(bytes: &[u8], open: usize, end: usize) -> Option<usize> {
+    let expr_start = skip_replacement_field_trivia(bytes, open + 1, end);
+    let separator = replacement_field_separator(bytes, expr_start, end)?;
+    if bytes[separator] == b'}' {
+        return Some(separator + 1);
+    }
+    replacement_field_closing_brace(bytes, separator + 1, end).map(|brace| brace + 1)
+}
+
+/// The one-based line holding `offset`. Counted on demand: these scanners only run once the
+/// source has failed to parse, and tracking a line through the spans they skip would have to
+/// re-scan them anyway.
+fn line_of_offset(bytes: &[u8], offset: usize) -> usize {
+    1 + bytes[..offset]
+        .iter()
+        .filter(|byte| **byte == b'\n')
+        .count()
+}
+
+/// Brackets opened in a replacement field's expression must close before the field does. CPython
+/// words these exactly as it does for brackets anywhere else, except that a closer with nothing
+/// open is attributed to the literal. `start..end` must cover only the expression: a format spec
+/// is plain text, so a bracket there opens nothing.
+fn replacement_field_bracket_error(
+    bytes: &[u8],
+    start: usize,
+    end: usize,
+    prefix: &str,
+) -> Option<(String, usize, usize)> {
+    // Each entry carries where its bracket opened, so a mismatch can name that line.
+    let mut stack: Vec<(u8, usize)> = Vec::new();
+    let mut index = start;
+    while index < end {
+        let byte = bytes[index];
+        match byte {
+            b'\'' | b'"' => {
+                index = skip_quoted_string(bytes, index);
+                continue;
+            }
+            b'#' => {
+                index = skip_replacement_field_comment(bytes, index, end);
+                continue;
+            }
+            b'(' | b'[' | b'{' => stack.push((byte, index)),
+            b')' | b']' | b'}' => {
+                let expected = expected_opening_bracket(byte as char) as u8;
+                match stack.last() {
+                    // The field's own closing brace: everything inside it balanced.
+                    None if byte == b'}' => return None,
+                    None => {
+                        return Some((
+                            format!("{prefix}: unmatched '{}'", byte as char),
+                            index,
+                            index + 1,
+                        ));
+                    }
+                    Some(&(opening, _)) if opening == expected => {
+                        stack.pop();
+                    }
+                    Some(&(opening, opened_at)) => {
+                        // CPython names the opening line only when it is not the closing one,
+                        // comparing `parenlinenostack[level]` against the current `lineno`.
+                        let opening_line = line_of_offset(bytes, opened_at);
+                        let suffix = if opening_line == line_of_offset(bytes, index) {
+                            String::new()
+                        } else {
+                            format!(" on line {opening_line}")
+                        };
+                        return Some((
+                            format!(
+                                "closing parenthesis '{}' does not match opening parenthesis '{}'{suffix}",
+                                byte as char, opening as char
+                            ),
+                            index,
+                            index + 1,
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+/// A `#` in a replacement field's expression starts a comment. When no newline follows it before
+/// the end of the literal, the comment swallows the closing brace and the field can never close.
+/// `start..end` must cover only the expression: `#` is an ordinary character in a format spec,
+/// where it selects the alternate form.
+fn replacement_field_comment_error(
+    bytes: &[u8],
+    open: usize,
+    start: usize,
+    end: usize,
+    literal_end: usize,
+) -> Option<(String, usize, usize)> {
+    let mut index = start;
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => {
+                index = skip_quoted_string(bytes, index);
+                continue;
+            }
+            b'#' => {
+                if !bytes[index..literal_end].contains(&b'\n') {
+                    return Some(("'{' was never closed".to_owned(), open, open + 1));
+                }
+                index = skip_replacement_field_comment(bytes, index, end);
+                continue;
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// Advances past a comment, stopping on the newline that ends it.
+fn skip_replacement_field_comment(bytes: &[u8], mut index: usize, end: usize) -> usize {
+    while index < end && bytes[index] != b'\n' {
+        index += 1;
+    }
+    index
+}
+
+/// Whitespace and comments may both precede a replacement field's expression.
+fn skip_replacement_field_trivia(bytes: &[u8], mut index: usize, end: usize) -> usize {
+    loop {
+        index = skip_ascii_whitespace(bytes, index, end);
+        if index < end && bytes[index] == b'#' {
+            index = skip_replacement_field_comment(bytes, index, end);
+            continue;
+        }
+        return index;
+    }
+}
+
+/// Bounds the mutual recursion between a replacement field and the format spec it contains,
+/// so that pathologically nested input cannot exhaust the stack.
+const MAX_REPLACEMENT_FIELD_DEPTH: usize = 32;
+
 fn replacement_field_error(
     bytes: &[u8],
     open: usize,
     end: usize,
     prefix: &str,
+    depth: usize,
 ) -> Option<(String, usize, usize)> {
-    let expr_start = skip_ascii_whitespace(bytes, open + 1, end);
-    if let Some(backslash) = replacement_field_line_continuation(bytes, expr_start, end) {
+    let expr_start = skip_replacement_field_trivia(bytes, open + 1, end);
+
+    // The expression runs up to the field's first top-level `=`, `!`, `:` or `}`. Everything past
+    // it is a conversion or a format spec, which are text rather than code, so the checks that
+    // treat the field as code have to stop here.
+    let separator = replacement_field_separator(bytes, expr_start, end);
+    let expr_end = separator.unwrap_or(end);
+
+    if let Some(backslash) = replacement_field_line_continuation(bytes, expr_start, expr_end) {
         return Some((
             "unexpected character after line continuation character".to_owned(),
             backslash + 1,
             (backslash + 2).min(end),
         ));
     }
-    if let Some(quote) = unterminated_string_in_replacement_field(bytes, expr_start, end) {
+    if let Some(quote) = unterminated_string_in_replacement_field(bytes, expr_start, expr_end) {
         return Some((
-            unterminated_string_message(1, false, false),
+            unterminated_string_message(1, false, false, None),
             quote,
             quote + 1,
         ));
     }
-    match bytes.get(expr_start).copied() {
-        Some(marker @ (b'=' | b'!' | b':' | b'}')) => {
-            return Some((
-                format!(
-                    "{prefix}: valid expression required before '{}'",
-                    marker as char
-                ),
-                expr_start,
-                expr_start + 1,
-            ));
-        }
-        Some(_) => {}
-        None => {
+    // Brackets are reported ahead of everything else in the field, and a comment that swallows
+    // the closing brace ahead of the expression itself. The comment scan starts at the brace
+    // because a comment may also sit between it and the expression.
+    if let Some(error) = replacement_field_bracket_error(bytes, expr_start, expr_end, prefix) {
+        return Some(error);
+    }
+    if let Some(error) = replacement_field_comment_error(bytes, open, open + 1, expr_end, end) {
+        return Some(error);
+    }
+
+    // Nothing follows `{` at all, so the field simply never closed. CPython asks for the
+    // brace here; an expression that merely fails to start is reported further down.
+    if expr_start >= end {
+        return Some((format!("{prefix}: expecting '}}'"), open, open + 1));
+    }
+
+    if let marker @ (b'=' | b'!' | b':' | b'}') = bytes[expr_start]
+        && is_replacement_field_marker(bytes, expr_start)
+    {
+        return Some((
+            format!(
+                "{prefix}: valid expression required before '{}'",
+                marker as char
+            ),
+            expr_start,
+            expr_start + 1,
+        ));
+    }
+
+    // A `{` display is a valid expression, but only if something can follow it. CPython
+    // reports the inner brace when it cannot, as in `f'{3:{{>10}'`.
+    if bytes[expr_start] == b'{' {
+        let inner = skip_ascii_whitespace(bytes, expr_start + 1, end);
+        if inner < end
+            && bytes[inner] != b'}'
+            && invalid_replacement_expression_start(bytes, inner, end)
+        {
             return Some((
                 format!("{prefix}: expecting a valid expression after '{{'"),
-                open,
-                open + 1,
+                expr_start,
+                expr_start + 1,
             ));
         }
     }
@@ -4097,9 +4369,31 @@ fn replacement_field_error(
         ));
     }
 
-    let Some(separator) = replacement_field_separator(bytes, expr_start, end) else {
+    // The expression started fine but ran into a character that cannot continue it. CPython
+    // points at that character and lists the separators it wanted instead.
+    if let Some(stray) = replacement_expression_stray_character(bytes, expr_start, expr_end) {
+        return Some((
+            format!("{prefix}: expecting '=', or '!', or ':', or '}}'"),
+            stray,
+            stray + 1,
+        ));
+    }
+
+    let Some(separator) = separator else {
         return Some((format!("{prefix}: expecting '}}'"), open, open + 1));
     };
+
+    // Only now that the field is known to close. A stray character above is a finished token
+    // the parser rejects on lookahead, but a dangling operator makes it ask for one more, and
+    // producing that token runs into the literal's closing quote: lexer.c then answers from
+    // `INSIDE_FSTRING(tok)` with "%c-string: expecting '}'" before any `invalid_` rule is tried.
+    if let Some(operator) = dangling_operator(bytes, expr_start, expr_end) {
+        return Some((
+            format!("{prefix}: expecting '=', or '!', or ':', or '}}'"),
+            operator,
+            operator + 1,
+        ));
+    }
 
     if bytes[separator] == b':'
         && replacement_expression_has_parse_error(bytes, expr_start, separator)
@@ -4108,9 +4402,9 @@ fn replacement_field_error(
     }
 
     match bytes[separator] {
-        b'=' => invalid_debug_expression_error(bytes, separator, end, prefix),
-        b'!' => invalid_conversion_error(bytes, separator, end, prefix),
-        b':' => invalid_format_spec_error(bytes, separator, end, prefix),
+        b'=' => invalid_debug_expression_error(bytes, separator, end, prefix, depth),
+        b'!' => invalid_conversion_error(bytes, separator, end, prefix, depth),
+        b':' => invalid_format_spec_error(bytes, separator, end, prefix, depth),
         b'}' => None,
         _ => unreachable!(),
     }
@@ -4125,6 +4419,7 @@ fn replacement_field_line_continuation(
     while index < end {
         match bytes[index] {
             b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
             b'\\' => return Some(index),
             b'(' | b'[' | b'{' => {
                 level += 1;
@@ -4134,7 +4429,11 @@ fn replacement_field_line_continuation(
                 level -= 1;
                 index += 1;
             }
-            b'=' | b'!' | b':' | b'}' if level == 0 => return None,
+            b'=' | b'!' | b':' | b'}'
+                if level == 0 && is_replacement_field_marker(bytes, index) =>
+            {
+                return None;
+            }
             _ => index += 1,
         }
     }
@@ -4155,6 +4454,7 @@ fn unterminated_string_in_replacement_field(
                 }
                 index = string_end;
             }
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
             _ => index += 1,
         }
     }
@@ -4173,10 +4473,22 @@ fn invalid_replacement_expression_start(bytes: &[u8], index: usize, end: usize) 
         return true;
     }
 
+    // A leading `.` is Ellipsis or a float without an integer part, both of which start a
+    // perfectly good expression.
+    if bytes[index] == b'.'
+        && (bytes[index..end].starts_with(b"...")
+            || bytes
+                .get(index + 1)
+                .is_some_and(|byte| byte.is_ascii_digit()))
+    {
+        return false;
+    }
+
     if matches!(
         bytes[index],
-        b'.' | b',' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^' | b'<' | b'>' | b'@'
-    ) {
+        b'.' | b',' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^' | b'<' | b'>' | b'@' | b'=' | b'!'
+    ) || is_stray_in_replacement_expression(bytes[index])
+    {
         return true;
     }
 
@@ -4188,6 +4500,11 @@ fn invalid_replacement_expression_start(bytes: &[u8], index: usize, end: usize) 
                 || byte.is_ascii_alphabetic()
                 || byte.is_ascii_digit()
                 || matches!(*byte, b'\'' | b'"' | b'(' | b'[' | b'{')
+                // `-.5` is a signed float.
+                || (*byte == b'.'
+                    && bytes
+                        .get(operand + 1)
+                        .is_some_and(|next| next.is_ascii_digit()))
         });
     }
 
@@ -4205,11 +4522,48 @@ fn invalid_replacement_expression_start(bytes: &[u8], index: usize, end: usize) 
     .any(|keyword| starts_identifier(bytes, index, keyword))
 }
 
+/// A top-level `=` or `!` marks a debug specifier or a conversion only when it is not part of a
+/// longer operator. CPython's tokenizer consumes `==`, `!=`, `<=`, `+=` and the rest as single
+/// tokens before it ever considers the debug marker, so those must not end the expression here.
+fn is_replacement_field_marker(bytes: &[u8], index: usize) -> bool {
+    match bytes[index] {
+        b'=' => {
+            if bytes.get(index + 1) == Some(&b'=') {
+                return false;
+            }
+            !index
+                .checked_sub(1)
+                .and_then(|previous| bytes.get(previous))
+                .is_some_and(|byte| {
+                    matches!(
+                        byte,
+                        b'=' | b'!'
+                            | b'<'
+                            | b'>'
+                            | b'+'
+                            | b'-'
+                            | b'*'
+                            | b'/'
+                            | b'%'
+                            | b'&'
+                            | b'|'
+                            | b'^'
+                            | b'@'
+                            | b':'
+                    )
+                })
+        }
+        b'!' => bytes.get(index + 1) != Some(&b'='),
+        _ => true,
+    }
+}
+
 fn replacement_field_separator(bytes: &[u8], mut index: usize, end: usize) -> Option<usize> {
     let mut level = 0usize;
     while index < end {
         match bytes[index] {
             b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
             b'(' | b'[' | b'{' => {
                 level += 1;
                 index += 1;
@@ -4218,11 +4572,146 @@ fn replacement_field_separator(bytes: &[u8], mut index: usize, end: usize) -> Op
                 level -= 1;
                 index += 1;
             }
-            b'=' | b'!' | b':' | b'}' if level == 0 => return Some(index),
+            b'=' | b'!' | b':' | b'}'
+                if level == 0 && is_replacement_field_marker(bytes, index) =>
+            {
+                return Some(index);
+            }
             _ => index += 1,
         }
     }
     None
+}
+
+/// Characters that can neither start nor continue a replacement field expression. CPython's
+/// interpolated-string tokenizer stops at them and asks for a separator instead.
+const fn is_stray_in_replacement_expression(byte: u8) -> bool {
+    matches!(byte, b';' | b'$' | b'?' | b'`')
+}
+
+fn replacement_expression_stray_character(
+    bytes: &[u8],
+    mut index: usize,
+    end: usize,
+) -> Option<usize> {
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
+            byte if is_stray_in_replacement_expression(byte) => return Some(index),
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// Characters that make up an operator which cannot end an expression.
+const fn is_dangling_operator_byte(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'+' | b'-'
+            | b'*'
+            | b'/'
+            | b'%'
+            | b'@'
+            | b'|'
+            | b'&'
+            | b'^'
+            | b'~'
+            | b'<'
+            | b'>'
+            | b'='
+            | b'!'
+            | b'.'
+    )
+}
+
+/// The identifier that ends just before `word`, skipping the whitespace between them.
+fn preceding_keyword(bytes: &[u8], start: usize, word: usize) -> Option<(usize, &[u8])> {
+    let mut cursor = word;
+    while cursor > start && matches!(bytes[cursor - 1], b' ' | b'\t' | b'\r' | b'\n' | 0x0c) {
+        cursor -= 1;
+    }
+    let stop = cursor;
+    while cursor > start && is_ascii_identifier_char(bytes[cursor - 1]) {
+        cursor -= 1;
+    }
+    (cursor < stop).then(|| (cursor, &bytes[cursor..stop]))
+}
+
+/// A replacement field expression cannot end on an operator that still wants an operand.
+/// CPython's tokenizer then reaches the field brace with the expression unfinished and asks for
+/// a separator, pointing at the operator that left it that way. Returns that operator's start.
+fn dangling_operator(bytes: &[u8], start: usize, end: usize) -> Option<usize> {
+    // The region cannot be read backwards: the newline that ends a comment is whitespace, so
+    // trimming from `end` would step into the comment body. Walk forward instead and keep the
+    // position just past the last byte that is really part of the expression.
+    let mut index = start;
+    let mut tail = start;
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => {
+                index = skip_quoted_string(bytes, index).min(end);
+                tail = index;
+            }
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
+            b' ' | b'\t' | b'\r' | b'\n' | 0x0c => index += 1,
+            _ => {
+                index += 1;
+                tail = index;
+            }
+        }
+    }
+    if tail == start {
+        return None;
+    }
+
+    // A trailing keyword operator reads back as an identifier.
+    if is_ascii_identifier_char(bytes[tail - 1]) {
+        let mut word = tail;
+        while word > start && is_ascii_identifier_char(bytes[word - 1]) {
+            word -= 1;
+        }
+        if ![
+            b"and".as_slice(),
+            b"or".as_slice(),
+            b"not".as_slice(),
+            b"in".as_slice(),
+            b"is".as_slice(),
+            b"if".as_slice(),
+            b"for".as_slice(),
+        ]
+        .iter()
+        .any(|keyword| &bytes[word..tail] == *keyword)
+        {
+            return None;
+        }
+        // `is not` and `not in` are single operators, and CPython points at their first word.
+        let previous = preceding_keyword(bytes, start, word);
+        return Some(match (previous, &bytes[word..tail]) {
+            (Some((at, b"is")), b"not") | (Some((at, b"not")), b"in") => at,
+            _ => word,
+        });
+    }
+
+    if !is_dangling_operator_byte(bytes[tail - 1]) {
+        return None;
+    }
+    let mut token = tail;
+    while token > start && is_dangling_operator_byte(bytes[token - 1]) {
+        token -= 1;
+    }
+
+    // `1.` is a float: that dot finishes the literal rather than dangling.
+    if bytes[token..tail] == *b"." && token > start && bytes[token - 1].is_ascii_digit() {
+        return None;
+    }
+    // `...` is Ellipsis, so consume whole triples: a leftover dot is what dangles.
+    if bytes[token..tail].iter().all(|byte| *byte == b'.') {
+        let leftover = (tail - token) % 3;
+        return (leftover != 0).then(|| tail - leftover);
+    }
+    Some(token)
 }
 
 fn invalid_debug_expression_error(
@@ -4230,10 +4719,19 @@ fn invalid_debug_expression_error(
     equals: usize,
     end: usize,
     prefix: &str,
+    depth: usize,
 ) -> Option<(String, usize, usize)> {
     let next = equals + 1;
-    if next >= end || matches!(bytes[next], b'!' | b':' | b'}') {
+    if next >= end {
         return None;
+    }
+    // A conversion or format spec may follow `=`, and is validated exactly as it would be
+    // when following the expression directly.
+    match bytes[next] {
+        b'!' => return invalid_conversion_error(bytes, next, end, prefix, depth),
+        b':' => return invalid_format_spec_error(bytes, next, end, prefix, depth),
+        b'}' => return None,
+        _ => {}
     }
     Some((
         format!("{prefix}: expecting '!', or ':', or '}}'"),
@@ -4247,6 +4745,7 @@ fn invalid_conversion_error(
     bang: usize,
     end: usize,
     prefix: &str,
+    depth: usize,
 ) -> Option<(String, usize, usize)> {
     let next = bang + 1;
     if next >= end {
@@ -4274,6 +4773,22 @@ fn invalid_conversion_error(
         ));
     }
 
+    // A non-ASCII character is still a conversion character as far as CPython is concerned,
+    // so it gets named in the message like any other invalid one.
+    if bytes[next] >= 0x80
+        && let Some(character) = ::core::str::from_utf8(&bytes[next..end])
+            .ok()
+            .and_then(|text| text.chars().next())
+    {
+        return Some((
+            format!(
+                "{prefix}: invalid conversion character '{character}': expected 's', 'r', or 'a'"
+            ),
+            next,
+            next + character.len_utf8(),
+        ));
+    }
+
     if !bytes[next].is_ascii_alphabetic() && bytes[next] != b'_' {
         return Some((
             format!("{prefix}: invalid conversion character"),
@@ -4295,8 +4810,14 @@ fn invalid_conversion_error(
         ));
     }
 
-    if conversion_end >= end || matches!(bytes[conversion_end], b':' | b'}') {
+    if conversion_end >= end {
         return None;
+    }
+
+    match bytes[conversion_end] {
+        b':' => return invalid_format_spec_error(bytes, conversion_end, end, prefix, depth),
+        b'}' => return None,
+        _ => {}
     }
 
     Some((
@@ -4311,9 +4832,31 @@ fn invalid_format_spec_error(
     colon: usize,
     end: usize,
     prefix: &str,
+    depth: usize,
 ) -> Option<(String, usize, usize)> {
-    if replacement_field_closing_brace(bytes, colon + 1, end).is_some() {
-        return None;
+    // Unlike literal text, a format spec has no `{{` escape: every `{` opens a nested
+    // replacement field, so the outer scanner cannot validate these for us.
+    let mut index = colon + 1;
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'{' => {
+                if depth < MAX_REPLACEMENT_FIELD_DEPTH
+                    && let Some(error) =
+                        replacement_field_error(bytes, index, end, prefix, depth + 1)
+                {
+                    return Some(error);
+                }
+                // Resume after the nested field. Walking into it again from every enclosing
+                // spec would re-scan the same bytes once per level, which costs O(2^depth).
+                let Some(after) = replacement_field_end(bytes, index, end) else {
+                    break;
+                };
+                index = after;
+            }
+            b'}' => return None,
+            _ => index += 1,
+        }
     }
     Some((
         format!("{prefix}: expecting '}}', or format specs"),
@@ -4565,19 +5108,94 @@ fn adjacent_atom_end(bytes: &[u8], index: usize) -> Option<usize> {
     }
 }
 
+/// An f-string or t-string that runs off the end with a replacement field still open reports
+/// the brace rather than the missing quote, matching CPython — but only while the tokenizer is
+/// still reading the field's *expression*. Past the field's own `:` it is emitting FSTRING_MIDDLE
+/// again, so running out of input there is an unterminated literal like any other, and
+/// `f'{a:>5` gets the quote message where `f'{a` gets the brace.
+fn unclosed_replacement_field_error(
+    bytes: &[u8],
+    quote_start: usize,
+    content_start: usize,
+    content_end: usize,
+) -> Option<(String, usize, usize)> {
+    interpolated_string_prefix(bytes, quote_start)?;
+
+    // One entry per unclosed delimiter: its position, its opening character, and — for a brace —
+    // whether that field has reached its format spec. Brackets and quotes are only delimiters
+    // once a field is open; in the literal's text they are ordinary characters. A brace nested
+    // in an expression is a set or dict display rather than a field, but it nests all the same.
+    let mut open: Vec<(usize, u8, bool)> = Vec::new();
+    let mut index = content_start;
+    while index < content_end {
+        let inside_expression = matches!(open.last(), Some((_, b'{', false)));
+        match bytes[index] {
+            // `{{` and `}}` escape only in literal text, which is where a brace at depth zero is.
+            b'{' if open.is_empty() && bytes.get(index + 1) == Some(&b'{') => index += 2,
+            b'}' if open.is_empty() && bytes.get(index + 1) == Some(&b'}') => index += 2,
+            b'{' => {
+                open.push((index, b'{', false));
+                index += 1;
+            }
+            b'}' => {
+                open.pop();
+                index += 1;
+            }
+            byte @ (b'(' | b'[') if !open.is_empty() => {
+                open.push((index, byte, false));
+                index += 1;
+            }
+            b')' | b']' if !open.is_empty() => {
+                open.pop();
+                index += 1;
+            }
+            // Only the field's own `:` opens a format spec — one in a slice, a display or a
+            // lambda belongs to whatever bracket encloses it.
+            b':' if inside_expression => {
+                open.last_mut().expect("a brace is open").2 = true;
+                index += 1;
+            }
+            b'\'' | b'"' if !open.is_empty() => {
+                index = skip_quoted_string(bytes, index).min(content_end);
+            }
+            b'#' if inside_expression => {
+                index = skip_replacement_field_comment(bytes, index, content_end);
+            }
+            _ => index += 1,
+        }
+    }
+
+    // CPython names the innermost unclosed delimiter, so a bracket opened inside the expression
+    // takes the message from the field that encloses it.
+    let (position, opener, in_format_spec) = *open.last()?;
+    (!in_format_spec).then(|| {
+        (
+            format!("'{}' was never closed", opener as char),
+            position,
+            position + 1,
+        )
+    })
+}
+
 fn unterminated_string_message(
     detected_line: usize,
     triple: bool,
     has_escaped_quote: bool,
+    prefix: Option<&str>,
 ) -> String {
+    // CPython names the literal kind, e.g. "unterminated f-string literal".
+    let kind = prefix.unwrap_or("string");
     if triple {
-        format!("unterminated triple-quoted string literal (detected at line {detected_line})")
-    } else if has_escaped_quote {
+        format!("unterminated triple-quoted {kind} literal (detected at line {detected_line})")
+    // The escaped-quote hint belongs to the plain-string branch of CPython's tokenizer alone.
+    // Its interpolated branch has only the two forms above and below, so pairing the hint with
+    // a prefix would invent a message CPython never emits.
+    } else if has_escaped_quote && prefix.is_none() {
         format!(
-            "unterminated string literal (detected at line {detected_line}); perhaps you escaped the end quote?"
+            "unterminated {kind} literal (detected at line {detected_line}); perhaps you escaped the end quote?"
         )
     } else {
-        format!("unterminated string literal (detected at line {detected_line})")
+        format!("unterminated {kind} literal (detected at line {detected_line})")
     }
 }
 
@@ -5732,6 +6350,269 @@ mod tests {
         let code = "x = 'abc'";
         let compiled = compile(code, Mode::Single, "<>", CompileOpts::default());
         dbg!(compiled.expect("compile error"));
+    }
+
+    #[test]
+    fn interpolated_string_diagnostics_match_cpython() {
+        for (source, expected) in [
+            ("f'{'", "f-string: expecting '}'"),
+            ("t'{'", "t-string: expecting '}'"),
+            (
+                "f'{1=}{;'",
+                "f-string: expecting a valid expression after '{'",
+            ),
+            (
+                "t'{x;y}'",
+                "t-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            ("t'{x!s:'", "t-string: expecting '}', or format specs"),
+            ("t'{x=!}'", "t-string: missing conversion character"),
+            (
+                "t'{x:{;}}'",
+                "t-string: expecting a valid expression after '{'",
+            ),
+            ("f'{1#}'", "'{' was never closed"),
+            ("t'{", "'{' was never closed"),
+            // A field is only "never closed" while the tokenizer is reading its expression.
+            // Past the field's own `:` it emits literal text again, so the quote is what is
+            // missing — and a `:` in a slice, a display or a lambda is not the field's own.
+            ("f'{a", "'{' was never closed"),
+            ("f'{a!r", "'{' was never closed"),
+            ("f'{a=", "'{' was never closed"),
+            ("f'{ {1:2}", "'{' was never closed"),
+            ("f'{d[1:2]", "'{' was never closed"),
+            ("f'{(lambda x: x)", "'{' was never closed"),
+            ("f'{a:{b:{c", "'{' was never closed"),
+            ("f'{a:", "unterminated f-string literal"),
+            ("f'{a:>5", "unterminated f-string literal"),
+            ("f'{a!r:", "unterminated f-string literal"),
+            ("f'{a}{b:", "unterminated f-string literal"),
+            ("f'{a:{b}c", "unterminated f-string literal"),
+            ("t'{a:>5", "unterminated t-string literal"),
+            ("f'''{a:>5", "unterminated triple-quoted f-string literal"),
+            // CPython names the innermost unclosed delimiter, not the field around it.
+            ("f'{a[", "'[' was never closed"),
+            ("f'{(a", "'(' was never closed"),
+            ("f'{)#}'", "f-string: unmatched ')'"),
+            (
+                "f'{a[4)}'",
+                "closing parenthesis ')' does not match opening parenthesis '['",
+            ),
+            ("t'", "unterminated t-string literal (detected at line 1)"),
+            (
+                "t'''",
+                "unterminated triple-quoted t-string literal (detected at line 1)",
+            ),
+            (
+                "t\"x\" b\"y\"",
+                "cannot mix t-string literals with string or bytes literals",
+            ),
+            (
+                "b\"x\" t\"y\"",
+                "cannot mix t-string literals with string or bytes literals",
+            ),
+            // The literals ahead of the first t-string already mix, so CPython's first pass
+            // raises from `_PyPegen_concatenate_strings` before the t-string rule is reached.
+            (
+                "\"a\" b\"b\" t\"c\"",
+                "cannot mix bytes and nonbytes literals",
+            ),
+            // A dangling operator ends the expression before a separator could follow.
+            (
+                "f'{a==}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a and}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a is not}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a.b.}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            ("t'{a~}'", "t-string: expecting '=', or '!', or ':', or '}'"),
+            // A doubled `=` or `!` opens no debug specifier and no conversion, so the field has
+            // no expression at all rather than an empty one before a marker.
+            (
+                "f'{==a}'",
+                "f-string: expecting a valid expression after '{'",
+            ),
+            (
+                "f'{!=a}'",
+                "f-string: expecting a valid expression after '{'",
+            ),
+            (
+                "t'{==a}'",
+                "t-string: expecting a valid expression after '{'",
+            ),
+            ("f'{=a}'", "f-string: valid expression required before '='"),
+            ("f'{!}'", "f-string: valid expression required before '!'"),
+        ] {
+            let err = compile(source, Mode::Eval, "<interp>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert!(
+                err.to_string().contains(expected),
+                "{source:?}: expected {expected:?}, got {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn interpolated_literals_do_not_take_the_escaped_quote_hint() {
+        // Parser/lexer/lexer.c offers "perhaps you escaped the end quote?" from its plain-string
+        // branch only; the interpolated branch has just the triple-quoted and plain forms. The
+        // assertion has to be exact: the hint is a suffix, so `contains` would pass either way.
+        for (source, expected) in [
+            (
+                r"f'\'",
+                "unterminated f-string literal (detected at line 1)",
+            ),
+            (
+                r"t'\'",
+                "unterminated t-string literal (detected at line 1)",
+            ),
+        ] {
+            let err = compile(source, Mode::Eval, "<escaped>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert_eq!(err.to_string(), expected, "{source:?}");
+        }
+        // A literal without a prefix still gets it.
+        let err = compile(r"'\'", Mode::Eval, "<escaped>", CompileOpts::default())
+            .expect_err("should not compile");
+        assert_eq!(
+            err.to_string(),
+            "unterminated string literal (detected at line 1); perhaps you escaped the end quote?"
+        );
+    }
+
+    #[test]
+    fn a_field_bracket_mismatch_names_the_opening_line() {
+        // CPython compares `parenlinenostack[level]` against the current `lineno`, so it names
+        // the opening line only when the two brackets are not on the same one.
+        for (source, expected) in [
+            (
+                "x = f\"\"\"{a[\n4)}\"\"\"\n",
+                "closing parenthesis ')' does not match opening parenthesis '[' on line 1",
+            ),
+            (
+                "x = f\"\"\"{a(\n\n4]}\"\"\"\n",
+                "closing parenthesis ']' does not match opening parenthesis '(' on line 1",
+            ),
+            (
+                "x = f\"{a[4)}\"\n",
+                "closing parenthesis ')' does not match opening parenthesis '['",
+            ),
+        ] {
+            let err = compile(source, Mode::Exec, "<paren>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert_eq!(err.to_string(), expected, "{source:?}");
+        }
+    }
+
+    #[test]
+    fn a_dangling_operator_needs_the_field_to_close() {
+        // A stray character is a finished token, so CPython's grammar rejects it on lookahead
+        // and names the separators even when the field never closes. A dangling operator makes
+        // the parser ask for one more token, and producing it hits the closing quote, where
+        // lexer.c answers "expecting '}'" from the tokenizer instead.
+        for (source, expected) in [
+            ("f'{a;'", "f-string: expecting '=', or '!', or ':', or '}'"),
+            ("f'{a$'", "f-string: expecting '=', or '!', or ':', or '}'"),
+            ("f'{a?'", "f-string: expecting '=', or '!', or ':', or '}'"),
+            ("f'{a and'", "f-string: expecting '}'"),
+            ("f'{a+'", "f-string: expecting '}'"),
+            ("f'{a=='", "f-string: expecting '}'"),
+            ("f'{a.b.'", "f-string: expecting '}'"),
+            ("f'{a is not'", "f-string: expecting '}'"),
+            ("t'{a and'", "t-string: expecting '}'"),
+            // With the field closed, the operator is what gets named.
+            (
+                "f'{a and}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a==}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+        ] {
+            let err = compile(source, Mode::Eval, "<dangling>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert!(
+                err.to_string().contains(expected),
+                "{source:?}: expected {expected:?}, got {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn deeply_nested_format_specs_stay_linear() {
+        // Each enclosing spec used to re-scan every field nested inside it, which made this
+        // O(2^depth): a 110-byte source took six seconds. The scan now resumes past a nested
+        // field once it has checked it, so this has to finish immediately.
+        for depth in [32usize, 200] {
+            let source = format!("x = f\"{}{}\"\n$", "{1:".repeat(depth), "}".repeat(depth));
+            compile(&source, Mode::Exec, "<nested>", CompileOpts::default())
+                .expect_err("the trailing `$` is a syntax error");
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::literal_string_with_formatting_args,
+        reason = "these are Python format specs, not Rust format args"
+    )]
+    fn valid_interpolated_literals_do_not_shadow_a_later_syntax_error() {
+        // A format spec is text rather than code, and a `#` in a replacement field starts a
+        // comment. Mistaking either for expression syntax would blame a perfectly good literal
+        // for the `$` further down, so the reported line must stay on the `$`.
+        for source in [
+            "x = f\"{1:(}\"\n$",
+            "x = f\"{1:[}\"\n$",
+            "x = f\"{1:#x}\"\n$",
+            "x = f\"{1!r:#>5}\"\n$",
+            "x = t\"{1:(}\"\n$",
+            "x = f\"\"\"{1 # (\n}\"\"\"\n$",
+            "x = f\"\"\"{1 # {\n}\"\"\"\n$",
+            "x = f\"\"\"{1 # ]\n}\"\"\"\n$",
+            "x = f\"\"\"{1 # a\\ b\n}\"\"\"\n$",
+            // A comment tail is not the end of the expression, whatever it looks like.
+            "x = f\"\"\"{a # +\n}\"\"\"\n$",
+            "x = f\"\"\"{a # and\n}\"\"\"\n$",
+            "x = f\"\"\"{a # ==\n}\"\"\"\n$",
+            "x = t\"\"\"{a # .\n}\"\"\"\n$",
+            "x = f\"\"\"{1:{a # +\n}}\"\"\"\n$",
+            "x = f\"\"\"{a # +\n + b}\"\"\"\n$",
+            // A signed leading-dot float is an operand.
+            "x = f\"{-.5}\"\n$",
+            "x = f\"{+.5}\"\n$",
+            // Ellipsis and a leading-dot float start real expressions.
+            "x = f\"{...}\"\n$",
+            "x = f\"{.5}\"\n$",
+            "x = t\"{...}\"\n$",
+            // A dangling operator is reported, but a complete one is not.
+            "x = f\"{a+b}\"\n$",
+            "x = f\"{a.b.c}\"\n$",
+            "x = f\"{1.}\"\n$",
+            // A comparison operator is not a debug or conversion marker.
+            "x = f\"{a==b}\"\n$",
+            "x = f\"{a!=b}\"\n$",
+            "x = f\"{a<=b}\"\n$",
+            "x = f\"{a>=b}\"\n$",
+            "x = t\"{a==b}\"\n$",
+            "x = f\"{a:{b==c}}\"\n$",
+        ] {
+            let err = compile(source, Mode::Exec, "<interp>", CompileOpts::default())
+                .expect_err("the trailing `$` is a syntax error");
+            assert_eq!(
+                err.python_location().0,
+                source.lines().count(),
+                "{source:?} reported the wrong line: {err}"
+            );
+        }
     }
 
     #[test]

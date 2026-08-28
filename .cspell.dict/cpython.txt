@@ -189,6 +189,7 @@ parg
 pathconfig
 patma
 peepholer
+pegen
 phcount
 platstdlib
 ploc
