@@ -1,5 +1,6 @@
 use crate::lock::{
-    MapImmutable, PyImmutableMappedMutexGuard, PyMappedMutexGuard, PyMappedRwLockReadGuard,
+    MapImmutable, PyImmutableMappedMutexGuard, PyMappedDetachingRwLockReadGuard,
+    PyMappedDetachingRwLockWriteGuard, PyMappedMutexGuard, PyMappedRwLockReadGuard,
     PyMappedRwLockWriteGuard, PyMutexGuard, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
 use alloc::fmt;
@@ -24,6 +25,7 @@ pub enum BorrowedValue<'a, T: ?Sized> {
     MappedMuLock(PyImmutableMappedMutexGuard<'a, T>),
     ReadLock(PyRwLockReadGuard<'a, T>),
     MappedReadLock(PyMappedRwLockReadGuard<'a, T>),
+    MappedDetachingReadLock(PyMappedDetachingRwLockReadGuard<'a, T>),
 }
 impl_from!('a, T, BorrowedValue<'a, T>,
     Ref(&'a T),
@@ -31,6 +33,7 @@ impl_from!('a, T, BorrowedValue<'a, T>,
     MappedMuLock(PyImmutableMappedMutexGuard<'a, T>),
     ReadLock(PyRwLockReadGuard<'a, T>),
     MappedReadLock(PyMappedRwLockReadGuard<'a, T>),
+    MappedDetachingReadLock(PyMappedDetachingRwLockReadGuard<'a, T>),
 );
 
 impl<'a, T: ?Sized> BorrowedValue<'a, T> {
@@ -59,6 +62,9 @@ impl<'a, T: ?Sized> BorrowedValue<'a, T> {
             Self::MappedReadLock(m) => {
                 BorrowedValue::MappedReadLock(PyMappedRwLockReadGuard::map(m, f))
             }
+            Self::MappedDetachingReadLock(m) => {
+                BorrowedValue::MappedDetachingReadLock(PyMappedDetachingRwLockReadGuard::map(m, f))
+            }
         }
     }
 }
@@ -73,6 +79,7 @@ impl<T: ?Sized> Deref for BorrowedValue<'_, T> {
             Self::MappedMuLock(m) => m,
             Self::ReadLock(r) => r,
             Self::MappedReadLock(m) => m,
+            Self::MappedDetachingReadLock(m) => m,
         }
     }
 }
@@ -90,6 +97,7 @@ pub enum BorrowedValueMut<'a, T: ?Sized> {
     MappedMuLock(PyMappedMutexGuard<'a, T>),
     WriteLock(PyRwLockWriteGuard<'a, T>),
     MappedWriteLock(PyMappedRwLockWriteGuard<'a, T>),
+    MappedDetachingWriteLock(PyMappedDetachingRwLockWriteGuard<'a, T>),
 }
 
 impl_from!('a, T, BorrowedValueMut<'a, T>,
@@ -98,6 +106,7 @@ impl_from!('a, T, BorrowedValueMut<'a, T>,
     MappedMuLock(PyMappedMutexGuard<'a, T>),
     WriteLock(PyRwLockWriteGuard<'a, T>),
     MappedWriteLock(PyMappedRwLockWriteGuard<'a, T>),
+    MappedDetachingWriteLock(PyMappedDetachingRwLockWriteGuard<'a, T>),
 );
 
 impl<'a, T: ?Sized> BorrowedValueMut<'a, T> {
@@ -113,6 +122,9 @@ impl<'a, T: ?Sized> BorrowedValueMut<'a, T> {
             Self::MappedWriteLock(m) => {
                 BorrowedValueMut::MappedWriteLock(PyMappedRwLockWriteGuard::map(m, f))
             }
+            Self::MappedDetachingWriteLock(m) => BorrowedValueMut::MappedDetachingWriteLock(
+                PyMappedDetachingRwLockWriteGuard::map(m, f),
+            ),
         }
     }
 }
@@ -127,6 +139,7 @@ impl<T: ?Sized> Deref for BorrowedValueMut<'_, T> {
             Self::MappedMuLock(m) => m,
             Self::WriteLock(w) => w,
             Self::MappedWriteLock(w) => w,
+            Self::MappedDetachingWriteLock(w) => w,
         }
     }
 }
@@ -139,6 +152,7 @@ impl<T: ?Sized> DerefMut for BorrowedValueMut<'_, T> {
             Self::MappedMuLock(m) => &mut *m,
             Self::WriteLock(w) => &mut *w,
             Self::MappedWriteLock(w) => &mut *w,
+            Self::MappedDetachingWriteLock(w) => &mut *w,
         }
     }
 }

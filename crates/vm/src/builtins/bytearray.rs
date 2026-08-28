@@ -18,8 +18,8 @@ use crate::{
     common::{
         atomic::{AtomicUsize, Ordering},
         lock::{
-            PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock,
-            PyRwLockReadGuard, PyRwLockWriteGuard,
+            PyDetachingRwLock, PyDetachingRwLockReadGuard, PyDetachingRwLockWriteGuard,
+            PyMappedDetachingRwLockReadGuard, PyMappedDetachingRwLockWriteGuard, PyMutex,
         },
     },
     convert::{ToPyObject, ToPyResult},
@@ -43,7 +43,7 @@ use core::mem::size_of;
 #[pyclass(module = false, name = "bytearray", unhashable = true)]
 #[derive(Debug, Default)]
 pub struct PyByteArray {
-    inner: PyRwLock<PyBytesInner>,
+    inner: PyDetachingRwLock<PyBytesInner>,
     exports: AtomicUsize,
 }
 
@@ -81,17 +81,17 @@ impl PyByteArray {
 
     const fn from_inner(inner: PyBytesInner) -> Self {
         Self {
-            inner: PyRwLock::new(inner),
+            inner: PyDetachingRwLock::new(inner),
             exports: AtomicUsize::new(0),
         }
     }
 
-    pub fn borrow_buf(&self) -> PyMappedRwLockReadGuard<'_, [u8]> {
-        PyRwLockReadGuard::map(self.inner.read(), |inner| &*inner.elements)
+    pub fn borrow_buf(&self) -> PyMappedDetachingRwLockReadGuard<'_, [u8]> {
+        PyDetachingRwLockReadGuard::map(self.inner.read(), |inner| &*inner.elements)
     }
 
-    pub fn borrow_buf_mut(&self) -> PyMappedRwLockWriteGuard<'_, Vec<u8>> {
-        PyRwLockWriteGuard::map(self.inner.write(), |inner| &mut inner.elements)
+    pub fn borrow_buf_mut(&self) -> PyMappedDetachingRwLockWriteGuard<'_, Vec<u8>> {
+        PyDetachingRwLockWriteGuard::map(self.inner.write(), |inner| &mut inner.elements)
     }
 
     fn repeat(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
@@ -194,11 +194,11 @@ impl PyByteArray {
     }
 
     #[inline]
-    fn inner(&self) -> PyRwLockReadGuard<'_, PyBytesInner> {
+    fn inner(&self) -> PyDetachingRwLockReadGuard<'_, PyBytesInner> {
         self.inner.read()
     }
     #[inline]
-    fn inner_mut(&self) -> PyRwLockWriteGuard<'_, PyBytesInner> {
+    fn inner_mut(&self) -> PyDetachingRwLockWriteGuard<'_, PyBytesInner> {
         self.inner.write()
     }
 
@@ -739,9 +739,10 @@ impl Comparable for PyByteArray {
 static BUFFER_METHODS: BufferMethods = BufferMethods {
     obj_bytes: |buffer| buffer.obj_as::<PyByteArray>().borrow_buf().into(),
     obj_bytes_mut: |buffer| {
-        PyMappedRwLockWriteGuard::map(buffer.obj_as::<PyByteArray>().borrow_buf_mut(), |x| {
-            x.as_mut_slice()
-        })
+        PyMappedDetachingRwLockWriteGuard::map(
+            buffer.obj_as::<PyByteArray>().borrow_buf_mut(),
+            |x| x.as_mut_slice(),
+        )
         .into()
     },
     release: |buffer| {
@@ -783,7 +784,7 @@ impl AsBuffer for PyByteArray {
 }
 
 impl BufferResizeGuard for PyByteArray {
-    type Resizable<'a> = PyRwLockWriteGuard<'a, PyBytesInner>;
+    type Resizable<'a> = PyDetachingRwLockWriteGuard<'a, PyBytesInner>;
 
     fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
         // An export is a borrow someone else still holds, so it is answered

@@ -344,24 +344,47 @@ pub(super) mod _os {
         }
     }
 
+    /// `read(2)` into `buf`, retrying on EINTR (PEP 475).
+    fn read_into_slice(
+        fd: crt_fd::Borrowed<'_>,
+        buf: &mut [u8],
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        loop {
+            match vm.allow_threads(|| crt_fd::read(fd, buf)) {
+                Ok(n) => return Ok(n),
+                Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(e) => return Err(e.into_pyexception(vm)),
+            }
+        }
+    }
+
     #[pyfunction]
     fn readinto(
         fd: crt_fd::Borrowed<'_>,
         buffer: ArgMemoryBuffer,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        buffer.with_ref(|buf| {
-            loop {
-                match vm.allow_threads(|| crt_fd::read(fd, buf)) {
-                    Ok(n) => return Ok(n),
-                    Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
-                        vm.check_signals()?;
-                        continue;
-                    }
-                    Err(e) => return Err(e.into_pyexception(vm)),
-                }
-            }
-        })
+        if rustpython_host_env::io::reads_without_waiting(fd) {
+            // The read answers from the file itself, so it returns without
+            // waiting on anyone; write where the caller asked directly.
+            return buffer.with_ref(|buf| read_into_slice(fd, buf, vm));
+        }
+
+        // A pipe, socket or terminal answers only when the other end writes,
+        // which may be never. Holding the export for the whole call is what
+        // keeps the target from being resized meanwhile; but reaching its
+        // bytes takes a lock that every other thread touching the same object
+        // waits on, and a thread waiting on a lock never reaches a safepoint,
+        // so holding that one across the wait stops the world from being
+        // stopped at all. Read aside and take the lock for the copy.
+        let mut scratch = vm.new_zeroed_bytes(buffer.len())?;
+        let n = read_into_slice(fd, &mut scratch, vm)?;
+        buffer.borrow_buf_mut()[..n].copy_from_slice(&scratch[..n]);
+        Ok(n)
     }
 
     #[pyfunction]
