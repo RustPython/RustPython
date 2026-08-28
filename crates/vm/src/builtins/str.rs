@@ -661,7 +661,7 @@ impl PyStr {
         } else {
             Err(vm.new_type_error(format!(
                 r#"can only concatenate str (not "{}") to str"#,
-                other.class().name()
+                other.class().slot_name()
             )))
         }
     }

@@ -150,7 +150,6 @@ class TestTString(unittest.TestCase, TStringBaseCase):
         t = tr"{path}\Documents"
         self.assertTStringEqual(t, ("", r"\Documents"), [(path, "path")])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "can only concatenate string.templatelib.Template \(not "str"\) to string.templatelib.Template" does not match "can only concatenate Template (not 'str') to Template"
     def test_template_concatenation(self):
         # Test template + template
         t1 = t"Hello, "
