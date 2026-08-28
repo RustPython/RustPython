@@ -512,7 +512,6 @@ pub fn owned_interpreter_count() -> usize {
 #[must_use]
 pub fn destroy_owned_interpreter(id: i64) -> Option<()> {
     let interp = take_owned_interpreter(id)?;
-    crate::stdlib::_interpchannels::clear_interpreter(id);
     // Finalize like `Py_EndInterpreter`: flush, join non-daemons, atexit, GC.
     let _ = interp.finalize(None);
     Some(())

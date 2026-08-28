@@ -649,6 +649,7 @@ impl Interpreter {
     /// 1. Set finalizing flag (suppresses unraisable exceptions from __del__).
     /// 1. Forced GC collection pass (collect cycles while builtins are available).
     /// 1. Module finalization (finalize_modules).
+    /// 1. Clear interpreter-owned cross-interpreter data.
     /// 1. Final stdout/stderr flush.
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
@@ -691,6 +692,14 @@ impl Interpreter {
             // Module finalization: remove modules from sys.modules, GC collect
             // (while builtins is still available for __del__), then clear module dicts.
             vm.finalize_modules();
+
+            // CPython clears low-level cross-interpreter container data from
+            // _PyAtExit_Fini(), after Python atexit callbacks and module
+            // finalization.  In particular, values sent by an atexit callback
+            // must also become unbound when this interpreter goes away.
+            let interpreter_id = vm.state.interpreter_id;
+            crate::stdlib::_interpchannels::clear_interpreter(interpreter_id);
+            crate::stdlib::_interpqueues::clear_interpreter(interpreter_id);
 
             if vm.flush_std() < 0 && flush_status == 0 {
                 flush_status = -1;

@@ -28,6 +28,10 @@ pub(crate) fn register_memoryview_xid() {
     MEMORYVIEW_REGISTERED.store(true, Ordering::Relaxed);
 }
 
+fn memoryview_registered() -> bool {
+    MEMORYVIEW_REGISTERED.load(Ordering::Relaxed)
+}
+
 /// Unbound-item ops (`UNBOUND_REMOVE` / `UNBOUND_ERROR` / `UNBOUND_REPLACE`).
 pub const UNBOUND_REMOVE: i32 = 1;
 pub const UNBOUND_ERROR: i32 = 2;
@@ -58,6 +62,36 @@ impl Fallback {
     }
 }
 
+/// A queue reference held by cross-interpreter data. Cloning takes another
+/// reference and dropping releases one.
+pub struct SharedQueueId {
+    qid: i64,
+}
+
+impl SharedQueueId {
+    fn new(qid: i64) -> Option<Self> {
+        if crate::stdlib::_interpqueues::queue_xid_incref(qid) {
+            Some(Self { qid })
+        } else {
+            None
+        }
+    }
+}
+
+impl Clone for SharedQueueId {
+    fn clone(&self) -> Self {
+        let held = crate::stdlib::_interpqueues::queue_xid_incref(self.qid);
+        debug_assert!(held);
+        Self { qid: self.qid }
+    }
+}
+
+impl Drop for SharedQueueId {
+    fn drop(&mut self) {
+        crate::stdlib::_interpqueues::queue_xid_decref(self.qid);
+    }
+}
+
 /// Interpreter-neutral payload that can be materialized in any interpreter
 /// sharing the process-wide [`crate::Context`].
 #[derive(Clone)]
@@ -73,6 +107,7 @@ pub enum SharedValue {
         cid: i64,
         end: i32,
     },
+    Queue(SharedQueueId),
     #[cfg(feature = "threading")]
     Buffer(PyBuffer),
     #[cfg(not(feature = "threading"))]
@@ -170,7 +205,7 @@ impl SharedValue {
         }
         // `_pybuffer_shared`, registered for the builtin memoryview by
         // `_interpreters` and never unregistered.
-        if cls.is(vm.ctx.types.memoryview_type) && MEMORYVIEW_REGISTERED.load(Ordering::Relaxed) {
+        if cls.is(vm.ctx.types.memoryview_type) && memoryview_registered() {
             return Some(Self::from_buffer_object(obj, vm));
         }
         // Registered by the `_interpchannels` module for ChannelID.
@@ -179,6 +214,12 @@ impl SharedValue {
                 cid: ch.0,
                 end: ch.1,
             }));
+        }
+        if let Some(qid) = crate::stdlib::_interpqueues::queue_id_from_object(obj, vm) {
+            return match qid {
+                Ok(qid) => SharedQueueId::new(qid).map(|qid| Ok(Self::Queue(qid))),
+                Err(exc) => Some(Err(exc)),
+            };
         }
         None
     }
@@ -248,6 +289,7 @@ impl SharedValue {
             Self::Channel { cid, end } => {
                 crate::stdlib::_interpchannels::channel_id_from_parts(cid, end, false, false, vm)
             }
+            Self::Queue(queue) => crate::stdlib::_interpqueues::queue_from_xid(queue.qid, vm),
             Self::Buffer(buffer) => {
                 #[cfg(not(feature = "threading"))]
                 let buffer = PyBuffer::from_byte_vector(buffer, vm);
@@ -352,8 +394,9 @@ pub fn is_shareable(obj: &PyObject, vm: &VirtualMachine) -> bool {
         || cls.is(vm.ctx.types.bytes_type)
         || cls.is(vm.ctx.types.str_type)
         || cls.is(vm.ctx.types.tuple_type)
-        || cls.is(vm.ctx.types.memoryview_type)
+        || (cls.is(vm.ctx.types.memoryview_type) && memoryview_registered())
         || crate::stdlib::_interpchannels::channel_id_parts(obj).is_some()
+        || crate::stdlib::_interpqueues::is_external_queue(obj, vm)
 }
 
 /// Encode a namespace key as UTF-8, rejecting non-strings and lone surrogates.
