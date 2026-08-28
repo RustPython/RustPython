@@ -76,6 +76,10 @@ where
     use core::sync::atomic::{AtomicBool, AtomicU64};
     use crossbeam_utils::atomic::AtomicCell;
 
+    // Before any lock this interpreter's threads can contend on exists.
+    #[cfg(feature = "threading")]
+    thread::install_blocking_wait_hook();
+
     let (config, all_module_defs, frozen, hash_secret, int_max_str_digits) =
         if let Some(parent) = parent_state {
             // Subinterpreter: clone config and module tables from parent, fresh runtime state.
@@ -1654,6 +1658,185 @@ for _ in range(40):
 
         stop.store(true, Ordering::Release);
         worker.join().expect("nested worker panicked");
+    }
+
+    /// A thread blocked on a detaching lock must not stall stop-the-world.
+    ///
+    /// Blocking on a lock reaches no safepoint, so an interpreter thread that
+    /// waits while attached is a thread the world can never stop — and the
+    /// lock it waits for is routinely one a stopped thread holds, which is the
+    /// deadlock. The waiter therefore leaves its interpreter for the wait.
+    #[cfg(feature = "threading")]
+    #[test]
+    fn a_thread_blocked_on_a_lock_does_not_stall_stop_the_world() {
+        use super::super::thread::THREAD_DETACHED;
+        use crate::common::lock::PyDetachingRwLock;
+        use alloc::sync::Arc;
+        use core::{
+            sync::atomic::{AtomicU64, Ordering},
+            time::Duration,
+        };
+
+        let interp = Interpreter::without_stdlib(Default::default());
+        let state = interp.enter(|vm| vm.state.clone());
+
+        let lock: Arc<PyDetachingRwLock<()>> = Arc::new(PyDetachingRwLock::new(()));
+        // The worker's thread id, published from inside the interpreter. No
+        // thread has id 0, so it doubles as "not registered yet".
+        let worker_ident = Arc::new(AtomicU64::new(0));
+
+        // Held for the whole test, so the worker below blocks and stays blocked.
+        let held = lock.write();
+
+        let worker_lock = Arc::clone(&lock);
+        let published_ident = Arc::clone(&worker_ident);
+        let worker = interp.enter(|vm| {
+            let thread_vm = vm.new_thread();
+            std::thread::spawn(move || {
+                thread_vm.run(|_vm| {
+                    published_ident.store(crate::stdlib::_thread::get_ident(), Ordering::Release);
+                    let _read = worker_lock.read();
+                });
+            })
+        });
+
+        // Wait for the worker to have blocked, not merely to have been scheduled
+        // to. It publishes its id while attached, so that slot reaching DETACHED
+        // is the contended acquire leaving the interpreter — the state this test
+        // is about. A sleep here would let the stop below complete with no
+        // blocked waiter at all, and pass without testing anything.
+        //
+        // Bounded, so an acquire that never detaches fails the test instead of
+        // hanging it, as the timeout on the stop below does.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let blocked_detached = |ident| {
+            state
+                .thread_frames
+                .lock()
+                .get(&ident)
+                .is_some_and(|slot| slot.state.load(Ordering::Acquire) == THREAD_DETACHED)
+        };
+        loop {
+            match worker_ident.load(Ordering::Acquire) {
+                ident if ident != 0 && blocked_detached(ident) => break,
+                _ => assert!(
+                    std::time::Instant::now() < deadline,
+                    "the worker never detached for the contended acquire"
+                ),
+            }
+            std::thread::yield_now();
+        }
+
+        // Stop from a thread of its own so that a stop that never completes
+        // fails the test instead of hanging it.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stop_state = state;
+        let stopper = std::thread::spawn(move || {
+            stop_state.stop_the_world.stop_the_world(&stop_state);
+            let stopped = tx.send(());
+            stop_state.stop_the_world.start_the_world(&stop_state);
+            stopped
+        });
+
+        let stopped = rx.recv_timeout(Duration::from_secs(10));
+
+        // Release before any assertion: the worker has to finish for the
+        // stopper to be joinable, and for the test to end at all.
+        drop(held);
+        assert!(
+            stopped.is_ok(),
+            "stop-the-world did not complete while a thread was blocked on a lock"
+        );
+        stopper.join().expect("stopper panicked").expect("send");
+        worker.join().expect("worker panicked");
+    }
+
+    /// A callback reaching Python from inside a detached call waits for the
+    /// world to start again.
+    ///
+    /// Detaching for a blocking call is what lets stop-the-world count this
+    /// thread as parked. A callback that runs Python from in there — an SSL
+    /// handshake reaching a Python `sni_callback`, say — would run on a thread
+    /// the requester believes is stopped, so it has to attach first, and
+    /// attaching while the world is stopped means waiting.
+    #[cfg(feature = "threading")]
+    #[test]
+    fn a_callback_inside_a_detached_call_waits_for_the_world() {
+        use alloc::sync::Arc;
+        use core::{
+            sync::atomic::{AtomicBool, Ordering},
+            time::Duration,
+        };
+
+        let interp = Interpreter::without_stdlib(Default::default());
+        let state = interp.enter(|vm| vm.state.clone());
+
+        let detached = Arc::new(AtomicBool::new(false));
+        let ran = Arc::new(AtomicBool::new(false));
+        let go = Arc::new(AtomicBool::new(false));
+
+        let worker_detached = Arc::clone(&detached);
+        let worker_ran = Arc::clone(&ran);
+        let worker_go = Arc::clone(&go);
+        let worker = interp.enter(|vm| {
+            let thread_vm = vm.new_thread();
+            std::thread::spawn(move || {
+                thread_vm.run(|vm| {
+                    vm.allow_threads(|| {
+                        worker_detached.store(true, Ordering::Release);
+                        // Spinning here is spinning *detached*, which is what a
+                        // blocking call looks like to the requester: it marks
+                        // this thread SUSPENDED and the stop completes.
+                        while !worker_go.load(Ordering::Acquire) {
+                            std::thread::yield_now();
+                        }
+                        vm.attach_for_callback(|| worker_ran.store(true, Ordering::Release));
+                    });
+                });
+            })
+        });
+
+        while !detached.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+
+        // Stop from a thread of its own so that a stop that never completes
+        // fails the test instead of hanging it.
+        let (stopped_tx, stopped_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let stop_state = state;
+        let stopper = std::thread::spawn(move || {
+            stop_state.stop_the_world.stop_the_world(&stop_state);
+            stopped_tx.send(()).expect("send");
+            release_rx.recv().expect("recv");
+            stop_state.stop_the_world.start_the_world(&stop_state);
+        });
+
+        stopped_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("stop-the-world did not complete");
+
+        // The world is stopped; turn the worker loose at its callback. It has
+        // to park instead of running it, so the flag stays clear — give it the
+        // time it needs to get there and fail to run.
+        go.store(true, Ordering::Release);
+        std::thread::sleep(Duration::from_millis(200));
+        let ran_while_stopped = ran.load(Ordering::Acquire);
+
+        // Release before asserting: the worker has to finish for the stopper to
+        // be joinable, and for the test to end at all.
+        release_tx.send(()).expect("send");
+        stopper.join().expect("stopper panicked");
+        worker.join().expect("worker panicked");
+
+        assert!(
+            !ran_while_stopped,
+            "a callback ran Python while the world was stopped"
+        );
+        assert!(
+            ran.load(Ordering::Acquire),
+            "the callback never ran once the world started again"
+        );
     }
 
     /// The process main id is recorded once and is stable across later creates.

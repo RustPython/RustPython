@@ -441,6 +441,7 @@ impl StopTheWorldState {
         self.park_detached_threads(state);
         if initial_countdown == 0 || self.all_non_requester_suspended(state) {
             self.world_stopped.store(true, Ordering::Release);
+            crate::common::lock::set_world_stopped(true);
             #[cfg(debug_assertions)]
             self.debug_assert_all_non_requester_suspended(state);
             stw_trace(format_args!(
@@ -488,6 +489,7 @@ impl StopTheWorldState {
             }
         }
         self.world_stopped.store(true, Ordering::Release);
+        crate::common::lock::set_world_stopped(true);
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_suspended(state);
         stw_trace(format_args!(
@@ -508,6 +510,7 @@ impl StopTheWorldState {
         // thread-slot initialization.
         self.requested.store(false, Ordering::Release);
         self.world_stopped.store(false, Ordering::Release);
+        crate::common::lock::set_world_stopped(false);
 
         #[expect(
             clippy::iter_over_hash_type,
@@ -545,6 +548,7 @@ impl StopTheWorldState {
     pub fn reset_after_fork(&self) {
         self.requested.store(false, Ordering::Relaxed);
         self.world_stopped.store(false, Ordering::Relaxed);
+        crate::common::lock::set_world_stopped(false);
         self.requester.store(0, Ordering::Relaxed);
         self.thread_countdown.store(0, Ordering::Relaxed);
         // The surviving child thread inherited the exclusion taken by the
@@ -955,6 +959,17 @@ impl VirtualMachine {
     #[inline]
     pub fn allow_threads<R>(&self, f: impl FnOnce() -> R) -> R {
         thread::allow_threads(self, f)
+    }
+
+    /// Re-attach the current thread for the duration of `f`, then return it to
+    /// where it was. The inverse of [`allow_threads`](Self::allow_threads), for
+    /// a callback that runs Python from inside a call this thread detached for.
+    ///
+    /// Equivalent to `PyGILState_Ensure` / `PyGILState_Release` around such a
+    /// callback.
+    #[inline]
+    pub fn attach_for_callback<R>(&self, f: impl FnOnce() -> R) -> R {
+        thread::attach_for_callback(self, f)
     }
 
     /// Check whether the current thread is the main thread.
