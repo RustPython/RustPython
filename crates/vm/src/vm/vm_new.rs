@@ -473,7 +473,7 @@ impl VirtualMachine {
     pub fn new_no_attribute_error(&self, obj: PyObjectRef, name: PyStrRef) -> PyBaseExceptionRef {
         let msg = format!(
             "'{}' object has no attribute '{}'",
-            obj.class().name(),
+            obj.class().slot_name(),
             name
         );
         let attribute_error = self.new_attribute_error(msg);
@@ -499,7 +499,7 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "bad operand type for {}: '{}'",
             op,
-            a.class().name()
+            a.class().slot_name()
         ))
     }
 
@@ -512,8 +512,8 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "unsupported operand type(s) for {}: '{}' and '{}'",
             op,
-            a.class().name(),
-            b.class().name()
+            a.class().slot_name(),
+            b.class().slot_name()
         ))
     }
 
@@ -525,11 +525,11 @@ impl VirtualMachine {
         op: &str,
     ) -> PyBaseExceptionRef {
         self.new_type_error(format!(
-            "Unsupported operand types for '{}': '{}', '{}', and '{}'",
+            "unsupported operand type(s) for {}: '{}', '{}', '{}'",
             op,
-            a.class().name(),
-            b.class().name(),
-            c.class().name()
+            a.class().slot_name(),
+            b.class().slot_name(),
+            c.class().slot_name()
         ))
     }
 

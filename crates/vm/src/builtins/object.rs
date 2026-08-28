@@ -410,7 +410,7 @@ impl PyBaseObject {
         if !format_spec.is_empty() {
             return Err(vm.new_type_error(format!(
                 "unsupported format string passed to {}.__format__",
-                obj.class().name()
+                obj.class().slot_name()
             )));
         }
         obj.str(vm)

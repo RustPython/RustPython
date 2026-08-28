@@ -1356,8 +1356,8 @@ impl Comparable for PyMemoryView {
             _ => Err(vm.new_type_error(format!(
                 "'{}' not supported between instances of '{}' and '{}'",
                 op.operator_token(),
-                zelf.class().name(),
-                other.class().name()
+                zelf.class().slot_name(),
+                other.class().slot_name()
             ))),
         }
     }

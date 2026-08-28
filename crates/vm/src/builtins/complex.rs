@@ -227,8 +227,8 @@ impl Constructor for PyComplex {
                     return Ok(Self::from(Complex64 { re, im }));
                 } else {
                     return Err(vm.new_type_error(format!(
-                        "complex() first argument must be a string or a number, not '{}'",
-                        val.class().name()
+                        "complex() argument must be a string or a number, not {}",
+                        val.class().slot_name()
                     )));
                 }
             }

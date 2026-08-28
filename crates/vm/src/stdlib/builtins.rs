@@ -973,8 +973,8 @@ mod builtins {
     ) -> PyResult<PyIterReturn> {
         if !PyIter::check(&iterator) {
             return Err(vm.new_type_error(format!(
-                "{} object is not an iterator",
-                iterator.class().name()
+                "'{}' object is not an iterator",
+                iterator.class().slot_name()
             )));
         }
         PyIter::new(iterator)
@@ -1134,8 +1134,8 @@ mod builtins {
             .get_special_method(&number, identifier!(vm, __round__))?
             .ok_or_else(|| {
                 vm.new_type_error(format!(
-                    "type {} doesn't define __round__",
-                    number.class().name()
+                    "type {} doesn't define __round__ method",
+                    number.class().slot_name()
                 ))
             })?;
         match ndigits.flatten() {

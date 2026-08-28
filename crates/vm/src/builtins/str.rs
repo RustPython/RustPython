@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
-    TryFromBorrowedObject, VirtualMachine,
+    TryFromBorrowedObject, TryFromObject, VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper, StringRange, adjust_indices},
     atomic_func,
     bytes_inner::{swapcase_ascii, title_ascii},
@@ -670,7 +670,7 @@ impl PyStr {
         } else {
             Err(vm.new_type_error(format!(
                 "'in <string>' requires string as left operand, not {}",
-                needle.class().name()
+                needle.class().slot_name()
             )))
         }
     }
@@ -680,7 +680,7 @@ impl PyStr {
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let item = match SequenceIndex::try_from_borrowed_object(vm, needle, "str")? {
+        let item = match SequenceIndex::try_from_str_subscript(vm, needle)? {
             SequenceIndex::Int(i) => self.getitem_by_index(vm, i)?.to_pyobject(vm),
             SequenceIndex::Slice(slice) => self.getitem_by_slice(vm, slice)?.to_pyobject(vm),
         };
@@ -1169,14 +1169,20 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn join(
-        zelf: PyRef<Self>,
-        iterable: ArgIterable<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
+    fn join(zelf: PyRef<Self>, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         // `PyUnicode_Join()` reaches its elements through `PySequence_Fast()`,
-        // which fills a list from the iterator and so asks it how long it is.
-        let iter = iterable.iter_sized(vm)?;
+        // which fills a list from the iterator and so asks it how long it is,
+        // and which has its own wording for what it cannot iterate.
+        let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)
+            .map_err(|_| vm.new_type_error("can only join an iterable"))?;
+        let iter = iterable.iter_sized(vm)?.enumerate().map(|(i, obj)| {
+            obj?.downcast::<Self>().map_err(|obj| {
+                vm.new_type_error(format!(
+                    "sequence item {i}: expected str instance, {} found",
+                    obj.class().slot_name()
+                ))
+            })
+        });
         let joined = match iter.exactly_one() {
             Ok(first) => {
                 let first = first?;
@@ -1406,7 +1412,10 @@ impl PyStr {
     #[pymethod]
     pub fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         vm.get_method_or_type_error(table.clone(), identifier!(vm, __getitem__), || {
-            format!("'{}' object is not subscriptable", table.class().name())
+            format!(
+                "'{}' object is not subscriptable",
+                table.class().slot_name()
+            )
         })?;
 
         let mut translated = Wtf8Buf::new();

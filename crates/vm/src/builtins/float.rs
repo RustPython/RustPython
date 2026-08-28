@@ -223,8 +223,8 @@ pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64>
         &*buffer_lock
     } else {
         return Err(vm.new_type_error(format!(
-            "float() argument must be a string or a number, not '{}'",
-            val.class().name()
+            "float() argument must be a string or a real number, not '{}'",
+            val.class().slot_name()
         )));
     };
     crate::literal::float::parse_bytes(b).ok_or_else(|| {

@@ -628,9 +628,22 @@ impl PyBytesInner {
             .py_count(needle.as_slice(), range, |h, n| h.find_iter(n).count()))
     }
 
-    pub fn join(&self, iterable: ArgIterable<Self>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    // stringlib_bytes_join
+    pub fn join(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         // `PySequence_Fast()`, as in `PyUnicode_Join()`.
-        let iter = iterable.iter_sized(vm)?;
+        let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)
+            .map_err(|_| vm.new_type_error("can only join an iterable"))?;
+        let iter = iterable.iter_sized(vm)?.enumerate().map(|(i, obj)| {
+            let obj = obj?;
+            // Whatever the buffer lookup ran into, the item is only ever
+            // reported as the wrong kind of thing.
+            Self::try_from_object(vm, obj.clone()).map_err(|_| {
+                vm.new_type_error(format!(
+                    "sequence item {i}: expected a bytes-like object, {} found",
+                    obj.class().slot_name()
+                ))
+            })
+        });
         self.elements.py_join(iter)
     }
 
