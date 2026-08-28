@@ -159,6 +159,7 @@ pub unsafe extern "C" fn PyEval_GetFuncDesc(func: *mut PyObject) -> *const c_cha
 
 #[cfg(test)]
 mod tests {
+    use alloc::ffi::CString;
     use pyo3::exceptions::PyException;
     use pyo3::prelude::*;
 
@@ -166,7 +167,7 @@ mod tests {
     fn legacy_local(name: &str) -> (usize, Option<i64>) {
         let locals = super::PyEval_GetLocals();
         assert!(!locals.is_null());
-        let name = std::ffi::CString::new(name).unwrap();
+        let name = CString::new(name).unwrap();
         let value = unsafe { crate::dictobject::PyDict_GetItemString(locals, name.as_ptr()) };
         let value = if value.is_null() {
             None
