@@ -682,6 +682,12 @@ impl Interpreter {
             // This allows unraisable exceptions from atexit handlers to be reported.
             atexit::_run_exitfuncs(vm);
 
+            // Clean up any lingering subinterpreters. This has to happen before
+            // the finalizing flag is set, or else threads might get prematurely
+            // blocked.
+            #[cfg(feature = "threading")]
+            finalize_subinterpreters(vm);
+
             // Now suppress unraisable exceptions from daemon threads and __del__
             // methods during the rest of shutdown.
             vm.state.finalizing.store(true, Ordering::Release);
@@ -719,6 +725,34 @@ impl Interpreter {
 
             exit_code
         })
+    }
+}
+
+/// `finalize_subinterpreters`: destroy the subinterpreters the program left
+/// behind, after telling the user they are still around.
+#[cfg(feature = "threading")]
+fn finalize_subinterpreters(vm: &VirtualMachine) {
+    if !vm.state.is_main {
+        return;
+    }
+    let ids = runtime::owned_interpreter_ids();
+    // Bail out if there are no subinterpreters left.
+    if ids.is_empty() {
+        return;
+    }
+    // Warn the user if they forgot to clean up subinterpreters.
+    let message = vm
+        .ctx
+        .new_str("remaining subinterpreters; close them with Interpreter.close()");
+    let _ = crate::warn::warn(
+        message.into(),
+        Some(vm.ctx.exceptions.runtime_warning.to_owned()),
+        0,
+        None,
+        vm,
+    );
+    for id in ids {
+        let _ = runtime::destroy_owned_interpreter(id);
     }
 }
 

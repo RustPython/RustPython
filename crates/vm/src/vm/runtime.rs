@@ -504,6 +504,15 @@ pub fn owned_interpreter_count() -> usize {
     owned_interpreters().lock().len()
 }
 
+/// Ids of the runtime-owned interpreters currently alive, oldest first.
+#[cfg(feature = "threading")]
+#[must_use]
+pub fn owned_interpreter_ids() -> Vec<i64> {
+    let mut ids: Vec<i64> = owned_interpreters().lock().keys().copied().collect();
+    ids.sort_unstable();
+    ids
+}
+
 /// Finalize and drop a runtime-owned interpreter.
 ///
 /// The caller must already have checked that the interpreter is not the
