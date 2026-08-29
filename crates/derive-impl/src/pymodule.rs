@@ -675,7 +675,7 @@ impl ModuleItem for FunctionItem {
         });
         let doc = match (sig_doc, doc) {
             (Some(sig_doc), Some(doc)) => Some(format_doc(&sig_doc, &doc)),
-            (Some(sig_doc), None) => Some(sig_doc),
+            (Some(sig_doc), None) => Some(format_doc(&sig_doc, "")),
             (None, doc) => doc,
         };
 
