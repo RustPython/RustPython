@@ -854,8 +854,6 @@ class CodecCallbackTest(unittest.TestCase):
                 self.assertEqual(exc.end, 2)
                 self.assertEqual(exc.object, input)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encode_bytes_replacement(self):
         def handle(exc):
             if isinstance(exc, UnicodeEncodeError):
@@ -878,8 +876,6 @@ class CodecCallbackTest(unittest.TestCase):
                 res = input.encode(enc, "test.replacing")
                 self.assertEqual(res, "[".encode(enc) + repl + "]".encode(enc))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encode_odd_bytes_replacement(self):
         def handle(exc):
             if isinstance(exc, UnicodeEncodeError):

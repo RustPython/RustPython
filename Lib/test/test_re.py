@@ -772,7 +772,6 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(r'x{2,1}',
                                'min repeat greater than max repeat', 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_getattr(self):
         self.assertEqual(re.compile("(?i)(a)(b)").pattern, "(?i)(a)(b)")
         self.assertEqual(re.compile("(?i)(a)(b)").flags, re.I | re.U)

@@ -330,8 +330,17 @@ impl Context {
             })
             .collect();
 
+        let string_pool = StringPool::default();
+
+        // The one-character latin-1 strings are interned, so that every route
+        // to one of them lands on the same object.
         let latin1_char_cache = (u8::MIN..=u8::MAX)
-            .map(|b| create_object(PyStr::from(char::from(b)), types.str_type))
+            .map(|b| {
+                let s = unsafe {
+                    string_pool.intern(char::from(b).to_string(), types.str_type.to_owned())
+                };
+                s.to_owned()
+            })
             .collect::<Vec<PyRef<PyStr>>>();
 
         let ascii_char_cache = latin1_char_cache[..128].to_vec();
@@ -349,7 +358,6 @@ impl Context {
             None,
         );
 
-        let string_pool = StringPool::default();
         let names = unsafe { ConstName::new(&string_pool, types.str_type) };
 
         let slot_new_wrapper = PyMethodDef::new_const(

@@ -272,6 +272,15 @@ impl<'a> AsBag for &'a Context {
 #[derive(Clone, Copy)]
 pub struct PyObjBag<'a>(pub &'a Context);
 
+/// Whether a string constant reads as a name. Those are the ones interned,
+/// the way `all_name_chars` picks them out.
+fn is_name_chars(value: &crate::common::wtf8::Wtf8) -> bool {
+    value
+        .as_bytes()
+        .iter()
+        .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
 impl ConstantBag for PyObjBag<'_> {
     type Constant = Literal;
 
@@ -281,7 +290,7 @@ impl ConstantBag for PyObjBag<'_> {
             BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
             BorrowedConstant::Float { value } => ctx.new_float(value).into(),
             BorrowedConstant::Complex { value } => ctx.new_complex(value).into(),
-            BorrowedConstant::Str { value } if value.len() <= 20 => {
+            BorrowedConstant::Str { value } if is_name_chars(value) => {
                 ctx.intern_str(value).to_object()
             }
             BorrowedConstant::Str { value } => ctx.new_str(value).into(),
@@ -356,7 +365,7 @@ impl ConstantBag for PyVmBag<'_> {
             BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
             BorrowedConstant::Float { value } => ctx.new_float(value).into(),
             BorrowedConstant::Complex { value } => ctx.new_complex(value).into(),
-            BorrowedConstant::Str { value } if value.len() <= 20 => {
+            BorrowedConstant::Str { value } if is_name_chars(value) => {
                 ctx.intern_str(value).to_object()
             }
             BorrowedConstant::Str { value } => ctx.new_str(value).into(),

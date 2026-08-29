@@ -6,8 +6,8 @@ mod _sre {
         Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         atomic_func,
         builtins::{
-            PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyListRef, PyStr,
-            PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+            PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyListRef,
+            PyMappingProxy, PyStr, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
         common::wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
         common::{ascii, hash::PyHash},
@@ -569,8 +569,14 @@ mod _sre {
         }
 
         #[pygetset]
-        fn groupindex(&self) -> PyDictRef {
-            self.groupindex.clone()
+        fn groupindex(&self, vm: &VirtualMachine) -> PyObjectRef {
+            // A pattern with no named group hands back a plain dict.
+            if self.groupindex.is_empty() {
+                return vm.ctx.new_dict().into();
+            }
+            PyMappingProxy::from(self.groupindex.clone())
+                .into_ref(&vm.ctx)
+                .into()
         }
 
         #[pygetset]

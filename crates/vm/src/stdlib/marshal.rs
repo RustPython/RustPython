@@ -196,6 +196,28 @@ mod decl {
         )
     }
 
+    /// Write a float the way the pre-binary formats carry one: seventeen
+    /// significant digits, prefixed with their length.
+    fn write_float_str(buf: &mut Vec<u8>, value: f64) {
+        use marshal::Write;
+        let digits = rustpython_literal::float::format_general(
+            17,
+            value.abs(),
+            rustpython_literal::format::Case::Lower,
+            false,
+            false,
+        );
+        // A nan carries no sign of its own.
+        let sign = if value.is_sign_negative() && !value.is_nan() {
+            "-"
+        } else {
+            ""
+        };
+        buf.write_u8((sign.len() + digits.len()) as u8);
+        buf.write_slice(sign.as_bytes());
+        buf.write_slice(digits.as_bytes());
+    }
+
     fn write_object_depth(
         buf: &mut Vec<u8>,
         obj: &PyObjectRef,
@@ -290,19 +312,37 @@ mod decl {
                 }
             }
         } else if let Some(f) = obj.downcast_ref::<PyFloat>() {
-            buf.write_u8(b'g');
-            buf.write_u64(f.to_f64().to_bits());
+            if version > 1 {
+                buf.write_u8(b'g');
+                buf.write_u64(f.to_f64().to_bits());
+            } else {
+                buf.write_u8(b'f');
+                write_float_str(buf, f.to_f64());
+            }
         } else if let Some(c) = obj.downcast_ref::<PyComplex>() {
-            buf.write_u8(b'y');
             let cv = c.to_complex64();
-            buf.write_u64(cv.re.to_bits());
-            buf.write_u64(cv.im.to_bits());
+            if version > 1 {
+                buf.write_u8(b'y');
+                buf.write_u64(cv.re.to_bits());
+                buf.write_u64(cv.im.to_bits());
+            } else {
+                buf.write_u8(b'x');
+                write_float_str(buf, cv.re);
+                write_float_str(buf, cv.im);
+            }
         } else if let Some(s) = obj.downcast_ref::<PyStr>() {
             let bytes = s.as_wtf8().as_bytes();
-            let interned = version >= 3;
-            if bytes.len() < 256 && bytes.is_ascii() {
-                buf.write_u8(if interned { b'Z' } else { b'z' });
-                buf.write_u8(bytes.len() as u8);
+            // Only the formats that carry back-references tell an interned
+            // string apart, and only those from 4 on have the ascii-only forms.
+            let interned = version >= 3 && obj.is_interned();
+            if version >= 4 && bytes.is_ascii() {
+                if bytes.len() <= 255 {
+                    buf.write_u8(if interned { b'Z' } else { b'z' });
+                    buf.write_u8(bytes.len() as u8);
+                } else {
+                    buf.write_u8(if interned { b'A' } else { b'a' });
+                    buf.write_u32(bytes.len() as u32);
+                }
             } else {
                 buf.write_u8(if interned { b't' } else { b'u' });
                 buf.write_u32(bytes.len() as u32);
@@ -319,8 +359,14 @@ mod decl {
             buf.write_u32(data.len() as u32);
             buf.write_slice(&data);
         } else if let Some(t) = obj.downcast_ref::<PyTuple>() {
-            buf.write_u8(b'(');
-            buf.write_u32(t.len() as u32);
+            // From 4 on a short tuple carries its length in a single byte.
+            if version >= 4 && t.len() < 256 {
+                buf.write_u8(b')');
+                buf.write_u8(t.len() as u8);
+            } else {
+                buf.write_u8(b'(');
+                buf.write_u32(t.len() as u32);
+            }
             for elem in t.as_slice() {
                 write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
@@ -683,7 +729,11 @@ mod decl {
         match marshal::deserialize_value(rdr, PyMarshalBag::new(vm, &pending_error, allow_code)) {
             Ok(value) => Ok(value),
             Err(error) => Err(pending_error.into_inner().unwrap_or_else(|| match error {
-                marshal::MarshalError::Eof => vm.new_eof_error("marshal data too short"),
+                marshal::MarshalError::Eof => vm.new_eof_error("EOF read where not expected"),
+                marshal::MarshalError::EofObject => {
+                    vm.new_eof_error("EOF read where object expected")
+                }
+                marshal::MarshalError::DataTooShort => vm.new_eof_error("marshal data too short"),
                 error @ marshal::MarshalError::NullObject => vm.new_type_error(error.to_string()),
                 error @ (marshal::MarshalError::BadSize(_)
                 | marshal::MarshalError::UnknownType

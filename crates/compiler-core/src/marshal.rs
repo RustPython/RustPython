@@ -11,6 +11,10 @@ pub const FORMAT_VERSION: u32 = 5;
 pub enum MarshalError {
     /// Unexpected End Of File
     Eof,
+    /// Unexpected End Of File where an object was to start
+    EofObject,
+    /// A run of bytes that the data ends in the middle of
+    DataTooShort,
     /// Invalid Bytecode
     InvalidBytecode,
     /// Invalid utf8 in string
@@ -33,6 +37,8 @@ impl core::fmt::Display for MarshalError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Eof => f.write_str("unexpected end of data"),
+            Self::EofObject => f.write_str("unexpected end of data where an object was expected"),
+            Self::DataTooShort => f.write_str("data ends in the middle of a value"),
             Self::InvalidBytecode => f.write_str("invalid bytecode"),
             Self::InvalidUtf8 => f.write_str("invalid utf8"),
             Self::InvalidLocation => f.write_str("invalid source location"),
@@ -144,7 +150,9 @@ pub trait Read {
     }
 
     fn read_u8(&mut self) -> Result<u8> {
-        Ok(u8::from_le_bytes(*self.read_array()?))
+        // A single byte is not a run that got cut short: nothing came at all.
+        let byte = self.read_array().map_err(|_| MarshalError::Eof)?;
+        Ok(u8::from_le_bytes(*byte))
     }
 
     fn read_u16(&mut self) -> Result<u16> {
@@ -181,7 +189,9 @@ impl Read for &[u8] {
     }
 
     fn read_array<const N: usize>(&mut self) -> Result<&[u8; N]> {
-        let (chunk, rest) = self.split_first_chunk::<N>().ok_or(MarshalError::Eof)?;
+        let (chunk, rest) = self
+            .split_first_chunk::<N>()
+            .ok_or(MarshalError::DataTooShort)?;
         *self = rest;
         Ok(chunk)
     }
@@ -189,7 +199,8 @@ impl Read for &[u8] {
 
 impl<'a> ReadBorrowed<'a> for &'a [u8] {
     fn read_slice_borrow(&mut self, n: u32) -> Result<&'a [u8]> {
-        self.split_off(..n as usize).ok_or(MarshalError::Eof)
+        self.split_off(..n as usize)
+            .ok_or(MarshalError::DataTooShort)
     }
 }
 
@@ -201,7 +212,7 @@ pub struct Cursor<B> {
 impl<B: AsRef<[u8]>> Read for Cursor<B> {
     fn read_slice(&mut self, n: u32) -> Result<&[u8]> {
         let data = &self.data.as_ref()[self.position..];
-        let slice = data.get(..n as usize).ok_or(MarshalError::Eof)?;
+        let slice = data.get(..n as usize).ok_or(MarshalError::DataTooShort)?;
         self.position += n as usize;
         Ok(slice)
     }
@@ -847,6 +858,12 @@ pub fn deserialize_value<R: Read, Bag: MarshalBag>(rdr: &mut R, bag: Bag) -> Res
     deserialize_value_depth(rdr, bag, MAX_MARSHAL_STACK_DEPTH, &mut refs)
 }
 
+/// Read the byte an object starts with. Running out of data here names the
+/// object that never came, rather than a field that was cut short.
+fn read_object_type<R: Read>(rdr: &mut R) -> Result<u8> {
+    rdr.read_u8().map_err(|_| MarshalError::EofObject)
+}
+
 fn deserialize_value_depth<R: Read, Bag: MarshalBag>(
     rdr: &mut R,
     bag: Bag,
@@ -856,7 +873,7 @@ fn deserialize_value_depth<R: Read, Bag: MarshalBag>(
     if depth == 0 {
         return Err(MarshalError::InvalidBytecode);
     }
-    let raw = rdr.read_u8()?;
+    let raw = read_object_type(rdr)?;
     deserialize_value_after_header(rdr, bag, depth, refs, raw)
 }
 
@@ -1187,7 +1204,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             {
                 refs[index] = Some(dict.clone());
                 loop {
-                    let raw = rdr.read_u8()?;
+                    let raw = read_object_type(rdr)?;
                     if raw & !FLAG_REF == b'0' {
                         break;
                     }
@@ -1199,7 +1216,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             } else {
                 let mut pairs = Vec::new();
                 loop {
-                    let raw = rdr.read_u8()?;
+                    let raw = read_object_type(rdr)?;
                     if raw & !FLAG_REF == b'0' {
                         break;
                     }

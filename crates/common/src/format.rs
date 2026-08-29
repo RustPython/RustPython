@@ -491,14 +491,18 @@ impl FormatSpec {
                 | FormatType::Binary
                 | FormatType::Octal
                 | FormatType::Hex(_)
-                | FormatType::Number(_),
+                | FormatType::Number(_)
+                | FormatType::Unknown(_),
             ) => {
                 let ch = char::from(format_type);
                 Err(FormatSpecError::UnspecifiedFormat(',', ch))
             }
             (
                 Some(FormatGrouping::Underscore),
-                FormatType::String | FormatType::Character | FormatType::Number(_),
+                FormatType::String
+                | FormatType::Character
+                | FormatType::Number(_)
+                | FormatType::Unknown(_),
             ) => {
                 let ch = char::from(format_type);
                 Err(FormatSpecError::UnspecifiedFormat('_', ch))
@@ -859,6 +863,7 @@ impl FormatSpec {
     }
 
     pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
+        self.validate_format(FormatType::Decimal)?;
         let x = u8::from(input);
         match &self.format_type {
             Some(
@@ -1061,11 +1066,16 @@ impl FormatSpec {
                     match (self.sign, self.alternate_form) {
                         (Some(_), _) => Err(FormatSpecError::NotAllowed("Sign")),
                         (_, true) => Err(FormatSpecError::NotAllowed("Alternate form (#)")),
-                        _ => match num.to_u32() {
-                            Some(n) if n <= 0x10ffff => {
-                                Ok(core::char::from_u32(n).unwrap().to_string())
+                        _ => match num
+                            .to_i64()
+                            .filter(|code| core::ffi::c_long::try_from(*code).is_ok())
+                        {
+                            None => Err(FormatSpecError::IntTooLargeForCLong),
+                            Some(n @ 0..=0x10ffff) => {
+                                let ch = core::char::from_u32(n as u32).unwrap().to_string();
+                                return Ok(self.format_sign_and_align(&ch, "", FormatAlign::Right));
                             }
-                            Some(_) | None => Err(FormatSpecError::CodeNotInRange),
+                            Some(_) => Err(FormatSpecError::CodeNotInRange),
                         },
                     }
                 }
@@ -1200,6 +1210,17 @@ impl FormatSpec {
         self.validate_format(FormatType::FixedPoint(Case::Lower))?;
         let precision = self.precision.unwrap_or(6);
         let magnitude = num.abs();
+        // A zero precision means one significant digit, and a part of a
+        // complex keeps no fraction of its own the way a bare float does.
+        let general = |case| {
+            float::format_general(
+                if precision == 0 { 1 } else { precision },
+                magnitude,
+                case,
+                self.alternate_form,
+                false,
+            )
+        };
         let magnitude_str = match &self.format_type {
             Some(
                 FormatType::Decimal
@@ -1221,16 +1242,7 @@ impl FormatSpec {
                 *case,
                 self.alternate_form,
             )),
-            Some(FormatType::GeneralFormat(case) | FormatType::Number(case)) => {
-                let precision = if precision == 0 { 1 } else { precision };
-                Ok(float::format_general(
-                    precision,
-                    magnitude,
-                    *case,
-                    self.alternate_form,
-                    false,
-                ))
-            }
+            Some(FormatType::GeneralFormat(case) | FormatType::Number(case)) => Ok(general(*case)),
             Some(FormatType::Exponent(case)) => Ok(float::format_exponent(
                 precision,
                 magnitude,
@@ -1240,22 +1252,9 @@ impl FormatSpec {
             None => match magnitude {
                 magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
-                _ => match self.precision {
-                    Some(precision) => Ok(float::format_general(
-                        precision,
-                        magnitude,
-                        Case::Lower,
-                        self.alternate_form,
-                        true,
-                    )),
-                    None => {
-                        if magnitude.fract() == 0.0 {
-                            Ok(magnitude.trunc().to_string())
-                        } else {
-                            Ok(magnitude.to_string())
-                        }
-                    }
-                },
+                _ if self.precision.is_some() => Ok(general(Case::Lower)),
+                magnitude if magnitude.fract() == 0.0 => Ok(magnitude.trunc().to_string()),
+                magnitude => Ok(magnitude.to_string()),
             },
         }?;
         let magnitude_str = match &self.grouping_option {
@@ -1367,6 +1366,7 @@ pub enum FormatSpecError {
     NotAllowed(&'static str),
     UnableToConvert,
     CodeNotInRange,
+    IntTooLargeForCLong,
     ZeroPadding,
     AlignmentFlag,
     NegativeZeroCoercionNotAllowed(&'static str),
