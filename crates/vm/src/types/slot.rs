@@ -709,7 +709,7 @@ impl PyType {
             };
 
             // Skip if subclass has its own definition for this attribute
-            if subclass.attributes.read().contains_key(name) {
+            if subclass.attributes.contains(name) {
                 continue;
             }
 
@@ -780,9 +780,8 @@ impl PyType {
                     // methods (__setitem__ and __delitem__). If any of those methods
                     // is defined, we must use the wrapper to ensure Python method calls.
                     let has_own = {
-                        let guard = self.attributes.read();
                         // Check the current method name
-                        let mut result = guard.contains_key(name);
+                        let mut result = self.attributes.contains(name);
                         // For ass_item/ass_subscript slots, also check the paired method
                         // (__setitem__ and __delitem__ share the same slot)
                         if !result
@@ -791,7 +790,8 @@ impl PyType {
                         {
                             let setitem = ctx.intern_str("__setitem__");
                             let delitem = ctx.intern_str("__delitem__");
-                            result = guard.contains_key(setitem) || guard.contains_key(delitem);
+                            result = self.attributes.contains(setitem)
+                                || self.attributes.contains(delitem);
                         }
                         result
                     };
@@ -836,11 +836,11 @@ impl PyType {
             SlotAccessor::TpHash => {
                 // Special handling for __hash__ = None
                 if ADD {
-                    let method = self.attributes.read().get(name).cloned().or_else(|| {
+                    let method = self.attributes.get(name).or_else(|| {
                         self.mro
                             .read()
                             .iter()
-                            .find_map(|cls| cls.attributes.read().get(name).cloned())
+                            .find_map(|cls| cls.attributes.get(name))
                     });
 
                     if method.as_ref().is_some_and(|m| m.is(&ctx.none)) {
@@ -892,13 +892,13 @@ impl PyType {
                 // builtin __new__ entry (or no entry at all) means the slot
                 // is inherited from the solid base, matching update_one_slot's
                 // tp_new special case over the tp_base-inherited value.
-                let needs_wrapper = if ADD && self.attributes.read().contains_key(name) {
+                let needs_wrapper = if ADD && self.attributes.contains(name) {
                     true
                 } else {
                     // mro[0] is self, so skip it
                     self.mro.read()[1..]
                         .iter()
-                        .find(|cls| cls.attributes.read().contains_key(name))
+                        .find(|cls| cls.attributes.contains(name))
                         .is_some_and(|cls| {
                             cls.slots.new.load().map(|f| fn_addr(f))
                                 == Some(fn_addr(new_wrapper as NewFunc))
@@ -919,17 +919,14 @@ impl PyType {
                 // because the native slot won't call __getattr__.
                 let __getattr__ = identifier!(ctx, __getattr__);
                 let has_getattr = {
-                    let attrs = self.attributes.read();
-                    let in_self = attrs.contains_key(__getattr__);
-                    drop(attrs);
                     // mro[0] is self, so skip it
-                    in_self
+                    self.attributes.contains(__getattr__)
                         || self
                             .mro
                             .read()
                             .iter()
                             .skip(1)
-                            .any(|cls| cls.attributes.read().contains_key(__getattr__))
+                            .any(|cls| cls.attributes.contains(__getattr__))
                 };
 
                 if has_getattr {
@@ -1043,23 +1040,15 @@ impl PyType {
                     ];
 
                     let has_python_cmp = {
-                        // Check self first
-                        let attrs = self.attributes.read();
-                        let in_self = cmp_names.iter().any(|n| attrs.contains_key(*n));
-                        drop(attrs);
-
-                        // mro[0] is self, so skip it since we already checked self above
-                        in_self
+                        // Check self first, then the rest of the MRO
+                        cmp_names.iter().any(|n| self.attributes.contains(n))
                             || self.mro.read()[1..].iter().any(|cls| {
-                                let attrs = cls.attributes.read();
                                 cmp_names.iter().any(|n| {
-                                    if let Some(attr) = attrs.get(*n) {
+                                    cls.attributes.get(n).is_some_and(|attr| {
                                         // Check if it's a Python function (not a native descriptor)
                                         !attr.class().is(ctx.types.wrapper_descriptor_type)
                                             && !attr.class().is(ctx.types.method_descriptor_type)
-                                    } else {
-                                        false
-                                    }
+                                    })
                                 })
                             })
                     };
@@ -1515,10 +1504,9 @@ impl PyType {
                 // SqAssItem is shared by __setitem__ (SeqSetItem) and __delitem__ (SeqDelItem)
                 if ADD {
                     let has_own = {
-                        let guard = self.attributes.read();
                         let setitem = ctx.intern_str("__setitem__");
                         let delitem = ctx.intern_str("__delitem__");
-                        guard.contains_key(setitem) || guard.contains_key(delitem)
+                        self.attributes.contains(setitem) || self.attributes.contains(delitem)
                     };
                     if has_own {
                         self.slots
@@ -1568,10 +1556,9 @@ impl PyType {
                 // MpAssSubscript is shared by __setitem__ (MapSetSubscript) and __delitem__ (MapDelSubscript)
                 if ADD {
                     let has_own = {
-                        let guard = self.attributes.read();
                         let setitem = ctx.intern_str("__setitem__");
                         let delitem = ctx.intern_str("__delitem__");
-                        guard.contains_key(setitem) || guard.contains_key(delitem)
+                        self.attributes.contains(setitem) || self.attributes.contains(delitem)
                     };
                     if has_own {
                         self.slots
@@ -1694,7 +1681,7 @@ impl PyType {
         let mro = self.mro.read();
 
         // Look up in self's dict first
-        let attr_name = self.attributes.read().get(name).cloned();
+        let attr_name = self.attributes.get(name);
         if let Some(attr) = attr_name {
             if let Some(func) = try_extract(&attr, &mro) {
                 return SlotLookupResult::NativeSlot(func);
@@ -1704,7 +1691,7 @@ impl PyType {
 
         // Look up in MRO (mro[0] is self, so skip it)
         for (i, cls) in mro[1..].iter().enumerate() {
-            let attr_name = cls.attributes.read().get(name).cloned();
+            let attr_name = cls.attributes.get(name);
             if let Some(attr) = attr_name {
                 // Use the slice starting from this class in MRO
                 if let Some(func) = try_extract(&attr, &mro[i + 1..]) {

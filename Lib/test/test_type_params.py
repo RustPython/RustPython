@@ -674,7 +674,6 @@ class TypeParamsClassScopeTest(unittest.TestCase):
         self.assertEqual(T.__bound__, "global")
         self.assertEqual(U.__bound__, "class")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'int'> is not <class 'float'>
     def test_modified_later(self):
         class X:
             T = int

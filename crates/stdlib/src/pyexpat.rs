@@ -173,7 +173,7 @@ mod _pyexpat {
 
         #[extend_class]
         fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-            let mut attributes = class.attributes.write();
+            let attributes = &class.attributes;
 
             create_property!(ctx, attributes, "StartElementHandler", class, start_element);
             create_property!(ctx, attributes, "EndElementHandler", class, end_element);

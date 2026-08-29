@@ -763,7 +763,7 @@ impl ModuleItem for ClassItem {
                 // module resolution, e.g. TypeAliasType)
                 {
                     let module_key = rustpython_vm::identifier!(ctx, __module__);
-                    let has_module_getset = new_class.attributes.read()
+                    let has_module_getset = new_class.attributes
                         .get(module_key)
                         .is_some_and(|v| v.downcastable::<rustpython_vm::builtins::PyGetSet>());
                     if !has_module_getset {
@@ -857,7 +857,7 @@ impl ModuleItem for StructSequenceItem {
             let new_class = <#pytype_ident as ::rustpython_vm::class::PyClassImpl>::make_static_type();
             {
                 let module_key = rustpython_vm::identifier!(ctx, __module__);
-                let has_module_getset = new_class.attributes.read()
+                let has_module_getset = new_class.attributes
                     .get(module_key)
                     .is_some_and(|v| v.downcastable::<rustpython_vm::builtins::PyGetSet>());
                 if !has_module_getset {

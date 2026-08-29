@@ -672,11 +672,7 @@ impl Context {
     }
 
     /// Creates a new [`PyGetSet`] with a heap type.
-    ///
-    /// # Safety
-    /// In practice, this constructor is safe because a getset is always owned by its `class` type.
-    /// However, it can be broken if used unconventionally.
-    pub unsafe fn new_getset<G, S, T, U>(
+    pub fn new_getset<G, S, T, U>(
         &self,
         name: &str,
         class: &Py<PyType>,
@@ -687,8 +683,8 @@ impl Context {
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        let class = unsafe { &*(class as *const _) };
-        self.new_static_getset(name, class, g, s)
+        let getset = PyGetSet::new(name, class).with_get(g).with_set(s);
+        PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
     pub fn new_base_object(&self, class: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
