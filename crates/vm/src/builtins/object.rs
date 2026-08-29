@@ -220,7 +220,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
             }
         } else {
             let weakref_name = vm.ctx.intern_str("__weakref__");
-            obj.class().attributes.read().contains_key(weakref_name)
+            obj.class().attributes.contains(weakref_name)
         };
         if has_weakref {
             basicsize += core::mem::size_of::<PyObjectRef>();

@@ -551,12 +551,15 @@ pub(crate) fn subs_parameters(
         };
 
         if unpack {
-            if let Ok(tuple) = substituted_arg.try_to_ref::<PyTuple>(vm) {
-                for elem in tuple {
-                    new_args.push(elem.clone());
-                }
-            } else {
-                new_args.push(substituted_arg);
+            let tuple = substituted_arg.try_to_ref::<PyTuple>(vm).map_err(|_| {
+                vm.new_type_error(format!(
+                    "expected __typing_subst__ of {} objects to return a tuple, not {}",
+                    arg.class().fully_qualified_name(vm),
+                    substituted_arg.class().fully_qualified_name(vm),
+                ))
+            })?;
+            for elem in tuple {
+                new_args.push(elem.clone());
             }
         } else {
             new_args.push(substituted_arg);
