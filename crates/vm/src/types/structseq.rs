@@ -441,11 +441,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         // Default __reduce__: only set if not already overridden by the impl's extend_class.
         // This allows struct sequences like sched_param to provide a custom __reduce__
         // (equivalent to METH_COEXIST in structseq.c).
-        if !class
-            .attributes
-            .read()
-            .contains_key(ctx.intern_str("__reduce__"))
-        {
+        if !class.attributes.contains(ctx.intern_str("__reduce__")) {
             class.set_attr(
                 ctx.intern_str("__reduce__"),
                 DEFAULT_STRUCTSEQ_REDUCE.to_proper_method(class, ctx),

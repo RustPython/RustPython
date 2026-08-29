@@ -57,7 +57,7 @@ impl PyObjectRef {
 
     // PyObject *PyObject_Dir(PyObject *o)
     pub fn dir(self, vm: &VirtualMachine) -> PyResult<PyList> {
-        let attributes = self.class().get_attributes();
+        let attributes = self.class().get_attributes(&vm.ctx);
 
         let dict = PyDict::from_attributes(attributes, vm)?.into_ref(&vm.ctx);
 
