@@ -374,8 +374,8 @@ mod tests {
         assert_eq!(character_name('☃').as_deref(), Some("SNOWMAN"));
         assert_eq!(ucd.decimal(cp('५')), Some(5));
         assert_eq!(ucd.digit(cp('²')), Some(2));
-        let third = ucd.numeric(cp('⅓')).unwrap();
-        assert!((third - 1.0 / 3.0).abs() < 1e-6, "got {third}");
+        assert_eq!(ucd.numeric(cp('⅓')), Some(1.0 / 3.0));
+        assert_eq!(ucd.numeric(cp('⅐')), Some(1.0 / 7.0));
     }
 
     #[test]

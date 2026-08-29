@@ -426,15 +426,16 @@ impl CFormatSpec {
 
     #[must_use]
     pub fn format_bytes(&self, bytes: &[u8]) -> Vec<u8> {
-        let bytes = if let Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(precision))) =
-            self.precision
-        {
-            &bytes[..cmp::min(bytes.len(), precision)]
-        } else {
-            bytes
+        let bytes = match self.precision {
+            Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(precision))) => {
+                &bytes[..cmp::min(bytes.len(), precision)]
+            }
+            // A precision written as a bare dot truncates to nothing.
+            Some(CFormatPrecision::Dot) => &bytes[..0],
+            _ => bytes,
         };
         if let Some(CFormatQuantity::Amount(width)) = self.min_field_width {
-            let fill = cmp::max(0, width - bytes.len());
+            let fill = width.saturating_sub(bytes.len());
             let mut v = Vec::with_capacity(bytes.len() + fill);
             if self.flags.contains(CConversionFlags::LEFT_ADJUST) {
                 v.extend_from_slice(bytes);

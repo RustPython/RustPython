@@ -274,6 +274,21 @@ fn generate_membership_3_2() {
     write!(writer, "{membership:?};").unwrap();
 }
 
+/// Read a numeric value written either on its own or as `numerator/denominator`.
+fn parse_numeric_value(text: &str) -> f64 {
+    let text = text.trim();
+    let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
+    let numerator: f64 = numerator
+        .trim()
+        .parse()
+        .expect("Unicode data contains valid properties");
+    let denominator: f64 = denominator
+        .trim()
+        .parse()
+        .expect("Unicode data contains valid properties");
+    numerator / denominator
+}
+
 fn generate_numeric_value() {
     let path = PathBuf::from(env::var("OUT_DIR").unwrap())
         .join("generated")
@@ -284,6 +299,26 @@ fn generate_numeric_value() {
     let ucd32 = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("unicode")
         .join("ucd32");
+    // `DerivedNumericValues` writes the value rounded to a few digits, so the
+    // fraction `UnicodeData` field 8 spells out is what the value comes from.
+    // A character `UnicodeData` leaves out takes its value from Unihan, where
+    // the rounded field is a whole number and loses nothing.
+    let mut ucd32_fractions = BTreeMap::new();
+    for line in BufReader::new(File::open(ucd32.join("UnicodeData-3.2.0.txt")).unwrap())
+        .lines()
+        .map(Result::unwrap)
+    {
+        let mut fields = line.split(';');
+        let Some(code) = fields.next() else { continue };
+        let Some(numeric) = fields.nth(7) else {
+            continue;
+        };
+        if !numeric.is_empty() {
+            let code = u32::from_str_radix(code.trim(), 16).unwrap();
+            ucd32_fractions.insert(code, parse_numeric_value(numeric));
+        }
+    }
+
     let mut ucd32_diffs = BTreeMap::new();
     let numeric_32 =
         BufReader::new(File::open(ucd32.join("DerivedNumericValues-3.2.0.txt")).unwrap());
@@ -292,9 +327,10 @@ fn generate_numeric_value() {
         NonZeroUsize::new(1).unwrap(),
         &mut io::empty(),
         |start, end, value, _| {
-            let value: f64 = value
-                .parse()
-                .expect("Unicode data contains valid properties");
+            let value = ucd32_fractions
+                .get(&start)
+                .copied()
+                .unwrap_or_else(|| parse_numeric_value(value));
             ucd32_diffs.insert((start, end), value);
             Option::<()>::None
         },
@@ -310,12 +346,11 @@ fn generate_numeric_value() {
         "DerivedNumericValues.txt",
         "NUMERIC_VALUES",
         "(u32, u32, f64)",
-        NonZeroUsize::new(1).unwrap(),
+        // Field 3 holds the fraction; field 1 rounds it to a few digits.
+        NonZeroUsize::new(3).unwrap(),
         &mut writer,
         |start, end, value, _| {
-            let value: f64 = value
-                .parse()
-                .expect("Unicode data contains valid properties");
+            let value = parse_numeric_value(value);
 
             if ucd32_diffs
                 .get(&(start, end))

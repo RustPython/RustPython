@@ -830,8 +830,8 @@ impl PyStr {
                         .collect()
                 },
                 |v, n, vm| {
-                    v.as_bytes().py_split_whitespace(n, |s| {
-                        unsafe { AsciiStr::from_ascii_unchecked(s) }.to_pyobject(vm)
+                    v.as_str().py_split_whitespace(n, |s| {
+                        unsafe { AsciiStr::from_ascii_unchecked(s.as_bytes()) }.to_pyobject(vm)
                     })
                 },
             ),
@@ -883,21 +883,24 @@ impl PyStr {
                             .trim_matches(|c| memchr::memchr(c as _, chars.as_bytes()).is_some());
                         unsafe { AsciiStr::from_ascii_unchecked(s.as_bytes()) }
                     },
-                    |s| s.trim(),
+                    |s| {
+                        let s = s.as_str().trim_matches(unicode::classify::is_space);
+                        unsafe { AsciiStr::from_ascii_unchecked(s.as_bytes()) }
+                    },
                 )
                 .into(),
             PyKindStr::Utf8(s) => s
                 .py_strip(
                     chars,
                     |s, chars| s.trim_matches(|c| chars.contains(c)),
-                    |s| s.trim(),
+                    |s| s.trim_matches(unicode::classify::is_space),
                 )
                 .into(),
             PyKindStr::Wtf8(w) => w
                 .py_strip(
                     chars,
                     |s, chars| s.trim_matches(|c| chars.code_points().contains(&c)),
-                    |s| s.trim(),
+                    |s| s.trim_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
                 )
                 .into(),
         }
@@ -913,7 +916,7 @@ impl PyStr {
         let stripped = s.py_strip(
             chars,
             |s, chars| s.trim_start_matches(|c| chars.contains_code_point(c)),
-            |s| s.trim_start(),
+            |s| s.trim_start_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
         );
         if s == stripped {
             zelf
@@ -932,7 +935,7 @@ impl PyStr {
         let stripped = s.py_strip(
             chars,
             |s, chars| s.trim_end_matches(|c| chars.contains_code_point(c)),
-            |s| s.trim_end(),
+            |s| s.trim_end_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
         );
         if s == stripped {
             zelf
@@ -1383,12 +1386,8 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn expandtabs(&self, args: anystr::ExpandTabsArgs, vm: &VirtualMachine) -> PyResult<String> {
-        // TODO: support WTF-8
-        Ok(rustpython_common::str::expandtabs(
-            self.try_as_utf8(vm)?.as_str(),
-            args.tabsize(),
-        ))
+    fn expandtabs(&self, args: anystr::ExpandTabsArgs) -> Wtf8Buf {
+        rustpython_common::str::expandtabs(self.as_wtf8(), args.tabsize())
     }
 
     #[pymethod]
@@ -1890,6 +1889,13 @@ impl SliceableSequenceOp for PyStr {
         self.data.nth_char(index)
     }
 
+    fn getitem_by_index(&self, vm: &VirtualMachine, index: isize) -> PyResult<Self::Item> {
+        let pos = self
+            .wrap_index(index)
+            .ok_or_else(|| vm.new_index_error("string index out of range"))?;
+        Ok(self.do_get(pos))
+    }
+
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
         if let PyKindStr::Ascii(s) = self.as_str_kind() {
             return s[range].into();
@@ -2276,16 +2282,16 @@ impl AnyStr for str {
         let mut splits = Vec::new();
         let mut last_offset = 0;
         let mut count = maxsplit;
-        for (offset, _) in self.match_indices(|c: char| c.is_ascii_whitespace() || c == '\x0b') {
+        for (offset, separator) in self.match_indices(unicode::classify::is_space) {
             if last_offset == offset {
-                last_offset += 1;
+                last_offset += separator.len();
                 continue;
             }
             if count == 0 {
                 break;
             }
             splits.push(convert(&self[last_offset..offset]));
-            last_offset = offset + 1;
+            last_offset = offset + separator.len();
             count -= 1;
         }
         if last_offset != self.len() {
@@ -2302,15 +2308,15 @@ impl AnyStr for str {
         let mut splits = Vec::new();
         let mut last_offset = self.len();
         let mut count = maxsplit;
-        for (offset, _) in self.rmatch_indices(|c: char| c.is_ascii_whitespace() || c == '\x0b') {
-            if last_offset == offset + 1 {
-                last_offset -= 1;
+        for (offset, separator) in self.rmatch_indices(unicode::classify::is_space) {
+            if last_offset == offset + separator.len() {
+                last_offset = offset;
                 continue;
             }
             if count == 0 {
                 break;
             }
-            splits.push(convert(&self[offset + 1..last_offset]));
+            splits.push(convert(&self[offset + separator.len()..last_offset]));
             last_offset = offset;
             count -= 1;
         }
@@ -2395,19 +2401,19 @@ impl AnyStr for Wtf8 {
         let mut splits = Vec::new();
         let mut last_offset = 0;
         let mut count = maxsplit;
-        for (offset, _) in self
+        for (offset, separator) in self
             .code_point_indices()
-            .filter(|(_, c)| c.is_char_and(|c| c.is_ascii_whitespace() || c == '\x0b'))
+            .filter(|(_, c)| c.is_char_and(unicode::classify::is_space))
         {
             if last_offset == offset {
-                last_offset += 1;
+                last_offset += separator.len_wtf8();
                 continue;
             }
             if count == 0 {
                 break;
             }
             splits.push(convert(&self[last_offset..offset]));
-            last_offset = offset + 1;
+            last_offset = offset + separator.len_wtf8();
             count -= 1;
         }
         if last_offset != self.len() {
@@ -2424,19 +2430,19 @@ impl AnyStr for Wtf8 {
         let mut splits = Vec::new();
         let mut last_offset = self.len();
         let mut count = maxsplit;
-        for (offset, _) in self
+        for (offset, separator) in self
             .code_point_indices()
             .rev()
-            .filter(|(_, c)| c.is_char_and(|c| c.is_ascii_whitespace() || c == '\x0b'))
+            .filter(|(_, c)| c.is_char_and(unicode::classify::is_space))
         {
-            if last_offset == offset + 1 {
-                last_offset -= 1;
+            if last_offset == offset + separator.len_wtf8() {
+                last_offset = offset;
                 continue;
             }
             if count == 0 {
                 break;
             }
-            splits.push(convert(&self[offset + 1..last_offset]));
+            splits.push(convert(&self[offset + separator.len_wtf8()..last_offset]));
             last_offset = offset;
             count -= 1;
         }
