@@ -735,8 +735,12 @@ where
 //
 // Unlike CPython, a `#[pyfunction]` doesn't take the module as an argument yet,
 // so there's no module to mark with `$module`.
-pub(crate) fn text_signature(sig: &Signature, name: &str) -> Option<String> {
-    let signature = func_sig(sig)?;
+pub(crate) fn text_signature(
+    sig: &Signature,
+    name: &str,
+    implicit_self: Option<&str>,
+) -> Option<String> {
+    let signature = func_sig(sig, implicit_self)?;
     // Arguments bind through `FuncArgs::take_positional`, which never consults
     // the keyword map, so they are positional-only. `*args`/`**kwargs` cannot be
     // followed by `/`, and an empty parameter list has nothing to mark.
@@ -821,7 +825,10 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
 
 /// Returns None when an argument has no name to report, in which case no
 /// signature can be generated for the function.
-fn func_sig(sig: &Signature) -> Option<String> {
+///
+/// `implicit_self` is the marker to report for a first argument that the call
+/// binds to without a `&self` receiver.
+fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> {
     let mut params = Vec::new();
     for arg in &sig.inputs {
         let arg = match arg {
@@ -831,6 +838,10 @@ fn func_sig(sig: &Signature) -> Option<String> {
                 continue;
             }
         };
+        if let Some(marker) = implicit_self.take() {
+            params.push(marker.to_owned());
+            continue;
+        }
         let ty = arg.ty.as_ref();
         let ty = quote!(#ty).to_string();
         if ty == "FuncArgs" {

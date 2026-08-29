@@ -664,7 +664,7 @@ impl ModuleItem for FunctionItem {
         let item_meta = SimpleItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.simple_name()?;
-        let sig_doc = text_signature(func.sig(), &py_name);
+        let sig_doc = text_signature(func.sig(), &py_name, None);
 
         let module = args.module_name();
         // TODO: doc must exist at least one of code or CPython

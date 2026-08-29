@@ -53,6 +53,12 @@ assert str(inspect.signature(aiter)) == "(async_iterable, /)"
 assert str(inspect.signature(os.getpid)) == "()"
 assert str(inspect.signature(os.getcwd)) == "()"
 
+# Methods report a signature too, with the receiver marked so that binding a
+# method drops it.
+assert str(inspect.signature(list.__dir__)) == "(self, /)"
+assert str(inspect.signature([].__dir__)) == "()"
+assert str(inspect.signature(float.fromhex)) == "(string, /)"
+
 if sys.implementation.name == "rustpython":
     # Functions whose Rust arguments are destructuring patterns rather than
     # plain names get no signature at all, instead of emitting text that is not
