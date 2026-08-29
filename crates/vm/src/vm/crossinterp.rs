@@ -701,10 +701,18 @@ pub fn script_code(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyCode
     } else if let Some(func) = obj.downcast_ref::<PyFunction>() {
         (*func.code).to_owned()
     } else {
+        #[allow(unused_variables)]
         let src = source_as_string(obj, vm)?;
         // Compile in the caller so SyntaxError is raised here.
-        vm.compile(&src, crate::compiler::Mode::Exec, "<script>")
-            .map_err(|err| err.into_pyexception(vm, Some(src.as_str())))?
+        #[cfg(feature = "rustpython-compiler")]
+        {
+            vm.compile(&src, crate::compiler::Mode::Exec, "<script>")
+                .map_err(|err| err.into_pyexception(vm, Some(src.as_str())))?
+        }
+        #[cfg(not(feature = "rustpython-compiler"))]
+        return Err(vm.new_type_error(
+            "can't compile a script to bytecode when the `codegen` feature of rustpython is disabled",
+        ));
     };
     verify_script(&code, vm)?;
     Ok(code)
