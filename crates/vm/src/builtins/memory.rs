@@ -47,7 +47,7 @@ struct PyMemoryViewFromFlagsArgs {
     flags: ArgIndex,
 }
 
-#[pyclass(module = false, name = "memoryview")]
+#[pyclass(module = false, name = "memoryview", traverse)]
 #[derive(Debug)]
 pub struct PyMemoryView {
     /// One share of the acquisition this view is looking at, given up when the
@@ -55,17 +55,23 @@ pub struct PyMemoryView {
     buffer: PyBuffer,
     // the released memoryview does not mean the buffer is destroyed
     // because the possible another memoryview is viewing from it
+    #[pytraverse(skip)]
     released: AtomicCell<bool>,
     /// Forbids handing out anything that outlives this view, for the window
     /// passed to `__release_buffer__`.
+    #[pytraverse(skip)]
     restricted: AtomicCell<bool>,
+    #[pytraverse(skip)]
     format_spec: FormatSpec,
     // memoryview's options could be different from buffer's options
+    #[pytraverse(skip)]
     desc: BufferDescriptor,
+    #[pytraverse(skip)]
     hash: OnceCell<PyHash>,
     /// Buffers handed out of this view that have not been given back yet. The
     /// view cannot be released while any of them is outstanding, so that what
     /// reads them keeps reading memory that is still there. self->exports
+    #[pytraverse(skip)]
     exports: AtomicCell<usize>,
 }
 
@@ -1409,7 +1415,7 @@ pub(crate) fn init(ctx: &'static Context) {
     PyBufferWindow::extend_class(ctx, PyBufferWindow::init_builtin_type());
 }
 
-#[pyclass(module = false, name = "_buffer_wrapper")]
+#[pyclass(module = false, name = "_buffer_wrapper", traverse)]
 #[derive(Debug)]
 struct PyBufferWrapper {
     // bw->obj: the object whose `__buffer__` produced the view
@@ -1420,6 +1426,7 @@ struct PyBufferWrapper {
     /// forwards shares of it rather than owning one.
     view: PyBuffer,
     /// Exports handed out for this wrapper; the wrapper is spent at zero.
+    #[pytraverse(skip)]
     exports: AtomicCell<usize>,
 }
 
@@ -1465,7 +1472,7 @@ static BUFFER_WRAPPER_METHODS: BufferMethods = BufferMethods {
 // Read-only window over an exporter, handed to `__release_buffer__`. It owns no
 // export, like a `Py_buffer` whose `obj` is NULL, so releasing it is inert and
 // cannot recurse back into the hook.
-#[pyclass(module = false, name = "_buffer_window")]
+#[pyclass(module = false, name = "_buffer_window", traverse)]
 #[derive(Debug)]
 struct PyBufferWindow {
     source: PyBuffer,
