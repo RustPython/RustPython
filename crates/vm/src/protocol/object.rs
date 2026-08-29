@@ -698,7 +698,7 @@ impl PyObject {
             return vm.with_recursion("while hashing", || hash(self, vm));
         }
 
-        Err(vm.new_type_error(format!("unhashable type: '{}'", self.class().name())))
+        Err(vm.new_type_error(format!("unhashable type: '{}'", self.class().slot_name())))
     }
 
     // type protocol

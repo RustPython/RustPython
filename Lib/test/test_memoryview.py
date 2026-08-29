@@ -564,10 +564,6 @@ class BytesMemoryviewTest(unittest.TestCase,
             self.assertRaises(TypeError, memoryview, argument=ob)
             self.assertRaises(TypeError, memoryview, ob, argument=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : <test.test_memoryview.MyObject object at 0x84ecb1920>
-    def test_gc(self):
-        return super().test_gc()
-
 class ArrayMemoryviewTest(unittest.TestCase,
     BaseMemoryviewTests, BaseArrayMemoryTests):
 
@@ -606,10 +602,6 @@ class BytesMemorySliceTest(unittest.TestCase,
     BaseMemorySliceTests, BaseBytesMemoryTests):
     pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : <test.test_memoryview.MyObject object at 0x84ecb13e0>
-    def test_gc(self):
-        return super().test_gc()
-
 class ArrayMemorySliceTest(unittest.TestCase,
     BaseMemorySliceTests, BaseArrayMemoryTests):
     pass
@@ -617,10 +609,6 @@ class ArrayMemorySliceTest(unittest.TestCase,
 class BytesMemorySliceSliceTest(unittest.TestCase,
     BaseMemorySliceSliceTests, BaseBytesMemoryTests):
     pass
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : <test.test_memoryview.MyObject object at 0x84ddca1c0>
-    def test_gc(self):
-        return super().test_gc()
 
 class ArrayMemorySliceSliceTest(unittest.TestCase,
     BaseMemorySliceSliceTests, BaseArrayMemoryTests):
