@@ -573,6 +573,17 @@ impl<T: Clone> Dict<T> {
         self._get_inner(vm, key, hash)
     }
 
+    /// [`Self::get`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
+    pub(crate) fn get_known_hash<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<Option<T>> {
+        self._get_inner(vm, key, hash)
+    }
+
     /// Return a stable entry hint for `key` if present.
     ///
     /// The hint is the internal entry index and can be used with
