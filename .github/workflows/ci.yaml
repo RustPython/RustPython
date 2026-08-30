@@ -151,7 +151,7 @@ jobs:
       # snippet has to pass identically with it on and off.
       - name: Test aot build
         run: |
-          cargo build --features aot
+          cargo build --locked --features aot
           target/debug/rustpython -X aot=1 extra_tests/snippets/aot.py
           target/debug/rustpython -X aot=0 extra_tests/snippets/aot.py
           target/debug/rustpython -X aot=1 extra_tests/snippets/jit.py
