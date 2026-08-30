@@ -126,9 +126,8 @@ const MAX_WALK_TO_INDEX: usize = 4;
 
 #[derive(Debug, Clone)]
 pub struct StrData {
-    data: Box<Wtf8>,
-    kind: StrKind,
-    len: StrLen,
+    data: Wtf8Buf,
+    metadata: StrMetadata,
     index: Wtf8IndexSlot,
 }
 
@@ -180,50 +179,74 @@ impl Drop for Wtf8IndexSlot {
     }
 }
 
-struct StrLen(PyAtomic<usize>);
+const STR_KIND_BITS: u32 = 2;
+const STR_KIND_SHIFT: u32 = usize::BITS - STR_KIND_BITS;
+const STR_LEN_MASK: usize = (1usize << STR_KIND_SHIFT) - 1;
+const STR_LEN_UNCOMPUTED: usize = STR_LEN_MASK;
 
-impl From<usize> for StrLen {
-    #[inline(always)]
-    fn from(value: usize) -> Self {
-        Self(Radium::new(value))
+struct StrMetadata(PyAtomic<usize>);
+
+impl fmt::Debug for StrMetadata {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StrMetadata")
+            .field("kind", &self.kind())
+            .field("len", &self.cached_len())
+            .finish()
     }
 }
 
-impl fmt::Debug for StrLen {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let len = self.0.load(Relaxed);
-        if len == usize::MAX {
-            f.write_str("<uncomputed>")
-        } else {
-            len.fmt(f)
+impl StrMetadata {
+    #[inline(always)]
+    fn new(kind: StrKind, len: Option<usize>) -> Self {
+        Self(Radium::new(Self::encode(kind, len)))
+    }
+
+    #[inline(always)]
+    fn encode(kind: StrKind, len: Option<usize>) -> usize {
+        let kind: usize = match kind {
+            StrKind::Ascii => 0,
+            StrKind::Utf8 => 1,
+            StrKind::Wtf8 => 2,
+        };
+        let len = len
+            .filter(|&len| len < STR_LEN_UNCOMPUTED)
+            .unwrap_or(STR_LEN_UNCOMPUTED);
+        (kind << STR_KIND_SHIFT) | len
+    }
+
+    #[inline(always)]
+    fn kind(&self) -> StrKind {
+        match self.0.load(Relaxed) >> STR_KIND_SHIFT {
+            0 => StrKind::Ascii,
+            1 => StrKind::Utf8,
+            2 => StrKind::Wtf8,
+            _ => unreachable!(),
         }
     }
-}
 
-impl StrLen {
     #[inline(always)]
-    fn zero() -> Self {
-        0usize.into()
+    fn cached_len(&self) -> Option<usize> {
+        let len = self.0.load(Relaxed) & STR_LEN_MASK;
+        (len != STR_LEN_UNCOMPUTED).then_some(len)
     }
 
     #[inline(always)]
-    fn uncomputed() -> Self {
-        usize::MAX.into()
+    fn store(&self, kind: StrKind, len: Option<usize>) {
+        self.0.store(Self::encode(kind, len), Relaxed);
     }
 }
 
-impl Clone for StrLen {
+impl Clone for StrMetadata {
     fn clone(&self) -> Self {
-        Self(self.0.load(Relaxed).into())
+        Self(Radium::new(self.0.load(Relaxed)))
     }
 }
 
 impl Default for StrData {
     fn default() -> Self {
         Self {
-            data: <Box<Wtf8>>::default(),
-            kind: StrKind::Ascii,
-            len: StrLen::zero(),
+            data: Wtf8Buf::new(),
+            metadata: StrMetadata::new(StrKind::Ascii, Some(0)),
             index: Wtf8IndexSlot::new(),
         }
     }
@@ -252,9 +275,8 @@ impl From<Box<AsciiStr>> for StrData {
     #[inline]
     fn from(value: Box<AsciiStr>) -> Self {
         Self {
-            len: value.len().into(),
-            data: value.into(),
-            kind: StrKind::Ascii,
+            metadata: StrMetadata::new(StrKind::Ascii, Some(value.len())),
+            data: Wtf8Buf::from_box(value.into()),
             index: Wtf8IndexSlot::new(),
         }
     }
@@ -272,9 +294,8 @@ impl From<char> for StrData {
             ch.into()
         } else {
             Self {
-                data: ch.to_string().into(),
-                kind: StrKind::Utf8,
-                len: 1.into(),
+                data: Wtf8Buf::from_string(ch.to_string()),
+                metadata: StrMetadata::new(StrKind::Utf8, Some(1)),
                 index: Wtf8IndexSlot::new(),
             }
         }
@@ -287,9 +308,8 @@ impl From<CodePoint> for StrData {
             ch.into()
         } else {
             Self {
-                data: Wtf8Buf::from(ch).into(),
-                kind: StrKind::Wtf8,
-                len: 1.into(),
+                data: Wtf8Buf::from(ch),
+                metadata: StrMetadata::new(StrKind::Wtf8, Some(1)),
                 index: Wtf8IndexSlot::new(),
             }
         }
@@ -303,13 +323,12 @@ impl StrData {
     #[must_use]
     pub unsafe fn new_str_unchecked(data: Box<Wtf8>, kind: StrKind) -> Self {
         let len = match kind {
-            StrKind::Ascii => data.len().into(),
-            _ => StrLen::uncomputed(),
+            StrKind::Ascii => Some(data.len()),
+            _ => None,
         };
         Self {
-            data,
-            kind,
-            len,
+            data: Wtf8Buf::from_box(data),
+            metadata: StrMetadata::new(kind, len),
             index: Wtf8IndexSlot::new(),
         }
     }
@@ -320,39 +339,38 @@ impl StrData {
     #[must_use]
     pub unsafe fn new_with_char_len(data: Box<Wtf8>, kind: StrKind, char_len: usize) -> Self {
         Self {
-            data,
-            kind,
-            len: char_len.into(),
+            data: Wtf8Buf::from_box(data),
+            metadata: StrMetadata::new(kind, Some(char_len)),
             index: Wtf8IndexSlot::new(),
         }
     }
 
     #[inline]
-    pub const fn as_wtf8(&self) -> &Wtf8 {
-        &self.data
+    pub fn as_wtf8(&self) -> &Wtf8 {
+        self.data.as_slice()
     }
 
     // TODO: rename to to_str
     #[inline]
     pub fn as_str(&self) -> Option<&str> {
-        self.kind
+        self.kind()
             .is_utf8()
             .then(|| unsafe { core::str::from_utf8_unchecked(self.data.as_bytes()) })
     }
 
     pub fn as_ascii(&self) -> Option<&AsciiStr> {
-        self.kind
+        self.kind()
             .is_ascii()
             .then(|| unsafe { AsciiStr::from_ascii_unchecked(self.data.as_bytes()) })
     }
 
-    pub const fn kind(&self) -> StrKind {
-        self.kind
+    pub fn kind(&self) -> StrKind {
+        self.metadata.kind()
     }
 
     #[inline]
     pub fn as_str_kind(&self) -> PyKindStr<'_> {
-        match self.kind {
+        match self.kind() {
             StrKind::Ascii => {
                 PyKindStr::Ascii(unsafe { AsciiStr::from_ascii_unchecked(self.data.as_bytes()) })
             }
@@ -374,10 +392,9 @@ impl StrData {
 
     #[inline]
     pub fn char_len(&self) -> usize {
-        match self.len.0.load(Relaxed) {
-            usize::MAX => self._compute_char_len(),
-            len => len,
-        }
+        self.metadata
+            .cached_len()
+            .unwrap_or_else(|| self._compute_char_len())
     }
 
     #[cold]
@@ -388,9 +405,30 @@ impl StrData {
         } else {
             self.data.code_points().count()
         };
-        // len cannot be usize::MAX, since vec.capacity() < sys.maxsize
-        self.len.0.store(len, Relaxed);
+        self.metadata.store(self.kind(), Some(len));
         len
+    }
+
+    pub fn append(&mut self, other: &Wtf8) {
+        if other.is_empty() {
+            return;
+        }
+        let other_kind = other.str_kind();
+        let kind = self.kind() | other_kind;
+        let char_len = self.metadata.cached_len().and_then(|len| {
+            let other_len = match other_kind {
+                StrKind::Ascii => other.len(),
+                StrKind::Utf8 => unsafe { core::str::from_utf8_unchecked(other.as_bytes()) }
+                    .chars()
+                    .count(),
+                StrKind::Wtf8 => other.code_points().count(),
+            };
+            len.checked_add(other_len)
+        });
+        self.data.reserve(other.len());
+        self.data.push_wtf8(other);
+        self.metadata.store(kind, char_len);
+        self.index = Wtf8IndexSlot::new();
     }
 
     /// The byte offset the `index`-th code point starts at.
@@ -404,7 +442,7 @@ impl StrData {
     pub fn char_index_to_byte(&self, index: usize) -> usize {
         // For ASCII the two units coincide, and the table would be a Nth entry
         // saying N.
-        if self.kind.is_ascii() {
+        if self.kind().is_ascii() {
             return index.min(self.data.len());
         }
         let char_len = self.char_len();
@@ -452,7 +490,7 @@ impl StrData {
     /// like `s[1:-1]` should not build a table over the whole string.
     #[must_use]
     pub fn char_range_to_bytes(&self, range: core::ops::Range<usize>) -> core::ops::Range<usize> {
-        if self.kind.is_ascii() {
+        if self.kind().is_ascii() {
             return range;
         }
         let from_end = self.char_len() - range.end;
@@ -488,7 +526,7 @@ impl StrData {
     /// table already, and this is what turns a byte offset back into the answer
     /// a caller asked for in characters.
     pub fn byte_to_char_index(&self, bytepos: usize) -> usize {
-        if self.kind.is_ascii() {
+        if self.kind().is_ascii() {
             return bytepos;
         }
         let char_len = self.char_len();
@@ -874,6 +912,34 @@ pub fn transform_decimal_and_space_to_ascii(s: &str) -> Cow<'_, str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const _: () = assert!(core::mem::size_of::<StrData>() == 5 * core::mem::size_of::<usize>());
+
+    #[test]
+    fn str_data_append_updates_value_kind_and_length() {
+        let mut data = StrData::from(Box::<str>::from("ascii"));
+        data.append(Wtf8::new("é"));
+        assert_eq!(data.as_wtf8(), Wtf8::new("ascii\u{e9}"));
+        assert_eq!(data.kind(), StrKind::Utf8);
+        assert_eq!(data.char_len(), 6);
+
+        let surrogate = Wtf8Buf::from(CodePoint::from_u32(0xd800).unwrap());
+        data.append(&surrogate);
+        assert_eq!(data.kind(), StrKind::Wtf8);
+        assert_eq!(data.char_len(), 7);
+    }
+
+    #[test]
+    fn str_data_append_reuses_reserved_capacity() {
+        let mut data = StrData::from(Box::<str>::from("a"));
+        data.append(Wtf8::new("b"));
+        let capacity = data.data.capacity();
+
+        while data.len() < capacity {
+            data.append(Wtf8::new("c"));
+            assert_eq!(data.data.capacity(), capacity);
+        }
+    }
 
     #[test]
     fn transform_decimal_and_space() {
