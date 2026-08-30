@@ -842,22 +842,27 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         let a_ty = a_type.unwrap();
                         let b_ty = b_type.unwrap();
 
-                        // The original operands, for a guard to hand back on deopt -
-                        // `operand_one`/`operand_two` below are the converted doubles
-                        // and do not describe the stack the interpreter had.
-                        let operands = [
-                            JitValue::from_type_and_value(a_ty.clone(), a),
-                            JitValue::from_type_and_value(b_ty.clone(), b),
-                        ];
-
-                        let operand_one = match a_ty {
+                        let operand_one = match &a_ty {
                             JitType::Int => self.builder.ins().fcvt_from_sint(types::F64, a),
                             _ => a,
                         };
 
-                        let operand_two = match b_ty {
+                        let operand_two = match &b_ty {
                             JitType::Int => self.builder.ins().fcvt_from_sint(types::F64, b),
                             _ => b,
+                        };
+
+                        // The original operands, for a guard to hand back on
+                        // deopt - `operand_one`/`operand_two` above are the
+                        // converted doubles and do not describe the stack
+                        // the interpreter had. Only `TrueDivide` and `Power`
+                        // ever guard, so this is built lazily rather than on
+                        // every arm.
+                        let operands = || {
+                            [
+                                JitValue::from_type_and_value(a_ty.clone(), a),
+                                JitValue::from_type_and_value(b_ty.clone(), b),
+                            ]
                         };
 
                         match op {
@@ -874,14 +879,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                                 let zero = self.builder.ins().f64const(0.0);
                                 let by_zero =
                                     self.builder.ins().fcmp(FloatCC::Equal, operand_two, zero);
-                                self.deopt_branch(by_zero, &operands)?;
+                                self.deopt_branch(by_zero, &operands())?;
                                 JitValue::Float(self.builder.ins().fdiv(operand_one, operand_two))
                             }
                             BinaryOperator::Power | BinaryOperator::InplacePower => {
                                 JitValue::Float(self.compile_fpow(
                                     operand_one,
                                     operand_two,
-                                    &operands,
+                                    &operands(),
                                 )?)
                             }
                             _ => return Err(JitCompileError::NotSupported),
@@ -1628,8 +1633,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     /// Computes the power function a^b (f_pow) for f64 values using double–double arithmetic for high precision.
     /// It handles different cases for the base 'a':
     /// - For a > 0: Computes exp(b * ln(a)).
-    /// - For a == 0: Handles special cases for 0^b, including returning 0, 1, or a domain error.
-    /// - For a < 0: Allows only an integer exponent b and adjusts the sign if b is odd.
+    /// - For a == 0: Handles special cases for 0^b, returning 0 or 1 - a
+    ///   negative exponent has already deopted.
+    /// - For a < 0: Adjusts the sign if b is odd - a fractional exponent has
+    ///   already deopted.
     fn compile_fpow(
         &mut self,
         a: Value,
@@ -1644,6 +1651,24 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let inf_f = self.builder.ins().f64const(f64::INFINITY);
         let neg_inf_f = self.builder.ins().f64const(f64::NEG_INFINITY);
 
+        // Below, `dd_exp` rounds `b * ln|a|` to an i64 exponent with
+        // `fcvt_to_sint`, which traps once that product leaves i64 range
+        // (roughly 6.4e18) - and cranelift traps have no handler. A finite
+        // base's `ln|a|` is at most ~709.8, so bounding `|b|` under 1024
+        // keeps the product under ~7.3e5, nowhere near the trap; the two
+        // `fcvt_to_sint` calls on `b` further down share the same bound.
+        // `UnorderedOrGreaterThanOrEqual` is the exact negation of an
+        // ordered `LessThan`, so an unordered (NaN) exponent deopts too
+        // rather than comparing false on both sides.
+        let exponent_bound = self.builder.ins().f64const(1024.0);
+        let abs_b = self.builder.ins().fabs(b);
+        let exponent_out_of_range = self.builder.ins().fcmp(
+            FloatCC::UnorderedOrGreaterThanOrEqual,
+            abs_b,
+            exponent_bound,
+        );
+        self.deopt_branch(exponent_out_of_range, operands)?;
+
         // 0.0 ** negative raises rather than returning an infinity.
         let base_zero = self.builder.ins().fcmp(FloatCC::Equal, a, zero_f);
         let exp_negative = self.builder.ins().fcmp(FloatCC::LessThan, b, zero_f);
@@ -1655,6 +1680,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let fractional = self.builder.ins().fcmp(FloatCC::NotEqual, truncated, b);
         let complex = self.builder.ins().band(base_negative, fractional);
         self.deopt_branch(complex, operands)?;
+        // A negative zero base loses its sign below - Edge Case 3 always
+        // returns +0.0 - but `(-0.0) ** 3.0` is `-0.0`.
+        let base_bits = self.builder.ins().bitcast(types::I64, MemFlags::new(), a);
+        let base_bits_nonzero = self.builder.ins().icmp_imm(IntCC::NotEqual, base_bits, 0);
+        let negative_zero_base = self.builder.ins().band(base_zero, base_bits_nonzero);
+        self.deopt_branch(negative_zero_base, operands)?;
 
         // Merge block for final result.
         let merge_block = self.builder.create_block();
@@ -1746,19 +1777,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .brif(cmp_a_neg_inf, a_neg_inf_block, &[], continue_block8, &[]);
 
         self.builder.switch_to_block(a_neg_inf_block);
-        // a is -infinity here. First, ensure that b is an integer.
+        // a is -infinity here, and the fractional-exponent guard above has
+        // already deopted any negative base (-infinity included) paired
+        // with a non-integral b, so b is always an integer at this point.
         let b_floor = self.builder.ins().floor(b);
-        let cmp_int = self.builder.ins().fcmp(FloatCC::Equal, b_floor, b);
-        let domain_error_blk = self.builder.create_block();
-        let continue_neg_inf = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(cmp_int, continue_neg_inf, &[], domain_error_blk, &[]);
-
-        self.builder.switch_to_block(domain_error_blk);
-        self.builder.ins().jump(merge_block, &[nan_f.into()]);
-
-        self.builder.switch_to_block(continue_neg_inf);
         // b is an integer here; convert b_floor to an i64.
         let b_i64 = self.builder.ins().fcvt_to_sint(i64_ty, b_floor);
         let one_i = self.builder.ins().iconst(i64_ty, 1);
@@ -1807,22 +1829,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let pos_res = self.dd_to_f64(exp_dd);
         self.builder.ins().jump(merge_block, &[pos_res.into()]);
 
-        // ----- Case: a < 0: Only allow an integral exponent.
+        // ----- Case: a < 0: Only an integral exponent reaches here - the
+        // fractional-exponent guard above has already deopted the rest.
         self.builder.switch_to_block(a_neg_block);
         let b_floor = self.builder.ins().floor(b);
-        let cmp_int = self.builder.ins().fcmp(FloatCC::Equal, b_floor, b);
-        let neg_int_block = self.builder.create_block();
-        let domain_error_blk = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(cmp_int, neg_int_block, &[], domain_error_blk, &[]);
-
-        // Domain error: non-integer exponent for negative base
-        self.builder.switch_to_block(domain_error_blk);
-        self.builder.ins().jump(merge_block, &[nan_f.into()]);
-
-        // For negative base with an integer exponent:
-        self.builder.switch_to_block(neg_int_block);
         let abs_a = self.builder.ins().fabs(a);
         let ln_abs_dd = self.dd_ln(abs_a);
         let b_dd = self.dd_from_value(b);
@@ -1861,9 +1871,19 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .ins()
             .jump(merge_block, &[phi_mag_val_even.into()]);
 
-        // ----- Merge: Return the final result.
+        // ----- Merge: Return the final result, unless a finite base
+        // produced an infinity - the interpreter raises OverflowError there
+        // instead of saturating. An already-infinite base (`inf ** 2.0`)
+        // must keep returning its infinity, hence the base-finite half.
         self.builder.switch_to_block(merge_block);
-        Ok(self.builder.block_params(merge_block)[0])
+        let result = self.builder.block_params(merge_block)[0];
+        let abs_result = self.builder.ins().fabs(result);
+        let result_infinite = self.builder.ins().fcmp(FloatCC::Equal, abs_result, inf_f);
+        let abs_a = self.builder.ins().fabs(a);
+        let base_finite = self.builder.ins().fcmp(FloatCC::LessThan, abs_a, inf_f);
+        let overflowed = self.builder.ins().band(result_infinite, base_finite);
+        self.deopt_branch(overflowed, operands)?;
+        Ok(result)
     }
 
     fn compile_ipow(
@@ -1872,8 +1892,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         b: Value,
         operands: &[JitValue],
     ) -> Result<Value, JitCompileError> {
-        // A negative exponent makes this a float, and the result of a widening
-        // loop stops fitting in 64 bits quickly.
+        // A negative exponent makes this a float; the loop below only
+        // computes non-negative integer powers.
         let negative = self.builder.ins().icmp_imm(IntCC::SignedLessThan, b, 0);
         self.deopt_branch(negative, operands)?;
 
@@ -1930,13 +1950,20 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let is_odd = self.builder.ins().band_imm(exp_phi, 1);
         let is_odd = self.builder.ins().icmp_imm(IntCC::Equal, is_odd, 1);
 
-        // The result product is kept only when this bit of the exponent is set.
+        // Unlike the squaring below, this carry does not need masking to
+        // stay exact: `continue_block` only runs with `exp != 0`, so a clear
+        // low bit still forces `exp >= 2`, and once `|base| >= 2` an
+        // overflowing `result * base` means `result * base^exp` overflows
+        // too - a later guard always catches it - while with `|base| <= 1`
+        // the product cannot overflow at all.
         let (mul_result, mul_carry) = self.builder.ins().smul_overflow(result_phi, base_phi);
-        let mul_overflows = self.builder.ins().band(is_odd, mul_carry);
-        self.deopt_branch(mul_overflows, operands)?;
+        self.deopt_branch(mul_carry, operands)?;
         let new_result = self.builder.ins().select(is_odd, mul_result, result_phi);
 
-        // The squared base is read only if there is another iteration to read it.
+        // The squared base is read only if there is another iteration to
+        // read it, and this mask is the one that is measurably load-bearing:
+        // dropping it deopts `2 ** 33` and `2 ** 62` on a squaring whose
+        // overflowed result the exit branch above never reads.
         let (squared_base, square_carry) = self.builder.ins().smul_overflow(base_phi, base_phi);
         let new_exp = self.builder.ins().sshr_imm(exp_phi, 1);
         let more = self.builder.ins().icmp_imm(IntCC::NotEqual, new_exp, 0);
