@@ -916,7 +916,6 @@ class TestEncoders(unittest.TestCase):
         msg = MIMEText('hello \xf8 world', _charset='iso-8859-1')
         eq(msg['content-transfer-encoding'], 'quoted-printable')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_encode7or8bit(self):
         # Make sure a charset whose input character set is 8bit but
         # whose output character set is 7bit gets a transfer-encoding
@@ -1079,12 +1078,10 @@ wasnipoop; giraffes="very-long-necked-animals";
 wasnipoop; giraffes="very-long-necked-animals";
 \tspooge="yummy"; hippos="gargantuan"; marshmallows="gooey"''')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_header_encode_with_different_output_charset(self):
         h = Header('文', 'euc-jp')
         self.assertEqual(h.encode(), "=?iso-2022-jp?b?GyRCSjgbKEI=?=")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: euc-jp
     def test_long_header_encode_with_different_output_charset(self):
         h = Header(b'test-ja \xa4\xd8\xc5\xea\xb9\xc6\xa4\xb5\xa4\xec\xa4'
             b'\xbf\xa5\xe1\xa1\xbc\xa5\xeb\xa4\xcf\xbb\xca\xb2\xf1\xbc\xd4'
@@ -4984,7 +4981,6 @@ class TestCharset(unittest.TestCase):
         c = Charset('utf-8')
         eq(c.header_encode(s), '=?utf-8?b?wqTCosKkwqTCpMKmwqTCqMKkwqo=?=')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso_2022_jp
     def test_body_encode(self):
         eq = self.assertEqual
         # Try a charset with QP body encoding
@@ -5353,7 +5349,6 @@ A very long line that must get split to something other than at the
         s = 'Subject: =?EUC-KR?B?CSixpLDtKSC/7Liuvsax4iC6uLmwMcijIKHaILzSwd/H0SC8+LCjwLsgv7W/+Mj3I ?='
         raises(errors.HeaderParseError, decode_header, s)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso-2022-jp
     def test_shift_jis_charset(self):
         h = Header('文', charset='shift_jis')
         self.assertEqual(h.encode(), '=?iso-2022-jp?b?GyRCSjgbKEI=?=')

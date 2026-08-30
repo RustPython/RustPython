@@ -2155,7 +2155,7 @@ broken_unicode_with_stateful = [
 
 
 class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: big5
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; charmap_encode rejects a None mapping
     def test_basics(self):
         s = "abc123"  # all codecs should be able to encode these
         for encoding in all_unicode_encodings:
@@ -2275,7 +2275,6 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
                         self.assertEqual(decodedresult, s,
                                          "encoding=%r" % encoding)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: big5
     def test_seek(self):
         # all codecs should be able to encode these
         s = "%s\n%s\n" % (100*"abc123", 100*"def456")
@@ -2291,7 +2290,6 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
                 data = reader.read()
                 self.assertEqual(s, data)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: big5
     def test_bad_decode_args(self):
         for encoding in all_unicode_encodings:
             decoder = codecs.getdecoder(encoding)
@@ -2299,7 +2297,6 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
             if encoding not in ("idna", "punycode"):
                 self.assertRaises(TypeError, decoder, 42)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: big5
     def test_bad_encode_args(self):
         for encoding in all_unicode_encodings:
             encoder = codecs.getencoder(encoding)
@@ -2311,7 +2308,7 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
         table_type = type(cp1140.encoding_table)
         self.assertEqual(table_type, table_type)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: big5
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; charmap_encode rejects a None mapping
     def test_decoder_state(self):
         # Check that getstate() and setstate() handle the state properly
         u = "abc123"

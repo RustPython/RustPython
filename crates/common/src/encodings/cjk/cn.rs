@@ -261,6 +261,10 @@ pub(super) fn reset_hz(state: &mut [u8; 8]) -> Option<([u8; 8], usize)> {
     Some((output, 2))
 }
 
+pub(super) fn reset_decode_hz(state: &mut [u8; 8]) {
+    state[0] = 0;
+}
+
 pub(super) fn decode_hz(input: &[u8], state: &mut [u8; 8]) -> DecodeOne {
     let c = input[0];
     if c == b'~' {

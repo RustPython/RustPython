@@ -6,7 +6,6 @@
 from test import multibytecodec_support
 import unittest
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: big5")
 class Test_Big5(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'big5'
     tstring = multibytecodec_support.load_teststring('big5')

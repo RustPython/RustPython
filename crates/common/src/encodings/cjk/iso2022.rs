@@ -472,6 +472,12 @@ pub(super) fn encode_reset(state: &mut [u8; 8]) -> Option<([u8; 8], usize)> {
     (length != 0).then_some((output, length))
 }
 
+pub(super) fn decode_reset(state: &mut [u8; 8]) {
+    prepare_decode_state(state);
+    state[0] = CHARSET_ASCII;
+    state[4] &= !F_SHIFTED;
+}
+
 fn is_esc_end(c: u8) -> bool {
     c.is_ascii_uppercase() || c == b'@'
 }

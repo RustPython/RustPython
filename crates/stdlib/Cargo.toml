@@ -30,7 +30,7 @@ __ssl-rustls = ["ssl", "rustls", "rustls-native-certs", "rustls-pemfile", "rustl
 # rustpython crates
 rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
-rustpython-common = { workspace = true }
+rustpython-common = { workspace = true, features = ["cjk-codecs"] }
 rustpython-host_env = { workspace = true }
 rustpython-unicode = { workspace = true }
 

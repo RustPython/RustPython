@@ -223,6 +223,24 @@ pub fn encode_reset(codec: Codec, state: &mut [u8; 8]) -> Option<([u8; 8], usize
     }
 }
 
+/// Reset a decoder's shift state, if the selected codec has one.
+///
+/// ISO 2022 keeps the G1..G3 designations and the escape-throughout flag; only
+/// G0 and the shifted flag go back to their defaults.
+pub fn decode_reset(codec: Codec, state: &mut [u8; 8]) {
+    match codec {
+        Codec::Hz => cn::reset_decode_hz(state),
+        Codec::Iso2022Kr
+        | Codec::Iso2022Jp
+        | Codec::Iso2022Jp1
+        | Codec::Iso2022Jp2
+        | Codec::Iso2022Jp2004
+        | Codec::Iso2022Jp3
+        | Codec::Iso2022JpExt => iso2022::decode_reset(state),
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
