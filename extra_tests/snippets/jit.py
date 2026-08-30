@@ -1,3 +1,6 @@
+import sys
+
+
 def foo():
     a = 5
     return 10 + a
@@ -300,3 +303,49 @@ if hasattr(foo, "__jit__"):
     countdown.__jit__()
     assert countdown(3, 1) == 8
     assert countdown(0, 5) == 5
+
+    # Compiled code runs no frame, so it reports no call, no line and no
+    # return. A tracer installed while a function is compiled has to send
+    # the call back to the interpreter, or it observes nothing at all: this
+    # asserted an empty event list before the tracing test moved above the
+    # compiled entry. `sys.monitoring` is checked too because it is a
+    # separate switch that the same entry has to respect.
+    def traced(a: int, b: int) -> int:
+        c = a + b
+        return c * 2
+
+    traced.__jit__()
+    assert traced(3, 4) == 14
+
+    events = []
+
+    def tracer(frame, event, arg):
+        if frame.f_code.co_name == "traced":
+            events.append(event)
+        return tracer
+
+    sys.settrace(tracer)
+    try:
+        assert traced(3, 4) == 14
+    finally:
+        sys.settrace(None)
+    assert events[:1] == ["call"], events
+    assert events[-1:] == ["return"], events
+
+    monitored = []
+    mon = sys.monitoring
+    mon.use_tool_id(mon.PROFILER_ID, "jit snippet")
+    try:
+        mon.register_callback(
+            mon.PROFILER_ID,
+            mon.events.PY_START,
+            lambda code, offset: monitored.append(code.co_name),
+        )
+        mon.set_events(mon.PROFILER_ID, mon.events.PY_START)
+        try:
+            assert traced(3, 4) == 14
+        finally:
+            mon.set_events(mon.PROFILER_ID, 0)
+    finally:
+        mon.free_tool_id(mon.PROFILER_ID)
+    assert "traced" in monitored, monitored

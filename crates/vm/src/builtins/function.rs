@@ -655,7 +655,16 @@ impl Py<PyFunction> {
         #[cfg(feature = "jit")]
         let mut resume = None;
         #[cfg(feature = "jit")]
-        {
+        'compiled: {
+            // Compiled code runs no frame, so it reports no call, no line and
+            // no return. A tracer or a monitoring tool that asked for those
+            // events would not see the call at all, so while either is
+            // installed the call goes to the interpreter - and is not compiled
+            // on the way past, since the compilation would only be skipped.
+            if vm.use_tracing.get() || vm.state.monitoring_events.load() != 0 {
+                break 'compiled;
+            }
+
             let mut state = self.jit_state.load(Relaxed);
             if state == aot::UNTRIED && vm.state.config.settings.aot {
                 state = aot::compile_on_first_call(self, vm)?;
