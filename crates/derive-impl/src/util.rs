@@ -859,10 +859,6 @@ fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> 
             return None;
         };
         let ident = pat.ident.to_string();
-        if ident == "zelf" {
-            params.push("$self".to_owned());
-            continue;
-        }
         if ident == "vm" {
             unreachable!("type &VirtualMachine(`{ty}`) must be filtered already");
         }
