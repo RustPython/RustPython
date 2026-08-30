@@ -401,10 +401,12 @@ def pow(a: float, b: float) -> float:
 
     /// `dd_exp` rounds `b * ln|a|` to an i64 with `fcvt_to_sint`, which traps
     /// once that leaves i64 range - and cranelift traps have no handler, so
-    /// `2.0 ** 1e300` and `(-2.0) ** 1e300` used to kill the process
-    /// outright. `2.0 ** 1024.0` sits exactly on the bound's threshold, and
-    /// an infinite exponent is caught by the same bound regardless of how it
-    /// got there.
+    /// `2.0 ** 1e300`, `(-2.0) ** 1e300`, and `1e100 ** 1e50` used to kill
+    /// the process outright (the last of those was a known crash: an old
+    /// comment in `float_tests.rs` documented it and commented the case out
+    /// rather than fixing it). `2.0 ** 1024.0` sits exactly on the bound's
+    /// threshold, and an infinite exponent is caught by the same bound
+    /// regardless of how it got there.
     #[test]
     fn float_power_deopts_on_an_out_of_range_exponent() {
         let code = jit_function! { pow => r#"
@@ -414,6 +416,7 @@ def pow(a: float, b: float) -> float:
         for (a, b) in [
             (2.0f64, 1e300f64),
             (-2.0f64, 1e300f64),
+            (1e100f64, 1e50f64),
             (2.0f64, 1024.0f64),
             (-1.0f64, f64::INFINITY),
             (0.5f64, f64::INFINITY),

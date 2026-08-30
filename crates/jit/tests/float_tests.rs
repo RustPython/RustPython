@@ -210,8 +210,7 @@ mod tests {
         // 1e-308^2.0
         //assert_approx_eq!(pow(1e-308, 2.0), Ok(0.0));  // --8.403311421507407
         // 1e-308^-2.0 overflows the same way as 1e308^2.0 above.
-        // 1e100^(1e50)
-        //assert_approx_eq!(pow(1e100, 1e50), Ok(1.0000000000000002e+150)); // fail to run (Crashes as "illegal hardware instruction")
+        // 1e100^(1e50) has an out-of-range exponent - see deopt_tests.rs.
         // 1e50^(1e-100)
         assert_approx_eq!(pow(1e50, 1e-100), Ok(1.0));
         // 1e308^(-1e2)
