@@ -403,11 +403,32 @@ pub fn supports_code<C: bytecode::Constant>(code: &bytecode::CodeObject<C>) -> b
         return false;
     }
 
+    // The compiler refuses a merge it cannot reconcile, which is every merge
+    // reached with a non-empty stack. Simulating the depth here keeps the
+    // automatic path from entering the backend only to be turned down: a
+    // conditional expression or a short-circuit operator merges mid-expression,
+    // where a statement-level `if` or `while` merges with nothing on the stack.
+    let targets = code.label_targets();
     let mut state = bytecode::OpArgState::default();
-    code.instructions.iter().all(|&word| {
-        let (instruction, _) = state.get(word);
-        instructions::instruction_is_supported(instruction)
-    })
+    let mut depth: i32 = 0;
+    for (offset, &word) in code.instructions.iter().enumerate() {
+        let (instruction, arg) = state.get(word);
+        if !instructions::instruction_is_supported(instruction) {
+            return false;
+        }
+        if depth != 0
+            && (targets.contains(&bytecode::Label::from_u32(offset as u32))
+                || instruction.label_arg().is_some())
+        {
+            return false;
+        }
+        depth += instruction.stack_effect(u32::from(arg));
+        // Losing track of the depth means the rest of the walk proves nothing.
+        if depth < 0 {
+            return false;
+        }
+    }
+    true
 }
 
 pub fn compile<C: bytecode::Constant>(
