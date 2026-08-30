@@ -3360,7 +3360,9 @@ name = "rustpython-common"
 version = "0.5.0"
 dependencies = [
  "ascii",
+ "base64",
  "bitflags 2.13.1",
+ "crc32fast",
  "getrandom 0.4.3",
  "itertools 0.15.0",
  "libc",
