@@ -299,6 +299,30 @@ impl PyDict {
         self.entries.len() == 0
     }
 
+    /// Re-wrap the `TypeError` raised for an unhashable key with the
+    /// dict-specific wording used by CPython (mirrors `PySetInner`).
+    /// The key is only materialized on the error path, so hashable keys pay
+    /// no extra cost.
+    fn wrap_unhashable_error<T, K: DictKey + ?Sized>(
+        result: PyResult<T>,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<T> {
+        match result {
+            Err(cause) if cause.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                let message = cause.as_object().str(vm)?;
+                let key = key.to_pyobject(vm);
+                let err = vm.new_type_error(format!(
+                    "cannot use '{}' as a dict key ({message})",
+                    key.class().name()
+                ));
+                err.set___cause__(Some(cause));
+                Err(err)
+            }
+            result => result,
+        }
+    }
+
     /// Set item variant which can be called with multiple
     /// key types, such as str to name a notable one.
     pub fn inner_setitem<K: DictKey + ?Sized>(
@@ -307,7 +331,7 @@ impl PyDict {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.entries.insert(vm, key, value)
+        Self::wrap_unhashable_error(self.entries.insert(vm, key, value), key, vm)
     }
 
     pub(crate) fn inner_delitem<K: DictKey + ?Sized>(
@@ -315,7 +339,7 @@ impl PyDict {
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.entries.delete(vm, key)
+        Self::wrap_unhashable_error(self.entries.delete(vm, key), key, vm)
     }
 
     pub fn get_or_insert(
@@ -395,7 +419,7 @@ impl PyDict {
     }
 
     fn __contains__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        self.entries.contains(vm, key)
+        Self::wrap_unhashable_error(self.entries.contains(vm, key), key, vm)
     }
 
     fn __delitem__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -412,7 +436,7 @@ impl PyDict {
         default: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        self.entries.setdefault(vm, &*key, || default)
+        Self::wrap_unhashable_error(self.entries.setdefault(vm, &*key, || default), &*key, vm)
     }
 
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -571,10 +595,8 @@ impl Py<PyDict> {
 
     #[pymethod]
     fn get(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
-        Ok(self
-            .entries
-            .get(vm, &*args.key)?
-            .unwrap_or_else(|| args.default.unwrap_or_else(|| vm.ctx.none())))
+        let found = PyDict::wrap_unhashable_error(self.entries.get(vm, &*args.key), &*args.key, vm)?;
+        Ok(found.unwrap_or_else(|| args.default.unwrap_or_else(|| vm.ctx.none())))
     }
 
     #[pymethod(name = "setdefault")]
@@ -606,7 +628,7 @@ impl Py<PyDict> {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match self.entries.pop(vm, &*key)? {
+        match PyDict::wrap_unhashable_error(self.entries.pop(vm, &*key), &*key, vm)? {
             Some(value) => Ok(value),
             None => default.ok_or_else(|| vm.new_key_error(key)),
         }
@@ -699,9 +721,10 @@ impl AsMapping for PyDict {
 impl AsSequence for PyDict {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            contains: atomic_func!(|seq, target, vm| PyDict::sequence_downcast(seq)
-                .entries
-                .contains(vm, target)),
+            contains: atomic_func!(|seq, target, vm| {
+                let result = PyDict::sequence_downcast(seq).entries.contains(vm, target);
+                PyDict::wrap_unhashable_error(result, target, vm)
+            }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE
@@ -804,7 +827,8 @@ impl Py<PyDict> {
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        if let Some(value) = self.entries.get(vm, key)? {
+        let found = PyDict::wrap_unhashable_error(self.entries.get(vm, key), key, vm)?;
+        if let Some(value) = found {
             Ok(value)
         } else if let Some(value) = self.missing_opt(key, vm)? {
             Ok(value)
