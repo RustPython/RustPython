@@ -596,6 +596,24 @@ impl Py<PyFunction> {
         vm.state.aot_stats.deoptimized.fetch_add(1, Relaxed);
     }
 
+    /// Whether a deopt record fits the frame this function builds.
+    ///
+    /// Nothing between the guard and here measures the record against the code
+    /// object: the compiler decides the shape and the compiled code writes the
+    /// slots, and the VM takes both on trust. An oversized stack runs off the
+    /// end of the frame, where the push aborts the process instead of raising,
+    /// and an offset past the last instruction resumes into nothing. Check the
+    /// record against the frame it claims to describe and let a mismatch fall
+    /// back to running the call from the start, which costs the call over again
+    /// and gives up nothing else.
+    #[cfg(feature = "jit")]
+    fn deopt_state_fits(&self, state: &DeoptState) -> bool {
+        let code = &*self.code;
+        state.locals.len() <= code.localspluskinds.len()
+            && state.stack.len() <= code.max_stackdepth as usize
+            && (state.offset as usize) < code.instructions.len()
+    }
+
     /// Put a deopt record into a fresh frame: the locals as the guard saw
     /// them, the operands the interrupted instruction had already pushed, and
     /// the offset of that instruction, so the interpreter re-executes it whole.
@@ -668,7 +686,11 @@ impl Py<PyFunction> {
                         // recursive call, which would hit the same guard again
                         // if the code were still installed.
                         self.deoptimize(vm);
-                        resume = Some(state);
+                        // A record that does not fit is treated as no record,
+                        // which leaves the call to run from the start below.
+                        if self.deopt_state_fits(&state) {
+                            resume = Some(state);
+                        }
                     }
                     Some(Err(err)) => {
                         info!(
