@@ -24,7 +24,7 @@ const SLOT_SIZE: usize = size_of::<u64>();
 ///
 /// ```text
 /// deopt[0]   status: 0 when the call returned, otherwise the site index plus one
-/// deopt[1]   bound mask: bit i set when the site's i-th listed local is bound
+/// deopt[1]   bound mask: bit i set when varname slot i holds a bound local
 /// deopt[2..] the listed locals, then the value stack bottom to top
 /// ```
 ///
