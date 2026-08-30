@@ -130,7 +130,9 @@ mod tests {
 
         // NaN and Infinity cases
         assert_approx_eq!(pow(f64::NAN, 0.0), Ok(1.0));
-        //assert_approx_eq!(pow(f64::NAN, 1.0), Ok(f64::NAN)); // Return the correct answer but fails compare
+        // A NaN base with a bounded, non-zero exponent still reaches Edge
+        // Case 4 - only the exponent is bounded, not the base.
+        assert_bits_eq!(pow(f64::NAN, 2.0), Ok(f64::NAN));
         //assert_approx_eq!(pow(0.0, f64::NAN), Ok(f64::NAN)); // Return the correct answer but fails compare
         assert_approx_eq!(pow(f64::INFINITY, 0.0), Ok(1.0));
         assert_approx_eq!(pow(f64::INFINITY, 1.0), Ok(f64::INFINITY));
@@ -144,6 +146,8 @@ mod tests {
         assert_approx_eq!(pow(f64::NEG_INFINITY, 1.0), Ok(f64::NEG_INFINITY));
         assert_approx_eq!(pow(f64::NEG_INFINITY, 2.0), Ok(f64::INFINITY));
         assert_approx_eq!(pow(f64::NEG_INFINITY, 3.0), Ok(f64::NEG_INFINITY));
+        // An infinite exponent deoptimizes regardless of the base, the same
+        // as above - (-infinity) ** (-infinity) moved to deopt_tests.rs.
 
         // Test positive float base, positive float exponent
         assert_approx_eq!(pow(2.0, 2.0), Ok(4.0));
