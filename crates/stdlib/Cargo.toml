@@ -30,7 +30,7 @@ __ssl-rustls = ["ssl", "rustls", "rustls-native-certs", "rustls-pemfile", "rustl
 # rustpython crates
 rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
-rustpython-common = { workspace = true, features = ["cjk-codecs"] }
+rustpython-common = { workspace = true, features = ["binascii", "cjk-codecs", "inet", "json"] }
 rustpython-host_env = { workspace = true }
 rustpython-unicode = { workspace = true }
 
@@ -56,7 +56,6 @@ rapidhash = { workspace = true }
 scopeguard = { workspace = true }
 
 memchr = { workspace = true }
-base64 = { workspace = true }
 csv-core = { workspace = true }
 dyn-clone = { workspace = true }
 pymath = { workspace = true }
@@ -80,7 +79,6 @@ constant_time_eq = { workspace = true }
 
 # compression
 adler32 = { workspace = true }
-crc32fast = { workspace = true }
 flate2 = { workspace = true, features = ["zlib-rs"] }
 libz-rs-sys = { workspace = true }
 bzip2 = { workspace = true }

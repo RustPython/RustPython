@@ -1,5 +1,6 @@
 //! VM-independent JSON string escaping and scanning over WTF-8.
 
+use memchr::memchr2;
 use rustpython_wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
 pub static ESCAPE_CHARS: [&str; 0x20] = [
@@ -27,12 +28,11 @@ pub fn encode_string(value: &Wtf8, ascii_only: bool) -> Wtf8Buf {
             0x7f if ascii_only => out.push_str("\\u007f"),
             0x80.. if ascii_only => {
                 if n <= 0xffff {
-                    out.push_str(&format!("\\u{n:04x}"));
+                    push_hex_escape(&mut out, n as u16);
                 } else {
                     let m = n - 0x10000;
-                    let lead = 0xd800 | ((m >> 10) & 0x3ff);
-                    let trail = 0xdc00 | (m & 0x3ff);
-                    out.push_str(&format!("\\u{lead:04x}\\u{trail:04x}"));
+                    push_hex_escape(&mut out, (0xd800 | ((m >> 10) & 0x3ff)) as u16);
+                    push_hex_escape(&mut out, (0xdc00 | (m & 0x3ff)) as u16);
                 }
             }
             _ => out.push(cp),
@@ -40,6 +40,16 @@ pub fn encode_string(value: &Wtf8, ascii_only: bool) -> Wtf8Buf {
     }
     out.push_char('"');
     out
+}
+
+/// The `\uXXXX` spelling of one UTF-16 unit, written without allocating.
+fn push_hex_escape(out: &mut Wtf8Buf, unit: u16) {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut escape = *b"\\u0000";
+    for (digit, shift) in escape[2..].iter_mut().zip([12, 8, 4, 0]) {
+        *digit = DIGITS[((unit >> shift) & 0xf) as usize];
+    }
+    out.push_str(core::str::from_utf8(&escape).expect("the escape is ASCII"));
 }
 
 #[derive(Debug)]
@@ -81,6 +91,23 @@ pub fn scan_string(
         msg: "Unterminated string starting at".to_owned(),
         pos: char_offset.saturating_sub(1),
     };
+    // A string with no escape and no closing-quote surprise is the common one,
+    // so find that quote and take everything before it in one copy.
+    let bytes = value.as_bytes();
+    if let Some(end) = memchr2(b'"', b'\\', bytes)
+        && bytes[end] == b'"'
+        && !(strict && bytes[..end].iter().any(|b| *b < 0x20))
+    {
+        let content = &value[..end];
+        let mut out = Wtf8Buf::with_capacity(end);
+        out.push_wtf8(content);
+        return Ok((
+            out,
+            char_offset + content.code_points().count() + 1,
+            end + 1,
+        ));
+    }
+
     let mut out = Wtf8Buf::new();
     let mut chars = value.code_point_indices().enumerate().peekable();
     while let Some((char_i, (byte_i, cp))) = chars.next() {
