@@ -2,7 +2,7 @@
 
 pub(crate) use _collections::module_def;
 
-mod ordered_dict;
+pub(crate) mod ordered_dict;
 
 #[pymodule(with(ordered_dict::ordered_dict))]
 mod _collections {

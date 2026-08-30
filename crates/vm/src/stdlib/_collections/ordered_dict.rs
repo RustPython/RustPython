@@ -2,7 +2,7 @@
 // cspell:ignore odict
 
 #[pymodule(sub)]
-pub(super) mod ordered_dict {
+pub(crate) mod ordered_dict {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         atomic_func,
@@ -720,7 +720,7 @@ pub(super) mod ordered_dict {
     #[pyattr]
     #[pyclass(module = "_collections", name = "odict_items")]
     #[derive(Debug, PyPayload)]
-    struct PyOrderedDictItems {
+    pub(crate) struct PyOrderedDictItems {
         ordered_dict: PyOrderedDictRef,
     }
 
