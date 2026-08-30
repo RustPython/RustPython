@@ -408,3 +408,30 @@ expected_keys = ["x", "y", "w", "z"]
 assert list(result.keys()) == expected_keys, (
     f"Expected {expected_keys}, got {list(result.keys())}"
 )
+
+
+# A TypeError raised while *comparing* keys (e.g. from a colliding key's
+# __eq__) must propagate unchanged, not be rewritten as an unhashable-key
+# error. Only genuine hashing failures get the dict-specific "unhashable"
+# wording.
+class BadEq:
+    def __hash__(self):
+        return 42  # fixed hash forces a collision
+
+    def __eq__(self, other):
+        raise TypeError("nope")
+
+
+bad = {}
+bad[BadEq()] = 1
+with assert_raises(TypeError) as cm:
+    bad[BadEq()]  # hashes fine (42), then compares against the colliding key
+assert "nope" in str(cm.exception), str(cm.exception)
+assert "dict key" not in str(cm.exception), (
+    f"comparison error mislabeled as unhashable: {cm.exception}"
+)
+
+# A genuinely unhashable key still reports the dict-specific message.
+with assert_raises(TypeError) as cm:
+    {}[[]]
+assert "as a dict key" in str(cm.exception), str(cm.exception)
