@@ -142,7 +142,8 @@ if AOT:
 
 if AOT:
     compiled, rejected, deoptimized = sys._jit._stats()
-    # `scale` is the one function above the automatic path can take.
+    # `scale`, `wide`, `divide`, and the rebound `countdown` at line 101 are
+    # what the automatic path takes above.
     assert compiled >= 1, (compiled, rejected, deoptimized)
     # ... and the int argument in `scale(2, 3.0)` handed it back.
     assert deoptimized >= 1, (compiled, rejected, deoptimized)

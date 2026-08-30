@@ -66,18 +66,14 @@ impl JitValue {
     }
 }
 
-#[derive(Clone)]
-struct DDValue {
-    hi: Value,
-    lo: Value,
-}
-
 pub(crate) struct FunctionCompiler<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
     /// The buffer a guard spills its record into, parameter 0 of the function.
     deopt_ptr: Value,
     /// The block every guard leaves through, created with the first one.
     deopt_exit: Option<Block>,
+    /// `jit_powf`, imported into this function so `compile_fpow` can call it.
+    powf_func: FuncRef,
     /// Bytecode offset the instruction being lowered would be re-entered at.
     resume_offset: u32,
     stack: Vec<JitValue>,
@@ -149,6 +145,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         ret_type: Option<JitType>,
         entry_block: Block,
         safety: Safety,
+        powf_func: FuncRef,
     ) -> Self {
         let params = builder.func.dfg.block_params(entry_block).to_vec();
         let (deopt_ptr, arg_params) = params.split_first().expect("the deopt buffer parameter");
@@ -166,6 +163,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             builder,
             deopt_ptr: *deopt_ptr,
             deopt_exit: None,
+            powf_func,
             resume_offset: 0,
             stack: Vec::new(),
             variables: vec![None; num_variables].into_boxed_slice(),
@@ -1243,566 +1241,78 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         Ok((quotient, remainder))
     }
 
-    /// Creates a double–double (DDValue) from a regular f64 constant.
-    /// The high part is set to x and the low part is set to 0.0.
-    fn dd_from_f64(&mut self, x: f64) -> DDValue {
-        DDValue {
-            hi: self.builder.ins().f64const(x),
-            lo: self.builder.ins().f64const(0.0),
-        }
+    /// The sign bit of an f64, matching `f64::is_sign_negative` - true for
+    /// `-0.0` and a negative NaN, not just an ordinary negative number.
+    /// `fcmp` compares values and cannot see this bit; reinterpreting the
+    /// bits as a signed integer and testing that sign is what
+    /// `f64::is_sign_negative` itself does.
+    fn is_sign_negative(&mut self, v: Value) -> Value {
+        let bits = self.builder.ins().bitcast(types::I64, MemFlags::new(), v);
+        self.builder.ins().icmp_imm(IntCC::SignedLessThan, bits, 0)
     }
 
-    /// Creates a DDValue from a Value (assumed to represent an f64).
-    /// This function initializes the high part with x and the low part to 0.0.
-    fn dd_from_value(&mut self, x: Value) -> DDValue {
-        DDValue {
-            hi: x,
-            lo: self.builder.ins().f64const(0.0),
-        }
-    }
-
-    /// Creates a DDValue from two f64 parts.
-    /// The 'hi' parameter sets the high part and 'lo' sets the low part.
-    fn dd_from_parts(&mut self, hi: f64, lo: f64) -> DDValue {
-        DDValue {
-            hi: self.builder.ins().f64const(hi),
-            lo: self.builder.ins().f64const(lo),
-        }
-    }
-
-    /// Converts a DDValue back to a single f64 value by adding the high and low parts.
-    fn dd_to_f64(&mut self, dd: DDValue) -> Value {
-        self.builder.ins().fadd(dd.hi, dd.lo)
-    }
-
-    /// Computes the negation of a DDValue.
-    /// It subtracts both the high and low parts from zero.
-    fn dd_neg(&mut self, dd: DDValue) -> DDValue {
-        let zero = self.builder.ins().f64const(0.0);
-        DDValue {
-            hi: self.builder.ins().fsub(zero, dd.hi),
-            lo: self.builder.ins().fsub(zero, dd.lo),
-        }
-    }
-
-    /// Adds two DDValue numbers using error-free transformations to maintain extra precision.
-    /// It carefully adds the high parts, computes the rounding error, adds the low parts along with the error,
-    /// and then normalizes the result.
-    fn dd_add(&mut self, a: DDValue, b: DDValue) -> DDValue {
-        // Compute the sum of the high parts.
-        let s = self.builder.ins().fadd(a.hi, b.hi);
-        // Compute t = s - a.hi to capture part of the rounding error.
-        let t = self.builder.ins().fsub(s, a.hi);
-        // Compute the error e from the high part additions.
-        let s_minus_t = self.builder.ins().fsub(s, t);
-        let part1 = self.builder.ins().fsub(a.hi, s_minus_t);
-        let part2 = self.builder.ins().fsub(b.hi, t);
-        let e = self.builder.ins().fadd(part1, part2);
-        // Sum the low parts along with the error.
-        let lo = self.builder.ins().fadd(a.lo, b.lo);
-        let lo_sum = self.builder.ins().fadd(lo, e);
-        // Renormalize: add the low sum to s and compute a new low component.
-        let hi_new = self.builder.ins().fadd(s, lo_sum);
-        let hi_new_minus_s = self.builder.ins().fsub(hi_new, s);
-        let lo_new = self.builder.ins().fsub(lo_sum, hi_new_minus_s);
-        DDValue {
-            hi: hi_new,
-            lo: lo_new,
-        }
-    }
-
-    /// Subtracts DDValue b from DDValue a by negating b and then using the addition function.
-    fn dd_sub(&mut self, a: DDValue, b: DDValue) -> DDValue {
-        let neg_b = self.dd_neg(b);
-        self.dd_add(a, neg_b)
-    }
-
-    /// Multiplies two DDValue numbers using double–double arithmetic.
-    /// It calculates the high product, uses a fused multiply–add (FMA) to capture rounding error,
-    /// computes the cross products, and then normalizes the result.
-    fn dd_mul(&mut self, a: DDValue, b: DDValue) -> DDValue {
-        // p = a.hi * b.hi (primary product)
-        let p = self.builder.ins().fmul(a.hi, b.hi);
-        // err = fma(a.hi, b.hi, -p) recovers the rounding error.
-        let zero = self.builder.ins().f64const(0.0);
-        let neg_p = self.builder.ins().fsub(zero, p);
-        let err = self.builder.ins().fma(a.hi, b.hi, neg_p);
-        // Compute cross terms: a.hi*b.lo + a.lo*b.hi.
-        let a_hi_b_lo = self.builder.ins().fmul(a.hi, b.lo);
-        let a_lo_b_hi = self.builder.ins().fmul(a.lo, b.hi);
-        let cross = self.builder.ins().fadd(a_hi_b_lo, a_lo_b_hi);
-        // Sum p and the cross terms.
-        let s = self.builder.ins().fadd(p, cross);
-        // Isolate rounding error from the addition.
-        let t = self.builder.ins().fsub(s, p);
-        let s_minus_t = self.builder.ins().fsub(s, t);
-        let part1 = self.builder.ins().fsub(p, s_minus_t);
-        let part2 = self.builder.ins().fsub(cross, t);
-        let e = self.builder.ins().fadd(part1, part2);
-        // Include the error from the low parts multiplication.
-        let a_lo_b_lo = self.builder.ins().fmul(a.lo, b.lo);
-        let err_plus_e = self.builder.ins().fadd(err, e);
-        let lo_sum = self.builder.ins().fadd(err_plus_e, a_lo_b_lo);
-        // Renormalize the sum.
-        let hi_new = self.builder.ins().fadd(s, lo_sum);
-        let hi_new_minus_s = self.builder.ins().fsub(hi_new, s);
-        let lo_new = self.builder.ins().fsub(lo_sum, hi_new_minus_s);
-        DDValue {
-            hi: hi_new,
-            lo: lo_new,
-        }
-    }
-
-    /// Multiplies a DDValue by a regular f64 (Value) using similar techniques as dd_mul.
-    /// It multiplies both the high and low parts by b, computes the rounding error,
-    /// and then renormalizes the result.
-    fn dd_mul_f64(&mut self, a: DDValue, b: Value) -> DDValue {
-        // p = a.hi * b (primary product)
-        let p = self.builder.ins().fmul(a.hi, b);
-        // Compute the rounding error using fma.
-        let zero = self.builder.ins().f64const(0.0);
-        let neg_p = self.builder.ins().fsub(zero, p);
-        let err = self.builder.ins().fma(a.hi, b, neg_p);
-        // Multiply the low part.
-        let cross = self.builder.ins().fmul(a.lo, b);
-        // Sum the primary product and the low multiplication.
-        let s = self.builder.ins().fadd(p, cross);
-        // Capture rounding error from addition.
-        let t = self.builder.ins().fsub(s, p);
-        let s_minus_t = self.builder.ins().fsub(s, t);
-        let part1 = self.builder.ins().fsub(p, s_minus_t);
-        let part2 = self.builder.ins().fsub(cross, t);
-        let e = self.builder.ins().fadd(part1, part2);
-        // Combine the error components.
-        let lo_sum = self.builder.ins().fadd(err, e);
-        // Renormalize to form the final double–double number.
-        let hi_new = self.builder.ins().fadd(s, lo_sum);
-        let hi_new_minus_s = self.builder.ins().fsub(hi_new, s);
-        let lo_new = self.builder.ins().fsub(lo_sum, hi_new_minus_s);
-        DDValue {
-            hi: hi_new,
-            lo: lo_new,
-        }
-    }
-
-    /// Scales a DDValue by multiplying both its high and low parts by the given factor.
-    fn dd_scale(&mut self, dd: DDValue, factor: Value) -> DDValue {
-        DDValue {
-            hi: self.builder.ins().fmul(dd.hi, factor),
-            lo: self.builder.ins().fmul(dd.lo, factor),
-        }
-    }
-
-    /// Approximates ln(1+f) using its Taylor series expansion in double–double arithmetic.
-    /// It computes the series ∑ (-1)^(i-1) * f^i / i from i = 1 to 1000 for high precision.
-    fn dd_ln_1p_series(&mut self, f: Value) -> DDValue {
-        // Convert f to a DDValue and initialize the sum and term.
-        let f_dd = self.dd_from_value(f);
-        let mut sum = f_dd.clone();
-        let mut term = f_dd;
-        // Alternating sign starts at -1 for the second term.
-        let mut sign = -1.0_f64;
-        let range = 1000;
-
-        // Loop over terms from i = 2 to 1000.
-        for i in 2..=range {
-            // Compute f^i by multiplying the previous term by f.
-            term = self.dd_mul_f64(term, f);
-            // Divide the term by i.
-            let inv_i = 1.0 / (i as f64);
-            let c_inv_i = self.builder.ins().f64const(inv_i);
-            let term_div = self.dd_mul_f64(term.clone(), c_inv_i);
-            // Multiply by the alternating sign.
-            let dd_sign = self.dd_from_f64(sign);
-            let to_add = self.dd_mul(dd_sign, term_div);
-            // Add the term to the cumulative sum.
-            sum = self.dd_add(sum, to_add);
-            // Flip the sign for the next term.
-            sign = -sign;
-        }
-        sum
-    }
-
-    /// Computes the natural logarithm ln(x) in double–double arithmetic.
-    /// It first checks for domain errors (x ≤ 0 or NaN), then extracts the exponent
-    /// and mantissa from the bit-level representation of x. It computes ln(mantissa) using
-    /// the ln(1+f) series and adds k*ln2 to obtain ln(x).
-    fn dd_ln(&mut self, x: Value) -> DDValue {
-        // (A) Prepare a DDValue representing NaN.
-        let dd_nan = self.dd_from_f64(f64::NAN);
-
-        // Build a zero constant for comparisons.
-        let zero_f64 = self.builder.ins().f64const(0.0);
-
-        // Check if x is less than or equal to 0 or is NaN.
-        let cmp_le = self
-            .builder
-            .ins()
-            .fcmp(FloatCC::LessThanOrEqual, x, zero_f64);
-        let cmp_nan = self.builder.ins().fcmp(FloatCC::Unordered, x, x);
-        let need_nan = self.builder.ins().bor(cmp_le, cmp_nan);
-
-        // (B) Reinterpret the bits of x as an integer.
-        let bits = self.builder.ins().bitcast(types::I64, MemFlags::new(), x);
-
-        // (C) Extract the exponent (top 11 bits) from the bit representation.
-        let shift_52 = self.builder.ins().ushr_imm(bits, 52);
-        let exponent_mask = self.builder.ins().iconst(types::I64, 0x7FF);
-        let exponent = self.builder.ins().band(shift_52, exponent_mask);
-
-        // k = exponent - 1023 (unbias the exponent).
-        let bias = self.builder.ins().iconst(types::I64, 1023);
-        let k_i64 = self.builder.ins().isub(exponent, bias);
-
-        // (D) Extract the fraction (mantissa) from the lower 52 bits.
-        let fraction_mask = self.builder.ins().iconst(types::I64, 0x000F_FFFF_FFFF_FFFF);
-        let fraction_part = self.builder.ins().band(bits, fraction_mask);
-
-        // (E) For normal numbers (exponent ≠ 0), add the implicit leading 1.
-        let implicit_one = self.builder.ins().iconst(types::I64, 1 << 52);
-        let zero_exp = self.builder.ins().icmp_imm(IntCC::Equal, exponent, 0);
-        let frac_one_bor = self.builder.ins().bor(fraction_part, implicit_one);
-        let fraction_with_leading_one = self.builder.ins().select(
-            zero_exp,
-            fraction_part, // For subnormals, do not add the implicit 1.
-            frac_one_bor,
-        );
-
-        // (F) Force the exponent bits to 1023, yielding a mantissa m in [1, 2).
-        let new_exp = self.builder.ins().iconst(types::I64, 0x3FF0_0000_0000_0000);
-        let fraction_bits = self.builder.ins().bor(fraction_with_leading_one, new_exp);
-        let m = self
-            .builder
-            .ins()
-            .bitcast(types::F64, MemFlags::new(), fraction_bits);
-
-        // (G) Compute ln(m) using the series ln(1+f) with f = m - 1.
-        let one_f64 = self.builder.ins().f64const(1.0);
-        let f_val = self.builder.ins().fsub(m, one_f64);
-        let dd_ln_m = self.dd_ln_1p_series(f_val);
-
-        // (H) Compute k*ln2 in double–double arithmetic.
-        let ln2_dd = self.dd_from_parts(
-            f64::from_bits(0x3fe62e42fefa39ef),
-            f64::from_bits(0x3c7abc9e3b39803f),
-        );
-        let k_f64 = self.builder.ins().fcvt_from_sint(types::F64, k_i64);
-        let dd_ln2_k = self.dd_mul_f64(ln2_dd, k_f64);
-
-        // Add ln(m) and k*ln2 to get the final ln(x).
-        let normal_result = self.dd_add(dd_ln_m, dd_ln2_k);
-
-        // (I) If x was nonpositive or NaN, return NaN; otherwise, return the computed result.
-        let final_hi = self
-            .builder
-            .ins()
-            .select(need_nan, dd_nan.hi, normal_result.hi);
-        let final_lo = self
-            .builder
-            .ins()
-            .select(need_nan, dd_nan.lo, normal_result.lo);
-
-        DDValue {
-            hi: final_hi,
-            lo: final_lo,
-        }
-    }
-
-    /// Computes the exponential function exp(x) in double–double arithmetic.
-    /// It uses range reduction to write x = k*ln2 + r, computes exp(r) via a Taylor series,
-    /// scales the result by 2^k, and handles overflow by checking if k exceeds the maximum.
-    fn dd_exp(&mut self, dd: DDValue) -> DDValue {
-        // (A) Range reduction: Convert dd to a single f64 value.
-        let x = self.dd_to_f64(dd.clone());
-        let ln2_f64 = self
-            .builder
-            .ins()
-            .f64const(f64::from_bits(0x3fe62e42fefa39ef));
-        let div = self.builder.ins().fdiv(x, ln2_f64);
-        let half = self.builder.ins().f64const(0.5);
-        let div_plus_half = self.builder.ins().fadd(div, half);
-        // Rounding: floor(div + 0.5) gives the nearest integer k.
-        let k = self.builder.ins().fcvt_to_sint(types::I64, div_plus_half);
-
-        // --- OVERFLOW CHECK ---
-        // Check if k is greater than the maximum exponent for finite doubles (1023).
-        let max_k = self.builder.ins().iconst(types::I64, 1023);
-        let is_overflow = self.builder.ins().icmp(IntCC::SignedGreaterThan, k, max_k);
-
-        // Define infinity and zero for the overflow case.
-        let inf = self.builder.ins().f64const(f64::INFINITY);
-        let zero = self.builder.ins().f64const(0.0);
-
-        // (B) Compute exp(x) normally when not overflowing.
-        // Compute k*ln2 in double–double arithmetic and subtract it from x.
-        let ln2_dd = self.dd_from_parts(
-            f64::from_bits(0x3fe62e42fefa39ef),
-            f64::from_bits(0x3c7abc9e3b39803f),
-        );
-        let k_f64 = self.builder.ins().fcvt_from_sint(types::F64, k);
-        let k_ln2 = self.dd_mul_f64(ln2_dd, k_f64);
-        let r = self.dd_sub(dd, k_ln2);
-
-        // Compute exp(r) using a Taylor series.
-        let mut sum = self.dd_from_f64(1.0); // Initialize sum to 1.
-        let mut term = self.dd_from_f64(1.0); // Initialize the first term to 1.
-        let n_terms = 1000;
-        for i in 1..=n_terms {
-            term = self.dd_mul(term, r.clone());
-            let inv = 1.0 / (i as f64);
-            let inv_const = self.builder.ins().f64const(inv);
-            term = self.dd_mul_f64(term, inv_const);
-            sum = self.dd_add(sum, term.clone());
-        }
-
-        // Reconstruct the final result by scaling with 2^k.
-        let bias = self.builder.ins().iconst(types::I64, 1023);
-        let k_plus_bias = self.builder.ins().iadd(k, bias);
-        let shift_count = self.builder.ins().iconst(types::I64, 52);
-        let shifted = self.builder.ins().ishl(k_plus_bias, shift_count);
-        let two_to_k = self
-            .builder
-            .ins()
-            .bitcast(types::F64, MemFlags::new(), shifted);
-        let result = self.dd_scale(sum, two_to_k);
-
-        // (C) If overflow was detected, return infinity; otherwise, return the computed value.
-        let final_hi = self.builder.ins().select(is_overflow, inf, result.hi);
-        let final_lo = self.builder.ins().select(is_overflow, zero, result.lo);
-        DDValue {
-            hi: final_hi,
-            lo: final_lo,
-        }
-    }
-
-    /// Computes the power function a^b (f_pow) for f64 values using double–double arithmetic for high precision.
-    /// It handles different cases for the base 'a':
-    /// - For a > 0: Computes exp(b * ln(a)).
-    /// - For a == 0: Handles special cases for 0^b, returning 0 or 1 - a
-    ///   negative exponent has already deopted.
-    /// - For a < 0: Adjusts the sign if b is odd - a fractional exponent has
-    ///   already deopted.
+    /// Computes a raised to the power b by calling the same `f64::powf` the
+    /// interpreter's `float_pow` calls, once the two guards ahead of it in
+    /// `float_pow` rule out its other two outcomes: `ZeroDivisionError` and a
+    /// complex result. This is `float_pow` translated guard for guard,
+    /// including the parts that look wrong - the first guard below reads the
+    /// SIGN BIT of the exponent, not its value, because that is what
+    /// `is_sign_negative` does, so `0.0 ** -0.0` deopts exactly as
+    /// `0.0 ** -1.0` does.
     fn compile_fpow(
         &mut self,
         a: Value,
         b: Value,
         operands: &[JitValue],
     ) -> Result<Value, JitCompileError> {
-        let f64_ty = types::F64;
-        let i64_ty = types::I64;
         let zero_f = self.builder.ins().f64const(0.0);
-        let one_f = self.builder.ins().f64const(1.0);
-        let nan_f = self.builder.ins().f64const(f64::NAN);
-        let inf_f = self.builder.ins().f64const(f64::INFINITY);
-        let neg_inf_f = self.builder.ins().f64const(f64::NEG_INFINITY);
 
-        // Below, `dd_exp` rounds `b * ln|a|` to an i64 exponent with
-        // `fcvt_to_sint`, which traps once that product leaves i64 range
-        // (roughly 6.4e18) - and cranelift traps have no handler. A finite
-        // base's `ln|a|` is at most ~709.8, so bounding `|b|` under 1024
-        // keeps the product under ~7.3e5, nowhere near the trap; the two
-        // `fcvt_to_sint` calls on `b` further down share the same bound.
-        // `UnorderedOrGreaterThanOrEqual` is the exact negation of an
-        // ordered `LessThan`, so an unordered (NaN) exponent deopts too
-        // rather than comparing false on both sides.
-        let exponent_bound = self.builder.ins().f64const(1024.0);
-        let abs_b = self.builder.ins().fabs(b);
-        let exponent_out_of_range = self.builder.ins().fcmp(
-            FloatCC::UnorderedOrGreaterThanOrEqual,
-            abs_b,
-            exponent_bound,
-        );
-        self.deopt_branch(exponent_out_of_range, operands)?;
-
-        // 0.0 ** negative raises rather than returning an infinity.
+        // v1.is_zero() && v2.is_sign_negative() -> ZeroDivisionError.
         let base_zero = self.builder.ins().fcmp(FloatCC::Equal, a, zero_f);
-        let exp_negative = self.builder.ins().fcmp(FloatCC::LessThan, b, zero_f);
-        let divides_by_zero = self.builder.ins().band(base_zero, exp_negative);
+        let exp_sign_negative = self.is_sign_negative(b);
+        let divides_by_zero = self.builder.ins().band(base_zero, exp_sign_negative);
         self.deopt_branch(divides_by_zero, operands)?;
-        // A negative base raised to a fractional power is complex.
-        let base_negative = self.builder.ins().fcmp(FloatCC::LessThan, a, zero_f);
-        let truncated = self.builder.ins().trunc(b);
-        let fractional = self.builder.ins().fcmp(FloatCC::NotEqual, truncated, b);
-        let complex = self.builder.ins().band(base_negative, fractional);
+
+        // v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON ->
+        // complex result - a `-0.0` base is caught by its sign bit here too,
+        // the same as the exponent above.
+        let base_sign_negative = self.is_sign_negative(a);
+        let b_floor = self.builder.ins().floor(b);
+        let diff = self.builder.ins().fsub(b_floor, b);
+        let abs_diff = self.builder.ins().fabs(diff);
+        let epsilon = self.builder.ins().f64const(f64::EPSILON);
+        let fractional = self
+            .builder
+            .ins()
+            .fcmp(FloatCC::GreaterThan, abs_diff, epsilon);
+        let complex = self.builder.ins().band(base_sign_negative, fractional);
         self.deopt_branch(complex, operands)?;
-        // A negative zero base loses its sign below - Edge Case 3 always
-        // returns +0.0 - but `(-0.0) ** 3.0` is `-0.0`.
-        let base_bits = self.builder.ins().bitcast(types::I64, MemFlags::new(), a);
-        let base_bits_nonzero = self.builder.ins().icmp_imm(IntCC::NotEqual, base_bits, 0);
-        let negative_zero_base = self.builder.ins().band(base_zero, base_bits_nonzero);
-        self.deopt_branch(negative_zero_base, operands)?;
 
-        // Merge block for final result.
-        let merge_block = self.builder.create_block();
-        self.builder.append_block_param(merge_block, f64_ty);
+        // ans = v1.powf(v2), through the exact function the interpreter
+        // calls - see `jit_powf`'s doc comment for why it is looked up by an
+        // explicit symbol rather than left for the JIT to resolve.
+        let call = self.builder.ins().call(self.powf_func, &[a, b]);
+        let ans = match *self.builder.inst_results(call) {
+            [ans] => ans,
+            _ => return Err(JitCompileError::NotSupported),
+        };
 
-        // --- Edge Case 1: b == 0.0 → return 1.0
-        let cmp_b_zero = self.builder.ins().fcmp(FloatCC::Equal, b, zero_f);
-        let b_zero_block = self.builder.create_block();
-        let continue_block = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(cmp_b_zero, b_zero_block, &[], continue_block, &[]);
-        self.builder.switch_to_block(b_zero_block);
-        self.builder.ins().jump(merge_block, &[one_f.into()]);
-        self.builder.switch_to_block(continue_block);
-
-        // Edge Case 2 (b is NaN) is unreachable: the out-of-range-exponent
-        // guard above already deopts any NaN exponent.
-
-        // --- Edge Case 3: a == 0.0 → return 0.0
-        let cmp_a_zero = self.builder.ins().fcmp(FloatCC::Equal, a, zero_f);
-        let a_zero_block = self.builder.create_block();
-        let continue_block3 = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(cmp_a_zero, a_zero_block, &[], continue_block3, &[]);
-        self.builder.switch_to_block(a_zero_block);
-        self.builder.ins().jump(merge_block, &[zero_f.into()]);
-        self.builder.switch_to_block(continue_block3);
-
-        // --- Edge Case 4: a is NaN → return NaN
-        let cmp_a_nan = self.builder.ins().fcmp(FloatCC::Unordered, a, a);
-        let a_nan_block = self.builder.create_block();
-        let continue_block4 = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(cmp_a_nan, a_nan_block, &[], continue_block4, &[]);
-        self.builder.switch_to_block(a_nan_block);
-        self.builder.ins().jump(merge_block, &[nan_f.into()]);
-        self.builder.switch_to_block(continue_block4);
-
-        // Edge Cases 5 and 6 (b == +/-infinity) are unreachable: the
-        // out-of-range-exponent guard above already deopts any infinite
-        // exponent (`fabs(+/-inf) >= 1024.0`).
-
-        // --- Edge Case 7: a == +infinity → return +infinity
-        let cmp_a_inf = self.builder.ins().fcmp(FloatCC::Equal, a, inf_f);
-        let a_inf_block = self.builder.create_block();
-        let continue_block7 = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(cmp_a_inf, a_inf_block, &[], continue_block7, &[]);
-        self.builder.switch_to_block(a_inf_block);
-        self.builder.ins().jump(merge_block, &[inf_f.into()]);
-        self.builder.switch_to_block(continue_block7);
-
-        // --- Edge Case 8: a == -infinity → check exponent parity
-        let cmp_a_neg_inf = self.builder.ins().fcmp(FloatCC::Equal, a, neg_inf_f);
-        let a_neg_inf_block = self.builder.create_block();
-        let continue_block8 = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(cmp_a_neg_inf, a_neg_inf_block, &[], continue_block8, &[]);
-
-        self.builder.switch_to_block(a_neg_inf_block);
-        // a is -infinity here, and the fractional-exponent guard above has
-        // already deopted any negative base (-infinity included) paired
-        // with a non-integral b, so b is always an integer at this point.
-        let b_floor = self.builder.ins().floor(b);
-        // b is an integer here; convert b_floor to an i64.
-        let b_i64 = self.builder.ins().fcvt_to_sint(i64_ty, b_floor);
-        let one_i = self.builder.ins().iconst(i64_ty, 1);
-        let remainder = self.builder.ins().band(b_i64, one_i);
-        let zero_i = self.builder.ins().iconst(i64_ty, 0);
-        let is_odd = self.builder.ins().icmp(IntCC::NotEqual, remainder, zero_i);
-
-        // Create separate blocks for odd and even cases.
-        let odd_block = self.builder.create_block();
-        let even_block = self.builder.create_block();
-        self.builder.append_block_param(odd_block, f64_ty);
-        self.builder.append_block_param(even_block, f64_ty);
-        self.builder.ins().brif(
-            is_odd,
-            odd_block,
-            &[neg_inf_f.into()],
-            even_block,
-            &[inf_f.into()],
-        );
-
-        self.builder.switch_to_block(odd_block);
-        let phi_neg_inf = self.builder.block_params(odd_block)[0];
-        self.builder.ins().jump(merge_block, &[phi_neg_inf.into()]);
-
-        self.builder.switch_to_block(even_block);
-        let phi_inf = self.builder.block_params(even_block)[0];
-        self.builder.ins().jump(merge_block, &[phi_inf.into()]);
-
-        self.builder.switch_to_block(continue_block8);
-
-        // --- Normal branch: neither a nor b hit the special cases.
-        // Here we branch based on the sign of a.
-        let cmp_lt = self.builder.ins().fcmp(FloatCC::LessThan, a, zero_f);
-        let a_neg_block = self.builder.create_block();
-        let a_pos_block = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(cmp_lt, a_neg_block, &[], a_pos_block, &[]);
-
-        // ----- Case: a > 0: Compute a^b = exp(b * ln(a)) using double–double arithmetic.
-        self.builder.switch_to_block(a_pos_block);
-        let ln_a_dd = self.dd_ln(a);
-        let b_dd = self.dd_from_value(b);
-        let product_dd = self.dd_mul(ln_a_dd, b_dd);
-        let exp_dd = self.dd_exp(product_dd);
-        let pos_res = self.dd_to_f64(exp_dd);
-        self.builder.ins().jump(merge_block, &[pos_res.into()]);
-
-        // ----- Case: a < 0: Only an integral exponent reaches here - the
-        // fractional-exponent guard above has already deopted the rest.
-        self.builder.switch_to_block(a_neg_block);
-        let b_floor = self.builder.ins().floor(b);
+        // ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) ->
+        // OverflowError. An already-infinite operand (`inf ** 2.0`,
+        // `2.0 ** inf`) must keep answering with its infinity, hence the
+        // exemption.
+        let inf_f = self.builder.ins().f64const(f64::INFINITY);
+        let abs_ans = self.builder.ins().fabs(ans);
+        let ans_infinite = self.builder.ins().fcmp(FloatCC::Equal, abs_ans, inf_f);
         let abs_a = self.builder.ins().fabs(a);
-        let ln_abs_dd = self.dd_ln(abs_a);
-        let b_dd = self.dd_from_value(b);
-        let product_dd = self.dd_mul(ln_abs_dd, b_dd);
-        let exp_dd = self.dd_exp(product_dd);
-        let mag_val = self.dd_to_f64(exp_dd);
-
-        let b_i64 = self.builder.ins().fcvt_to_sint(i64_ty, b_floor);
-        let one_i = self.builder.ins().iconst(i64_ty, 1);
-        let remainder = self.builder.ins().band(b_i64, one_i);
-        let zero_i = self.builder.ins().iconst(i64_ty, 0);
-        let is_odd = self.builder.ins().icmp(IntCC::NotEqual, remainder, zero_i);
-
-        let odd_block = self.builder.create_block();
-        let even_block = self.builder.create_block();
-        // Append block parameters for both branches:
-        self.builder.append_block_param(odd_block, f64_ty);
-        self.builder.append_block_param(even_block, f64_ty);
-        // Pass mag_val to both branches:
-        self.builder.ins().brif(
-            is_odd,
-            odd_block,
-            &[mag_val.into()],
-            even_block,
-            &[mag_val.into()],
-        );
-
-        self.builder.switch_to_block(odd_block);
-        let phi_mag_val = self.builder.block_params(odd_block)[0];
-        let neg_val = self.builder.ins().fneg(phi_mag_val);
-        self.builder.ins().jump(merge_block, &[neg_val.into()]);
-
-        self.builder.switch_to_block(even_block);
-        let phi_mag_val_even = self.builder.block_params(even_block)[0];
-        self.builder
-            .ins()
-            .jump(merge_block, &[phi_mag_val_even.into()]);
-
-        // ----- Merge: Return the final result, unless a finite base
-        // produced an infinity - the interpreter raises OverflowError there
-        // instead of saturating. An already-infinite base (`inf ** 2.0`)
-        // must keep returning its infinity, hence the base-finite half.
-        self.builder.switch_to_block(merge_block);
-        let result = self.builder.block_params(merge_block)[0];
-        let abs_result = self.builder.ins().fabs(result);
-        let result_infinite = self.builder.ins().fcmp(FloatCC::Equal, abs_result, inf_f);
-        let abs_a = self.builder.ins().fabs(a);
-        let base_finite = self.builder.ins().fcmp(FloatCC::LessThan, abs_a, inf_f);
-        let overflowed = self.builder.ins().band(result_infinite, base_finite);
+        let a_infinite = self.builder.ins().fcmp(FloatCC::Equal, abs_a, inf_f);
+        let abs_b = self.builder.ins().fabs(b);
+        let b_infinite = self.builder.ins().fcmp(FloatCC::Equal, abs_b, inf_f);
+        let either_infinite = self.builder.ins().bor(a_infinite, b_infinite);
+        let overflowed = self.builder.ins().band_not(ans_infinite, either_infinite);
         self.deopt_branch(overflowed, operands)?;
-        Ok(result)
+
+        Ok(ans)
     }
 
     fn compile_ipow(
