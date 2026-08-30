@@ -520,7 +520,13 @@ impl LocalsPlus {
     /// Push a PyObjectRef onto the evaluation stack.
     /// Panics on overflow.
     pub(crate) fn push_stack(&mut self, value: PyObjectRef) {
-        self.stack_try_push(Some(PyStackRef::new_owned(value)))
+        self.push_stack_opt(Some(value));
+    }
+
+    /// Push a value, or the null a call leaves beside its callable.
+    /// Panics on overflow.
+    pub(crate) fn push_stack_opt(&mut self, value: Option<PyObjectRef>) {
+        self.stack_try_push(value.map(PyStackRef::new_owned))
             .expect("stack overflow in push_stack");
     }
 

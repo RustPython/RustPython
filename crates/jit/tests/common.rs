@@ -367,6 +367,9 @@ macro_rules! jit_function {
                         rustpython_jit::Outcome::Deopt(state) => {
                             panic!("jit function unexpectedly deoptimized: {state:?}")
                         }
+                        rustpython_jit::Outcome::Restart => {
+                            panic!("jit function unexpectedly asked to be restarted")
+                        }
                     })
             }
         }
@@ -385,6 +388,9 @@ macro_rules! jit_function {
                         }
                         rustpython_jit::Outcome::Deopt(state) => {
                             panic!("jit function unexpectedly deoptimized: {state:?}")
+                        }
+                        rustpython_jit::Outcome::Restart => {
+                            panic!("jit function unexpectedly asked to be restarted")
                         }
                     })
             }

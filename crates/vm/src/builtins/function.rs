@@ -29,7 +29,7 @@ use core::sync::atomic::AtomicU8;
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use itertools::Itertools;
 #[cfg(feature = "jit")]
-use rustpython_jit::{CompiledCode, Outcome, Safety};
+use rustpython_jit::{CompiledCode, DeoptState, Outcome, Safety, StackValue};
 
 fn format_missing_args(
     qualname: impl core::fmt::Display,
@@ -596,12 +596,46 @@ impl Py<PyFunction> {
         vm.state.aot_stats.deoptimized.fetch_add(1, Relaxed);
     }
 
+    /// Put a deopt record into a fresh frame: the locals as the guard saw
+    /// them, the operands the interrupted instruction had already pushed, and
+    /// the offset of that instruction, so the interpreter re-executes it whole.
+    #[cfg(feature = "jit")]
+    fn fill_locals_from_deopt(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        state: DeoptState,
+        vm: &VirtualMachine,
+    ) {
+        use crate::convert::ToPyObject;
+
+        let fastlocals = iframe.localsplus.fastlocals_mut();
+        for (local, value) in fastlocals.iter_mut().zip(state.locals) {
+            // `None` leaves the slot empty, which is what unbound means.
+            *local = value.map(|value| value.to_pyobject(vm));
+        }
+        for entry in state.stack {
+            // The callable and the null beside it take no slot in the record:
+            // they are the same on every path that reaches the guard, so the
+            // site describes them and they are rebuilt here.
+            let value = match entry {
+                StackValue::Value(value) => Some(value.to_pyobject(vm)),
+                StackValue::Callee => Some(self.as_object().to_owned()),
+                StackValue::Null => None,
+            };
+            iframe.localsplus.push_stack_opt(value);
+        }
+        iframe.lasti.store(state.offset, Relaxed);
+    }
+
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
         locals: Option<ArgMapping>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        // Where a guard stopped, for the frame built below to carry on from.
+        #[cfg(feature = "jit")]
+        let mut resume = None;
         #[cfg(feature = "jit")]
         {
             let mut state = self.jit_state.load(Relaxed);
@@ -620,13 +654,21 @@ impl Py<PyFunction> {
                         use crate::convert::ToPyObject;
                         return Ok(ret.to_pyobject(vm));
                     }
-                    Some(Ok(Outcome::Deopt(_))) => {
-                        // Until the frame can be rebuilt from the record, a guard
-                        // means running the call again from the start. The opcodes
-                        // with a lowering have no effect outside the frame, so
-                        // redoing the work is not observable - but the code has to
-                        // go first, or the second attempt hits the same guard.
+                    Some(Ok(Outcome::Restart)) => {
+                        // Nothing to carry on from: either a nested frame gave
+                        // up, or the guard belongs to a site that cannot
+                        // describe the frame. Run the call again from the
+                        // start, which the opcodes with a lowering make
+                        // unobservable - they touch nothing outside the frame.
                         self.deoptimize(vm);
+                    }
+                    Some(Ok(Outcome::Deopt(state))) => {
+                        // The resume lands on the instruction the guard belongs
+                        // to, so the interpreter re-executes it - including a
+                        // recursive call, which would hit the same guard again
+                        // if the code were still installed.
+                        self.deoptimize(vm);
+                        resume = Some(state);
                     }
                     Some(Err(err)) => {
                         info!(
@@ -677,6 +719,17 @@ impl Py<PyFunction> {
                 use_datastack,
                 vm,
             );
+            #[cfg(feature = "jit")]
+            match resume {
+                Some(state) => {
+                    // SAFETY: the frame was just built here, and nothing else
+                    // holds it until it is run below.
+                    let iframe = unsafe { frame.iframe_mut() };
+                    self.fill_locals_from_deopt(iframe, state, vm);
+                }
+                None => self.fill_locals_from_args(&frame, func_args, vm)?,
+            }
+            #[cfg(not(feature = "jit"))]
             self.fill_locals_from_args(&frame, func_args, vm)?;
             if is_gen || is_coro || is_async_gen {
                 return Ok(self.make_generator_or_coro(frame, vm));
@@ -714,9 +767,17 @@ impl Py<PyFunction> {
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             vm,
         );
-        let result = self
-            .fill_locals_from_args_iframe(iframe, func_args, vm)
-            .and_then(|()| vm.run_frame_fast(iframe));
+        #[cfg(feature = "jit")]
+        let filled = match resume {
+            Some(state) => {
+                self.fill_locals_from_deopt(iframe, state, vm);
+                Ok(())
+            }
+            None => self.fill_locals_from_args_iframe(iframe, func_args, vm),
+        };
+        #[cfg(not(feature = "jit"))]
+        let filled = self.fill_locals_from_args_iframe(iframe, func_args, vm);
+        let result = filled.and_then(|()| vm.run_frame_fast(iframe));
         // Release data stack memory — must happen on both success and error.
         unsafe {
             if let Some((base, size)) = iframe.release_datastack_frame() {

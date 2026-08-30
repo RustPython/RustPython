@@ -1,7 +1,7 @@
 // spell-checker: disable
 use super::{
-    DEOPT_HEADER_SLOTS, DeoptSite, JitCompileError, JitSig, JitType, MAX_DEOPT_SLOTS, SLOT_SIZE,
-    Safety, StackEntry,
+    DEOPT_HEADER_SLOTS, DEOPT_STATUS_NESTED, DeoptSite, JitCompileError, JitSig, JitType,
+    MAX_DEOPT_SLOTS, SLOT_SIZE, Safety, StackEntry,
 };
 use alloc::collections::BTreeSet;
 use cranelift::codegen::ir::FuncRef;
@@ -84,6 +84,11 @@ pub(crate) struct FunctionCompiler<'a, 'b> {
     /// entry block, which is out of reach once compilation has started.
     bound_flags: Box<[Variable]>,
     label_to_block: HashMap<Label, Block>,
+    /// Whether any jump back to an earlier offset was lowered. Without one,
+    /// execution reaches a guard only by way of offsets below it, so every
+    /// store that can have run is already in `variables` and every site lists
+    /// all of them.
+    has_backward_jump: bool,
     safety: Safety,
     pub(crate) sig: JitSig,
     pub(crate) deopt_sites: Vec<DeoptSite>,
@@ -169,6 +174,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             variables: vec![None; num_variables].into_boxed_slice(),
             bound_flags,
             label_to_block: HashMap::new(),
+            has_backward_jump: false,
             safety,
             sig: JitSig {
                 args: arg_types.to_vec(),
@@ -261,6 +267,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             offset: self.resume_offset,
             locals: live.clone().into_boxed_slice(),
             stack: entries.into_boxed_slice(),
+            // Provisional: only the whole function tells whether a store this
+            // site has not seen yet can run before its guard fires.
+            resumable: true,
         });
 
         self.deopt_if(cond, |this| {
@@ -520,6 +529,24 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             };
             if needs_terminator {
                 self.builder.ins().trap(TrapCode::user(0).unwrap());
+            }
+        }
+
+        // A site lists the locals the compiler had seen where its guard was
+        // lowered. A store to a varname first seen after it can still have run
+        // by the time that guard fires, but only by coming back down to it, so
+        // without a backward jump every site lists everything that can be
+        // bound. Where there is one, a site whose set of listed slots is short
+        // of the function's full set cannot describe the frame, and asks for a
+        // restart instead.
+        if self.has_backward_jump {
+            let bound: Vec<bool> = self.variables.iter().map(Option::is_some).collect();
+            for site in &mut self.deopt_sites {
+                site.resumable = site
+                    .locals
+                    .iter()
+                    .map(Option::is_some)
+                    .eq(bound.iter().copied());
             }
         }
 
@@ -886,7 +913,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         // A nested frame that gave up has already written its
                         // record, and returned a filler in place of a result.
                         // Anything this frame computes from here on is built on
-                        // that filler, so stop and leave its record standing.
+                        // that filler, so stop.
                         let status = self.builder.ins().load(
                             types::I64,
                             MemFlags::trusted(),
@@ -894,7 +921,17 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             0,
                         );
                         let nested = self.builder.ins().icmp_imm(IntCC::NotEqual, status, 0);
-                        self.deopt_if(nested, |_| {});
+                        // The record standing in the buffer describes that
+                        // frame, not this one. Overwrite the status so the
+                        // resume path restarts the call rather than continuing
+                        // this frame from an offset that belongs to another.
+                        self.deopt_if(nested, |this| {
+                            let sentinel = this
+                                .builder
+                                .ins()
+                                .iconst(types::I64, DEOPT_STATUS_NESTED as i64);
+                            this.store_raw(sentinel, 0);
+                        });
 
                         self.stack.push(val);
 
@@ -986,6 +1023,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             | Instruction::JumpForward { .. } => {
                 let target = Self::instruction_target(offset, instruction, arg)?
                     .ok_or(JitCompileError::BadBytecode)?;
+                self.has_backward_jump |= target.as_u32() <= offset;
                 let target_block = self.get_or_create_block(target);
                 self.builder.ins().jump(target_block, &[]);
                 Ok(())
