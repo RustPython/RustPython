@@ -32,10 +32,28 @@ mod tests {
     /// code could trap or wrap. Both are guarded by a deopt now, so Strict
     /// compiles the function and, given the input that used to be unsafe,
     /// hands the operands back rather than trapping, wrapping, or otherwise
-    /// answering wrongly.
+    /// answering wrongly. An optional fourth and fifth argument also pin an
+    /// ordinary input's answer, so a guard that regressed to an
+    /// unconditional deopt could not leave every test in this file green.
     macro_rules! assert_strict_deopts {
         ($name:ident => $src:expr, $bad:expr) => {{
             let code = assert_accepted!(Safety::Strict, $name => $src);
+            match code.invoke(&$bad) {
+                Ok(Outcome::Deopt(_)) => {}
+                other => panic!(
+                    "{} expected a deopt under Strict, got {other:?}",
+                    stringify!($name)
+                ),
+            }
+        }};
+        ($name:ident => $src:expr, $bad:expr, $good:expr, $expected:expr) => {{
+            let code = assert_accepted!(Safety::Strict, $name => $src);
+            assert_eq!(
+                code.invoke(&$good),
+                Ok(Outcome::Returned(Some($expected.into()))),
+                "{} expected the ordinary input to still answer",
+                stringify!($name)
+            );
             match code.invoke(&$bad) {
                 Ok(Outcome::Deopt(_)) => {}
                 other => panic!(
@@ -51,7 +69,7 @@ mod tests {
         assert_strict_deopts!(add => r#"
 def add(a: int, b: int) -> int:
     return a + b
-"#, [i64::MAX.into(), 1i64.into()]);
+"#, [i64::MAX.into(), 1i64.into()], [3i64.into(), 4i64.into()], 7i64);
     }
 
     #[test]

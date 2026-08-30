@@ -54,17 +54,29 @@ impl From<ModuleError> for JitCompileError {
     }
 }
 
-/// Whether a call matched to the function being compiled by global name may
-/// become a direct recursive call rather than being left to the interpreter.
+/// Whether a self-call - a call matched to the function being compiled by
+/// global name - may become a direct recursive call, or the whole function
+/// is left to the interpreter instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Safety {
-    /// Reject a self-call. The interpreter re-reads the global on every
-    /// call, so a rebound name - a decorator applied later, a test patching
-    /// the module - would make a compiled direct call disagree with it.
+    /// Reject the function outright rather than compile around the
+    /// self-call. The interpreter re-reads the global on every call, so a
+    /// rebound name - a decorator applied later, a test patching the module
+    /// - would make a compiled direct call disagree with it.
     Strict,
     /// Compile a self-call into a direct call, trusting the name to still
     /// resolve to this function for as long as the compiled code runs.
     Permissive,
+}
+
+/// What compiled `**` on two floats calls, so the compiled answer comes from
+/// the same function call the interpreter's `float_pow` makes rather than a
+/// hand-rolled approximation of it. Registered on the builder by name below,
+/// rather than left for the JIT to resolve `pow` through the platform's
+/// libm - an explicit symbol is guaranteed to resolve, and guaranteed to be
+/// this exact function.
+extern "C" fn jit_powf(a: f64, b: f64) -> f64 {
+    a.powf(b)
 }
 
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
@@ -79,17 +91,29 @@ pub enum JitArgumentError {
 struct Jit {
     builder_context: FunctionBuilderContext,
     ctx: codegen::Context,
+    /// `jit_powf`, declared once so every compiled function imports the same
+    /// symbol rather than redeclaring it.
+    powf_func: FuncId,
     module: ManuallyDrop<JITModule>,
 }
 
 impl Jit {
     fn new() -> Self {
-        let builder = JITBuilder::new(cranelift_module::default_libcall_names())
+        let mut builder = JITBuilder::new(cranelift_module::default_libcall_names())
             .expect("Failed to build JITBuilder");
-        let module = JITModule::new(builder);
+        builder.symbol("jit_powf", jit_powf as *const u8);
+        let mut module = JITModule::new(builder);
+        let mut powf_sig = module.make_signature();
+        powf_sig.params.push(AbiParam::new(types::F64));
+        powf_sig.params.push(AbiParam::new(types::F64));
+        powf_sig.returns.push(AbiParam::new(types::F64));
+        let powf_func = module
+            .declare_function("jit_powf", Linkage::Import, &powf_sig)
+            .expect("failed to declare jit_powf");
         Self {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
+            powf_func,
             module: ManuallyDrop::new(module),
         }
     }
@@ -145,6 +169,9 @@ impl Jit {
         )?;
 
         let func_ref = self.module.declare_func_in_func(id, &mut self.ctx.func);
+        let powf_func = self
+            .module
+            .declare_func_in_func(self.powf_func, &mut self.ctx.func);
 
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
         let entry_block = builder.create_block();
@@ -159,6 +186,7 @@ impl Jit {
                 ret,
                 entry_block,
                 safety,
+                powf_func,
             );
 
             compiler.compile(func_ref, bytecode)?;
