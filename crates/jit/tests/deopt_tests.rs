@@ -27,6 +27,127 @@ def add(a: int, b: int) -> int:
         }
     }
 
+    /// Subtraction is the same guard as addition, mirrored: the operands go
+    /// back once the machine word can no longer hold the answer.
+    #[test]
+    fn subtraction_deopts_on_overflow() {
+        let code = jit_function! { sub => r#"
+def sub(a: int, b: int) -> int:
+    return a - b
+"# };
+        assert_eq!(
+            code.invoke(&[5i64.into(), 3i64.into()]),
+            Ok(Outcome::Returned(Some(2i64.into())))
+        );
+        match code.invoke(&[i64::MIN.into(), 1i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(i64::MIN), int(1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// Multiplication wraps just as readily as addition does, and needs the
+    /// same guard.
+    #[test]
+    fn multiplication_deopts_on_overflow() {
+        let code = jit_function! { mul => r#"
+def mul(a: int, b: int) -> int:
+    return a * b
+"# };
+        assert_eq!(
+            code.invoke(&[3i64.into(), 4i64.into()]),
+            Ok(Outcome::Returned(Some(12i64.into())))
+        );
+        match code.invoke(&[i64::MAX.into(), 2i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(i64::MAX), int(2)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// Negation is lowered as `0 - a`, so it overflows exactly where
+    /// subtraction does. The zero is never on the interpreter's stack, so the
+    /// guard records only `a`.
+    #[test]
+    fn negation_deopts_on_overflow() {
+        let code = jit_function! { neg => r#"
+def neg(a: int) -> int:
+    return -a
+"# };
+        assert_eq!(
+            code.invoke(&[5i64.into()]),
+            Ok(Outcome::Returned(Some((-5i64).into())))
+        );
+        match code.invoke(&[i64::MIN.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(i64::MIN)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// A shift count outside `0..64` is not a machine shift at all: negative
+    /// raises `ValueError`, and 64 or more is a well-defined answer the
+    /// instruction cannot give. A left shift that pushes bits off the top is
+    /// where the interpreter widens.
+    #[test]
+    fn left_shift_deopts_out_of_range_or_lossy() {
+        let code = jit_function! { shl => r#"
+def shl(a: int, b: int) -> int:
+    return a << b
+"# };
+        assert_eq!(
+            code.invoke(&[1i64.into(), 2i64.into()]),
+            Ok(Outcome::Returned(Some(4i64.into())))
+        );
+        match code.invoke(&[1i64.into(), 64i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(1), int(64)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+        match code.invoke(&[1i64.into(), (-1i64).into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(1), int(-1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+        match code.invoke(&[1i64.into(), 63i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(1), int(63)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// A negative count and a count of 64 or more are out of range for the
+    /// machine instruction the same way they are for a left shift.
+    #[test]
+    fn right_shift_deopts_out_of_range() {
+        let code = jit_function! { shr => r#"
+def shr(a: int, b: int) -> int:
+    return a >> b
+"# };
+        assert_eq!(
+            code.invoke(&[8i64.into(), 1i64.into()]),
+            Ok(Outcome::Returned(Some(4i64.into())))
+        );
+        match code.invoke(&[8i64.into(), 64i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(8), int(64)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+        match code.invoke(&[8i64.into(), (-1i64).into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(8), int(-1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
     /// A guard reports every live local, and reports a local that has not been
     /// assigned on this path as unbound rather than inventing a value for it.
     #[test]

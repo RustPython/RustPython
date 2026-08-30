@@ -13,12 +13,6 @@ use rustpython_compiler_core::bytecode::{
 };
 use std::collections::HashMap;
 
-#[repr(u16)]
-enum CustomTrapCode {
-    /// Raised when shifting by a negative number
-    NegativeShiftCount = 1,
-}
-
 #[derive(Clone)]
 struct Local {
     var: Variable,
@@ -693,7 +687,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         BinaryOperator::Subtract | BinaryOperator::InplaceSubtract,
                         JitValue::Int(a),
                         JitValue::Int(b),
-                    ) => JitValue::Int(self.compile_sub(a, b)),
+                    ) => {
+                        let out = self.compile_sub(a, b, &[JitValue::Int(a), JitValue::Int(b)])?;
+                        JitValue::Int(out)
+                    }
                     (
                         BinaryOperator::FloorDivide | BinaryOperator::InplaceFloorDivide,
                         JitValue::Int(a),
@@ -717,7 +714,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         BinaryOperator::Multiply | BinaryOperator::InplaceMultiply,
                         JitValue::Int(a),
                         JitValue::Int(b),
-                    ) => JitValue::Int(self.builder.ins().imul(a, b)),
+                    ) => {
+                        let (out, carry) = self.builder.ins().smul_overflow(a, b);
+                        self.deopt_branch(carry, &[JitValue::Int(a), JitValue::Int(b)])?;
+                        JitValue::Int(out)
+                    }
                     (
                         BinaryOperator::Remainder | BinaryOperator::InplaceRemainder,
                         JitValue::Int(a),
@@ -729,25 +730,38 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         JitValue::Int(b),
                     ) => JitValue::Int(self.compile_ipow(a, b)),
                     (
-                        BinaryOperator::Lshift | BinaryOperator::Rshift,
+                        BinaryOperator::Lshift
+                        | BinaryOperator::InplaceLshift
+                        | BinaryOperator::Rshift
+                        | BinaryOperator::InplaceRshift,
                         JitValue::Int(a),
                         JitValue::Int(b),
                     ) => {
-                        // Shifts throw an exception if we have a negative shift count
-                        // Remove all bits except the sign bit, and trap if its 1 (i.e. negative).
-                        let sign = self.builder.ins().ushr_imm(b, 63);
-                        self.builder.ins().trapnz(
-                            sign,
-                            TrapCode::user(CustomTrapCode::NegativeShiftCount as u8).unwrap(),
-                        );
+                        let operands = [JitValue::Int(a), JitValue::Int(b)];
+                        // A count outside `0..64` is not a machine shift at all: negative
+                        // raises ValueError, and 64 or more is a well-defined answer the
+                        // instruction does not give. An unsigned comparison catches both,
+                        // because a negative count reads as huge.
+                        let out_of_range =
+                            self.builder
+                                .ins()
+                                .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, b, 64);
+                        self.deopt_branch(out_of_range, &operands)?;
 
-                        let out =
-                            if matches!(op, BinaryOperator::Lshift | BinaryOperator::InplaceLshift)
-                            {
-                                self.builder.ins().ishl(a, b)
-                            } else {
-                                self.builder.ins().sshr(a, b)
-                            };
+                        let left =
+                            matches!(op, BinaryOperator::Lshift | BinaryOperator::InplaceLshift);
+                        let out = if left {
+                            let out = self.builder.ins().ishl(a, b);
+                            // Shifting back has to give the operand again, or the bits
+                            // that fell off the top are digits the interpreter would
+                            // have kept.
+                            let back = self.builder.ins().sshr(out, b);
+                            let lost = self.builder.ins().icmp(IntCC::NotEqual, back, a);
+                            self.deopt_branch(lost, &operands)?;
+                            out
+                        } else {
+                            self.builder.ins().sshr(a, b)
+                        };
                         JitValue::Int(out)
                     }
                     (
@@ -1136,14 +1150,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             Instruction::UnaryNegative => {
                 match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
-                    // Lowered as `0 - val`, which traps on i64::MIN.
-                    JitValue::Int(_) if self.safety == Safety::Strict => {
-                        Err(JitCompileError::NotSupported)
-                    }
                     JitValue::Int(val) => {
-                        // Compile minus as 0 - val.
+                        // Compile minus as 0 - val. The zero is not on the
+                        // interpreter's stack, so only `val` is recorded.
                         let zero = self.builder.ins().iconst(types::I64, 0);
-                        let out = self.compile_sub(zero, val);
+                        let out = self.compile_sub(zero, val, &[JitValue::Int(val)])?;
                         self.stack.push(JitValue::Int(out));
                         Ok(())
                     }
@@ -1169,10 +1180,15 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         }
     }
 
-    fn compile_sub(&mut self, a: Value, b: Value) -> Value {
+    fn compile_sub(
+        &mut self,
+        a: Value,
+        b: Value,
+        popped: &[JitValue],
+    ) -> Result<Value, JitCompileError> {
         let (out, carry) = self.builder.ins().ssub_overflow(a, b);
-        self.builder.ins().trapnz(carry, TrapCode::INTEGER_OVERFLOW);
-        out
+        self.deopt_branch(carry, popped)?;
+        Ok(out)
     }
 
     /// Creates a double–double (DDValue) from a regular f64 constant.
