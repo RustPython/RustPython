@@ -745,7 +745,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         BinaryOperator::Power | BinaryOperator::InplacePower,
                         JitValue::Int(a),
                         JitValue::Int(b),
-                    ) => JitValue::Int(self.compile_ipow(a, b)),
+                    ) => {
+                        let operands = [JitValue::Int(a), JitValue::Int(b)];
+                        JitValue::Int(self.compile_ipow(a, b, &operands)?)
+                    }
                     (
                         BinaryOperator::Lshift
                         | BinaryOperator::InplaceLshift
@@ -817,22 +820,42 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         BinaryOperator::TrueDivide | BinaryOperator::InplaceTrueDivide,
                         JitValue::Float(a),
                         JitValue::Float(b),
-                    ) => JitValue::Float(self.builder.ins().fdiv(a, b)),
+                    ) => {
+                        let operands = [JitValue::Float(a), JitValue::Float(b)];
+                        let zero = self.builder.ins().f64const(0.0);
+                        let by_zero = self.builder.ins().fcmp(FloatCC::Equal, b, zero);
+                        self.deopt_branch(by_zero, &operands)?;
+                        JitValue::Float(self.builder.ins().fdiv(a, b))
+                    }
                     (
                         BinaryOperator::Power | BinaryOperator::InplacePower,
                         JitValue::Float(a),
                         JitValue::Float(b),
-                    ) => JitValue::Float(self.compile_fpow(a, b)),
+                    ) => {
+                        let operands = [JitValue::Float(a), JitValue::Float(b)];
+                        JitValue::Float(self.compile_fpow(a, b, &operands)?)
+                    }
 
                     // Floats and Integers
                     (_, JitValue::Int(a), JitValue::Float(b))
                     | (_, JitValue::Float(a), JitValue::Int(b)) => {
-                        let operand_one = match a_type.unwrap() {
+                        let a_ty = a_type.unwrap();
+                        let b_ty = b_type.unwrap();
+
+                        // The original operands, for a guard to hand back on deopt -
+                        // `operand_one`/`operand_two` below are the converted doubles
+                        // and do not describe the stack the interpreter had.
+                        let operands = [
+                            JitValue::from_type_and_value(a_ty.clone(), a),
+                            JitValue::from_type_and_value(b_ty.clone(), b),
+                        ];
+
+                        let operand_one = match a_ty {
                             JitType::Int => self.builder.ins().fcvt_from_sint(types::F64, a),
                             _ => a,
                         };
 
-                        let operand_two = match b_type.unwrap() {
+                        let operand_two = match b_ty {
                             JitType::Int => self.builder.ins().fcvt_from_sint(types::F64, b),
                             _ => b,
                         };
@@ -848,10 +871,18 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                                 JitValue::Float(self.builder.ins().fmul(operand_one, operand_two))
                             }
                             BinaryOperator::TrueDivide | BinaryOperator::InplaceTrueDivide => {
+                                let zero = self.builder.ins().f64const(0.0);
+                                let by_zero =
+                                    self.builder.ins().fcmp(FloatCC::Equal, operand_two, zero);
+                                self.deopt_branch(by_zero, &operands)?;
                                 JitValue::Float(self.builder.ins().fdiv(operand_one, operand_two))
                             }
                             BinaryOperator::Power | BinaryOperator::InplacePower => {
-                                JitValue::Float(self.compile_fpow(operand_one, operand_two))
+                                JitValue::Float(self.compile_fpow(
+                                    operand_one,
+                                    operand_two,
+                                    &operands,
+                                )?)
                             }
                             _ => return Err(JitCompileError::NotSupported),
                         }
@@ -1599,7 +1630,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     /// - For a > 0: Computes exp(b * ln(a)).
     /// - For a == 0: Handles special cases for 0^b, including returning 0, 1, or a domain error.
     /// - For a < 0: Allows only an integer exponent b and adjusts the sign if b is odd.
-    fn compile_fpow(&mut self, a: Value, b: Value) -> Value {
+    fn compile_fpow(
+        &mut self,
+        a: Value,
+        b: Value,
+        operands: &[JitValue],
+    ) -> Result<Value, JitCompileError> {
         let f64_ty = types::F64;
         let i64_ty = types::I64;
         let zero_f = self.builder.ins().f64const(0.0);
@@ -1607,6 +1643,18 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let nan_f = self.builder.ins().f64const(f64::NAN);
         let inf_f = self.builder.ins().f64const(f64::INFINITY);
         let neg_inf_f = self.builder.ins().f64const(f64::NEG_INFINITY);
+
+        // 0.0 ** negative raises rather than returning an infinity.
+        let base_zero = self.builder.ins().fcmp(FloatCC::Equal, a, zero_f);
+        let exp_negative = self.builder.ins().fcmp(FloatCC::LessThan, b, zero_f);
+        let divides_by_zero = self.builder.ins().band(base_zero, exp_negative);
+        self.deopt_branch(divides_by_zero, operands)?;
+        // A negative base raised to a fractional power is complex.
+        let base_negative = self.builder.ins().fcmp(FloatCC::LessThan, a, zero_f);
+        let truncated = self.builder.ins().trunc(b);
+        let fractional = self.builder.ins().fcmp(FloatCC::NotEqual, truncated, b);
+        let complex = self.builder.ins().band(base_negative, fractional);
+        self.deopt_branch(complex, operands)?;
 
         // Merge block for final result.
         let merge_block = self.builder.create_block();
@@ -1815,27 +1863,29 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
         // ----- Merge: Return the final result.
         self.builder.switch_to_block(merge_block);
-        self.builder.block_params(merge_block)[0]
+        Ok(self.builder.block_params(merge_block)[0])
     }
 
-    fn compile_ipow(&mut self, a: Value, b: Value) -> Value {
+    fn compile_ipow(
+        &mut self,
+        a: Value,
+        b: Value,
+        operands: &[JitValue],
+    ) -> Result<Value, JitCompileError> {
+        // A negative exponent makes this a float, and the result of a widening
+        // loop stops fitting in 64 bits quickly.
+        let negative = self.builder.ins().icmp_imm(IntCC::SignedLessThan, b, 0);
+        self.deopt_branch(negative, operands)?;
+
         let zero = self.builder.ins().iconst(types::I64, 0);
         let one_i64 = self.builder.ins().iconst(types::I64, 1);
 
         // Create required blocks
-        let check_negative = self.builder.create_block();
-        let handle_negative = self.builder.create_block();
         let loop_block = self.builder.create_block();
         let continue_block = self.builder.create_block();
         let exit_block = self.builder.create_block();
 
         // Set up block parameters
-        self.builder.append_block_param(check_negative, types::I64); // exponent
-        self.builder.append_block_param(check_negative, types::I64); // base
-
-        self.builder.append_block_param(handle_negative, types::I64); // abs(exponent)
-        self.builder.append_block_param(handle_negative, types::I64); // base
-
         self.builder.append_block_param(loop_block, types::I64); // exponent
         self.builder.append_block_param(loop_block, types::I64); // result
         self.builder.append_block_param(loop_block, types::I64); // base
@@ -1847,32 +1897,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.append_block_param(continue_block, types::I64); // result
         self.builder.append_block_param(continue_block, types::I64); // base
 
-        // Initial jump to check if exponent is negative
+        // The exponent is known non-negative, so jump straight into the loop.
         self.builder
             .ins()
-            .jump(check_negative, &[b.into(), a.into()]);
-
-        // Check if exponent is negative
-        self.builder.switch_to_block(check_negative);
-        let params = self.builder.block_params(check_negative);
-        let exp_check = params[0];
-        let base_check = params[1];
-
-        let is_negative = self
-            .builder
-            .ins()
-            .icmp(IntCC::SignedLessThan, exp_check, zero);
-        self.builder.ins().brif(
-            is_negative,
-            handle_negative,
-            &[exp_check.into(), base_check.into()],
-            loop_block,
-            &[exp_check.into(), one_i64.into(), base_check.into()],
-        );
-
-        // Handle negative exponent (return 0 for integer exponentiation)
-        self.builder.switch_to_block(handle_negative);
-        self.builder.ins().jump(exit_block, &[zero.into()]); // Return 0 for negative exponents
+            .jump(loop_block, &[b.into(), one_i64.into(), a.into()]);
 
         // Loop block logic (square-and-multiply algorithm)
         self.builder.switch_to_block(loop_block);
@@ -1901,12 +1929,20 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         // If exponent is odd, multiply result by base
         let is_odd = self.builder.ins().band_imm(exp_phi, 1);
         let is_odd = self.builder.ins().icmp_imm(IntCC::Equal, is_odd, 1);
-        let mul_result = self.builder.ins().imul(result_phi, base_phi);
+
+        // The result product is kept only when this bit of the exponent is set.
+        let (mul_result, mul_carry) = self.builder.ins().smul_overflow(result_phi, base_phi);
+        let mul_overflows = self.builder.ins().band(is_odd, mul_carry);
+        self.deopt_branch(mul_overflows, operands)?;
         let new_result = self.builder.ins().select(is_odd, mul_result, result_phi);
 
-        // Square the base and divide exponent by 2
-        let squared_base = self.builder.ins().imul(base_phi, base_phi);
+        // The squared base is read only if there is another iteration to read it.
+        let (squared_base, square_carry) = self.builder.ins().smul_overflow(base_phi, base_phi);
         let new_exp = self.builder.ins().sshr_imm(exp_phi, 1);
+        let more = self.builder.ins().icmp_imm(IntCC::NotEqual, new_exp, 0);
+        let square_overflows = self.builder.ins().band(more, square_carry);
+        self.deopt_branch(square_overflows, operands)?;
+
         self.builder.ins().jump(
             loop_block,
             &[new_exp.into(), new_result.into(), squared_base.into()],
@@ -1917,12 +1953,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let res = self.builder.block_params(exit_block)[0];
 
         // Seal all blocks
-        self.builder.seal_block(check_negative);
-        self.builder.seal_block(handle_negative);
         self.builder.seal_block(loop_block);
         self.builder.seal_block(continue_block);
         self.builder.seal_block(exit_block);
 
-        res
+        Ok(res)
     }
 }

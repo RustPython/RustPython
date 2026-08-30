@@ -6,6 +6,10 @@ mod tests {
         StackValue::Value(AbiValue::Int(value))
     }
 
+    fn float(value: f64) -> StackValue {
+        StackValue::Value(AbiValue::Float(value))
+    }
+
     /// Overflow is not an error; it is where the interpreter stops using a
     /// machine word. The compiled code has to hand the operands back rather
     /// than wrap or trap.
@@ -270,6 +274,123 @@ def div(a: int, b: int) -> float:
         match code.invoke(&[i64::MIN.into(), 1i64.into()]) {
             Ok(Outcome::Deopt(state)) => {
                 assert_eq!(state.stack, vec![int(i64::MIN), int(1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// A negative exponent makes `**` a float, and the loop only computes
+    /// integers.
+    #[test]
+    fn power_deopts_on_negative_exponent() {
+        let code = jit_function! { pow => r#"
+def pow(a: int, b: int) -> int:
+    return a ** b
+"# };
+        assert_eq!(
+            code.invoke(&[2i64.into(), 2i64.into()]),
+            Ok(Outcome::Returned(Some(4i64.into())))
+        );
+        match code.invoke(&[2i64.into(), (-2i64).into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(2), int(-2)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// `2 ** 64` does not fit an i64: the loop's final squaring carries into
+    /// the 65th bit even though every earlier iteration stayed in range.
+    #[test]
+    fn power_deopts_when_the_answer_does_not_fit() {
+        let code = jit_function! { pow => r#"
+def pow(a: int, b: int) -> int:
+    return a ** b
+"# };
+        match code.invoke(&[2i64.into(), 64i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(2), int(64)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// A zero divisor raises ZeroDivisionError; `fdiv` would otherwise return
+    /// an infinity. `fcmp Equal` against `0.0` catches `-0.0` too, which
+    /// raises the same way.
+    #[test]
+    fn true_divide_deopts_on_float_zero_divisor() {
+        let code = jit_function! { div => r#"
+def div(a: float, b: float) -> float:
+    return a / b
+"# };
+        assert_eq!(
+            code.invoke(&[4.0f64.into(), 2.0f64.into()]),
+            Ok(Outcome::Returned(Some(2.0f64.into())))
+        );
+        for divisor in [0.0f64, -0.0f64] {
+            match code.invoke(&[1.0f64.into(), divisor.into()]) {
+                Ok(Outcome::Deopt(state)) => {
+                    assert_eq!(state.stack, vec![float(1.0), float(divisor)]);
+                }
+                other => panic!("expected a deopt for {divisor}, got {other:?}"),
+            }
+        }
+    }
+
+    /// The mixed int/float arm has its own `fdiv`, reached whenever exactly
+    /// one operand is already a float, and needs the same guard regardless of
+    /// which side that is.
+    #[test]
+    fn true_divide_deopts_on_mixed_zero_divisor() {
+        let int_over_float = jit_function! { div => r#"
+def div(a: int, b: float) -> float:
+    return a / b
+"# };
+        match int_over_float.invoke(&[1i64.into(), 0.0f64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(1), float(0.0)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+
+        let float_over_int = jit_function! { div => r#"
+def div(a: float, b: int) -> float:
+    return a / b
+"# };
+        match float_over_int.invoke(&[1.0f64.into(), 0i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![float(1.0), int(0)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// `0.0 ** negative` raises rather than returning an infinity.
+    #[test]
+    fn float_power_deopts_on_zero_base_negative_exponent() {
+        let code = jit_function! { pow => r#"
+def pow(a: float, b: float) -> float:
+    return a ** b
+"# };
+        match code.invoke(&[0.0f64.into(), (-1.0f64).into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![float(0.0), float(-1.0)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// A negative base raised to a fractional power is complex.
+    #[test]
+    fn float_power_deopts_on_negative_base_fractional_exponent() {
+        let code = jit_function! { pow => r#"
+def pow(a: float, b: float) -> float:
+    return a ** b
+"# };
+        match code.invoke(&[(-8.0f64).into(), 0.5f64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![float(-8.0), float(0.5)]);
             }
             other => panic!("expected a deopt, got {other:?}"),
         }
