@@ -156,11 +156,12 @@ impl PyDict {
             Ok(keys_method) => {
                 let keys = PyIter::try_from_object(vm, keys_method.call((), vm)?)?;
                 while let PyIterReturn::Return(key) = keys.next(vm)? {
-                    if !override_existing && dict.contains(vm, &*key)? {
+                    let hash = Self::hash_or_unhashable(&*key, vm)?;
+                    if !override_existing && dict.contains_known_hash(vm, &*key, hash)? {
                         continue;
                     }
                     let val = other.get_item(&*key, vm)?;
-                    dict.insert(vm, &*key, val)?;
+                    dict.insert_known_hash(vm, &*key, hash, val)?;
                 }
                 true
             }
@@ -264,10 +265,11 @@ impl PyDict {
         for (index, element) in iter.iter::<PyObjectRef>(vm)?.enumerate() {
             let (key, value) = Self::update_sequence_pair(element?, index, vm)?;
 
-            if !override_existing && dict.contains(vm, &*key)? {
+            let hash = Self::hash_or_unhashable(&*key, vm)?;
+            if !override_existing && dict.contains_known_hash(vm, &*key, hash)? {
                 continue;
             }
-            dict.insert(vm, &*key, value)?;
+            dict.insert_known_hash(vm, &*key, hash, value)?;
         }
         Ok(())
     }
@@ -299,35 +301,34 @@ impl PyDict {
         self.entries.len() == 0
     }
 
-    /// Re-wrap the `TypeError` raised for an unhashable key with the
-    /// dict-specific wording used by CPython (mirrors `PySetInner`).
+    /// Hash `key`, turning a hashing failure into the dict-specific
+    /// "cannot use 'X' as a dict key (...)" wording used by CPython.
     ///
-    /// Dict operations both hash the key and, on a hash collision, compare it
-    /// against existing keys, so a `TypeError` can come from either step. Only
-    /// genuine hashing failures should be rewritten; a `TypeError` from key
-    /// comparison (e.g. a colliding key's `__eq__`) must propagate unchanged.
-    /// We disambiguate on the error path by re-hashing the key: the successful
-    /// (common) path hashes exactly once, so hashable keys pay no extra cost.
-    fn wrap_unhashable_error<T, K: DictKey + ?Sized>(
-        result: PyResult<T>,
-        key: &K,
-        vm: &VirtualMachine,
-    ) -> PyResult<T> {
-        match result {
-            Err(cause)
-                if cause.fast_isinstance(vm.ctx.exceptions.type_error)
-                    && key.key_hash(vm).is_err() =>
-            {
+    /// The returned hash is threaded into the `*_known_hash` operations, so the
+    /// key is hashed exactly once. This is why the message is produced here
+    /// rather than around the operation: a `TypeError` from key *comparison*
+    /// (e.g. a colliding key's `__eq__`) is raised by the operation itself and
+    /// must propagate unchanged, and hashing up front also means a `__hash__`
+    /// that fails only intermittently is still reported (the old approach
+    /// re-hashed on the error path, so a hash that succeeded the second time
+    /// escaped unwrapped).
+    fn hash_or_unhashable<K: DictKey + ?Sized>(key: &K, vm: &VirtualMachine) -> PyResult<PyHash> {
+        match key.key_hash(vm) {
+            Ok(hash) => Ok(hash),
+            // Exact `TypeError` only: a `__hash__` raising a *subclass* of
+            // `TypeError` (e.g. a user `MyTypeError`) must propagate unchanged,
+            // matching CPython's exact-type check.
+            Err(cause) if cause.class().is(vm.ctx.exceptions.type_error) => {
                 let message = cause.as_object().str(vm)?;
                 let key = key.to_pyobject(vm);
                 let err = vm.new_type_error(format!(
                     "cannot use '{}' as a dict key ({message})",
-                    key.class().name()
+                    key.class().fully_qualified_name(vm)
                 ));
                 err.set___cause__(Some(cause));
                 Err(err)
             }
-            result => result,
+            Err(other) => Err(other),
         }
     }
 
@@ -339,7 +340,8 @@ impl PyDict {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::wrap_unhashable_error(self.entries.insert(vm, key, value), key, vm)
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.insert_known_hash(vm, key, hash, value)
     }
 
     pub(crate) fn inner_delitem<K: DictKey + ?Sized>(
@@ -347,7 +349,12 @@ impl PyDict {
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::wrap_unhashable_error(self.entries.delete(vm, key), key, vm)
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        if self.entries.delete_if_exists_known_hash(vm, key, hash)? {
+            Ok(())
+        } else {
+            Err(vm.new_key_error(key.to_pyobject(vm)))
+        }
     }
 
     pub fn get_or_insert(
@@ -356,6 +363,9 @@ impl PyDict {
         key: &PyObject,
         default: impl FnOnce() -> PyObjectRef,
     ) -> PyResult {
+        // No `setdefault_known_hash` on the inner map; hash once up front for the
+        // unhashable message, then let `setdefault` do its own (single) lookup.
+        Self::hash_or_unhashable(key, vm)?;
         self.entries.setdefault(vm, key, default)
     }
 
@@ -427,7 +437,8 @@ impl PyDict {
     }
 
     fn __contains__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        Self::wrap_unhashable_error(self.entries.contains(vm, key), key, vm)
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.contains_known_hash(vm, key, hash)
     }
 
     fn __delitem__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -444,7 +455,8 @@ impl PyDict {
         default: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        Self::wrap_unhashable_error(self.entries.setdefault(vm, &*key, || default), &*key, vm)
+        Self::hash_or_unhashable(&*key, vm)?;
+        self.entries.setdefault(vm, &*key, || default)
     }
 
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -603,7 +615,8 @@ impl Py<PyDict> {
 
     #[pymethod]
     fn get(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
-        let found = PyDict::wrap_unhashable_error(self.entries.get(vm, &*args.key), &*args.key, vm)?;
+        let hash = PyDict::hash_or_unhashable(&*args.key, vm)?;
+        let found = self.entries.get_known_hash(vm, &*args.key, hash)?;
         Ok(found.unwrap_or_else(|| args.default.unwrap_or_else(|| vm.ctx.none())))
     }
 
@@ -636,7 +649,8 @@ impl Py<PyDict> {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match PyDict::wrap_unhashable_error(self.entries.pop(vm, &*key), &*key, vm)? {
+        PyDict::hash_or_unhashable(&*key, vm)?;
+        match self.entries.pop(vm, &*key)? {
             Some(value) => Ok(value),
             None => default.ok_or_else(|| vm.new_key_error(key)),
         }
@@ -730,8 +744,10 @@ impl AsSequence for PyDict {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             contains: atomic_func!(|seq, target, vm| {
-                let result = PyDict::sequence_downcast(seq).entries.contains(vm, target);
-                PyDict::wrap_unhashable_error(result, target, vm)
+                let hash = PyDict::hash_or_unhashable(target, vm)?;
+                PyDict::sequence_downcast(seq)
+                    .entries
+                    .contains_known_hash(vm, target, hash)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
@@ -835,7 +851,8 @@ impl Py<PyDict> {
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let found = PyDict::wrap_unhashable_error(self.entries.get(vm, key), key, vm)?;
+        let hash = PyDict::hash_or_unhashable(key, vm)?;
+        let found = self.entries.get_known_hash(vm, key, hash)?;
         if let Some(value) = found {
             Ok(value)
         } else if let Some(value) = self.missing_opt(key, vm)? {
