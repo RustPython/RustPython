@@ -115,6 +115,22 @@ def countdown(a: float) -> float:
 assert original_countdown(3.0) == -1.0
 
 
+def fib_iter(n: int) -> int:
+    a = 0
+    b = 1
+    i = 0
+    while i < n:
+        a, b = b, a + b
+        i = i + 1
+    return a
+
+
+assert fib_iter(10) == 55
+# Overflowing partway through is where the compiled loop hands back to the
+# interpreter, which finishes it as a bignum.
+assert fib_iter(95) == 31940434634990099905
+
+
 # Automatic compilation reads annotations, which under PEP 649 means running
 # `__annotate__`. A name that is not defined yet raises there, and that is
 # none of the program's business: it never asked for its annotations.
@@ -152,17 +168,18 @@ if AOT:
 
 if AOT:
     compiled, rejected, deoptimized = sys._jit._stats()
-    # `scale`, `wide`, `wide2`, `divide`, and the rebound `countdown` are what
-    # the automatic path takes above - the original self-recursive one, kept as
-    # `original_countdown`, is refused. These are floors, not exact
-    # counts, but they must not regress: the point of letting Strict
-    # compile arithmetic was to take shapes it used to refuse outright, and a
-    # floor already met before that change could not tell if the gate came
-    # back. `compiled` and `deoptimized` are pinned to what this file
-    # currently produces (`compiled 5 ... deopt 4`).
-    assert compiled >= 5, (compiled, rejected, deoptimized)
-    # ... and the int argument in `scale(2, 3.0)` handed it back.
-    assert deoptimized >= 4, (compiled, rejected, deoptimized)
+    # `scale`, `wide`, `wide2`, `divide`, `fib_iter`, and the rebound
+    # `countdown` are what the automatic path takes above - the original
+    # self-recursive one, kept as `original_countdown`, is refused. These
+    # are floors, not exact counts, but they must not regress: the point of
+    # letting Strict compile arithmetic was to take shapes it used to
+    # refuse outright, and a floor already met before that change could not
+    # tell if the gate came back. `compiled` and `deoptimized` are pinned to
+    # what this file currently produces (`compiled 6 ... deopt 5`).
+    assert compiled >= 6, (compiled, rejected, deoptimized)
+    # ... the int argument in `scale(2, 3.0)` handed it back, and
+    # `fib_iter(95)` overflows partway through its loop.
+    assert deoptimized >= 5, (compiled, rejected, deoptimized)
     # Everything else was turned down rather than mis-compiled. `rejected`
     # stays a loose floor: it moves with the feature set of the binary.
     assert rejected >= 1, (compiled, rejected, deoptimized)
