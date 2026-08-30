@@ -42,7 +42,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get -y install lcov
 
       - name: Run cargo-llvm-cov with Rust tests.
-        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher --verbose --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env
+        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher --exclude rustpython-capi --verbose --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env
 
       - name: Run cargo-llvm-cov with Python snippets.
         run: python scripts/cargo-llvm-cov.py
