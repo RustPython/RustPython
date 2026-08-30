@@ -771,10 +771,12 @@ impl WeakRefList {
             Some(candidate) => {
                 let node = unsafe { candidate.as_ref() };
                 let has_callback = unsafe { (&*node.0.payload.callback.get()).is_some() };
+                let node_cls = node.class();
                 // PyWeakref_CheckProxy: the basic-proxy slot is reserved for
                 // the canonical proxy type; subclasses and callback-less ref
                 // subclasses must not be mistaken for it.
-                let is_proxy = node.class().is(crate::builtins::PyWeakProxy::static_type());
+                let is_proxy = node_cls.is(crate::builtins::PyWeakProxy::static_type())
+                    || node_cls.is(crate::builtins::PyWeakCallableProxy::static_type());
                 if has_callback || !is_proxy {
                     ptr::null_mut()
                 } else {
@@ -1602,7 +1604,8 @@ impl PyObject {
             None
         };
         let cls_is_weakref = typ.is(vm.ctx.types.weakref_type);
-        let cls_is_weakproxy = typ.is(vm.ctx.types.weakproxy_type);
+        let cls_is_weakproxy =
+            typ.is(vm.ctx.types.weakproxy_type) || typ.is(vm.ctx.types.weakcallableproxy_type);
         let wrl = self.weak_ref_list().ok_or_else(|| {
             vm.new_type_error(format!(
                 "cannot create weak reference to '{}' object",
