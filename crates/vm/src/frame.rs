@@ -1930,6 +1930,21 @@ impl FrameObject {
             .any(|kind| kind & CO_FAST_HIDDEN != 0)
     }
 
+    /// Decide whether Python-visible locals use a write-through proxy rather
+    /// than the frame's namespace mapping.
+    pub(crate) fn uses_locals_proxy(&self, vm: &VirtualMachine) -> PyResult<bool> {
+        let is_optimized = self
+            .iframe()
+            .code()
+            .flags
+            .contains(bytecode::CodeFlags::OPTIMIZED);
+        if !is_optimized && !self.has_hidden_local_slots() {
+            return Ok(false);
+        }
+        self.check_locals_access(vm)?;
+        Ok(is_optimized || self.has_active_hidden_locals())
+    }
+
     /// Reject locals access for a frame that is executing on another thread.
     ///
     /// A thread-owned frame mutates `localsplus` without synchronization, so
@@ -1975,16 +1990,7 @@ impl FrameObject {
     }
 
     pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
-        let is_optimized = self
-            .iframe()
-            .code()
-            .flags
-            .contains(bytecode::CodeFlags::OPTIMIZED);
-        if !is_optimized && !self.has_hidden_local_slots() {
-            return Ok(self.iframe().locals.clone_mapping(vm));
-        }
-        self.check_locals_access(vm)?;
-        if is_optimized || self.has_active_hidden_locals() {
+        if self.uses_locals_proxy(vm)? {
             Ok(ArgMapping::from_dict_exact(
                 self.framelocalsproxy_snapshot(vm)?,
             ))

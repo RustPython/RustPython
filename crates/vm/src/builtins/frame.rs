@@ -764,6 +764,13 @@ impl Py<FrameObject> {
     #[pymethod]
     // = frame_clear_impl
     fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
+        // Materialized stack frames are FrameObject-owned even while their
+        // source iframe is still executing. TLS lookup below only sees the
+        // calling thread, so attached_tid is the cross-thread-safe execution
+        // state check.
+        if self.iframe().attached_tid() != 0 {
+            return Err(vm.new_runtime_error("cannot clear an executing frame"));
+        }
         let owner = FrameOwner::from_i8(
             self.iframe()
                 .owner
@@ -841,21 +848,7 @@ impl Py<FrameObject> {
 
     #[pygetset]
     fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
-        // Matches CPython `_PyFrame_GetLocals` / `frame_locals_get_impl`:
-        // optimized scopes always use a write-through proxy. Unoptimized
-        // scopes (class/module/exec) use the namespace mapping unless PEP 709
-        // hidden comprehension locals are currently bound, in which case a
-        // proxy is required so those names appear only while they are live.
-        let is_optimized = self
-            .iframe()
-            .code()
-            .flags
-            .contains(bytecode::CodeFlags::OPTIMIZED);
-        if !is_optimized && !self.has_hidden_local_slots() {
-            return Ok(self.iframe().locals.clone_mapping(vm).into());
-        }
-        self.check_locals_access(vm)?;
-        if is_optimized || self.has_active_hidden_locals() {
+        if self.uses_locals_proxy(vm)? {
             self.mark_escaped();
             let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
             Ok(proxy.into_ref(&vm.ctx).into())

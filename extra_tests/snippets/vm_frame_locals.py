@@ -220,7 +220,8 @@ value = [
 
         def frame_with_overwritten_fast_local():
             frame = sys._getframe()
-            value = ReentrantFinalizer(frame, "value")
+            # Occupies a fast-local slot so the write below overwrites it.
+            value = ReentrantFinalizer(frame, "value")  # noqa: F841
             frame.f_locals["value"] = 42
             return frame
 
@@ -249,6 +250,51 @@ value = [
             release.set()
             thread.join(5)
         self.assertFalse(thread.is_alive())
+
+    def test_clear_executing_frame_from_another_thread(self):
+        ready = threading.Event()
+        release = threading.Event()
+        frames = []
+
+        def worker():
+            frames.append(sys._getframe())
+            ready.set()
+            release.wait()
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        self.assertTrue(ready.wait(5))
+        try:
+            with self.assertRaisesRegex(RuntimeError, "executing frame"):
+                frames[0].clear()
+        finally:
+            release.set()
+            thread.join(5)
+        self.assertFalse(thread.is_alive())
+
+
+class CodeReplaceLocalsPlusTest(unittest.TestCase):
+    def test_rejects_varnames_that_disagree_with_default_nlocals(self):
+        def function(value):
+            return value
+
+        code = function.__code__
+        with self.assertRaises(ValueError):
+            code.replace(co_varnames=())
+        with self.assertRaises(ValueError):
+            code.replace(co_varnames=("value", "extra"))
+
+    def test_rebuilds_metadata_for_replaced_cellvars_and_freevars(self):
+        def outer(value):
+            return lambda: value
+
+        code = outer.__code__
+        replaced_cells = code.replace(co_cellvars=("replacement",))
+        self.assertEqual(replaced_cells.co_cellvars, ("replacement",))
+
+        plain_code = (lambda value: value).__code__
+        replaced_frees = plain_code.replace(co_freevars=("replacement",))
+        self.assertEqual(replaced_frees.co_freevars, ("replacement",))
 
 
 if __name__ == "__main__":
