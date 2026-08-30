@@ -295,15 +295,23 @@ impl PyDict {
 
     /// Re-wrap the `TypeError` raised for an unhashable key with the
     /// dict-specific wording used by CPython (mirrors `PySetInner`).
-    /// The key is only materialized on the error path, so hashable keys pay
-    /// no extra cost.
+    ///
+    /// Dict operations both hash the key and, on a hash collision, compare it
+    /// against existing keys, so a `TypeError` can come from either step. Only
+    /// genuine hashing failures should be rewritten; a `TypeError` from key
+    /// comparison (e.g. a colliding key's `__eq__`) must propagate unchanged.
+    /// We disambiguate on the error path by re-hashing the key: the successful
+    /// (common) path hashes exactly once, so hashable keys pay no extra cost.
     fn wrap_unhashable_error<T, K: DictKey + ?Sized>(
         result: PyResult<T>,
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<T> {
         match result {
-            Err(cause) if cause.fast_isinstance(vm.ctx.exceptions.type_error) => {
+            Err(cause)
+                if cause.fast_isinstance(vm.ctx.exceptions.type_error)
+                    && key.key_hash(vm).is_err() =>
+            {
                 let message = cause.as_object().str(vm)?;
                 let key = key.to_pyobject(vm);
                 let err = vm.new_type_error(format!(
