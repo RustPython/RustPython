@@ -3882,24 +3882,10 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
                     let c = bytes[index];
                     if c == b'\n' {
                         if quote_size == 1 {
-                            if let Some(error) = unclosed_replacement_field_error(
-                                bytes,
-                                start,
-                                start + quote_size,
-                                index,
-                            ) {
-                                return Some(error);
-                            }
-                            return Some(CpythonDiagnostic::new(
-                                unterminated_string_message(
-                                    line,
-                                    false,
-                                    has_escaped_quote,
-                                    interpolated_string_prefix(bytes, start),
-                                ),
-                                start,
-                                start,
-                            ));
+                            // A single-quoted literal cannot span a line, so this is the same
+                            // "the literal never ended" case as running out of source; CPython
+                            // spells the two as one condition in lexer.c too.
+                            break;
                         }
                         line += 1;
                         index += 1;
