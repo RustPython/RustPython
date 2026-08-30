@@ -858,7 +858,6 @@ class TestPyReplCompleter(TestCase):
         reader = ReadlineAlikeReader(console=console, config=config)
         return reader
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @patch("rlcompleter._readline_available", False)
     def test_simple_completion(self):
         events = code_to_events("os.getpid\t\n")
