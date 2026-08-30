@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use rustpython_jit::{JitEngine, Safety};
+    use rustpython_jit::{JitEngine, Outcome, Safety};
 
     /// Every operation whose machine code can trap or wrap. There is no trap
     /// handler, so a trap kills the process instead of raising.
@@ -129,7 +129,7 @@ def band(a: int, b: int) -> int:
 "#);
         assert_eq!(
             code.invoke(&[6i64.into(), 3i64.into()]),
-            Ok(Some(2i64.into()))
+            Ok(Outcome::Returned(Some(2i64.into())))
         );
     }
 
@@ -141,7 +141,7 @@ def lt(a: int, b: int) -> bool:
 "#);
         assert_eq!(
             code.invoke(&[1i64.into(), 2i64.into()]),
-            Ok(Some(true.into()))
+            Ok(Outcome::Returned(Some(true.into())))
         );
     }
 
@@ -153,7 +153,7 @@ def poly(a: float, b: float) -> float:
 "#);
         assert_eq!(
             code.invoke(&[2.0f64.into(), 3.0f64.into()]),
-            Ok(Some(5.0f64.into()))
+            Ok(Outcome::Returned(Some(5.0f64.into())))
         );
     }
 
@@ -167,7 +167,7 @@ def mixed(a: int, b: float) -> float:
 "#);
         assert_eq!(
             code.invoke(&[2i64.into(), 0.5f64.into()]),
-            Ok(Some(2.5f64.into()))
+            Ok(Outcome::Returned(Some(2.5f64.into())))
         );
     }
 
@@ -191,7 +191,7 @@ def add(a: int, b: int) -> int:
 "#);
         assert_eq!(
             code.invoke(&[3i64.into(), 4i64.into()]),
-            Ok(Some(7i64.into()))
+            Ok(Outcome::Returned(Some(7i64.into())))
         );
     }
 }

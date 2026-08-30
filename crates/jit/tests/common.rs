@@ -357,9 +357,16 @@ macro_rules! jit_function {
             move |$($arg_name:$arg_type),*| -> Result<$ret_type, rustpython_jit::JitArgumentError> {
                 jit_code
                     .invoke(&[$($arg_name.into()),*])
-                    .map(|ret| match ret {
-                        Some(ret) => ret.try_into().expect("jit function returned unexpected type"),
-                        None => panic!("jit function unexpectedly returned None")
+                    .map(|outcome| match outcome {
+                        rustpython_jit::Outcome::Returned(Some(ret)) => {
+                            ret.try_into().expect("jit function returned unexpected type")
+                        }
+                        rustpython_jit::Outcome::Returned(None) => {
+                            panic!("jit function unexpectedly returned None")
+                        }
+                        rustpython_jit::Outcome::Deopt(state) => {
+                            panic!("jit function unexpectedly deoptimized: {state:?}")
+                        }
                     })
             }
         }
@@ -371,9 +378,14 @@ macro_rules! jit_function {
             move |$($arg_name:$arg_type),*| -> Result<(), rustpython_jit::JitArgumentError> {
                 jit_code
                     .invoke(&[$($arg_name.into()),*])
-                    .map(|ret| match ret {
-                        Some(ret) => panic!("jit function unexpectedly returned a value {:?}", ret),
-                        None => ()
+                    .map(|outcome| match outcome {
+                        rustpython_jit::Outcome::Returned(None) => (),
+                        rustpython_jit::Outcome::Returned(Some(ret)) => {
+                            panic!("jit function unexpectedly returned a value {ret:?}")
+                        }
+                        rustpython_jit::Outcome::Deopt(state) => {
+                            panic!("jit function unexpectedly deoptimized: {state:?}")
+                        }
                     })
             }
         }

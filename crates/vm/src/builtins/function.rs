@@ -29,7 +29,7 @@ use core::sync::atomic::AtomicU8;
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use itertools::Itertools;
 #[cfg(feature = "jit")]
-use rustpython_jit::{CompiledCode, Safety};
+use rustpython_jit::{CompiledCode, Outcome, Safety};
 
 fn format_missing_args(
     qualname: impl core::fmt::Display,
@@ -584,8 +584,11 @@ impl Py<PyFunction> {
 
     /// Drop native code and stop trying.
     ///
-    /// Only for code the AOT path compiled: an explicit `__jit__()` is a
-    /// standing request, and silently undoing it would be a surprise.
+    /// A caller that only wants to stop guessing has to check where the code
+    /// came from first: an explicit `__jit__()` is a standing request, and
+    /// silently undoing it would be a surprise. A guard leaves no such
+    /// choice - the code is wrong for these values however it was asked
+    /// for, and keeping it means hitting the same guard on every retry.
     #[cfg(feature = "jit")]
     fn deoptimize(&self, vm: &VirtualMachine) {
         self.jit_state.store(aot::REJECTED, Relaxed);
@@ -613,9 +616,17 @@ impl Py<PyFunction> {
                     jit::get_jit_args(self, &func_args, jitted_code, vm).map(|args| args.invoke())
                 });
                 match outcome {
-                    Some(Ok(ret)) => {
+                    Some(Ok(Outcome::Returned(ret))) => {
                         use crate::convert::ToPyObject;
                         return Ok(ret.to_pyobject(vm));
+                    }
+                    Some(Ok(Outcome::Deopt(_))) => {
+                        // Until the frame can be rebuilt from the record, a guard
+                        // means running the call again from the start. The opcodes
+                        // with a lowering have no effect outside the frame, so
+                        // redoing the work is not observable - but the code has to
+                        // go first, or the second attempt hits the same guard.
+                        self.deoptimize(vm);
                     }
                     Some(Err(err)) => {
                         info!(

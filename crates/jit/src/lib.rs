@@ -20,8 +20,23 @@ use std::sync::{Mutex, PoisonError};
 const MAX_ARGS: usize = 16;
 const SLOT_SIZE: usize = size_of::<u64>();
 
-/// The entry point of a compiled function: `(args, ret)`.
-type JitEntry = unsafe extern "C" fn(*const u64, *mut u64);
+/// A guard that fires leaves its record in a second flat buffer:
+///
+/// ```text
+/// deopt[0]   status: 0 when the call returned, otherwise the site index plus one
+/// deopt[1]   bound mask: bit i set when the site's i-th listed local is bound
+/// deopt[2..] the listed locals, then the value stack bottom to top
+/// ```
+///
+/// Like the argument buffer it is a fixed-size array so that a call allocates
+/// nothing, which caps how much state a guard can spill.
+const MAX_DEOPT_SLOTS: usize = 64;
+/// Slots taken by the status and the bound mask, before the record starts.
+#[expect(dead_code, reason = "read once a guard writes a record")]
+const DEOPT_HEADER_SLOTS: usize = 2;
+
+/// The entry point of a compiled function: `(args, ret, deopt)`.
+type JitEntry = unsafe extern "C" fn(*const u64, *mut u64, *mut u64);
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -109,6 +124,11 @@ impl Jit {
         unique: u64,
         safety: Safety,
     ) -> Result<(FuncId, JitSig), JitCompileError> {
+        let ptr_type = self.module.target_config().pointer_type();
+        // The deopt buffer comes first so that a guard can reach it without
+        // depending on how many parameters the function has.
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+
         for arg in args {
             let arg = arg.to_cranelift().ok_or(JitCompileError::NotSupported)?;
             self.ctx.func.signature.params.push(AbiParam::new(arg));
@@ -175,7 +195,8 @@ impl Jit {
         unique: u64,
     ) -> Result<FuncId, JitCompileError> {
         let ptr_type = self.module.target_config().pointer_type();
-        // (args, ret)
+        // (args, ret, deopt)
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
         self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
         self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
 
@@ -197,8 +218,12 @@ impl Jit {
         builder.switch_to_block(block);
         let args_ptr = builder.block_params(block)[0];
         let ret_ptr = builder.block_params(block)[1];
+        let deopt_ptr = builder.block_params(block)[2];
+        // Written before anything can read it, so the buffer never has to be zeroed.
+        let zero = builder.ins().iconst(types::I64, 0);
+        builder.ins().store(MemFlags::trusted(), zero, deopt_ptr, 0);
 
-        let mut call_args = Vec::with_capacity(sig.args.len());
+        let mut call_args = vec![deopt_ptr];
         for (i, ty) in sig.args.iter().enumerate() {
             let offset = i32::try_from(i * SLOT_SIZE).map_err(|_| JitCompileError::NotSupported)?;
             let mut load = |ty| {
@@ -361,7 +386,7 @@ impl CompiledCode {
         ArgsBuilder::new(self)
     }
 
-    pub fn invoke(&self, args: &[AbiValue]) -> Result<Option<AbiValue>, JitArgumentError> {
+    pub fn invoke(&self, args: &[AbiValue]) -> Result<Outcome, JitArgumentError> {
         if self.sig.args.len() != args.len() {
             return Err(JitArgumentError::WrongNumberOfArguments);
         }
@@ -376,16 +401,55 @@ impl CompiledCode {
 
     /// # Safety
     /// `slots` must hold a value of the right type for each parameter.
-    unsafe fn invoke_raw(&self, slots: &[u64; MAX_ARGS]) -> Option<AbiValue> {
+    unsafe fn invoke_raw(&self, slots: &[u64; MAX_ARGS]) -> Outcome {
         let mut ret = 0;
-        // SAFETY: the entry point reads one slot per parameter and writes the
-        // return slot only when the signature says it returns something.
-        unsafe { (self.entry)(slots.as_ptr(), &raw mut ret) }
-        match self.sig.ret.as_ref() {
+        // Only slot 0 is written before it is read, by the entry point itself;
+        // zeroing the rest would cost more per call than the code being called.
+        let mut deopt = core::mem::MaybeUninit::<[u64; MAX_DEOPT_SLOTS]>::uninit();
+        let deopt_ptr = deopt.as_mut_ptr().cast::<u64>();
+        // SAFETY: the entry point reads one slot per parameter, writes the return
+        // slot only when the signature says it returns something, and writes the
+        // deopt status before returning.
+        unsafe { (self.entry)(slots.as_ptr(), &raw mut ret, deopt_ptr) }
+        // SAFETY: the entry point stores the status first thing.
+        let status = unsafe { deopt_ptr.read() };
+        if status != 0 {
+            // SAFETY: the site describes exactly which slots the guard wrote.
+            return Outcome::Deopt(unsafe { self.read_deopt(status, deopt_ptr) });
+        }
+        Outcome::Returned(match self.sig.ret.as_ref() {
             Some(JitType::None) | None => None,
             Some(ty) => Some(AbiValue::from_slot(ty, ret)),
-        }
+        })
     }
+
+    /// # Safety
+    /// `status` must be a status this code's guards can produce, and `deopt` must
+    /// point at the buffer they wrote.
+    unsafe fn read_deopt(&self, _status: u64, _deopt: *const u64) -> DeoptState {
+        unreachable!("nothing writes a non-zero status yet")
+    }
+}
+
+/// What a call to compiled code did.
+#[derive(Debug, PartialEq)]
+pub enum Outcome {
+    Returned(Option<AbiValue>),
+    /// A guard fired. The record is decoded here, off the hot path, so that
+    /// nothing borrows the buffer once it goes out of scope.
+    Deopt(DeoptState),
+}
+
+/// Everything the interpreter needs to pick up where the guard stopped.
+#[derive(Debug, PartialEq)]
+pub struct DeoptState {
+    /// Bytecode offset to resume at.
+    pub offset: u32,
+    /// One entry per varname slot; `None` where the local is not live or is
+    /// unbound.
+    pub locals: Vec<Option<AbiValue>>,
+    /// Bottom to top.
+    pub stack: Vec<AbiValue>,
 }
 
 struct JitSig {
@@ -554,7 +618,7 @@ pub struct Args<'a> {
 
 impl Args<'_> {
     #[must_use]
-    pub fn invoke(&self) -> Option<AbiValue> {
+    pub fn invoke(&self) -> Outcome {
         // SAFETY: `into_args` only hands out `Args` once every parameter has a
         // slot, and `set` type-checked each one against the signature.
         unsafe { self.code.invoke_raw(&self.slots) }

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use rustpython_jit::{JitCompileError, JitEngine, Safety};
+    use rustpython_jit::{JitCompileError, JitEngine, Outcome, Safety};
 
     /// Two Python functions can share `obj_name`, so the module-level symbol has to
     /// be made unique before they can live in one engine.
@@ -25,11 +25,11 @@ mod tests {
 
         assert_eq!(
             first.invoke(&[3i64.into(), 4i64.into()]),
-            Ok(Some(3i64.into()))
+            Ok(Outcome::Returned(Some(3i64.into())))
         );
         assert_eq!(
             second.invoke(&[3i64.into(), 4i64.into()]),
-            Ok(Some(4i64.into()))
+            Ok(Outcome::Returned(Some(4i64.into())))
         );
     }
 
@@ -52,7 +52,7 @@ mod tests {
             .expect("engine still usable after a rejected function");
         assert_eq!(
             good.invoke(&[3i64.into(), 4i64.into()]),
-            Ok(Some(7i64.into()))
+            Ok(Outcome::Returned(Some(7i64.into())))
         );
     }
 
@@ -67,7 +67,10 @@ mod tests {
     "#);
             f.compile_on(&engine, Safety::Permissive).expect("compile")
         };
-        assert_eq!(code.invoke(&[7i64.into()]), Ok(Some(7i64.into())));
+        assert_eq!(
+            code.invoke(&[7i64.into()]),
+            Ok(Outcome::Returned(Some(7i64.into())))
+        );
     }
 
     /// Every parameter reaches the compiled body from its own slot, whatever
@@ -106,7 +109,10 @@ mod tests {
             .compile_on(&engine, Safety::Permissive)
             .expect("a function that fills the buffer still compiles");
         let args: Vec<_> = (0..16).map(|i| i64::from(i).into()).collect();
-        assert_eq!(widest.invoke(&args), Ok(Some(15i64.into())));
+        assert_eq!(
+            widest.invoke(&args),
+            Ok(Outcome::Returned(Some(15i64.into())))
+        );
 
         let too_wide = py_function_def!(too_wide => r#"
     def too_wide(a0: int, a1: int, a2: int, a3: int, a4: int, a5: int, a6: int, a7: int, a8: int, a9: int, a10: int, a11: int, a12: int, a13: int, a14: int, a15: int, a16: int) -> int:
