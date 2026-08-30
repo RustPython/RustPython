@@ -23,7 +23,8 @@ const SLOT_SIZE: usize = size_of::<u64>();
 /// A guard that fires leaves its record in a second flat buffer:
 ///
 /// ```text
-/// deopt[0]   status: 0 when the call returned, otherwise the site index plus one
+/// deopt[0]   status: 0 when the call returned, `DEOPT_STATUS_NESTED` when it
+///            left with no record of its own, otherwise the site index plus one
 /// deopt[1]   bound mask: bit i set when varname slot i holds a bound local
 /// deopt[2..] the listed locals, then the value stack bottom to top
 /// ```
@@ -67,8 +68,20 @@ pub enum Safety {
     /// rebound name - a decorator applied later, a test patching the module
     /// - would make a compiled direct call disagree with it.
     Strict,
-    /// Compile a self-call into a direct call, trusting the name to still
-    /// resolve to this function for as long as the compiled code runs.
+    /// Compile a self-call into a direct call. The callee is resolved once,
+    /// when the code is compiled, and a frame resumed from a guard keeps that
+    /// resolution - so rebinding the name is not observed by a call the
+    /// compiled code had already staged, even though the resumed frame runs
+    /// after the compiled code has left. Rebinding between two whole calls is
+    /// observed as usual, because the code is discarded when a guard fires.
+    ///
+    /// Making a site non-resumable whenever its stack holds a callee would
+    /// restore the older behaviour of re-reading the global, by restarting
+    /// instead of resuming. That is the worse trade: a restart re-runs the
+    /// function from the top, including self-calls that already returned, and
+    /// those run arbitrary Python and can have side effects. A stale callee
+    /// costs one extra invocation of the function that was there at compile
+    /// time; a restart costs every side effect the completed calls had.
     Permissive,
 }
 
