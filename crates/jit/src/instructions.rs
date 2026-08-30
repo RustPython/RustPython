@@ -695,17 +695,34 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         BinaryOperator::FloorDivide | BinaryOperator::InplaceFloorDivide,
                         JitValue::Int(a),
                         JitValue::Int(b),
-                    ) => JitValue::Int(self.builder.ins().sdiv(a, b)),
+                    ) => JitValue::Int(self.compile_floor_div(a, b)?.0),
                     (
                         BinaryOperator::TrueDivide | BinaryOperator::InplaceTrueDivide,
                         JitValue::Int(a),
                         JitValue::Int(b),
                     ) => {
-                        // Check if b == 0, If so trap with a division by zero error
-                        self.builder
-                            .ins()
-                            .trapz(b, TrapCode::INTEGER_DIVISION_BY_ZERO);
-                        // Else convert to float and divide
+                        let operands = [JitValue::Int(a), JitValue::Int(b)];
+                        let by_zero = self.builder.ins().icmp_imm(IntCC::Equal, b, 0);
+                        self.deopt_branch(by_zero, &operands)?;
+
+                        // `int.__truediv__` is correctly rounded. Converting both
+                        // operands to double and dividing rounds twice, so it can be
+                        // a ulp out as soon as either conversion is inexact - which
+                        // is exactly when the operand does not fit in a double's
+                        // significand.
+                        let inexact = |compiler: &mut Self, v: Value| {
+                            let magnitude = compiler.builder.ins().iabs(v);
+                            compiler.builder.ins().icmp_imm(
+                                IntCC::UnsignedGreaterThanOrEqual,
+                                magnitude,
+                                1 << 53,
+                            )
+                        };
+                        let a_wide = inexact(self, a);
+                        let b_wide = inexact(self, b);
+                        let wide = self.builder.ins().bor(a_wide, b_wide);
+                        self.deopt_branch(wide, &operands)?;
+
                         let a_float = self.builder.ins().fcvt_from_sint(types::F64, a);
                         let b_float = self.builder.ins().fcvt_from_sint(types::F64, b);
                         JitValue::Float(self.builder.ins().fdiv(a_float, b_float))
@@ -723,7 +740,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         BinaryOperator::Remainder | BinaryOperator::InplaceRemainder,
                         JitValue::Int(a),
                         JitValue::Int(b),
-                    ) => JitValue::Int(self.builder.ins().srem(a, b)),
+                    ) => JitValue::Int(self.compile_floor_div(a, b)?.1),
                     (
                         BinaryOperator::Power | BinaryOperator::InplacePower,
                         JitValue::Int(a),
@@ -1189,6 +1206,45 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let (out, carry) = self.builder.ins().ssub_overflow(a, b);
         self.deopt_branch(carry, popped)?;
         Ok(out)
+    }
+
+    /// Floor division and its remainder, which are defined together: the
+    /// quotient rounds toward negative infinity and the remainder takes the
+    /// divisor's sign. `sdiv` and `srem` round toward zero and take the
+    /// dividend's sign, so both need a correction on the same condition.
+    ///
+    /// Two cases have no 64-bit answer at all and deoptimize: a zero divisor,
+    /// which raises, and `i64::MIN // -1`, whose quotient is one past the top
+    /// of the range.
+    fn compile_floor_div(&mut self, a: Value, b: Value) -> Result<(Value, Value), JitCompileError> {
+        let operands = [JitValue::Int(a), JitValue::Int(b)];
+        let by_zero = self.builder.ins().icmp_imm(IntCC::Equal, b, 0);
+        self.deopt_branch(by_zero, &operands)?;
+
+        let min = self.builder.ins().icmp_imm(IntCC::Equal, a, i64::MIN);
+        let neg_one = self.builder.ins().icmp_imm(IntCC::Equal, b, -1);
+        let overflows = self.builder.ins().band(min, neg_one);
+        self.deopt_branch(overflows, &operands)?;
+
+        let quotient = self.builder.ins().sdiv(a, b);
+        let remainder = self.builder.ins().srem(a, b);
+
+        // The two disagree with Python exactly when the division was
+        // inexact and the operands had opposite signs.
+        let inexact = self.builder.ins().icmp_imm(IntCC::NotEqual, remainder, 0);
+        let mixed = self.builder.ins().bxor(a, b);
+        let mixed = self.builder.ins().icmp_imm(IntCC::SignedLessThan, mixed, 0);
+        let correct = self.builder.ins().band(inexact, mixed);
+
+        let one = self.builder.ins().iconst(types::I64, 1);
+        let zero = self.builder.ins().iconst(types::I64, 0);
+        let quotient_adjust = self.builder.ins().select(correct, one, zero);
+        let quotient = self.builder.ins().isub(quotient, quotient_adjust);
+
+        let remainder_adjust = self.builder.ins().select(correct, b, zero);
+        let remainder = self.builder.ins().iadd(remainder, remainder_adjust);
+
+        Ok((quotient, remainder))
     }
 
     /// Creates a double–double (DDValue) from a regular f64 constant.
