@@ -9,6 +9,7 @@ pub(crate) mod compile_mode;
 #[cfg(feature = "rustpython-compiler")]
 pub use compile::VmCompileError;
 mod context;
+pub mod crossinterp;
 mod interpreter;
 mod method;
 #[cfg(feature = "rustpython-compiler")]
@@ -48,11 +49,9 @@ use crate::{
 use alloc::{borrow::Cow, collections::BTreeMap};
 #[cfg(all(not(unix), feature = "threading"))]
 use core::ptr::NonNull;
-#[cfg(feature = "threading")]
-use core::sync::atomic::AtomicI64;
 use core::{
     cell::{Cell, OnceCell, RefCell},
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{
@@ -63,7 +62,10 @@ use std::{
 pub use context::Context;
 pub use interpreter::{Interpreter, InterpreterBuilder};
 pub(crate) use method::PyMethod;
-pub use runtime::{InterpreterInfo, InterpreterWhence, MAIN_INTERPRETER_ID};
+pub use runtime::{
+    InterpFeatureFlags, InterpreterConfig, InterpreterGil, InterpreterInfo, InterpreterWhence,
+    MAIN_INTERPRETER_ID,
+};
 pub use setting::{CheckHashPycsMode, Paths, PyConfig, Settings};
 
 pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
@@ -812,6 +814,18 @@ pub struct PyGlobalState {
     pub stop_the_world: StopTheWorldState,
     /// This interpreter's garbage collector policy and results.
     pub gc: crate::gc_state::GcInterpreterState,
+    /// Isolated-interpreter feature flags (PEP 684 / PEP 734 config).
+    pub feature_flags: runtime::InterpFeatureFlags,
+    /// Whether the interpreter was configured with `gil="own"`.
+    pub own_gil: bool,
+    /// Whether `__main__` is currently executing via `_interpreters.exec` / `run_*`.
+    pub running_main: AtomicBool,
+    /// True after `initialize()` has finished (CPython "ready").
+    pub ready: AtomicBool,
+    /// Optional ID refcount used by `_interpreters.create(reqrefs=True)`.
+    pub id_refcount: AtomicI64,
+    /// When true, dropping the last ID ref destroys the interpreter.
+    pub require_idref: AtomicBool,
 }
 
 impl PyGlobalState {
@@ -819,6 +833,37 @@ impl PyGlobalState {
     #[must_use]
     pub fn is_main_interpreter(&self) -> bool {
         self.is_main
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn allow_fork(&self) -> bool {
+        self.feature_flags.allow_fork
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn allow_exec(&self) -> bool {
+        self.feature_flags.allow_exec
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn allow_threads(&self) -> bool {
+        self.feature_flags.allow_threads
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn allow_daemon_threads(&self) -> bool {
+        self.feature_flags.allow_daemon_threads
+    }
+
+    /// The config this interpreter was created with, rebuilt from the flags it
+    /// kept (`_PyInterpreterConfig_InitFromState`).
+    #[must_use]
+    pub fn config(&self) -> runtime::InterpreterConfig {
+        runtime::InterpreterConfig::from_state(self.feature_flags, self.own_gil)
     }
 }
 

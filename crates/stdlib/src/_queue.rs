@@ -47,7 +47,7 @@ mod _queue {
     #[repr(transparent)]
     pub(crate) struct PyEmptyError(PyException);
 
-    #[pyclass(flags(HAS_WEAKREF))]
+    #[pyclass(flags(HAS_WEAKREF, BASETYPE))]
     impl PyEmptyError {}
 
     /// ## See Also

@@ -583,7 +583,7 @@ fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let iter_attr = cls.get_attr(identifier!(vm, __iter__));
     match iter_attr {
         Some(attr) if vm.is_none(&attr) => {
-            Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())))
+            Err(vm.new_type_error(format!("'{}' object is not iterable", cls.slot_name())))
         }
         _ => vm.call_special_method(&zelf, identifier!(vm, __iter__), ()),
     }

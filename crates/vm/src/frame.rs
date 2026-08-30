@@ -8087,7 +8087,7 @@ impl ExecutingFrame<'_> {
                     vm.new_type_error(format!(
                         "{} argument after * must be an iterable, not {}",
                         func_str,
-                        args_obj.class().name()
+                        args_obj.class().slot_name()
                     ))
                 } else {
                     e

@@ -52,6 +52,7 @@ struct InitializeVmOpts<'a> {
     whence: InterpreterWhence,
     /// When `Some`, reuse parent module_defs/frozen/config seeds for a subinterpreter.
     parent_state: Option<&'a PyGlobalState>,
+    interp_config: runtime::InterpreterConfig,
 }
 
 /// Shared constructor for main and sub-interpreters.
@@ -68,12 +69,13 @@ where
         is_main,
         whence,
         parent_state,
+        interp_config,
     } = opts;
     use crate::codecs::CodecsRegistry;
     use crate::common::hash::HashSecret;
     use crate::common::lock::PyMutex;
     use crate::warn::WarningsState;
-    use core::sync::atomic::{AtomicBool, AtomicU64};
+    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
     use crossbeam_utils::atomic::AtomicCell;
 
     // Before any lock this interpreter's threads can contend on exists.
@@ -153,6 +155,9 @@ where
     #[cfg(feature = "threading")]
     let main_thread_ident = AtomicCell::new(parent_state.map_or(0, |p| p.main_thread_ident.load()));
 
+    let feature_flags = interp_config.feature_flags();
+    let own_gil = interp_config.own_gil();
+
     // Create PyGlobalState (≈ PyInterpreterState)
     let global_state = PyRc::new(PyGlobalState {
         gc: crate::gc_state::GcInterpreterState::new(&ctx),
@@ -191,6 +196,12 @@ where
         instrumentation_version: AtomicU64::new(0),
         #[cfg(feature = "threading")]
         stop_the_world: StopTheWorldState::new(),
+        feature_flags,
+        own_gil,
+        running_main: AtomicBool::new(false),
+        ready: AtomicBool::new(false),
+        id_refcount: AtomicI64::new(0),
+        require_idref: AtomicBool::new(false),
     });
 
     // Create VM with the global state
@@ -217,11 +228,56 @@ where
     // thread for the duration so type cache reads see it as ATTACHED.
     let vm_guard = thread::VmBootstrapGuard::new(&vm);
     vm.initialize();
+    vm.state.ready.store(true, Ordering::Release);
     drop(vm_guard);
 
     // Clone global_state for Interpreter after all initialization is done
     let global_state = vm.state.clone();
     (vm, global_state)
+}
+
+/// Bootstrap a subinterpreter from an already-entered parent VM.
+fn create_subinterpreter_from_parent(
+    parent: &VirtualMachine,
+    config: runtime::InterpreterConfig,
+) -> Result<Interpreter, &'static str> {
+    config.check()?;
+    // Suspend the caller's current VM attachment (if any) for the duration
+    // of subinterpreter initialization. Nested bootstrap would otherwise
+    // swap `CURRENT_THREAD_SLOT` to the new interpreter while leaving the
+    // outer interpreter's attach state inconsistent. Always restore, even
+    // if initialization panics.
+    #[cfg(feature = "threading")]
+    let _restore_parent = {
+        let saved = thread::current_vm_is_set().then(thread::save_current_thread);
+        scopeguard::guard(saved, |saved| {
+            if let Some(saved) = saved {
+                thread::restore_current_thread(saved);
+            }
+        })
+    };
+
+    let (vm, global_state) = initialize_vm(
+        InitializeVmOpts {
+            // settings unused when parent_state is Some
+            settings: Settings::default(),
+            ctx: parent.ctx.clone(),
+            module_defs: Vec::new(),
+            frozen_modules: Vec::new(),
+            init_hooks: Vec::new(),
+            is_main: false,
+            whence: InterpreterWhence::Stdlib,
+            parent_state: Some(&parent.state),
+            interp_config: config,
+        },
+        |_| {},
+    );
+    let interp = Interpreter { global_state, vm };
+    // Every interpreter has a `__main__` module once it is initialized.
+    interp.enter(|vm| {
+        let _ = vm.ensure_main_module();
+    });
+    Ok(interp)
 }
 
 impl InterpreterBuilder {
@@ -343,6 +399,7 @@ impl InterpreterBuilder {
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
+                interp_config: runtime::InterpreterConfig::MAIN,
             },
             |_| {}, // No additional init needed
         );
@@ -433,6 +490,7 @@ impl Interpreter {
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
+                interp_config: runtime::InterpreterConfig::MAIN,
             },
             init,
         );
@@ -476,20 +534,29 @@ impl Interpreter {
     /// Create a subinterpreter and hand ownership to the runtime, returning its
     /// id. The runtime keeps it alive until [`runtime::take_owned_interpreter`].
     ///
-    /// This is the shape `_interpreters.create()` will use: Python receives an
+    /// This is the shape `_interpreters.create()` uses: Python receives an
     /// id, not an owned handle.
     #[cfg(feature = "threading")]
     #[must_use]
     pub fn create_owned_subinterpreter(&self) -> i64 {
-        runtime::store_owned_interpreter(self.create_subinterpreter())
+        self.create_owned_subinterpreter_with_config(runtime::InterpreterConfig::ISOLATED)
+            .expect("the isolated config is always valid")
+    }
+
+    /// Create a runtime-owned subinterpreter with the given PEP 734 config.
+    #[cfg(feature = "threading")]
+    pub fn create_owned_subinterpreter_with_config(
+        &self,
+        config: runtime::InterpreterConfig,
+    ) -> Result<i64, &'static str> {
+        Ok(runtime::store_owned_interpreter(
+            self.create_subinterpreter_with_config(config)?,
+        ))
     }
 
     /// Create an isolated subinterpreter sharing this interpreter's type context
     /// (`Context`) and module definitions, but with its own `sys.modules`,
     /// builtins module instance, thread registry, and stop-the-world state.
-    ///
-    /// This is the Rust-side foundation for PEP 734 / `_interpreters.create()`.
-    /// It does not yet expose a Python module API.
     ///
     /// May be called while the parent is entered (matching CPython, where
     /// `_interpreters.create()` runs under the main interpreter). When the
@@ -498,36 +565,30 @@ impl Interpreter {
     /// enter (correct thread-slot / stop-the-world state).
     #[must_use]
     pub fn create_subinterpreter(&self) -> Self {
-        // Suspend the caller's current VM attachment (if any) for the duration
-        // of subinterpreter initialization. Nested bootstrap would otherwise
-        // swap `CURRENT_THREAD_SLOT` to the new interpreter while leaving the
-        // outer interpreter's attach state inconsistent. Always restore, even
-        // if initialization panics.
-        #[cfg(feature = "threading")]
-        let _restore_parent = {
-            let saved = thread::current_vm_is_set().then(thread::save_current_thread);
-            scopeguard::guard(saved, |saved| {
-                if let Some(saved) = saved {
-                    thread::restore_current_thread(saved);
-                }
-            })
-        };
+        self.create_subinterpreter_with_config(runtime::InterpreterConfig::ISOLATED)
+            .expect("the isolated config is always valid")
+    }
 
-        let (vm, global_state) = initialize_vm(
-            InitializeVmOpts {
-                // settings unused when parent_state is Some
-                settings: Settings::default(),
-                ctx: self.vm.ctx.clone(),
-                module_defs: Vec::new(),
-                frozen_modules: Vec::new(),
-                init_hooks: Vec::new(),
-                is_main: false,
-                whence: InterpreterWhence::Stdlib,
-                parent_state: Some(&self.global_state),
-            },
-            |_| {},
-        );
-        Self { global_state, vm }
+    /// Create a subinterpreter from a parent VM (the currently entered one).
+    pub fn create_subinterpreter_from_vm(
+        parent: &VirtualMachine,
+        config: runtime::InterpreterConfig,
+    ) -> Result<Self, &'static str> {
+        create_subinterpreter_from_parent(parent, config)
+    }
+
+    /// Create a subinterpreter with an explicit PEP 734 / `PyInterpreterConfig`.
+    pub fn create_subinterpreter_with_config(
+        &self,
+        config: runtime::InterpreterConfig,
+    ) -> Result<Self, &'static str> {
+        create_subinterpreter_from_parent(&self.vm, config)
+    }
+
+    /// Spawn a new OS-thread VM that shares this interpreter's `sys` / builtins.
+    #[cfg(feature = "threading")]
+    pub fn new_thread(&self) -> thread::ThreadedVirtualMachine {
+        self.vm.new_thread()
     }
 
     /// Run a function with the main virtual machine and return a PyResult of the result.
@@ -588,6 +649,7 @@ impl Interpreter {
     /// 1. Set finalizing flag (suppresses unraisable exceptions from __del__).
     /// 1. Forced GC collection pass (collect cycles while builtins are available).
     /// 1. Module finalization (finalize_modules).
+    /// 1. Clear interpreter-owned cross-interpreter data.
     /// 1. Final stdout/stderr flush.
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
@@ -620,6 +682,12 @@ impl Interpreter {
             // This allows unraisable exceptions from atexit handlers to be reported.
             atexit::_run_exitfuncs(vm);
 
+            // Clean up any lingering subinterpreters. This has to happen before
+            // the finalizing flag is set, or else threads might get prematurely
+            // blocked.
+            #[cfg(feature = "threading")]
+            finalize_subinterpreters(vm);
+
             // Now suppress unraisable exceptions from daemon threads and __del__
             // methods during the rest of shutdown.
             vm.state.finalizing.store(true, Ordering::Release);
@@ -630,6 +698,14 @@ impl Interpreter {
             // Module finalization: remove modules from sys.modules, GC collect
             // (while builtins is still available for __del__), then clear module dicts.
             vm.finalize_modules();
+
+            // CPython clears low-level cross-interpreter container data from
+            // _PyAtExit_Fini(), after Python atexit callbacks and module
+            // finalization.  In particular, values sent by an atexit callback
+            // must also become unbound when this interpreter goes away.
+            let interpreter_id = vm.state.interpreter_id;
+            crate::stdlib::_interpchannels::clear_interpreter(interpreter_id);
+            crate::stdlib::_interpqueues::clear_interpreter(interpreter_id);
 
             if vm.flush_std() < 0 && flush_status == 0 {
                 flush_status = -1;
@@ -649,6 +725,34 @@ impl Interpreter {
 
             exit_code
         })
+    }
+}
+
+/// `finalize_subinterpreters`: destroy the subinterpreters the program left
+/// behind, after telling the user they are still around.
+#[cfg(feature = "threading")]
+fn finalize_subinterpreters(vm: &VirtualMachine) {
+    if !vm.state.is_main {
+        return;
+    }
+    let ids = runtime::owned_interpreter_ids();
+    // Bail out if there are no subinterpreters left.
+    if ids.is_empty() {
+        return;
+    }
+    // Warn the user if they forgot to clean up subinterpreters.
+    let message = vm
+        .ctx
+        .new_str("remaining subinterpreters; close them with Interpreter.close()");
+    let _ = crate::warn::warn(
+        message.into(),
+        Some(vm.ctx.exceptions.runtime_warning.to_owned()),
+        0,
+        None,
+        vm,
+    );
+    for id in ids {
+        let _ = runtime::destroy_owned_interpreter(id);
     }
 }
 

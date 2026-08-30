@@ -332,6 +332,26 @@ impl VirtualMachine {
         Ok(scope)
     }
 
+    /// Create `__main__` if it is missing and return it.
+    pub fn ensure_main_module(&self) -> PyResult<PyRef<PyModule>> {
+        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        if let Ok(existing) = sys_modules.get_item("__main__", self)
+            && let Ok(module) = existing.downcast::<PyModule>()
+        {
+            return Ok(module);
+        }
+        let dict = self.ctx.new_dict();
+        let main_module = self.new_module("__main__", dict, None);
+        sys_modules.set_item("__main__", main_module.clone().into(), self)?;
+        Ok(main_module)
+    }
+
+    /// `__dict__` of this interpreter's `__main__` module.
+    pub fn main_namespace(&self) -> PyResult<PyDictRef> {
+        let main = self.ensure_main_module()?;
+        Ok(main.dict())
+    }
+
     pub fn new_function<F, FKind>(&self, name: &'static str, f: F) -> PyRef<PyNativeFunction>
     where
         F: IntoPyNativeFn<FKind>,
@@ -453,7 +473,7 @@ impl VirtualMachine {
     pub fn new_no_attribute_error(&self, obj: PyObjectRef, name: PyStrRef) -> PyBaseExceptionRef {
         let msg = format!(
             "'{}' object has no attribute '{}'",
-            obj.class().name(),
+            obj.class().slot_name(),
             name
         );
         let attribute_error = self.new_attribute_error(msg);
@@ -479,7 +499,7 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "bad operand type for {}: '{}'",
             op,
-            a.class().name()
+            a.class().slot_name()
         ))
     }
 
@@ -492,8 +512,8 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "unsupported operand type(s) for {}: '{}' and '{}'",
             op,
-            a.class().name(),
-            b.class().name()
+            a.class().slot_name(),
+            b.class().slot_name()
         ))
     }
 
@@ -505,11 +525,11 @@ impl VirtualMachine {
         op: &str,
     ) -> PyBaseExceptionRef {
         self.new_type_error(format!(
-            "Unsupported operand types for '{}': '{}', '{}', and '{}'",
+            "unsupported operand type(s) for {}: '{}', '{}', '{}'",
             op,
-            a.class().name(),
-            b.class().name(),
-            c.class().name()
+            a.class().slot_name(),
+            b.class().slot_name(),
+            c.class().slot_name()
         ))
     }
 
