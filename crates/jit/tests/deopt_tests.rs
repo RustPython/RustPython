@@ -542,6 +542,13 @@ def blow(n: int) -> int:
     /// the loop body than the guard on the sum, yet it is bound by the time
     /// that guard fires on a later iteration. Such a site cannot describe the
     /// frame, so it asks for a restart rather than resuming without it.
+    ///
+    /// `extra` is never read, and could not be: a read the compiler cannot
+    /// prove bound is a `LoadFastCheck`, which has no lowering, so a function
+    /// that would observe the drop that way does not compile. What sees it is
+    /// anything reading the frame's fastlocals other than a `LoadFast` -
+    /// `f_locals`, a tracer, a debugger - which is why the snippet covering
+    /// this end to end goes through a traceback.
     #[test]
     fn a_site_that_cannot_describe_every_local_restarts() {
         let code = jit_function! { late => r#"
