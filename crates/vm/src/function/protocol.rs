@@ -57,9 +57,10 @@ impl From<ArgCallable> for PyObjectRef {
 impl TryFromObject for ArgCallable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let Some(callable) = obj.to_callable() else {
-            return Err(
-                vm.new_type_error(format!("'{}' object is not callable", obj.class().name()))
-            );
+            return Err(vm.new_type_error(format!(
+                "'{}' object is not callable",
+                obj.class().slot_name()
+            )));
         };
         let call = callable.call;
         Ok(Self { obj, call })
@@ -126,7 +127,7 @@ where
         let cls = obj.class();
         let iter_fn = cls.slots.iter.load();
         if iter_fn.is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
-            return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
+            return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.slot_name())));
         }
         Ok(Self {
             iterable: obj,

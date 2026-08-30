@@ -62,7 +62,7 @@ impl PyObject {
         self.try_index_opt(vm).transpose()?.ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
-                self.class()
+                self.class().slot_name()
             ))
         })
     }
@@ -93,7 +93,7 @@ impl PyObject {
         } else {
             Err(vm.new_type_error(format!(
                 "int() argument must be a string, a bytes-like object or a real number, not '{}'",
-                self.class()
+                self.class().slot_name()
             )))
         }
     }
@@ -112,7 +112,10 @@ impl PyObject {
     #[inline]
     pub fn try_float(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
         self.try_float_opt(vm).ok_or_else(|| {
-            vm.new_type_error(format!("must be real number, not {}", self.class()))
+            vm.new_type_error(format!(
+                "must be real number, not {}",
+                self.class().slot_name()
+            ))
         })?
     }
 }
@@ -673,18 +676,18 @@ impl PyNumber<'_> {
             let ret_class = ret.class().to_owned();
             if let Some(ret) = ret.downcast_ref::<PyInt>() {
                 let msg = format!(
-                    "__int__ returned non-int (type {ret_class}).  \
+                    "__int__ returned non-int (type {}).  \
 The ability to return an instance of a strict subclass of int is deprecated, \
-and may be removed in a future version of Python."
+and may be removed in a future version of Python.",
+                    ret_class.slot_name()
                 );
                 _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
 
                 Ok(ret.to_owned())
             } else {
                 Err(vm.new_type_error(format!(
-                    "{}.__int__ returned non-int(type {})",
-                    self.class(),
-                    ret_class
+                    "__int__ returned non-int (type {})",
+                    ret_class.slot_name()
                 )))
             }
         })
@@ -702,18 +705,18 @@ and may be removed in a future version of Python."
             let ret_class = ret.class().to_owned();
             if let Some(ret) = ret.downcast_ref::<PyInt>() {
                 let msg = format!(
-                    "__index__ returned non-int (type {ret_class}).  \
+                    "__index__ returned non-int (type {}).  \
 The ability to return an instance of a strict subclass of int is deprecated, \
-and may be removed in a future version of Python."
+and may be removed in a future version of Python.",
+                    ret_class.slot_name()
                 );
                 _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
 
                 Ok(ret.to_owned())
             } else {
                 Err(vm.new_type_error(format!(
-                    "{}.__index__ returned non-int(type {})",
-                    self.class(),
-                    ret_class
+                    "__index__ returned non-int (type {})",
+                    ret_class.slot_name()
                 )))
             }
         })
@@ -731,18 +734,20 @@ and may be removed in a future version of Python."
             let ret_class = ret.class().to_owned();
             if let Some(ret) = ret.downcast_ref::<PyFloat>() {
                 let msg = format!(
-                    "__float__ returned non-float (type {ret_class}).  \
+                    "{}.__float__ returned non-float (type {}).  \
 The ability to return an instance of a strict subclass of float is deprecated, \
-and may be removed in a future version of Python."
+and may be removed in a future version of Python.",
+                    self.class().slot_name(),
+                    ret_class.slot_name()
                 );
                 _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
 
                 Ok(ret.to_owned())
             } else {
                 Err(vm.new_type_error(format!(
-                    "{}.__float__ returned non-float(type {})",
-                    self.class(),
-                    ret_class
+                    "{}.__float__ returned non-float (type {})",
+                    self.class().slot_name(),
+                    ret_class.slot_name()
                 )))
             }
         })

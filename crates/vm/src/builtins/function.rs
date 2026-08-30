@@ -940,7 +940,7 @@ impl PyFunction {
     }
 
     #[pygetset]
-    fn __defaults__(&self) -> Option<PyTupleRef> {
+    pub(crate) fn __defaults__(&self) -> Option<PyTupleRef> {
         self.defaults_and_kwdefaults.lock().0.clone()
     }
     #[pygetset(setter)]
@@ -953,7 +953,7 @@ impl PyFunction {
     }
 
     #[pygetset]
-    fn __kwdefaults__(&self) -> Option<PyDictRef> {
+    pub(crate) fn __kwdefaults__(&self) -> Option<PyDictRef> {
         self.defaults_and_kwdefaults.lock().1.clone()
     }
     #[pygetset(setter)]

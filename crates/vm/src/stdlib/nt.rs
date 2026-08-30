@@ -509,6 +509,11 @@ pub(crate) mod module {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
@@ -539,6 +544,11 @@ pub(crate) mod module {
         env: ArgMapping,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let make_widestring =
             |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 

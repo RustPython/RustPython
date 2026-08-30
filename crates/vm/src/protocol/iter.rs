@@ -50,7 +50,7 @@ where
             .ok_or_else(|| {
                 vm.new_type_error(format!(
                     "'{}' object is not an iterator",
-                    self.0.borrow().class().name()
+                    self.0.borrow().class().slot_name()
                 ))
             })?;
         iternext(self.0.borrow(), vm)
@@ -144,7 +144,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
             } else {
                 Err(vm.new_type_error(format!(
                     "iter() returned non-iterator of type '{}'",
-                    iter.class().name()
+                    iter.class().slot_name()
                 )))
             }
         } else if let Ok(seq_iter) = PySequenceIterator::new(iter_target.clone(), vm) {
@@ -152,7 +152,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' object is not iterable",
-                iter_target.class().name()
+                iter_target.class().slot_name()
             )))
         }
     }

@@ -23,9 +23,7 @@ use crate::{
         },
     },
     convert::{ToPyObject, ToPyResult},
-    function::{
-        ArgBytesLike, ArgIterable, ArgSize, OptionalArg, OptionalOption, PyComparisonValue,
-    },
+    function::{ArgBytesLike, ArgSize, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PyNumberMethods, PySequenceMethods,
@@ -355,7 +353,7 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<Self> {
+    fn join(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         // Driving the iterable runs Python, which can reach this bytearray,
         // so the separator is taken by value rather than left borrowed.
         let separator = self.inner().clone();

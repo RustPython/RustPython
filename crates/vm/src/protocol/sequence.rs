@@ -40,6 +40,19 @@ impl PySequenceSlots {
         self.item.load().is_some()
     }
 
+    /// Whether any slot is filled, which is what a non-null `tp_as_sequence`
+    /// amounts to for a statically declared type.
+    pub fn has_any(&self) -> bool {
+        self.length.load().is_some()
+            || self.concat.load().is_some()
+            || self.repeat.load().is_some()
+            || self.item.load().is_some()
+            || self.ass_item.load().is_some()
+            || self.contains.load().is_some()
+            || self.inplace_concat.load().is_some()
+            || self.inplace_repeat.load().is_some()
+    }
+
     /// Copy from static PySequenceMethods
     pub fn copy_from(&self, methods: &PySequenceMethods) {
         if let Some(f) = methods.length {
@@ -120,7 +133,7 @@ impl PyObject {
         if seq.check() {
             Ok(seq)
         } else {
-            Err(vm.new_type_error(format!("'{}' is not a sequence", self.class())))
+            Err(vm.new_type_error(format!("{} is not a sequence", self.class().slot_name())))
         }
     }
 }
@@ -152,12 +165,17 @@ impl PySequence<'_> {
         self.slots().length.load().map(|f| f(self, vm))
     }
 
+    // Py_ssize_t PySequence_Size(PyObject *s)
     pub fn length(self, vm: &VirtualMachine) -> PyResult<usize> {
         self.length_opt(vm).ok_or_else(|| {
-            vm.new_type_error(format!(
-                "'{}' is not a sequence or has no len()",
-                self.obj.class()
-            ))
+            let name = self.obj.class().slot_name();
+            // Something that measures itself as a mapping is no sequence at all.
+            let msg = if self.obj.mapping_unchecked().slots().length.load().is_some() {
+                format!("{name} is not a sequence")
+            } else {
+                format!("object of type '{name}' has no len()")
+            };
+            vm.new_type_error(msg)
         })?
     }
 
@@ -176,7 +194,7 @@ impl PySequence<'_> {
 
         Err(vm.new_type_error(format!(
             "'{}' object can't be concatenated",
-            self.obj.class()
+            self.obj.class().slot_name()
         )))
     }
 
@@ -193,7 +211,10 @@ impl PySequence<'_> {
             }
         }
 
-        Err(vm.new_type_error(format!("'{}' object can't be repeated", self.obj.class())))
+        Err(vm.new_type_error(format!(
+            "'{}' object can't be repeated",
+            self.obj.class().slot_name()
+        )))
     }
 
     pub fn inplace_concat(self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -214,7 +235,7 @@ impl PySequence<'_> {
 
         Err(vm.new_type_error(format!(
             "'{}' object can't be concatenated",
-            self.obj.class()
+            self.obj.class().slot_name()
         )))
     }
 
@@ -234,7 +255,10 @@ impl PySequence<'_> {
             }
         }
 
-        Err(vm.new_type_error(format!("'{}' object can't be repeated", self.obj.class())))
+        Err(vm.new_type_error(format!(
+            "'{}' object can't be repeated",
+            self.obj.class().slot_name()
+        )))
     }
 
     pub fn get_item(self, i: isize, vm: &VirtualMachine) -> PyResult {
@@ -242,10 +266,21 @@ impl PySequence<'_> {
             return f(self, i, vm);
         }
 
-        Err(vm.new_type_error(format!(
-            "'{}' is not a sequence or does not support indexing",
-            self.obj.class()
-        )))
+        let name = self.obj.class().slot_name();
+        // Something that subscripts itself as a mapping is no sequence at all.
+        let msg = if self
+            .obj
+            .mapping_unchecked()
+            .slots()
+            .subscript
+            .load()
+            .is_some()
+        {
+            format!("{name} is not a sequence")
+        } else {
+            format!("'{name}' object does not support indexing")
+        };
+        Err(vm.new_type_error(msg))
     }
 
     fn _ass_item(self, i: isize, value: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
@@ -253,15 +288,22 @@ impl PySequence<'_> {
             return f(self, i, value, vm);
         }
 
-        Err(vm.new_type_error(format!(
-            "'{}' is not a sequence or doesn't support item {}",
-            self.obj.class(),
-            if value.is_some() {
-                "assignment"
-            } else {
-                "deletion"
-            }
-        )))
+        let name = self.obj.class().slot_name();
+        let msg = if self
+            .obj
+            .mapping_unchecked()
+            .slots()
+            .ass_subscript
+            .load()
+            .is_some()
+        {
+            format!("{name} is not a sequence")
+        } else if value.is_some() {
+            format!("'{name}' object does not support item assignment")
+        } else {
+            format!("'{name}' object doesn't support item deletion")
+        };
+        Err(vm.new_type_error(msg))
     }
 
     pub fn set_item(self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -281,7 +323,10 @@ impl PySequence<'_> {
             };
             mapping.subscript(&slice.into_pyobject(vm), vm)
         } else {
-            Err(vm.new_type_error(format!("'{}' object is unsliceable", self.obj.class())))
+            Err(vm.new_type_error(format!(
+                "'{}' object is unsliceable",
+                self.obj.class().slot_name()
+            )))
         }
     }
 
@@ -303,7 +348,7 @@ impl PySequence<'_> {
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' object doesn't support slice {}",
-                self.obj.class(),
+                self.obj.class().slot_name(),
                 if value.is_some() {
                     "assignment"
                 } else {
@@ -413,7 +458,7 @@ impl PySequence<'_> {
             if e.fast_isinstance(vm.ctx.exceptions.type_error) {
                 vm.new_type_error(format!(
                     "argument of type '{}' is not a container or iterable",
-                    self.obj.class().name()
+                    self.obj.class().slot_name()
                 ))
             } else {
                 e

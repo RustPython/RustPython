@@ -163,11 +163,67 @@ fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> 
     }
 }
 
+/// The working directory, when it can be named.
+fn current_dir() -> Option<String> {
+    env::current_dir().ok()?.into_os_string().into_string().ok()
+}
+
+/// `_Py_abspath`: `path` joined onto the working directory. Windows normalizes
+/// the result through `GetFullPathNameW`; elsewhere it is left as joined.
+fn abs_path(path: &str) -> String {
+    if path.is_empty() || path == "." {
+        return current_dir().unwrap_or_else(|| path.to_owned());
+    }
+    if cfg!(windows) {
+        return std::path::absolute(path)
+            .ok()
+            .and_then(|p| p.into_os_string().into_string().ok())
+            .unwrap_or_else(|| path.to_owned());
+    }
+    if std::path::Path::new(path).is_absolute() {
+        return path.to_owned();
+    }
+    // Keep the relative path when the working directory is unavailable.
+    current_dir().map_or_else(
+        || path.to_owned(),
+        |cwd| format!("{cwd}{}{path}", std::path::MAIN_SEPARATOR),
+    )
+}
+
+/// `_PyPathConfig_ComputeSysPath0` for a script argument: the directory holding
+/// the script, with symlinks resolved.
+fn script_sys_path0(argv0: &str) -> String {
+    // `realpath()`, which Windows has no counterpart for; there the path is
+    // only made absolute.
+    let resolved = if cfg!(windows) {
+        Some(abs_path(argv0))
+    } else {
+        std::fs::canonicalize(argv0)
+            .ok()
+            .and_then(|p| p.into_os_string().into_string().ok())
+    };
+    let path0 = resolved.as_deref().unwrap_or(argv0);
+    let Some(sep) = path0.rfind(std::path::is_separator) else {
+        return String::new();
+    };
+    // Drop the trailing separator unless it is all that is left of a root.
+    let end = if sep == 0 || (cfg!(windows) && path0[..sep].ends_with(':')) {
+        sep + 1
+    } else {
+        sep
+    };
+    path0[..end].to_owned()
+}
+
 // pymain_run_file_obj in Modules/main.c
-fn run_file(vm: &VirtualMachine, scope: Scope, path: &str) -> PyResult<()> {
+fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<()> {
+    // config_run_filename_abspath: __file__ and co_filename are absolute even
+    // when the script was named relative to the working directory.
+    let path = &abs_path(argv0);
+
     // Check if path is a package/directory with __main__.py
     if let Some(_importer) = get_importer(path, vm)? {
-        vm.insert_sys_path(vm.new_pyobj(path))?;
+        vm.insert_sys_path(vm.new_pyobj(path.clone()))?;
         let runpy = vm.import("runpy", 0)?;
         let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
         run_module_as_main.call((vm::identifier!(vm, __main__).to_owned(), false), vm)?;
@@ -176,11 +232,7 @@ fn run_file(vm: &VirtualMachine, scope: Scope, path: &str) -> PyResult<()> {
 
     // Add script directory to sys.path[0]
     if !vm.state.config.settings.safe_path {
-        let dir = std::path::Path::new(path)
-            .parent()
-            .and_then(|p| p.to_str())
-            .unwrap_or("");
-        vm.insert_sys_path(vm.new_pyobj(dir))?;
+        vm.insert_sys_path(vm.new_pyobj(script_sys_path0(argv0)))?;
     }
 
     cfg_select! {

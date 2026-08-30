@@ -531,6 +531,11 @@ pub(crate) mod _thread {
             vm,
         )?;
 
+        if !vm.state.allow_threads() {
+            return Err(vm.new_runtime_error(
+                "thread is not supported for isolated subinterpreters".to_owned(),
+            ));
+        }
         if vm
             .state
             .finalizing
@@ -701,9 +706,8 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn daemon_threads_allowed() -> bool {
-        // RustPython always allows daemon threads
-        true
+    fn daemon_threads_allowed(vm: &VirtualMachine) -> bool {
+        vm.state.allow_daemon_threads()
     }
 
     // Registry for non-daemon threads that need to be joined at shutdown
@@ -1817,6 +1821,11 @@ pub(crate) mod _thread {
             vm,
         )?;
 
+        if !vm.state.allow_threads() {
+            return Err(vm.new_runtime_error(
+                "thread is not supported for isolated subinterpreters".to_owned(),
+            ));
+        }
         if vm
             .state
             .finalizing

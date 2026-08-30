@@ -103,11 +103,173 @@ pub const MAIN_INTERPRETER_ID: i64 = 0;
 
 /// Backs `sys.implementation.supports_isolated_interpreters`.
 ///
-/// The Rust substrate already isolates interpreters (`PyGlobalState` per
-/// interpreter, per-interpreter thread slots / stop-the-world). This stays
-/// `false` until the Python-facing `_interpreters` module is wired up; flip it
-/// in the commit that lands `_interpreters`.
-pub const SUPPORTS_ISOLATED_INTERPRETERS: bool = false;
+/// Isolated interpreters are available wherever the threading substrate can
+/// own a subinterpreter handle. WASM builds match CPython and stay `false`.
+pub const SUPPORTS_ISOLATED_INTERPRETERS: bool =
+    cfg!(all(feature = "threading", not(target_arch = "wasm32")));
+
+/// Feature flags copied from `PyInterpreterConfig` / `Py_RTFLAGS_*`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InterpFeatureFlags {
+    pub use_main_obmalloc: bool,
+    pub allow_fork: bool,
+    pub allow_exec: bool,
+    pub allow_threads: bool,
+    pub allow_daemon_threads: bool,
+    pub check_multi_interp_extensions: bool,
+}
+
+impl InterpFeatureFlags {
+    /// Isolated config (`_PyInterpreterConfig_INIT`).
+    pub const ISOLATED: Self = InterpreterConfig::ISOLATED.feature_flags();
+
+    /// Legacy config (`_PyInterpreterConfig_LEGACY_INIT`).
+    pub const LEGACY: Self = InterpreterConfig::LEGACY.feature_flags();
+}
+
+impl Default for InterpFeatureFlags {
+    fn default() -> Self {
+        Self::LEGACY
+    }
+}
+
+/// Named `PyInterpreterConfig` used by `_interpreters.create` / `new_config`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InterpreterConfig {
+    pub use_main_obmalloc: bool,
+    pub allow_fork: bool,
+    pub allow_exec: bool,
+    pub allow_threads: bool,
+    pub allow_daemon_threads: bool,
+    pub check_multi_interp_extensions: bool,
+    /// `"default"`, `"shared"`, or `"own"`. RustPython has no process-wide
+    /// interpreter lock, so this is recorded for API parity only.
+    pub gil: InterpreterGil,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterpreterGil {
+    Default,
+    Shared,
+    Own,
+}
+
+impl InterpreterGil {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Shared => "shared",
+            Self::Own => "own",
+        }
+    }
+
+    #[must_use]
+    pub fn from_name(s: &str) -> Option<Self> {
+        Some(match s {
+            "default" => Self::Default,
+            "shared" => Self::Shared,
+            "own" => Self::Own,
+            _ => return None,
+        })
+    }
+}
+
+impl InterpreterConfig {
+    pub const ISOLATED: Self = Self {
+        use_main_obmalloc: false,
+        allow_fork: false,
+        allow_exec: false,
+        allow_threads: true,
+        allow_daemon_threads: false,
+        check_multi_interp_extensions: true,
+        gil: InterpreterGil::Own,
+    };
+
+    pub const LEGACY: Self = Self {
+        use_main_obmalloc: true,
+        allow_fork: true,
+        allow_exec: true,
+        allow_threads: true,
+        allow_daemon_threads: true,
+        check_multi_interp_extensions: false,
+        gil: InterpreterGil::Shared,
+    };
+
+    pub const EMPTY: Self = Self {
+        use_main_obmalloc: false,
+        allow_fork: false,
+        allow_exec: false,
+        allow_threads: false,
+        allow_daemon_threads: false,
+        check_multi_interp_extensions: false,
+        gil: InterpreterGil::Default,
+    };
+
+    /// The config the runtime uses for the main interpreter: legacy features
+    /// with its own GIL.
+    pub const MAIN: Self = Self {
+        gil: InterpreterGil::Own,
+        ..Self::LEGACY
+    };
+
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "" | "default" | "isolated" => Some(Self::ISOLATED),
+            "legacy" => Some(Self::LEGACY),
+            "empty" => Some(Self::EMPTY),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn feature_flags(self) -> InterpFeatureFlags {
+        InterpFeatureFlags {
+            use_main_obmalloc: self.use_main_obmalloc,
+            allow_fork: self.allow_fork,
+            allow_exec: self.allow_exec,
+            allow_threads: self.allow_threads,
+            allow_daemon_threads: self.allow_daemon_threads,
+            check_multi_interp_extensions: self.check_multi_interp_extensions,
+        }
+    }
+
+    /// Rebuild a config from the flags an interpreter kept
+    /// (`_PyInterpreterConfig_InitFromState`).
+    #[must_use]
+    pub const fn from_state(flags: InterpFeatureFlags, own_gil: bool) -> Self {
+        Self {
+            use_main_obmalloc: flags.use_main_obmalloc,
+            allow_fork: flags.allow_fork,
+            allow_exec: flags.allow_exec,
+            allow_threads: flags.allow_threads,
+            allow_daemon_threads: flags.allow_daemon_threads,
+            check_multi_interp_extensions: flags.check_multi_interp_extensions,
+            gil: if own_gil {
+                InterpreterGil::Own
+            } else {
+                InterpreterGil::Shared
+            },
+        }
+    }
+
+    #[must_use]
+    pub const fn own_gil(self) -> bool {
+        matches!(self.gil, InterpreterGil::Own)
+    }
+
+    /// `init_interp_settings`: per-interpreter obmalloc requires the
+    /// multi-interpreter extension check.
+    pub const fn check(self) -> Result<(), &'static str> {
+        if !self.use_main_obmalloc && !self.check_multi_interp_extensions {
+            return Err(
+                "per-interpreter obmalloc does not support single-phase init extension modules",
+            );
+        }
+        Ok(())
+    }
+}
 
 /// Id of the main interpreter (PEP 734 `get_main()`), or `None` before any
 /// interpreter has been created.
@@ -284,6 +446,11 @@ pub fn live_interpreter_states() -> Vec<PyRc<PyGlobalState>> {
 /// Only available with the `threading` feature: a runtime-owned interpreter is
 /// reachable from other OS threads, which requires `Interpreter: Send` (true
 /// only when `PyObjectRef` is `Arc`-backed).
+///
+/// The original `Interpreter.vm` is left idle after creation. Callers that
+/// need to run Python obtain a fresh [`crate::vm::thread::ThreadedVirtualMachine`]
+/// via [`owned_new_thread`], which only clones the shared interpreter fields
+/// (`sys`, builtins, `PyGlobalState`).
 #[cfg(feature = "threading")]
 fn owned_interpreters() -> &'static Mutex<HashMap<i64, crate::Interpreter>> {
     use std::sync::OnceLock;
@@ -311,6 +478,18 @@ pub fn take_owned_interpreter(id: i64) -> Option<crate::Interpreter> {
     owned_interpreters().lock().remove(&id)
 }
 
+/// Create a thread-state VM for a runtime-owned interpreter.
+///
+/// The lock is held only while cloning shared interpreter fields.
+#[cfg(feature = "threading")]
+#[must_use]
+pub fn owned_new_thread(id: i64) -> Option<crate::vm::thread::ThreadedVirtualMachine> {
+    owned_interpreters()
+        .lock()
+        .get(&id)
+        .map(|interp| interp.new_thread())
+}
+
 /// Whether `id` refers to a runtime-owned interpreter.
 #[cfg(feature = "threading")]
 #[must_use]
@@ -323,4 +502,26 @@ pub fn is_owned_interpreter(id: i64) -> bool {
 #[must_use]
 pub fn owned_interpreter_count() -> usize {
     owned_interpreters().lock().len()
+}
+
+/// Ids of the runtime-owned interpreters currently alive, oldest first.
+#[cfg(feature = "threading")]
+#[must_use]
+pub fn owned_interpreter_ids() -> Vec<i64> {
+    let mut ids: Vec<i64> = owned_interpreters().lock().keys().copied().collect();
+    ids.sort_unstable();
+    ids
+}
+
+/// Finalize and drop a runtime-owned interpreter.
+///
+/// The caller must already have checked that the interpreter is not the
+/// current one and is not running `__main__`.
+#[cfg(feature = "threading")]
+#[must_use]
+pub fn destroy_owned_interpreter(id: i64) -> Option<()> {
+    let interp = take_owned_interpreter(id)?;
+    // Finalize like `Py_EndInterpreter`: flush, join non-daemons, atexit, GC.
+    let _ = interp.finalize(None);
+    Some(())
 }

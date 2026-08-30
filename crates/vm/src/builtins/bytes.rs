@@ -17,10 +17,7 @@ use crate::{
     class::PyClassImpl,
     common::{hash::PyHash, lock::PyMutex},
     convert::{ToPyObject, ToPyResult},
-    function::{
-        ArgBytesLike, ArgIndex, ArgIterable, FuncArgs, OptionalArg, OptionalOption,
-        PyComparisonValue,
-    },
+    function::{ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PyNumberMethods, PySequenceMethods,
@@ -359,7 +356,7 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<Self> {
+    fn join(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(self.inner.join(iter, vm)?.into())
     }
 
@@ -730,8 +727,8 @@ impl Comparable for PyBytes {
             return Err(vm.new_type_error(format!(
                 "'{}' not supported between instances of '{}' and '{}'",
                 op.operator_token(),
-                zelf.class().name(),
-                other.class().name()
+                zelf.class().slot_name(),
+                other.class().slot_name()
             )));
         } else {
             zelf.inner.cmp(other, op, vm)

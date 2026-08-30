@@ -124,6 +124,13 @@ impl PyMemoryView {
         Self::from_object_with_flags(obj, BufferFlags::FULL_RO, vm)
     }
 
+    /// One share of the underlying buffer export. Used for cross-interpreter
+    /// `send_buffer` so the destination memoryview sees the same memory.
+    #[must_use]
+    pub fn clone_buffer(&self) -> PyBuffer {
+        self.buffer.clone()
+    }
+
     // PyMemoryView_FromObjectAndFlags
     pub fn from_object_with_flags(
         obj: &PyObject,
@@ -134,9 +141,14 @@ impl PyMemoryView {
             other.try_not_released(vm)?;
             other.try_not_restricted(vm)?;
             Ok(other.new_view())
-        } else {
+        } else if obj.check_buffer() {
             let buffer = PyBuffer::from_object(vm, obj, flags)?;
             Self::from_buffer(buffer, vm)
+        } else {
+            Err(vm.new_type_error(format!(
+                "memoryview: a bytes-like object is required, not '{}'",
+                obj.class().name()
+            )))
         }
     }
 
@@ -1350,8 +1362,8 @@ impl Comparable for PyMemoryView {
             _ => Err(vm.new_type_error(format!(
                 "'{}' not supported between instances of '{}' and '{}'",
                 op.operator_token(),
-                zelf.class().name(),
-                other.class().name()
+                zelf.class().slot_name(),
+                other.class().slot_name()
             ))),
         }
     }
