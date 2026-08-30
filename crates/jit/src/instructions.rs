@@ -368,6 +368,23 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         }
     }
 
+    /// Require that the abstract stack is empty on an edge into a merge.
+    ///
+    /// The abstract stack is not reconciled where control flow merges: a merged
+    /// block keeps whichever predecessor's operands were lowered last, and its
+    /// entries are per-path SSA values, so even two predecessors of equal depth
+    /// describe different values. Only an empty stack is known to agree, which
+    /// is what every statement-level merge has - an `if`, an `if`/`else`, a
+    /// `while`. A conditional expression or a short-circuit operator merges
+    /// mid-expression, and is refused here rather than compiled wrongly.
+    fn require_empty_stack_at_merge(&self) -> Result<(), JitCompileError> {
+        if self.stack.is_empty() {
+            Ok(())
+        } else {
+            Err(JitCompileError::NotSupported)
+        }
+    }
+
     fn get_or_create_block(&mut self, label: Label) -> Block {
         #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
         let builder = &mut self.builder;
@@ -462,6 +479,13 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             // If this is a label that some earlier jump can target,
             // treat it as the start of a new reachable block:
             if label_targets.contains(&label) {
+                // Falling into a merge counts as an edge into it. An
+                // unreachable region has no edge, so its leftover operands are
+                // dropped rather than checked.
+                if !in_unreachable_code {
+                    self.require_empty_stack_at_merge()?;
+                }
+                self.stack.clear();
                 // Create or get the block for this label:
                 let target_block = self.get_or_create_block(label);
 
@@ -1024,6 +1048,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let target = Self::instruction_target(offset, instruction, arg)?
                     .ok_or(JitCompileError::BadBytecode)?;
                 self.has_backward_jump |= target.as_u32() <= offset;
+                self.require_empty_stack_at_merge()?;
                 let target_block = self.get_or_create_block(target);
                 self.builder.ins().jump(target_block, &[]);
                 Ok(())
@@ -1097,6 +1122,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.boolean_val(cond)?;
                 let then_label = Self::instruction_target(offset, instruction, arg)?
                     .ok_or(JitCompileError::BadBytecode)?;
+                self.require_empty_stack_at_merge()?;
                 let then_block = self.get_or_create_block(then_label);
                 let else_block = self.builder.create_block();
 
@@ -1112,6 +1138,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.boolean_val(cond)?;
                 let then_label = Self::instruction_target(offset, instruction, arg)?
                     .ok_or(JitCompileError::BadBytecode)?;
+                self.require_empty_stack_at_merge()?;
                 let then_block = self.get_or_create_block(then_label);
                 let else_block = self.builder.create_block();
 
