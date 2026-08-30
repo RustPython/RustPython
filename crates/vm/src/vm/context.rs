@@ -303,7 +303,7 @@ impl Context {
 
     fn init_genesis() -> Self {
         flame_guard!("init Context");
-        let types = TypeZoo::init();
+        let (types, empty_tuple) = TypeZoo::init();
         let exceptions = exceptions::ExceptionZoo::init();
 
         #[inline]
@@ -348,10 +348,6 @@ impl Context {
         let true_value = create_object(PyBool(PyInt::from(1)), types.bool_type);
         let false_value = create_object(PyBool(PyInt::from(0)), types.bool_type);
 
-        let empty_tuple = create_object(
-            PyTuple::new_unchecked(Vec::new().into_boxed_slice()),
-            types.tuple_type,
-        );
         let empty_frozenset = PyRef::new_ref(
             PyFrozenSet::default(),
             types.frozenset_type.to_owned(),

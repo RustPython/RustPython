@@ -375,6 +375,23 @@ impl PyTuple<PyObjectRef> {
 }
 
 impl<T> PyTuple<PyRef<T>> {
+    pub(crate) fn new_ref_typed_with_type(
+        elements: Vec<PyRef<T>>,
+        tuple_type: PyTypeRef,
+    ) -> PyRef<Self> {
+        // SAFETY: PyRef<T> has the same layout as PyObjectRef.
+        unsafe {
+            let elements: Vec<PyObjectRef> =
+                core::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
+            let tuple = PyRef::new_ref(
+                PyTuple::new_unchecked(elements.into_boxed_slice()),
+                tuple_type,
+                None,
+            );
+            core::mem::transmute::<PyRef<PyTuple>, PyRef<Self>>(tuple)
+        }
+    }
+
     pub fn new_ref_typed(elements: Vec<PyRef<T>>, ctx: &Context) -> PyRef<Self> {
         // SAFETY: PyRef<T> has the same layout as PyObjectRef
         unsafe {
