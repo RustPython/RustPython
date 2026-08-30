@@ -51,8 +51,9 @@ assert scale(2.0, 3.0) == 5.0
 assert scale(2, 3.0) == 5.0
 assert scale(2.0, 3.0) == 5.0
 
-# Integer arithmetic must widen. Compiled, `+` traps on overflow and `*` wraps,
-# so the automatic path has to leave these alone.
+# Integer arithmetic widens once the machine word can no longer hold the
+# answer. `wide` compiles under the automatic path too now, and deoptimizes
+# back to the interpreter exactly where that widening has to happen.
 assert wide(3, 4) == 7
 assert wide(2**62, 2**62) == 2**63
 assert wide(-(2**63), -(2**63)) == -(2**64)

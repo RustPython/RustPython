@@ -2,10 +2,8 @@
 mod tests {
     use rustpython_jit::{JitEngine, Outcome, Safety};
 
-    /// Every operation whose machine code can trap or wrap. There is no trap
-    /// handler, so a trap kills the process instead of raising.
-    /// Assert Strict rejects the function *and* that Permissive still accepts
-    /// it, so the test cannot pass because of an unrelated compile failure.
+    /// Assert Strict rejects the function while Permissive still accepts it,
+    /// so the test cannot pass because of an unrelated compile failure.
     macro_rules! assert_strict_rejects {
         ($name:ident => $src:expr) => {{
             let engine = JitEngine::new();
@@ -30,95 +28,113 @@ mod tests {
         }};
     }
 
+    /// The operation used to be refused under Strict because its machine
+    /// code could trap or wrap. Both are guarded by a deopt now, so Strict
+    /// compiles the function and, given the input that used to be unsafe,
+    /// hands the operands back rather than trapping, wrapping, or otherwise
+    /// answering wrongly.
+    macro_rules! assert_strict_deopts {
+        ($name:ident => $src:expr, $bad:expr) => {{
+            let code = assert_accepted!(Safety::Strict, $name => $src);
+            match code.invoke(&$bad) {
+                Ok(Outcome::Deopt(_)) => {}
+                other => panic!(
+                    "{} expected a deopt under Strict, got {other:?}",
+                    stringify!($name)
+                ),
+            }
+        }};
+    }
+
     #[test]
-    fn strict_rejects_int_add() {
-        assert_strict_rejects!(add => r#"
+    fn strict_compiles_int_add() {
+        assert_strict_deopts!(add => r#"
 def add(a: int, b: int) -> int:
     return a + b
-"#);
+"#, [i64::MAX.into(), 1i64.into()]);
     }
 
     #[test]
-    fn strict_rejects_int_multiply() {
-        assert_strict_rejects!(mul => r#"
+    fn strict_compiles_int_multiply() {
+        assert_strict_deopts!(mul => r#"
 def mul(a: int, b: int) -> int:
     return a * b
-"#);
+"#, [i64::MAX.into(), 2i64.into()]);
     }
 
     #[test]
-    fn strict_rejects_int_floor_divide() {
-        assert_strict_rejects!(fdiv => r#"
+    fn strict_compiles_int_floor_divide() {
+        assert_strict_deopts!(fdiv => r#"
 def fdiv(a: int, b: int) -> int:
     return a // b
-"#);
+"#, [7i64.into(), 0i64.into()]);
     }
 
     #[test]
-    fn strict_rejects_int_true_divide() {
-        assert_strict_rejects!(true_divide => r#"
+    fn strict_compiles_int_true_divide() {
+        assert_strict_deopts!(true_divide => r#"
 def true_divide(a: int, b: int) -> float:
     return a / b
-"#);
+"#, [7i64.into(), 0i64.into()]);
     }
 
     #[test]
-    fn strict_rejects_int_remainder() {
-        assert_strict_rejects!(rem => r#"
+    fn strict_compiles_int_remainder() {
+        assert_strict_deopts!(rem => r#"
 def rem(a: int, b: int) -> int:
     return a % b
-"#);
+"#, [7i64.into(), 0i64.into()]);
     }
 
     #[test]
-    fn strict_rejects_int_power() {
-        assert_strict_rejects!(pow => r#"
+    fn strict_compiles_int_power() {
+        assert_strict_deopts!(pow => r#"
 def pow(a: int, b: int) -> int:
     return a ** b
-"#);
+"#, [2i64.into(), 64i64.into()]);
     }
 
     #[test]
-    fn strict_rejects_int_shift() {
-        assert_strict_rejects!(shift => r#"
+    fn strict_compiles_int_shift() {
+        assert_strict_deopts!(shift => r#"
 def shift(a: int, b: int) -> int:
     return a << b
-"#);
+"#, [1i64.into(), 64i64.into()]);
     }
 
     #[test]
-    #[ignore = "Task 7 makes Strict accept this"]
-    fn strict_rejects_int_negate() {
-        assert_strict_rejects!(neg => r#"
+    fn strict_compiles_int_negate() {
+        assert_strict_deopts!(neg => r#"
 def neg(a: int) -> int:
     return -a
-"#);
+"#, [i64::MIN.into()]);
     }
 
-    /// `1.0 / 0.0` raises ZeroDivisionError; `fdiv` returns inf.
+    /// `1.0 / 0.0` raises ZeroDivisionError; a bare `fdiv` would return inf.
     #[test]
-    fn strict_rejects_float_divide() {
-        assert_strict_rejects!(fdiv => r#"
+    fn strict_compiles_float_divide() {
+        assert_strict_deopts!(fdiv => r#"
 def fdiv(a: float, b: float) -> float:
     return a / b
-"#);
+"#, [1.0f64.into(), 0.0f64.into()]);
     }
 
-    /// `(-1.0) ** 0.5` is complex in Python and `0.0 ** -1.0` raises.
+    /// `(-8.0) ** 0.5` is complex in Python, which a compiled `**` cannot
+    /// produce.
     #[test]
-    fn strict_rejects_float_power() {
-        assert_strict_rejects!(float_power => r#"
+    fn strict_compiles_float_power() {
+        assert_strict_deopts!(float_power => r#"
 def float_power(a: float, b: float) -> float:
     return a ** b
-"#);
+"#, [(-8.0f64).into(), 0.5f64.into()]);
     }
 
     #[test]
-    fn strict_rejects_mixed_divide() {
-        assert_strict_rejects!(mixed => r#"
+    fn strict_compiles_mixed_divide() {
+        assert_strict_deopts!(mixed => r#"
 def mixed(a: int, b: float) -> float:
     return a / b
-"#);
+"#, [1i64.into(), 0.0f64.into()]);
     }
 
     /// Bitwise operations on two machine integers cannot leave the range.
@@ -174,6 +190,7 @@ def mixed(a: int, b: float) -> float:
 
     /// The self-reference resolves by name, but the interpreter re-reads the
     /// global on every call, so a rebound name would make them disagree.
+    /// This is the one place Strict and Permissive still differ.
     #[test]
     fn strict_rejects_self_recursion() {
         assert_strict_rejects!(countdown => r#"

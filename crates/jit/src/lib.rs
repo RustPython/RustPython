@@ -54,15 +54,16 @@ impl From<ModuleError> for JitCompileError {
     }
 }
 
-/// How far the compiled code is allowed to diverge from interpreted semantics.
+/// Whether a call matched to the function being compiled by global name may
+/// become a direct recursive call rather than being left to the interpreter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Safety {
-    /// Reject every operation whose machine code can trap, wrap, or otherwise
-    /// answer differently from the interpreter. Traps have no handler and kill
-    /// the process, and a wrapped integer is a silently wrong result, so code
-    /// that was compiled without being asked for must not reach either.
+    /// Reject a self-call. The interpreter re-reads the global on every
+    /// call, so a rebound name - a decorator applied later, a test patching
+    /// the module - would make a compiled direct call disagree with it.
     Strict,
-    /// Compile everything the backend supports.
+    /// Compile a self-call into a direct call, trusting the name to still
+    /// resolve to this function for as long as the compiled code runs.
     Permissive,
 }
 
