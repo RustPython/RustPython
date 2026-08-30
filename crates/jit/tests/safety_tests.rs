@@ -87,6 +87,7 @@ def shift(a: int, b: int) -> int:
     }
 
     #[test]
+    #[ignore = "Task 7 makes Strict accept this"]
     fn strict_rejects_int_negate() {
         assert_strict_rejects!(neg => r#"
 def neg(a: int) -> int:
