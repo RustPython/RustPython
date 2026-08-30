@@ -69,6 +69,8 @@ struct DDValue {
 
 pub(crate) struct FunctionCompiler<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
+    /// The buffer a guard spills its record into, parameter 0 of the function.
+    deopt_ptr: Value,
     stack: Vec<JitValue>,
     variables: Box<[Option<Local>]>,
     label_to_block: HashMap<Label, Block>,
@@ -182,8 +184,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         entry_block: Block,
         safety: Safety,
     ) -> Self {
+        let params = builder.func.dfg.block_params(entry_block).to_vec();
+        let (deopt_ptr, arg_params) = params.split_first().expect("the deopt buffer parameter");
         let mut compiler = Self {
             builder,
+            deopt_ptr: *deopt_ptr,
             stack: Vec::new(),
             variables: vec![None; num_variables].into_boxed_slice(),
             label_to_block: HashMap::new(),
@@ -193,8 +198,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 ret: ret_type,
             },
         };
-        let params = compiler.builder.func.dfg.block_params(entry_block).to_vec();
-        for (i, (ty, val)) in arg_types.iter().zip(params).enumerate() {
+        for (i, (ty, val)) in arg_types.iter().zip(arg_params.iter().copied()).enumerate() {
             compiler
                 .store_variable(
                     (i as u32).into(),
@@ -639,11 +643,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::Call { argc } => {
                 let nargs = argc.get(arg);
 
-                let mut args = Vec::new();
+                let mut args = Vec::with_capacity(nargs as usize + 1);
                 for _ in 0..nargs {
                     let arg = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                     args.push(arg.into_value().unwrap());
                 }
+                // Popping walks the arguments backwards.
+                args.reverse();
+                args.insert(0, self.deopt_ptr);
 
                 // Pop self_or_null (should be Null for JIT-compiled recursive calls)
                 let self_or_null = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;

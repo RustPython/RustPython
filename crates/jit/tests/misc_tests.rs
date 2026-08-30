@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use rustpython_jit::{AbiValue, JitArgumentError, JitCompileError, JitEngine, Safety};
+    use rustpython_jit::{AbiValue, JitArgumentError, JitCompileError, JitEngine, Outcome, Safety};
 
     #[test]
     fn no_return_value() {
@@ -33,7 +33,7 @@ mod tests {
         );
         assert_eq!(
             func.invoke(&[AbiValue::Int(1), AbiValue::Float(2.0)]),
-            Ok(Some(AbiValue::Int(1)))
+            Ok(Outcome::Returned(Some(AbiValue::Int(1))))
         );
     }
 
@@ -64,7 +64,10 @@ mod tests {
 
         let args = args_builder.into_args();
         assert!(args.is_some());
-        assert_eq!(args.unwrap().invoke(), Some(AbiValue::Int(1)));
+        assert_eq!(
+            args.unwrap().invoke(),
+            Outcome::Returned(Some(AbiValue::Int(1)))
+        );
     }
 
     #[test]
