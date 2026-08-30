@@ -56,7 +56,17 @@ assert scale(2.0, 3.0) == 5.0
 # back to the interpreter exactly where that widening has to happen.
 assert wide(3, 4) == 7
 assert wide(2**62, 2**62) == 2**63
-assert wide(-(2**63), -(2**63)) == -(2**64)
+
+
+# The guard above deoptimizes `wide`, and a deopt discards the compiled
+# code and leaves the function permanently interpreted - so a third
+# widening case on `wide` itself would never touch compiled code again.
+# A fresh function gets its own compile attempt for it.
+def wide2(a: int, b: int) -> int:
+    return a + b
+
+
+assert wide2(-(2**63), -(2**63)) == -(2**64)
 
 # Shapes with no compiled form at all still behave.
 assert untyped("a", "b") == "ab"
@@ -142,11 +152,17 @@ if AOT:
 
 if AOT:
     compiled, rejected, deoptimized = sys._jit._stats()
-    # `scale`, `wide`, `divide`, and the rebound `countdown` at line 101 are
-    # what the automatic path takes above.
-    assert compiled >= 1, (compiled, rejected, deoptimized)
+    # `scale`, `wide`, `wide2`, `divide`, and the rebound `countdown` at line
+    # 101 are what the automatic path takes above. These are floors, not
+    # exact counts, but they must not regress: the point of letting Strict
+    # compile arithmetic was to take shapes it used to refuse outright, and a
+    # floor already met before that change could not tell if the gate came
+    # back. `compiled` and `deoptimized` are pinned to what this file
+    # currently produces (`compiled 5 ... deopt 4`).
+    assert compiled >= 5, (compiled, rejected, deoptimized)
     # ... and the int argument in `scale(2, 3.0)` handed it back.
-    assert deoptimized >= 1, (compiled, rejected, deoptimized)
-    # Everything else was turned down rather than mis-compiled.
+    assert deoptimized >= 4, (compiled, rejected, deoptimized)
+    # Everything else was turned down rather than mis-compiled. `rejected`
+    # stays a loose floor: it moves with the feature set of the binary.
     assert rejected >= 1, (compiled, rejected, deoptimized)
     print("aot: compiled", compiled, "rejected", rejected, "deopt", deoptimized)
