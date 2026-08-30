@@ -1,0 +1,119 @@
+#[cfg(test)]
+mod tests {
+    use rustpython_jit::{AbiValue, JitEngine, Outcome, Safety, StackValue};
+
+    fn int(value: i64) -> StackValue {
+        StackValue::Value(AbiValue::Int(value))
+    }
+
+    /// Overflow is not an error; it is where the interpreter stops using a
+    /// machine word. The compiled code has to hand the operands back rather
+    /// than wrap or trap.
+    #[test]
+    fn addition_deopts_on_overflow() {
+        let code = jit_function! { add => r#"
+def add(a: int, b: int) -> int:
+    return a + b
+"# };
+        assert_eq!(
+            code.invoke(&[1i64.into(), 2i64.into()]),
+            Ok(Outcome::Returned(Some(3i64.into())))
+        );
+        match code.invoke(&[i64::MAX.into(), 1i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(i64::MAX), int(1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// A guard reports every live local, and reports a local that has not been
+    /// assigned on this path as unbound rather than inventing a value for it.
+    #[test]
+    fn a_guard_reports_the_live_state() {
+        let code = jit_function! { f => r#"
+def f(a: int, b: int, c: bool) -> int:
+    if c:
+        d = 5
+    return a + b
+"# };
+        match code.invoke(&[i64::MAX.into(), 1i64.into(), false.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.locals[0], Some(AbiValue::Int(i64::MAX)));
+                assert_eq!(state.locals[1], Some(AbiValue::Int(1)));
+                assert_eq!(state.locals[2], Some(AbiValue::Bool(false)));
+                // `d` was declared by the store inside the branch, but that
+                // branch did not run.
+                assert_eq!(state.locals[3], None);
+                assert_eq!(state.stack, vec![int(i64::MAX), int(1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+        // The same function, on the path that does assign `d`.
+        match code.invoke(&[i64::MAX.into(), 1i64.into(), true.into()]) {
+            Ok(Outcome::Deopt(state)) => assert_eq!(state.locals[3], Some(AbiValue::Int(5))),
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// A self-call leaves its callable and a null underneath the arguments
+    /// being evaluated. Neither has a slot in the buffer, but both are the same
+    /// on every path that reaches the guard, so the site describes them and the
+    /// function stays compilable.
+    #[test]
+    fn a_guard_under_a_self_call_describes_the_callable() {
+        let engine = JitEngine::new();
+        let f = py_function_def! { countdown => r#"
+def countdown(a: int, b: int) -> int:
+    if a < 0:
+        return b
+    return countdown(a + b, b)
+"# };
+        let code = f
+            .compile_on(&engine, Safety::Permissive)
+            .expect("a guard below a self-call must not stop the function compiling");
+        match code.invoke(&[i64::MAX.into(), 1i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(
+                    state.stack,
+                    vec![StackValue::Callee, StackValue::Null, int(i64::MAX), int(1),]
+                );
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// A nested frame that gives up returns a filler in place of a result. The
+    /// caller has to stop rather than compute on it: the record the callee
+    /// wrote is the one the interpreter needs.
+    #[test]
+    fn a_caller_stops_when_a_nested_frame_gives_up() {
+        let engine = JitEngine::new();
+        let f = py_function_def! { blow => r#"
+def blow(n: int) -> int:
+    if n == 0:
+        return 4611686018427387904
+    return blow(n - 1) + blow(n - 1)
+"# };
+        let code = f
+            .compile_on(&engine, Safety::Permissive)
+            .expect("should compile");
+        assert_eq!(
+            code.invoke(&[0i64.into()]),
+            Ok(Outcome::Returned(Some(4611686018427387904i64.into())))
+        );
+        // `blow(1)` overflows. `blow(2)` reaches that overflow one frame down,
+        // so the guard that fires is the inner frame's and its record is what
+        // comes back.
+        for n in [1i64, 2] {
+            match code.invoke(&[n.into()]) {
+                Ok(Outcome::Deopt(state)) => assert_eq!(
+                    state.stack,
+                    vec![int(4611686018427387904), int(4611686018427387904)],
+                    "n = {n}"
+                ),
+                other => panic!("expected a deopt for n = {n}, got {other:?}"),
+            }
+        }
+    }
+}
