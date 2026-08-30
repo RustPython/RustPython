@@ -141,55 +141,6 @@ pub(crate) const fn instruction_is_supported(instruction: Instruction) -> bool {
     )
 }
 
-/// Whether the machine code emitted for `op` answers the way the interpreter
-/// does for every pair of values of these types.
-///
-/// Integer arithmetic either traps on overflow and division by zero - and a
-/// trap has no handler, so it takes the process down instead of raising - or
-/// wraps where Python would widen to an arbitrary-precision integer.
-/// Float `/` is a bare `fdiv` with none of the checks that raise
-/// ZeroDivisionError, and float `**` neither raises for `0.0 ** -1.0` nor
-/// produces the complex result Python gives a negative base.
-fn binary_op_is_faithful(op: BinaryOperator, a: Option<&JitType>, b: Option<&JitType>) -> bool {
-    let traps_or_wraps_on_ints = matches!(
-        op,
-        BinaryOperator::Add
-            | BinaryOperator::InplaceAdd
-            | BinaryOperator::Subtract
-            | BinaryOperator::InplaceSubtract
-            | BinaryOperator::Multiply
-            | BinaryOperator::InplaceMultiply
-            | BinaryOperator::TrueDivide
-            | BinaryOperator::InplaceTrueDivide
-            | BinaryOperator::FloorDivide
-            | BinaryOperator::InplaceFloorDivide
-            | BinaryOperator::Remainder
-            | BinaryOperator::InplaceRemainder
-            | BinaryOperator::Power
-            | BinaryOperator::InplacePower
-            | BinaryOperator::Lshift
-            | BinaryOperator::InplaceLshift
-            | BinaryOperator::Rshift
-            | BinaryOperator::InplaceRshift
-    );
-    let diverges_on_floats = matches!(
-        op,
-        BinaryOperator::TrueDivide
-            | BinaryOperator::InplaceTrueDivide
-            | BinaryOperator::Power
-            | BinaryOperator::InplacePower
-    );
-
-    match (a, b) {
-        (Some(JitType::Int), Some(JitType::Int)) => !traps_or_wraps_on_ints,
-        // `(Int, Int)` is taken by the arm above, so it cannot land here.
-        (Some(JitType::Float | JitType::Int), Some(JitType::Float))
-        | (Some(JitType::Float), Some(JitType::Int)) => !diverges_on_floats,
-        // Any other combination has no lowering at all and is rejected anyway.
-        _ => true,
-    }
-}
-
 impl<'a, 'b> FunctionCompiler<'a, 'b> {
     pub(crate) fn new(
         builder: &'a mut FunctionBuilder<'b>,
@@ -663,12 +614,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 let a_type = a.to_jit_type();
                 let b_type = b.to_jit_type();
-
-                if self.safety == Safety::Strict
-                    && !binary_op_is_faithful(op, a_type.as_ref(), b_type.as_ref())
-                {
-                    return Err(JitCompileError::NotSupported);
-                }
 
                 let val = match (op, a, b) {
                     (
