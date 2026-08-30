@@ -241,6 +241,18 @@ if hasattr(foo, "__jit__"):
     check(RSHIFT, 1, 64)
     check(RSHIFT, 1, -1)
 
+    ADD = "def f(a: int, b: int) -> int:\n    return a + b\n"
+    check(ADD, 2**62, 2**62)
+    check(ADD, 7, 3)
+
+    # `Subtract`'s own arm calls `compile_sub(a, b, ...)` in call-site order; `NEG`
+    # below reaches the same helper through a separate arm, `compile_sub(zero, a,
+    # ...)`, with different operand order and arity. Covering both closes the gap
+    # a fix in one arm and not the other would leave open.
+    SUB = "def f(a: int, b: int) -> int:\n    return a - b\n"
+    check(SUB, -(2**63), 1)
+    check(SUB, 7, 3)
+
     NEG = "def f(a: int) -> int:\n    return -a\n"
     check(NEG, 7)
     check(NEG, -(2**63))
