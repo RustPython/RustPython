@@ -797,11 +797,15 @@ pub fn setpgid_if_needed(pgid_to_set: libc::pid_t) -> nix::Result<()> {
     Ok(())
 }
 
-pub fn setgroups_if_needed(_groups: Option<&[u32]>) -> nix::Result<()> {
-    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
-    if let Some(groups) = _groups {
-        let groups = groups.iter().copied().map(gid_from_raw).collect::<Vec<_>>();
-        nix::unistd::setgroups(&groups)?;
+pub fn setgroups_if_needed(groups: Option<&[u32]>) -> nix::Result<()> {
+    #[cfg(not(any(target_os = "ios", target_os = "redox")))]
+    if let Some(groups) = groups {
+        // The caller prepares this array before fork.  Call libc directly so
+        // macOS performs the requested operation too, and so the child does
+        // not allocate a second array between fork and exec.
+        let ret =
+            unsafe { libc::setgroups(groups.len() as _, groups.as_ptr().cast::<libc::gid_t>()) };
+        nix::Error::result(ret)?;
     }
     Ok(())
 }
