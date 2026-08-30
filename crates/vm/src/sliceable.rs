@@ -275,6 +275,12 @@ impl SequenceIndex {
             i?.try_to_primitive(vm)
                 .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
                 .map(Self::Int)
+        } else if type_name == "str" {
+            // CPython's unicode_subscript raises a distinct message here.
+            Err(vm.new_type_error(format!(
+                "string indices must be integers, not '{}'",
+                obj.class()
+            )))
         } else {
             Err(vm.new_type_error(format!(
                 "{} indices must be integers or slices or classes that override __index__ operator, not '{}'",
