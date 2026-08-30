@@ -33,6 +33,9 @@ jobs:
       id-token: write # for OpenID Connect authentication with CodSpeed
     env:
       CACHE_PATHS: |
+        # https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+        ~/.cargo/.crates2.json
+        ~/.cargo/.crates.toml
         ~/.cargo/bin/
         ~/.cargo/registry/index/
         ~/.cargo/registry/cache/
@@ -52,8 +55,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.CACHE_PATHS }}
-          key: codspeed-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: codspeed-
+          key: codspeed-v2-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: codspeed-v2-
         continue-on-error: true
 
       - name: Install cargo-codspeed
@@ -67,7 +70,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.CACHE_PATHS }}
-          key: codspeed-${{ hashFiles('**/Cargo.lock') }}
+          key: codspeed-v2-${{ hashFiles('**/Cargo.lock') }}
         continue-on-error: true
 
       - name: Run the benchmarks
