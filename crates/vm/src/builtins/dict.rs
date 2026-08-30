@@ -357,10 +357,8 @@ impl PyDict {
         key: PyObjectRef,
         default: impl FnOnce() -> PyObjectRef,
     ) -> PyResult {
-        // No `setdefault_known_hash` on the inner map; hash once up front for the
-        // unhashable message, then let `setdefault` do its own (single) lookup.
-        Self::hash_or_unhashable(&*key, vm)?;
-        self.entries.setdefault(vm, &*key, default)
+        let hash = Self::hash_or_unhashable(&*key, vm)?;
+        self.entries.setdefault_known_hash(vm, &*key, hash, default)
     }
 
     pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
@@ -509,9 +507,9 @@ impl PyDict {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        Self::hash_or_unhashable(&*key, vm)?;
+        let hash = Self::hash_or_unhashable(&*key, vm)?;
         self.entries
-            .setdefault(vm, &*key, || default.unwrap_or_none(vm))
+            .setdefault_known_hash(vm, &*key, hash, || default.unwrap_or_none(vm))
     }
 
     #[pymethod]
@@ -555,8 +553,8 @@ impl PyDict {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        Self::hash_or_unhashable(&*key, vm)?;
-        match self.entries.pop(vm, &*key)? {
+        let hash = Self::hash_or_unhashable(&*key, vm)?;
+        match self.entries.pop_known_hash(vm, &*key, hash)? {
             Some(value) => Ok(value),
             None => default.ok_or_else(|| vm.new_key_error(key)),
         }

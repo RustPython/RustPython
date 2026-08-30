@@ -490,3 +490,26 @@ class SubclassHash:
 with assert_raises(MyTypeError) as cm:
     {}[SubclassHash()]
 assert "as a dict key" not in str(cm.exception), str(cm.exception)
+
+
+# Every operation hashes the key exactly once (the hash is threaded into the
+# inner map), so a __hash__ that would fail on a second call is never called
+# twice. setdefault() and pop() went through their own lookup before.
+class CountingHash:
+    calls = 0
+
+    def __hash__(self):
+        CountingHash.calls += 1
+        if CountingHash.calls >= 2:
+            raise TypeError("must not hash twice")
+        return 7
+
+
+CountingHash.calls = 0
+{}.setdefault(CountingHash(), 1)
+assert CountingHash.calls == 1, CountingHash.calls
+
+CountingHash.calls = 0
+with assert_raises(KeyError):
+    {}.pop(CountingHash())
+assert CountingHash.calls == 1, CountingHash.calls
