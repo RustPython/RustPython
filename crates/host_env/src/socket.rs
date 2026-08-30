@@ -18,8 +18,31 @@ pub use ::dns_lookup as dns;
 #[cfg(not(target_arch = "wasm32"))]
 pub use ::socket2 as raw;
 
-/// Returns the first non-loopback MAC address as 6 bytes, or `None` when no
-/// MAC address is available or the lookup fails.
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "android",
+    target_os = "windows",
+    target_arch = "wasm32",
+    target_os = "redox"
+)))]
+fn select_mac_address(addresses: impl IntoIterator<Item = [u8; 6]>) -> Option<[u8; 6]> {
+    let mut first_local = None;
+
+    for address in addresses {
+        if address == [0; 6] {
+            continue;
+        }
+        if address[0] & 0x02 == 0 {
+            return Some(address);
+        }
+        first_local.get_or_insert(address);
+    }
+
+    first_local
+}
+
+/// Returns a universally administered MAC address when available, otherwise
+/// the first locally administered address, or `None` when lookup fails.
 #[cfg(not(any(
     target_os = "ios",
     target_os = "android",
@@ -28,10 +51,44 @@ pub use ::socket2 as raw;
     target_os = "redox"
 )))]
 pub fn mac_address() -> Option<[u8; 6]> {
-    mac_address::get_mac_address()
-        .ok()
-        .flatten()
-        .map(|m| m.bytes())
+    let addresses = mac_address::MacAddressIterator::new().ok()?;
+    select_mac_address(addresses.map(|address| address.bytes()))
+}
+
+#[cfg(test)]
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "android",
+    target_os = "windows",
+    target_arch = "wasm32",
+    target_os = "redox"
+)))]
+mod mac_address_tests {
+    use super::select_mac_address;
+
+    #[test]
+    fn prefers_universally_administered_address() {
+        let local = [0x02, 0, 0, 0, 0, 1];
+        let universal = [0x00, 0, 0, 0, 0, 2];
+
+        assert_eq!(select_mac_address([local, universal]), Some(universal));
+    }
+
+    #[test]
+    fn falls_back_to_first_locally_administered_address() {
+        let first = [0x02, 0, 0, 0, 0, 1];
+        let second = [0x06, 0, 0, 0, 0, 2];
+
+        assert_eq!(select_mac_address([first, second]), Some(first));
+    }
+
+    #[test]
+    fn ignores_zero_address() {
+        let universal = [0x00, 0, 0, 0, 0, 1];
+
+        assert_eq!(select_mac_address([[0; 6], universal]), Some(universal));
+        assert_eq!(select_mac_address([[0; 6]]), None);
+    }
 }
 
 #[cfg(unix)]
