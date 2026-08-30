@@ -1702,16 +1702,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.ins().jump(merge_block, &[one_f.into()]);
         self.builder.switch_to_block(continue_block);
 
-        // --- Edge Case 2: b is NaN → return NaN
-        let cmp_b_nan = self.builder.ins().fcmp(FloatCC::Unordered, b, b);
-        let b_nan_block = self.builder.create_block();
-        let continue_block2 = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(cmp_b_nan, b_nan_block, &[], continue_block2, &[]);
-        self.builder.switch_to_block(b_nan_block);
-        self.builder.ins().jump(merge_block, &[nan_f.into()]);
-        self.builder.switch_to_block(continue_block2);
+        // Edge Case 2 (b is NaN) is unreachable: the out-of-range-exponent
+        // guard above already deopts any NaN exponent.
 
         // --- Edge Case 3: a == 0.0 → return 0.0
         let cmp_a_zero = self.builder.ins().fcmp(FloatCC::Equal, a, zero_f);
@@ -1735,27 +1727,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.ins().jump(merge_block, &[nan_f.into()]);
         self.builder.switch_to_block(continue_block4);
 
-        // --- Edge Case 5: b == +infinity → return +infinity
-        let cmp_b_inf = self.builder.ins().fcmp(FloatCC::Equal, b, inf_f);
-        let b_inf_block = self.builder.create_block();
-        let continue_block5 = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(cmp_b_inf, b_inf_block, &[], continue_block5, &[]);
-        self.builder.switch_to_block(b_inf_block);
-        self.builder.ins().jump(merge_block, &[inf_f.into()]);
-        self.builder.switch_to_block(continue_block5);
-
-        // --- Edge Case 6: b == -infinity → return 0.0
-        let cmp_b_neg_inf = self.builder.ins().fcmp(FloatCC::Equal, b, neg_inf_f);
-        let b_neg_inf_block = self.builder.create_block();
-        let continue_block6 = self.builder.create_block();
-        self.builder
-            .ins()
-            .brif(cmp_b_neg_inf, b_neg_inf_block, &[], continue_block6, &[]);
-        self.builder.switch_to_block(b_neg_inf_block);
-        self.builder.ins().jump(merge_block, &[zero_f.into()]);
-        self.builder.switch_to_block(continue_block6);
+        // Edge Cases 5 and 6 (b == +/-infinity) are unreachable: the
+        // out-of-range-exponent guard above already deopts any infinite
+        // exponent (`fabs(+/-inf) >= 1024.0`).
 
         // --- Edge Case 7: a == +infinity → return +infinity
         let cmp_a_inf = self.builder.ins().fcmp(FloatCC::Equal, a, inf_f);
