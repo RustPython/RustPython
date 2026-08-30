@@ -556,7 +556,10 @@ pub(crate) struct DeoptSite {
     pub(crate) stack: Box<[StackEntry]>,
     /// Whether a frame can be rebuilt from this site's record. A site lists
     /// the locals the compiler had seen where the guard was lowered, which a
-    /// backward jump can leave short of what is bound where it fires.
+    /// backward jump can leave short of what is bound where it fires. A local
+    /// the record omits is missing from the resumed frame, where anything
+    /// reading its fastlocals other than a `LoadFast` can see it go:
+    /// `f_locals`, a tracer stepping the frame, a debugger stopped in it.
     pub(crate) resumable: bool,
 }
 

@@ -134,12 +134,18 @@ if hasattr(foo, "__jit__"):
     # A guard lists the locals the compiler had seen when it was lowered.
     # `extra` is stored further down the loop body, so the guard on the sum
     # cannot describe it - yet the backward jump means it is already bound by
-    # the time that guard fires on the second iteration. A local a site cannot
-    # describe is never read back after a resume, because a read the compiler
-    # cannot prove bound is a LOAD_FAST_CHECK and no function containing one
-    # compiles at all; it stays visible through `f_locals` though, so a site
-    # that cannot describe every bound local restarts the call instead of
-    # resuming without it.
+    # the time that guard fires on the second iteration. A site that cannot
+    # describe every bound local restarts the call instead of resuming
+    # without it.
+    #
+    # This reads the dropped local out of a traceback rather than out of the
+    # function, and it has to. The obvious version - `return total + extra` -
+    # cannot fail, because a read the compiler cannot prove bound compiles to
+    # LOAD_FAST_CHECK, which has no lowering, so no function that would
+    # observe the drop that way compiles in the first place. What does still
+    # see it is anything reading the frame's fastlocals other than a
+    # LOAD_FAST: `f_locals` here, a tracer stepping the resumed frame, a
+    # debugger stopped in it.
     def late(n: int, step: int) -> int:
         total = 0
         while n > 0:

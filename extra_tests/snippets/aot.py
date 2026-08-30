@@ -152,9 +152,10 @@ if AOT:
 
 if AOT:
     compiled, rejected, deoptimized = sys._jit._stats()
-    # `scale`, `wide`, `wide2`, `divide`, and the rebound `countdown` at line
-    # 101 are what the automatic path takes above. These are floors, not
-    # exact counts, but they must not regress: the point of letting Strict
+    # `scale`, `wide`, `wide2`, `divide`, and the rebound `countdown` are what
+    # the automatic path takes above - the original self-recursive one, kept as
+    # `original_countdown`, is refused. These are floors, not exact
+    # counts, but they must not regress: the point of letting Strict
     # compile arithmetic was to take shapes it used to refuse outright, and a
     # floor already met before that change could not tell if the gate came
     # back. `compiled` and `deoptimized` are pinned to what this file
