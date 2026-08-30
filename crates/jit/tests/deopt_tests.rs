@@ -148,6 +148,112 @@ def shr(a: int, b: int) -> int:
         }
     }
 
+    /// A zero divisor has no machine answer: `sdiv`/`srem` trap where Python
+    /// raises ZeroDivisionError. `//` and `%` share the same guard.
+    #[test]
+    fn floor_divide_and_remainder_deopt_on_zero_divisor() {
+        let div = jit_function! { div => r#"
+def div(a: int, b: int) -> int:
+    return a // b
+"# };
+        assert_eq!(
+            div.invoke(&[7i64.into(), 2i64.into()]),
+            Ok(Outcome::Returned(Some(3i64.into())))
+        );
+        match div.invoke(&[7i64.into(), 0i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(7), int(0)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+
+        let rem = jit_function! { rem => r#"
+def rem(a: int, b: int) -> int:
+    return a % b
+"# };
+        match rem.invoke(&[7i64.into(), 0i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(7), int(0)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// `i64::MIN // -1`'s quotient is one past the top of the range - there
+    /// is no 64-bit answer, so it deoptimizes ahead of the `sdiv` that would
+    /// otherwise trap.
+    #[test]
+    fn floor_divide_deopts_on_i64_min_over_negative_one() {
+        let code = jit_function! { div => r#"
+def div(a: int, b: int) -> int:
+    return a // b
+"# };
+        match code.invoke(&[i64::MIN.into(), (-1i64).into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(i64::MIN), int(-1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// A zero divisor raises ZeroDivisionError; there is no float to hand
+    /// back for it.
+    #[test]
+    fn true_divide_deopts_on_zero_divisor() {
+        let code = jit_function! { div => r#"
+def div(a: int, b: int) -> float:
+    return a / b
+"# };
+        assert_eq!(
+            code.invoke(&[7i64.into(), 2i64.into()]),
+            Ok(Outcome::Returned(Some(3.5f64.into())))
+        );
+        match code.invoke(&[7i64.into(), 0i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(7), int(0)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// `int.__truediv__` is correctly rounded, but converting both operands
+    /// to `f64` and dividing rounds twice. That can be a ulp out as soon as
+    /// either conversion is inexact, which is exactly when an operand does
+    /// not fit a double's 53-bit significand.
+    #[test]
+    fn true_divide_deopts_on_wide_operand() {
+        let code = jit_function! { div => r#"
+def div(a: int, b: int) -> float:
+    return a / b
+"# };
+        assert_eq!(
+            code.invoke(&[((1i64 << 53) - 1).into(), 1i64.into()]),
+            Ok(Outcome::Returned(Some((((1i64 << 53) - 1) as f64).into())))
+        );
+        match code.invoke(&[(1i64 << 53).into(), 1i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(1i64 << 53), int(1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// `iabs` of `i64::MIN` is `i64::MIN` again, which an unsigned comparison
+    /// reads as far above `1 << 53` - so it takes the wide-operand path too.
+    #[test]
+    fn true_divide_deopts_on_i64_min_operand() {
+        let code = jit_function! { div => r#"
+def div(a: int, b: int) -> float:
+    return a / b
+"# };
+        match code.invoke(&[i64::MIN.into(), 1i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(i64::MIN), int(1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
     /// A guard reports every live local, and reports a local that has not been
     /// assigned on this path as unbound rather than inventing a value for it.
     #[test]

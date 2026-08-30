@@ -28,6 +28,7 @@ getres
 hasher
 hexf
 hexversion
+iabs
 iconst
 idents
 illumos
