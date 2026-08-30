@@ -710,7 +710,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         // a ulp out as soon as either conversion is inexact - which
                         // is exactly when the operand does not fit in a double's
                         // significand.
-                        let inexact = |compiler: &mut Self, v: Value| {
+                        let too_wide = |compiler: &mut Self, v: Value| {
                             let magnitude = compiler.builder.ins().iabs(v);
                             compiler.builder.ins().icmp_imm(
                                 IntCC::UnsignedGreaterThanOrEqual,
@@ -718,8 +718,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                                 1 << 53,
                             )
                         };
-                        let a_wide = inexact(self, a);
-                        let b_wide = inexact(self, b);
+                        let a_wide = too_wide(self, a);
+                        let b_wide = too_wide(self, b);
                         let wide = self.builder.ins().bor(a_wide, b_wide);
                         self.deopt_branch(wide, &operands)?;
 
@@ -1215,7 +1215,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     ///
     /// Two cases have no 64-bit answer at all and deoptimize: a zero divisor,
     /// which raises, and `i64::MIN // -1`, whose quotient is one past the top
-    /// of the range.
+    /// of the range. The guard is shared between the two results, so
+    /// `i64::MIN % -1` deopts alongside it even though `0` is a perfectly
+    /// good remainder - the pair is computed together.
     fn compile_floor_div(&mut self, a: Value, b: Value) -> Result<(Value, Value), JitCompileError> {
         let operands = [JitValue::Int(a), JitValue::Int(b)];
         let by_zero = self.builder.ins().icmp_imm(IntCC::Equal, b, 0);
@@ -1227,7 +1229,15 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.deopt_branch(overflows, &operands)?;
 
         let quotient = self.builder.ins().sdiv(a, b);
-        let remainder = self.builder.ins().srem(a, b);
+        // The remainder as `a - quotient * b` rather than a second `srem`:
+        // cranelift keeps a trapping division live even when nothing reads
+        // its result, so asking for both would cost two hardware divisions
+        // instead of one. The multiply cannot overflow: `quotient` truncates
+        // toward zero, so `|quotient * b| <= |a|` and `quotient * b` shares
+        // `a`'s sign, making the subtraction one between same-signed values
+        // with the smaller magnitude second.
+        let product = self.builder.ins().imul(quotient, b);
+        let remainder = self.builder.ins().isub(a, product);
 
         // The two disagree with Python exactly when the division was
         // inexact and the operands had opposite signs.
@@ -1239,6 +1249,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let one = self.builder.ins().iconst(types::I64, 1);
         let zero = self.builder.ins().iconst(types::I64, 0);
         let quotient_adjust = self.builder.ins().select(correct, one, zero);
+        // `isub` cannot overflow: it only subtracts when `correct` holds,
+        // which requires `remainder != 0`. A quotient of `i64::MIN` is still
+        // reachable here - after the guards above, only `b == 1` produces
+        // it - but that division is exact, so `remainder` is `0` and
+        // `correct` is false there.
         let quotient = self.builder.ins().isub(quotient, quotient_adjust);
 
         let remainder_adjust = self.builder.ins().select(correct, b, zero);
