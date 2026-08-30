@@ -19,14 +19,18 @@ use icu_properties::props::{
 };
 use rustpython_wtf8::CodePoint;
 
-include!(concat!(env!("OUT_DIR"), "/generated/membership_3_2.rs"));
-include!(concat!(env!("OUT_DIR"), "/generated/unicode_3_2.rs"));
-include!(concat!(env!("OUT_DIR"), "/generated/unicode_latest.rs"));
-include!(concat!(env!("OUT_DIR"), "/generated/unicode_num_type.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/bidi_class_3_2.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/binary_props_3_2.rs"));
 include!(concat!(
     env!("OUT_DIR"),
-    "/generated/unicode_numeric_value.rs"
+    "/generated/combining_class_3_2.rs"
 ));
+include!(concat!(env!("OUT_DIR"), "/generated/decomp.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/eaw_3_2.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/gen_cat_3_2.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/membership_3_2.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/numeric_value_3_2.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/num_type_3_2.rs"));
 
 #[derive(Clone, Copy)]
 enum DecompositionType {
