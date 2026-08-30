@@ -269,7 +269,7 @@ impl PyDict {
         Ok(())
     }
 
-    fn merge_dict(
+    pub(crate) fn merge_dict(
         &self,
         dict_other: PyDictRef,
         override_existing: bool,
