@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use rustpython_jit::{AbiValue, JitArgumentError};
+    use rustpython_jit::{AbiValue, JitArgumentError, JitCompileError, JitEngine, Safety};
 
     #[test]
     fn no_return_value() {
@@ -124,5 +124,25 @@ mod tests {
     "## };
 
         assert_eq!(fib(10), Ok(89));
+    }
+
+    /// A local read after being assigned on only one branch is the shape the
+    /// deopt spill has to survive: it reads every live local at every guard,
+    /// regardless of which branches actually ran. The bytecode compiler
+    /// substitutes `LOAD_FAST_CHECK` for `LOAD_FAST` on any local that is not
+    /// provably bound on every incoming path, and that opcode has no lowering
+    /// here, so this rejection is about a missing instruction, not about
+    /// whether the backend can read a partially-defined local.
+    #[test]
+    fn conditionally_defined_local_is_not_compiled() {
+        let engine = JitEngine::new();
+        let f = py_function_def!(f => r#"
+        def f(c: bool) -> int:
+            if c:
+                x = 1
+            return x
+        "#);
+        let result = f.compile_on(&engine, Safety::Permissive);
+        assert!(matches!(result, Err(JitCompileError::NotSupported)));
     }
 }
