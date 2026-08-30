@@ -27,3 +27,12 @@ if hasattr(foo, "__jit__"):
     bar.__jit__()
     baz.__jit__()
     tests()
+
+    # A sum that stops fitting in a machine word is not an error: the compiled
+    # code hands its operands back and the interpreter answers with a bignum.
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    add.__jit__()
+    assert add(1, 2) == 3
+    assert add(2**62, 2**62) == 2**63

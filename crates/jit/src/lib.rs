@@ -32,7 +32,6 @@ const SLOT_SIZE: usize = size_of::<u64>();
 /// nothing, which caps how much state a guard can spill.
 const MAX_DEOPT_SLOTS: usize = 64;
 /// Slots taken by the status and the bound mask, before the record starts.
-#[expect(dead_code, reason = "read once a guard writes a record")]
 const DEOPT_HEADER_SLOTS: usize = 2;
 
 /// The entry point of a compiled function: `(args, ret, deopt)`.
@@ -104,7 +103,7 @@ impl Jit {
         ret: Option<JitType>,
         unique: u64,
         safety: Safety,
-    ) -> Result<(FuncId, JitSig), JitCompileError> {
+    ) -> Result<(FuncId, JitSig, Vec<DeoptSite>), JitCompileError> {
         let result = self.build_function_inner(bytecode, args, ret, unique, safety);
         self.module.clear_context(&mut self.ctx);
         if result.is_err() {
@@ -123,7 +122,7 @@ impl Jit {
         ret: Option<JitType>,
         unique: u64,
         safety: Safety,
-    ) -> Result<(FuncId, JitSig), JitCompileError> {
+    ) -> Result<(FuncId, JitSig, Vec<DeoptSite>), JitCompileError> {
         let ptr_type = self.module.target_config().pointer_type();
         // The deopt buffer comes first so that a guard can reach it without
         // depending on how many parameters the function has.
@@ -151,7 +150,7 @@ impl Jit {
         builder.append_block_params_for_function_params(entry_block);
         builder.switch_to_block(entry_block);
 
-        let sig = {
+        let (sig, deopt_sites) = {
             let mut compiler = FunctionCompiler::new(
                 &mut builder,
                 bytecode.varnames.len(),
@@ -163,7 +162,7 @@ impl Jit {
 
             compiler.compile(func_ref, bytecode)?;
 
-            compiler.sig
+            (compiler.sig, compiler.deopt_sites)
         };
 
         builder.seal_all_blocks();
@@ -177,7 +176,7 @@ impl Jit {
 
         let entry = self.build_entry(id, body_signature, &sig, unique)?;
 
-        Ok((entry, sig))
+        Ok((entry, sig, deopt_sites))
     }
 
     /// Build the entry point callers go through: it takes a flat buffer of
@@ -302,7 +301,7 @@ impl JitEngine {
         // any two `def f` in different scopes collide.
         let unique = self.next_id.fetch_add(1, Ordering::Relaxed);
         let mut jit = self.jit.lock().unwrap_or_else(PoisonError::into_inner);
-        let (id, sig) = jit.build_function(bytecode, args, ret, unique, safety)?;
+        let (id, sig, deopt_sites) = jit.build_function(bytecode, args, ret, unique, safety)?;
         jit.module.finalize_definitions()?;
         let code = jit.module.get_finalized_function(id);
         drop(jit);
@@ -311,6 +310,7 @@ impl JitEngine {
         let entry = unsafe { mem::transmute::<*const u8, JitEntry>(code) };
         Ok(CompiledCode {
             sig,
+            deopt_sites,
             entry,
             _engine: self.clone(),
         })
@@ -375,6 +375,8 @@ pub fn compile<C: bytecode::Constant>(
 
 pub struct CompiledCode {
     sig: JitSig,
+    /// Indexed by the status a guard writes, less one.
+    deopt_sites: Vec<DeoptSite>,
     entry: JitEntry,
     /// Keeps the code memory alive; never read.
     _engine: Arc<JitEngine>,
@@ -414,7 +416,9 @@ impl CompiledCode {
         // SAFETY: the entry point stores the status first thing.
         let status = unsafe { deopt_ptr.read() };
         if status != 0 {
-            // SAFETY: the site describes exactly which slots the guard wrote.
+            // SAFETY: a non-zero status is written only by a guard of this
+            // code, and it is the index of the site that describes the record
+            // that guard just wrote into this buffer.
             return Outcome::Deopt(unsafe { self.read_deopt(status, deopt_ptr) });
         }
         Outcome::Returned(match self.sig.ret.as_ref() {
@@ -426,8 +430,42 @@ impl CompiledCode {
     /// # Safety
     /// `status` must be a status this code's guards can produce, and `deopt` must
     /// point at the buffer they wrote.
-    unsafe fn read_deopt(&self, _status: u64, _deopt: *const u64) -> DeoptState {
-        unreachable!("nothing writes a non-zero status yet")
+    unsafe fn read_deopt(&self, status: u64, deopt: *const u64) -> DeoptState {
+        let site = &self.deopt_sites[status as usize - 1];
+        // SAFETY: the guard wrote the mask and then one slot per listed local
+        // and stack entry, in this order, and the site is the one it wrote for.
+        let read = |slot: usize| unsafe { deopt.add(slot).read() };
+        let mask = read(1);
+        let mut slot = DEOPT_HEADER_SLOTS;
+        let mut locals = Vec::with_capacity(site.locals.len());
+        for (i, ty) in site.locals.iter().enumerate() {
+            // A listed local takes a slot whether or not it is bound, so an
+            // unbound one still has to be stepped over.
+            let value = ty.as_ref().map(|ty| {
+                let value = (mask & (1 << i) != 0).then(|| AbiValue::from_slot(ty, read(slot)));
+                slot += 1;
+                value
+            });
+            locals.push(value.flatten());
+        }
+        let stack = site
+            .stack
+            .iter()
+            .map(|entry| match entry {
+                StackEntry::Value(ty) => {
+                    let value = StackValue::Value(AbiValue::from_slot(ty, read(slot)));
+                    slot += 1;
+                    value
+                }
+                StackEntry::Callee => StackValue::Callee,
+                StackEntry::Null => StackValue::Null,
+            })
+            .collect();
+        DeoptState {
+            offset: site.offset,
+            locals,
+            stack,
+        }
     }
 }
 
@@ -449,7 +487,42 @@ pub struct DeoptState {
     /// unbound.
     pub locals: Vec<Option<AbiValue>>,
     /// Bottom to top.
-    pub stack: Vec<AbiValue>,
+    pub stack: Vec<StackValue>,
+}
+
+/// One value-stack entry handed back to the interpreter.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StackValue {
+    Value(AbiValue),
+    /// The function the compiled code belongs to.
+    Callee,
+    Null,
+}
+
+/// What one guard spills, and how to read it back.
+///
+/// The guard itself only writes values; everything about their shape is fixed
+/// at compile time and kept here, so the record in the buffer needs no tags.
+pub(crate) struct DeoptSite {
+    /// Bytecode offset of the instruction the guard belongs to.
+    pub(crate) offset: u32,
+    /// One entry per varname slot, in order; `None` where no local lives in
+    /// that slot. A listed local occupies a slot in the record even when the
+    /// bound mask says it is unassigned.
+    pub(crate) locals: Box<[Option<JitType>]>,
+    /// Bottom to top, after the listed locals.
+    pub(crate) stack: Box<[StackEntry]>,
+}
+
+/// What one value-stack slot holds at a deopt site. Only `Value` occupies a
+/// slot in the buffer; the other two are the same on every path that reaches
+/// the site, so the interpreter can rebuild them.
+pub(crate) enum StackEntry {
+    Value(JitType),
+    /// The compiled function itself, pushed by the self-reference lookup.
+    Callee,
+    /// The null a call pushes beside its callable.
+    Null,
 }
 
 struct JitSig {

@@ -1,5 +1,8 @@
 // spell-checker: disable
-use super::{JitCompileError, JitSig, JitType, Safety};
+use super::{
+    DEOPT_HEADER_SLOTS, DeoptSite, JitCompileError, JitSig, JitType, MAX_DEOPT_SLOTS, SLOT_SIZE,
+    Safety, StackEntry,
+};
 use alloc::collections::BTreeSet;
 use cranelift::codegen::ir::FuncRef;
 use cranelift::prelude::*;
@@ -22,7 +25,7 @@ struct Local {
     ty: JitType,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum JitValue {
     Int(Value),
     Float(Value),
@@ -59,6 +62,14 @@ impl JitValue {
             Self::None | Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
         }
     }
+
+    /// The cranelift value, without consuming the wrapper.
+    fn value(&self) -> Option<Value> {
+        match *self {
+            Self::Int(val) | Self::Float(val) | Self::Bool(val) => Some(val),
+            Self::None | Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -71,11 +82,21 @@ pub(crate) struct FunctionCompiler<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
     /// The buffer a guard spills its record into, parameter 0 of the function.
     deopt_ptr: Value,
+    /// The block every guard leaves through, created with the first one.
+    deopt_exit: Option<Block>,
+    /// Bytecode offset the instruction being lowered would be re-entered at.
+    resume_offset: u32,
     stack: Vec<JitValue>,
     variables: Box<[Option<Local>]>,
+    /// One flag per varname slot, 1 once a local has been stored there. A local
+    /// declared inside a branch is not assigned on every path that reaches a
+    /// guard. They are all declared up front so that they can be zeroed in the
+    /// entry block, which is out of reach once compilation has started.
+    bound_flags: Box<[Variable]>,
     label_to_block: HashMap<Label, Block>,
     safety: Safety,
     pub(crate) sig: JitSig,
+    pub(crate) deopt_sites: Vec<DeoptSite>,
 }
 
 /// Whether [`FunctionCompiler::add_instruction`] has a lowering for this opcode.
@@ -186,17 +207,31 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     ) -> Self {
         let params = builder.func.dfg.block_params(entry_block).to_vec();
         let (deopt_ptr, arg_params) = params.split_first().expect("the deopt buffer parameter");
+        // The builder still sits in the entry block, which is the only place a
+        // flag can be given the value every path into the function starts from.
+        let bound_flags: Box<[Variable]> = (0..num_variables)
+            .map(|_| {
+                let flag = builder.declare_var(types::I8);
+                let unbound = builder.ins().iconst(types::I8, 0);
+                builder.def_var(flag, unbound);
+                flag
+            })
+            .collect();
         let mut compiler = Self {
             builder,
             deopt_ptr: *deopt_ptr,
+            deopt_exit: None,
+            resume_offset: 0,
             stack: Vec::new(),
             variables: vec![None; num_variables].into_boxed_slice(),
+            bound_flags,
             label_to_block: HashMap::new(),
             safety,
             sig: JitSig {
                 args: arg_types.to_vec(),
                 ret: ret_type,
             },
+            deopt_sites: Vec::new(),
         };
         for (i, (ty, val)) in arg_types.iter().zip(arg_params.iter().copied()).enumerate() {
             compiler
@@ -219,6 +254,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let builder = &mut self.builder;
         let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
         let cranelift_ty = ty.to_cranelift().ok_or(JitCompileError::NotSupported)?;
+        let bound = self.bound_flags[idx];
         let local = self.variables[idx].get_or_insert_with(|| {
             let var = builder.declare_var(cranelift_ty);
             Local {
@@ -230,8 +266,134 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Err(JitCompileError::NotSupported)
         } else {
             self.builder.def_var(local.var, val.into_value().unwrap());
+            let is_bound = self.builder.ins().iconst(types::I8, 1);
+            self.builder.def_var(bound, is_bound);
             Ok(())
         }
+    }
+
+    /// Emit the two-way branch a guard is: when `cond` is non-zero the compiled
+    /// code gives up, spilling everything the interpreter needs to re-execute
+    /// this instruction from the start; otherwise it falls through and carries
+    /// on.
+    ///
+    /// `popped` is what this instruction has already taken off the stack, in
+    /// the order it must go back on. The interpreter re-executes the whole
+    /// instruction, so its operands have to be there.
+    fn deopt_branch(&mut self, cond: Value, popped: &[JitValue]) -> Result<(), JitCompileError> {
+        let live: Vec<Option<JitType>> = self
+            .variables
+            .iter()
+            .map(|local| local.as_ref().map(|l| l.ty.clone()))
+            .collect();
+        // The callable and the null a call pushes beside it are the same on
+        // every path that reaches the guard, so they are described rather than
+        // written. Anything else without a slot encoding - a tuple, a bare
+        // `None` - is not statically known either, so a guard cannot be placed
+        // above one.
+        let mut entries = Vec::with_capacity(self.stack.len() + popped.len());
+        let mut spilled = Vec::new();
+        for val in self.stack.iter().chain(popped) {
+            match val {
+                JitValue::FuncRef(_) => entries.push(StackEntry::Callee),
+                JitValue::Null => entries.push(StackEntry::Null),
+                _ => {
+                    let (ty, value) = val
+                        .to_jit_type()
+                        .zip(val.value())
+                        .ok_or(JitCompileError::NotSupported)?;
+                    entries.push(StackEntry::Value(ty.clone()));
+                    spilled.push((ty, value));
+                }
+            }
+        }
+
+        let slots = DEOPT_HEADER_SLOTS + live.iter().flatten().count() + spilled.len();
+        if slots > MAX_DEOPT_SLOTS || live.len() > u64::BITS as usize {
+            return Err(JitCompileError::NotSupported);
+        }
+
+        let site = self.deopt_sites.len();
+        self.deopt_sites.push(DeoptSite {
+            offset: self.resume_offset,
+            locals: live.clone().into_boxed_slice(),
+            stack: entries.into_boxed_slice(),
+        });
+
+        self.deopt_if(cond, |this| {
+            let mut offset = DEOPT_HEADER_SLOTS;
+            let mut mask = this.builder.ins().iconst(types::I64, 0);
+            for (i, ty) in live.iter().enumerate() {
+                let Some(ty) = ty else { continue };
+                let var = this.variables[i].as_ref().expect("live local").var;
+                let value = this.builder.use_var(var);
+                this.store_slot(ty, value, offset);
+                let bound = this.builder.use_var(this.bound_flags[i]);
+                let bound = this.builder.ins().uextend(types::I64, bound);
+                let bit = this.builder.ins().ishl_imm(bound, i as i64);
+                mask = this.builder.ins().bor(mask, bit);
+                offset += 1;
+            }
+            for (ty, value) in spilled {
+                this.store_slot(&ty, value, offset);
+                offset += 1;
+            }
+            this.store_raw(mask, 1);
+            let status = this.builder.ins().iconst(types::I64, site as i64 + 1);
+            this.store_raw(status, 0);
+        });
+        Ok(())
+    }
+
+    /// Emit "when `cond` is non-zero, leave through the shared deopt exit;
+    /// otherwise carry on". `spill` fills the block that is taken, which is
+    /// where a guard writes its record; a caller whose record is already
+    /// written leaves it empty. The builder is left in the fall-through block,
+    /// so lowering continues where it left off.
+    fn deopt_if(&mut self, cond: Value, spill: impl FnOnce(&mut Self)) {
+        let taken = self.builder.create_block();
+        let carry_on = self.builder.create_block();
+        self.builder.ins().brif(cond, taken, &[], carry_on, &[]);
+
+        self.builder.switch_to_block(taken);
+        spill(self);
+        let exit = self.deopt_exit();
+        self.builder.ins().jump(exit, &[]);
+
+        self.builder.switch_to_block(carry_on);
+    }
+
+    /// Write one value into the deopt buffer, in the 64-bit encoding
+    /// `AbiValue::from_slot` reads back.
+    fn store_slot(&mut self, ty: &JitType, value: Value, slot: usize) {
+        let value = match ty {
+            JitType::Int | JitType::Float => value,
+            // A flag occupies a whole slot, so the bits above it have to be zero.
+            JitType::Bool => self.builder.ins().uextend(types::I64, value),
+            // Neither a local nor a spilled stack entry can carry one: a local
+            // of no cranelift type is rejected when it is stored, and a `None`
+            // on the stack has no value to pair with its type.
+            JitType::None => return,
+        };
+        self.store_raw(value, slot);
+    }
+
+    fn store_raw(&mut self, value: Value, slot: usize) {
+        let offset = i32::try_from(slot * SLOT_SIZE).expect("slot count is capped");
+        self.builder
+            .ins()
+            .store(MemFlags::trusted(), value, self.deopt_ptr, offset);
+    }
+
+    /// The one block every guard leaves through. Its return is emitted at the
+    /// end of compilation, because until then the function's return type may
+    /// still be unknown.
+    fn deopt_exit(&mut self) -> Block {
+        #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
+        let builder = &mut self.builder;
+        *self
+            .deopt_exit
+            .get_or_insert_with(|| builder.create_block())
     }
 
     fn boolean_val(&mut self, val: JitValue) -> Result<Value, JitCompileError> {
@@ -339,6 +501,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
         // Track whether we have "returned" in the current block
         let mut in_unreachable_code = false;
+        let mut extended_start: Option<u32> = None;
 
         for (offset, &raw_instr) in clean_instructions.iter().enumerate() {
             let label = Label::from_u32(offset as u32);
@@ -380,8 +543,19 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 continue;
             }
 
+            // The oparg of an instruction preceded by EXTENDED_ARG is
+            // accumulated across the group, so a resume has to start where the
+            // group starts.
+            self.resume_offset = extended_start.unwrap_or(offset as u32);
+
             // Actually compile this instruction:
             self.add_instruction(func_ref, bytecode, offset as u32, instruction, arg)?;
+
+            if matches!(instruction, Instruction::ExtendedArg) {
+                extended_start.get_or_insert(offset as u32);
+            } else {
+                extended_start = None;
+            }
 
             // If that was an unconditional branch or return, mark future instructions unreachable
             match instruction {
@@ -403,6 +577,25 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             };
             if needs_terminator {
                 self.builder.ins().trap(TrapCode::user(0).unwrap());
+            }
+        }
+
+        // The deopt exit returns whatever the function's signature ended up
+        // saying it returns; the value is never looked at, because the status
+        // says the call did not return one.
+        if let Some(exit) = self.deopt_exit {
+            self.builder.switch_to_block(exit);
+            match self.sig.ret.as_ref().and_then(JitType::to_cranelift) {
+                Some(ty) => {
+                    let filler = match ty {
+                        types::F64 => self.builder.ins().f64const(0.0),
+                        ty => self.builder.ins().iconst(ty, 0),
+                    };
+                    self.builder.ins().return_(&[filler]);
+                }
+                None => {
+                    self.builder.ins().return_(&[]);
+                }
             }
         }
         Ok(())
@@ -490,7 +683,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         JitValue::Int(b),
                     ) => {
                         let (out, carry) = self.builder.ins().sadd_overflow(a, b);
-                        self.builder.ins().trapnz(carry, TrapCode::INTEGER_OVERFLOW);
+                        // Overflow is not an error: it is where the interpreter
+                        // stops using a machine word and starts using a bignum,
+                        // so the operands go back to it intact.
+                        self.deopt_branch(carry, &[JitValue::Int(a), JitValue::Int(b)])?;
                         JitValue::Int(out)
                     }
                     (
@@ -676,6 +872,20 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             (Some(ty), Some(val)) => JitValue::from_type_and_value(ty, val),
                             _ => return Err(JitCompileError::NotSupported),
                         };
+
+                        // A nested frame that gave up has already written its
+                        // record, and returned a filler in place of a result.
+                        // Anything this frame computes from here on is built on
+                        // that filler, so stop and leave its record standing.
+                        let status = self.builder.ins().load(
+                            types::I64,
+                            MemFlags::trusted(),
+                            self.deopt_ptr,
+                            0,
+                        );
+                        let nested = self.builder.ins().icmp_imm(IntCC::NotEqual, status, 0);
+                        self.deopt_if(nested, |_| {});
+
                         self.stack.push(val);
 
                         Ok(())
