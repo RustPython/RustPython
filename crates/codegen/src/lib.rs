@@ -24,7 +24,7 @@ mod unparse;
 
 pub use compile::CompileOpts;
 use ruff_python_ast as ast;
-use ruff_text_size::{Ranged, TextRange, TextSize};
+use ruff_text_size::{Ranged, TextRange, TextSize, TextSlice};
 use rustpython_compiler_core::SourceFile;
 use rustpython_wtf8::Wtf8Buf;
 
@@ -116,7 +116,7 @@ pub fn decorated_definition_range(
         return statement_range;
     }
     let search_range = TextRange::new(search_start, statement_range.end());
-    let source = source_file.slice(search_range);
+    let source = source_file.source_text().slice(search_range);
     let Some(keyword_offset) = source.find(keyword) else {
         return statement_range;
     };
@@ -151,7 +151,7 @@ pub fn string_literal_value(source_file: &SourceFile, string: &ast::StringLitera
 #[must_use]
 pub fn string_literal_part_value(source_file: &SourceFile, string: &ast::StringLiteral) -> Wtf8Buf {
     if string.value.contains(char::REPLACEMENT_CHARACTER) {
-        let source = source_file.slice(string.range);
+        let source = source_file.source_text().slice(string.range);
         string_parser::parse_string_literal(source, string.flags.into()).into()
     } else {
         string.value.to_string().into()
@@ -167,7 +167,7 @@ pub fn interpolated_string_literal_value(
     flags: ast::AnyStringFlags,
 ) -> Wtf8Buf {
     if element.value.contains(char::REPLACEMENT_CHARACTER) {
-        let source = source_file.slice(element.range);
+        let source = source_file.source_text().slice(element.range);
         string_parser::parse_fstring_literal_element(source.into(), flags).into()
     } else {
         element.value.to_string().into()
@@ -186,11 +186,11 @@ pub fn interpolation_debug_text(
     debug_text: &ast::DebugText,
     expression_range: TextRange,
 ) -> (String, TextRange) {
-    let leading = debug_text.leading.as_str();
-    let trailing = debug_text.trailing.as_str();
+    let leading = debug_text.leading();
+    let trailing = debug_text.trailing();
     let text = [
         strip_python_comments(leading).as_str(),
-        source_file.slice(expression_range),
+        source_file.source_text().slice(expression_range),
         strip_python_comments(trailing).as_str(),
     ]
     .concat();
