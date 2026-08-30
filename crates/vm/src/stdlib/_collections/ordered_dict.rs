@@ -589,18 +589,135 @@ pub(crate) mod ordered_dict {
     // OrderedDict Views
     // ============================================================================
 
+    fn is_set_like_view(other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        if other.fast_isinstance(vm.ctx.types.set_type)
+            || other.fast_isinstance(vm.ctx.types.frozenset_type)
+            || other.class().is(vm.ctx.types.dict_keys_type)
+            || other.class().is(vm.ctx.types.dict_items_type)
+            || other.downcast_ref::<PyOrderedDictKeys>().is_some()
+            || other.downcast_ref::<PyOrderedDictItems>().is_some()
+        {
+            return Ok(true);
+        }
+        let abc = vm.import("_collections_abc", 0)?;
+        let set_abc = abc.get_attr("Set", vm)?;
+        other.is_instance(&set_abc, vm)
+    }
+
+    fn set_like_view_cmp(
+        self_len: usize,
+        self_items: Vec<PyObjectRef>,
+        self_contains: impl Fn(&PyObject, &VirtualMachine) -> PyResult<bool>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        if op == PyComparisonOp::Ne {
+            return set_like_view_cmp(
+                self_len,
+                self_items,
+                self_contains,
+                other,
+                PyComparisonOp::Eq,
+                vm,
+            )
+            .map(|result| result.map(|equal| !equal));
+        }
+        if !is_set_like_view(other, vm)? {
+            return Ok(PyComparisonValue::NotImplemented);
+        }
+
+        let other_len = other.length(vm)?;
+        if !op.eval_ord(self_len.cmp(&other_len)) {
+            return Ok(PyComparisonValue::Implemented(false));
+        }
+
+        let self_is_subset = matches!(
+            op,
+            PyComparisonOp::Eq | PyComparisonOp::Lt | PyComparisonOp::Le
+        );
+        if self_is_subset {
+            for item in self_items {
+                if !other.sequence_unchecked().contains(&item, vm)? {
+                    return Ok(PyComparisonValue::Implemented(false));
+                }
+            }
+        } else {
+            let iter = other.get_iter(vm)?;
+            for item in iter.iter::<PyObjectRef>(vm)? {
+                let item = item?;
+                if !self_contains(&item, vm)? {
+                    return Ok(PyComparisonValue::Implemented(false));
+                }
+            }
+        }
+        Ok(PyComparisonValue::Implemented(true))
+    }
+
+    fn ordered_items_contains(
+        ordered_dict: &PyOrderedDict,
+        needle: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let Some(needle) = needle.downcast_ref::<PyTuple>() else {
+            return Ok(false);
+        };
+        if needle.len() != 2 {
+            return Ok(false);
+        }
+        let Some(value) = ordered_dict.inner._as_dict_inner().get(vm, &*needle[0])? else {
+            return Ok(false);
+        };
+        vm.identical_or_equal(&value, &needle[1])
+    }
+
+    fn ordered_view_number_and(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+        let a_is_view = a.downcast_ref::<PyOrderedDictKeys>().is_some()
+            || a.downcast_ref::<PyOrderedDictItems>().is_some();
+        let (view, other) = if a_is_view { (a, b) } else { (b, a) };
+        set_view_number_and(view, other, vm)
+    }
+
+    fn ordered_item_view_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+        let is_item_view = |obj: &PyObject| {
+            obj.downcast_ref::<PyOrderedDictItems>().is_some()
+                || obj.downcast_ref::<PyDictItems>().is_some()
+        };
+        set_item_view_number_xor(a, b, is_item_view(a) && is_item_view(b), vm)
+    }
+
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_keys")]
+    #[pyclass(module = "_collections", name = "odict_keys", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyOrderedDictKeys {
         ordered_dict: PyOrderedDictRef,
     }
 
-    #[pyclass(with(Iterable, Comparable, AsSequence, Representable))]
+    #[pyclass(with(Iterable, Comparable, AsSequence, AsNumber, Representable))]
     impl PyOrderedDictKeys {
         #[pymethod]
         fn __reversed__(&self) -> PyOrderedDictReverseKeyIterator {
             PyOrderedDictReverseKeyIterator::new(self.ordered_dict.clone())
+        }
+
+        #[pygetset]
+        fn mapping(&self, vm: &VirtualMachine) -> PyResult<PyMappingProxy> {
+            PyMappingProxy::from_object(self.ordered_dict.as_object().to_owned(), vm)
+        }
+
+        #[pymethod]
+        fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+            for item in other.iter(vm)? {
+                if self
+                    .ordered_dict
+                    .inner
+                    ._as_dict_inner()
+                    .contains(vm, &*item?)?
+                {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
         }
     }
 
@@ -636,19 +753,28 @@ pub(crate) mod ordered_dict {
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
-            // Convert both to lists for comparison (like CPython)
-            let self_keys: Vec<PyObjectRef> = zelf.ordered_dict.inner._as_dict_inner().keys();
-            let other_vec: Result<Vec<PyObjectRef>, _> = other.try_to_value(vm);
+            let entries = zelf.ordered_dict.inner._as_dict_inner();
+            set_like_view_cmp(
+                entries.len(),
+                entries.keys(),
+                |needle, vm| entries.contains(vm, needle),
+                other,
+                op,
+                vm,
+            )
+        }
+    }
 
-            if let Ok(other_keys) = other_vec {
-                let other_keys: &Vec<PyObjectRef> = &other_keys;
-                self_keys
-                    .iter()
-                    .richcompare(other_keys.iter(), op, vm)
-                    .map(PyComparisonValue::Implemented)
-            } else {
-                Ok(PyComparisonValue::NotImplemented)
-            }
+    impl AsNumber for PyOrderedDictKeys {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                subtract: Some(set_inner_number_subtract),
+                and: Some(ordered_view_number_and),
+                xor: Some(set_inner_number_xor),
+                or: Some(set_inner_number_or),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
         }
     }
 
@@ -670,7 +796,7 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_values")]
+    #[pyclass(module = "_collections", name = "odict_values", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyOrderedDictValues {
         ordered_dict: PyOrderedDictRef,
@@ -681,6 +807,11 @@ pub(crate) mod ordered_dict {
         #[pymethod]
         fn __reversed__(&self) -> PyOrderedDictReverseValueIterator {
             PyOrderedDictReverseValueIterator::new(self.ordered_dict.clone())
+        }
+
+        #[pygetset]
+        fn mapping(&self, vm: &VirtualMachine) -> PyResult<PyMappingProxy> {
+            PyMappingProxy::from_object(self.ordered_dict.as_object().to_owned(), vm)
         }
     }
 
@@ -722,17 +853,33 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_items")]
+    #[pyclass(module = "_collections", name = "odict_items", traverse)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct PyOrderedDictItems {
         ordered_dict: PyOrderedDictRef,
     }
 
-    #[pyclass(with(Iterable, Comparable, AsSequence, Representable))]
+    #[pyclass(with(Iterable, Comparable, AsSequence, AsNumber, Representable))]
     impl PyOrderedDictItems {
         #[pymethod]
         fn __reversed__(&self) -> PyOrderedDictReverseItemIterator {
             PyOrderedDictReverseItemIterator::new(self.ordered_dict.clone())
+        }
+
+        #[pygetset]
+        fn mapping(&self, vm: &VirtualMachine) -> PyResult<PyMappingProxy> {
+            PyMappingProxy::from_object(self.ordered_dict.as_object().to_owned(), vm)
+        }
+
+        #[pymethod]
+        fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+            for item in other.iter(vm)? {
+                let item = item?;
+                if ordered_items_contains(&self.ordered_dict, &item, vm)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
         }
     }
 
@@ -744,6 +891,10 @@ pub(crate) mod ordered_dict {
                     .inner
                     ._as_dict_inner()
                     .len())),
+                contains: atomic_func!(|seq, target, vm| {
+                    let zelf = PyOrderedDictItems::sequence_downcast(seq);
+                    ordered_items_contains(&zelf.ordered_dict, target, vm)
+                }),
                 ..PySequenceMethods::NOT_IMPLEMENTED
             };
             &AS_SEQUENCE
@@ -763,26 +914,33 @@ pub(crate) mod ordered_dict {
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
-            // Convert both to lists for comparison
-            let self_items: Vec<PyObjectRef> = zelf
-                .ordered_dict
-                .inner
-                ._as_dict_inner()
+            let entries = zelf.ordered_dict.inner._as_dict_inner();
+            let self_items = entries
                 .items()
                 .into_iter()
                 .map(|(k, v)| vm.new_tuple((k, v)).into())
                 .collect();
-            let other_vec: Result<Vec<PyObjectRef>, _> = other.try_to_value(vm);
+            set_like_view_cmp(
+                entries.len(),
+                self_items,
+                |needle, vm| ordered_items_contains(&zelf.ordered_dict, needle, vm),
+                other,
+                op,
+                vm,
+            )
+        }
+    }
 
-            if let Ok(other_items) = other_vec {
-                let other_items: &Vec<PyObjectRef> = &other_items;
-                self_items
-                    .iter()
-                    .richcompare(other_items.iter(), op, vm)
-                    .map(PyComparisonValue::Implemented)
-            } else {
-                Ok(PyComparisonValue::NotImplemented)
-            }
+    impl AsNumber for PyOrderedDictItems {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                subtract: Some(set_inner_number_subtract),
+                and: Some(ordered_view_number_and),
+                xor: Some(ordered_item_view_number_xor),
+                or: Some(set_inner_number_or),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
         }
     }
 
@@ -808,19 +966,67 @@ pub(crate) mod ordered_dict {
     // OrderedDict Iterators
     // ============================================================================
 
+    fn reduce_forward_iterator(
+        internal: &PyMutex<PositionIterInternal<PyOrderedDictRef>>,
+        size: &dict_inner::DictSize,
+        mutation_version: usize,
+        project: impl Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyTupleRef> {
+        let internal = internal.lock();
+        let mut result = Vec::new();
+        if let Active(ordered_dict) = &internal.status {
+            let entries = ordered_dict.inner._as_dict_inner();
+            let remaining = entries
+                .remaining_items_version_checked(internal.position, size, mutation_version, false)
+                .map_err(|_| vm.new_runtime_error("OrderedDict mutated during iteration"))?;
+            for (key, value) in remaining {
+                result.push(project(vm, key, value));
+            }
+        }
+        Ok(vm.new_tuple((builtins_iter(vm), (vm.ctx.new_list(result),))))
+    }
+
+    fn reduce_reverse_iterator(
+        internal: &PyMutex<PositionIterInternal<PyOrderedDictRef>>,
+        size: &dict_inner::DictSize,
+        mutation_version: usize,
+        project: impl Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyTupleRef> {
+        let internal = internal.lock();
+        let mut result = Vec::new();
+        if let Active(ordered_dict) = &internal.status {
+            let entries = ordered_dict.inner._as_dict_inner();
+            let remaining = entries
+                .remaining_items_version_checked(internal.position, size, mutation_version, true)
+                .map_err(|_| vm.new_runtime_error("OrderedDict mutated during iteration"))?;
+            for (key, value) in remaining {
+                result.push(project(vm, key, value));
+            }
+        }
+        Ok(vm.new_tuple((builtins_iter(vm), (vm.ctx.new_list(result),))))
+    }
+
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_keyiterator")]
+    #[pyclass(
+        module = "_collections",
+        name = "odict_keyiterator",
+        traverse = "manual"
+    )]
     #[derive(Debug, PyPayload)]
     struct PyOrderedDictKeyIterator {
         size: dict_inner::DictSize,
+        mutation_version: usize,
         internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
     }
 
     impl PyOrderedDictKeyIterator {
         fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let size = ordered_dict.inner._as_dict_inner().size();
+            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
             Self {
                 size,
+                mutation_version,
                 internal: PyMutex::new(PositionIterInternal::new(ordered_dict, 0)),
             }
         }
@@ -832,6 +1038,17 @@ pub(crate) mod ordered_dict {
         fn __length_hint__(&self) -> usize {
             self.internal.lock().length_hint(|_| self.size.entries_size)
         }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            reduce_forward_iterator(
+                &self.internal,
+                &self.size,
+                self.mutation_version,
+                |_vm, key, _value| key,
+                vm,
+            )
+        }
     }
 
     impl SelfIter for PyOrderedDictKeyIterator {}
@@ -841,13 +1058,15 @@ pub(crate) mod ordered_dict {
                 let Active(ordered_dict) = &internal.status else {
                     return (Ok(PyIterReturn::StopIteration(None)), None);
                 };
-                match ordered_dict.inner._as_dict_inner().next_entry_checked(
+                let entries = ordered_dict.inner._as_dict_inner();
+                match entries.next_entry_version_checked(
                     internal.position,
                     &zelf.size,
+                    zelf.mutation_version,
                     |key, _value| key.clone(),
                 ) {
                     Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("dictionary changed size during iteration")),
+                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
                         internal.exhaust(),
                     ),
                     Ok(Some((position, key))) => {
@@ -861,18 +1080,24 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_valueiterator")]
+    #[pyclass(
+        module = "_collections",
+        name = "odict_valueiterator",
+        traverse = "manual"
+    )]
     #[derive(Debug, PyPayload)]
     struct PyOrderedDictValueIterator {
         size: dict_inner::DictSize,
+        mutation_version: usize,
         internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
     }
 
     impl PyOrderedDictValueIterator {
         fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let size = ordered_dict.inner._as_dict_inner().size();
+            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
             Self {
                 size,
+                mutation_version,
                 internal: PyMutex::new(PositionIterInternal::new(ordered_dict, 0)),
             }
         }
@@ -884,6 +1109,17 @@ pub(crate) mod ordered_dict {
         fn __length_hint__(&self) -> usize {
             self.internal.lock().length_hint(|_| self.size.entries_size)
         }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            reduce_forward_iterator(
+                &self.internal,
+                &self.size,
+                self.mutation_version,
+                |_vm, _key, value| value,
+                vm,
+            )
+        }
     }
 
     impl SelfIter for PyOrderedDictValueIterator {}
@@ -893,13 +1129,15 @@ pub(crate) mod ordered_dict {
                 let Active(ordered_dict) = &internal.status else {
                     return (Ok(PyIterReturn::StopIteration(None)), None);
                 };
-                match ordered_dict.inner._as_dict_inner().next_entry_checked(
+                let entries = ordered_dict.inner._as_dict_inner();
+                match entries.next_entry_version_checked(
                     internal.position,
                     &zelf.size,
+                    zelf.mutation_version,
                     |_key, value| value.clone(),
                 ) {
                     Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("dictionary changed size during iteration")),
+                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
                         internal.exhaust(),
                     ),
                     Ok(Some((position, value))) => {
@@ -913,18 +1151,24 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_itemiterator")]
+    #[pyclass(
+        module = "_collections",
+        name = "odict_itemiterator",
+        traverse = "manual"
+    )]
     #[derive(Debug, PyPayload)]
     struct PyOrderedDictItemIterator {
         size: dict_inner::DictSize,
+        mutation_version: usize,
         internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
     }
 
     impl PyOrderedDictItemIterator {
         fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let size = ordered_dict.inner._as_dict_inner().size();
+            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
             Self {
                 size,
+                mutation_version,
                 internal: PyMutex::new(PositionIterInternal::new(ordered_dict, 0)),
             }
         }
@@ -936,6 +1180,17 @@ pub(crate) mod ordered_dict {
         fn __length_hint__(&self) -> usize {
             self.internal.lock().length_hint(|_| self.size.entries_size)
         }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            reduce_forward_iterator(
+                &self.internal,
+                &self.size,
+                self.mutation_version,
+                |vm, key, value| vm.new_tuple((key, value)).into(),
+                vm,
+            )
+        }
     }
 
     impl SelfIter for PyOrderedDictItemIterator {}
@@ -945,13 +1200,15 @@ pub(crate) mod ordered_dict {
                 let Active(ordered_dict) = &internal.status else {
                     return (Ok(PyIterReturn::StopIteration(None)), None);
                 };
-                match ordered_dict.inner._as_dict_inner().next_entry_checked(
+                let entries = ordered_dict.inner._as_dict_inner();
+                match entries.next_entry_version_checked(
                     internal.position,
                     &zelf.size,
+                    zelf.mutation_version,
                     |key, value| (key.clone(), value.clone()),
                 ) {
                     Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("dictionary changed size during iteration")),
+                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
                         internal.exhaust(),
                     ),
                     Ok(Some((position, (key, value)))) => {
@@ -970,19 +1227,25 @@ pub(crate) mod ordered_dict {
     // Reverse iterators
 
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_reverse_keyiterator")]
+    #[pyclass(
+        module = "_collections",
+        name = "odict_reverse_keyiterator",
+        traverse = "manual"
+    )]
     #[derive(Debug, PyPayload)]
     struct PyOrderedDictReverseKeyIterator {
         size: dict_inner::DictSize,
+        mutation_version: usize,
         internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
     }
 
     impl PyOrderedDictReverseKeyIterator {
         fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let size = ordered_dict.inner._as_dict_inner().size();
+            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
             let position = size.entries_size.saturating_sub(1);
             Self {
                 size,
+                mutation_version,
                 internal: PyMutex::new(PositionIterInternal::new(ordered_dict, position)),
             }
         }
@@ -996,6 +1259,17 @@ pub(crate) mod ordered_dict {
                 .lock()
                 .rev_length_hint(|_| self.size.entries_size)
         }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            reduce_reverse_iterator(
+                &self.internal,
+                &self.size,
+                self.mutation_version,
+                |_vm, key, _value| key,
+                vm,
+            )
+        }
     }
 
     impl SelfIter for PyOrderedDictReverseKeyIterator {}
@@ -1005,13 +1279,15 @@ pub(crate) mod ordered_dict {
                 let Active(ordered_dict) = &internal.status else {
                     return (Ok(PyIterReturn::StopIteration(None)), None);
                 };
-                match ordered_dict.inner._as_dict_inner().prev_entry_checked(
+                let entries = ordered_dict.inner._as_dict_inner();
+                match entries.prev_entry_version_checked(
                     internal.position,
                     &zelf.size,
+                    zelf.mutation_version,
                     |key, _value| key.clone(),
                 ) {
                     Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("dictionary changed size during iteration")),
+                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
                         internal.exhaust(),
                     ),
                     Ok(Some((position, key))) => {
@@ -1030,19 +1306,25 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_reverse_valueiterator")]
+    #[pyclass(
+        module = "_collections",
+        name = "odict_reverse_valueiterator",
+        traverse = "manual"
+    )]
     #[derive(Debug, PyPayload)]
     struct PyOrderedDictReverseValueIterator {
         size: dict_inner::DictSize,
+        mutation_version: usize,
         internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
     }
 
     impl PyOrderedDictReverseValueIterator {
         fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let size = ordered_dict.inner._as_dict_inner().size();
+            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
             let position = size.entries_size.saturating_sub(1);
             Self {
                 size,
+                mutation_version,
                 internal: PyMutex::new(PositionIterInternal::new(ordered_dict, position)),
             }
         }
@@ -1056,6 +1338,17 @@ pub(crate) mod ordered_dict {
                 .lock()
                 .rev_length_hint(|_| self.size.entries_size)
         }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            reduce_reverse_iterator(
+                &self.internal,
+                &self.size,
+                self.mutation_version,
+                |_vm, _key, value| value,
+                vm,
+            )
+        }
     }
 
     impl SelfIter for PyOrderedDictReverseValueIterator {}
@@ -1065,13 +1358,15 @@ pub(crate) mod ordered_dict {
                 let Active(ordered_dict) = &internal.status else {
                     return (Ok(PyIterReturn::StopIteration(None)), None);
                 };
-                match ordered_dict.inner._as_dict_inner().prev_entry_checked(
+                let entries = ordered_dict.inner._as_dict_inner();
+                match entries.prev_entry_version_checked(
                     internal.position,
                     &zelf.size,
+                    zelf.mutation_version,
                     |_key, value| value.clone(),
                 ) {
                     Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("dictionary changed size during iteration")),
+                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
                         internal.exhaust(),
                     ),
                     Ok(Some((position, value))) => {
@@ -1090,19 +1385,25 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_reverse_itemiterator")]
+    #[pyclass(
+        module = "_collections",
+        name = "odict_reverse_itemiterator",
+        traverse = "manual"
+    )]
     #[derive(Debug, PyPayload)]
     struct PyOrderedDictReverseItemIterator {
         size: dict_inner::DictSize,
+        mutation_version: usize,
         internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
     }
 
     impl PyOrderedDictReverseItemIterator {
         fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let size = ordered_dict.inner._as_dict_inner().size();
+            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
             let position = size.entries_size.saturating_sub(1);
             Self {
                 size,
+                mutation_version,
                 internal: PyMutex::new(PositionIterInternal::new(ordered_dict, position)),
             }
         }
@@ -1116,6 +1417,17 @@ pub(crate) mod ordered_dict {
                 .lock()
                 .rev_length_hint(|_| self.size.entries_size)
         }
+
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            reduce_reverse_iterator(
+                &self.internal,
+                &self.size,
+                self.mutation_version,
+                |vm, key, value| vm.new_tuple((key, value)).into(),
+                vm,
+            )
+        }
     }
 
     impl SelfIter for PyOrderedDictReverseItemIterator {}
@@ -1125,13 +1437,15 @@ pub(crate) mod ordered_dict {
                 let Active(ordered_dict) = &internal.status else {
                     return (Ok(PyIterReturn::StopIteration(None)), None);
                 };
-                match ordered_dict.inner._as_dict_inner().prev_entry_checked(
+                let entries = ordered_dict.inner._as_dict_inner();
+                match entries.prev_entry_version_checked(
                     internal.position,
                     &zelf.size,
+                    zelf.mutation_version,
                     |key, value| (key.clone(), value.clone()),
                 ) {
                     Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("dictionary changed size during iteration")),
+                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
                         internal.exhaust(),
                     ),
                     Ok(Some((position, (key, value)))) => {
@@ -1151,4 +1465,27 @@ pub(crate) mod ordered_dict {
             })
         }
     }
+
+    macro_rules! impl_ordered_iterator_traverse {
+        ($($iterator:ty),* $(,)?) => {
+            $(
+                // SAFETY: the iterator owns exactly the OrderedDict reference
+                // stored in its PositionIterInternal and visits it once.
+                unsafe impl Traverse for $iterator {
+                    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+                        self.internal.traverse(tracer_fn);
+                    }
+                }
+            )*
+        };
+    }
+
+    impl_ordered_iterator_traverse!(
+        PyOrderedDictKeyIterator,
+        PyOrderedDictValueIterator,
+        PyOrderedDictItemIterator,
+        PyOrderedDictReverseKeyIterator,
+        PyOrderedDictReverseValueIterator,
+        PyOrderedDictReverseItemIterator,
+    );
 }
