@@ -181,7 +181,9 @@ def rem(a: int, b: int) -> int:
 
     /// `i64::MIN // -1`'s quotient is one past the top of the range - there
     /// is no 64-bit answer, so it deoptimizes ahead of the `sdiv` that would
-    /// otherwise trap.
+    /// otherwise trap. The guard is shared with the remainder, so
+    /// `i64::MIN % -1` deopts too even though `0` is a perfectly good
+    /// answer for it.
     #[test]
     fn floor_divide_deopts_on_i64_min_over_negative_one() {
         let code = jit_function! { div => r#"
@@ -189,6 +191,17 @@ def div(a: int, b: int) -> int:
     return a // b
 "# };
         match code.invoke(&[i64::MIN.into(), (-1i64).into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(i64::MIN), int(-1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+
+        let rem = jit_function! { rem => r#"
+def rem(a: int, b: int) -> int:
+    return a % b
+"# };
+        match rem.invoke(&[i64::MIN.into(), (-1i64).into()]) {
             Ok(Outcome::Deopt(state)) => {
                 assert_eq!(state.stack, vec![int(i64::MIN), int(-1)]);
             }
@@ -233,6 +246,14 @@ def div(a: int, b: int) -> float:
         match code.invoke(&[(1i64 << 53).into(), 1i64.into()]) {
             Ok(Outcome::Deopt(state)) => {
                 assert_eq!(state.stack, vec![int(1i64 << 53), int(1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+        // The guard checks both operands - a wide divisor deopts as readily
+        // as a wide dividend.
+        match code.invoke(&[1i64.into(), (1i64 << 53).into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(1), int(1i64 << 53)]);
             }
             other => panic!("expected a deopt, got {other:?}"),
         }

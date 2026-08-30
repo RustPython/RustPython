@@ -15,6 +15,10 @@ mod tests {
         assert_eq!(div(7, -2), Ok(-4));
         assert_eq!(div(-7, -2), Ok(3));
         assert_eq!(div(-6, 2), Ok(-3));
+        // The correction's overflow argument rests on `i64::MIN`'s quotient
+        // only arising where the division is exact; pin both ends of that.
+        assert_eq!(div(i64::MIN, 1), Ok(i64::MIN));
+        assert_eq!(div(i64::MIN, 3), Ok(-3074457345618258603));
 
         let rem = jit_function! { rem(a: i64, b: i64) -> i64 => r#"
         def rem(a: int, b: int) -> int:
@@ -25,6 +29,7 @@ mod tests {
         assert_eq!(rem(7, -2), Ok(-1));
         assert_eq!(rem(-7, -2), Ok(-1));
         assert_eq!(rem(-6, 2), Ok(0));
+        assert_eq!(rem(i64::MIN, 3), Ok(1));
     }
 
     #[test]
@@ -90,8 +95,8 @@ mod tests {
         assert_eq!(div(1, 100000), Ok(0.00001));
         assert_eq!(div(2, 3), Ok(0.6666666666666666));
         assert_eq!(div(1, 3), Ok(0.3333333333333333));
-        // Operands at or past i64::MAX / i64::MIN do not fit a double's
-        // significand and deoptimize instead; see deopt_tests.rs.
+        // An operand at or past `1 << 53` does not fit a double's
+        // significand and deoptimizes instead; see deopt_tests.rs.
     }
 
     #[test]
