@@ -85,9 +85,9 @@ struct TypeCacheEntry {
     name: AtomicPtr<PyStrInterned>,
     /// Cached lookup result as raw pointer. null = empty.
     /// The cache holds a **borrowed** pointer (no refcount increment).
-    /// Safety: `type_cache_clear()` nullifies all entries during GC,
-    /// and `type_cache_clear_version()` nullifies entries when a type
-    /// is modified — both before the source dict entry is removed.
+    /// Safety: version tags are never reused, readers validate the current
+    /// type version, and published values use QSBR-delayed reclamation.
+    /// `type_cache_clear()` still nullifies all entries during GC.
     /// Types are always part of reference cycles (via `mro` self-reference)
     /// so they are always collected by the cyclic GC (never refcount-freed).
     value: AtomicPtr<PyObject>,
@@ -184,21 +184,6 @@ static TYPE_CACHE_CLEARING: AtomicBool = AtomicBool::new(false);
 fn type_cache_hash(version: u32, name: &'static PyStrInterned) -> usize {
     let name_hash = (name as *const PyStrInterned as usize >> 3) as u32;
     ((version ^ name_hash) as usize) & TYPE_CACHE_MASK
-}
-
-/// Invalidate cache entries for a specific version tag.
-/// Called from modified() when a type is changed.
-fn type_cache_clear_version(version: u32) {
-    for entry in TYPE_CACHE.iter() {
-        if entry.version.load(Ordering::Relaxed) == version {
-            entry.begin_write();
-            if entry.version.load(Ordering::Relaxed) == version {
-                entry.version.store(0, Ordering::Release);
-                entry.clear_value();
-            }
-            entry.end_write();
-        }
-    }
 }
 
 /// Clear all method cache entries (_PyType_ClearCache).
@@ -683,8 +668,7 @@ impl PyType {
 
     /// Invalidate this type's version tag and cascade to all subclasses.
     fn modified_inner(&self) {
-        let old_version = self.tp_version_tag.load(Ordering::Acquire);
-        if old_version == 0 {
+        if self.tp_version_tag.load(Ordering::Acquire) == 0 {
             return;
         }
         let subclasses = self.subclasses.read();
@@ -694,9 +678,9 @@ impl PyType {
             }
         }
         self.tp_version_tag.store(0, Ordering::SeqCst);
-        // Nullify borrowed pointers in cache entries for this version
-        // so they don't dangle after the dict is modified.
-        type_cache_clear_version(old_version);
+        // Old cache entries are unreachable because version tags are never
+        // reused. Their borrowed values use QSBR-delayed reclamation, so a
+        // reader that observed the old version can still try-incref safely.
         if let Some(ext) = self.heaptype_ext.as_ref() {
             ext.specialization_cache.invalidate_for_type_modified();
         }
@@ -3543,6 +3527,7 @@ fn mangle_name(class_name: &str, name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Interpreter;
 
     fn map_ids(obj: Result<Vec<PyTypeRef>, String>) -> Result<Vec<usize>, String> {
         Ok(obj?.into_iter().map(|x| x.get_id()).collect())
@@ -3587,5 +3572,137 @@ mod tests {
             ])),
             map_ids(Ok(vec![a, b, object]))
         );
+    }
+
+    #[test]
+    fn version_invalidation_makes_stale_cache_entry_unreachable() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let typ = PyType::new_simple_heap(
+                "TypeCacheInvalidationTest",
+                vm.ctx.types.object_type,
+                &vm.ctx,
+            )
+            .unwrap();
+            let name = vm.ctx.intern_str("cached_value");
+            let initial: PyObjectRef = vm.ctx.new_int(1).into();
+            let replacement: PyObjectRef = vm.ctx.new_int(2).into();
+            typ.set_attr(name, initial.clone());
+
+            let (cached, old_version) = typ.lookup_ref_and_version_interned(name, vm);
+            assert!(cached.is_some_and(|value| value.is(&initial)));
+            assert_ne!(old_version, 0);
+            let old_entry = &TYPE_CACHE[type_cache_hash(old_version, name)];
+            assert_eq!(old_entry.version.load(Ordering::Acquire), old_version);
+
+            PyType::with_type_lock(vm, || {
+                typ.modified_inner();
+                typ.attributes.insert(name, replacement.clone());
+            });
+
+            assert_eq!(typ.tp_version_tag.load(Ordering::Acquire), 0);
+            assert_eq!(
+                old_entry.version.load(Ordering::Acquire),
+                old_version,
+                "per-type invalidation should leave the unreachable old cache entry in place"
+            );
+
+            let (refreshed, new_version) = typ.lookup_ref_and_version_interned(name, vm);
+            assert!(refreshed.is_some_and(|value| value.is(&replacement)));
+            assert!(new_version > old_version);
+        });
+    }
+
+    #[test]
+    fn miri_test_type_cache_version_invalidation() {
+        let context = Context::genesis();
+        let typ = context.types.object_type.to_owned();
+        let name = context.intern_str("miri_cached_value");
+        let cached: PyObjectRef = context.new_int(1).into();
+        typ.set_attr(name, cached.clone());
+        let version = typ.assign_version_tag_inner();
+        assert_ne!(version, 0);
+
+        let entry = &TYPE_CACHE[type_cache_hash(version, name)];
+        entry.begin_write();
+        entry.version.store(0, Ordering::Release);
+        cached.mark_cache_published();
+        let cached_ptr = &*cached as *const PyObject as *mut PyObject;
+        entry.value.store(cached_ptr, Ordering::Relaxed);
+        entry
+            .name
+            .store(name as *const PyStrInterned as *mut _, Ordering::Relaxed);
+        entry.version.store(version, Ordering::Release);
+        entry.end_write();
+
+        typ.tp_version_tag.store(0, Ordering::SeqCst);
+        assert_eq!(typ.tp_version_tag.load(Ordering::Acquire), 0);
+        assert_eq!(entry.version.load(Ordering::Acquire), version);
+        let owned = unsafe { PyObject::try_to_owned_from_ptr(cached_ptr) }
+            .expect("a stale cache reader can still safely try-incref");
+        assert!(owned.is(&cached));
+        drop(owned);
+
+        entry.begin_write();
+        entry.version.store(0, Ordering::Release);
+        entry.clear_value();
+        entry.end_write();
+        typ.attributes.remove(name);
+    }
+
+    #[cfg(feature = "threading")]
+    #[test]
+    fn concurrent_type_cache_reads_survive_version_only_invalidation() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicBool, Ordering};
+
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let typ = PyType::new_simple_heap(
+                "ConcurrentTypeCacheInvalidationTest",
+                vm.ctx.types.object_type,
+                &vm.ctx,
+            )
+            .unwrap();
+            let name = vm.ctx.intern_str("cached_value");
+            let first: PyObjectRef = vm.ctx.new_int(1).into();
+            let second: PyObjectRef = vm.ctx.new_int(2).into();
+            typ.set_attr(name, first.clone());
+            assert!(
+                typ.lookup_ref_and_version_interned(name, vm)
+                    .0
+                    .is_some_and(|value| value.is(&first))
+            );
+
+            let stop = Arc::new(AtomicBool::new(false));
+            let reader_type = typ.clone();
+            let reader_first = first.clone();
+            let reader_second = second.clone();
+            let reader_stop = Arc::clone(&stop);
+            let reader = vm.start_thread(move |thread_vm| {
+                while !reader_stop.load(Ordering::Acquire) {
+                    let value = reader_type
+                        .lookup_ref_and_version_interned(name, thread_vm)
+                        .0
+                        .expect("the test type always has cached_value");
+                    assert!(value.is(&reader_first) || value.is(&reader_second));
+                    thread_vm.check_signals().unwrap();
+                }
+            });
+
+            for i in 0..10_000 {
+                let value = if i & 1 == 0 {
+                    first.clone()
+                } else {
+                    second.clone()
+                };
+                PyType::with_type_lock(vm, || {
+                    typ.modified_inner();
+                    typ.attributes.insert(name, value);
+                });
+                assert!(typ.lookup_ref_and_version_interned(name, vm).0.is_some());
+                vm.check_signals().unwrap();
+            }
+            stop.store(true, Ordering::Release);
+            reader.join().unwrap();
+        });
     }
 }
