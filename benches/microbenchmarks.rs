@@ -75,7 +75,7 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
         };
 
         if bench.iterate {
-            for idx in (100..=1_000).step_by(200) {
+            for idx in iteration_counts() {
                 group.throughput(Throughput::Elements(idx as u64));
                 group.bench_with_input(BenchmarkId::new("cpython", &bench.name), &idx, |b, idx| {
                     b.iter_batched_ref(
@@ -146,7 +146,7 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
         };
 
         if bench.iterate {
-            for idx in (100..=1_000).step_by(200) {
+            for idx in iteration_counts() {
                 group.throughput(Throughput::Elements(idx as u64));
                 group.bench_with_input(
                     BenchmarkId::new("rustpython", &bench.name),
@@ -168,10 +168,34 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
     })
 }
 
+/// `true` when the benchmarks are executed by the CodSpeed runner.
+///
+/// CodSpeed tracks the performance of RustPython itself, so the CPython
+/// reference benchmarks are skipped there: they double the (already slow)
+/// instrumented run without ever reporting a change of RustPython.
+fn is_codspeed() -> bool {
+    std::env::var_os("CODSPEED_ENV").is_some()
+}
+
+/// The `ITERATIONS` values the benchmarks referencing them are run with.
+///
+/// A single size is used under CodSpeed: the criterion benchmark id does not
+/// include the iteration count, so every size would be reported under the same
+/// name.
+fn iteration_counts() -> Vec<i32> {
+    if is_codspeed() {
+        vec![1_000]
+    } else {
+        (100..=1_000).step_by(200).collect()
+    }
+}
+
 pub fn run_micro_benchmark(c: &mut Criterion, benchmark: MicroBenchmark) {
     let mut group = c.benchmark_group("microbenchmarks");
 
-    bench_cpython_code(&mut group, &benchmark);
+    if !is_codspeed() {
+        bench_cpython_code(&mut group, &benchmark);
+    }
     bench_rustpython_code(&mut group, &benchmark);
 
     group.finish();

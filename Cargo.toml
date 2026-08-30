@@ -206,7 +206,7 @@ cranelift = "0.132.0"
 cranelift-jit = "0.132.0"
 cranelift-module = "0.132.0"
 crc32fast = "1.3.2"
-criterion = { version = "0.8", features = ["html_reports"] }
+criterion = { package = "codspeed-criterion-compat", version = "5.0.1", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
 csv-core = "0.1.11"
 digest = "0.11"
