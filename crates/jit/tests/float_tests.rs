@@ -134,7 +134,8 @@ mod tests {
         //assert_approx_eq!(pow(0.0, f64::NAN), Ok(f64::NAN)); // Return the correct answer but fails compare
         assert_approx_eq!(pow(f64::INFINITY, 0.0), Ok(1.0));
         assert_approx_eq!(pow(f64::INFINITY, 1.0), Ok(f64::INFINITY));
-        assert_approx_eq!(pow(f64::INFINITY, f64::INFINITY), Ok(f64::INFINITY));
+        // An infinite exponent deoptimizes regardless of the base - see
+        // deopt_tests.rs.
         // Negative infinity cases:
         // For any exponent of 0.0, the result is 1.0.
         assert_approx_eq!(pow(f64::NEG_INFINITY, 0.0), Ok(1.0));
@@ -143,8 +144,6 @@ mod tests {
         assert_approx_eq!(pow(f64::NEG_INFINITY, 1.0), Ok(f64::NEG_INFINITY));
         assert_approx_eq!(pow(f64::NEG_INFINITY, 2.0), Ok(f64::INFINITY));
         assert_approx_eq!(pow(f64::NEG_INFINITY, 3.0), Ok(f64::NEG_INFINITY));
-        // Exponent -infinity gives 0.0.
-        assert_approx_eq!(pow(f64::NEG_INFINITY, f64::NEG_INFINITY), Ok(0.0));
 
         // Test positive float base, positive float exponent
         assert_approx_eq!(pow(2.0, 2.0), Ok(4.0));
@@ -204,14 +203,13 @@ mod tests {
         //      * If they are commented in then they work
         //      * If they are commented out with a number that is the current return value it throws vs the expected value
         //      * If they are commented out with a "fail to run" that means I couldn't get them to work, could add a case for really big or small values
-        // 1e308^2.0
-        assert_approx_eq!(pow(1e308, 2.0), Ok(f64::INFINITY));
+        // 1e308^2.0 overflows a finite base to an infinity, which raises
+        // OverflowError rather than saturating - see deopt_tests.rs.
         // 1e308^(1e-2)
         assert_approx_eq!(pow(1e308, 1e-2), Ok(1202.2644346174131));
         // 1e-308^2.0
         //assert_approx_eq!(pow(1e-308, 2.0), Ok(0.0));  // --8.403311421507407
-        // 1e-308^-2.0
-        assert_approx_eq!(pow(1e-308, -2.0), Ok(f64::INFINITY));
+        // 1e-308^-2.0 overflows the same way as 1e308^2.0 above.
         // 1e100^(1e50)
         //assert_approx_eq!(pow(1e100, 1e50), Ok(1.0000000000000002e+150)); // fail to run (Crashes as "illegal hardware instruction")
         // 1e50^(1e-100)

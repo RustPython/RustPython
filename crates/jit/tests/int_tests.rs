@@ -161,10 +161,12 @@ mod tests {
         assert_eq!(power(10, 2), Ok(100));
         assert_eq!(power(5, 1), Ok(5));
         assert_eq!(power(1, 0), Ok(1));
-        // Square-and-multiply computes a product every iteration and
-        // discards it whenever the corresponding exponent bit is unset, so
-        // the final squaring overflowing to 2^64 must not deoptimize an
-        // answer - 2^33 and 2^62 - that fits an i64 comfortably.
+        // Square-and-multiply squares the base every iteration and discards
+        // it once there is no further iteration to consume it, so the final
+        // squaring overflowing to 2^64 must not deoptimize an answer - 2^33
+        // and 2^62 - that fits an i64 comfortably. That discard is guarded
+        // on "another iteration exists", not on the bit that would read the
+        // squared value.
         assert_eq!(power(2, 33), Ok(8589934592));
         assert_eq!(power(2, 62), Ok(4611686018427387904));
     }

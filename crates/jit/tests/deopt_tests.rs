@@ -340,18 +340,21 @@ def div(a: float, b: float) -> float:
 
     /// The mixed int/float arm has its own `fdiv`, reached whenever exactly
     /// one operand is already a float, and needs the same guard regardless of
-    /// which side that is.
+    /// which side that is - including a `-0.0` divisor, the same as the
+    /// float/float arm above.
     #[test]
     fn true_divide_deopts_on_mixed_zero_divisor() {
         let int_over_float = jit_function! { div => r#"
 def div(a: int, b: float) -> float:
     return a / b
 "# };
-        match int_over_float.invoke(&[1i64.into(), 0.0f64.into()]) {
-            Ok(Outcome::Deopt(state)) => {
-                assert_eq!(state.stack, vec![int(1), float(0.0)]);
+        for divisor in [0.0f64, -0.0f64] {
+            match int_over_float.invoke(&[1i64.into(), divisor.into()]) {
+                Ok(Outcome::Deopt(state)) => {
+                    assert_eq!(state.stack, vec![int(1), float(divisor)]);
+                }
+                other => panic!("expected a deopt for {divisor}, got {other:?}"),
             }
-            other => panic!("expected a deopt, got {other:?}"),
         }
 
         let float_over_int = jit_function! { div => r#"
@@ -391,6 +394,99 @@ def pow(a: float, b: float) -> float:
         match code.invoke(&[(-8.0f64).into(), 0.5f64.into()]) {
             Ok(Outcome::Deopt(state)) => {
                 assert_eq!(state.stack, vec![float(-8.0), float(0.5)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// `dd_exp` rounds `b * ln|a|` to an i64 with `fcvt_to_sint`, which traps
+    /// once that leaves i64 range - and cranelift traps have no handler, so
+    /// `2.0 ** 1e300` and `(-2.0) ** 1e300` used to kill the process
+    /// outright. `2.0 ** 1024.0` sits exactly on the bound's threshold, and
+    /// an infinite exponent is caught by the same bound regardless of how it
+    /// got there.
+    #[test]
+    fn float_power_deopts_on_an_out_of_range_exponent() {
+        let code = jit_function! { pow => r#"
+def pow(a: float, b: float) -> float:
+    return a ** b
+"# };
+        for (a, b) in [
+            (2.0f64, 1e300f64),
+            (-2.0f64, 1e300f64),
+            (2.0f64, 1024.0f64),
+            (-1.0f64, f64::INFINITY),
+            (0.5f64, f64::INFINITY),
+            (0.5f64, f64::NEG_INFINITY),
+            (-1.0f64, f64::NEG_INFINITY),
+        ] {
+            match code.invoke(&[a.into(), b.into()]) {
+                Ok(Outcome::Deopt(state)) => {
+                    assert_eq!(state.stack, vec![float(a), float(b)], "{a} ** {b}");
+                }
+                other => panic!("expected a deopt for {a} ** {b}, got {other:?}"),
+            }
+        }
+    }
+
+    /// The out-of-range bound is written as the negation of an ordered
+    /// `LessThan`, so an unordered (NaN) exponent deopts the same way a huge
+    /// one does. `NaN != NaN`, so this gets its own test rather than joining
+    /// the table above.
+    #[test]
+    fn float_power_deopts_on_a_nan_exponent() {
+        let code = jit_function! { pow => r#"
+def pow(a: float, b: float) -> float:
+    return a ** b
+"# };
+        match code.invoke(&[1.0f64.into(), f64::NAN.into()]) {
+            Ok(Outcome::Deopt(state)) => match &state.stack[..] {
+                [
+                    StackValue::Value(AbiValue::Float(a)),
+                    StackValue::Value(AbiValue::Float(b)),
+                ] => {
+                    assert_eq!(*a, 1.0);
+                    assert!(b.is_nan());
+                }
+                other => panic!("unexpected stack shape: {other:?}"),
+            },
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// A finite base whose true power overflows a double raises
+    /// OverflowError rather than saturating to an infinity - unlike
+    /// `inf ** 2.0`, which correctly keeps returning `inf` and must not
+    /// deopt here.
+    #[test]
+    fn float_power_deopts_on_finite_base_overflow() {
+        let code = jit_function! { pow => r#"
+def pow(a: float, b: float) -> float:
+    return a ** b
+"# };
+        assert_eq!(
+            code.invoke(&[f64::INFINITY.into(), 2.0f64.into()]),
+            Ok(Outcome::Returned(Some(f64::INFINITY.into())))
+        );
+        match code.invoke(&[1e308f64.into(), 2.0f64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![float(1e308), float(2.0)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+    }
+
+    /// A negative zero base loses its sign in the zero-base edge case, which
+    /// always returns `+0.0`; `(-0.0) ** 3.0` is `-0.0`.
+    #[test]
+    fn float_power_deopts_on_negative_zero_base() {
+        let code = jit_function! { pow => r#"
+def pow(a: float, b: float) -> float:
+    return a ** b
+"# };
+        match code.invoke(&[(-0.0f64).into(), 3.0f64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![float(-0.0), float(3.0)]);
             }
             other => panic!("expected a deopt, got {other:?}"),
         }
