@@ -937,11 +937,6 @@ class CPythonOrderedDictTests(OrderedDictTests,
     def test_issue24347(self):
         super().test_issue24347()
 
-    # TODO: RUSTPYTHON - RecursionError with self-referencing OrderedDict
-    @unittest.expectedFailure
-    def test_pickle_recursive(self):
-        super().test_pickle_recursive()
-
     @support.cpython_only
     def test_sizeof_exact(self):
         OrderedDict = self.OrderedDict
