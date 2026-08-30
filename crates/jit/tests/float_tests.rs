@@ -158,6 +158,9 @@ mod tests {
         assert_approx_eq!(pow(-4.0, 4.0), Ok(256.0));
         assert_approx_eq!(pow(-2.0, 3.0), Ok(-8.0));
         assert_approx_eq!(pow(-2.0, 4.0), Ok(16.0));
+        // A negative base with an integral exponent is real, so the complex
+        // guard must not fire on it.
+        assert_approx_eq!(pow(-8.0, 2.0), Ok(64.0));
         // Test positive float base, positive float exponent
         assert_approx_eq!(pow(2.5, 2.0), Ok(6.25));
         assert_approx_eq!(pow(3.5, 3.0), Ok(42.875));
@@ -231,11 +234,10 @@ mod tests {
     "## };
 
         assert_approx_eq!(div(5.2, 2.0), Ok(2.6));
+        assert_approx_eq!(div(4.0, 2.0), Ok(2.0));
         assert_approx_eq!(div(3.4, -1.7), Ok(-2.0));
-        assert_eq!(div(1.0, 0.0), Ok(f64::INFINITY));
-        assert_eq!(div(1.0, -0.0), Ok(f64::NEG_INFINITY));
-        assert_eq!(div(-1.0, 0.0), Ok(f64::NEG_INFINITY));
-        assert_eq!(div(-1.0, -0.0), Ok(f64::INFINITY));
+        // Division by zero raises rather than returning an infinity, so it
+        // deoptimizes instead - see deopt_tests.rs.
         assert_bits_eq!(div(-5.2, f64::NAN), Ok(f64::NAN));
         assert_eq!(div(f64::INFINITY, 2.0), Ok(f64::INFINITY));
         assert_bits_eq!(div(-2.0, f64::NEG_INFINITY), Ok(0.0f64));
@@ -253,10 +255,8 @@ mod tests {
 
         assert_approx_eq!(div(5.2, 2), Ok(2.6));
         assert_approx_eq!(div(3.4, -1), Ok(-3.4));
-        assert_eq!(div(1.0, 0), Ok(f64::INFINITY));
-        assert_eq!(div(1.0, -0), Ok(f64::INFINITY));
-        assert_eq!(div(-1.0, 0), Ok(f64::NEG_INFINITY));
-        assert_eq!(div(-1.0, -0), Ok(f64::NEG_INFINITY));
+        // Division by zero raises rather than returning an infinity, so it
+        // deoptimizes instead - see deopt_tests.rs.
         assert_eq!(div(f64::INFINITY, 2), Ok(f64::INFINITY));
         assert_eq!(div(f64::NEG_INFINITY, 3), Ok(f64::NEG_INFINITY));
     }
