@@ -179,6 +179,7 @@ impl IndexEntry {
 struct DictInner<T> {
     used: usize,
     filled: usize,
+    mutation_version: usize,
     indices: Vec<IndexEntry>,
     entries: Vec<Option<DictEntry<T>>>,
 }
@@ -212,6 +213,7 @@ impl<T> Default for Dict<T> {
             inner: PyRwLock::new(DictInner {
                 used: 0,
                 filled: 0,
+                mutation_version: 0,
                 indices: vec![IndexEntry::FREE; 8],
                 entries: Vec::new(),
             }),
@@ -325,6 +327,7 @@ impl<T> DictInner<T> {
             IndexEntry::from_index_unchecked(entry_index)
         };
         self.used += 1;
+        self.mutation_version = self.mutation_version.wrapping_add(1);
         if let IndexEntry::FREE = index_entry {
             self.filled += 1;
             if let Some(new_size) = self.should_resize() {
@@ -735,6 +738,9 @@ impl<T: Clone> Dict<T> {
         let _removed = {
             let mut inner = self.write();
             self.invalidate_keys_version();
+            if inner.used != 0 {
+                inner.mutation_version = inner.mutation_version.wrapping_add(1);
+            }
             inner.indices.clear();
             inner.indices.resize(8, IndexEntry::FREE);
             inner.used = 0;
@@ -952,6 +958,30 @@ impl<T: Clone> Dict<T> {
         self.read().size()
     }
 
+    pub(crate) fn versioned_size(&self) -> (DictSize, usize) {
+        let inner = self.read();
+        (inner.size(), inner.mutation_version)
+    }
+
+    pub(crate) fn keys_versioned_snapshot(&self) -> (DictSize, usize, Vec<PyObjectRef>) {
+        let inner = self.read();
+        let keys = inner
+            .entries
+            .iter()
+            .filter_map(|entry| entry.as_ref().map(|entry| entry.key.clone()))
+            .collect();
+        (inner.size(), inner.mutation_version, keys)
+    }
+
+    pub(crate) fn has_changed_size_or_version(
+        &self,
+        old: &DictSize,
+        mutation_version: usize,
+    ) -> bool {
+        let inner = self.read();
+        inner.size() != *old || inner.mutation_version != mutation_version
+    }
+
     /// Step to the first live entry at or after `position`, verifying the size
     /// against `old` under the same read guard.
     ///
@@ -966,6 +996,28 @@ impl<T: Clone> Dict<T> {
     ) -> Result<Option<(usize, R)>, DictChanged> {
         let inner = self.read();
         if inner.size() != *old {
+            return Err(DictChanged);
+        }
+        loop {
+            let Some(entry) = inner.entries.get(position) else {
+                return Ok(None);
+            };
+            position += 1;
+            if let Some(entry) = entry {
+                return Ok(Some((position, project(&entry.key, &entry.value))));
+            }
+        }
+    }
+
+    pub(crate) fn next_entry_version_checked<R>(
+        &self,
+        mut position: EntryIndex,
+        old: &DictSize,
+        mutation_version: usize,
+        project: impl FnOnce(&PyObjectRef, &T) -> R,
+    ) -> Result<Option<(usize, R)>, DictChanged> {
+        let inner = self.read();
+        if inner.size() != *old || inner.mutation_version != mutation_version {
             return Err(DictChanged);
         }
         loop {
@@ -1002,6 +1054,71 @@ impl<T: Clone> Dict<T> {
             }
             position -= 1;
         }
+    }
+
+    pub(crate) fn prev_entry_version_checked<R>(
+        &self,
+        mut position: EntryIndex,
+        old: &DictSize,
+        mutation_version: usize,
+        project: impl FnOnce(&PyObjectRef, &T) -> R,
+    ) -> Result<Option<(usize, R)>, DictChanged> {
+        let inner = self.read();
+        if inner.size() != *old || inner.mutation_version != mutation_version {
+            return Err(DictChanged);
+        }
+        loop {
+            let Some(entry) = inner.entries.get(position) else {
+                return Ok(None);
+            };
+            if let Some(entry) = entry {
+                return Ok(Some((position, project(&entry.key, &entry.value))));
+            }
+            if position == 0 {
+                return Ok(None);
+            }
+            position -= 1;
+        }
+    }
+
+    pub(crate) fn remaining_items_version_checked(
+        &self,
+        position: EntryIndex,
+        old: &DictSize,
+        mutation_version: usize,
+        reverse: bool,
+    ) -> Result<Vec<(PyObjectRef, T)>, DictChanged> {
+        let inner = self.read();
+        if inner.size() != *old || inner.mutation_version != mutation_version {
+            return Err(DictChanged);
+        }
+        let items = if reverse {
+            inner
+                .entries
+                .get(..=position)
+                .unwrap_or(&inner.entries)
+                .iter()
+                .rev()
+                .filter_map(|entry| {
+                    entry
+                        .as_ref()
+                        .map(|entry| (entry.key.clone(), entry.value.clone()))
+                })
+                .collect()
+        } else {
+            inner
+                .entries
+                .get(position..)
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|entry| {
+                    entry
+                        .as_ref()
+                        .map(|entry| (entry.key.clone(), entry.value.clone()))
+                })
+                .collect()
+        };
+        Ok(items)
     }
 
     pub(crate) fn next_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
@@ -1224,6 +1341,7 @@ impl<T: Clone> Dict<T> {
             inner.indices.get_unchecked_mut(index_index)
         } = IndexEntry::DUMMY;
         inner.used -= 1;
+        inner.mutation_version = inner.mutation_version.wrapping_add(1);
         let removed = slot.take();
         Ok(ControlFlow::Break(removed))
     }
@@ -1255,6 +1373,7 @@ impl<T: Clone> Dict<T> {
         };
         self.invalidate_keys_version();
         inner.used -= 1;
+        inner.mutation_version = inner.mutation_version.wrapping_add(1);
         *unsafe {
             // entry.index always refers valid index
             inner.indices.get_unchecked_mut(entry.index)
@@ -1269,21 +1388,30 @@ impl<T: Clone> Dict<T> {
         // Find first non-None entry (entries are in insertion order)
         for i in 0..inner.entries.len() {
             if inner.entries[i].is_some() {
-                let entry = inner.entries[i].take().unwrap();
+                let entry = inner.entries.remove(i).unwrap();
                 self.invalidate_keys_version();
                 inner.used -= 1;
+                inner.mutation_version = inner.mutation_version.wrapping_add(1);
                 *unsafe {
                     // entry.index always refers valid index
                     inner.indices.get_unchecked_mut(entry.index)
                 } = IndexEntry::DUMMY;
+                for entry_index in i..inner.entries.len() {
+                    if let Some(entry) = &inner.entries[entry_index] {
+                        // SAFETY: every live entry retains its valid index-table slot,
+                        // and entry positions cannot reach IndexEntry's sentinels.
+                        inner.indices[entry.index] =
+                            unsafe { IndexEntry::from_index_unchecked(entry_index) };
+                    }
+                }
                 return Some((entry.key, entry.value));
             }
         }
         None
     }
 
-    /// Move existing key to end (last=true) or beginning (last=false)
-    /// Returns Ok(true) if key was found and moved, Ok(false) if key was not found
+    /// Move an existing key to the end (`last=true`) or beginning (`last=false`).
+    /// Returns `Ok(true)` if the key was found, including when it is already at the endpoint.
     /// Used by OrderedDict.move_to_end()
     pub(crate) fn move_to_end<K: DictKey + ?Sized>(
         &self,
@@ -1301,79 +1429,45 @@ impl<T: Clone> Dict<T> {
 
             let inner = &mut *self.write();
 
-            // Verify the entry still exists at the expected position
-            let slot = match inner.entries.get_mut(entry_index) {
-                Some(slot) => slot,
-                None => continue, // Dict changed, retry
+            let Some(Some(entry)) = inner.entries.get(entry_index) else {
+                continue;
             };
-            let entry = match slot {
-                Some(entry) if entry.index == index_index => slot.take().unwrap(),
-                _ => continue, // Dict changed, retry
-            };
-
-            // Mark old position as dummy in indices
-            self.invalidate_keys_version();
-            *unsafe { inner.indices.get_unchecked_mut(index_index) } = IndexEntry::DUMMY;
-
-            if last {
-                // Move to end - O(1) amortized
-                let new_entry_index = inner.entries.len();
-                // Find a new index slot for this entry
-                let mask = (inner.indices.len() - 1) as i64;
-                let mut idxs = GenIndexes::new(entry.hash, mask);
-                let new_index_index = loop {
-                    let idx = idxs.next();
-                    let slot = unsafe { inner.indices.get_unchecked_mut(idx) };
-                    if *slot == IndexEntry::FREE || *slot == IndexEntry::DUMMY {
-                        *slot = unsafe { IndexEntry::from_index_unchecked(new_entry_index) };
-                        break idx;
-                    }
-                };
-                inner.entries.push(Some(DictEntry {
-                    hash: entry.hash,
-                    key: entry.key,
-                    value: entry.value,
-                    index: new_index_index,
-                }));
-            } else {
-                // Move to beginning - O(n) due to shifting
-                // We need to insert at position 0 and update all shifted indices
-                let new_entry_index = 0;
-
-                // First, shift all existing entries' positions in the indices table
-                for i in 0..inner.indices.len() {
-                    if let Some(idx) = inner.indices[i].index() {
-                        // Shift by 1 since we're inserting at position 0
-                        inner.indices[i] = unsafe { IndexEntry::from_index_unchecked(idx + 1) };
-                    }
-                }
-
-                // Update the entry indices in entries vector (they point back to indices)
-                // Actually, entry.index points to the indices table, not entry position
-                // So we don't need to update entry.index for existing entries
-
-                // Find a new index slot for the moved entry
-                let mask = (inner.indices.len() - 1) as i64;
-                let mut idxs = GenIndexes::new(entry.hash, mask);
-                let new_index_index = loop {
-                    let idx = idxs.next();
-                    let slot = unsafe { inner.indices.get_unchecked_mut(idx) };
-                    if *slot == IndexEntry::FREE || *slot == IndexEntry::DUMMY {
-                        *slot = unsafe { IndexEntry::from_index_unchecked(new_entry_index) };
-                        break idx;
-                    }
-                };
-
-                inner.entries.insert(
-                    0,
-                    Some(DictEntry {
-                        hash: entry.hash,
-                        key: entry.key,
-                        value: entry.value,
-                        index: new_index_index,
-                    }),
-                );
+            if entry.index != index_index {
+                continue;
             }
+
+            let endpoint = if last {
+                inner.entries.iter().rposition(Option::is_some)
+            } else {
+                inner.entries.iter().position(Option::is_some)
+            };
+            if endpoint == Some(entry_index) {
+                return Ok(true);
+            }
+
+            self.invalidate_keys_version();
+            let entry = inner.entries.remove(entry_index);
+            if last {
+                inner.entries.push(entry);
+            } else {
+                inner.entries.insert(0, entry);
+            }
+
+            let affected = if last {
+                entry_index..inner.entries.len()
+            } else {
+                0..entry_index + 1
+            };
+            for entry_index in affected {
+                let entry = &inner.entries[entry_index];
+                if let Some(entry) = entry {
+                    // SAFETY: every live entry retains its valid index-table slot,
+                    // and entry positions cannot reach IndexEntry's sentinels.
+                    inner.indices[entry.index] =
+                        unsafe { IndexEntry::from_index_unchecked(entry_index) };
+                }
+            }
+            inner.mutation_version = inner.mutation_version.wrapping_add(1);
 
             return Ok(true);
         }
@@ -1393,6 +1487,9 @@ impl<T: Clone> Dict<T> {
     pub(crate) fn drain_entries(&mut self) -> impl Iterator<Item = (PyObjectRef, T)> + '_ {
         self.keys_version.store(0, Release);
         let inner = self.inner.get_mut();
+        if inner.used != 0 {
+            inner.mutation_version = inner.mutation_version.wrapping_add(1);
+        }
         inner.used = 0;
         inner.filled = 0;
         inner.indices.iter_mut().for_each(|i| *i = IndexEntry::FREE);
