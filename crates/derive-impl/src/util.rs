@@ -838,17 +838,20 @@ fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> 
                 continue;
             }
         };
-        if let Some(marker) = implicit_self.take() {
-            params.push(marker.to_owned());
-            continue;
-        }
         let ty = arg.ty.as_ref();
         let ty = quote!(#ty).to_string();
         if ty == "FuncArgs" {
+            // The bundle carries the receiver along with everything else, so
+            // report both rather than spending the marker on it.
+            params.extend(implicit_self.take().map(str::to_owned));
             params.push("*args, **kwargs".to_owned());
             continue;
         }
         if ty.starts_with('&') && ty.ends_with("VirtualMachine") {
+            continue;
+        }
+        if let Some(marker) = implicit_self.take() {
+            params.push(marker.to_owned());
             continue;
         }
         // An argument bound by a destructuring pattern, e.g.
