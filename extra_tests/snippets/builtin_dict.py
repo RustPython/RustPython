@@ -435,3 +435,58 @@ assert "dict key" not in str(cm.exception), (
 with assert_raises(TypeError) as cm:
     {}[[]]
 assert "as a dict key" in str(cm.exception), str(cm.exception)
+
+# The message reaches every insertion path, not just __setitem__: the
+# constructor, update() and |= all go through the same wrapping.
+for make in (
+    lambda: dict([([], 1)]),
+    lambda: {}.update([([], 1)]),
+    lambda: {}.__ior__([([], 1)]),
+):
+    with assert_raises(TypeError) as cm:
+        make()
+    assert "as a dict key" in str(cm.exception), str(cm.exception)
+
+# The key is hashed once up front, so a __hash__ that fails only on its first
+# call is still reported (a re-hash on the error path would let it escape).
+class FlakyHash:
+    _calls = 0
+
+    def __hash__(self):
+        FlakyHash._calls += 1
+        if FlakyHash._calls == 1:
+            raise TypeError("first call fails")
+        return 0
+
+
+with assert_raises(TypeError) as cm:
+    {}[FlakyHash()]
+assert "as a dict key" in str(cm.exception), str(cm.exception)
+
+# The type name is the fully qualified one, like CPython's %T.
+def _make_nested():
+    class Nested:
+        __hash__ = None
+
+    return Nested
+
+
+with assert_raises(TypeError) as cm:
+    {}[_make_nested()()]
+assert "_make_nested.<locals>.Nested" in str(cm.exception), str(cm.exception)
+
+
+# A __hash__ raising a *subclass* of TypeError is left unchanged (CPython
+# checks the exact type), so `except MySubclass` still catches it.
+class MyTypeError(TypeError):
+    pass
+
+
+class SubclassHash:
+    def __hash__(self):
+        raise MyTypeError("custom")
+
+
+with assert_raises(MyTypeError) as cm:
+    {}[SubclassHash()]
+assert "as a dict key" not in str(cm.exception), str(cm.exception)
