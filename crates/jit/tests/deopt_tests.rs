@@ -502,8 +502,15 @@ def countdown(a: int, b: int) -> int:
     }
 
     /// A nested frame that gives up returns a filler in place of a result. The
-    /// caller has to stop rather than compute on it: the record the callee
-    /// wrote is the one the interpreter needs.
+    /// caller has to stop rather than compute on it.
+    ///
+    /// Which of the two answers comes back depends on whose guard fired.
+    /// `blow(1)` overflows on its own addition, so its record describes the
+    /// frame that is asking for it. `blow(2)` reaches that overflow one frame
+    /// down, and the record standing in the buffer belongs to that frame - the
+    /// two frames run the same code, so every type in it lines up and a resume
+    /// would silently continue the outer frame from the inner frame's offset.
+    /// It has to come back as a restart instead.
     #[test]
     fn a_caller_stops_when_a_nested_frame_gives_up() {
         let engine = JitEngine::new();
@@ -520,18 +527,67 @@ def blow(n: int) -> int:
             code.invoke(&[0i64.into()]),
             Ok(Outcome::Returned(Some(4611686018427387904i64.into())))
         );
-        // `blow(1)` overflows. `blow(2)` reaches that overflow one frame down,
-        // so the guard that fires is the inner frame's and its record is what
-        // comes back.
-        for n in [1i64, 2] {
-            match code.invoke(&[n.into()]) {
-                Ok(Outcome::Deopt(state)) => assert_eq!(
-                    state.stack,
-                    vec![int(4611686018427387904), int(4611686018427387904)],
-                    "n = {n}"
-                ),
-                other => panic!("expected a deopt for n = {n}, got {other:?}"),
+        match code.invoke(&[1i64.into()]) {
+            Ok(Outcome::Deopt(state)) => assert_eq!(
+                state.stack,
+                vec![int(4611686018427387904), int(4611686018427387904)]
+            ),
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+        assert_eq!(code.invoke(&[2i64.into()]), Ok(Outcome::Restart));
+    }
+
+    /// A guard lists the locals the compiler had seen where it was lowered,
+    /// which a backward jump can leave short: `extra` is stored further down
+    /// the loop body than the guard on the sum, yet it is bound by the time
+    /// that guard fires on a later iteration. Such a site cannot describe the
+    /// frame, so it asks for a restart rather than resuming without it.
+    #[test]
+    fn a_site_that_cannot_describe_every_local_restarts() {
+        let code = jit_function! { late => r#"
+def late(n: int, step: int) -> int:
+    total = 0
+    while n > 0:
+        total = total + n * step
+        if n == 5:
+            extra = 1
+        n = n - 1
+    return total
+"# };
+        assert_eq!(
+            code.invoke(&[5i64.into(), 1i64.into()]),
+            Ok(Outcome::Returned(Some(15i64.into())))
+        );
+        assert_eq!(
+            code.invoke(&[5i64.into(), (1i64 << 60).into()]),
+            Ok(Outcome::Restart)
+        );
+    }
+
+    /// The same loop without the late store keeps its resume: every local it
+    /// can bind is established before the first guard is lowered, so no
+    /// backward jump can carry in one the sites do not list.
+    #[test]
+    fn a_loop_whose_locals_are_all_established_still_resumes() {
+        let code = jit_function! { mixed => r#"
+def mixed(n: int, step: int) -> int:
+    total = 0
+    while n > 0:
+        total = total + n * step
+        n = n - 1
+    return total
+"# };
+        match code.invoke(&[5i64.into(), (1i64 << 60).into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                // Two iterations in: `total` holds 5 << 60 and the multiply's
+                // 4 << 60 is on the stack under it, waiting for the addition
+                // that overflowed.
+                assert_eq!(state.locals[0], Some(AbiValue::Int(4)));
+                assert_eq!(state.locals[1], Some(AbiValue::Int(1 << 60)));
+                assert_eq!(state.locals[2], Some(AbiValue::Int(5 << 60)));
+                assert_eq!(state.stack, vec![int(5 << 60), int(4 << 60)]);
             }
+            other => panic!("expected a deopt, got {other:?}"),
         }
     }
 }

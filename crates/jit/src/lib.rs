@@ -33,6 +33,9 @@ const SLOT_SIZE: usize = size_of::<u64>();
 const MAX_DEOPT_SLOTS: usize = 64;
 /// Slots taken by the status and the bound mask, before the record starts.
 const DEOPT_HEADER_SLOTS: usize = 2;
+/// Status for a frame that left because a nested frame gave up. Its record
+/// belongs to that frame, so this one has nothing to resume from.
+const DEOPT_STATUS_NESTED: u64 = u64::MAX;
 
 /// The entry point of a compiled function: `(args, ret, deopt)`.
 type JitEntry = unsafe extern "C" fn(*const u64, *mut u64, *mut u64);
@@ -445,10 +448,17 @@ impl CompiledCode {
         // SAFETY: the entry point stores the status first thing.
         let status = unsafe { deopt_ptr.read() };
         if status != 0 {
-            // SAFETY: a non-zero status is written only by a guard of this
-            // code, and it is the index of the site that describes the record
-            // that guard just wrote into this buffer.
-            return Outcome::Deopt(unsafe { self.read_deopt(status, deopt_ptr) });
+            // A status that is not the sentinel is the index of the site
+            // describing the record its guard just wrote into this buffer.
+            let site = (status != DEOPT_STATUS_NESTED)
+                .then(|| &self.deopt_sites[status as usize - 1])
+                .filter(|site| site.resumable);
+            return match site {
+                // SAFETY: this is the site whose guard wrote the record, and
+                // the buffer it wrote is still in scope.
+                Some(site) => Outcome::Deopt(unsafe { Self::read_deopt(site, deopt_ptr) }),
+                None => Outcome::Restart,
+            };
         }
         Outcome::Returned(match self.sig.ret.as_ref() {
             Some(JitType::None) | None => None,
@@ -457,10 +467,8 @@ impl CompiledCode {
     }
 
     /// # Safety
-    /// `status` must be a status this code's guards can produce, and `deopt` must
-    /// point at the buffer they wrote.
-    unsafe fn read_deopt(&self, status: u64, deopt: *const u64) -> DeoptState {
-        let site = &self.deopt_sites[status as usize - 1];
+    /// `deopt` must point at the buffer the guard for `site` wrote.
+    unsafe fn read_deopt(site: &DeoptSite, deopt: *const u64) -> DeoptState {
         // SAFETY: the guard wrote the mask and then one slot per listed local
         // and stack entry, in this order, and the site is the one it wrote for.
         let read = |slot: usize| unsafe { deopt.add(slot).read() };
@@ -505,6 +513,11 @@ pub enum Outcome {
     /// A guard fired. The record is decoded here, off the hot path, so that
     /// nothing borrows the buffer once it goes out of scope.
     Deopt(DeoptState),
+    /// A guard fired, but left nothing this call can carry on from, so it has
+    /// to be run again from the start. Either the record in the buffer belongs
+    /// to a nested frame, or it belongs to a site that cannot describe every
+    /// local that can be bound where it fires.
+    Restart,
 }
 
 /// Everything the interpreter needs to pick up where the guard stopped.
@@ -541,6 +554,10 @@ pub(crate) struct DeoptSite {
     pub(crate) locals: Box<[Option<JitType>]>,
     /// Bottom to top, after the listed locals.
     pub(crate) stack: Box<[StackEntry]>,
+    /// Whether a frame can be rebuilt from this site's record. A site lists
+    /// the locals the compiler had seen where the guard was lowered, which a
+    /// backward jump can leave short of what is bound where it fires.
+    pub(crate) resumable: bool,
 }
 
 /// What one value-stack slot holds at a deopt site. Only `Value` occupies a
