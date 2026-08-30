@@ -4602,25 +4602,8 @@ fn is_replacement_field_marker(bytes: &[u8], index: usize) -> bool {
             }
             !index
                 .checked_sub(1)
-                .and_then(|previous| bytes.get(previous))
-                .is_some_and(|byte| {
-                    matches!(
-                        byte,
-                        b'=' | b'!'
-                            | b'<'
-                            | b'>'
-                            | b'+'
-                            | b'-'
-                            | b'*'
-                            | b'/'
-                            | b'%'
-                            | b'&'
-                            | b'|'
-                            | b'^'
-                            | b'@'
-                            | b':'
-                    )
-                })
+                .and_then(|previous| bytes.get(previous).copied())
+                .is_some_and(precedes_equals_in_one_operator)
         }
         b'!' => bytes.get(index + 1) != Some(&b'='),
         _ => true,
@@ -4674,24 +4657,49 @@ fn replacement_expression_stray_character(
     None
 }
 
-/// Characters that make up an operator which cannot end an expression.
+/// A byte that pairs with a following `=` to make one operator token, so that the `=` belongs
+/// to it rather than opening a debug specifier: `==`, `!=`, `<=`, `>=`, the augmented
+/// assignments, and the `:=` walrus. Against `is_dangling_operator_byte` below, this has `:`
+/// and lacks `.` and `~`, because neither `.=` nor `~=` is a Python operator.
+const fn precedes_equals_in_one_operator(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'!' | b'%'
+            | b'&'
+            | b'*'
+            | b'+'
+            | b'-'
+            | b'/'
+            | b':'
+            | b'<'
+            | b'='
+            | b'>'
+            | b'@'
+            | b'^'
+            | b'|'
+    )
+}
+
+/// Characters that make up an operator which cannot end an expression. Against
+/// `precedes_equals_in_one_operator` above, this has `.` and `~` for `a.b.` and `~a`, and lacks
+/// `:`, which separates a replacement field's parts rather than operating on anything.
 const fn is_dangling_operator_byte(byte: u8) -> bool {
     matches!(
         byte,
-        b'+' | b'-'
-            | b'*'
-            | b'/'
-            | b'%'
-            | b'@'
-            | b'|'
+        b'!' | b'%'
             | b'&'
-            | b'^'
-            | b'~'
-            | b'<'
-            | b'>'
-            | b'='
-            | b'!'
+            | b'*'
+            | b'+'
+            | b'-'
             | b'.'
+            | b'/'
+            | b'<'
+            | b'='
+            | b'>'
+            | b'@'
+            | b'^'
+            | b'|'
+            | b'~'
     )
 }
 
