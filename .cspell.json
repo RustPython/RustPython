@@ -52,6 +52,23 @@
     "Lib/**",
     "crates/host_env/**"
   ],
+  "overrides": [
+    {
+      "filename": "crates/common/src/encodings/cjk/**",
+      "words": [
+        "CHOSEONG",
+        "cjkcodecs",
+        "EUCKR",
+        "famille",
+        "GBCOMMON",
+        "jong",
+        "JONGSEONG",
+        "JUNGSEONG",
+        "PHINT",
+        "Xabc"
+      ]
+    }
+  ],
   // words - list of words to be always considered correct
   // (compound words like pyarg, baseclass, microbenchmark are handled by allowCompoundWords)
   "words": [
