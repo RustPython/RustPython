@@ -464,6 +464,8 @@ impl CompiledCode {
             type_check(ty, value)?;
             *slot = value.to_slot();
         }
+        // SAFETY: the arity was checked above, and every slot was written from
+        // a value `type_check` matched against that parameter's type.
         Ok(unsafe { self.invoke_raw(&slots) })
     }
 
