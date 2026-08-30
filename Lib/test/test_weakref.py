@@ -403,7 +403,6 @@ class ReferencesTestCase(TestBase):
         p2 = makeref(o)
         self.assertIs(p1, p2, "callbacks were None, NULL in the C API")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_callable_proxy(self):
         o = Callable()
         ref1 = weakref.proxy(o)
