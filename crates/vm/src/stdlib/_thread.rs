@@ -26,9 +26,7 @@ pub(crate) mod _thread {
         },
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         frame::FrameObjectRef,
-        function::{
-            ArgCallable, Callee, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds,
-        },
+        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
         object::{Traverse, TraverseFn},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
@@ -487,7 +485,7 @@ pub(crate) mod _thread {
 
         let given = f_args.args.len();
         if !(2..=3).contains(&given) {
-            return Err(Callee::named("start_new_thread").arity_error(2..=3, given, vm));
+            return Err(vm.new_arity_type_error("start_new_thread", 2..=3, given));
         }
 
         let func_obj = f_args.take_positional().unwrap();

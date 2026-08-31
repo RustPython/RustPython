@@ -1616,6 +1616,7 @@ impl ToPyException for rustpython_host_env::multiprocessing::SemError {
 }
 
 pub(super) mod types {
+    use crate::class::PyClassDef;
     use crate::common::lock::PyRwLock;
     use crate::object::{Traverse, TraverseFn};
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
@@ -1627,7 +1628,7 @@ pub(super) mod types {
             tuple::IntoPyTuple,
         },
         convert::ToPyResult,
-        function::{ArgBytesLike, Callee, FuncArgs, KwArgs, PySetterValue},
+        function::{ArgBytesLike, FuncArgs, KwArgs, PySetterValue},
         set_attrs,
         types::{Constructor, Initializer},
     };
@@ -1876,7 +1877,10 @@ pub(super) mod types {
 
             // Reject unknown kwargs
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(Callee::of::<Self>(vm).unexpected_keyword(&invalid_key.to_string(), vm));
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some(Self::NAME),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Pass args without kwargs to BaseException_init
@@ -2029,7 +2033,10 @@ pub(super) mod types {
 
             // Reject unknown kwargs
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(Callee::of::<Self>(vm).unexpected_keyword(&invalid_key.to_string(), vm));
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some(Self::NAME),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Pass args without kwargs to BaseException_init

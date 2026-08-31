@@ -5,8 +5,9 @@ mod _operator {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
+        class::PyClassDef,
         common::wtf8::{Wtf8, Wtf8Buf},
-        function::{ArgBytesLike, Callee, Either, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, Either, FuncArgs, OptionalArg},
         protocol::PyIter,
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp, Representable},
@@ -400,7 +401,7 @@ mod _operator {
                 return Err(vm.new_type_error("attrgetter() takes no keyword arguments"));
             }
             if n_attr == 0 {
-                return Err(Callee::of::<Self>(vm).arity_error(1..=1, 0, vm));
+                return Err(vm.new_arity_type_error(Self::NAME, 1..=1, 0));
             }
             let mut attrs = Vec::with_capacity(n_attr);
             for o in args.args {
@@ -486,7 +487,7 @@ mod _operator {
                 return Err(vm.new_type_error("itemgetter() takes no keyword arguments"));
             }
             if args.args.is_empty() {
-                return Err(Callee::of::<Self>(vm).arity_error(1..=1, 0, vm));
+                return Err(vm.new_arity_type_error(Self::NAME, 1..=1, 0));
             }
             Ok(Self { items: args.args })
         }

@@ -6,7 +6,7 @@ use crate::common::{
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::{Callee, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     types::{
         Callable, Comparable, Constructor, Hashable, Initializer, PyComparisonOp, Representable,
     },
@@ -45,15 +45,14 @@ impl Constructor for PyWeak {
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // PyArg_UnpackTuple: only process positional args, ignore kwargs.
         // Subclass __init__ will handle extra kwargs.
-        let callee = Callee::named("__new__");
         let mut positional = args.args.into_iter();
         let referent = positional
             .next()
-            .ok_or_else(|| callee.arity_error(1..=2, 0, vm))?;
+            .ok_or_else(|| vm.new_arity_type_error("__new__", 1..=2, 0))?;
         let callback = positional.next().filter(|callback| !vm.is_none(callback));
         if let Some(_extra) = positional.next() {
             let got = positional.count() + 3;
-            return Err(callee.arity_error(1..=2, got, vm));
+            return Err(vm.new_arity_type_error("__new__", 1..=2, got));
         }
         let weak = referent.downgrade_with_typ(callback, cls, vm)?;
         Ok(weak.into())

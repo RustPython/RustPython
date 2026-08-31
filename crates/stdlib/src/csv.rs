@@ -7,7 +7,7 @@ mod _csv {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
-        function::{ArgIterable, ArgumentError, Callee, FromArgs, FuncArgs, OptionalArg},
+        function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg},
         protocol::{PyIter, PyIterReturn},
         types::{Callable, Constructor, IterNext, Iterable, SelfIter},
     };
@@ -734,7 +734,7 @@ mod _csv {
                 // The dialect is parsed by a parser of its own, which has no
                 // name to give the message.
                 return Err(ArgumentError::Exception(
-                    Callee::default().unexpected_keyword(&last_arg.0.to_string(), vm),
+                    vm.new_unexpected_keyword_type_error(None, &last_arg.0.to_string()),
                 ));
             }
 

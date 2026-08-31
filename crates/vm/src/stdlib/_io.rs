@@ -122,7 +122,7 @@ mod _io {
             PyBaseExceptionRef, PyBool, PyByteArray, PyBytes, PyBytesRef, PyDict, PyMemoryView,
             PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str, PyUtf8StrRef,
         },
-        class::StaticType,
+        class::{PyClassDef, StaticType},
         common::lock::{
             PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
             PyThreadMutex, PyThreadMutexGuard,
@@ -131,8 +131,8 @@ mod _io {
         convert::ToPyObject,
         exceptions::nul_char_error,
         function::{
-            ArgBytesLike, ArgContiguousBytesLike, ArgIterable, ArgMemoryBuffer, ArgSize, Callee,
-            Either, FsPath, FuncArgs, IntoFuncArgs, OptionalArg, OptionalOption, PySetterValue,
+            ArgBytesLike, ArgContiguousBytesLike, ArgIterable, ArgMemoryBuffer, ArgSize, Either,
+            FsPath, FuncArgs, IntoFuncArgs, OptionalArg, OptionalOption, PySetterValue,
         },
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
@@ -2839,7 +2839,7 @@ mod _io {
                 *data = None;
             }
             let (buffer, text_args): (PyObjectRef, TextIOWrapperArgs) =
-                args.bind_for(vm, Callee::of::<Self>(vm))?;
+                args.bind_for(vm, Self::NAME)?;
             Self::init(zelf_ref, (buffer, text_args), vm)
         }
     }

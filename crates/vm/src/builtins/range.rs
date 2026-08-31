@@ -6,9 +6,9 @@ use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine, atomic_func,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::hash::PyHash,
-    function::{ArgIndex, Callee, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Hashable, IterNext, Iterable, PyComparisonOp,
@@ -352,12 +352,12 @@ impl PyRange {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let range = if args.args.is_empty() {
-            return Err(Callee::of::<Self>(vm).arity_error(1..=3, 0, vm));
+            return Err(vm.new_arity_type_error(Self::NAME, 1..=3, 0));
         } else if args.args.len() == 1 {
-            let stop = args.bind_for(vm, Callee::of::<Self>(vm))?;
+            let stop = args.bind_for(vm, Self::NAME)?;
             Self::new(cls, stop, vm)
         } else {
-            let (start, stop, step) = args.bind_for(vm, Callee::of::<Self>(vm))?;
+            let (start, stop, step) = args.bind_for(vm, Self::NAME)?;
             Self::new_from(cls, start, stop, step, vm)
         }?;
 

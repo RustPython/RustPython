@@ -22,8 +22,8 @@ mod builtins {
         common::hash::PyHash,
         function::{
             ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgPrimitiveIndex,
-            ArgStrOrBytesLike, Callee, Either, FsPath, FuncArgs, KwArgs, OptionalArg,
-            OptionalOption, PosArgs,
+            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
+            PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -899,16 +899,15 @@ mod builtins {
         func_name: &'static str,
         op: PyComparisonOp,
     ) -> PyResult {
-        let callee = Callee::named(func_name);
         // A call with nothing to compare is refused before the keywords are read.
         if args.args.is_empty() {
-            return Err(callee.arity_error(1..=usize::MAX, 0, vm));
+            return Err(vm.new_arity_type_error(func_name, 1..=usize::MAX, 0));
         }
 
         let default = args.take_keyword("default");
         let key_func = args.take_keyword("key");
 
-        if let Some(err) = args.check_kwargs_empty_for(vm, callee) {
+        if let Some(err) = args.check_kwargs_empty_for(vm, func_name) {
             return Err(err);
         }
 

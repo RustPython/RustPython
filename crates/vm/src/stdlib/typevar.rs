@@ -8,7 +8,7 @@ pub(crate) mod typevar {
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyTuple, PyTupleRef, PyType, PyTypeRef, make_union},
         common::lock::PyMutex,
-        function::{Callee, FuncArgs, PyComparisonValue},
+        function::{FuncArgs, PyComparisonValue},
         protocol::PyNumberMethods,
         stdlib::_typing::{call_typing_func_object, decl::const_evaluator_alloc},
         types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
@@ -365,7 +365,7 @@ pub(crate) mod typevar {
             // Check for unexpected keyword arguments
             if let Some(invalid_key) = kwargs.keys().next() {
                 return Err(
-                    Callee::named("typevar").unexpected_keyword(&invalid_key.to_string(), vm)
+                    vm.new_unexpected_keyword_type_error(Some("typevar"), &invalid_key.to_string())
                 );
             }
 
@@ -645,9 +645,10 @@ pub(crate) mod typevar {
 
             // Check for unexpected keyword arguments
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(
-                    Callee::named("paramspec").unexpected_keyword(&invalid_key.to_string(), vm)
-                );
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some("paramspec"),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Check for invalid combinations
@@ -837,9 +838,10 @@ pub(crate) mod typevar {
 
             // Check for unexpected keyword arguments
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(
-                    Callee::named("typevartuple").unexpected_keyword(&invalid_key.to_string(), vm)
-                );
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some("typevartuple"),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Handle default value

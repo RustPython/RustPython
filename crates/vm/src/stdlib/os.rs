@@ -198,6 +198,7 @@ pub(super) mod _os {
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
+        class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
@@ -1345,7 +1346,7 @@ pub(super) mod _os {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let result = crate::types::struct_sequence_new(
                 cls.clone(),
-                args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?,
+                args.bind_for(vm, Self::NAME)?,
                 StatResultData::OPTIONAL_FIELD_NAMES,
                 vm,
             )?;
@@ -2002,7 +2003,7 @@ pub(super) mod _os {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             crate::types::struct_sequence_new(
                 cls,
-                args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?,
+                args.bind_for(vm, Self::NAME)?,
                 StatvfsResultData::OPTIONAL_FIELD_NAMES,
                 vm,
             )

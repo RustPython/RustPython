@@ -7,9 +7,10 @@ mod decl {
         builtins::{
             PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int,
         },
+        class::PyClassDef,
         common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
         convert::ToPyObject,
-        function::{Callee, FuncArgs, OptionalArg, OptionalOption, PosArgs},
+        function::{FuncArgs, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         stdlib::sys,
@@ -755,17 +756,16 @@ mod decl {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let (iter, start, stop, step) = match args.args.len() {
                 0 | 1 => {
-                    return Err(Callee::of::<Self>(vm).arity_error(2..=4, args.args.len(), vm));
+                    return Err(vm.new_arity_type_error(Self::NAME, 2..=4, args.args.len()));
                 }
                 2 => {
-                    let (iter, stop): (PyObjectRef, PyObjectRef) =
-                        args.bind_for(vm, Callee::of::<Self>(vm))?;
+                    let (iter, stop): (PyObjectRef, PyObjectRef) = args.bind_for(vm, Self::NAME)?;
                     (iter, 0usize, stop, 1usize)
                 }
                 _ => {
                     let (iter, start, stop, step) = if args.args.len() == 3 {
                         let (iter, start, stop): (PyObjectRef, PyObjectRef, PyObjectRef) =
-                            args.bind_for(vm, Callee::of::<Self>(vm))?;
+                            args.bind_for(vm, Self::NAME)?;
                         (iter, start, stop, 1usize)
                     } else {
                         let (iter, start, stop, step): (
@@ -773,7 +773,7 @@ mod decl {
                             PyObjectRef,
                             PyObjectRef,
                             PyObjectRef,
-                        ) = args.bind_for(vm, Callee::of::<Self>(vm))?;
+                        ) = args.bind_for(vm, Self::NAME)?;
 
                         let step = if !vm.is_none(&step) {
                             pyobject_to_opt_usize(step, "Step", vm)?

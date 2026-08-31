@@ -28,12 +28,13 @@ pub fn call_typing_func_object<'a>(
 
 #[pymodule(name = "_typing", with(super::typevar::typevar))]
 pub(crate) mod decl {
+    use crate::class::PyClassDef;
     use crate::common::lock::LazyLock;
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
         builtins::{PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_},
         common::wtf8::Wtf8Buf,
-        function::{Callee, FuncArgs},
+        function::FuncArgs,
         protocol::{PyMappingMethods, PyNumberMethods},
         types::{AsMapping, AsNumber, Callable, Constructor, Iterable, Representable},
     };
@@ -78,7 +79,7 @@ pub(crate) mod decl {
         type Args = ();
 
         fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let _: () = args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?;
+            let _: () = args.bind_for(vm, Self::NAME)?;
             Ok(vm.ctx.typing_no_default.clone().into())
         }
 
@@ -365,7 +366,9 @@ pub(crate) mod decl {
             // Reject unexpected keyword arguments.
             for key in args.kwargs.keys() {
                 if !matches!(key.as_str(), Ok("name" | "value" | "type_params")) {
-                    return Err(Callee::named("typealias").unexpected_keyword(&key.to_string(), vm));
+                    return Err(
+                        vm.new_unexpected_keyword_type_error(Some("typealias"), &key.to_string())
+                    );
                 }
             }
 

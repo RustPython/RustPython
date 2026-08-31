@@ -14,13 +14,13 @@ use crate::{
         function::{PyCellRef, PyFunction},
         tuple::{IntoPyTuple, PyTuple},
     },
-    class::{PyClassImpl, StaticType},
+    class::{PyClassDef, PyClassImpl, StaticType},
     common::{
         ascii,
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
-    function::{Callee, FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
+    function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
@@ -2297,7 +2297,7 @@ impl Constructor for PyType {
         }
 
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
-            args.clone().bind_for(vm, Callee::of::<Self>(vm))?;
+            args.clone().bind_for(vm, Self::NAME)?;
 
         if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters"));
