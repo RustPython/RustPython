@@ -9,7 +9,7 @@ use crate::{
     class::PyClassImpl,
     common::hash,
     convert::ToPyObject,
-    function::{FuncArgs, PyComparisonValue},
+    function::{Callee, FuncArgs, PyComparisonValue},
     protocol::{PyMappingMethods, PyNumberMethods},
     types::{
         AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, IterNext,
@@ -62,7 +62,8 @@ impl Constructor for PyGenericAlias {
         if !args.kwargs.is_empty() {
             return Err(vm.new_type_error("GenericAlias() takes no keyword arguments"));
         }
-        let (origin, arguments): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
+        let (origin, arguments): (PyObjectRef, PyObjectRef) =
+            args.bind_for(vm, Callee::of::<Self>(vm))?;
         let args = if let Ok(tuple) = arguments.try_to_ref::<PyTuple>(vm) {
             tuple.to_owned()
         } else {

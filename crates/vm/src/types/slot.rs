@@ -1843,7 +1843,7 @@ pub trait Callable: PyPayload {
             msg.push_wtf8(&help);
             vm.new_type_error(msg)
         })?;
-        let args = args.bind(vm)?;
+        let args = args.bind_for(vm, Callee::of::<Self>(vm))?;
         Self::call(zelf, args, vm)
     }
 

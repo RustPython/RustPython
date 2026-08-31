@@ -9,7 +9,7 @@ use crate::{
     atomic_func,
     class::PyClassImpl,
     frame::FrameObjectRef,
-    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{Callee, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -71,16 +71,13 @@ impl Constructor for FrameLocalsProxy {
     type Args = FuncArgs;
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        if args.args.len() != 1 {
+            return Err(Callee::of::<Self>(vm).arity_error(1..=1, args.args.len(), vm));
+        }
         if !args.kwargs.is_empty() {
             return Err(vm.new_type_error("FrameLocalsProxy() takes no keyword arguments"));
         }
         let mut args = args.args;
-        if args.len() != 1 {
-            return Err(vm.new_type_error(format!(
-                "FrameLocalsProxy expected 1 argument, got {}",
-                args.len()
-            )));
-        }
         let frame: FrameObjectRef = args
             .pop()
             .unwrap()

@@ -131,8 +131,8 @@ mod _io {
         convert::ToPyObject,
         exceptions::nul_char_error,
         function::{
-            ArgBytesLike, ArgContiguousBytesLike, ArgIterable, ArgMemoryBuffer, ArgSize, Either,
-            FsPath, FuncArgs, IntoFuncArgs, OptionalArg, OptionalOption, PySetterValue,
+            ArgBytesLike, ArgContiguousBytesLike, ArgIterable, ArgMemoryBuffer, ArgSize, Callee,
+            Either, FsPath, FuncArgs, IntoFuncArgs, OptionalArg, OptionalOption, PySetterValue,
         },
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
@@ -2838,7 +2838,8 @@ mod _io {
                 let mut data = zelf_ref.lock_opt(vm)?;
                 *data = None;
             }
-            let (buffer, text_args): (PyObjectRef, TextIOWrapperArgs) = args.bind(vm)?;
+            let (buffer, text_args): (PyObjectRef, TextIOWrapperArgs) =
+                args.bind_for(vm, Callee::of::<Self>(vm))?;
             Self::init(zelf_ref, (buffer, text_args), vm)
         }
     }

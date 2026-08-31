@@ -8,7 +8,7 @@ pub(crate) mod typevar {
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyTuple, PyTupleRef, PyType, PyTypeRef, make_union},
         common::lock::PyMutex,
-        function::{FuncArgs, PyComparisonValue},
+        function::{Callee, FuncArgs, PyComparisonValue},
         protocol::PyNumberMethods,
         stdlib::_typing::{call_typing_func_object, decl::const_evaluator_alloc},
         types::{AsNumber, Comparable, Constructor, Iterable, PyComparisonOp, Representable},
@@ -363,12 +363,10 @@ pub(crate) mod typevar {
             let default = kwargs.swap_remove("default");
 
             // Check for unexpected keyword arguments
-            if !kwargs.is_empty() {
-                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
-                return Err(vm.new_type_error(format!(
-                    "TypeVar() got unexpected keyword argument(s): {}",
-                    unexpected_keys.join(", ")
-                )));
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(
+                    Callee::named("typevar").unexpected_keyword(&invalid_key.to_string(), vm)
+                );
             }
 
             // Check for invalid combinations
@@ -646,12 +644,10 @@ pub(crate) mod typevar {
             let default = kwargs.swap_remove("default");
 
             // Check for unexpected keyword arguments
-            if !kwargs.is_empty() {
-                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
-                return Err(vm.new_type_error(format!(
-                    "ParamSpec() got unexpected keyword argument(s): {}",
-                    unexpected_keys.join(", ")
-                )));
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(
+                    Callee::named("paramspec").unexpected_keyword(&invalid_key.to_string(), vm)
+                );
             }
 
             // Check for invalid combinations
@@ -840,12 +836,10 @@ pub(crate) mod typevar {
             let default = kwargs.swap_remove("default");
 
             // Check for unexpected keyword arguments
-            if !kwargs.is_empty() {
-                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
-                return Err(vm.new_type_error(format!(
-                    "TypeVarTuple() got unexpected keyword argument(s): {}",
-                    unexpected_keys.join(", ")
-                )));
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(
+                    Callee::named("typevartuple").unexpected_keyword(&invalid_key.to_string(), vm)
+                );
             }
 
             // Handle default value

@@ -26,7 +26,9 @@ pub(crate) mod _thread {
         },
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         frame::FrameObjectRef,
-        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
+        function::{
+            ArgCallable, Callee, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds,
+        },
         object::{Traverse, TraverseFn},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
@@ -484,16 +486,8 @@ pub(crate) mod _thread {
         }
 
         let given = f_args.args.len();
-        if given < 2 {
-            return Err(vm.new_type_error(format!(
-                "start_new_thread expected at least 2 arguments, got {given}"
-            )));
-        }
-
-        if given > 3 {
-            return Err(vm.new_type_error(format!(
-                "start_new_thread expected at most 3 arguments, got {given}"
-            )));
+        if !(2..=3).contains(&given) {
+            return Err(Callee::named("start_new_thread").arity_error(2..=3, given, vm));
         }
 
         let func_obj = f_args.take_positional().unwrap();

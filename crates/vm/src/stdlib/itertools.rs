@@ -755,10 +755,7 @@ mod decl {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let (iter, start, stop, step) = match args.args.len() {
                 0 | 1 => {
-                    return Err(vm.new_type_error(format!(
-                        "islice expected at least 2 arguments, got {}",
-                        args.args.len()
-                    )));
+                    return Err(Callee::of::<Self>(vm).arity_error(2..=4, args.args.len(), vm));
                 }
                 2 => {
                     let (iter, stop): (PyObjectRef, PyObjectRef) =

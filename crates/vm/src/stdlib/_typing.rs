@@ -33,7 +33,7 @@ pub(crate) mod decl {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
         builtins::{PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_},
         common::wtf8::Wtf8Buf,
-        function::FuncArgs,
+        function::{Callee, FuncArgs},
         protocol::{PyMappingMethods, PyNumberMethods},
         types::{AsMapping, AsNumber, Callable, Constructor, Iterable, Representable},
     };
@@ -365,9 +365,7 @@ pub(crate) mod decl {
             // Reject unexpected keyword arguments.
             for key in args.kwargs.keys() {
                 if !matches!(key.as_str(), Ok("name" | "value" | "type_params")) {
-                    return Err(vm.new_type_error(format!(
-                        "typealias() got an unexpected keyword argument '{key}'"
-                    )));
+                    return Err(Callee::named("typealias").unexpected_keyword(&key.to_string(), vm));
                 }
             }
 

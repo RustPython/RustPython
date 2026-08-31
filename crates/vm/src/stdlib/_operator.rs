@@ -6,7 +6,7 @@ mod _operator {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
         common::wtf8::{Wtf8, Wtf8Buf},
-        function::{ArgBytesLike, Either, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, Callee, Either, FuncArgs, OptionalArg},
         protocol::PyIter,
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp, Representable},
@@ -400,7 +400,7 @@ mod _operator {
                 return Err(vm.new_type_error("attrgetter() takes no keyword arguments"));
             }
             if n_attr == 0 {
-                return Err(vm.new_type_error("attrgetter expected 1 argument, got 0."));
+                return Err(Callee::of::<Self>(vm).arity_error(1..=1, 0, vm));
             }
             let mut attrs = Vec::with_capacity(n_attr);
             for o in args.args {
@@ -486,7 +486,7 @@ mod _operator {
                 return Err(vm.new_type_error("itemgetter() takes no keyword arguments"));
             }
             if args.args.is_empty() {
-                return Err(vm.new_type_error("itemgetter expected 1 argument, got 0."));
+                return Err(Callee::of::<Self>(vm).arity_error(1..=1, 0, vm));
             }
             Ok(Self { items: args.args })
         }

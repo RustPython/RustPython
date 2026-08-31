@@ -433,7 +433,8 @@ impl Callee {
     }
 
     /// The branch of _PyArg_UnpackKeywords that names a keyword it didn't expect.
-    fn unexpected_keyword(self, keyword: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    #[must_use]
+    pub fn unexpected_keyword(self, keyword: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let (name, parens) = self.call_form("this function");
         vm.new_type_error(format!(
             "{name}{parens} got an unexpected keyword argument '{keyword}'"

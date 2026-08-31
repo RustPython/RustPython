@@ -1095,10 +1095,7 @@ impl Constructor for PyFrozenSet {
                 [] => OptionalArg::Missing,
                 [iterable] => OptionalArg::Present(iterable.clone()),
                 slice => {
-                    return Err(vm.new_type_error(format!(
-                        "frozenset expected at most 1 argument, got {}",
-                        slice.len()
-                    )));
+                    return Err(Callee::of::<Self>(vm).arity_error(0..=1, slice.len(), vm));
                 }
             }
         };

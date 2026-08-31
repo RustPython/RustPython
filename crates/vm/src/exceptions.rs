@@ -1627,7 +1627,7 @@ pub(super) mod types {
             tuple::IntoPyTuple,
         },
         convert::ToPyResult,
-        function::{ArgBytesLike, FuncArgs, KwArgs, PySetterValue},
+        function::{ArgBytesLike, Callee, FuncArgs, KwArgs, PySetterValue},
         set_attrs,
         types::{Constructor, Initializer},
     };
@@ -1876,9 +1876,7 @@ pub(super) mod types {
 
             // Reject unknown kwargs
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_type_error(format!(
-                    "AttributeError() got an unexpected keyword argument '{invalid_key}'"
-                )));
+                return Err(Callee::of::<Self>(vm).unexpected_keyword(&invalid_key.to_string(), vm));
             }
 
             // Pass args without kwargs to BaseException_init
@@ -2031,9 +2029,7 @@ pub(super) mod types {
 
             // Reject unknown kwargs
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_type_error(format!(
-                    "NameError() got an unexpected keyword argument '{invalid_key}'"
-                )));
+                return Err(Callee::of::<Self>(vm).unexpected_keyword(&invalid_key.to_string(), vm));
             }
 
             // Pass args without kwargs to BaseException_init

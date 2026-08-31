@@ -7,7 +7,7 @@ mod _csv {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
-        function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg},
+        function::{ArgIterable, ArgumentError, Callee, FromArgs, FuncArgs, OptionalArg},
         protocol::{PyIter, PyIterReturn},
         types::{Callable, Constructor, IterNext, Iterable, SelfIter},
     };
@@ -731,12 +731,11 @@ mod _csv {
             };
 
             if let Some(last_arg) = args.kwargs.pop() {
-                return Err(
-                    rustpython_vm::function::ArgumentError::InvalidKeywordArgument(format!(
-                        "'{}' is an invalid keyword argument for this function",
-                        last_arg.0
-                    )),
-                );
+                // The dialect is parsed by a parser of its own, which has no
+                // name to give the message.
+                return Err(ArgumentError::Exception(
+                    Callee::default().unexpected_keyword(&last_arg.0.to_string(), vm),
+                ));
             }
 
             Ok(res)
