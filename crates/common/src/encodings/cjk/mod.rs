@@ -286,10 +286,13 @@ mod tests {
             Codec::Hz,
         ];
         for codec in codecs {
+            let initial_state = initial_state(codec, true);
             for first in 0..=u8::MAX {
-                let _ = decode_one(codec, &[first], &mut [0; 8]);
+                let mut state = initial_state;
+                let _ = decode_one(codec, &[first], &mut state);
                 for second in 0..=u8::MAX {
-                    let _ = decode_one(codec, &[first, second], &mut [0; 8]);
+                    let mut state = initial_state;
+                    let _ = decode_one(codec, &[first, second], &mut state);
                 }
             }
         }
