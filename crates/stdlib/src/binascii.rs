@@ -136,16 +136,6 @@ mod decl {
     }
 
     #[pyfunction]
-    fn rlecode_hqx(s: ArgAsciiBuffer) -> Vec<u8> {
-        s.with_ref(binascii::rlecode_hqx)
-    }
-
-    #[pyfunction]
-    fn rledecode_hqx(s: ArgAsciiBuffer) -> Vec<u8> {
-        s.with_ref(binascii::rledecode_hqx)
-    }
-
-    #[pyfunction]
     fn a2b_uu(s: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         s.with_ref(binascii::a2b_uu)
             .map_err(|e| new_binascii_error(e, vm))
