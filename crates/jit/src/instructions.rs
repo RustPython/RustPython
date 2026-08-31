@@ -101,6 +101,54 @@ pub(crate) struct FunctionCompiler<'a, 'b> {
 /// direction: claiming support for something the match rejects merely wastes a
 /// compile attempt, and denying something it handles only costs an
 /// optimization. Neither can produce wrong code.
+fn jump_target_forward(offset: u32, caches: u32, arg: OpArg) -> Result<Label, JitCompileError> {
+    let after = offset
+        .checked_add(1)
+        .and_then(|i| i.checked_add(caches))
+        .ok_or(JitCompileError::BadBytecode)?;
+    let target = after
+        .checked_add(u32::from(arg))
+        .ok_or(JitCompileError::BadBytecode)?;
+    Ok(Label::from_u32(target))
+}
+
+fn jump_target_backward(offset: u32, caches: u32, arg: OpArg) -> Result<Label, JitCompileError> {
+    let after = offset
+        .checked_add(1)
+        .and_then(|i| i.checked_add(caches))
+        .ok_or(JitCompileError::BadBytecode)?;
+    let target = after
+        .checked_sub(u32::from(arg))
+        .ok_or(JitCompileError::BadBytecode)?;
+    Ok(Label::from_u32(target))
+}
+
+/// The offset a jump at `offset` lands on, or `None` when the instruction is
+/// not a jump. Jump arguments are deltas, so this is the only way to learn
+/// which offsets are branch targets - `CodeObject::label_targets` collects the
+/// delta itself rather than the offset it points at.
+pub(crate) fn instruction_target(
+    offset: u32,
+    instruction: Instruction,
+    arg: OpArg,
+) -> Result<Option<Label>, JitCompileError> {
+    let caches = instruction.cache_entries() as u32;
+    let target = match instruction {
+        Instruction::JumpForward { .. } => Some(jump_target_forward(offset, caches, arg)?),
+        Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. } => {
+            Some(jump_target_backward(offset, caches, arg)?)
+        }
+        Instruction::PopJumpIfFalse { .. }
+        | Instruction::PopJumpIfTrue { .. }
+        | Instruction::PopJumpIfNone { .. }
+        | Instruction::PopJumpIfNotNone { .. }
+        | Instruction::ForIter { .. }
+        | Instruction::Send { .. } => Some(jump_target_forward(offset, caches, arg)?),
+        _ => None,
+    };
+    Ok(target)
+}
+
 pub(crate) const fn instruction_is_supported(instruction: Instruction) -> bool {
     matches!(
         instruction,
@@ -394,56 +442,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .or_insert_with(|| builder.create_block())
     }
 
-    fn jump_target_forward(offset: u32, caches: u32, arg: OpArg) -> Result<Label, JitCompileError> {
-        let after = offset
-            .checked_add(1)
-            .and_then(|i| i.checked_add(caches))
-            .ok_or(JitCompileError::BadBytecode)?;
-        let target = after
-            .checked_add(u32::from(arg))
-            .ok_or(JitCompileError::BadBytecode)?;
-        Ok(Label::from_u32(target))
-    }
-
-    fn jump_target_backward(
-        offset: u32,
-        caches: u32,
-        arg: OpArg,
-    ) -> Result<Label, JitCompileError> {
-        let after = offset
-            .checked_add(1)
-            .and_then(|i| i.checked_add(caches))
-            .ok_or(JitCompileError::BadBytecode)?;
-        let target = after
-            .checked_sub(u32::from(arg))
-            .ok_or(JitCompileError::BadBytecode)?;
-        Ok(Label::from_u32(target))
-    }
-
-    fn instruction_target(
-        offset: u32,
-        instruction: Instruction,
-        arg: OpArg,
-    ) -> Result<Option<Label>, JitCompileError> {
-        let caches = instruction.cache_entries() as u32;
-        let target = match instruction {
-            Instruction::JumpForward { .. } => {
-                Some(Self::jump_target_forward(offset, caches, arg)?)
-            }
-            Instruction::JumpBackward { .. } | Instruction::JumpBackwardNoInterrupt { .. } => {
-                Some(Self::jump_target_backward(offset, caches, arg)?)
-            }
-            Instruction::PopJumpIfFalse { .. }
-            | Instruction::PopJumpIfTrue { .. }
-            | Instruction::PopJumpIfNone { .. }
-            | Instruction::PopJumpIfNotNone { .. }
-            | Instruction::ForIter { .. }
-            | Instruction::Send { .. } => Some(Self::jump_target_forward(offset, caches, arg)?),
-            _ => None,
-        };
-        Ok(target)
-    }
-
     pub(crate) fn compile<C: bytecode::Constant>(
         &mut self,
         func_ref: FuncRef,
@@ -462,7 +460,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let mut target_arg_state = OpArgState::default();
         for (offset, &raw_instr) in clean_instructions.iter().enumerate() {
             let (instruction, arg) = target_arg_state.get(raw_instr);
-            if let Some(target) = Self::instruction_target(offset as u32, instruction, arg)? {
+            if let Some(target) = instruction_target(offset as u32, instruction, arg)? {
                 label_targets.insert(target);
             }
         }
@@ -1045,7 +1043,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::JumpBackward { .. }
             | Instruction::JumpBackwardNoInterrupt { .. }
             | Instruction::JumpForward { .. } => {
-                let target = Self::instruction_target(offset, instruction, arg)?
+                let target = instruction_target(offset, instruction, arg)?
                     .ok_or(JitCompileError::BadBytecode)?;
                 self.has_backward_jump |= target.as_u32() <= offset;
                 self.require_empty_stack_at_merge()?;
@@ -1120,7 +1118,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::PopJumpIfFalse { .. } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;
-                let then_label = Self::instruction_target(offset, instruction, arg)?
+                let then_label = instruction_target(offset, instruction, arg)?
                     .ok_or(JitCompileError::BadBytecode)?;
                 self.require_empty_stack_at_merge()?;
                 let then_block = self.get_or_create_block(then_label);
@@ -1136,7 +1134,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::PopJumpIfTrue { .. } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let val = self.boolean_val(cond)?;
-                let then_label = Self::instruction_target(offset, instruction, arg)?
+                let then_label = instruction_target(offset, instruction, arg)?
                     .ok_or(JitCompileError::BadBytecode)?;
                 self.require_empty_stack_at_merge()?;
                 let then_block = self.get_or_create_block(then_label);
