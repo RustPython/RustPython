@@ -15,7 +15,10 @@ mod sys_jit {
     /// and False otherwise.
     #[pyfunction]
     const fn is_available() -> bool {
-        cfg!(feature = "jit")
+        // The automatic compiler, which is what `is_enabled` reports and what
+        // `PYTHON_JIT` switches. Explicit `__jit__()` needs only the `jit`
+        // feature and is not what this pair describes.
+        cfg!(feature = "aot")
     }
 
     /// Return True if JIT compilation is enabled for the current Python process,
