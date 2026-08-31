@@ -759,6 +759,8 @@ pub(crate) struct CallableCache {
 pub struct PyGlobalState {
     /// Unique process-global interpreter id (main is [`MAIN_INTERPRETER_ID`]).
     pub interpreter_id: i64,
+    /// Top-level interpreter whose runtime owns this interpreter.
+    pub runtime_root_id: i64,
     /// How this interpreter was created.
     pub whence: runtime::InterpreterWhence,
     /// True for every top-level (non-sub) interpreter, each of which keeps its

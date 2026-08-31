@@ -452,9 +452,15 @@ pub fn live_interpreter_states() -> Vec<PyRc<PyGlobalState>> {
 /// via [`owned_new_thread`], which only clones the shared interpreter fields
 /// (`sys`, builtins, `PyGlobalState`).
 #[cfg(feature = "threading")]
-fn owned_interpreters() -> &'static Mutex<HashMap<i64, crate::Interpreter>> {
+struct OwnedInterpreter {
+    root_id: i64,
+    interpreter: crate::Interpreter,
+}
+
+#[cfg(feature = "threading")]
+fn owned_interpreters() -> &'static Mutex<HashMap<i64, OwnedInterpreter>> {
     use std::sync::OnceLock;
-    static OWNED: OnceLock<Mutex<HashMap<i64, crate::Interpreter>>> = OnceLock::new();
+    static OWNED: OnceLock<Mutex<HashMap<i64, OwnedInterpreter>>> = OnceLock::new();
     OWNED.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -462,9 +468,16 @@ fn owned_interpreters() -> &'static Mutex<HashMap<i64, crate::Interpreter>> {
 #[cfg(feature = "threading")]
 pub fn store_owned_interpreter(interp: crate::Interpreter) -> i64 {
     let id = interp.id();
+    let root_id = interp.global_state.runtime_root_id;
     // Ids are strictly monotonic, so this never displaces (and drops) an
     // existing entry under the lock.
-    owned_interpreters().lock().insert(id, interp);
+    owned_interpreters().lock().insert(
+        id,
+        OwnedInterpreter {
+            root_id,
+            interpreter: interp,
+        },
+    );
     id
 }
 
@@ -475,7 +488,10 @@ pub fn store_owned_interpreter(interp: crate::Interpreter) -> i64 {
 #[cfg(feature = "threading")]
 #[must_use]
 pub fn take_owned_interpreter(id: i64) -> Option<crate::Interpreter> {
-    owned_interpreters().lock().remove(&id)
+    owned_interpreters()
+        .lock()
+        .remove(&id)
+        .map(|owned| owned.interpreter)
 }
 
 /// Create a thread-state VM for a runtime-owned interpreter.
@@ -487,7 +503,7 @@ pub fn owned_new_thread(id: i64) -> Option<crate::vm::thread::ThreadedVirtualMac
     owned_interpreters()
         .lock()
         .get(&id)
-        .map(|interp| interp.new_thread())
+        .map(|owned| owned.interpreter.new_thread())
 }
 
 /// Whether `id` refers to a runtime-owned interpreter.
@@ -509,6 +525,19 @@ pub fn owned_interpreter_count() -> usize {
 #[must_use]
 pub fn owned_interpreter_ids() -> Vec<i64> {
     let mut ids: Vec<i64> = owned_interpreters().lock().keys().copied().collect();
+    ids.sort_unstable();
+    ids
+}
+
+/// Ids of runtime-owned interpreters belonging to `root_id`, oldest first.
+#[cfg(feature = "threading")]
+#[must_use]
+pub fn owned_interpreter_ids_for(root_id: i64) -> Vec<i64> {
+    let mut ids: Vec<i64> = owned_interpreters()
+        .lock()
+        .iter()
+        .filter_map(|(&id, owned)| (owned.root_id == root_id).then_some(id))
+        .collect();
     ids.sort_unstable();
     ids
 }
