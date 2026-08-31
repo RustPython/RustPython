@@ -76,11 +76,8 @@ assert closure_factory(5)(1) == 6
 assert list(generator(7)) == [7]
 assert guarded(3) == 3
 
-# Division by zero raises rather than returning inf or killing the process.
-try:
-    scale(1.0, 0.0)
-except ZeroDivisionError:
-    raise AssertionError("scale does not divide")
+# A zero operand is ordinary for `scale`, which only multiplies and adds.
+assert scale(1.0, 0.0) == 1.0
 
 
 def divide(a: float, b: float) -> float:
