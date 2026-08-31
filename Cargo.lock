@@ -3360,7 +3360,9 @@ name = "rustpython-common"
 version = "0.5.0"
 dependencies = [
  "ascii",
+ "base64",
  "bitflags 2.13.1",
+ "crc32fast",
  "getrandom 0.4.3",
  "itertools 0.15.0",
  "libc",
@@ -3368,6 +3370,7 @@ dependencies = [
  "malachite-base",
  "malachite-bigint",
  "malachite-q",
+ "memchr",
  "num-complex",
  "num-traits",
  "parking_lot",
@@ -3599,11 +3602,9 @@ version = "0.5.0"
 dependencies = [
  "adler32",
  "ascii",
- "base64",
  "blake2",
  "bzip2",
  "constant_time_eq",
- "crc32fast",
  "crossbeam-utils",
  "csv-core",
  "der",

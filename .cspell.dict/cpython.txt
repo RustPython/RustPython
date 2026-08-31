@@ -37,6 +37,7 @@ cfws
 CFWS
 chans
 cidx
+cjkcodecs
 CLASSDEREF
 classdict
 cmpop
@@ -65,6 +66,7 @@ elts
 eooh
 eofs
 EOOH
+esize
 evalloop
 excepthandler
 exceptiontable
@@ -138,6 +140,9 @@ lslpp
 lsprof
 MAXBLOCKS
 maxdepth
+mbiencoder
+mbstreamreader
+mbstreamwriter
 metavars
 miscompiles
 mult

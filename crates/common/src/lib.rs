@@ -6,6 +6,8 @@
 extern crate alloc;
 
 pub mod atomic;
+#[cfg(feature = "binascii")]
+pub mod binascii;
 pub mod borrow;
 pub mod boxvec;
 pub mod cformat;
@@ -13,7 +15,11 @@ pub mod encodings;
 pub mod float_ops;
 pub mod format;
 pub mod hash;
+#[cfg(feature = "inet")]
+pub mod inet;
 pub mod int;
+#[cfg(feature = "json")]
+pub mod json;
 pub mod linked_list;
 pub mod lock;
 pub mod rand;

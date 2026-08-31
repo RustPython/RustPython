@@ -3570,7 +3570,6 @@ class TestExecutablePrependedZip(unittest.TestCase):
         self.assertIn(b'number in executable: 5', output)
 
 
-@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis")
 class EncodedMetadataTests(unittest.TestCase):
     file_names = ['\u4e00', '\u4e8c', '\u4e09']  # Han 'one', 'two', 'three'
     file_content = [
@@ -3578,8 +3577,7 @@ class EncodedMetadataTests(unittest.TestCase):
         # This is modern Japanese. (UTF-8)
         "\u3053\u308c\u306f\u73fe\u4ee3\u7684\u65e5\u672c\u8a9e\u3067\u3059\u3002\n".encode('utf-8'),
         # This is obsolete Japanese. (Shift JIS)
-        # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-        # "\u3053\u308c\u306f\u53e4\u3044\u65e5\u672c\u8a9e\u3067\u3059\u3002\n".encode('shift_jis'),
+        "\u3053\u308c\u306f\u53e4\u3044\u65e5\u672c\u8a9e\u3067\u3059\u3002\n".encode('shift_jis'),
     ]
 
     def setUp(self):
