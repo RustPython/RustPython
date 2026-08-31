@@ -3087,29 +3087,33 @@ impl ExecutingFrame<'_> {
             // (frames entered before sys.settrace() have trace=None).
             // Skip RESUME – it should not generate user-visible line events.
             if vm.use_tracing.get()
-                && self.trace_is_set(vm)
                 && !matches!(
                     self.code.instructions.read_op(idx),
                     Instruction::Resume { .. } | Instruction::InstrumentedResume
                 )
                 && let Some((loc, _)) = self.code.locations.get(idx)
-                && loc.line.get() as u32 != self.prev_line.get()
             {
-                self.prev_line.set(loc.line.get() as u32);
-                vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
-                // Trace callback may have changed lasti via set_f_lineno.
-                // Re-read and restart the loop from the new position.
-                if self.lasti() != (idx as u32 + 1) {
-                    // set_f_lineno defers stack unwinding because we hold
-                    // the state mutex.  Perform it now.
-                    let pops = self.pending_stack_pops();
-                    if pops > 0 {
-                        let from_stack = self.pending_unwind_from_stack();
-                        self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
-                        self.set_pending_stack_pops(0);
+                // The line is recorded even where this frame carries no trace
+                // function, so that a frame which starts being traced part way
+                // through does not report the line it is already on as new.
+                let line = loc.line.get() as u32;
+                let changed = line != self.prev_line.replace(line);
+                if changed && self.trace_is_set(vm) {
+                    vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
+                    // Trace callback may have changed lasti via set_f_lineno.
+                    // Re-read and restart the loop from the new position.
+                    if self.lasti() != (idx as u32 + 1) {
+                        // set_f_lineno defers stack unwinding because we hold
+                        // the state mutex.  Perform it now.
+                        let pops = self.pending_stack_pops();
+                        if pops > 0 {
+                            let from_stack = self.pending_unwind_from_stack();
+                            self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
+                            self.set_pending_stack_pops(0);
+                        }
+                        arg_state.reset();
+                        continue;
                     }
-                    arg_state.reset();
-                    continue;
                 }
             }
             let op = self.code.instructions.read_op(idx);
