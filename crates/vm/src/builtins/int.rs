@@ -13,8 +13,8 @@ use crate::{
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
-        PyComparisonValue,
+        ArgByteOrder, ArgIntoBool, Callee, FuncArgs, OptionalArg, OptionalOption,
+        PyArithmeticValue, PyComparisonValue,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err, numeric_literal_from_str},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -259,7 +259,7 @@ impl Constructor for PyInt {
             return Ok(args.args[0].clone());
         }
 
-        let options: IntOptions = args.bind(vm)?;
+        let options: IntOptions = args.bind_for(vm, Callee::of::<Self>(vm))?;
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
                 let base = base

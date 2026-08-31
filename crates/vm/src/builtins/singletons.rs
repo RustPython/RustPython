@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     convert::ToPyObject,
-    function::{FuncArgs, PyComparisonValue},
+    function::{Callee, FuncArgs, PyComparisonValue},
     protocol::PyNumberMethods,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
@@ -41,7 +41,7 @@ impl Constructor for PyNone {
     type Args = ();
 
     fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let _: () = args.bind(vm)?;
+        let _: () = args.bind_for(vm, Callee::of::<Self>(vm))?;
         Ok(vm.ctx.none.clone().into())
     }
 
@@ -110,7 +110,7 @@ impl Constructor for PyNotImplemented {
     type Args = ();
 
     fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let _: () = args.bind(vm)?;
+        let _: () = args.bind_for(vm, Callee::of::<Self>(vm))?;
         Ok(vm.ctx.not_implemented.clone().into())
     }
 

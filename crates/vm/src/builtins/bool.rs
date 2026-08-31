@@ -4,7 +4,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
-    function::{FuncArgs, OptionalArg},
+    function::{Callee, FuncArgs, OptionalArg},
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
 };
@@ -87,7 +87,7 @@ impl Constructor for PyBool {
     type Args = OptionalArg<PyObjectRef>;
 
     fn slot_new(zelf: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let x: Self::Args = args.bind(vm)?;
+        let x: Self::Args = args.bind_for(vm, Callee::of::<Self>(vm))?;
         if !zelf.fast_isinstance(vm.ctx.types.type_type) {
             return Err(vm.new_type_error(format!(
                 "requires a 'type' object but received a '{}'",

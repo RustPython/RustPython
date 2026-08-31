@@ -3,7 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     common::lock::PyMutex,
-    function::{FuncArgs, PySetterValue},
+    function::{Callee, FuncArgs, PySetterValue},
     types::{Constructor, GetDescriptor, Initializer, Representable},
 };
 
@@ -70,7 +70,7 @@ impl Constructor for PyClassMethod {
         // copying its attributes to `__init__` so that subclasses overriding
         // `__init__` without calling `super().__init__()` see `__func__` as
         // `None`, matching CPython.
-        let _: Self::Args = args.bind(vm)?;
+        let _: Self::Args = args.bind_for(vm, Callee::of::<Self>(vm))?;
         let classmethod = Self {
             callable: PyMutex::new(vm.ctx.none()),
         };
