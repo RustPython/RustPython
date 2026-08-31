@@ -701,11 +701,15 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         // operands to double and dividing rounds twice, so it can be
                         // a ulp out as soon as either conversion is inexact - which
                         // is exactly when the operand does not fit in a double's
-                        // significand.
+                        // significand. A magnitude of `1 << 53` is the largest that
+                        // still converts exactly, so only what is past it deopts.
+                        // `iabs` leaves `i64::MIN` negative, and the unsigned
+                        // comparison reads that as `1 << 63`, which is past the
+                        // bound - so the one value it cannot negate still deopts.
                         let too_wide = |compiler: &mut Self, v: Value| {
                             let magnitude = compiler.builder.ins().iabs(v);
                             compiler.builder.ins().icmp_imm(
-                                IntCC::UnsignedGreaterThanOrEqual,
+                                IntCC::UnsignedGreaterThan,
                                 magnitude,
                                 1 << 53,
                             )
