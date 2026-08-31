@@ -95,8 +95,9 @@ mod tests {
         assert_eq!(div(1, 100000), Ok(0.00001));
         assert_eq!(div(2, 3), Ok(0.6666666666666666));
         assert_eq!(div(1, 3), Ok(0.3333333333333333));
-        // An operand at or past `1 << 53` does not fit a double's
-        // significand and deoptimizes instead; see deopt_tests.rs.
+        assert_eq!(div(1i64 << 53, 1), Ok((1i64 << 53) as f64));
+        // An operand past `1 << 53` does not fit a double's significand and
+        // deoptimizes instead; see deopt_tests.rs.
     }
 
     #[test]

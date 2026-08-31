@@ -243,21 +243,30 @@ def div(a: int, b: int) -> float:
 def div(a: int, b: int) -> float:
     return a / b
 "# };
+        // `1 << 53` itself converts to a double exactly, so it stays compiled.
         assert_eq!(
-            code.invoke(&[((1i64 << 53) - 1).into(), 1i64.into()]),
-            Ok(Outcome::Returned(Some((((1i64 << 53) - 1) as f64).into())))
+            code.invoke(&[(1i64 << 53).into(), 1i64.into()]),
+            Ok(Outcome::Returned(Some(((1i64 << 53) as f64).into())))
         );
-        match code.invoke(&[(1i64 << 53).into(), 1i64.into()]) {
+        match code.invoke(&[((1i64 << 53) + 1).into(), 1i64.into()]) {
             Ok(Outcome::Deopt(state)) => {
-                assert_eq!(state.stack, vec![int(1i64 << 53), int(1)]);
+                assert_eq!(state.stack, vec![int((1i64 << 53) + 1), int(1)]);
             }
             other => panic!("expected a deopt, got {other:?}"),
         }
         // The guard checks both operands - a wide divisor deopts as readily
         // as a wide dividend.
-        match code.invoke(&[1i64.into(), (1i64 << 53).into()]) {
+        match code.invoke(&[1i64.into(), ((1i64 << 53) + 1).into()]) {
             Ok(Outcome::Deopt(state)) => {
-                assert_eq!(state.stack, vec![int(1), int(1i64 << 53)]);
+                assert_eq!(state.stack, vec![int(1), int((1i64 << 53) + 1)]);
+            }
+            other => panic!("expected a deopt, got {other:?}"),
+        }
+        // `iabs` cannot negate `i64::MIN`; the unsigned comparison still
+        // places it past the bound.
+        match code.invoke(&[i64::MIN.into(), 1i64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![int(i64::MIN), int(1)]);
             }
             other => panic!("expected a deopt, got {other:?}"),
         }
