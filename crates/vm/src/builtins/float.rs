@@ -6,7 +6,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
     class::PyClassImpl,
-    common::{float_ops, format::FormatSpec, hash, wtf8::Wtf8Buf},
+    common::{float_ops, hash, wtf8::Wtf8Buf},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
         ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue,
@@ -250,8 +250,7 @@ impl PyFloat {
         if spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        let format_spec =
-            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let format_spec = crate::format::parse_format_spec(zelf.as_object(), spec.as_str(), vm)?;
         let result = if format_spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
             format_spec.format_float_locale(zelf.value, &locale)
