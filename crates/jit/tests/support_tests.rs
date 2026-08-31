@@ -44,6 +44,28 @@ def count(n: int) -> int:
     }
 
     #[test]
+    fn mid_expression_merges_are_rejected() {
+        // The compiler cannot reconcile the value stack where control flow
+        // merges, so the pre-filter has to turn a merge reached mid-expression
+        // down. Without this the depth simulation could stop firing and the
+        // only symptom would be compile attempts that always fail.
+        //
+        // Every opcode below is one `instruction_is_supported` accepts, which
+        // is what leaves the merge as the only thing that can reject it. A
+        // short-circuit operator looks like the smaller shape for this and is
+        // not: `and` and `or` compile to `COPY`, which the opcode filter
+        // rejects on its own, so such a case passes whether or not this clause
+        // is here. Assigning the conditional expression rather than returning
+        // it matters too - codegen tail-duplicates one in return position, so
+        // `return (a if b else b) + 1` has no merge to reject.
+        assert_unsupported!(merge_mid_expression => r#"
+def merge_mid_expression(a: int, b: int) -> int:
+    c = (a if b else b) + 1
+    return c
+"#);
+    }
+
+    #[test]
     fn varargs_are_rejected() {
         assert_unsupported!(va => r#"
 def va(*args) -> int:
