@@ -3360,7 +3360,6 @@ class CodePageTest(unittest.TestCase):
                 self.assertRaises(UnicodeEncodeError,
                     text.encode, f'cp{cp}', errors)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cp932(self):
         self.check_encode(932, (
             ('abc', 'strict', b'abc'),
