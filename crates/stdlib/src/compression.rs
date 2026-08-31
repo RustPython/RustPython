@@ -2,13 +2,16 @@
 
 //! internal shared module for compression libraries
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+use crate::vm::PyResult;
 use crate::vm::function::{ArgBytesLike, ArgSize, OptionalArg};
 use crate::vm::{
-    PyResult, VirtualMachine,
+    VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytesRef},
     convert::ToPyException,
 };
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub(crate) const USE_AFTER_FINISH_ERR: &str = "Error -2: inconsistent stream state";
 // TODO: don't hardcode
 const CHUNKSIZE: usize = u32::MAX as usize;
@@ -76,12 +79,6 @@ pub(crate) struct Chunker<'a> {
     data2: &'a [u8],
 }
 impl<'a> Chunker<'a> {
-    pub(crate) const fn new(data: &'a [u8]) -> Self {
-        Self {
-            data1: data,
-            data2: &[],
-        }
-    }
     pub(crate) const fn chain(data1: &'a [u8], data2: &'a [u8]) -> Self {
         if data1.is_empty() {
             Self {
@@ -110,17 +107,6 @@ impl<'a> Chunker<'a> {
             self.data1 = core::mem::take(&mut self.data2);
         }
     }
-}
-
-pub(crate) fn _decompress<D: Decompressor>(
-    data: &[u8],
-    d: &mut D,
-    bufsize: usize,
-    max_length: Option<usize>,
-    calc_flush: impl Fn(bool) -> D::Flush,
-) -> Result<(Vec<u8>, bool), D::Error> {
-    let mut data = Chunker::new(data);
-    _decompress_chunks(&mut data, d, bufsize, max_length, calc_flush)
 }
 
 pub(crate) fn _decompress_chunks<D: Decompressor>(
@@ -176,6 +162,7 @@ pub(crate) fn _decompress_chunks<D: Decompressor>(
     }
 }
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub(crate) trait Compressor {
     type Status: CompressStatusKind;
     type Flush: CompressFlushKind;
@@ -195,6 +182,7 @@ pub(crate) trait Compressor {
     fn new_error(message: impl Into<String>, vm: &VirtualMachine) -> PyBaseExceptionRef;
 }
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub(crate) trait CompressFlushKind: Copy {
     const NONE: Self;
     const FINISH: Self;
@@ -202,6 +190,7 @@ pub(crate) trait CompressFlushKind: Copy {
     fn to_usize(self) -> usize;
 }
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub(crate) trait CompressStatusKind: Copy {
     const EOF: Self;
 
@@ -209,10 +198,12 @@ pub(crate) trait CompressStatusKind: Copy {
 }
 
 #[derive(Debug)]
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub(crate) struct CompressState<C: Compressor> {
     compressor: Option<C>,
 }
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 impl<C: Compressor> CompressState<C> {
     pub(crate) const fn new(compressor: C) -> Self {
         Self {
@@ -295,7 +286,7 @@ impl<D: Decompressor> DecompressState<D> {
         self.eof
     }
 
-    #[cfg_attr(target_os = "android", allow(dead_code))]
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     pub(crate) const fn decompressor(&self) -> &D {
         &self.decompress
     }

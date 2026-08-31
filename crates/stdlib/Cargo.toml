@@ -30,7 +30,7 @@ __ssl-rustls = ["ssl", "rustls", "rustls-native-certs", "rustls-pemfile", "rustl
 # rustpython crates
 rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
-rustpython-common = { workspace = true, features = ["binascii", "cjk-codecs", "inet", "json"] }
+rustpython-common = { workspace = true, features = ["binascii", "cjk-codecs", "inet", "json", "zlib"] }
 rustpython-host_env = { workspace = true }
 rustpython-unicode = { workspace = true }
 
@@ -79,8 +79,6 @@ constant_time_eq = { workspace = true }
 
 # compression
 adler32 = { workspace = true }
-flate2 = { workspace = true, features = ["zlib-rs"] }
-libz-rs-sys = { workspace = true }
 bzip2 = { workspace = true }
 
 # tkinter
