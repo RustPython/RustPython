@@ -165,10 +165,6 @@ class TestUnstructuredHeader(TestHeaderBase):
 
     }
 
-TestUnstructuredHeader.test_value_rfc2047_gb2312_base64 = unittest.expectedFailure( # TODO: RUSTPYTHON
-        TestUnstructuredHeader.test_value_rfc2047_gb2312_base64
-)
-
 @parameterize
 class TestDateHeader(TestHeaderBase):
 
