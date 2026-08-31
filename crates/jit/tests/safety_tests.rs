@@ -14,7 +14,7 @@ mod tests {
             );
             f.compile_on(&engine, Safety::Permissive).expect(concat!(
                 stringify!($name),
-                " is only meant to be rejected for being unsafe, but Permissive                  cannot compile it either"
+                " is only meant to be rejected for being unsafe, but Permissive cannot compile it either"
             ));
         }};
     }

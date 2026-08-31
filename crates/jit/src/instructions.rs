@@ -94,13 +94,6 @@ pub(crate) struct FunctionCompiler<'a, 'b> {
     pub(crate) deopt_sites: Vec<DeoptSite>,
 }
 
-/// Whether [`FunctionCompiler::add_instruction`] has a lowering for this opcode.
-///
-/// This mirrors the match in that method so a caller can rule a code object out
-/// before any compilation state is set up. It only has to be right in one
-/// direction: claiming support for something the match rejects merely wastes a
-/// compile attempt, and denying something it handles only costs an
-/// optimization. Neither can produce wrong code.
 fn jump_target_forward(offset: u32, caches: u32, arg: OpArg) -> Result<Label, JitCompileError> {
     let after = offset
         .checked_add(1)
@@ -149,6 +142,13 @@ pub(crate) fn instruction_target(
     Ok(target)
 }
 
+/// Whether [`FunctionCompiler::add_instruction`] has a lowering for this opcode.
+///
+/// This mirrors the match in that method so a caller can rule a code object out
+/// before any compilation state is set up. It only has to be right in one
+/// direction: claiming support for something the match rejects merely wastes a
+/// compile attempt, and denying something it handles only costs an
+/// optimization. Neither can produce wrong code.
 pub(crate) const fn instruction_is_supported(instruction: Instruction) -> bool {
     matches!(
         instruction,
