@@ -397,8 +397,8 @@ impl PyBaseObject {
     fn __init_subclass__(_cls: PyTypeRef) {}
 
     #[pymethod]
-    pub fn __dir__(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-        obj.dir(vm)
+    pub fn __dir__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
+        zelf.dir(vm)
     }
 
     #[pymethod]
@@ -468,22 +468,22 @@ impl PyBaseObject {
     }
 
     #[pymethod]
-    fn __reduce__(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        common_reduce(obj, 0, vm)
+    fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        common_reduce(zelf, 0, vm)
     }
 
     #[pymethod]
-    fn __reduce_ex__(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+    fn __reduce_ex__(zelf: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
         let __reduce__ = identifier!(vm, __reduce__);
-        if let Some(reduce) = vm.get_attribute_opt(obj.clone(), __reduce__)? {
+        if let Some(reduce) = vm.get_attribute_opt(zelf.clone(), __reduce__)? {
             let object_reduce = vm.ctx.types.object_type.get_attr(__reduce__).unwrap();
-            let typ_obj: PyObjectRef = obj.class().to_owned().into();
+            let typ_obj: PyObjectRef = zelf.class().to_owned().into();
             let class_reduce = typ_obj.get_attr(__reduce__, vm)?;
             if !class_reduce.is(&object_reduce) {
                 return reduce.call((), vm);
             }
         }
-        common_reduce(obj, proto, vm)
+        common_reduce(zelf, proto, vm)
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
