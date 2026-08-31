@@ -264,6 +264,25 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 
     settings.check_hash_pycs_mode = args.check_hash_based_pycs;
 
+    // PYTHON_JIT is the spelling CPython gives this switch; RUSTPYTHON_AOT is
+    // the specific one and wins where both are set. A later -X aot overrides
+    // either.
+    for name in ["PYTHON_JIT", "RUSTPYTHON_AOT"] {
+        let Some(val) = get_env(name) else { continue };
+        settings.aot = match val.to_str() {
+            Some("1") => true,
+            Some("0") => false,
+            _ => {
+                error!(
+                    "Fatal Python error: config_init_aot: \
+                     {name}=N: N is missing or invalid\n\
+                     Python runtime state: preinitialized"
+                );
+                std::process::exit(1);
+            }
+        };
+    }
+
     if let Some(val) = get_env("PYTHONUTF8")
         && let Some(val_str) = val.to_str()
         && !val_str.is_empty()
@@ -356,6 +375,10 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     });
     settings.xoptions.extend(xopts);
 
+    // No switch can turn on a compiler that was not built in, and
+    // `sys._jit.is_enabled()` reports this field verbatim.
+    settings.aot &= cfg!(feature = "aot");
+
     // Resolve utf8_mode if not explicitly set by PYTHONUTF8 or -X utf8.
     // Default to UTF-8 mode since RustPython's locale encoding detection
     // is incomplete. Users can set PYTHONUTF8=0 or -X utf8=0 to disable.
@@ -368,20 +391,6 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     settings.faulthandler = settings.faulthandler || env_bool("PYTHONFAULTHANDLER");
     if env_bool("PYTHONNODEBUGRANGES") {
         settings.code_debug_ranges = false;
-    }
-    if let Some(val) = get_env("RUSTPYTHON_AOT") {
-        settings.aot = match val.to_str() {
-            Some("1") => true,
-            Some("0") => false,
-            _ => {
-                error!(
-                    "Fatal Python error: config_init_aot: \
-                     RUSTPYTHON_AOT=N: N is missing or invalid\n\
-                     Python runtime state: preinitialized"
-                );
-                std::process::exit(1);
-            }
-        };
     }
     if let Some(val) = get_env("PYTHON_THREAD_INHERIT_CONTEXT") {
         settings.thread_inherit_context = match val.to_str() {
