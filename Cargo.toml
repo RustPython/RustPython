@@ -299,7 +299,7 @@ strum = "0.28"
 strum_macros = "0.28"
 syn = "2"
 syn-ext = "0.5.0"
-system-configuration = "0.7.0"
+system-configuration = "0.8.0"
 tcl-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
 textwrap = { version = "0.16.2", default-features = false }
 termios = "0.3.3"
