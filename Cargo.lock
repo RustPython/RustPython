@@ -3354,6 +3354,8 @@ dependencies = [
  "rustpython-unicode",
  "rustpython-wtf8",
  "siphasher",
+ "xz",
+ "xz-sys",
  "zlib-rs",
 ]
 
@@ -3643,8 +3645,6 @@ dependencies = [
  "x509-cert",
  "x509-parser",
  "xml",
- "xz",
- "xz-sys",
 ]
 
 [[package]]

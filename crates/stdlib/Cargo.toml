@@ -30,7 +30,7 @@ __ssl-rustls = ["ssl", "rustls", "rustls-native-certs", "rustls-pemfile", "rustl
 # rustpython crates
 rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
-rustpython-common = { workspace = true, features = ["binascii", "cjk-codecs", "inet", "json", "zlib"] }
+rustpython-common = { workspace = true, features = ["binascii", "cjk-codecs", "inet", "json", "lzma", "zlib"] }
 rustpython-host_env = { workspace = true }
 rustpython-unicode = { workspace = true }
 
@@ -115,8 +115,6 @@ pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional 
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 libsqlite3-sys = { workspace = true, features = ["bundled"], optional = true }
-xz = { workspace = true }
-xz-sys = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 paste = { workspace = true }
