@@ -18,7 +18,9 @@ use crate::{
     },
     convert::ToPyResult,
     dict_inner::{self, DictSize},
-    function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
+    function::{
+        ArgIterable, Callee, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue,
+    },
     protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::AsNumber,
@@ -1077,7 +1079,7 @@ impl Constructor for PyFrozenSet {
 
         // Optimizations for exact frozenset type
         let iterable_opt = if is_exact_frozenset || is_frozenset_init {
-            let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
+            let iterable: OptionalArg<PyObjectRef> = args.bind_for(vm, Callee::of::<Self>(vm))?;
 
             // Return exact frozenset as-is
             if is_exact_frozenset

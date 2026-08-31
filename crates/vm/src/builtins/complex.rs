@@ -5,7 +5,7 @@ use crate::{
     class::PyClassImpl,
     common::{format::FormatSpec, wtf8::Wtf8Buf},
     convert::{IntoPyException, ToPyObject, ToPyResult},
-    function::{FuncArgs, OptionalArg, PyComparisonValue},
+    function::{Callee, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
     stdlib::_warnings,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -395,7 +395,7 @@ impl Constructor for PyComplex {
             return Ok(func_args.args[0].clone());
         }
 
-        let args: Self::Args = func_args.bind(vm)?;
+        let args: Self::Args = func_args.bind_for(vm, Callee::of::<Self>(vm))?;
         let payload = Self::py_new(&cls, args, vm)?;
         payload.into_ref_with_type(vm, cls).map(Into::into)
     }

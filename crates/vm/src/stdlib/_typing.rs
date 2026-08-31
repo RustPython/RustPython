@@ -78,7 +78,7 @@ pub(crate) mod decl {
         type Args = ();
 
         fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let _: () = args.bind(vm)?;
+            let _: () = args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?;
             Ok(vm.ctx.typing_no_default.clone().into())
         }
 

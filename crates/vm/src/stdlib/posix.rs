@@ -2456,7 +2456,8 @@ mod posix_sched {
             vm: &VirtualMachine,
         ) -> PyResult {
             use crate::PyPayload;
-            let SchedParamArgs { sched_priority } = args.bind(vm)?;
+            let SchedParamArgs { sched_priority } =
+                args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?;
             let items = vec![sched_priority];
             crate::builtins::PyTuple::new_unchecked(items.into_boxed_slice())
                 .into_ref_with_type(vm, cls)

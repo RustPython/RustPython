@@ -1555,7 +1555,6 @@ class StringLikeTest(BaseTest):
         self.checkequal(True, s, 'startswith', 'h', None, -2)
         self.checkequal(False, s, 'startswith', 'x', None, None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_find_etc_raise_correct_error_messages(self):
         # issue 11828
         s = 'hello'

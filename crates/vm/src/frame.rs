@@ -23,7 +23,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, Either, FuncArgs, KwArgs, PyMethodFlags},
+    function::{ArgMapping, Callee, Either, FuncArgs, KwArgs, PyMethodFlags},
     object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn},
@@ -6369,13 +6369,14 @@ impl ExecutingFrame<'_> {
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
                         let func = descr.method.func;
+                        let callee = Callee::named(descr.method.name).with_instance_arg(true);
                         let (_callable, all_args) = self.take_call_args(nargs as usize);
                         debug_assert_eq!(all_args.len(), total_nargs as usize);
                         let args = FuncArgs {
                             args: all_args,
                             kwargs: Default::default(),
                         };
-                        let result = func(vm, args)?;
+                        let result = func(vm, args, callee)?;
                         self.push_value(result);
                         return Ok(None);
                     }
@@ -6409,13 +6410,14 @@ impl ExecutingFrame<'_> {
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
                         let func = descr.method.func;
+                        let callee = Callee::named(descr.method.name).with_instance_arg(true);
                         let (_callable, all_args) = self.take_call_args(nargs as usize);
                         debug_assert_eq!(all_args.len(), total_nargs as usize);
                         let args = FuncArgs {
                             args: all_args,
                             kwargs: Default::default(),
                         };
-                        let result = func(vm, args)?;
+                        let result = func(vm, args, callee)?;
                         self.push_value(result);
                         return Ok(None);
                     }
@@ -6449,13 +6451,14 @@ impl ExecutingFrame<'_> {
                         .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                 {
                     let func = descr.method.func;
+                    let callee = Callee::named(descr.method.name).with_instance_arg(true);
                     let (_callable, all_args) = self.take_call_args(nargs as usize);
                     debug_assert_eq!(all_args.len(), total_nargs as usize);
                     let args = FuncArgs {
                         args: all_args,
                         kwargs: Default::default(),
                     };
-                    let result = func(vm, args)?;
+                    let result = func(vm, args, callee)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -6554,13 +6557,14 @@ impl ExecutingFrame<'_> {
                         .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                 {
                     let func = descr.method.func;
+                    let callee = Callee::named(descr.method.name).with_instance_arg(true);
                     let (_callable, all_args) = self.take_call_args(nargs as usize);
                     debug_assert_eq!(all_args.len(), total_nargs as usize);
                     let args = FuncArgs {
                         args: all_args,
                         kwargs: Default::default(),
                     };
-                    let result = func(vm, args)?;
+                    let result = func(vm, args, callee)?;
                     self.push_value(result);
                     return Ok(None);
                 }

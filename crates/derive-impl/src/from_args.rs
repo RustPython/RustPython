@@ -174,13 +174,21 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
             .unwrap_or_else(|| #default)
         }
     } else {
+        // A parameter a call may name is named back when it is missing; one
+        // that can only be passed by position is only ever counted.
         let err = match attr.kind {
-            ParameterKind::PositionalOnly | ParameterKind::PositionalOrKeyword => quote! {
+            ParameterKind::PositionalOnly => quote! {
                 ::rustpython_vm::function::ArgumentError::TooFewArgs
             },
-            ParameterKind::KeywordOnly => quote! {
-                ::rustpython_vm::function::ArgumentError::RequiredKeywordArgument(#pyname.to_owned())
-            },
+            ParameterKind::PositionalOrKeyword | ParameterKind::KeywordOnly => {
+                let pos = i + 1;
+                quote! {
+                    ::rustpython_vm::function::ArgumentError::MissingRequiredArgument {
+                        name: #pyname.to_owned(),
+                        pos: #pos,
+                    }
+                }
+            }
             ParameterKind::Flatten => unreachable!(),
         };
         quote! {

@@ -9,7 +9,7 @@ mod decl {
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
         convert::ToPyObject,
-        function::{FuncArgs, OptionalArg, OptionalOption, PosArgs},
+        function::{Callee, FuncArgs, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         stdlib::sys,
@@ -761,13 +761,14 @@ mod decl {
                     )));
                 }
                 2 => {
-                    let (iter, stop): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
+                    let (iter, stop): (PyObjectRef, PyObjectRef) =
+                        args.bind_for(vm, Callee::of::<Self>(vm))?;
                     (iter, 0usize, stop, 1usize)
                 }
                 _ => {
                     let (iter, start, stop, step) = if args.args.len() == 3 {
                         let (iter, start, stop): (PyObjectRef, PyObjectRef, PyObjectRef) =
-                            args.bind(vm)?;
+                            args.bind_for(vm, Callee::of::<Self>(vm))?;
                         (iter, start, stop, 1usize)
                     } else {
                         let (iter, start, stop, step): (
@@ -775,7 +776,7 @@ mod decl {
                             PyObjectRef,
                             PyObjectRef,
                             PyObjectRef,
-                        ) = args.bind(vm)?;
+                        ) = args.bind_for(vm, Callee::of::<Self>(vm))?;
 
                         let step = if !vm.is_none(&step) {
                             pyobject_to_opt_usize(step, "Step", vm)?

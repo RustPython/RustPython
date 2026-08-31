@@ -4,7 +4,9 @@ use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     class::PyClassImpl,
     common::hash::PyHash,
-    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySetterValue},
+    function::{
+        Callee, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySetterValue,
+    },
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     stdlib::builtins::reversed,
     types::{
@@ -48,7 +50,7 @@ impl Constructor for PyWeakProxy {
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let _ = cls;
-        let Self::Args { referent, callback } = args.bind(vm)?;
+        let Self::Args { referent, callback } = args.bind_for(vm, Callee::of::<Self>(vm))?;
         let callback = callback
             .into_option()
             .filter(|callback| !vm.is_none(callback));

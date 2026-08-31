@@ -1345,7 +1345,7 @@ pub(super) mod _os {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let result = crate::types::struct_sequence_new(
                 cls.clone(),
-                args.bind(vm)?,
+                args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?,
                 StatResultData::OPTIONAL_FIELD_NAMES,
                 vm,
             )?;
@@ -2002,7 +2002,7 @@ pub(super) mod _os {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             crate::types::struct_sequence_new(
                 cls,
-                args.bind(vm)?,
+                args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?,
                 StatvfsResultData::OPTIONAL_FIELD_NAMES,
                 vm,
             )

@@ -245,7 +245,7 @@ pub(super) mod types {
         type Args = crate::function::PosArgs;
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let args: Self::Args = args.bind(vm)?;
+            let args: Self::Args = args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?;
             let args = args.into_vec();
             // Validate exactly 2 positional arguments
             if args.len() != 2 {

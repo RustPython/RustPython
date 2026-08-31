@@ -5,7 +5,7 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
-    function::{ArgSize, FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
+    function::{ArgSize, Callee, FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
     protocol::{PyNumberBinaryFunc, PyNumberTernaryFunc, PyNumberUnaryFunc},
     types::{
         Callable, Comparable, DelFunc, DescrGetFunc, DescrSetFunc, GenericMethod, GetDescriptor,
@@ -108,7 +108,11 @@ impl Callable for PyMethodDescriptor {
     type Args = FuncArgs;
     #[inline]
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        (zelf.method.func)(vm, args)
+        (zelf.method.func)(
+            vm,
+            args,
+            Callee::named(zelf.method.name).with_instance_arg(true),
+        )
     }
 }
 
@@ -443,7 +447,11 @@ fn vectorcall_method_descriptor(
 ) -> PyResult {
     let zelf: &Py<PyMethodDescriptor> = zelf_obj.downcast_ref().unwrap();
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
-    (zelf.method.func)(vm, func_args)
+    (zelf.method.func)(
+        vm,
+        func_args,
+        Callee::named(zelf.method.name).with_instance_arg(true),
+    )
 }
 
 /// Vectorcall for wrapper_descriptor: calls wrapped slot function

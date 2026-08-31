@@ -17,7 +17,9 @@ use crate::{
     },
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
-    function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{
+        ArgIterable, ArgSize, Callee, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
+    },
     intern::PyInterned,
     object::{MaybeTraverse, Traverse, TraverseFn},
     protocol::{
@@ -409,7 +411,7 @@ impl Constructor for PyStr {
             return Ok(func_args.args[0].clone());
         }
 
-        let args: Self::Args = func_args.bind(vm)?;
+        let args: Self::Args = func_args.bind_for(vm, Callee::of::<Self>(vm))?;
 
         // CPython parity: when cls is exactly str, return the __str__ / __repr__
         // result as-is so any str subclass type the user returned is preserved
