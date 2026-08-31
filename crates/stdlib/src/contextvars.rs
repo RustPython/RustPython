@@ -20,7 +20,7 @@ mod _contextvars {
             lock::{LazyLock, PyMutex},
             wtf8::Wtf8Buf,
         },
-        function::{ArgCallable, FuncArgs, OptionalArg},
+        function::{ArgCallable, Callee, FuncArgs, OptionalArg},
         protocol::{PyMappingMethods, PySequenceMethods},
         types::{AsMapping, AsSequence, Constructor, Hashable, Iterable, Representable},
     };
@@ -484,7 +484,7 @@ mod _contextvars {
         type Args = ContextVarOptions;
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let args: Self::Args = args.bind(vm)?;
+            let args: Self::Args = args.bind_for(vm, Callee::of::<Self>(vm))?;
             let var = Self {
                 name: args.name.to_string(),
                 default: args.default.into_option(),

@@ -7,7 +7,7 @@ use crate::{
     bytecode::ComparisonOperator,
     common::hash::{PyHash, fix_sentinel, hash_bigint},
     convert::ToPyObject,
-    function::{Either, FromArgs, FuncArgs, PyComparisonValue, PyMethodDef, PySetterValue},
+    function::{Callee, Either, FromArgs, FuncArgs, PyComparisonValue, PyMethodDef, PySetterValue},
     protocol::{
         BufferFlags, PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyMappingSlots, PyNumber,
         PyNumberMethods, PyNumberSlots, PySequence, PySequenceMethods, PySequenceSlots,
@@ -1736,7 +1736,9 @@ pub trait Constructor: PyPayload + core::fmt::Debug {
     #[inline]
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let args: Self::Args = args.bind(vm)?;
+        // The name is the type the slot was written for, not the subclass being
+        // constructed, so a subclass reports what its base declares.
+        let args: Self::Args = args.bind_for(vm, Callee::of::<Self>(vm))?;
         let payload = Self::py_new(&cls, args, vm)?;
         payload.into_ref_with_type(vm, cls).map(Into::into)
     }
@@ -1802,7 +1804,7 @@ pub trait Initializer: PyPayload {
                 return Err(err);
             }
         };
-        let args: Self::Args = args.bind(vm)?;
+        let args: Self::Args = args.bind_for(vm, Callee::of::<Self>(vm))?;
         Self::init(zelf, args, vm)
     }
 

@@ -284,18 +284,26 @@ impl FuncArgs {
     ///
     /// If the given `FromArgs` includes any conversions, exceptions raised
     /// during the conversion will halt the binding and return the error.
-    pub fn bind<T: FromArgs>(mut self, vm: &VirtualMachine) -> PyResult<T> {
-        let given_args = self.args.len();
+    pub fn bind<T: FromArgs>(self, vm: &VirtualMachine) -> PyResult<T> {
+        self.bind_for(vm, Callee::default())
+    }
+
+    /// Binds these arguments the way [`bind`](Self::bind) does, for a call whose
+    /// function a failure can describe.
+    pub fn bind_for<T: FromArgs>(mut self, vm: &VirtualMachine, callee: Callee) -> PyResult<T> {
+        // A message describes the parameters the function declares, and the
+        // instance a method is called on is not one of them.
+        let instance = callee.instance_args();
+        let arity = T::arity();
+        let arity = arity.start().saturating_sub(instance)..=arity.end().saturating_sub(instance);
+        let num_given = self.args.len().saturating_sub(instance);
+
         let bound = T::from_args(vm, &mut self)
-            .map_err(|e| e.into_exception(T::arity(), given_args, vm))?;
+            .map_err(|e| e.into_exception(&arity, num_given, callee, vm))?;
 
         if !self.args.is_empty() {
-            Err(vm.new_type_error(format!(
-                "expected at most {} arguments, got {}",
-                T::arity().end(),
-                given_args,
-            )))
-        } else if let Some(err) = self.check_kwargs_empty(vm) {
+            Err(ArgumentError::TooManyArgs.into_exception(&arity, num_given, callee, vm))
+        } else if let Some(err) = self.check_kwargs_empty_for(vm, callee) {
             Err(err)
         } else {
             Ok(bound)
@@ -303,10 +311,146 @@ impl FuncArgs {
     }
 
     pub fn check_kwargs_empty(&self, vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
+        self.check_kwargs_empty_for(vm, Callee::default())
+    }
+
+    /// The same as [`check_kwargs_empty`](Self::check_kwargs_empty), for a call
+    /// whose function the message can name.
+    pub fn check_kwargs_empty_for(
+        &self,
+        vm: &VirtualMachine,
+        callee: Callee,
+    ) -> Option<PyBaseExceptionRef> {
         self.kwargs
             .keys()
             .next()
-            .map(|k| vm.new_type_error(format!("Unexpected keyword argument {k}")))
+            .map(|k| callee.unexpected_keyword(&k.to_string(), vm))
+    }
+}
+
+/// What a message says about the function whose arguments are being bound.
+///
+/// A binding that happens somewhere the name isn't known leaves it off, the way
+/// `_PyArg_Parser.fname` is NULL. A message describes the parameters the
+/// function declares, so a method's instance argument counts as neither an
+/// expected parameter nor a given argument, the way `descrobject.c` reports
+/// `nargs - 1`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Callee {
+    name: Option<&'static str>,
+    instance_arg: bool,
+}
+
+impl Callee {
+    /// A function a message can name.
+    #[must_use]
+    pub const fn named(name: &'static str) -> Self {
+        Self {
+            name: Some(name),
+            instance_arg: false,
+        }
+    }
+
+    /// The type a slot builds or initializes, named the way a message names it.
+    #[must_use]
+    pub fn for_type(class: &crate::Py<crate::builtins::PyType>) -> Self {
+        Self::named(class.slots.name)
+    }
+
+    /// The same, for the type a slot was written for.
+    #[must_use]
+    pub fn of<T: crate::PyPayload>(vm: &VirtualMachine) -> Self {
+        Self::for_type(T::class(&vm.ctx))
+    }
+
+    /// Marks a call whose leading argument fills the method's instance parameter.
+    #[must_use]
+    pub const fn with_instance_arg(mut self, instance_arg: bool) -> Self {
+        self.instance_arg = instance_arg;
+        self
+    }
+
+    /// How many leading arguments answer for the instance rather than for a
+    /// parameter the method declares.
+    const fn instance_args(self) -> usize {
+        self.instance_arg as usize
+    }
+
+    /// The name a message uses. `tp_name` carries the module along with the
+    /// type, and a message names only the type itself.
+    fn short_name(self) -> Option<&'static str> {
+        self.name
+            .map(|name| name.rsplit_once('.').map_or(name, |(_, name)| name))
+    }
+
+    /// The name a message opens with and the parentheses that follow it, given
+    /// what to call a function whose name isn't known.
+    fn call_form(self, unnamed: &'static str) -> (&'static str, &'static str) {
+        match self.short_name() {
+            Some(name) => (name, "()"),
+            None => (unnamed, ""),
+        }
+    }
+
+    /// The error a call that passed the wrong number of arguments gets, for a
+    /// slot that counts them itself.
+    #[must_use]
+    pub fn arity_error(
+        self,
+        arity: RangeInclusive<usize>,
+        num_given: usize,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        let too_few = num_given < *arity.start();
+        self.wrong_arity(&arity, too_few, num_given, vm)
+    }
+
+    /// _PyArg_CheckPositional
+    fn wrong_arity(
+        self,
+        arity: &RangeInclusive<usize>,
+        too_few: bool,
+        num_given: usize,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        let (limit, bound) = if too_few {
+            (*arity.start(), "at least ")
+        } else {
+            (*arity.end(), "at most ")
+        };
+        let bound = if arity.start() == arity.end() {
+            ""
+        } else {
+            bound
+        };
+        let plural = if limit == 1 { "" } else { "s" };
+        let name = self
+            .short_name()
+            .map_or_else(String::new, |name| format!("{name} "));
+        vm.new_type_error(format!(
+            "{name}expected {bound}{limit} argument{plural}, got {num_given}"
+        ))
+    }
+
+    /// The branch of _PyArg_UnpackKeywords that names a keyword it didn't expect.
+    fn unexpected_keyword(self, keyword: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let (name, parens) = self.call_form("this function");
+        vm.new_type_error(format!(
+            "{name}{parens} got an unexpected keyword argument '{keyword}'"
+        ))
+    }
+
+    /// The branch of _PyArg_UnpackKeywords that names a parameter it didn't get.
+    fn missing_argument(
+        self,
+        keyword: &str,
+        pos: usize,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        let (name, parens) = self.call_form("function");
+        vm.new_type_error(format!(
+            "{name}{parens} missing required argument '{keyword}' (pos {pos})"
+        ))
     }
 }
 
@@ -319,8 +463,9 @@ pub enum ArgumentError {
     TooManyArgs,
     /// The function doesn't accept a keyword argument with the given name.
     InvalidKeywordArgument(String),
-    /// The function require a keyword argument with the given name, but one wasn't provided
-    RequiredKeywordArgument(String),
+    /// The function requires an argument for the named parameter, at the given
+    /// 1-based position, but the call didn't pass one.
+    MissingRequiredArgument { name: String, pos: usize },
     /// An exception was raised while binding arguments to the function
     /// parameters.
     Exception(PyBaseExceptionRef),
@@ -335,27 +480,16 @@ impl From<PyBaseExceptionRef> for ArgumentError {
 impl ArgumentError {
     fn into_exception(
         self,
-        arity: RangeInclusive<usize>,
+        arity: &RangeInclusive<usize>,
         num_given: usize,
+        callee: Callee,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
         match self {
-            Self::TooFewArgs => vm.new_type_error(format!(
-                "expected at least {} arguments, got {}",
-                arity.start(),
-                num_given
-            )),
-            Self::TooManyArgs => vm.new_type_error(format!(
-                "expected at most {} arguments, got {}",
-                arity.end(),
-                num_given
-            )),
-            Self::InvalidKeywordArgument(name) => {
-                vm.new_type_error(format!("{name} is an invalid keyword argument"))
-            }
-            Self::RequiredKeywordArgument(name) => {
-                vm.new_type_error(format!("Required keyword only argument {name}"))
-            }
+            Self::TooFewArgs => callee.wrong_arity(arity, true, num_given, vm),
+            Self::TooManyArgs => callee.wrong_arity(arity, false, num_given, vm),
+            Self::InvalidKeywordArgument(name) => callee.unexpected_keyword(&name, vm),
+            Self::MissingRequiredArgument { name, pos } => callee.missing_argument(&name, pos, vm),
             Self::Exception(ex) => ex,
         }
     }

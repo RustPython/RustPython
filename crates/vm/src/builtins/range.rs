@@ -8,7 +8,7 @@ use crate::{
     VirtualMachine, atomic_func,
     class::PyClassImpl,
     common::hash::PyHash,
-    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, Callee, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Hashable, IterNext, Iterable, PyComparisonOp,
@@ -351,11 +351,13 @@ impl PyRange {
 
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let range = if args.args.len() <= 1 {
-            let stop = args.bind(vm)?;
+        let range = if args.args.is_empty() {
+            return Err(Callee::of::<Self>(vm).arity_error(1..=3, 0, vm));
+        } else if args.args.len() == 1 {
+            let stop = args.bind_for(vm, Callee::of::<Self>(vm))?;
             Self::new(cls, stop, vm)
         } else {
-            let (start, stop, step) = args.bind(vm)?;
+            let (start, stop, step) = args.bind_for(vm, Callee::of::<Self>(vm))?;
             Self::new_from(cls, start, stop, step, vm)
         }?;
 

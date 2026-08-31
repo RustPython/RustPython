@@ -10,7 +10,7 @@ use crate::{
     atomic_func,
     class::PyClassImpl,
     convert::{ToPyObject, TransmuteFromObject},
-    function::{ArgSize, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{ArgSize, Callee, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -221,7 +221,7 @@ impl Constructor for PyTuple {
     type Args = Vec<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
+        let iterable: OptionalArg<PyObjectRef> = args.bind_for(vm, Callee::of::<Self>(vm))?;
 
         // Optimizations for exact tuple type
         if cls.is(vm.ctx.types.tuple_type) {

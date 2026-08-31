@@ -9,7 +9,8 @@ use crate::{
     common::{float_ops, format::FormatSpec, hash, wtf8::Wtf8Buf},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue,
+        ArgBytesLike, Callee, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
+        PyComparisonValue,
     },
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -178,7 +179,7 @@ impl Constructor for PyFloat {
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Bind before the fast path so FromArgs::arity decides how many arguments
         // are acceptable, rather than a count repeated here.
-        let arg: Self::Args = args.bind(vm)?;
+        let arg: Self::Args = args.bind_for(vm, Callee::of::<Self>(vm))?;
 
         // Optimization: return exact float as-is
         if cls.is(vm.ctx.types.float_type)
