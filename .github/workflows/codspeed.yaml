@@ -62,8 +62,10 @@ jobs:
       - name: Install cargo-codspeed
         run: cargo install cargo-codspeed --locked --version ^5
 
+      # Benchmarks run with automatic compilation on, unlike the default
+      # build, so its cost on the first call of every function is measured.
       - name: Build the benchmark targets
-        run: cargo codspeed build --locked --measurement-mode simulation -p rustpython -p rustpython-sre_engine
+        run: cargo codspeed build --locked --measurement-mode simulation --features rustpython/aot -p rustpython -p rustpython-sre_engine
 
       - name: Save cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main
