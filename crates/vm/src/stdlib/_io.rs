@@ -450,41 +450,41 @@ mod _io {
         }
 
         #[pymethod]
-        fn __enter__(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            check_closed(&instance, vm)?;
-            Ok(instance)
+        fn __enter__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            check_closed(&zelf, vm)?;
+            Ok(zelf)
         }
 
         #[pymethod]
-        fn __exit__(instance: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            vm.call_method(&instance, "close", ())?;
+        fn __exit__(zelf: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            vm.call_method(&zelf, "close", ())?;
             Ok(())
         }
 
         #[pymethod]
-        fn flush(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn flush(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // just check if this is closed; if it isn't, do nothing
-            check_closed(&instance, vm)
+            check_closed(&zelf, vm)
         }
 
         #[pymethod]
-        fn seekable(_self: PyObjectRef) -> bool {
+        fn seekable(_zelf: PyObjectRef) -> bool {
             false
         }
 
         #[pymethod]
-        fn readable(_self: PyObjectRef) -> bool {
+        fn readable(_zelf: PyObjectRef) -> bool {
             false
         }
 
         #[pymethod]
-        fn writable(_self: PyObjectRef) -> bool {
+        fn writable(_zelf: PyObjectRef) -> bool {
             false
         }
 
         #[pymethod]
-        fn isatty(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-            check_closed(&instance, vm)?;
+        fn isatty(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+            check_closed(&zelf, vm)?;
             Ok(false)
         }
 
@@ -494,8 +494,8 @@ mod _io {
         }
 
         #[pymethod]
-        fn close(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            iobase_close(&instance, vm)
+        fn close(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            iobase_close(&zelf, vm)
         }
 
         #[pymethod]
@@ -560,23 +560,23 @@ mod _io {
         }
 
         #[pymethod(name = "_checkClosed")]
-        fn check_closed(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_closed(&instance, vm)
+        fn check_closed(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            check_closed(&zelf, vm)
         }
 
         #[pymethod(name = "_checkReadable")]
-        fn check_readable(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_readable(&instance, vm)
+        fn check_readable(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            check_readable(&zelf, vm)
         }
 
         #[pymethod(name = "_checkWritable")]
-        fn check_writable(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_writable(&instance, vm)
+        fn check_writable(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            check_writable(&zelf, vm)
         }
 
         #[pymethod(name = "_checkSeekable")]
-        fn check_seekable(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_seekable(&instance, vm)
+        fn check_seekable(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            check_seekable(&zelf, vm)
         }
     }
 
@@ -641,12 +641,12 @@ mod _io {
     #[pyclass(flags(BASETYPE, HAS_DICT, HAS_WEAKREF))]
     impl _RawIOBase {
         #[pymethod]
-        fn read(instance: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
+        fn read(zelf: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
             if let Some(size) = size.to_usize() {
                 let b = PyByteArray::from(vm.new_zeroed_bytes(size)?).into_ref(&vm.ctx);
                 let n = <Option<isize>>::try_from_object(
                     vm,
-                    vm.call_method(&instance, "readinto", (b.clone(),))?,
+                    vm.call_method(&zelf, "readinto", (b.clone(),))?,
                 )?;
                 Ok(match n {
                     None => vm.ctx.none(),
@@ -665,18 +665,18 @@ mod _io {
                     }
                 })
             } else {
-                vm.call_method(&instance, "readall", ())
+                vm.call_method(&zelf, "readall", ())
             }
         }
 
         #[pymethod]
-        fn readall(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Vec<u8>>> {
+        fn readall(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Vec<u8>>> {
             let mut chunks = Vec::new();
             let mut total_len = 0;
             loop {
                 // Loop with EINTR handling (PEP 475)
                 let data = loop {
-                    let res = vm.call_method(&instance, "read", (DEFAULT_BUFFER_SIZE,));
+                    let res = vm.call_method(&zelf, "read", (DEFAULT_BUFFER_SIZE,));
                     match trap_eintr(res, vm)? {
                         Some(val) => break val,
                         None => continue,
@@ -707,12 +707,12 @@ mod _io {
         }
 
         #[pymethod]
-        fn readinto(_instance: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn readinto(_zelf: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_not_implemented_error(String::new()))
         }
 
         #[pymethod]
-        fn write(_instance: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn write(_zelf: PyObjectRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_not_implemented_error(String::new()))
         }
     }

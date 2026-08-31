@@ -2758,9 +2758,8 @@ pub(crate) fn get_text_signature_from_internal_doc<'a>(
     find_signature(name, internal_doc).and_then(get_signature)
 }
 
-// _PyType_GetDocFromInternalDoc in CPython
-fn get_doc_from_internal_doc<'a>(name: &str, internal_doc: &'a str) -> &'a str {
-    // Similar to CPython's _PyType_DocWithoutSignature
+// _PyType_DocWithoutSignature in CPython
+fn doc_without_signature<'a>(name: &str, internal_doc: &'a str) -> &'a str {
     // If the doc starts with the type name and a '(', it's a signature
     if let Some(doc_without_sig) = find_signature(name, internal_doc) {
         // Find where the signature ends
@@ -2772,6 +2771,12 @@ fn get_doc_from_internal_doc<'a>(name: &str, internal_doc: &'a str) -> &'a str {
     }
     // If no signature found, return the whole doc
     internal_doc
+}
+
+// _PyType_GetDocFromInternalDoc in CPython
+pub(crate) fn get_doc_from_internal_doc<'a>(name: &str, internal_doc: &'a str) -> Option<&'a str> {
+    let doc = doc_without_signature(name, internal_doc);
+    (!doc.is_empty()).then_some(doc)
 }
 
 impl Initializer for PyType {
@@ -2862,7 +2867,7 @@ impl Py<PyType> {
         {
             // Process internal doc, removing signature if present
             let doc_str = get_doc_from_internal_doc(&self.name(), internal_doc);
-            return Ok(vm.ctx.new_str(doc_str).into());
+            return Ok(doc_str.map_or_else(|| vm.ctx.none(), |doc| vm.ctx.new_str(doc).into()));
         }
 
         // Check if there's a __doc__ in THIS type's dict only (not MRO)

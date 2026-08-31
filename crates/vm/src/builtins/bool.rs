@@ -106,8 +106,8 @@ impl Constructor for PyBool {
 #[pyclass(with(Constructor, AsNumber, Representable), flags(_MATCH_SELF))]
 impl PyBool {
     #[pymethod]
-    fn __format__(obj: PyObjectRef, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
-        let new_bool = obj.try_to_bool(vm)?;
+    fn __format__(zelf: PyObjectRef, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
+        let new_bool = zelf.try_to_bool(vm)?;
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_bool(new_bool))
             .map_err(|err| err.into_pyexception(vm))

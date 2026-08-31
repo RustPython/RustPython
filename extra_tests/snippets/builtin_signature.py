@@ -1,4 +1,5 @@
 import inspect
+import os
 import sys
 
 # __text_signature__ is generated from the Rust parameter list, so it must not
@@ -46,6 +47,17 @@ assert str(inspect.signature(delattr)) == "(obj, name, /)"
 assert str(inspect.signature(isinstance)) == "(obj, class_or_tuple, /)"
 assert str(inspect.signature(issubclass)) == "(cls, class_or_tuple, /)"
 assert str(inspect.signature(aiter)) == "(async_iterable, /)"
+
+# A generated signature is stored in __doc__ and read back out of it, so it
+# needs the `--` terminator even when the function has no documentation.
+assert str(inspect.signature(os.getpid)) == "()"
+assert str(inspect.signature(os.getcwd)) == "()"
+
+# Methods report a signature too, with the receiver marked so that binding a
+# method drops it.
+assert str(inspect.signature(list.__dir__)) == "(self, /)"
+assert str(inspect.signature([].__dir__)) == "()"
+assert str(inspect.signature(float.fromhex)) == "(string, /)"
 
 if sys.implementation.name == "rustpython":
     # Functions whose Rust arguments are destructuring patterns rather than

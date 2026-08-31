@@ -1597,12 +1597,10 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(_stat.S_IMODE),
             "S_IMODE(object, /)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_method_noargs(self):
         self.assertEqual(self._get_summary_line(str.lower),
             "lower(self, /) unbound builtins.str method")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bound_builtin_method_noargs(self):
         self.assertEqual(self._get_summary_line(''.lower),
             "lower() method of builtins.str instance")

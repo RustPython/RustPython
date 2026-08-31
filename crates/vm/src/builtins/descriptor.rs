@@ -134,8 +134,9 @@ impl PyMethodDescriptor {
     }
 
     #[pygetset]
-    const fn __doc__(&self) -> Option<&'static str> {
-        self.method.doc
+    fn __doc__(&self) -> Option<&'static str> {
+        let doc = self.method.doc?;
+        type_::get_doc_from_internal_doc(self.method.name, doc)
     }
 
     #[pygetset]

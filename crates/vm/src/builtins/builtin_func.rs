@@ -164,9 +164,11 @@ impl PyNativeFunction {
         Ok(qualname)
     }
 
+    // meth_get__doc__ in CPython
     #[pygetset]
     fn __doc__(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
-        zelf.0.value.doc
+        let doc = zelf.0.value.doc?;
+        type_::get_doc_from_internal_doc(zelf.0.value.name, doc)
     }
 
     // meth_get__self__ in CPython
