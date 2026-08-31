@@ -148,6 +148,7 @@ where
     let warnings = WarningsState::init_state(&ctx);
 
     let interpreter_id = runtime::alloc_interpreter_id();
+    let runtime_root_id = parent_state.map_or(interpreter_id, |parent| parent.runtime_root_id);
 
     // Process main OS thread identity is process-global; subinterpreters inherit
     // it from the parent so `is_main_thread()` stays correct when running on the
@@ -162,6 +163,7 @@ where
     let global_state = PyRc::new(PyGlobalState {
         gc: crate::gc_state::GcInterpreterState::new(&ctx),
         interpreter_id,
+        runtime_root_id,
         whence,
         is_main,
         config,
@@ -735,9 +737,9 @@ fn finalize_subinterpreters(vm: &VirtualMachine) {
     if !vm.state.is_main {
         return;
     }
-    let ids = runtime::owned_interpreter_ids();
+    let root_id = vm.state.runtime_root_id;
     // Bail out if there are no subinterpreters left.
-    if ids.is_empty() {
+    if runtime::owned_interpreter_ids_for(root_id).is_empty() {
         return;
     }
     // Warn the user if they forgot to clean up subinterpreters.
@@ -751,7 +753,12 @@ fn finalize_subinterpreters(vm: &VirtualMachine) {
         None,
         vm,
     );
-    for id in ids {
+    // A subinterpreter's finalizers may create another subinterpreter, so
+    // re-read the owner table after each destruction like CPython does.
+    while let Some(id) = runtime::owned_interpreter_ids_for(root_id)
+        .into_iter()
+        .next()
+    {
         let _ = runtime::destroy_owned_interpreter(id);
     }
 }
@@ -1555,6 +1562,25 @@ mod tests {
         let sub = runtime::take_owned_interpreter(id).expect("owned by runtime");
         assert_eq!(sub.id(), id);
         assert!(!sub.is_main());
+    }
+
+    /// Finalizing one embedded runtime must leave another runtime's owned
+    /// subinterpreters alone.
+    #[cfg(feature = "threading")]
+    #[test]
+    fn owned_subinterpreter_cleanup_is_scoped_to_its_runtime() {
+        let main1 = Interpreter::without_stdlib(Default::default());
+        let main2 = Interpreter::without_stdlib(Default::default());
+        let sub1 = main1.create_owned_subinterpreter();
+        let sub2 = main2.create_owned_subinterpreter();
+
+        main1.enter(finalize_subinterpreters);
+
+        assert!(!runtime::is_owned_interpreter(sub1));
+        assert!(runtime::is_owned_interpreter(sub2));
+
+        let sub2 = runtime::take_owned_interpreter(sub2).expect("owned by second runtime");
+        let _ = sub2.finalize(None);
     }
 
     /// A collection must stop every interpreter, not just the collecting one:

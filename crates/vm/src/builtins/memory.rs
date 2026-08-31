@@ -128,7 +128,9 @@ impl PyMemoryView {
     /// `send_buffer` so the destination memoryview sees the same memory.
     #[must_use]
     pub fn clone_buffer(&self) -> PyBuffer {
-        self.buffer.clone()
+        let mut buffer = self.buffer.clone();
+        buffer.desc = self.desc.clone();
+        buffer
     }
 
     // PyMemoryView_FromObjectAndFlags
