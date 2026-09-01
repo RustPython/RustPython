@@ -16,7 +16,6 @@ use super::{CHUNKSIZE, Chunker};
 pub const BUFSIZ: usize = 8192;
 const DEF_BUF_SIZE: usize = 16 * 1024;
 const USE_AFTER_FINISH_ERR: &str = "Error -2: inconsistent stream state";
-const LZMA_FILTERS_MAX: usize = 4;
 
 pub const CHECK_NONE: i32 = xz_sys::LZMA_CHECK_NONE as _;
 pub const CHECK_CRC32: i32 = xz_sys::LZMA_CHECK_CRC32 as _;
@@ -48,6 +47,7 @@ pub const FILTER_IA64: u64 = xz_sys::LZMA_FILTER_IA64;
 pub const FILTER_ARM: u64 = xz_sys::LZMA_FILTER_ARM;
 pub const FILTER_ARMTHUMB: u64 = xz_sys::LZMA_FILTER_ARMTHUMB;
 pub const FILTER_SPARC: u64 = xz_sys::LZMA_FILTER_SPARC;
+pub const FILTERS_MAX: usize = 4;
 
 pub const PRESET_DEFAULT: u32 = xz_sys::LZMA_PRESET_DEFAULT;
 pub const PRESET_EXTREME: u32 = xz_sys::LZMA_PRESET_EXTREME;
@@ -189,9 +189,9 @@ fn add_bcj_filter(filters: &mut Filters, id: u64, start_offset: u32) -> Result<(
 }
 
 fn build_filters(specs: &[FilterSpec]) -> Result<Filters, Error> {
-    if specs.len() > LZMA_FILTERS_MAX {
+    if specs.len() > FILTERS_MAX {
         return Err(Error::Lzma(format!(
-            "Too many filters - liblzma supports a maximum of {LZMA_FILTERS_MAX}"
+            "Too many filters - liblzma supports a maximum of {FILTERS_MAX}"
         )));
     }
     let mut filters = Filters::new();
