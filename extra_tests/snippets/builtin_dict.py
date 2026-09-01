@@ -447,6 +447,7 @@ for make in (
         make()
     assert "as a dict key" in str(cm.exception), str(cm.exception)
 
+
 # The key is hashed once up front, so a __hash__ that fails only on its first
 # call is still reported (a re-hash on the error path would let it escape).
 class FlakyHash:
@@ -462,6 +463,7 @@ class FlakyHash:
 with assert_raises(TypeError) as cm:
     {}[FlakyHash()]
 assert "as a dict key" in str(cm.exception), str(cm.exception)
+
 
 # The type name is the fully qualified one, like CPython's %T.
 def _make_nested():
@@ -511,5 +513,7 @@ assert CountingHash.calls == 1, CountingHash.calls
 
 CountingHash.calls = 0
 with assert_raises(KeyError):
-    {}.pop(CountingHash())
+    # A non-empty dict so the lookup must hash the key (CPython skips hashing
+    # entirely when popping from an empty dict).
+    {1: 1}.pop(CountingHash())
 assert CountingHash.calls == 1, CountingHash.calls
