@@ -14,13 +14,14 @@ mod _contextvars {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
         builtins::{PyGenericAlias, PyList, PyStrRef, PyType, PyTypeRef},
+        class::PyClassDef,
         class::StaticType,
         common::{
             hash::PyHash,
             lock::{LazyLock, PyMutex},
             wtf8::Wtf8Buf,
         },
-        function::{ArgCallable, Callee, FuncArgs, OptionalArg},
+        function::{ArgCallable, FuncArgs, OptionalArg},
         protocol::{PyMappingMethods, PySequenceMethods},
         types::{AsMapping, AsSequence, Constructor, Hashable, Iterable, Representable},
     };
@@ -484,7 +485,7 @@ mod _contextvars {
         type Args = ContextVarOptions;
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let args: Self::Args = args.bind_for(vm, Callee::of::<Self>(vm))?;
+            let args: Self::Args = args.bind_for(vm, Self::NAME)?;
             let var = Self {
                 name: args.name.to_string(),
                 default: args.default.into_option(),

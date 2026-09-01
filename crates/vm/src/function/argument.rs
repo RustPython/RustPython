@@ -290,7 +290,12 @@ impl FuncArgs {
 
     /// Binds these arguments the way [`bind`](Self::bind) does, for a call whose
     /// function a failure can describe.
-    pub fn bind_for<T: FromArgs>(mut self, vm: &VirtualMachine, callee: Callee) -> PyResult<T> {
+    pub fn bind_for<T: FromArgs>(
+        mut self,
+        vm: &VirtualMachine,
+        callee: impl Into<Callee>,
+    ) -> PyResult<T> {
+        let callee = callee.into();
         // A message describes the parameters the function declares, and the
         // instance a method is called on is not one of them.
         let instance = callee.instance_args();
@@ -319,8 +324,9 @@ impl FuncArgs {
     pub fn check_kwargs_empty_for(
         &self,
         vm: &VirtualMachine,
-        callee: Callee,
+        callee: impl Into<Callee>,
     ) -> Option<PyBaseExceptionRef> {
+        let callee = callee.into();
         self.kwargs
             .keys()
             .next()
@@ -339,6 +345,12 @@ impl FuncArgs {
 pub struct Callee {
     name: Option<&'static str>,
     instance_arg: bool,
+}
+
+impl From<&'static str> for Callee {
+    fn from(name: &'static str) -> Self {
+        Self::named(name)
+    }
 }
 
 impl Callee {
@@ -376,35 +388,6 @@ impl Callee {
         self.instance_arg as usize
     }
 
-    /// The name a message uses. `tp_name` carries the module along with the
-    /// type, and a message names only the type itself.
-    fn short_name(self) -> Option<&'static str> {
-        self.name
-            .map(|name| name.rsplit_once('.').map_or(name, |(_, name)| name))
-    }
-
-    /// The name a message opens with and the parentheses that follow it, given
-    /// what to call a function whose name isn't known.
-    fn call_form(self, unnamed: &'static str) -> (&'static str, &'static str) {
-        match self.short_name() {
-            Some(name) => (name, "()"),
-            None => (unnamed, ""),
-        }
-    }
-
-    /// The error a call that passed the wrong number of arguments gets, for a
-    /// slot that counts them itself.
-    #[must_use]
-    pub fn arity_error(
-        self,
-        arity: RangeInclusive<usize>,
-        num_given: usize,
-        vm: &VirtualMachine,
-    ) -> PyBaseExceptionRef {
-        let too_few = num_given < *arity.start();
-        self.wrong_arity(&arity, too_few, num_given, vm)
-    }
-
     /// _PyArg_CheckPositional
     fn wrong_arity(
         self,
@@ -413,31 +396,12 @@ impl Callee {
         num_given: usize,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
-        let (limit, bound) = if too_few {
-            (*arity.start(), "at least ")
-        } else {
-            (*arity.end(), "at most ")
-        };
-        let bound = if arity.start() == arity.end() {
-            ""
-        } else {
-            bound
-        };
-        let plural = if limit == 1 { "" } else { "s" };
-        let name = self
-            .short_name()
-            .map_or_else(String::new, |name| format!("{name} "));
-        vm.new_type_error(format!(
-            "{name}expected {bound}{limit} argument{plural}, got {num_given}"
-        ))
+        vm.new_type_error(arity_message(self.name, arity, too_few, num_given))
     }
 
     /// The branch of _PyArg_UnpackKeywords that names a keyword it didn't expect.
     fn unexpected_keyword(self, keyword: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        let (name, parens) = self.call_form("this function");
-        vm.new_type_error(format!(
-            "{name}{parens} got an unexpected keyword argument '{keyword}'"
-        ))
+        vm.new_type_error(unexpected_keyword_message(self.name, keyword))
     }
 
     /// The branch of _PyArg_UnpackKeywords that names a parameter it didn't get.
@@ -447,11 +411,59 @@ impl Callee {
         pos: usize,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
-        let (name, parens) = self.call_form("function");
-        vm.new_type_error(format!(
-            "{name}{parens} missing required argument '{keyword}' (pos {pos})"
-        ))
+        vm.new_type_error(missing_argument_message(self.name, keyword, pos))
     }
+}
+
+/// The name a message uses. `tp_name` carries the module along with the type,
+/// and a message names only the type itself.
+fn short_name(name: &str) -> &str {
+    name.rsplit_once('.').map_or(name, |(_, name)| name)
+}
+
+/// The name a message opens with and the parentheses that follow it, given what
+/// to call a function whose name isn't known.
+fn call_form<'a>(name: Option<&'a str>, unnamed: &'a str) -> (&'a str, &'static str) {
+    match name.map(short_name) {
+        Some(name) => (name, "()"),
+        None => (unnamed, ""),
+    }
+}
+
+/// _PyArg_CheckPositional
+pub(crate) fn arity_message(
+    name: Option<&str>,
+    arity: &RangeInclusive<usize>,
+    too_few: bool,
+    num_given: usize,
+) -> String {
+    let (limit, bound) = if too_few {
+        (*arity.start(), "at least ")
+    } else {
+        (*arity.end(), "at most ")
+    };
+    let bound = if arity.start() == arity.end() {
+        ""
+    } else {
+        bound
+    };
+    let plural = if limit == 1 { "" } else { "s" };
+    let name = name
+        .map(short_name)
+        .map_or_else(String::new, |name| format!("{name} "));
+    format!("{name}expected {bound}{limit} argument{plural}, got {num_given}")
+}
+
+/// The branch of _PyArg_UnpackKeywords that names a keyword it didn't expect.
+pub(crate) fn unexpected_keyword_message(name: Option<&str>, keyword: &str) -> String {
+    let (name, parens) = call_form(name, "this function");
+    format!("{name}{parens} got an unexpected keyword argument '{keyword}'")
+}
+
+/// The branch of _PyArg_UnpackKeywords that names a parameter it didn't get.
+pub(crate) fn missing_argument_message(name: Option<&str>, keyword: &str, pos: usize) -> String {
+    let (name, parens) = call_form(name, "function");
+    format!("{name}{parens} missing required argument '{keyword}' (pos {pos})")
 }
 
 /// An error encountered while binding arguments to the parameters of a Python

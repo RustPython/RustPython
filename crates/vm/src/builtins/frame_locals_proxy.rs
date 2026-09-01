@@ -7,7 +7,7 @@ use super::{PyDict, PyDictRef, PyType};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     frame::FrameObjectRef,
     function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     object::{Traverse, TraverseFn},
@@ -71,16 +71,13 @@ impl Constructor for FrameLocalsProxy {
     type Args = FuncArgs;
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        if args.args.len() != 1 {
+            return Err(vm.new_arity_type_error(Self::NAME, 1..=1, args.args.len()));
+        }
         if !args.kwargs.is_empty() {
             return Err(vm.new_type_error("FrameLocalsProxy() takes no keyword arguments"));
         }
         let mut args = args.args;
-        if args.len() != 1 {
-            return Err(vm.new_type_error(format!(
-                "FrameLocalsProxy expected 1 argument, got {}",
-                args.len()
-            )));
-        }
         let frame: FrameObjectRef = args
             .pop()
             .unwrap()

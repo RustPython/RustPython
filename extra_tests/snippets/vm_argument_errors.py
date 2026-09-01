@@ -4,6 +4,11 @@
 # against both.
 import array
 import collections
+import csv
+import itertools
+import operator
+import typing
+import weakref
 
 from testutils import assert_raises
 
@@ -89,9 +94,67 @@ def test_a_type_is_named_by_the_type_it_builds():
         array.array()
 
 
+def test_a_slot_that_counts_its_own_arguments_says_the_same_thing():
+    # Sites that check the count themselves raise what binding would have.
+    class Obj:
+        pass
+
+    check(TypeError, "__new__ expected at least 1 argument, got 0", weakref.ref)
+    check(
+        TypeError,
+        "__new__ expected at most 2 arguments, got 3",
+        weakref.ref,
+        Obj(),
+        1,
+        2,
+    )
+    check(TypeError, "GenericAlias expected 2 arguments, got 0", type(list[int]))
+    check(TypeError, "frozenset expected at most 1 argument, got 2", frozenset, 1, 2)
+    check(TypeError, "attrgetter expected 1 argument, got 0", operator.attrgetter)
+    check(TypeError, "itemgetter expected 1 argument, got 0", operator.itemgetter)
+    check(
+        TypeError, "islice expected at least 2 arguments, got 1", itertools.islice, []
+    )
+    # The count is read before the keywords are.
+    check(TypeError, "min expected at least 1 argument, got 0", min, bogus=1)
+    check(TypeError, "max expected at least 1 argument, got 0", max, bogus=1)
+
+
+def test_a_keyword_check_of_its_own_says_the_same_thing():
+    check(
+        TypeError,
+        "AttributeError() got an unexpected keyword argument 'bogus'",
+        AttributeError,
+        bogus=1,
+    )
+    check(
+        TypeError,
+        "NameError() got an unexpected keyword argument 'bogus'",
+        NameError,
+        bogus=1,
+    )
+    check(
+        TypeError,
+        "typevar() got an unexpected keyword argument 'bogus'",
+        typing.TypeVar,
+        "T",
+        bogus=1,
+    )
+    # The dialect is parsed by a parser of its own, which has no name to give.
+    check(
+        TypeError,
+        "this function got an unexpected keyword argument 'bogus'",
+        csv.reader,
+        [],
+        bogus=1,
+    )
+
+
 test_the_message_names_the_function()
 test_a_method_does_not_count_its_instance()
 test_one_argument_is_singular()
 test_a_keyword_it_did_not_expect_is_quoted()
 test_a_parameter_a_call_may_name_is_named_back()
 test_a_type_is_named_by_the_type_it_builds()
+test_a_slot_that_counts_its_own_arguments_says_the_same_thing()
+test_a_keyword_check_of_its_own_says_the_same_thing()

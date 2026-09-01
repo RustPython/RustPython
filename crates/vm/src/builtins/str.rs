@@ -10,16 +10,14 @@ use crate::{
     atomic_func,
     bytes_inner::{swapcase_ascii, title_ascii},
     cformat::cformat_string,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::{
         lock::LazyLock,
         str::{PyKindStr, StrData, StrKind},
     },
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
-    function::{
-        ArgIterable, ArgSize, Callee, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
-    },
+    function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
     object::{MaybeTraverse, Traverse, TraverseFn},
     protocol::{
@@ -411,7 +409,7 @@ impl Constructor for PyStr {
             return Ok(func_args.args[0].clone());
         }
 
-        let args: Self::Args = func_args.bind_for(vm, Callee::of::<Self>(vm))?;
+        let args: Self::Args = func_args.bind_for(vm, Self::NAME)?;
 
         // CPython parity: when cls is exactly str, return the __str__ / __repr__
         // result as-is so any str subclass type the user returned is preserved
