@@ -4,14 +4,11 @@
 
 use crate::vm::function::{ArgBytesLike, ArgSize, OptionalArg};
 use crate::vm::{
-    PyResult, VirtualMachine,
+    VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytesRef},
     convert::ToPyException,
 };
-
-pub(crate) const USE_AFTER_FINISH_ERR: &str = "Error -2: inconsistent stream state";
-// TODO: don't hardcode
-const CHUNKSIZE: usize = u32::MAX as usize;
+use rustpython_common::compression::Chunker;
 
 #[derive(FromArgs)]
 pub(crate) struct DecompressArgs {
@@ -70,59 +67,6 @@ pub(crate) const fn flush_sync<T: DecompressFlushKind>(_final_chunk: bool) -> T 
     T::SYNC
 }
 
-#[derive(Clone)]
-pub(crate) struct Chunker<'a> {
-    data1: &'a [u8],
-    data2: &'a [u8],
-}
-impl<'a> Chunker<'a> {
-    pub(crate) const fn new(data: &'a [u8]) -> Self {
-        Self {
-            data1: data,
-            data2: &[],
-        }
-    }
-    pub(crate) const fn chain(data1: &'a [u8], data2: &'a [u8]) -> Self {
-        if data1.is_empty() {
-            Self {
-                data1: data2,
-                data2: &[],
-            }
-        } else {
-            Self { data1, data2 }
-        }
-    }
-    pub(crate) const fn len(&self) -> usize {
-        self.data1.len() + self.data2.len()
-    }
-    pub(crate) const fn is_empty(&self) -> bool {
-        self.data1.is_empty()
-    }
-    pub(crate) fn to_vec(&self) -> Vec<u8> {
-        [self.data1, self.data2].concat()
-    }
-    pub(crate) fn chunk(&self) -> &'a [u8] {
-        self.data1.get(..CHUNKSIZE).unwrap_or(self.data1)
-    }
-    pub(crate) fn advance(&mut self, consumed: usize) {
-        self.data1 = &self.data1[consumed..];
-        if self.data1.is_empty() {
-            self.data1 = core::mem::take(&mut self.data2);
-        }
-    }
-}
-
-pub(crate) fn _decompress<D: Decompressor>(
-    data: &[u8],
-    d: &mut D,
-    bufsize: usize,
-    max_length: Option<usize>,
-    calc_flush: impl Fn(bool) -> D::Flush,
-) -> Result<(Vec<u8>, bool), D::Error> {
-    let mut data = Chunker::new(data);
-    _decompress_chunks(&mut data, d, bufsize, max_length, calc_flush)
-}
-
 pub(crate) fn _decompress_chunks<D: Decompressor>(
     data: &mut Chunker<'_>,
     d: &mut D,
@@ -176,101 +120,6 @@ pub(crate) fn _decompress_chunks<D: Decompressor>(
     }
 }
 
-pub(crate) trait Compressor {
-    type Status: CompressStatusKind;
-    type Flush: CompressFlushKind;
-    const CHUNKSIZE: usize;
-    const DEF_BUF_SIZE: usize;
-
-    fn compress_vec(
-        &mut self,
-        input: &[u8],
-        output: &mut Vec<u8>,
-        flush: Self::Flush,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self::Status>;
-
-    fn total_in(&mut self) -> usize;
-
-    fn new_error(message: impl Into<String>, vm: &VirtualMachine) -> PyBaseExceptionRef;
-}
-
-pub(crate) trait CompressFlushKind: Copy {
-    const NONE: Self;
-    const FINISH: Self;
-
-    fn to_usize(self) -> usize;
-}
-
-pub(crate) trait CompressStatusKind: Copy {
-    const EOF: Self;
-
-    fn to_usize(self) -> usize;
-}
-
-#[derive(Debug)]
-pub(crate) struct CompressState<C: Compressor> {
-    compressor: Option<C>,
-}
-
-impl<C: Compressor> CompressState<C> {
-    pub(crate) const fn new(compressor: C) -> Self {
-        Self {
-            compressor: Some(compressor),
-        }
-    }
-
-    fn get_compressor(&mut self, vm: &VirtualMachine) -> PyResult<&mut C> {
-        self.compressor
-            .as_mut()
-            .ok_or_else(|| C::new_error(USE_AFTER_FINISH_ERR, vm))
-    }
-
-    pub(crate) fn compress(&mut self, data: &[u8], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let mut buf = Vec::new();
-        let compressor = self.get_compressor(vm)?;
-
-        for mut chunk in data.chunks(C::CHUNKSIZE) {
-            while !chunk.is_empty() {
-                buf.reserve(C::DEF_BUF_SIZE);
-                let prev_in = compressor.total_in();
-                compressor.compress_vec(chunk, &mut buf, C::Flush::NONE, vm)?;
-                let consumed = compressor.total_in() - prev_in;
-                chunk = &chunk[consumed..];
-            }
-        }
-
-        buf.shrink_to_fit();
-        Ok(buf)
-    }
-
-    pub(crate) fn flush(&mut self, mode: C::Flush, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let mut buf = Vec::new();
-        let compressor = self.get_compressor(vm)?;
-
-        let status = loop {
-            if buf.len() == buf.capacity() {
-                buf.reserve(C::DEF_BUF_SIZE);
-            }
-            let status = compressor.compress_vec(&[], &mut buf, mode, vm)?;
-            if buf.len() != buf.capacity() {
-                break status;
-            }
-        };
-
-        if status.to_usize() == C::Status::EOF.to_usize() {
-            if mode.to_usize() == C::Flush::FINISH.to_usize() {
-                self.compressor = None;
-            } else {
-                return Err(C::new_error("unexpected eof", vm));
-            }
-        }
-
-        buf.shrink_to_fit();
-        Ok(buf)
-    }
-}
-
 #[derive(Debug)]
 pub(crate) struct DecompressState<D> {
     decompress: D,
@@ -293,11 +142,6 @@ impl<D: Decompressor> DecompressState<D> {
 
     pub(crate) const fn eof(&self) -> bool {
         self.eof
-    }
-
-    #[cfg_attr(target_os = "android", allow(dead_code))]
-    pub(crate) const fn decompressor(&self) -> &D {
-        &self.decompress
     }
 
     pub(crate) fn unused_data(&self) -> PyBytesRef {
