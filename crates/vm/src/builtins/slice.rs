@@ -7,10 +7,10 @@ use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 use super::{PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::hash::{PyHash, PyUHash},
     convert::ToPyObject,
-    function::{ArgIndex, Callee, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
@@ -128,10 +128,10 @@ impl PySlice {
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let slice: Self = match args.args.len() {
             0 => {
-                return Err(Callee::of::<Self>(vm).arity_error(1..=3, 0, vm));
+                return Err(vm.new_arity_type_error(Self::NAME, 1..=3, 0));
             }
             1 => {
-                let stop = args.bind_for(vm, Callee::of::<Self>(vm))?;
+                let stop = args.bind_for(vm, Self::NAME)?;
                 Self {
                     start: None,
                     stop,
@@ -140,7 +140,7 @@ impl PySlice {
             }
             _ => {
                 let (start, stop, step): (PyObjectRef, PyObjectRef, OptionalArg<PyObjectRef>) =
-                    args.bind_for(vm, Callee::of::<Self>(vm))?;
+                    args.bind_for(vm, Self::NAME)?;
                 Self {
                     start: Some(start),
                     stop,
@@ -388,7 +388,7 @@ impl Constructor for PyEllipsis {
     type Args = ();
 
     fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let _: () = args.bind_for(vm, Callee::of::<Self>(vm))?;
+        let _: () = args.bind_for(vm, Self::NAME)?;
         Ok(vm.ctx.ellipsis.clone().into())
     }
 

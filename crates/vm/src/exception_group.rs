@@ -7,6 +7,7 @@ use crate::function::{ArgIterable, FuncArgs};
 use crate::types::{PyTypeFlags, PyTypeSlots};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+    class::PyClassDef,
 };
 use core::fmt::Write;
 use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
@@ -245,7 +246,7 @@ pub(super) mod types {
         type Args = crate::function::PosArgs;
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let args: Self::Args = args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?;
+            let args: Self::Args = args.bind_for(vm, Self::NAME)?;
             let args = args.into_vec();
             // Validate exactly 2 positional arguments
             if args.len() != 2 {

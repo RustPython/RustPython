@@ -484,16 +484,8 @@ pub(crate) mod _thread {
         }
 
         let given = f_args.args.len();
-        if given < 2 {
-            return Err(vm.new_type_error(format!(
-                "start_new_thread expected at least 2 arguments, got {given}"
-            )));
-        }
-
-        if given > 3 {
-            return Err(vm.new_type_error(format!(
-                "start_new_thread expected at most 3 arguments, got {given}"
-            )));
+        if !(2..=3).contains(&given) {
+            return Err(vm.new_arity_type_error("start_new_thread", 2..=3, given));
         }
 
         let func_obj = f_args.take_positional().unwrap();

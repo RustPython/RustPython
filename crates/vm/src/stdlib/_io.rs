@@ -122,7 +122,7 @@ mod _io {
             PyBaseExceptionRef, PyBool, PyByteArray, PyBytes, PyBytesRef, PyDict, PyMemoryView,
             PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str, PyUtf8StrRef,
         },
-        class::StaticType,
+        class::{PyClassDef, StaticType},
         common::lock::{
             PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
             PyThreadMutex, PyThreadMutexGuard,
@@ -2838,7 +2838,8 @@ mod _io {
                 let mut data = zelf_ref.lock_opt(vm)?;
                 *data = None;
             }
-            let (buffer, text_args): (PyObjectRef, TextIOWrapperArgs) = args.bind(vm)?;
+            let (buffer, text_args): (PyObjectRef, TextIOWrapperArgs) =
+                args.bind_for(vm, Self::NAME)?;
             Self::init(zelf_ref, (buffer, text_args), vm)
         }
     }

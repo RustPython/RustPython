@@ -6,9 +6,7 @@ use crate::{
         PyBaseExceptionRef, PyDict, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
-    function::{
-        Callee, Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags,
-    },
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags},
     iter::PyExactSizeIterator,
     protocol::{PyMappingMethods, PySequenceMethods},
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -254,7 +252,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         struct_sequence_new(
             cls,
-            args.bind_for(vm, Callee::for_type(Self::static_type()))?,
+            args.bind_for(vm, Self::NAME)?,
             Self::Data::OPTIONAL_FIELD_NAMES,
             vm,
         )

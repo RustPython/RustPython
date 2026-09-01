@@ -6,6 +6,8 @@ use ruff_python_parser::{InterpolatedStringErrorType, LexicalErrorType, ParseErr
 use rustpython_common::wtf8::Wtf8Buf;
 use rustpython_compiler_core::SourceLocation;
 
+use core::ops::RangeInclusive;
+
 #[cfg(feature = "parser")]
 use rustpython_compiler::{CompileError, ParseError};
 
@@ -20,7 +22,9 @@ use crate::{
     },
     convert::{ToPyException, ToPyObject},
     exceptions::OSErrorBuilder,
-    function::{FuncArgs, IntoPyNativeFn, PyMethodFlags},
+    function::{
+        FuncArgs, IntoPyNativeFn, PyMethodFlags, arity_message, unexpected_keyword_message,
+    },
     scope::Scope,
     set_attrs,
     types::{Constructor, Initializer},
@@ -493,6 +497,30 @@ impl VirtualMachine {
         );
 
         name_error
+    }
+
+    /// The error a call that passed the wrong number of arguments gets. The
+    /// name is the function the call was for; `Self::NAME` is the one a slot
+    /// wants. `_PyArg_CheckPositional`
+    pub fn new_arity_type_error(
+        &self,
+        func_name: &str,
+        arity: RangeInclusive<usize>,
+        num_given: usize,
+    ) -> PyBaseExceptionRef {
+        let too_few = num_given < *arity.start();
+        self.new_type_error(arity_message(Some(func_name), &arity, too_few, num_given))
+    }
+
+    /// The error a call that passed a keyword the function doesn't take gets.
+    /// The name is left off where the parser has none of its own, the way
+    /// `_PyArg_Parser.fname` is NULL. `_PyArg_UnpackKeywords`
+    pub fn new_unexpected_keyword_type_error(
+        &self,
+        func_name: Option<&str>,
+        keyword: &str,
+    ) -> PyBaseExceptionRef {
+        self.new_type_error(unexpected_keyword_message(func_name, keyword))
     }
 
     pub fn new_unsupported_unary_error(&self, a: &PyObject, op: &str) -> PyBaseExceptionRef {

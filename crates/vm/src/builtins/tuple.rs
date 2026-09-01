@@ -8,9 +8,9 @@ use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     convert::{ToPyObject, TransmuteFromObject},
-    function::{ArgSize, Callee, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{ArgSize, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -221,7 +221,7 @@ impl Constructor for PyTuple {
     type Args = Vec<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let iterable: OptionalArg<PyObjectRef> = args.bind_for(vm, Callee::of::<Self>(vm))?;
+        let iterable: OptionalArg<PyObjectRef> = args.bind_for(vm, Self::NAME)?;
 
         // Optimizations for exact tuple type
         if cls.is(vm.ctx.types.tuple_type) {
