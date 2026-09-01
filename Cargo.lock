@@ -3345,8 +3345,7 @@ dependencies = [
  "rustpython-unicode",
  "rustpython-wtf8",
  "siphasher",
- "xz",
- "xz-sys",
+ "xz-core",
  "zlib-rs",
 ]
 
@@ -4943,33 +4942,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "636f85e5ca6488e96401b61eb7de54f4e44755c988af0f52cf90230c312a1a89"
 
 [[package]]
-name = "xz"
-version = "0.4.6-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7af8851c229f574c5e4f4e9b6d90ca06c43974a563f7f42de4b88d651bf8f19c"
-dependencies = [
- "xz-core",
-]
-
-[[package]]
 name = "xz-core"
 version = "0.1.0-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef4d12cf9c122b2523cce22d6ab3083f4eb56d1221e5d30ddcc70fbaac553589"
+source = "git+https://github.com/simnalamburt/xz-rs?rev=5bf95411d0307e052ca2aeb06f0d75565c9a7362#5bf95411d0307e052ca2aeb06f0d75565c9a7362"
 dependencies = [
  "libc",
  "memchr",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "xz-sys"
-version = "0.4.6-rc.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "114e3a14e5bb2d46513305741650595041b7e7e1677aa5c9715a09b7a8da08fd"
-dependencies = [
- "libc",
- "xz-core",
 ]
 
 [[package]]

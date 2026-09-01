@@ -126,6 +126,14 @@ panic = "abort"
 
 [patch.crates-io]
 parking_lot_core = { git = "https://github.com/youknowone/parking_lot", branch = "rustpython" }
+# xz-core 0.1.0-rc.0 as published registers a `lzma12_optmap` static
+# initializer.  On MSVC it lands in `.CRT$XIB`, which `_initterm_e` walks as
+# `int (__cdecl *)(void)` while the initializer's Rust signature returns `()`,
+# so a Windows build exits 255 with empty stdout and stderr.  That release also
+# overflows the `alone_decoder` dictionary-size check in a debug build for
+# `dict_size == 0`.  simnalamburt/xz-rs#21 fixes both and is merged, so the pin
+# drops once a release carrying it reaches crates.io.
+xz-core = { git = "https://github.com/simnalamburt/xz-rs", rev = "5bf95411d0307e052ca2aeb06f0d75565c9a7362" }
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
 
@@ -236,8 +244,7 @@ lexical-parse-float = "1.0.6"
 libc = "0.2.186"
 libffi = "5"
 libloading = "0.9"
-xz = "0.4.6-rc.0"
-xz-sys = "0.4.6-rc.0"
+xz-core = "0.1.0-rc.0"
 libsqlite3-sys = "0.38"
 libz-rs-sys = "0.6"
 zlib-rs = { version = "=0.6.7", default-features = false, features = ["rust-allocator", "__internal-api"] }
