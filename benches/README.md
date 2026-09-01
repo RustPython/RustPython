@@ -97,3 +97,7 @@ rustflags = [
 ## Benchmark source
 
 - <https://benchmarksgame-team.pages.debian.net/benchmarksgame/program/nbody-python3-2.html>
+- The workloads marked as adapted from pyperformance come from
+  [python/pyperformance 1.14.0](https://github.com/python/pyperformance/tree/1.14.0/pyperformance/data-files/benchmarks).
+  Their `pyperf` runners and internal timers are removed so Criterion is the only measurement
+  harness, and some input sizes are reduced for CodSpeed simulation.
