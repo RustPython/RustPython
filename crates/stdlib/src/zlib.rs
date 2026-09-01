@@ -273,7 +273,7 @@ mod zlib {
         } = args;
         let level = level
             .value()
-            .ok_or_else(|| vm.new_value_error("invalid initialization option"))?;
+            .ok_or_else(|| vm.new_value_error("Invalid initialization option"))?;
         let zdict = owned_dict(zdict);
         let compress = backend::Compressor::new(
             level,
@@ -283,7 +283,7 @@ mod zlib {
             strategy,
             zdict.as_deref(),
         )
-        .map_err(|err| vm.new_value_error(err))?;
+        .map_err(|err| new_init_or_zlib_error(err, vm))?;
         Ok(PyCompress {
             inner: PyMutex::new(compress),
         })
@@ -350,11 +350,15 @@ mod zlib {
         vm.new_exception_msg(vm.class("zlib", "error"), message.into().into())
     }
 
-    fn new_init_or_zlib_error(message: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        if message == "Invalid initialization option" {
-            vm.new_value_error(message)
-        } else {
-            new_zlib_error(message, vm)
+    fn new_init_or_zlib_error(
+        error: backend::InitError,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        match error {
+            backend::InitError::InvalidOption => {
+                vm.new_value_error("Invalid initialization option")
+            }
+            backend::InitError::Zlib(message) => new_zlib_error(message, vm),
         }
     }
 

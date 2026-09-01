@@ -416,13 +416,7 @@ mod _lzma {
                 None => PRESET_DEFAULT,
             };
             let filters = match args.format {
-                FORMAT_XZ | FORMAT_RAW => filters_to_backend(args.filters, vm)?,
-                FORMAT_ALONE => {
-                    if let Some(filters) = args.filters {
-                        filters.length(vm)?;
-                    }
-                    None
-                }
+                FORMAT_XZ | FORMAT_ALONE | FORMAT_RAW => filters_to_backend(args.filters, vm)?,
                 _ => None,
             };
             let backend = backend::Compressor::new(args.format, args.check, preset, filters)

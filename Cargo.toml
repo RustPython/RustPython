@@ -240,7 +240,7 @@ xz = "0.4.6-rc.0"
 xz-sys = "0.4.6-rc.0"
 libsqlite3-sys = "0.38"
 libz-rs-sys = "0.6"
-zlib-rs = { version = "0.6", default-features = false, features = ["rust-allocator", "__internal-api"] }
+zlib-rs = { version = "=0.6.7", default-features = false, features = ["rust-allocator", "__internal-api"] }
 lock_api = "0.4"
 log = "0.4.30"
 lz4_flex = "0.13"

@@ -8,9 +8,7 @@ use crate::vm::{
     builtins::{PyBaseExceptionRef, PyBytesRef},
     convert::ToPyException,
 };
-
-// TODO: don't hardcode
-const CHUNKSIZE: usize = u32::MAX as usize;
+use rustpython_common::compression::Chunker;
 
 #[derive(FromArgs)]
 pub(crate) struct DecompressArgs {
@@ -67,42 +65,6 @@ impl DecompressFlushKind for () {
 
 pub(crate) const fn flush_sync<T: DecompressFlushKind>(_final_chunk: bool) -> T {
     T::SYNC
-}
-
-#[derive(Clone)]
-pub(crate) struct Chunker<'a> {
-    data1: &'a [u8],
-    data2: &'a [u8],
-}
-impl<'a> Chunker<'a> {
-    pub(crate) const fn chain(data1: &'a [u8], data2: &'a [u8]) -> Self {
-        if data1.is_empty() {
-            Self {
-                data1: data2,
-                data2: &[],
-            }
-        } else {
-            Self { data1, data2 }
-        }
-    }
-    pub(crate) const fn len(&self) -> usize {
-        self.data1.len() + self.data2.len()
-    }
-    pub(crate) const fn is_empty(&self) -> bool {
-        self.data1.is_empty()
-    }
-    pub(crate) fn to_vec(&self) -> Vec<u8> {
-        [self.data1, self.data2].concat()
-    }
-    pub(crate) fn chunk(&self) -> &'a [u8] {
-        self.data1.get(..CHUNKSIZE).unwrap_or(self.data1)
-    }
-    pub(crate) fn advance(&mut self, consumed: usize) {
-        self.data1 = &self.data1[consumed..];
-        if self.data1.is_empty() {
-            self.data1 = core::mem::take(&mut self.data2);
-        }
-    }
 }
 
 pub(crate) fn _decompress_chunks<D: Decompressor>(

@@ -11,8 +11,9 @@ use xz::stream::{
     TELL_ANY_CHECK, TELL_NO_CHECK,
 };
 
+use super::{CHUNKSIZE, Chunker};
+
 pub const BUFSIZ: usize = 8192;
-const CHUNKSIZE: usize = u32::MAX as usize;
 const DEF_BUF_SIZE: usize = 16 * 1024;
 const USE_AFTER_FINISH_ERR: &str = "Error -2: inconsistent stream state";
 const LZMA_FILTERS_MAX: usize = 4;
@@ -250,6 +251,9 @@ pub fn encode_filter_properties(spec: &FilterSpec) -> Result<Vec<u8>, Error> {
             let lc = spec.lc.unwrap_or(DEFAULT_LC);
             let lp = spec.lp.unwrap_or(DEFAULT_LP);
             let pb = spec.pb.unwrap_or(DEFAULT_PB);
+            if lc > 4 || lp > 4 || lc + lp > 4 || pb > 4 {
+                return Err(Error::Lzma("Invalid or unsupported options".to_owned()));
+            }
             let dict_size = spec.dict_size.unwrap_or_else(|| preset_dict_size(preset));
             let mut result = vec![0u8; 5];
             result[0] = ((pb * 5 + lp) * 9 + lc) as u8;
@@ -367,42 +371,6 @@ impl LzmaStream {
             }
             other => other,
         }
-    }
-}
-
-struct Chunker<'a> {
-    data1: &'a [u8],
-    data2: &'a [u8],
-}
-
-impl<'a> Chunker<'a> {
-    fn chain(data1: &'a [u8], data2: &'a [u8]) -> Self {
-        if data1.is_empty() {
-            Self {
-                data1: data2,
-                data2: &[],
-            }
-        } else {
-            Self { data1, data2 }
-        }
-    }
-    fn len(&self) -> usize {
-        self.data1.len() + self.data2.len()
-    }
-    fn is_empty(&self) -> bool {
-        self.data1.is_empty()
-    }
-    fn chunk(&self) -> &'a [u8] {
-        self.data1.get(..CHUNKSIZE).unwrap_or(self.data1)
-    }
-    fn advance(&mut self, consumed: usize) {
-        self.data1 = &self.data1[consumed..];
-        if self.data1.is_empty() {
-            self.data1 = core::mem::take(&mut self.data2);
-        }
-    }
-    fn to_vec(&self) -> Vec<u8> {
-        [self.data1, self.data2].concat()
     }
 }
 
@@ -580,8 +548,20 @@ impl Compressor {
                 }
             }
             FORMAT_ALONE => {
-                let options = LzmaOptions::new_preset(preset)
-                    .map_err(|_| Error::Lzma(format!("Invalid compression preset: {preset}")))?;
+                let options = match filters {
+                    None => LzmaOptions::new_preset(preset).map_err(|_| {
+                        Error::Lzma(format!("Invalid compression preset: {preset}"))
+                    })?,
+                    Some(specs) => match specs.as_slice() {
+                        [spec] if spec.id == FILTER_LZMA1 => lzma_options(spec)?,
+                        _ => {
+                            return Err(Error::Value(
+                                "Invalid filter chain for FORMAT_ALONE - must be a single LZMA1 filter"
+                                    .to_owned(),
+                            ));
+                        }
+                    },
+                };
                 Stream::new_lzma_encoder(&options)?
             }
             FORMAT_RAW => {
@@ -636,5 +616,70 @@ impl Compressor {
         }
         output.shrink_to_fit();
         Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_lzma1_properties_rejects_invalid_lclppb() {
+        for (lc, lp, pb) in [(5, 0, 0), (0, 5, 0), (4, 1, 0), (0, 0, 5)] {
+            let spec = FilterSpec {
+                id: FILTER_LZMA1,
+                lc: Some(lc),
+                lp: Some(lp),
+                pb: Some(pb),
+                ..FilterSpec::default()
+            };
+            assert!(matches!(
+                encode_filter_properties(&spec),
+                Err(Error::Lzma(message)) if message == "Invalid or unsupported options"
+            ));
+        }
+    }
+
+    #[test]
+    fn format_alone_uses_the_single_lzma1_filter() {
+        let dict_size = 1 << 20;
+        let spec = FilterSpec {
+            id: FILTER_LZMA1,
+            dict_size: Some(dict_size),
+            ..FilterSpec::default()
+        };
+        let mut compressor =
+            Compressor::new(FORMAT_ALONE, CHECK_NONE, PRESET_DEFAULT, Some(vec![spec])).unwrap();
+        let mut encoded = compressor.compress(b"hello").unwrap();
+        encoded.extend(compressor.flush().unwrap());
+        assert_eq!(&encoded[1..5], &dict_size.to_le_bytes());
+    }
+
+    #[test]
+    fn format_alone_rejects_other_filter_chains() {
+        for filters in [
+            vec![],
+            vec![FilterSpec {
+                id: FILTER_LZMA2,
+                ..FilterSpec::default()
+            }],
+            vec![
+                FilterSpec {
+                    id: FILTER_LZMA1,
+                    ..FilterSpec::default()
+                },
+                FilterSpec {
+                    id: FILTER_LZMA1,
+                    ..FilterSpec::default()
+                },
+            ],
+        ] {
+            assert!(matches!(
+                Compressor::new(FORMAT_ALONE, CHECK_NONE, PRESET_DEFAULT, Some(filters)),
+                Err(Error::Value(message))
+                    if message
+                        == "Invalid filter chain for FORMAT_ALONE - must be a single LZMA1 filter"
+            ));
+        }
     }
 }

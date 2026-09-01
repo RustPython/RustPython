@@ -16,6 +16,8 @@ use zlib_rs::{
     inflate::{self, InflateConfig, InflateStream},
 };
 
+use super::{CHUNKSIZE, Chunker};
+
 pub use zlib_rs::c_api::{
     Z_BEST_COMPRESSION, Z_BEST_SPEED, Z_BLOCK, Z_DEFAULT_COMPRESSION, Z_DEFAULT_STRATEGY,
     Z_DEFLATED, Z_FILTERED, Z_FINISH, Z_FIXED, Z_FULL_FLUSH, Z_HUFFMAN_ONLY, Z_NO_COMPRESSION,
@@ -25,7 +27,6 @@ pub use zlib_rs::c_api::{
 pub const MAX_WBITS: i32 = 15;
 pub const DEF_BUF_SIZE: usize = 16 * 1024;
 
-const CHUNKSIZE: usize = u32::MAX as usize;
 const USE_AFTER_FINISH_ERR: &str = "Error -2: inconsistent stream state";
 
 fn valid_level(level: i32) -> bool {
@@ -74,18 +75,24 @@ enum InitOptions {
     HeaderWindow,
 }
 
+/// Errors raised while constructing a zlib stream. Invalid Python-level
+/// options are kept distinct from failures reported by the zlib engine.
+#[derive(Debug)]
+pub enum InitError {
+    InvalidOption,
+    Zlib(String),
+}
+
 impl InitOptions {
-    fn new(wbits: i32) -> Result<Self, String> {
+    fn new(wbits: i32) -> Result<Self, InitError> {
         let header = wbits >= 0;
-        let wbits = wbits
-            .checked_abs()
-            .ok_or_else(|| "Invalid initialization option".to_owned())?;
+        let wbits = wbits.checked_abs().ok_or(InitError::InvalidOption)?;
         match wbits {
             0 if header => Ok(Self::HeaderWindow),
             8..=15 => Ok(Self::Standard { header, wbits }),
-            24..=31 => Ok(Self::Gzip { wbits: wbits - 16 }),
-            40..=47 => Ok(Self::Auto { wbits: wbits - 32 }),
-            _ => Err("Invalid initialization option".to_owned()),
+            24..=31 if header => Ok(Self::Gzip { wbits: wbits - 16 }),
+            40..=47 if header => Ok(Self::Auto { wbits: wbits - 32 }),
+            _ => Err(InitError::InvalidOption),
         }
     }
 
@@ -104,13 +111,16 @@ impl InitOptions {
         }
     }
 
-    fn deflate_window_bits(self) -> Result<i32, String> {
+    fn deflate_window_bits(self) -> Result<i32, InitError> {
         match self {
+            Self::Standard {
+                header: false,
+                wbits: 8,
+            }
+            | Self::Gzip { wbits: 8 } => Err(InitError::InvalidOption),
             Self::Standard { header, wbits } => Ok(if header { wbits } else { -wbits }),
             Self::Gzip { wbits } => Ok(wbits + 16),
-            Self::Auto { .. } | Self::HeaderWindow => {
-                Err("Invalid initialization option".to_owned())
-            }
+            Self::Auto { .. } | Self::HeaderWindow => Err(InitError::InvalidOption),
         }
     }
 }
@@ -329,48 +339,6 @@ impl Drop for RawInflate {
     }
 }
 
-struct Chunker<'a> {
-    data1: &'a [u8],
-    data2: &'a [u8],
-}
-
-impl<'a> Chunker<'a> {
-    const fn new(data: &'a [u8]) -> Self {
-        Self {
-            data1: data,
-            data2: &[],
-        }
-    }
-    fn chain(data1: &'a [u8], data2: &'a [u8]) -> Self {
-        if data1.is_empty() {
-            Self {
-                data1: data2,
-                data2: &[],
-            }
-        } else {
-            Self { data1, data2 }
-        }
-    }
-    const fn len(&self) -> usize {
-        self.data1.len() + self.data2.len()
-    }
-    const fn is_empty(&self) -> bool {
-        self.data1.is_empty()
-    }
-    fn to_vec(&self) -> Vec<u8> {
-        [self.data1, self.data2].concat()
-    }
-    fn chunk(&self) -> &'a [u8] {
-        self.data1.get(..CHUNKSIZE).unwrap_or(self.data1)
-    }
-    fn advance(&mut self, consumed: usize) {
-        self.data1 = &self.data1[consumed..];
-        if self.data1.is_empty() {
-            self.data1 = core::mem::take(&mut self.data2);
-        }
-    }
-}
-
 /// Drive an inflate stream over chained input, retrying with an optional
 /// preset dictionary when the stream requests one.
 fn decompress_chunks(
@@ -382,7 +350,7 @@ fn decompress_chunks(
     calc_flush: impl Fn(bool) -> InflateFlush,
 ) -> Result<(Vec<u8>, bool), String> {
     if data.is_empty() {
-        return Ok((Vec::new(), true));
+        return Ok((Vec::new(), false));
     }
     let max_length = max_length.unwrap_or(usize::MAX);
     let mut buf = Vec::new();
@@ -447,24 +415,28 @@ fn decompress_all(
 }
 
 /// `zlib.compress(data, level, wbits)`.
-pub fn compress(data: &[u8], level: i32, wbits: i32) -> Result<Vec<u8>, String> {
+pub fn compress(data: &[u8], level: i32, wbits: i32) -> Result<Vec<u8>, InitError> {
     if !valid_level(level) {
-        return Err("Bad compression level".to_owned());
+        return Err(InitError::Zlib("Bad compression level".to_owned()));
     }
     let mut compressor = Compressor::new(level, 8, wbits, 8, 0, None)?;
-    let mut output = compressor.compress(data)?;
-    output.extend(compressor.flush(Z_FINISH)?);
+    let mut output = compressor.compress(data).map_err(InitError::Zlib)?;
+    output.extend(compressor.flush(Z_FINISH).map_err(InitError::Zlib)?);
     Ok(output)
 }
 
 /// `zlib.decompress(data, wbits, bufsize)`.
-pub fn decompress(data: &[u8], wbits: i32, bufsize: usize) -> Result<Vec<u8>, String> {
-    let mut d = RawInflate::new(InitOptions::new(wbits)?.inflate_window_bits())?;
+pub fn decompress(data: &[u8], wbits: i32, bufsize: usize) -> Result<Vec<u8>, InitError> {
+    let mut d =
+        RawInflate::new(InitOptions::new(wbits)?.inflate_window_bits()).map_err(InitError::Zlib)?;
     let (buf, stream_end) = decompress_all(data, &mut d, None, bufsize, None, |_| {
         InflateFlush::SyncFlush
-    })?;
+    })
+    .map_err(InitError::Zlib)?;
     if !stream_end {
-        return Err("Error -5 while decompressing data: incomplete or truncated stream".to_owned());
+        return Err(InitError::Zlib(
+            "Error -5 while decompressing data: incomplete or truncated stream".to_owned(),
+        ));
     }
     Ok(buf)
 }
@@ -481,14 +453,18 @@ impl Compressor {
         mem_level: i32,
         strategy: i32,
         zdict: Option<&[u8]>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, InitError> {
         if !valid_level(level) {
-            return Err("Invalid initialization option".to_owned());
+            return Err(InitError::InvalidOption);
         }
-        let method =
-            Method::try_from(method).map_err(|_| "Invalid initialization option".to_owned())?;
-        let strategy =
-            Strategy::try_from(strategy).map_err(|_| "Invalid initialization option".to_owned())?;
+        if method != Z_DEFLATED {
+            return Err(InitError::InvalidOption);
+        }
+        let method = Method::try_from(method).map_err(|_| InitError::InvalidOption)?;
+        let strategy = Strategy::try_from(strategy).map_err(|_| InitError::InvalidOption)?;
+        if !(1..=9).contains(&mem_level) {
+            return Err(InitError::InvalidOption);
+        }
         let window_bits = InitOptions::new(wbits)?.deflate_window_bits()?;
         let mut compress = RawDeflate::new(DeflateConfig {
             level,
@@ -496,11 +472,12 @@ impl Compressor {
             window_bits,
             mem_level,
             strategy,
-        })?;
+        })
+        .map_err(InitError::Zlib)?;
         if let Some(zdict) = zdict {
             compress
                 .set_dictionary(zdict)
-                .map_err(|e| e.as_str().to_owned())?;
+                .map_err(|e| InitError::Zlib(e.as_str().to_owned()))?;
         }
         Ok(Self {
             compress: Some(compress),
@@ -599,14 +576,15 @@ pub struct Decompressor {
 }
 
 impl Decompressor {
-    pub fn new(wbits: i32, zdict: Option<Vec<u8>>) -> Result<Self, String> {
-        let mut decompress = RawInflate::new(InitOptions::new(wbits)?.inflate_window_bits())?;
+    pub fn new(wbits: i32, zdict: Option<Vec<u8>>) -> Result<Self, InitError> {
+        let mut decompress = RawInflate::new(InitOptions::new(wbits)?.inflate_window_bits())
+            .map_err(InitError::Zlib)?;
         if let Some(d) = &zdict
             && wbits < 0
         {
             decompress
                 .set_dictionary(d)
-                .map_err(|e| e.as_str().to_owned())?;
+                .map_err(|e| InitError::Zlib(e.as_str().to_owned()))?;
         }
         Ok(Self {
             decompress: Some(decompress),
@@ -722,7 +700,8 @@ impl Decompressor {
     pub fn flush(&mut self, length: usize) -> Result<Vec<u8>, String> {
         let data = core::mem::take(&mut self.unconsumed_tail);
         let (ret, stream_end) = self.decompress_inner(&data, length, None, true)?;
-        if stream_end {
+        self.eof |= stream_end;
+        if self.eof {
             self.decompress = None;
         }
         ret
@@ -747,14 +726,15 @@ pub struct ZlibDecompressor {
 }
 
 impl ZlibDecompressor {
-    pub fn new(wbits: i32, zdict: Option<Vec<u8>>) -> Result<Self, String> {
-        let mut decompress = RawInflate::new(InitOptions::new(wbits)?.inflate_window_bits())?;
+    pub fn new(wbits: i32, zdict: Option<Vec<u8>>) -> Result<Self, InitError> {
+        let mut decompress = RawInflate::new(InitOptions::new(wbits)?.inflate_window_bits())
+            .map_err(InitError::Zlib)?;
         if let Some(d) = &zdict
             && wbits < 0
         {
             decompress
                 .set_dictionary(d)
-                .map_err(|e| e.as_str().to_owned())?;
+                .map_err(|e| InitError::Zlib(e.as_str().to_owned()))?;
         }
         Ok(Self {
             decompress: Some(decompress),
@@ -900,11 +880,29 @@ mod tests {
 
     #[test]
     fn compressor_options_are_validated_by_deflate_init() {
-        assert!(Compressor::new(6, 7, 15, 8, 0, None).is_err());
-        assert!(Compressor::new(6, 8, 15, 0, 0, None).is_err());
-        assert!(Compressor::new(6, 8, 15, 8, 99, None).is_err());
-        assert!(Compressor::new(6, 8, -8, 8, 0, None).is_err());
-        assert!(Compressor::new(6, 8, 24, 8, 0, None).is_err());
+        for result in [
+            Compressor::new(6, 7, 15, 8, 0, None),
+            Compressor::new(6, 8, 15, 0, 0, None),
+            Compressor::new(6, 8, 15, 8, 99, None),
+            Compressor::new(6, 8, -8, 8, 0, None),
+            Compressor::new(6, 8, 24, 8, 0, None),
+        ] {
+            assert!(matches!(result, Err(InitError::InvalidOption)));
+        }
+        assert!(matches!(
+            compress(b"x", 10, MAX_WBITS),
+            Err(InitError::Zlib(message)) if message == "Bad compression level"
+        ));
+    }
+
+    #[test]
+    fn negative_gzip_and_auto_wbits_are_rejected() {
+        for wbits in [-25, -31, -40, -47] {
+            assert!(matches!(
+                Decompressor::new(wbits, None),
+                Err(InitError::InvalidOption)
+            ));
+        }
     }
 
     #[test]
@@ -994,5 +992,16 @@ mod tests {
         assert!(!d.unconsumed_tail().is_empty());
         let rest = d.flush(DEF_BUF_SIZE).unwrap();
         assert_eq!([first, rest].concat(), b"abcdefghij".repeat(50));
+        assert!(d.eof());
+    }
+
+    #[test]
+    fn empty_input_does_not_finish_a_stream() {
+        let encoded = compress(b"later input", -1, MAX_WBITS).unwrap();
+        let mut d = Decompressor::new(MAX_WBITS, None).unwrap();
+        assert_eq!(d.decompress(b"", None).unwrap(), b"");
+        assert!(!d.eof());
+        assert_eq!(d.decompress(&encoded, None).unwrap(), b"later input");
+        assert!(d.eof());
     }
 }
