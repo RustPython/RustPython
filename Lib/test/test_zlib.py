@@ -489,7 +489,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         ddata += dco.decompress(dco.unconsumed_tail)
         self.assertEqual(dco.unconsumed_tail, b"")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; Z_BLOCK support in flate2
     def test_flushes(self):
         # Test flush() with the various options, using all the
         # different levels in order to provide more variations.
@@ -809,7 +808,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         finally:
             comp = uncomp = data = None
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; wbits=0 support in flate2
     def test_wbits(self):
         # wbits=0 only supported since zlib v1.2.3.5
         supports_wbits_0 = ZLIB_RUNTIME_VERSION_TUPLE >= (1, 2, 3, 5)
