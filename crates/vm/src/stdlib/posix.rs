@@ -440,15 +440,7 @@ pub mod module {
         dir_fd: DirFd<'_, { _os::UNLINK_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        #[cfg(not(target_os = "redox"))]
-        if let Some(fd) = dir_fd.raw_opt() {
-            let c_path = path.clone().into_cstring(vm)?;
-            return rustpython_host_env::posix::unlinkat(fd, &c_path)
-                .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm));
-        }
-        #[cfg(target_os = "redox")]
-        let [] = dir_fd.0;
-        crate::host_env::fs::remove_file(&path)
+        rustpython_host_env::posix::unlinkat(dir_fd.get_opt(), &path)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
@@ -866,6 +858,11 @@ pub mod module {
                 "can't fork at interpreter shutdown".into(),
             ));
         }
+        if !vm.state.allow_fork() {
+            return Err(
+                vm.new_runtime_error("fork not supported for isolated subinterpreters".to_owned())
+            );
+        }
 
         // RustPython does not yet have C-level audit hooks; call sys.audit()
         // to preserve Python-visible behavior and failure semantics.
@@ -1085,6 +1082,11 @@ pub mod module {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
@@ -1109,6 +1111,11 @@ pub mod module {
         env: ArgMapping,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
@@ -2449,7 +2456,8 @@ mod posix_sched {
             vm: &VirtualMachine,
         ) -> PyResult {
             use crate::PyPayload;
-            let SchedParamArgs { sched_priority } = args.bind(vm)?;
+            let SchedParamArgs { sched_priority } =
+                args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?;
             let items = vec![sched_priority];
             crate::builtins::PyTuple::new_unchecked(items.into_boxed_slice())
                 .into_ref_with_type(vm, cls)

@@ -1021,7 +1021,6 @@ class BaseBytesTest:
             self.assertRaises(ValueError, method, 256)
             self.assertRaises(ValueError, method, 9999)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_find_etc_raise_correct_error_messages(self):
         # issue 11828
         b = self.type2test(b'hello')
@@ -1041,7 +1040,6 @@ class BaseBytesTest:
         self.assertRaisesRegex(TypeError, r'\bendswith\b', b.endswith,
                                 x, None, None, None)
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_free_after_iterating(self):
         test.support.check_free_after_iterating(self, iter, self.type2test)
         test.support.check_free_after_iterating(self, reversed, self.type2test)

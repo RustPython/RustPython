@@ -17,10 +17,10 @@ pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
 #[cfg(windows)]
 pub mod windows {
     use crate::crt_fd;
-    use crate::windows::ToWideString;
     use libc::{S_IFCHR, S_IFDIR, S_IFMT};
     use std::ffi::OsStr;
     use std::os::windows::io::AsRawHandle;
+    use std::path::Path;
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::{
         ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, SetLastError,
@@ -67,21 +67,15 @@ pub mod windows {
     impl StatStruct {
         // update_st_mode_from_path in cpython
         pub fn update_st_mode_from_path(&mut self, path: &OsStr, attr: u32) {
-            if attr & FILE_ATTRIBUTE_DIRECTORY == 0 {
-                let file_extension = path
-                    .to_wide()
-                    .split(|&c| c == '.' as u16)
-                    .next_back()
-                    .and_then(|s| String::from_utf16(s).ok());
-
-                if let Some(file_extension) = file_extension
-                    && (file_extension.eq_ignore_ascii_case("exe")
-                        || file_extension.eq_ignore_ascii_case("bat")
-                        || file_extension.eq_ignore_ascii_case("cmd")
-                        || file_extension.eq_ignore_ascii_case("com"))
-                {
-                    self.st_mode |= 0o111;
-                }
+            if attr & FILE_ATTRIBUTE_DIRECTORY == 0
+                && let Some(file_extension) =
+                    Path::new(path).extension().and_then(|ext| ext.to_str())
+                && (file_extension.eq_ignore_ascii_case("exe")
+                    || file_extension.eq_ignore_ascii_case("bat")
+                    || file_extension.eq_ignore_ascii_case("cmd")
+                    || file_extension.eq_ignore_ascii_case("com"))
+            {
+                self.st_mode |= 0o111;
             }
         }
     }
@@ -288,7 +282,7 @@ pub mod windows {
 
     // _Py_GetFileInformationByName in cpython
     pub fn get_file_information_by_name(
-        file_name: &OsStr,
+        file_name: &widestring::WideCStr,
         file_information_class: FILE_INFO_BY_NAME_CLASS,
     ) -> std::io::Result<FILE_STAT_BASIC_INFORMATION> {
         static GET_FILE_INFORMATION_BY_NAME: OnceLock<
@@ -329,7 +323,6 @@ pub mod windows {
             })
             .ok_or_else(|| std::io::Error::from_raw_os_error(ERROR_NOT_SUPPORTED as _))?;
 
-        let file_name = file_name.to_wide_with_nul();
         let file_info_buffer_size = core::mem::size_of::<FILE_STAT_BASIC_INFORMATION>() as u32;
         let mut file_info_buffer = core::mem::MaybeUninit::<FILE_STAT_BASIC_INFORMATION>::uninit();
         unsafe {
@@ -452,10 +445,6 @@ pub unsafe fn fclose(fp: *mut CFile) -> core::ffi::c_int {
 // _Py_fopen_obj in cpython (Python/fileutils.c:1757-1835)
 // Open a file using std::fs::File and convert to FILE*
 // Automatically handles path encoding and EINTR retries
-#[expect(
-    clippy::std_instead_of_core,
-    reason = "false positive: core::io::ErrorKind is unstable (core_io)"
-)]
 pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut CFile> {
     use std::fs::File;
 

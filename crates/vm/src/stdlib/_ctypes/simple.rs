@@ -984,7 +984,7 @@ impl Constructor for PyCSimple {
     type Args = (OptionalArg,);
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let args: Self::Args = args.bind(vm)?;
+        let args: Self::Args = args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?;
         let _type_ = cls
             .type_code(vm)
             .ok_or_else(|| vm.new_type_error("abstract class"))?;

@@ -32,7 +32,7 @@ mod builtins {
         types::PyComparisonOp,
         vm::compile_mode::{
             CompilerFlags, PY_EVAL_INPUT, PY_FILE_INPUT, PY_FUNC_TYPE_INPUT, PY_SINGLE_INPUT,
-            compile_future_feature_mask, compile_future_features_from_flags,
+            compile_future_features_from_flags,
         },
     };
     use itertools::Itertools;
@@ -74,8 +74,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn bin(x: PyIntRef) -> String {
-        let x = x.as_bigint();
+    fn bin(number: PyIntRef) -> String {
+        let x = number.as_bigint();
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
         } else {
@@ -130,9 +130,7 @@ mod builtins {
     ) -> bytecode::CodeFlags {
         let mut future_features = compile_future_features_from_flags(flags);
         if !dont_inherit && let Some(code) = crate::frame::current_code() {
-            future_features |= bytecode::CodeFlags::from_bits_truncate(
-                code.flags.bits() & compile_future_feature_mask().bits(),
-            );
+            future_features |= code.flags & bytecode::CodeFlags::FUTURE_MASK;
         }
         future_features
     }
@@ -392,11 +390,11 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn delattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+    fn delattr(obj: PyObjectRef, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
         obj.del_attr(attr, vm)
@@ -408,8 +406,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn divmod(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._divmod(&a, &b)
+    fn divmod(x: PyObjectRef, y: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._divmod(&x, &y)
     }
 
     #[derive(FromArgs)]
@@ -653,9 +651,7 @@ mod builtins {
                 let source = string.as_str();
                 let mut opts = vm.compile_opts();
                 if let Some(code) = crate::frame::current_code() {
-                    opts.future_features = bytecode::CodeFlags::from_bits_truncate(
-                        code.flags.bits() & compile_future_feature_mask().bits(),
-                    );
+                    opts.future_features = code.flags & bytecode::CodeFlags::FUTURE_MASK;
                 }
                 vm.compile_with_opts(source, mode, "<string>", opts)
                     .map_err(|err| err.into_pyexception(vm, Some(source)))?
@@ -715,11 +711,11 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn hasattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+    fn hasattr(obj: PyObjectRef, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
         Ok(vm.get_attribute_opt(obj, attr)?.is_some())
@@ -821,13 +817,21 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        obj.is_instance(&typ, vm)
+    fn isinstance(
+        obj: PyObjectRef,
+        class_or_tuple: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        obj.is_instance(&class_or_tuple, vm)
     }
 
     #[pyfunction]
-    fn issubclass(subclass: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        subclass.is_subclass(&typ, vm)
+    fn issubclass(
+        cls: PyObjectRef,
+        class_or_tuple: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        cls.is_subclass(&class_or_tuple, vm)
     }
 
     #[pyfunction]
@@ -848,8 +852,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn aiter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        iter_target.get_aiter(vm)
+    fn aiter(async_iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        async_iterable.get_aiter(vm)
     }
 
     #[pyfunction]
@@ -969,8 +973,8 @@ mod builtins {
     ) -> PyResult<PyIterReturn> {
         if !PyIter::check(&iterator) {
             return Err(vm.new_type_error(format!(
-                "{} object is not an iterator",
-                iterator.class().name()
+                "'{}' object is not an iterator",
+                iterator.class().slot_name()
             )));
         }
         PyIter::new(iterator)
@@ -998,8 +1002,8 @@ mod builtins {
 
     #[pyfunction]
     // builtin_ord
-    fn ord(c: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
-        let bytes = if let Some(string) = c.downcast_ref::<PyStr>() {
+    fn ord(character: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+        let bytes = if let Some(string) = character.downcast_ref::<PyStr>() {
             return match string.as_wtf8().code_points().exactly_one() {
                 Ok(character) => Ok(character.to_u32()),
                 Err(_) => {
@@ -1009,14 +1013,14 @@ mod builtins {
                     )))
                 }
             };
-        } else if let Some(bytes) = c.downcast_ref::<PyBytes>() {
+        } else if let Some(bytes) = character.downcast_ref::<PyBytes>() {
             bytes.as_bytes().to_vec()
-        } else if let Some(bytearray) = c.downcast_ref::<PyByteArray>() {
+        } else if let Some(bytearray) = character.downcast_ref::<PyByteArray>() {
             bytearray.borrow_buf().to_vec()
         } else {
             return Err(vm.new_type_error(format!(
                 "ord() expected string of length 1, but {} found",
-                c.class().name()
+                character.class().name()
             )));
         };
         let bytes_len = bytes.len();
@@ -1130,8 +1134,8 @@ mod builtins {
             .get_special_method(&number, identifier!(vm, __round__))?
             .ok_or_else(|| {
                 vm.new_type_error(format!(
-                    "type {} doesn't define __round__",
-                    number.class().name()
+                    "type {} doesn't define __round__ method",
+                    number.class().slot_name()
                 ))
             })?;
         match ndigits.flatten() {
@@ -1149,14 +1153,14 @@ mod builtins {
     #[pyfunction]
     fn setattr(
         obj: PyObjectRef,
-        attr: PyObjectRef,
+        name: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
         obj.set_attr(attr, value, vm)?;
@@ -1167,7 +1171,9 @@ mod builtins {
 
     #[pyfunction]
     fn sorted(iterable: PyObjectRef, opts: SortOptions, vm: &VirtualMachine) -> PyResult<PyList> {
-        let items: Vec<_> = iterable.try_to_value(vm)?;
+        // `PySequence_List()`, so the room comes from what the iterable reports
+        // rather than from its iterator.
+        let items = vm.extract_elements_sized(&iterable, &|| 0, Ok)?;
         let lst = PyList::from(items);
         lst.sort(opts, vm)?;
         Ok(lst)

@@ -815,6 +815,15 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             class X(int(), C):
                 pass
 
+    @unittest.skipIf(_testcapi is None, 'need the _testcapi module')
+    def test_type_with_null_new_metaclass(self):
+        metaclass = _testcapi.HeapCTypeMetaclassNullNew
+        base = _testcapi.pytype_fromspec_meta(metaclass)
+
+        # Exercise type_new's metaclass selection path, not a direct call.
+        with self.assertRaisesRegex(TypeError, r"cannot create '.*' instances"):
+            type("Derived", (base,), {})
+
     def test_module_subclasses(self):
         # Testing Python subclass of module...
         log = []
@@ -3698,6 +3707,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(ba, b'abc\xbd?')
 
     @unittest.skip("TODO: RUSTPYTHON; rustpython segmentation fault")
+    @support.skip_if_huge_c_stack()
     @support.skip_wasi_stack_overflow()
     @support.skip_emscripten_stack_overflow()
     def test_recursive_call(self):
@@ -4857,7 +4867,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(AttributeError):
             del X.__abstractmethods__
 
-    @unittest.skip("TODO: RUSTPYTHON; crash. \"dict has non-string keys: [PyObject PyInt { value: 1 }]\"")
     def test_gh55664(self):
         # gh-55664: issue a warning when the
         # __dict__ of a class contains non-string keys
@@ -4915,6 +4924,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
                 # CALL_METHOD_DESCRIPTOR_O
                 deque.append(thing, thing)
 
+    @support.skip_if_huge_c_stack()
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()
     def test_repr_as_str(self):
@@ -5297,7 +5307,7 @@ class AAAPTypesLongInitTest(unittest.TestCase):
 
 
 class MiscTests(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON; rustpython panicked at 'dict has non-string keys: [PyObject PyBaseObject]'")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; a class namespace drops keys that are not strings, so MyKey.__eq__ is never reached and __bases__ stays put
     def test_type_lookup_mro_reference(self):
         # Issue #14199: _PyType_Lookup() has to keep a strong reference to
         # the type MRO because it may be modified during the lookup, if

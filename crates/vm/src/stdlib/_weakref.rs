@@ -35,7 +35,7 @@ mod _weakref {
 
     #[pyattr(name = "CallableProxyType")]
     fn callable_proxy_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakproxy_type.to_owned()
+        vm.ctx.types.weakcallableproxy_type.to_owned()
     }
 
     #[pyfunction]

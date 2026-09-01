@@ -5,7 +5,7 @@
 
 // cspell:ignore hchmod
 use std::{
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     io,
     os::windows::{ffi::OsStringExt, io::AsRawHandle},
     path::Path,
@@ -19,25 +19,59 @@ use crate::{
         StatStruct,
         windows::{FILE_INFO_BY_NAME_CLASS, get_file_information_by_name, stat_basic_info_to_stat},
     },
-    windows::{CheckWin32Bool, CheckWin32Handle, CheckWin32Sentinel, HandleToOwned, ToWideString},
+    windows::{CheckWin32Bool, CheckWin32Handle, CheckWin32Sentinel, HandleToOwned},
 };
 use libc::intptr_t;
+use widestring::WideCString;
 use windows_sys::{
     Win32::{
         Foundation::{
-            CloseHandle, ERROR_INVALID_HANDLE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, MAX_PATH,
+            CloseHandle, ERROR_ACCESS_DENIED, ERROR_BAD_NET_NAME, ERROR_BAD_NETPATH,
+            ERROR_BAD_PATHNAME, ERROR_CANT_ACCESS_FILE, ERROR_DIRECTORY, ERROR_FILE_NOT_FOUND,
+            ERROR_FILENAME_EXCED_RANGE, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_FUNCTION,
+            ERROR_INVALID_HANDLE, ERROR_INVALID_NAME, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA,
+            ERROR_NOT_READY, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND, ERROR_SHARING_VIOLATION,
+            GENERIC_READ, GENERIC_WRITE, GetHandleInformation, GetLastError, HANDLE,
+            HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, MAX_PATH, SetHandleInformation,
         },
         Globalization::{CP_UTF8, MultiByteToWideChar, WideCharToMultiByte},
         Storage::FileSystem::{
-            CreateFileW, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-            FILE_READ_ATTRIBUTES, FILE_TYPE_UNKNOWN, FileBasicInfo, FindClose, FindFirstFileW,
-            GetFileAttributesW, GetFileInformationByHandleEx, GetFileType, GetFullPathNameW,
-            INVALID_FILE_ATTRIBUTES, OPEN_EXISTING, SetFileAttributesW, SetFileInformationByHandle,
-            WIN32_FIND_DATAW,
+            BY_HANDLE_FILE_INFORMATION, CreateFileW, CreateSymbolicLinkW, DeleteFileW,
+            FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_DEVICE_CD_ROM, FILE_DEVICE_DISK,
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO,
+            FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+            FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN,
+            FILE_WRITE_ATTRIBUTES, FileAttributeTagInfo as FileAttributeTagInfoClass,
+            FileBasicInfo, FileIdInfo, FindClose, FindFirstFileW, GetDiskFreeSpaceExW,
+            GetDriveTypeW, GetFileAttributesExW, GetFileAttributesW, GetFileInformationByHandle,
+            GetFileInformationByHandleEx, GetFileType, GetFullPathNameW, GetLogicalDriveStringsW,
+            GetVolumePathNameW, GetVolumePathNamesForVolumeNameW, INVALID_FILE_ATTRIBUTES,
+            OPEN_EXISTING, RemoveDirectoryW, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE,
+            SYMBOLIC_LINK_FLAG_DIRECTORY, SetFileAttributesW, SetFileInformationByHandle,
+            WIN32_FILE_ATTRIBUTE_DATA, WIN32_FIND_DATAW,
         },
-        System::{Console, Threading},
+        System::{
+            Console,
+            IO::DeviceIoControl,
+            Ioctl::{
+                FILE_DEVICE_VIRTUAL_DISK, FSCTL_GET_REPARSE_POINT,
+                FSCTL_QUERY_PERSISTENT_VOLUME_STATE,
+            },
+            SystemServices::IO_REPARSE_TAG_MOUNT_POINT,
+            Threading,
+            WindowsProgramming::{DRIVE_FIXED, GetUserNameW},
+        },
     },
     w,
+};
+
+pub use windows_sys::Win32::Storage::FileSystem::{
+    FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DEVICE,
+    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_HIDDEN,
+    FILE_ATTRIBUTE_INTEGRITY_STREAM, FILE_ATTRIBUTE_NO_SCRUB_DATA, FILE_ATTRIBUTE_NORMAL,
+    FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_READONLY,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_SYSTEM,
+    FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
 };
 
 pub type Handle = HANDLE;
@@ -53,15 +87,6 @@ pub const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 =
     windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_SYSTEM32;
 pub const LOAD_LIBRARY_SEARCH_USER_DIRS: u32 =
     windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_USER_DIRS;
-
-pub use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_COMPRESSED, FILE_ATTRIBUTE_DEVICE,
-    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_ENCRYPTED, FILE_ATTRIBUTE_HIDDEN,
-    FILE_ATTRIBUTE_INTEGRITY_STREAM, FILE_ATTRIBUTE_NO_SCRUB_DATA, FILE_ATTRIBUTE_NORMAL,
-    FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_READONLY,
-    FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_SYSTEM,
-    FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
-};
 
 #[cfg(target_env = "msvc")]
 unsafe extern "C" {
@@ -100,13 +125,13 @@ struct FileAttributeTagInfo {
     reparse_tag: u32,
 }
 
-fn win32_large_integer_to_time(li: i64) -> (libc::time_t, i32) {
+const fn win32_large_integer_to_time(li: i64) -> (libc::time_t, i32) {
     let nsec = ((li % 10_000_000) * 100) as i32;
     let sec = (li / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS) as libc::time_t;
     (sec, nsec)
 }
 
-fn win32_filetime_to_time(ft_low: u32, ft_high: u32) -> (libc::time_t, i32) {
+const fn win32_filetime_to_time(ft_low: u32, ft_high: u32) -> (libc::time_t, i32) {
     let ticks = ((ft_high as i64) << 32) | (ft_low as i64);
     let nsec = ((ticks % 10_000_000) * 100) as i32;
     let sec = (ticks / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS) as libc::time_t;
@@ -114,15 +139,11 @@ fn win32_filetime_to_time(ft_low: u32, ft_high: u32) -> (libc::time_t, i32) {
 }
 
 fn win32_attribute_data_to_stat(
-    info: &windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION,
+    info: &BY_HANDLE_FILE_INFORMATION,
     reparse_tag: u32,
-    basic_info: Option<&windows_sys::Win32::Storage::FileSystem::FILE_BASIC_INFO>,
-    id_info: Option<&windows_sys::Win32::Storage::FileSystem::FILE_ID_INFO>,
+    basic_info: Option<&FILE_BASIC_INFO>,
+    id_info: Option<&FILE_ID_INFO>,
 ) -> StatStruct {
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_REPARSE_POINT,
-    };
-
     let mut st_mode: u16 = 0;
     if info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
         st_mode |= S_IFDIR_MODE | 0o111;
@@ -221,37 +242,28 @@ pub enum ReadConsoleError {
 }
 
 pub fn access(path: &Path, mode: u8) -> bool {
-    let wide = path.as_os_str().to_wide_with_nul();
+    let Ok(wide) = WideCString::from_os_str(path.as_os_str()) else {
+        return false;
+    };
     let attr = unsafe { GetFileAttributesW(wide.as_ptr()) };
     attr != INVALID_FILE_ATTRIBUTES
         && (mode & 2 == 0
             || attr & FILE_ATTRIBUTE_READONLY == 0
-            || attr & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY != 0)
+            || attr & FILE_ATTRIBUTE_DIRECTORY != 0)
 }
 
-pub fn remove(path: &Path) -> io::Result<()> {
-    use windows_sys::Win32::Storage::FileSystem::{
-        DeleteFileW, RemoveDirectoryW, WIN32_FIND_DATAW,
-    };
-    use windows_sys::Win32::System::SystemServices::{
-        IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
-    };
-
-    let wide_path = path.as_os_str().to_wide_with_nul();
-    let attrs = unsafe { GetFileAttributesW(wide_path.as_ptr()) };
+pub fn remove(path: &widestring::WideCStr) -> io::Result<()> {
+    let attrs = unsafe { GetFileAttributesW(path.as_ptr()) };
 
     let mut is_directory = false;
     let mut is_link = false;
 
     if attrs != INVALID_FILE_ATTRIBUTES {
-        is_directory =
-            (attrs & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY) != 0;
+        is_directory = (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
 
-        if is_directory
-            && (attrs & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT) != 0
-        {
+        if is_directory && (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
             let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
-            let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) };
+            let handle = unsafe { FindFirstFileW(path.as_ptr(), &mut find_data) };
             if handle != INVALID_HANDLE_VALUE {
                 is_link = find_data.dwReserved0 == IO_REPARSE_TAG_SYMLINK
                     || find_data.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT;
@@ -261,9 +273,9 @@ pub fn remove(path: &Path) -> io::Result<()> {
     }
 
     if is_directory && is_link {
-        unsafe { RemoveDirectoryW(wide_path.as_ptr()) }
+        unsafe { RemoveDirectoryW(path.as_ptr()) }
     } else {
-        unsafe { DeleteFileW(wide_path.as_ptr()) }
+        unsafe { DeleteFileW(path.as_ptr()) }
     }
     .check_win32_bool()
 }
@@ -282,12 +294,6 @@ pub fn symlink(
     dst_wide: &widestring::WideCStr,
     target_is_directory: bool,
 ) -> io::Result<()> {
-    use windows_sys::Win32::Storage::FileSystem::WIN32_FILE_ATTRIBUTE_DATA;
-    use windows_sys::Win32::Storage::FileSystem::{
-        CreateSymbolicLinkW, FILE_ATTRIBUTE_DIRECTORY, GetFileAttributesExW,
-        SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE, SYMBOLIC_LINK_FLAG_DIRECTORY,
-    };
-
     static HAS_UNPRIVILEGED_FLAG: AtomicBool = AtomicBool::new(true);
 
     fn check_dir(src: &Path, dst: &Path) -> bool {
@@ -327,15 +333,11 @@ pub fn symlink(
     let mut result = unsafe { CreateSymbolicLinkW(dst_wide.as_ptr(), src_wide.as_ptr(), flags) };
     if !result
         && HAS_UNPRIVILEGED_FLAG.load(Ordering::Relaxed)
-        && unsafe { windows_sys::Win32::Foundation::GetLastError() }
-            == windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER
+        && unsafe { GetLastError() } == ERROR_INVALID_PARAMETER
     {
         let flags = flags & !SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
         result = unsafe { CreateSymbolicLinkW(dst_wide.as_ptr(), src_wide.as_ptr(), flags) };
-        if result
-            || unsafe { windows_sys::Win32::Foundation::GetLastError() }
-                != windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER
-        {
+        if result || unsafe { GetLastError() } != ERROR_INVALID_PARAMETER {
             HAS_UNPRIVILEGED_FLAG.store(false, Ordering::Relaxed);
         }
     }
@@ -383,23 +385,17 @@ pub fn fchmod(fd: i32, mode: u32, write_bit: u32) -> io::Result<()> {
     win32_hchmod(handle.as_raw_handle() as HANDLE, mode, write_bit)
 }
 
-pub fn win32_lchmod(path: &OsStr, mode: u32, write_bit: u32) -> io::Result<()> {
-    let wide = path.to_wide_with_nul();
-    let attr = unsafe { GetFileAttributesW(wide.as_ptr()) }.check_ne(INVALID_FILE_ATTRIBUTES)?;
+pub fn win32_lchmod(path: &widestring::WideCStr, mode: u32, write_bit: u32) -> io::Result<()> {
+    let attr = unsafe { GetFileAttributesW(path.as_ptr()) }.check_ne(INVALID_FILE_ATTRIBUTES)?;
     let new_attr = if mode & write_bit != 0 {
         attr & !FILE_ATTRIBUTE_READONLY
     } else {
         attr | FILE_ATTRIBUTE_READONLY
     };
-    unsafe { SetFileAttributesW(wide.as_ptr(), new_attr) }.check_win32_bool()
+    unsafe { SetFileAttributesW(path.as_ptr(), new_attr) }.check_win32_bool()
 }
 
 pub fn chmod_follow(path: &widestring::WideCStr, mode: u32, write_bit: u32) -> io::Result<()> {
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, OPEN_EXISTING,
-    };
-
     let handle = unsafe {
         CreateFileW(
             path.as_ptr(),
@@ -416,11 +412,10 @@ pub fn chmod_follow(path: &widestring::WideCStr, mode: u32, write_bit: u32) -> i
     win32_hchmod(handle.as_raw_handle() as HANDLE, mode, write_bit)
 }
 
-pub fn find_first_file_name(path: &Path) -> io::Result<OsString> {
-    let wide_path = path.as_os_str().to_wide_with_nul();
+pub fn find_first_file_name(path: &widestring::WideCStr) -> io::Result<OsString> {
     let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
 
-    let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) }.check_valid()?;
+    let handle = unsafe { FindFirstFileW(path.as_ptr(), &mut find_data) }.check_valid()?;
     unsafe { FindClose(handle) };
 
     let len = find_data
@@ -431,14 +426,7 @@ pub fn find_first_file_name(path: &Path) -> io::Result<OsString> {
     Ok(OsString::from_wide(&find_data.cFileName[..len]))
 }
 
-pub fn path_isdevdrive(path: &Path) -> io::Result<bool> {
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_SHARE_READ, FILE_SHARE_WRITE, GetDriveTypeW, GetVolumePathNameW,
-    };
-    use windows_sys::Win32::System::IO::DeviceIoControl;
-    use windows_sys::Win32::System::Ioctl::FSCTL_QUERY_PERSISTENT_VOLUME_STATE;
-    use windows_sys::Win32::System::WindowsProgramming::DRIVE_FIXED;
-
+pub fn path_isdevdrive(path: &widestring::WideCStr) -> io::Result<bool> {
     const PERSISTENT_VOLUME_STATE_DEV_VOLUME: u32 = 0x0000_2000;
 
     #[repr(C)]
@@ -449,9 +437,8 @@ pub fn path_isdevdrive(path: &Path) -> io::Result<bool> {
         reserved: u32,
     }
 
-    let wide_path = path.as_os_str().to_wide_with_nul();
     let mut volume = [0u16; MAX_PATH as usize];
-    unsafe { GetVolumePathNameW(wide_path.as_ptr(), volume.as_mut_ptr(), volume.len() as _) }
+    unsafe { GetVolumePathNameW(path.as_ptr(), volume.as_mut_ptr(), volume.len() as _) }
         .check_win32_bool()?;
     if unsafe { GetDriveTypeW(volume.as_ptr()) } != DRIVE_FIXED {
         return Ok(false);
@@ -503,38 +490,30 @@ pub fn path_isdevdrive(path: &Path) -> io::Result<bool> {
     Ok((volume_state.volume_flags & PERSISTENT_VOLUME_STATE_DEV_VOLUME) != 0)
 }
 
-pub fn is_reparse_tag_name_surrogate(tag: u32) -> bool {
+pub const fn is_reparse_tag_name_surrogate(tag: u32) -> bool {
     (tag & 0x20000000) != 0
 }
 
-pub fn file_info_error_is_trustworthy(error: u32) -> bool {
-    use windows_sys::Win32::Foundation;
+pub const fn file_info_error_is_trustworthy(error: u32) -> bool {
     matches!(
         error,
-        Foundation::ERROR_FILE_NOT_FOUND
-            | Foundation::ERROR_PATH_NOT_FOUND
-            | Foundation::ERROR_NOT_READY
-            | Foundation::ERROR_BAD_NET_NAME
-            | Foundation::ERROR_BAD_NETPATH
-            | Foundation::ERROR_BAD_PATHNAME
-            | Foundation::ERROR_INVALID_NAME
-            | Foundation::ERROR_FILENAME_EXCED_RANGE
+        ERROR_FILE_NOT_FOUND
+            | ERROR_PATH_NOT_FOUND
+            | ERROR_NOT_READY
+            | ERROR_BAD_NET_NAME
+            | ERROR_BAD_NETPATH
+            | ERROR_BAD_PATHNAME
+            | ERROR_INVALID_NAME
+            | ERROR_FILENAME_EXCED_RANGE
     )
 }
 
-pub fn test_info(
+pub const fn test_info(
     attributes: u32,
     reparse_tag: u32,
     disk_device: bool,
     tested_type: TestType,
 ) -> bool {
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
-    };
-    use windows_sys::Win32::System::SystemServices::{
-        IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
-    };
-
     match tested_type {
         TestType::RegularFile => {
             disk_device && attributes != 0 && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0
@@ -561,10 +540,6 @@ pub fn test_info(
 }
 
 pub fn test_file_type_by_handle(handle: HANDLE, tested_type: TestType, disk_only: bool) -> bool {
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ATTRIBUTE_TAG_INFO, FILE_TYPE_DISK, FileAttributeTagInfo as FileAttributeTagInfoClass,
-    };
-
     let disk_device = unsafe { GetFileType(handle) } == FILE_TYPE_DISK;
     if disk_only && !disk_device {
         return false;
@@ -607,19 +582,11 @@ pub fn test_file_type_by_handle(handle: HANDLE, tested_type: TestType, disk_only
 }
 
 fn win32_xstat_attributes_from_dir(
-    path: &OsStr,
-) -> io::Result<(
-    windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION,
-    u32,
-)> {
-    use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT,
-    };
-
-    let wide: Vec<u16> = path.to_wide_with_nul();
+    path: &widestring::WideCStr,
+) -> io::Result<(BY_HANDLE_FILE_INFORMATION, u32)> {
     let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
 
-    let handle = unsafe { FindFirstFileW(wide.as_ptr(), &mut find_data) }.check_valid()?;
+    let handle = unsafe { FindFirstFileW(path.as_ptr(), &mut find_data) }.check_valid()?;
     unsafe { FindClose(handle) };
 
     let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { core::mem::zeroed() };
@@ -639,22 +606,7 @@ fn win32_xstat_attributes_from_dir(
     Ok((info, reparse_tag))
 }
 
-fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> io::Result<StatStruct> {
-    use windows_sys::Win32::{
-        Foundation::{
-            ERROR_ACCESS_DENIED, ERROR_CANT_ACCESS_FILE, ERROR_INVALID_FUNCTION,
-            ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED, ERROR_SHARING_VIOLATION, GENERIC_READ,
-        },
-        Storage::FileSystem::{
-            BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
-            FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO, FILE_ID_INFO, FILE_SHARE_READ,
-            FILE_SHARE_WRITE, FILE_TYPE_CHAR, FILE_TYPE_PIPE,
-            FileAttributeTagInfo as FileAttributeTagInfoClass, FileBasicInfo, FileIdInfo,
-            GetFileAttributesW, GetFileInformationByHandle,
-        },
-    };
-
-    let wide: Vec<u16> = path.to_wide_with_nul();
+fn win32_xstat_slow_impl(path: &widestring::WideCStr, traverse: bool) -> io::Result<StatStruct> {
     let access = FILE_READ_ATTRIBUTES;
     let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
     if !traverse {
@@ -663,7 +615,7 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> io::Result<StatStruct>
 
     let mut h_file = unsafe {
         CreateFileW(
-            wide.as_ptr(),
+            path.as_ptr(),
             access,
             0,
             core::ptr::null(),
@@ -694,7 +646,7 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> io::Result<StatStruct>
             ERROR_INVALID_PARAMETER => {
                 h_file = unsafe {
                     CreateFileW(
-                        wide.as_ptr(),
+                        path.as_ptr(),
                         access | GENERIC_READ,
                         FILE_SHARE_READ | FILE_SHARE_WRITE,
                         core::ptr::null(),
@@ -711,7 +663,7 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> io::Result<StatStruct>
                 is_unhandled_tag = true;
                 h_file = unsafe {
                     CreateFileW(
-                        wide.as_ptr(),
+                        path.as_ptr(),
                         access,
                         0,
                         core::ptr::null(),
@@ -731,14 +683,14 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> io::Result<StatStruct>
     let result = (|| -> io::Result<StatStruct> {
         if h_file != INVALID_HANDLE_VALUE {
             let file_type = unsafe { GetFileType(h_file) };
-            if file_type != windows_sys::Win32::Storage::FileSystem::FILE_TYPE_DISK {
+            if file_type != FILE_TYPE_DISK {
                 if file_type == FILE_TYPE_UNKNOWN {
                     let err = io::Error::last_os_error();
                     if err.raw_os_error().unwrap_or(0) != 0 {
                         return Err(err);
                     }
                 }
-                let file_attributes = unsafe { GetFileAttributesW(wide.as_ptr()) };
+                let file_attributes = unsafe { GetFileAttributesW(path.as_ptr()) };
                 let mut st_mode = 0;
                 if file_attributes != INVALID_FILE_ATTRIBUTES
                     && file_attributes & FILE_ATTRIBUTE_DIRECTORY != 0
@@ -831,12 +783,12 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> io::Result<StatStruct>
                 },
                 if has_id_info { Some(&id_info) } else { None },
             );
-            result.update_st_mode_from_path(path, file_info.dwFileAttributes);
+            result.update_st_mode_from_path(&path.to_os_string(), file_info.dwFileAttributes);
             Ok(result)
         } else {
             let mut result =
                 win32_attribute_data_to_stat(&file_info, tag_info.reparse_tag, None, None);
-            result.update_st_mode_from_path(path, file_info.dwFileAttributes);
+            result.update_st_mode_from_path(&path.to_os_string(), file_info.dwFileAttributes);
             Ok(result)
         }
     })();
@@ -847,9 +799,7 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> io::Result<StatStruct>
     result
 }
 
-pub fn win32_xstat(path: &OsStr, traverse: bool) -> io::Result<StatStruct> {
-    use windows_sys::Win32::{Foundation, Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT};
-
+pub fn win32_xstat(path: &widestring::WideCStr, traverse: bool) -> io::Result<StatStruct> {
     match get_file_information_by_name(path, FILE_INFO_BY_NAME_CLASS::FileStatBasicByNameInfo) {
         Ok(stat_info) => {
             if (stat_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT == 0)
@@ -857,7 +807,7 @@ pub fn win32_xstat(path: &OsStr, traverse: bool) -> io::Result<StatStruct> {
             {
                 let mut result = stat_basic_info_to_stat(&stat_info);
                 if result.st_ino != 0 || result.st_ino_high != 0 {
-                    result.update_st_mode_from_path(path, stat_info.FileAttributes);
+                    result.update_st_mode_from_path(&path.to_os_string(), stat_info.FileAttributes);
                     result.st_ctime = result.st_birthtime;
                     result.st_ctime_nsec = result.st_birthtime_nsec;
                     return Ok(result);
@@ -868,10 +818,10 @@ pub fn win32_xstat(path: &OsStr, traverse: bool) -> io::Result<StatStruct> {
             if let Some(errno) = err.raw_os_error()
                 && matches!(
                     errno as u32,
-                    Foundation::ERROR_FILE_NOT_FOUND
-                        | Foundation::ERROR_PATH_NOT_FOUND
-                        | Foundation::ERROR_NOT_READY
-                        | Foundation::ERROR_BAD_NET_NAME
+                    ERROR_FILE_NOT_FOUND
+                        | ERROR_PATH_NOT_FOUND
+                        | ERROR_NOT_READY
+                        | ERROR_BAD_NET_NAME
                 )
             {
                 return Err(err);
@@ -885,17 +835,12 @@ pub fn win32_xstat(path: &OsStr, traverse: bool) -> io::Result<StatStruct> {
     Ok(result)
 }
 
-pub fn test_file_type_by_name(path: &Path, tested_type: TestType) -> bool {
-    match get_file_information_by_name(
-        path.as_os_str(),
-        FILE_INFO_BY_NAME_CLASS::FileStatBasicByNameInfo,
-    ) {
+pub fn test_file_type_by_name(path: &widestring::WideCStr, tested_type: TestType) -> bool {
+    match get_file_information_by_name(path, FILE_INFO_BY_NAME_CLASS::FileStatBasicByNameInfo) {
         Ok(info) => {
             let disk_device = matches!(
                 info.DeviceType,
-                windows_sys::Win32::Storage::FileSystem::FILE_DEVICE_DISK
-                    | windows_sys::Win32::System::Ioctl::FILE_DEVICE_VIRTUAL_DISK
-                    | windows_sys::Win32::Storage::FileSystem::FILE_DEVICE_CD_ROM
+                FILE_DEVICE_DISK | FILE_DEVICE_VIRTUAL_DISK | FILE_DEVICE_CD_ROM
             );
             let result = test_info(
                 info.FileAttributes,
@@ -905,9 +850,7 @@ pub fn test_file_type_by_name(path: &Path, tested_type: TestType) -> bool {
             );
             if !result
                 || !matches!(tested_type, TestType::RegularFile | TestType::Directory)
-                || (info.FileAttributes
-                    & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT)
-                    == 0
+                || (info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0
             {
                 return result;
             }
@@ -925,10 +868,9 @@ pub fn test_file_type_by_name(path: &Path, tested_type: TestType) -> bool {
     if !matches!(tested_type, TestType::RegularFile | TestType::Directory) {
         flags |= FILE_FLAG_OPEN_REPARSE_POINT;
     }
-    let wide_path = path.as_os_str().to_wide_with_nul();
     let handle = unsafe {
         CreateFileW(
-            wide_path.as_ptr(),
+            path.as_ptr(),
             FILE_READ_ATTRIBUTES,
             0,
             core::ptr::null(),
@@ -949,7 +891,7 @@ pub fn test_file_type_by_name(path: &Path, tested_type: TestType) -> bool {
         | windows_sys::Win32::Foundation::ERROR_CANT_ACCESS_FILE
         | windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER => {
             let stat = win32_xstat(
-                path.as_os_str(),
+                path,
                 matches!(tested_type, TestType::RegularFile | TestType::Directory),
             );
             if let Ok(st) = stat {
@@ -968,15 +910,10 @@ pub fn test_file_type_by_name(path: &Path, tested_type: TestType) -> bool {
     false
 }
 
-pub fn test_file_exists_by_name(path: &Path, follow_links: bool) -> bool {
-    match get_file_information_by_name(
-        path.as_os_str(),
-        FILE_INFO_BY_NAME_CLASS::FileStatBasicByNameInfo,
-    ) {
+pub fn test_file_exists_by_name(path: &widestring::WideCStr, follow_links: bool) -> bool {
+    match get_file_information_by_name(path, FILE_INFO_BY_NAME_CLASS::FileStatBasicByNameInfo) {
         Ok(info) => {
-            if (info.FileAttributes
-                & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT)
-                == 0
+            if (info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0
                 || (!follow_links && is_reparse_tag_name_surrogate(info.ReparseTag))
             {
                 return true;
@@ -991,14 +928,13 @@ pub fn test_file_exists_by_name(path: &Path, follow_links: bool) -> bool {
         }
     }
 
-    let wide_path = path.as_os_str().to_wide_with_nul();
     let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
     if !follow_links {
         flags |= FILE_FLAG_OPEN_REPARSE_POINT;
     }
     let handle = unsafe {
         CreateFileW(
-            wide_path.as_ptr(),
+            path.as_ptr(),
             FILE_READ_ATTRIBUTES,
             0,
             core::ptr::null(),
@@ -1020,7 +956,7 @@ pub fn test_file_exists_by_name(path: &Path, follow_links: bool) -> bool {
         }
         let handle = unsafe {
             CreateFileW(
-                wide_path.as_ptr(),
+                path.as_ptr(),
                 FILE_READ_ATTRIBUTES,
                 0,
                 core::ptr::null(),
@@ -1036,11 +972,11 @@ pub fn test_file_exists_by_name(path: &Path, follow_links: bool) -> bool {
     }
 
     match unsafe { GetLastError() } {
-        windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED
-        | windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION
-        | windows_sys::Win32::Foundation::ERROR_CANT_ACCESS_FILE
-        | windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER => {
-            return win32_xstat(path.as_os_str(), follow_links).is_ok();
+        ERROR_ACCESS_DENIED
+        | ERROR_SHARING_VIOLATION
+        | ERROR_CANT_ACCESS_FILE
+        | ERROR_INVALID_PARAMETER => {
+            return win32_xstat(path, follow_links).is_ok();
         }
         _ => {}
     }
@@ -1049,7 +985,9 @@ pub fn test_file_exists_by_name(path: &Path, follow_links: bool) -> bool {
 }
 
 pub fn path_exists_via_open(path: &Path, follow_links: bool) -> bool {
-    let wide_path = path.as_os_str().to_wide_with_nul();
+    let Ok(wide_path) = WideCString::from_os_str(path.as_os_str()) else {
+        return false;
+    };
     let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
     if !follow_links {
         flags |= FILE_FLAG_OPEN_REPARSE_POINT;
@@ -1260,21 +1198,10 @@ pub fn dup2(fd: i32, fd2: i32, inheritable: bool) -> io::Result<i32> {
     Ok(fd2)
 }
 
-pub fn readlink(path: &Path) -> Result<OsString, ReadlinkError> {
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
-        FILE_SHARE_READ, FILE_SHARE_WRITE,
-    };
-    use windows_sys::Win32::System::IO::DeviceIoControl;
-    use windows_sys::Win32::System::Ioctl::FSCTL_GET_REPARSE_POINT;
-    use windows_sys::Win32::System::SystemServices::{
-        IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
-    };
-
-    let wide_path = path.as_os_str().to_wide_with_nul();
+pub fn readlink(path: &widestring::WideCStr) -> Result<OsString, ReadlinkError> {
     let handle = unsafe {
         CreateFileW(
-            wide_path.as_ptr(),
+            path.as_ptr(),
             0,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             core::ptr::null(),
@@ -1369,13 +1296,12 @@ pub fn kill(pid: u32, sig: u32) -> io::Result<()> {
     }
 }
 
-pub fn getfinalpathname(path: &Path) -> io::Result<OsString> {
+pub fn getfinalpathname(path: &widestring::WideCStr) -> io::Result<OsString> {
     use windows_sys::Win32::Storage::FileSystem::{GetFinalPathNameByHandleW, VOLUME_NAME_DOS};
 
-    let wide = path.as_os_str().to_wide_with_nul();
     let handle = unsafe {
         CreateFileW(
-            wide.as_ptr(),
+            path.as_ptr(),
             0,
             0,
             core::ptr::null(),
@@ -1409,12 +1335,11 @@ pub fn getfinalpathname(path: &Path) -> io::Result<OsString> {
     result
 }
 
-pub fn getfullpathname(path: &Path) -> io::Result<OsString> {
-    let wide = path.as_os_str().to_wide_with_nul();
+pub fn getfullpathname(path: &widestring::WideCStr) -> io::Result<OsString> {
     let mut buffer = vec![0u16; MAX_PATH as usize];
     let mut ret = unsafe {
         windows_sys::Win32::Storage::FileSystem::GetFullPathNameW(
-            wide.as_ptr(),
+            path.as_ptr(),
             buffer.len() as u32,
             buffer.as_mut_ptr(),
             core::ptr::null_mut(),
@@ -1425,7 +1350,7 @@ pub fn getfullpathname(path: &Path) -> io::Result<OsString> {
         buffer.resize(ret as usize, 0);
         ret = unsafe {
             windows_sys::Win32::Storage::FileSystem::GetFullPathNameW(
-                wide.as_ptr(),
+                path.as_ptr(),
                 buffer.len() as u32,
                 buffer.as_mut_ptr(),
                 core::ptr::null_mut(),
@@ -1437,13 +1362,12 @@ pub fn getfullpathname(path: &Path) -> io::Result<OsString> {
     Ok(widestring::WideCString::from_vec_truncate(buffer).to_os_string())
 }
 
-pub fn getvolumepathname(path: &Path) -> io::Result<OsString> {
-    let wide = path.as_os_str().to_wide_with_nul();
-    let buflen = core::cmp::max(wide.len(), MAX_PATH as usize);
+pub fn getvolumepathname(path: &widestring::WideCStr) -> io::Result<OsString> {
+    let buflen = core::cmp::max(path.len(), MAX_PATH as usize);
     let mut buffer = vec![0u16; buflen];
     unsafe {
         windows_sys::Win32::Storage::FileSystem::GetVolumePathNameW(
-            wide.as_ptr(),
+            path.as_ptr(),
             buffer.as_mut_ptr(),
             buflen as u32,
         )
@@ -1452,23 +1376,21 @@ pub fn getvolumepathname(path: &Path) -> io::Result<OsString> {
     Ok(widestring::WideCString::from_vec_truncate(buffer).to_os_string())
 }
 
-pub fn getdiskusage(path: &Path) -> io::Result<(u64, u64)> {
-    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-
-    let wide = path.as_os_str().to_wide_with_nul();
+pub fn getdiskusage(path: &widestring::WideCStr) -> io::Result<(u64, u64)> {
     let mut free_to_me = 0u64;
     let mut total = 0u64;
     let mut free = 0u64;
-    let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free_to_me, &mut total, &mut free) };
+    let ok = unsafe { GetDiskFreeSpaceExW(path.as_ptr(), &mut free_to_me, &mut total, &mut free) };
     if ok != 0 {
         return Ok((total, free));
     }
 
     let err = io::Error::last_os_error();
-    if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_DIRECTORY as i32)
-        && let Some(parent) = path.parent()
+    if err.raw_os_error() == Some(ERROR_DIRECTORY as i32)
+        && let Some(parent) = Path::new(&path.to_os_string()).parent()
     {
-        let parent = widestring::WideCString::from_os_str(parent).unwrap();
+        let parent = widestring::WideCString::from_os_str(parent)
+            .expect("interior NULs are impossible because parent was constructed from a WideCStr");
         let ok =
             unsafe { GetDiskFreeSpaceExW(parent.as_ptr(), &mut free_to_me, &mut total, &mut free) };
         if ok != 0 {
@@ -1480,28 +1402,17 @@ pub fn getdiskusage(path: &Path) -> io::Result<(u64, u64)> {
 
 pub fn get_handle_inheritable(handle: intptr_t) -> io::Result<bool> {
     let mut flags = 0;
-    let ok =
-        unsafe { windows_sys::Win32::Foundation::GetHandleInformation(handle as _, &mut flags) };
+    let ok = unsafe { GetHandleInformation(handle as _, &mut flags) };
     if ok == 0 {
         Err(io::Error::last_os_error())
     } else {
-        Ok(flags & windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT != 0)
+        Ok(flags & HANDLE_FLAG_INHERIT != 0)
     }
 }
 
 pub fn set_handle_inheritable(handle: intptr_t, inheritable: bool) -> io::Result<()> {
-    let flags = if inheritable {
-        windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT
-    } else {
-        0
-    };
-    let ok = unsafe {
-        windows_sys::Win32::Foundation::SetHandleInformation(
-            handle as _,
-            windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT,
-            flags,
-        )
-    };
+    let flags = if inheritable { HANDLE_FLAG_INHERIT } else { 0 };
+    let ok = unsafe { SetHandleInformation(handle as _, HANDLE_FLAG_INHERIT, flags) };
     if ok == 0 {
         Err(io::Error::last_os_error())
     } else {
@@ -1512,9 +1423,7 @@ pub fn set_handle_inheritable(handle: intptr_t, inheritable: bool) -> io::Result
 pub fn getlogin() -> io::Result<String> {
     let mut buffer = [0u16; 257];
     let mut size = buffer.len() as u32;
-    let ok = unsafe {
-        windows_sys::Win32::System::WindowsProgramming::GetUserNameW(buffer.as_mut_ptr(), &mut size)
-    };
+    let ok = unsafe { GetUserNameW(buffer.as_mut_ptr(), &mut size) };
     if ok == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -1526,19 +1435,12 @@ pub fn getlogin() -> io::Result<String> {
 
 pub fn listdrives() -> io::Result<Vec<OsString>> {
     let mut buffer = [0u16; 256];
-    let len = unsafe {
-        windows_sys::Win32::Storage::FileSystem::GetLogicalDriveStringsW(
-            buffer.len() as u32,
-            buffer.as_mut_ptr(),
-        )
-    };
+    let len = unsafe { GetLogicalDriveStringsW(buffer.len() as u32, buffer.as_mut_ptr()) };
     if len == 0 {
         return Err(io::Error::last_os_error());
     }
     if len as usize >= buffer.len() {
-        return Err(io::Error::from_raw_os_error(
-            windows_sys::Win32::Foundation::ERROR_MORE_DATA as i32,
-        ));
+        return Err(io::Error::from_raw_os_error(ERROR_MORE_DATA as i32));
     }
     Ok(buffer[..(len - 1) as usize]
         .split(|&c| c == 0)
@@ -1586,15 +1488,14 @@ pub fn listvolumes() -> io::Result<Vec<OsString>> {
     Ok(result)
 }
 
-pub fn listmounts(volume: &Path) -> io::Result<Vec<OsString>> {
-    let wide = volume.as_os_str().to_wide_with_nul();
+pub fn listmounts(volume: &widestring::WideCStr) -> io::Result<Vec<OsString>> {
     let mut buflen: u32 = MAX_PATH + 1;
     let mut buffer = vec![0u16; buflen as usize];
 
     loop {
         let ok = unsafe {
-            windows_sys::Win32::Storage::FileSystem::GetVolumePathNamesForVolumeNameW(
-                wide.as_ptr(),
+            GetVolumePathNamesForVolumeNameW(
+                volume.as_ptr(),
                 buffer.as_mut_ptr(),
                 buflen,
                 &mut buflen,
@@ -1604,7 +1505,7 @@ pub fn listmounts(volume: &Path) -> io::Result<Vec<OsString>> {
             break;
         }
         let err = io::Error::last_os_error();
-        if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_MORE_DATA as i32) {
+        if err.raw_os_error() == Some(ERROR_MORE_DATA as i32) {
             buffer.resize(buflen as usize, 0);
             continue;
         }
@@ -1679,6 +1580,7 @@ pub fn getppid() -> u32 {
 
 pub fn path_skip_root(path: &widestring::WideCStr) -> Option<usize> {
     let mut end: *const u16 = core::ptr::null();
+    // SAFETY: `path` is a valid pointer to a nul terminated wide string without interior nuls.
     let hr = unsafe { windows_sys::Win32::UI::Shell::PathCchSkipRoot(path.as_ptr(), &mut end) };
     if hr >= 0 {
         assert!(!end.is_null());
@@ -1697,19 +1599,17 @@ pub fn get_terminal_size_handle(h: HANDLE) -> io::Result<(usize, usize)> {
     let ret = unsafe { Console::GetConsoleScreenBufferInfo(h, csbi.as_mut_ptr()) };
     if ret == 0 {
         let err = unsafe { GetLastError() };
-        if err != windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED {
+        if err != ERROR_ACCESS_DENIED {
             return Err(io::Error::last_os_error());
         }
         let conout = w!("CONOUT$");
         let console_handle = unsafe {
             CreateFileW(
                 conout,
-                windows_sys::Win32::Foundation::GENERIC_READ
-                    | windows_sys::Win32::Foundation::GENERIC_WRITE,
-                windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
-                    | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE,
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
                 core::ptr::null(),
-                windows_sys::Win32::Storage::FileSystem::OPEN_EXISTING,
+                OPEN_EXISTING,
                 0,
                 core::ptr::null_mut(),
             )
@@ -1824,27 +1724,41 @@ fn copy_from_small_buf(buf: &mut [u8; 4], dest: &mut [u8]) -> usize {
     n
 }
 
+/// The length to cut `buf` down to so it ends on a whole UTF-8 sequence:
+/// `_find_last_utf8_boundary` in `Modules/_io/winconsoleio.c`.
+///
+/// Only the last three bytes can begin a sequence the buffer does not also
+/// end, so the scan stops there.  A byte from `0xf8` up starts nothing at all
+/// -- the four-byte sequences end at `0xf7` -- and an invalid byte is left in
+/// place for the decoder to answer with U+FFFD, the same as any other byte
+/// that is not the start of an incomplete sequence.
 fn find_last_utf8_boundary(buf: &[u8], len: usize) -> usize {
     let len = len.min(buf.len());
-    for count in 1..=4.min(len) {
+    for count in 1..=3.min(len) {
         let c = buf[len - count];
         if c < 0x80 {
+            // No starting byte found.
             return len;
         }
         if c >= 0xc0 {
-            let expected = if c < 0xe0 {
-                2
+            let incomplete = if c < 0xe0 {
+                // 2-byte sequence
+                count < 2
             } else if c < 0xf0 {
-                3
+                // 3-byte sequence
+                count < 3
             } else {
-                4
+                // 4-byte sequence, or a byte that starts no sequence.
+                c < 0xf8
             };
-            if count < expected {
+            if incomplete {
                 return len - count;
             }
+            // Either complete or invalid sequence.
             return len;
         }
     }
+    // Either a complete 4-byte sequence or an invalid one.
     len
 }
 
@@ -1964,8 +1878,7 @@ pub fn read_console_into(
     }
 
     let err = io::Error::last_os_error();
-    if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER as i32)
-    {
+    if err.raw_os_error() == Some(ERROR_INSUFFICIENT_BUFFER as i32) {
         let needed = unsafe {
             WideCharToMultiByte(
                 CP_UTF8,
@@ -2119,11 +2032,6 @@ pub fn write_console_utf8(handle: HANDLE, data: &[u8], max_bytes: usize) -> io::
 }
 
 pub fn open_console_path_fd(path: &widestring::WideCStr, writable: bool) -> io::Result<i32> {
-    use windows_sys::Win32::{
-        Foundation::{GENERIC_READ, GENERIC_WRITE},
-        Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE},
-    };
-
     let access = if writable {
         GENERIC_WRITE
     } else {
@@ -2261,5 +2169,44 @@ pub fn execve(
         Err(crate::os::errno_io_error())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod find_last_utf8_boundary_tests {
+    use super::find_last_utf8_boundary;
+
+    #[test]
+    fn keeps_a_complete_tail() {
+        assert_eq!(find_last_utf8_boundary(b"abc", 3), 3);
+        // 2-, 3- and 4-byte sequences, each ending exactly at `len`.
+        assert_eq!(find_last_utf8_boundary("a\u{a2}".as_bytes(), 3), 3);
+        assert_eq!(find_last_utf8_boundary("a\u{20ac}".as_bytes(), 4), 4);
+        assert_eq!(find_last_utf8_boundary("a\u{10348}".as_bytes(), 5), 5);
+    }
+
+    #[test]
+    fn cuts_an_incomplete_tail() {
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0xc2], 2), 1);
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0xe2, 0x82], 3), 1);
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0xf0, 0x90, 0x8d], 4), 1);
+    }
+
+    #[test]
+    fn leaves_a_byte_that_starts_no_sequence() {
+        // 0xf8..=0xff begin nothing, so the tail is whole as it stands and
+        // the decoder answers each byte with U+FFFD.
+        for c in 0xf8..=0xffu8 {
+            assert_eq!(find_last_utf8_boundary(&[b'a', c], 2), 2, "{c:#04x}");
+            assert_eq!(find_last_utf8_boundary(&[c], 1), 1, "{c:#04x}");
+        }
+        // A continuation byte alone is not a start either.
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0x80, 0x80, 0x80], 4), 4);
+    }
+
+    #[test]
+    fn handles_an_empty_buffer() {
+        assert_eq!(find_last_utf8_boundary(b"", 0), 0);
+        assert_eq!(find_last_utf8_boundary(b"ab", 9), 2);
     }
 }

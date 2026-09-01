@@ -383,7 +383,6 @@ a = f'''
         self.assertEqual(t.body[0].value.values[1].value.col_offset, 11)
         self.assertEqual(t.body[0].value.values[1].value.end_col_offset, 16)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 4 != 5
     def test_ast_line_numbers_with_parentheses(self):
         expr = """
 x = (

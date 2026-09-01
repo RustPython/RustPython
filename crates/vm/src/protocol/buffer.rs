@@ -608,13 +608,15 @@ impl BufferDescriptor {
     /// panic if indices.len() != ndim
     pub fn position(&self, indices: &[isize], vm: &VirtualMachine) -> PyResult<isize> {
         let mut pos = self.offset;
-        for (i, (shape, stride, suboffset)) in indices
+        for (dim, (i, (shape, stride, suboffset))) in indices
             .iter()
             .copied()
             .zip_eq(self.dim_desc.iter().copied())
+            .enumerate()
         {
+            // The dimension is named the way a person counts it. lookup_dimension
             let i = i.wrapped_at(shape).ok_or_else(|| {
-                vm.new_index_error(format!("index out of bounds on dimension {i}"))
+                vm.new_index_error(format!("index out of bounds on dimension {}", dim + 1))
             })?;
             pos += i as isize * stride + suboffset;
         }

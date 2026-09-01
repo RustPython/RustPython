@@ -35,6 +35,9 @@ ceval
 cfield
 cfws
 CFWS
+chans
+cidx
+cjkcodecs
 CLASSDEREF
 classdict
 cmpop
@@ -63,6 +66,7 @@ elts
 eooh
 eofs
 EOOH
+esize
 evalloop
 excepthandler
 exceptiontable
@@ -136,6 +140,9 @@ lslpp
 lsprof
 MAXBLOCKS
 maxdepth
+mbiencoder
+mbstreamreader
+mbstreamwriter
 metavars
 miscompiles
 mult
@@ -165,10 +172,12 @@ Nondescriptor
 noninteger
 nops
 noraise
+npools
 nseen
 NSIGNALS
 numer
 nvars
+obmalloc
 opname
 opnames
 orelse
@@ -205,6 +214,7 @@ PYTHONTRACEMALLOC
 PYTHONUTF8
 pythonw
 PYTHREAD_NAME
+recvd
 releasebuffer
 repr
 resinfo
@@ -240,6 +250,7 @@ sval
 swappedbytes
 swaptimize
 sysdict
+tbexc
 tbstderr
 templatelib
 testconsole
@@ -255,6 +266,7 @@ Typeparam
 typeparams
 typeslots
 unaryop
+unboundop
 uncollectable
 Unhandle
 unparse
@@ -276,5 +288,7 @@ winconsoleio
 withitem
 withs
 worklist
+XSETREF
+xibufferview
 xstat
 XXPRIME

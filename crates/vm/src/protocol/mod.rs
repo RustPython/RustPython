@@ -16,5 +16,6 @@ pub use mapping::{PyMapping, PyMappingMethods, PyMappingSlots};
 pub use number::{
     PyNumber, PyNumberBinaryFunc, PyNumberBinaryOp, PyNumberMethods, PyNumberSlots,
     PyNumberTernaryFunc, PyNumberTernaryOp, PyNumberUnaryFunc, handle_bytes_to_int_err,
+    numeric_literal_from_str,
 };
 pub use sequence::{PySequence, PySequenceMethods, PySequenceSlots};

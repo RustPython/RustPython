@@ -940,7 +940,7 @@ impl PyFunction {
     }
 
     #[pygetset]
-    fn __defaults__(&self) -> Option<PyTupleRef> {
+    pub(crate) fn __defaults__(&self) -> Option<PyTupleRef> {
         self.defaults_and_kwdefaults.lock().0.clone()
     }
     #[pygetset(setter)]
@@ -953,7 +953,7 @@ impl PyFunction {
     }
 
     #[pygetset]
-    fn __kwdefaults__(&self) -> Option<PyDictRef> {
+    pub(crate) fn __kwdefaults__(&self) -> Option<PyDictRef> {
         self.defaults_and_kwdefaults.lock().1.clone()
     }
     #[pygetset(setter)]
@@ -1578,7 +1578,11 @@ impl PyCell {
     }
 
     pub(crate) fn set(&self, x: Option<PyObjectRef>) {
-        *self.contents.lock() = x;
+        // What was here is released after the lock, the way `Py_XSETREF` stores
+        // before it decrefs. Releasing it under the lock would let a `__del__`
+        // that reads this cell wait on a lock this call still holds.
+        let replaced = core::mem::replace(&mut *self.contents.lock(), x);
+        drop(replaced);
     }
 
     #[pygetset]

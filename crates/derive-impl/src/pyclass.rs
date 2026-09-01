@@ -1084,16 +1084,25 @@ where
         }
 
         let raw = item_meta.raw()?;
-        let sig_doc = text_signature(func.sig(), &py_name);
         let has_receiver = func
             .sig()
             .inputs
             .iter()
             .any(|arg| matches!(arg, syn::FnArg::Receiver(_)));
-        let drop_first_typed = match self.inner.attr_name {
-            AttrName::Method | AttrName::ClassMethod if !has_receiver && !raw => 1,
-            _ => 0,
+        // Without a `&self` receiver the first argument is the one the call
+        // binds to, and CPython names it $self for a method and $type for a
+        // classmethod.
+        let implicit_self = if has_receiver || raw {
+            None
+        } else {
+            match self.inner.attr_name {
+                AttrName::Method => Some("$self"),
+                AttrName::ClassMethod => Some("$type"),
+                _ => None,
+            }
         };
+        let drop_first_typed = usize::from(implicit_self.is_some());
+        let sig_doc = text_signature(func.sig(), &py_name, implicit_self);
         let call_flags = infer_native_call_flags(func.sig(), drop_first_typed);
 
         // Add #[allow(non_snake_case)] for setter methods like set___name__
@@ -1103,7 +1112,11 @@ where
             args.attrs.push(allow_attr);
         }
 
-        let doc = args.attrs.doc().map(|doc| format_doc(&sig_doc, &doc));
+        let doc = match (sig_doc, args.attrs.doc()) {
+            (Some(sig_doc), Some(doc)) => Some(format_doc(&sig_doc, &doc)),
+            (Some(sig_doc), None) => Some(format_doc(&sig_doc, "")),
+            (None, doc) => doc,
+        };
         args.context.method_items.add_item(MethodNurseryItem {
             py_name,
             cfgs: args.cfgs.to_vec(),

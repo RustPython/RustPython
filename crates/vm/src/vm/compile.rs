@@ -191,7 +191,10 @@ impl VirtualMachine {
         filename: &str,
         ignore_cookie: bool,
     ) -> PyResult<String> {
-        let has_bom = source.starts_with(b"\xef\xbb\xbf");
+        // `ignore_cookie` marks source that was handed over as text. A byte
+        // order mark belongs to the byte encoding, so text keeps whatever it
+        // was written with and the parser rejects a stray U+FEFF.
+        let has_bom = !ignore_cookie && source.starts_with(b"\xef\xbb\xbf");
         let encoding = if ignore_cookie {
             None
         } else {
@@ -278,8 +281,6 @@ impl VirtualMachine {
         let is_ast_only = cf.contains(CompilerFlags::ONLY_AST);
         let optimized_ast = cf.contains(CompilerFlags::OPTIMIZED_AST);
         let future_features = compile_future_features_from_flags(flags);
-        let explicit_future_annotations =
-            future_features.contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
         let target_version = if is_ast_only {
             Some(ruff_python_ast::PythonVersion {
                 major: 3,
@@ -291,7 +292,7 @@ impl VirtualMachine {
 
         if is_ast_only {
             if start == PY_FUNC_TYPE_INPUT {
-                return _ast::parse_func_type(self, source, optimize, target_version)
+                return _ast::parse_func_type(self, source, filename, optimize, target_version)
                     .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self));
             }
             let (parser_mode, interactive) = match start {
@@ -307,13 +308,14 @@ impl VirtualMachine {
             let parsed = _ast::parse(
                 self,
                 source,
+                filename,
                 parser_mode,
                 optimize,
                 target_version,
                 type_comments,
                 optimized_ast,
                 interactive,
-                explicit_future_annotations,
+                future_features,
                 dont_imply_dedent,
             )
             .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self))?;
@@ -336,13 +338,14 @@ impl VirtualMachine {
             _ast::parse(
                 self,
                 source,
+                filename,
                 parser_mode,
                 optimize,
                 None,
                 type_comments,
                 false,
                 start == PY_SINGLE_INPUT,
-                explicit_future_annotations,
+                future_features,
                 dont_imply_dedent,
             )
             .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self))?;
@@ -409,6 +412,7 @@ impl VirtualMachine {
                         // Recovered below via `escalated`, so this is never surfaced.
                         compiler::codegen::error::CodegenError {
                             location: Some(location),
+                            end_location: None,
                             error: compiler::codegen::error::CodegenErrorType::SyntaxError(
                                 String::new(),
                             ),
@@ -1114,6 +1118,58 @@ mod escape_warnings {
                     .as_wtf8()
                     .to_string()
             })
+        }
+
+        #[test]
+        fn ast_only_compile_honors_barry_as_flufl() {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                let flags = CompilerFlags::ONLY_AST.bits();
+                vm.compile_string_object_with_flags(
+                    b"from __future__ import barry_as_FLUFL\n2 <> 3\n",
+                    "<test>",
+                    PY_FILE_INPUT,
+                    flags,
+                    -1,
+                    -1,
+                )
+                .expect("PyCF_ONLY_AST should accept <> in Barry mode");
+
+                let err = vm
+                    .compile_string_object_with_flags(
+                        b"from __future__ import barry_as_FLUFL\n2 != 3\n",
+                        "<test>",
+                        PY_FILE_INPUT,
+                        flags,
+                        -1,
+                        -1,
+                    )
+                    .expect_err("PyCF_ONLY_AST should reject != in Barry mode");
+                assert!(
+                    err.as_object()
+                        .str(vm)
+                        .unwrap()
+                        .as_wtf8()
+                        .to_string()
+                        .contains("with Barry as BDFL")
+                );
+            });
+        }
+
+        #[test]
+        fn type_comment_preparse_honors_inherited_barry_as_flufl() {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                let flags = CompilerFlags::TYPE_COMMENTS.bits()
+                    | crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL.bits() as i32;
+                vm.compile_string_object_with_flags(
+                    b"2 <> 3\n",
+                    "<test>",
+                    PY_FILE_INPUT,
+                    flags,
+                    -1,
+                    -1,
+                )
+                .expect("type-comment preparse should accept <> in inherited Barry mode");
+            });
         }
 
         #[test]

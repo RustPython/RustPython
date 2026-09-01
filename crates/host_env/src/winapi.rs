@@ -188,7 +188,7 @@ pub fn create_file_w(
 /// `startup_info` must point to a valid `STARTUPINFOW` (or extended).
 unsafe fn create_process_w_raw(
     app_name: Option<&widestring::WideCStr>,
-    command_line: Option<&mut [u16]>,
+    command_line: Option<&mut widestring::WideCStr>,
     inherit_handles: i32,
     creation_flags: u32,
     env: Option<&[u16]>,
@@ -214,37 +214,6 @@ unsafe fn create_process_w_raw(
     Ok(unsafe { procinfo.assume_init() })
 }
 
-/// Win32 `CreateProcessW` requires `lpCommandLine` to be NUL-terminated.
-/// The buffer is passed `&mut [u16]` because `CreateProcessW` may modify it
-/// in place.
-#[inline]
-fn validate_command_line_terminated(buf: &[u16]) -> io::Result<()> {
-    if buf.last() == Some(&0) {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "command_line buffer passed to create_process must be NUL-terminated",
-        ))
-    }
-}
-
-/// Win32 `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires
-/// `lpEnvironment` to be a sequence of `KEY=value\0` strings followed by a
-/// final terminating `\0` — i.e. the block ends with two consecutive zero
-/// `u16`s.
-#[inline]
-fn validate_environment_block_terminated(buf: &[u16]) -> io::Result<()> {
-    if buf.len() >= 2 && buf[buf.len() - 2..] == [0, 0] {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "env block passed to create_process must end with a double NUL terminator",
-        ))
-    }
-}
-
 #[allow(
     clippy::too_many_arguments,
     reason = "This is the semantic host wrapper for Win32 CreateProcess parameters."
@@ -259,11 +228,28 @@ pub fn create_process(
     startup_info: StartupInfoData,
     handle_list: Option<Vec<usize>>,
 ) -> io::Result<ProcessInfo> {
-    if let Some(cmd) = command_line.as_deref() {
-        validate_command_line_terminated(cmd)?;
-    }
-    if let Some(env_block) = env {
-        validate_environment_block_terminated(env_block)?;
+    // Win32 `CreateProcessW` requires `lpCommandLine` to be NUL-terminated.
+    // The buffer is passed `&mut [u16]` because `CreateProcessW` may modify it in place.
+    let command_line = command_line
+        .map(widestring::WideCStr::from_slice_mut)
+        .transpose()
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "command_line buffer passed to create_process must be NUL-terminated",
+            )
+        })?;
+    // Win32 `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires
+    // `lpEnvironment` to be a sequence of `KEY=value\0` strings followed by a
+    // final terminating `\0` — i.e. the block ends with two consecutive zero
+    // `u16`s.
+    if let Some(env_block) = env
+        && !env_block.ends_with(&[0, 0])
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "env block passed to create_process must end with a double NUL terminator",
+        ));
     }
 
     let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
@@ -1140,6 +1126,12 @@ pub fn lc_map_string_ex(
     src: &[u16],
 ) -> io::Result<Vec<u16>> {
     let src_len = src.len() as i32;
+    // SAFETY:
+    // * locale does not have interior NULs and ends with a NUL. This is guaranteed by
+    // WideCStr.
+    // * src CAN have interior NULs and DOES NOT need to end with a NUL. However, the length must be
+    // passed into LCMapStringEx. If the length is NOT passed in, Windows calculates the length
+    // and interior NULs are not allowed.
     let dest_size = unsafe {
         windows_sys::Win32::Globalization::LCMapStringEx(
             locale.as_ptr(),

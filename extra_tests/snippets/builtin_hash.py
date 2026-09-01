@@ -47,3 +47,30 @@ if sys.implementation.name == "rustpython":
         {deep_tuple: 1}
     with assert_raises(RecursionError):
         {deep_tuple}
+
+
+def test_unhashable_names_the_type_as_written():
+    # The message names the type the way `tp_name` does, so a type defined in a
+    # module carries the module with it.
+    import array
+    import collections
+
+    for value, name in [
+        (array.array("B", b"a"), "array.array"),
+        (collections.deque(), "collections.deque"),
+        ([], "list"),
+        (bytearray(), "bytearray"),
+        (Unhashable(), "Unhashable"),
+    ]:
+        try:
+            hash(value)
+            raise AssertionError(f"hashed {name}")
+        except TypeError as e:
+            assert str(e) == f"unhashable type: '{name}'", e
+
+
+class Unhashable:
+    __hash__ = None
+
+
+test_unhashable_names_the_type_as_written()

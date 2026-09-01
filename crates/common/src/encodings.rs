@@ -5,6 +5,9 @@ use num_traits::ToPrimitive;
 use crate::str::StrKind;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
+#[cfg(feature = "cjk-codecs")]
+pub mod cjk;
+
 pub trait StrBuffer: AsRef<Wtf8> {
     fn is_compatible_with(&self, kind: StrKind) -> bool {
         let s = self.as_ref();

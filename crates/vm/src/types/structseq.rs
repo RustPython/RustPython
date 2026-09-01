@@ -6,7 +6,9 @@ use crate::{
         PyBaseExceptionRef, PyDict, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
-    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags},
+    function::{
+        Callee, Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags,
+    },
     iter::PyExactSizeIterator,
     protocol::{PyMappingMethods, PySequenceMethods},
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -250,7 +252,12 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        struct_sequence_new(cls, args.bind(vm)?, Self::Data::OPTIONAL_FIELD_NAMES, vm)
+        struct_sequence_new(
+            cls,
+            args.bind_for(vm, Callee::for_type(Self::static_type()))?,
+            Self::Data::OPTIONAL_FIELD_NAMES,
+            vm,
+        )
     }
 
     /// Convert a Data struct into a PyStructSequence instance.
@@ -441,11 +448,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         // Default __reduce__: only set if not already overridden by the impl's extend_class.
         // This allows struct sequences like sched_param to provide a custom __reduce__
         // (equivalent to METH_COEXIST in structseq.c).
-        if !class
-            .attributes
-            .read()
-            .contains_key(ctx.intern_str("__reduce__"))
-        {
+        if !class.attributes.contains(ctx.intern_str("__reduce__")) {
             class.set_attr(
                 ctx.intern_str("__reduce__"),
                 DEFAULT_STRUCTSEQ_REDUCE.to_proper_method(class, ctx),

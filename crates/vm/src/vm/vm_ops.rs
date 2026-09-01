@@ -384,17 +384,17 @@ impl VirtualMachine {
                 "unsupported operand type(s) for {}: \
                 '{}' and '{}'",
                 op_str,
-                a.class(),
-                b.class()
+                a.class().slot_name(),
+                b.class().slot_name()
             ))
         } else {
             self.new_type_error(format!(
                 "unsupported operand type(s) for {}: \
                 '{}', '{}', '{}'",
                 op_str,
-                a.class(),
-                b.class(),
-                c.class()
+                a.class().slot_name(),
+                b.class().slot_name(),
+                c.class().slot_name()
             ))
         })
     }

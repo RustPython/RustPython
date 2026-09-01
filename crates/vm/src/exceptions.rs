@@ -1293,7 +1293,14 @@ impl<C> ToPyException for widestring::error::ContainsNul<C> {
 #[cfg(windows)]
 impl ToPyException for widestring::error::MissingNulTerminator {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_value_error(self.to_string())
+        nul_char_error(vm)
+    }
+}
+
+#[cfg(windows)]
+impl<C> ToPyException for widestring::error::NulError<C> {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        nul_char_error(vm)
     }
 }
 
@@ -1951,11 +1958,11 @@ pub(super) mod types {
     #[pyexception(with(Initializer))]
     impl PyImportError {
         #[pymethod]
-        fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
-            let obj = exc.as_object().to_owned();
-            let args: PyObjectRef = match exc.get_arg(0) {
+        fn __reduce__(zelf: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
+            let obj = zelf.as_object().to_owned();
+            let args: PyObjectRef = match zelf.get_arg(0) {
                 Some(arg) => vm.new_tuple((arg,)).into(),
-                None => exc.args().into(),
+                None => zelf.args().into(),
             };
             let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into(), args];
 
@@ -2401,15 +2408,15 @@ pub(super) mod types {
         }
 
         #[pymethod]
-        fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
-            let args = exc.args();
-            let obj = exc.as_object().to_owned();
+        fn __reduce__(zelf: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
+            let args = zelf.args();
+            let obj = zelf.as_object().to_owned();
             let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into()];
 
             if args.len() >= 2 && args.len() <= 5 {
                 // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
-                let errno = exc.get_arg(0).unwrap();
-                let msg = exc.get_arg(1).unwrap();
+                let errno = zelf.get_arg(0).unwrap();
+                let msg = zelf.get_arg(1).unwrap();
 
                 if let Ok(filename) = obj.get_attr("filename", vm) {
                     if !vm.is_none(&filename) {

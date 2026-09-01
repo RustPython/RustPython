@@ -1,5 +1,6 @@
 use super::{
     PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
+    locked_next,
 };
 use crate::common::lock::LazyLock;
 use crate::common::{hash, hash::PyHash, lock::PyMutex, wtf8::wtf8_concat};
@@ -9,7 +10,7 @@ use crate::{
     atomic_func,
     class::PyClassImpl,
     convert::{ToPyObject, TransmuteFromObject},
-    function::{ArgSize, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{ArgSize, Callee, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -220,7 +221,7 @@ impl Constructor for PyTuple {
     type Args = Vec<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
+        let iterable: OptionalArg<PyObjectRef> = args.bind_for(vm, Callee::of::<Self>(vm))?;
 
         // Optimizations for exact tuple type
         if cls.is(vm.ctx.types.tuple_type) {
@@ -374,6 +375,23 @@ impl PyTuple<PyObjectRef> {
 }
 
 impl<T> PyTuple<PyRef<T>> {
+    pub(crate) fn new_ref_typed_with_type(
+        elements: Vec<PyRef<T>>,
+        tuple_type: PyTypeRef,
+    ) -> PyRef<Self> {
+        // SAFETY: PyRef<T> has the same layout as PyObjectRef.
+        unsafe {
+            let elements: Vec<PyObjectRef> =
+                core::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
+            let tuple = PyRef::new_ref(
+                PyTuple::new_unchecked(elements.into_boxed_slice()),
+                tuple_type,
+                None,
+            );
+            core::mem::transmute::<PyRef<PyTuple>, PyRef<Self>>(tuple)
+        }
+    }
+
     pub fn new_ref_typed(elements: Vec<PyRef<T>>, ctx: &Context) -> PyRef<Self> {
         // SAFETY: PyRef<T> has the same layout as PyObjectRef
         unsafe {
@@ -701,25 +719,23 @@ impl PyTupleIterator {
 impl PyTupleIterator {
     /// Fast path for FOR_ITER specialization.
     pub(crate) fn fast_next(&self) -> Option<PyObjectRef> {
-        self.internal
-            .lock()
-            .next(|tuple, pos| {
-                Ok(PyIterReturn::from_result(
-                    tuple.get(pos).cloned().ok_or(None),
-                ))
-            })
-            .ok()
-            .and_then(|r| match r {
-                PyIterReturn::Return(v) => Some(v),
-                PyIterReturn::StopIteration(_) => None,
-            })
+        locked_next(&self.internal, |tuple, pos| {
+            Ok(PyIterReturn::from_result(
+                tuple.get(pos).cloned().ok_or(None),
+            ))
+        })
+        .ok()
+        .and_then(|r| match r {
+            PyIterReturn::Return(v) => Some(v),
+            PyIterReturn::StopIteration(_) => None,
+        })
     }
 }
 
 impl SelfIter for PyTupleIterator {}
 impl IterNext for PyTupleIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|tuple, pos| {
+        locked_next(&zelf.internal, |tuple, pos| {
             Ok(PyIterReturn::from_result(
                 tuple.get(pos).cloned().ok_or(None),
             ))

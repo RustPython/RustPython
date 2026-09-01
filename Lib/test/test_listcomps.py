@@ -691,7 +691,6 @@ class ListComprehensionTest(unittest.TestCase):
         """
         self._check_in_scopes(code, {"value": [1, None]})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_frame_locals(self):
         code = """
             val = "a" in [sys._getframe().f_locals for a in [0]][0]

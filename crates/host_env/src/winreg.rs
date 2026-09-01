@@ -14,9 +14,7 @@
 extern crate alloc;
 
 use alloc::string::FromUtf16Error;
-use std::ffi::OsStr;
 
-use crate::windows::ToWideString;
 use windows_sys::Win32::{
     Foundation,
     Security::SECURITY_ATTRIBUTES,
@@ -347,20 +345,11 @@ pub enum QueryStringError {
 
 pub fn query_default_value(
     hkey: Registry::HKEY,
-    sub_key: Option<&OsStr>,
+    sub_key: Option<&widestring::WideCStr>,
 ) -> Result<String, QueryStringError> {
     let child_key = if let Some(sub_key) = sub_key.filter(|s| !s.is_empty()) {
-        let wide_sub_key = sub_key.to_wide_cstring();
         let mut out_key = core::ptr::null_mut();
-        let res = unsafe {
-            open_key_ex(
-                hkey,
-                &wide_sub_key,
-                0,
-                Registry::KEY_QUERY_VALUE,
-                &mut out_key,
-            )
-        };
+        let res = unsafe { open_key_ex(hkey, sub_key, 0, Registry::KEY_QUERY_VALUE, &mut out_key) };
         if res != 0 {
             return Err(QueryStringError::Code(res));
         }
@@ -415,13 +404,15 @@ pub fn query_default_value(
     result
 }
 
-pub fn query_value_bytes(hkey: Registry::HKEY, value_name: &OsStr) -> Result<(Vec<u8>, u32), u32> {
-    let wide_name = value_name.to_wide_cstring();
+pub fn query_value_bytes(
+    hkey: Registry::HKEY,
+    wide_name: &widestring::WideCStr,
+) -> Result<(Vec<u8>, u32), u32> {
     let mut buf_size: u32 = 0;
     let res = unsafe {
         query_value_ex(
             hkey,
-            Some(&wide_name),
+            Some(wide_name),
             core::ptr::null_mut(),
             core::ptr::null_mut(),
             &mut buf_size,
@@ -441,7 +432,7 @@ pub fn query_value_bytes(hkey: Registry::HKEY, value_name: &OsStr) -> Result<(Ve
         let res = unsafe {
             query_value_ex(
                 hkey,
-                Some(&wide_name),
+                Some(wide_name),
                 &mut typ,
                 ret_buf.as_mut_ptr(),
                 &mut ret_size,
@@ -459,14 +450,18 @@ pub fn query_value_bytes(hkey: Registry::HKEY, value_name: &OsStr) -> Result<(Ve
     }
 }
 
-pub fn set_default_value(hkey: Registry::HKEY, sub_key: &OsStr, typ: u32, value: &OsStr) -> u32 {
+pub fn set_default_value(
+    hkey: Registry::HKEY,
+    sub_key: &widestring::WideCStr,
+    typ: u32,
+    wide_value: &widestring::WideStr,
+) -> u32 {
     let child_key = if !sub_key.is_empty() {
-        let wide_sub_key = sub_key.to_wide_cstring();
         let mut out_key = core::ptr::null_mut();
         let res = unsafe {
             create_key_ex(
                 hkey,
-                &wide_sub_key,
+                sub_key,
                 0,
                 core::ptr::null_mut(),
                 0,
@@ -485,7 +480,6 @@ pub fn set_default_value(hkey: Registry::HKEY, sub_key: &OsStr, typ: u32, value:
     };
 
     let target_key = child_key.unwrap_or(hkey);
-    let wide_value = value.to_wide_with_nul();
     let res = unsafe {
         set_value_ex(
             target_key,
@@ -502,8 +496,9 @@ pub fn set_default_value(hkey: Registry::HKEY, sub_key: &OsStr, typ: u32, value:
     res
 }
 
-pub fn expand_environment_strings(input: &OsStr) -> Result<String, ExpandEnvironmentStringsError> {
-    let wide_input = input.to_wide_with_nul();
+pub fn expand_environment_strings(
+    wide_input: &widestring::WideCStr,
+) -> Result<String, ExpandEnvironmentStringsError> {
     let required_size = unsafe {
         Environment::ExpandEnvironmentStringsW(wide_input.as_ptr(), core::ptr::null_mut(), 0)
     };

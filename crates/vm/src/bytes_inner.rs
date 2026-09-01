@@ -7,7 +7,6 @@ use crate::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef,
         pystr, pystr::PyUtf8StrRef,
     },
-    byte::bytes_from_object,
     cformat::cformat_bytes,
     common::hash,
     common::wtf8::is_py_ascii_whitespace,
@@ -17,6 +16,11 @@ use crate::{
     sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
 };
+/// How a source object that is neither a size nor a string is turned into
+/// bytes: [`crate::byte::bytes_from_object`] or
+/// [`crate::byte::bytearray_from_object`].
+pub(crate) type FromObject = fn(&VirtualMachine, &PyObject) -> PyResult<Vec<u8>>;
+
 use bstr::ByteSlice;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -64,8 +68,12 @@ impl ByteInnerNewOptions {
         Ok(bytes.as_bytes().to_vec().into())
     }
 
-    fn get_value_from_source(source: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        bytes_from_object(vm, &source).map(|x| x.into())
+    fn get_value_from_source(
+        source: PyObjectRef,
+        from_object: FromObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesInner> {
+        from_object(vm, &source).map(|x| x.into())
     }
 
     fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
@@ -81,19 +89,26 @@ impl ByteInnerNewOptions {
         Ok(vm.new_zeroed_bytes(size)?.into())
     }
 
-    fn handle_object_fallback(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    fn handle_object_fallback(
+        obj: PyObjectRef,
+        from_object: FromObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesInner> {
         match_class!(match obj {
             i @ PyInt => {
                 Self::get_value_from_size(i, vm)
             }
             _s @ PyStr => Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned())),
             obj => {
-                Self::get_value_from_source(obj, vm)
+                Self::get_value_from_source(obj, from_object, vm)
             }
         })
     }
 
-    pub fn get_bytearray_inner(self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    /// `from_object` is how a source that is neither a size nor a string is
+    /// read: `bytes()` and `bytearray()` differ in whether they ask it how long
+    /// it is.
+    pub fn get_inner(self, from_object: FromObject, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         match (self.source, self.encoding, self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
@@ -105,7 +120,7 @@ impl ByteInnerNewOptions {
                             // TypeError means the object doesn't support __index__, so fall back
                             if e.fast_isinstance(vm.ctx.exceptions.type_error) {
                                 // Fall back to treating as buffer-like object
-                                Self::handle_object_fallback(obj, vm)
+                                Self::handle_object_fallback(obj, from_object, vm)
                             } else {
                                 // Propagate other exceptions (e.g., ZeroDivisionError)
                                 Err(e)
@@ -113,7 +128,7 @@ impl ByteInnerNewOptions {
                         }
                     }
                 } else {
-                    Self::handle_object_fallback(obj, vm)
+                    Self::handle_object_fallback(obj, from_object, vm)
                 }
             }
             (OptionalArg::Present(obj), OptionalArg::Present(encoding), errors) => {
@@ -497,13 +512,8 @@ impl PyBytesInner {
         swapcase_ascii(self.as_bytes())
     }
 
-    pub fn hex(
-        &self,
-        sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
-        bytes_per_sep: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
-        bytes_to_hex(self.elements.as_slice(), sep, bytes_per_sep, vm)
+    pub fn hex(&self, sep: Option<u8>, bytes_per_sep: OptionalArg<isize>) -> String {
+        bytes_to_hex(self.elements.as_slice(), sep, bytes_per_sep)
     }
 
     pub fn fromhex(bytes: &[u8], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -618,8 +628,22 @@ impl PyBytesInner {
             .py_count(needle.as_slice(), range, |h, n| h.find_iter(n).count()))
     }
 
-    pub fn join(&self, iterable: ArgIterable<Self>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let iter = iterable.iter(vm)?;
+    // stringlib_bytes_join
+    pub fn join(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        // `PySequence_Fast()`, as in `PyUnicode_Join()`.
+        let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)
+            .map_err(|_| vm.new_type_error("can only join an iterable"))?;
+        let iter = iterable.iter_sized(vm)?.enumerate().map(|(i, obj)| {
+            let obj = obj?;
+            // Whatever the buffer lookup ran into, the item is only ever
+            // reported as the wrong kind of thing.
+            Self::try_from_object(vm, obj.clone()).map_err(|_| {
+                vm.new_type_error(format!(
+                    "sequence item {i}: expected a bytes-like object, {} found",
+                    obj.class().slot_name()
+                ))
+            })
+        });
         self.elements.py_join(iter)
     }
 
@@ -1211,6 +1235,42 @@ pub(crate) struct ByteInnerHexOptions {
     pub bytes_per_sep: OptionalArg<isize>,
 }
 
+impl ByteInnerHexOptions {
+    /// The separator byte, and how many bytes go between two of them.
+    ///
+    /// Measuring the separator runs Python, so it happens here, before the
+    /// bytes to be written out are borrowed. _Py_strhex_impl
+    pub(crate) fn resolve(self, vm: &VirtualMachine) -> PyResult<(Option<u8>, OptionalArg<isize>)> {
+        let Self { sep, bytes_per_sep } = self;
+        let OptionalArg::Present(sep) = sep else {
+            return Ok((None, bytes_per_sep));
+        };
+
+        let s_guard;
+        let b_guard;
+        let (obj, bytes) = match &sep {
+            Either::A(s) => {
+                s_guard = s.as_wtf8();
+                (s.as_object(), s_guard.as_bytes())
+            }
+            Either::B(b) => {
+                b_guard = b.as_bytes();
+                (b.as_object(), b_guard)
+            }
+        };
+        if obj.length(vm)? != 1 {
+            return Err(vm.new_value_error("sep must be length 1."));
+        }
+        // An object that claims a length it does not have separates with NUL,
+        // which is what reading past the end of its data gives.
+        let sep = bytes.first().copied().unwrap_or(0);
+        if sep > 127 {
+            return Err(vm.new_value_error("sep must be ASCII."));
+        }
+        Ok((Some(sep), bytes_per_sep))
+    }
+}
+
 fn hex_impl_no_sep(bytes: &[u8]) -> String {
     let mut buf: Vec<u8> = vec![0; bytes.len() * 2];
     hex::encode_to_slice(bytes, buf.as_mut_slice()).unwrap();
@@ -1265,44 +1325,13 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
 
 pub(crate) fn bytes_to_hex(
     bytes: &[u8],
-    sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
+    sep: Option<u8>,
     bytes_per_sep: OptionalArg<isize>,
-    vm: &VirtualMachine,
-) -> PyResult<String> {
-    if bytes.is_empty() {
-        return Ok("".to_owned());
-    }
-
-    if let OptionalArg::Present(sep) = sep {
-        let bytes_per_sep = bytes_per_sep.unwrap_or(1);
-        if bytes_per_sep == 0 {
-            return Ok(hex_impl_no_sep(bytes));
-        }
-
-        let s_guard;
-        let b_guard;
-        let sep = match &sep {
-            Either::A(s) => {
-                s_guard = s.as_wtf8();
-                s_guard.as_bytes()
-            }
-            Either::B(bytes) => {
-                b_guard = bytes.as_bytes();
-                b_guard
-            }
-        };
-
-        if sep.len() != 1 {
-            return Err(vm.new_value_error("sep must be length 1."));
-        }
-        let sep = sep[0];
-        if sep > 127 {
-            return Err(vm.new_value_error("sep must be ASCII."));
-        }
-
-        Ok(hex_impl(bytes, sep, bytes_per_sep))
-    } else {
-        Ok(hex_impl_no_sep(bytes))
+) -> String {
+    let bytes_per_sep = bytes_per_sep.unwrap_or(1);
+    match sep {
+        Some(sep) if bytes_per_sep != 0 && !bytes.is_empty() => hex_impl(bytes, sep, bytes_per_sep),
+        _ => hex_impl_no_sep(bytes),
     }
 }
 

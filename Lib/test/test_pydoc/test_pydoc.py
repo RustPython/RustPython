@@ -1582,7 +1582,6 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(os.stat),
             "stat(path, *, dir_fd=None, follow_symlinks=True)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_module_level_callable_noargs(self):
         self.assertEqual(self._get_summary_line(time.time),
             "time()")
@@ -1598,12 +1597,10 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(_stat.S_IMODE),
             "S_IMODE(object, /)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_method_noargs(self):
         self.assertEqual(self._get_summary_line(str.lower),
             "lower(self, /) unbound builtins.str method")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bound_builtin_method_noargs(self):
         self.assertEqual(self._get_summary_line(''.lower),
             "lower() method of builtins.str instance")
@@ -2244,7 +2241,7 @@ class TestHelper(unittest.TestCase):
 
     def test_keywords(self):
         self.assertEqual(sorted(pydoc.Helper.keywords),
-                         sorted(keyword.kwlist))
+                         sorted(keyword.kwlist + ['case', 'match']))
 
     def test_interact_empty_line_continues(self):
         # gh-138568: test pressing Enter without input should continue in help session

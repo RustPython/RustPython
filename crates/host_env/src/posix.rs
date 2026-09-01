@@ -143,16 +143,6 @@ pub fn chroot(path: &Path) -> std::io::Result<()> {
     nix::unistd::chroot(path).map_err(std::io::Error::from)
 }
 
-#[cfg(not(target_os = "redox"))]
-pub fn unlinkat(dir_fd: i32, path: &CStr) -> std::io::Result<()> {
-    let ret = unsafe { libc::unlinkat(dir_fd, path.as_ptr(), 0) };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
 pub fn lchmod(path: &CStr, mode: libc::mode_t) -> std::io::Result<()> {
     unsafe extern "C" {
@@ -807,11 +797,15 @@ pub fn setpgid_if_needed(pgid_to_set: libc::pid_t) -> nix::Result<()> {
     Ok(())
 }
 
-pub fn setgroups_if_needed(_groups: Option<&[u32]>) -> nix::Result<()> {
-    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
-    if let Some(groups) = _groups {
-        let groups = groups.iter().copied().map(gid_from_raw).collect::<Vec<_>>();
-        nix::unistd::setgroups(&groups)?;
+pub fn setgroups_if_needed(groups: Option<&[u32]>) -> nix::Result<()> {
+    #[cfg(not(any(target_os = "ios", target_os = "redox")))]
+    if let Some(groups) = groups {
+        // The caller prepares this array before fork.  Call libc directly so
+        // macOS performs the requested operation too, and so the child does
+        // not allocate a second array between fork and exec.
+        let ret =
+            unsafe { libc::setgroups(groups.len() as _, groups.as_ptr().cast::<libc::gid_t>()) };
+        nix::Error::result(ret)?;
     }
     Ok(())
 }
@@ -1406,10 +1400,6 @@ fn build_posix_spawn_attrs(
             target_os = "illumos",
             target_os = "hurd",
         )))]
-        #[expect(
-            clippy::std_instead_of_core,
-            reason = "false positive: core::io::ErrorKind is unstable (core_io); expect is co-gated with the usage so it is not left unfulfilled on platforms where this block is compiled out"
-        )]
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,

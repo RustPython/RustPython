@@ -4,6 +4,7 @@ mod buffer;
 mod builtin;
 mod either;
 mod fspath;
+mod getargs;
 mod getset;
 pub(crate) mod method;
 mod number;
@@ -11,7 +12,7 @@ mod protocol;
 mod time;
 
 pub use argument::{
-    ArgumentError, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
+    ArgumentError, Callee, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
     OptionalArg, OptionalOption, PosArgs,
 };
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
@@ -21,6 +22,7 @@ pub use buffer::{
 pub use builtin::{IntoPyNativeFn, PyNativeFn, static_func, static_raw_func};
 pub use either::Either;
 pub use fspath::FsPath;
+pub(crate) use getargs::ArgSpec;
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
 pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};

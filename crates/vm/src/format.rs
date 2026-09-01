@@ -71,6 +71,9 @@ impl IntoPyException for FormatSpecError {
             }
             Self::UnableToConvert => vm.new_value_error("Unable to convert int to float"),
             Self::CodeNotInRange => vm.new_overflow_error("%c arg not in range(0x110000)"),
+            Self::IntTooLargeForCLong => {
+                vm.new_overflow_error("Python int too large to convert to C long")
+            }
             Self::ZeroPadding => {
                 vm.new_value_error("Zero padding is not allowed in complex format specifier")
             }
@@ -85,6 +88,10 @@ impl IntoPyException for FormatSpecError {
             }
             Self::StringAlignmentFlag => {
                 vm.new_value_error("'=' alignment not allowed in string format specifier")
+            }
+            Self::StringSpecNotAllowed(s) => {
+                let msg = format!("{s} not allowed in string format specifier");
+                vm.new_value_error(msg)
             }
             Self::NotImplemented(c, s) => {
                 let msg = format!("Format code '{c}' for object of type '{s}' not implemented yet");
@@ -143,14 +150,18 @@ fn format_internal(
                     FormatString::from_str(format_spec).map_err(|e| e.to_pyexception(vm))?;
                 let format_spec = format_internal(vm, &nested_format, field_func)?;
 
-                let argument = match conversion_spec.and_then(FormatConversion::from_char) {
-                    Some(FormatConversion::Str) => argument.str(vm)?.into(),
-                    Some(FormatConversion::Repr) => argument.repr(vm)?.into(),
-                    Some(FormatConversion::Ascii) => builtins::ascii(argument, vm)?.into(),
-                    Some(FormatConversion::Bytes) => {
-                        vm.call_method(&argument, identifier!(vm, decode).as_str(), ())?
-                    }
+                let argument = match conversion_spec {
                     None => argument,
+                    Some(c) => match FormatConversion::from_char(*c) {
+                        Some(FormatConversion::Str) => argument.str(vm)?.into(),
+                        Some(FormatConversion::Repr) => argument.repr(vm)?.into(),
+                        Some(FormatConversion::Ascii) => builtins::ascii(argument, vm)?.into(),
+                        None => {
+                            return Err(
+                                vm.new_value_error(format!("Unknown conversion specifier {c}"))
+                            );
+                        }
+                    },
                 };
 
                 // FIXME: compiler can intern specs using parser tree. Then this call can be interned_str
