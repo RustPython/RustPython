@@ -15,7 +15,7 @@ bz2 = ["std", "dep:bzip2"]
 cjk-codecs = []
 inet = ["std"]
 json = ["dep:memchr", "std"]
-lzma = ["std", "dep:xz", "dep:xz-sys"]
+lzma = ["std", "dep:xz-core"]
 std = []
 threading = ["parking_lot", "std"]
 wasm_js = ["getrandom/wasm_js"]
@@ -46,12 +46,7 @@ zlib-rs = { workspace = true, optional = true }
 lock_api = { workspace = true }
 siphasher = { workspace = true }
 num-complex = { workspace = true }
-
-[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
-# RustPython does not expose `_lzma` on these targets; keep the native engine's
-# dependency boundary with its common-module owner rather than in stdlib.
-xz = { workspace = true, optional = true }
-xz-sys = { workspace = true, optional = true }
+xz-core = { workspace = true, optional = true }
 
 [lints]
 workspace = true
