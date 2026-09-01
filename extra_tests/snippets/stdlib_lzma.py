@@ -12,6 +12,13 @@ with assert_raises(TypeError):
         filters=({"id": lzma.FILTER_LZMA2} for _ in itertools.count()),
     )
 
+# Length is checked before any specifier is parsed: five invalid ids report the
+# chain length, not the id.
+with assert_raises(ValueError) as raised:
+    lzma.LZMACompressor(format=lzma.FORMAT_RAW, filters=[{"id": 999}] * 5)
+assert type(raised.exception) is ValueError
+assert str(raised.exception) == "Too many filters - liblzma supports a maximum of 4"
+
 compressor = lzma.LZMACompressor(
     format=lzma.FORMAT_RAW, filters=[{"id": lzma.FILTER_LZMA2}]
 )

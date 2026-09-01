@@ -195,13 +195,12 @@ mod _lzma {
         filter_specs: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<backend::FilterSpec>> {
-        const LZMA_FILTERS_MAX: usize = 4;
         let length = filter_specs.length(vm)?;
-        if length > LZMA_FILTERS_MAX {
-            return Err(new_lzma_error(
-                format!("Too many filters - liblzma supports a maximum of {LZMA_FILTERS_MAX}"),
-                vm,
-            ));
+        if length > backend::FILTERS_MAX {
+            return Err(vm.new_value_error(format!(
+                "Too many filters - liblzma supports a maximum of {}",
+                backend::FILTERS_MAX
+            )));
         }
         let sequence = filter_specs.try_sequence(vm)?;
         (0..length)
