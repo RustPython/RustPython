@@ -66,14 +66,23 @@ impl JitValue {
     }
 }
 
+/// What the module around a function being compiled hands it: the symbols it
+/// may call, and the word its loops poll.
+pub(crate) struct Externals {
+    /// `jit_powf`, imported into this function so `compile_fpow` can call it.
+    pub(crate) powf: FuncRef,
+    /// The byte a backward jump polls, or `None` to compile no poll at all.
+    pub(crate) safepoint: Option<&'static core::sync::atomic::AtomicU8>,
+}
+
 pub(crate) struct FunctionCompiler<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
     /// The buffer a guard spills its record into, parameter 0 of the function.
     deopt_ptr: Value,
     /// The block every guard leaves through, created with the first one.
     deopt_exit: Option<Block>,
-    /// `jit_powf`, imported into this function so `compile_fpow` can call it.
-    powf_func: FuncRef,
+    /// What the module around this function supplies it with.
+    externals: Externals,
     /// Bytecode offset the instruction being lowered would be re-entered at.
     resume_offset: u32,
     stack: Vec<JitValue>,
@@ -198,7 +207,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         ret_type: Option<JitType>,
         entry_block: Block,
         safety: Safety,
-        powf_func: FuncRef,
+        externals: Externals,
     ) -> Self {
         let params = builder.func.dfg.block_params(entry_block).to_vec();
         let (deopt_ptr, arg_params) = params.split_first().expect("the deopt buffer parameter");
@@ -216,7 +225,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             builder,
             deopt_ptr: *deopt_ptr,
             deopt_exit: None,
-            powf_func,
+            externals,
             resume_offset: 0,
             stack: Vec::new(),
             variables: vec![None; num_variables].into_boxed_slice(),
@@ -318,6 +327,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             // Provisional: only the whole function tells whether a store this
             // site has not seen yet can run before its guard fires.
             resumable: true,
+            safepoint: false,
         });
 
         self.deopt_if(cond, |this| {
@@ -342,6 +352,39 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             let status = this.builder.ins().iconst(types::I64, site as i64 + 1);
             this.store_raw(status, 0);
         });
+        Ok(())
+    }
+
+    /// Emit the poll a backward jump makes before it is taken: when the
+    /// interpreter has asked the running thread to leave the bytecode loop,
+    /// give up here, so the frame carries on interpreted from this same jump
+    /// and answers whatever the request was.
+    ///
+    /// A loop without one cannot be left. Compiled code runs no handler for a
+    /// pending signal, parks for no stop-the-world, and does not stop when the
+    /// interpreter shuts down, so a thread inside such a loop hangs the process
+    /// rather than being delayed by it.
+    fn compile_safepoint(&mut self) -> Result<(), JitCompileError> {
+        let Some(word) = self.externals.safepoint else {
+            return Ok(());
+        };
+        let ptr_type = self.builder.func.dfg.value_type(self.deopt_ptr);
+        let address = core::ptr::from_ref(word) as usize as i64;
+        let address = self.builder.ins().iconst(ptr_type, address);
+        // Deliberately not a `readonly` load: other threads and signal handlers
+        // write this byte while the loop runs, so what one iteration reads says
+        // nothing about what the next one will.
+        let pending = self
+            .builder
+            .ins()
+            .load(types::I8, MemFlags::trusted(), address, 0);
+        let tripped = self.builder.ins().icmp_imm(IntCC::NotEqual, pending, 0);
+        let site = self.deopt_sites.len();
+        self.deopt_branch(tripped, &[])?;
+        // The site the branch above recorded. It spills the same record a
+        // guard's does; what differs is only that the code it left is still
+        // right for the values it was given.
+        self.deopt_sites[site].safepoint = true;
         Ok(())
     }
 
@@ -1049,8 +1092,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             | Instruction::JumpForward { .. } => {
                 let target = instruction_target(offset, instruction, arg)?
                     .ok_or(JitCompileError::BadBytecode)?;
-                self.has_backward_jump |= target.as_u32() <= offset;
+                let backward = target.as_u32() <= offset;
+                self.has_backward_jump |= backward;
                 self.require_empty_stack_at_merge()?;
+                // Only a jump to an earlier offset can loop, and only a loop
+                // can keep the thread from reaching the end of the function.
+                if backward {
+                    self.compile_safepoint()?;
+                }
                 let target_block = self.get_or_create_block(target);
                 self.builder.ins().jump(target_block, &[]);
                 Ok(())
@@ -1358,7 +1407,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         // ans = v1.powf(v2), through the exact function the interpreter
         // calls - see `jit_powf`'s doc comment for why it is looked up by an
         // explicit symbol rather than left for the JIT to resolve.
-        let call = self.builder.ins().call(self.powf_func, &[a, b]);
+        let call = self.builder.ins().call(self.externals.powf, &[a, b]);
         let ans = match *self.builder.inst_results(call) {
             [ans] => ans,
             _ => return Err(JitCompileError::NotSupported),

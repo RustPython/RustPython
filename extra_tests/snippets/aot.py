@@ -187,17 +187,51 @@ while frame is not None:
 assert walked[:4] == ["innermost", "middle", "outermost", "<module>"], walked
 
 
+# A compiled loop has to be leaveable. Native code that polls for nothing can
+# never park for a stop-the-world, so a thread inside one holds up every
+# collection the rest of the process asks for - not for a while, but for good.
+# There is nothing to assert: the collection below either returns or it does
+# not.
+import gc
+import threading
+import time
+
+
+def spin(n: int) -> int:
+    i = 0
+    while i < n:
+        i = i + 1
+    return i
+
+
+spinning = threading.Event()
+
+
+def keep_spinning():
+    spinning.set()
+    # Further than this script will ever get. The thread is a daemon and is
+    # meant to be left exactly where it is.
+    spin(1 << 62)
+
+
+threading.Thread(target=keep_spinning, daemon=True).start()
+spinning.wait()
+# Long enough that the thread is inside the loop rather than on its way in.
+time.sleep(0.1)
+gc.collect()
+
+
 if AOT:
     compiled, rejected, deoptimized = sys._jit._stats()
-    # `scale`, `wide`, `wide2`, `divide`, `fib_iter`, and the rebound
+    # `scale`, `wide`, `wide2`, `divide`, `fib_iter`, `spin`, and the rebound
     # `countdown` are what the automatic path takes above - the original
     # self-recursive one, kept as `original_countdown`, is refused. These
     # are floors, not exact counts, but they must not regress: the point of
     # letting Strict compile arithmetic was to take shapes it used to
     # refuse outright, and a floor already met before that change could not
     # tell if the gate came back. `compiled` and `deoptimized` are pinned to
-    # what this file currently produces (`compiled 6 ... deopt 5`).
-    assert compiled >= 6, (compiled, rejected, deoptimized)
+    # what this file currently produces (`compiled 7 ... deopt 5`).
+    assert compiled >= 7, (compiled, rejected, deoptimized)
     # ... the int argument in `scale(2, 3.0)` handed it back, and
     # `fib_iter(95)` overflows partway through its loop.
     assert deoptimized >= 5, (compiled, rejected, deoptimized)

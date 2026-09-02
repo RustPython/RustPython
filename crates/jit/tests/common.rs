@@ -370,6 +370,9 @@ macro_rules! jit_function {
                         rustpython_jit::Outcome::Restart => {
                             panic!("jit function unexpectedly asked to be restarted")
                         }
+                        rustpython_jit::Outcome::Interrupted(state) => {
+                            panic!("jit function unexpectedly interrupted: {state:?}")
+                        }
                     })
             }
         }
@@ -391,6 +394,9 @@ macro_rules! jit_function {
                         }
                         rustpython_jit::Outcome::Restart => {
                             panic!("jit function unexpectedly asked to be restarted")
+                        }
+                        rustpython_jit::Outcome::Interrupted(state) => {
+                            panic!("jit function unexpectedly interrupted: {state:?}")
                         }
                     })
             }

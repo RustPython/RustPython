@@ -6,11 +6,11 @@ use alloc::collections::BTreeSet;
 use alloc::fmt;
 use alloc::sync::Arc;
 use core::mem::{self, ManuallyDrop};
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleError};
-use instructions::FunctionCompiler;
+use instructions::{Externals, FunctionCompiler};
 use rustpython_compiler_core::bytecode;
 use std::sync::{Mutex, PoisonError};
 
@@ -145,8 +145,9 @@ impl Jit {
         ret: Option<JitType>,
         unique: u64,
         safety: Safety,
+        safepoint: Option<&'static AtomicU8>,
     ) -> Result<(FuncId, JitSig, Vec<DeoptSite>), JitCompileError> {
-        let result = self.build_function_inner(bytecode, args, ret, unique, safety);
+        let result = self.build_function_inner(bytecode, args, ret, unique, safety, safepoint);
         self.module.clear_context(&mut self.ctx);
         if result.is_err() {
             // Only `FunctionBuilder::finalize` resets the builder context, and
@@ -164,6 +165,7 @@ impl Jit {
         ret: Option<JitType>,
         unique: u64,
         safety: Safety,
+        safepoint: Option<&'static AtomicU8>,
     ) -> Result<(FuncId, JitSig, Vec<DeoptSite>), JitCompileError> {
         let ptr_type = self.module.target_config().pointer_type();
         // The deopt buffer comes first so that a guard can reach it without
@@ -203,7 +205,10 @@ impl Jit {
                 ret,
                 entry_block,
                 safety,
-                powf_func,
+                Externals {
+                    powf: powf_func,
+                    safepoint,
+                },
             );
 
             compiler.compile(func_ref, bytecode)?;
@@ -322,14 +327,21 @@ impl Jit {
 pub struct JitEngine {
     jit: Mutex<Jit>,
     next_id: AtomicU64,
+    safepoint: Option<&'static AtomicU8>,
 }
 
 impl JitEngine {
+    /// `safepoint` is the byte every compiled backward jump polls: non-zero
+    /// means the interpreter wants the running thread out of compiled code, be
+    /// it for a pending signal, a stop-the-world or its own shutdown. `None`
+    /// compiles no poll, for a caller with no interpreter behind the code; a
+    /// loop compiled that way runs to its end whatever happens meanwhile.
     #[must_use]
-    pub fn new() -> Arc<Self> {
+    pub fn new(safepoint: Option<&'static AtomicU8>) -> Arc<Self> {
         Arc::new(Self {
             jit: Mutex::new(Jit::new()),
             next_id: AtomicU64::new(0),
+            safepoint,
         })
     }
 
@@ -347,7 +359,8 @@ impl JitEngine {
         // any two `def f` in different scopes collide.
         let unique = self.next_id.fetch_add(1, Ordering::Relaxed);
         let mut jit = self.jit.lock().unwrap_or_else(PoisonError::into_inner);
-        let (id, sig, deopt_sites) = jit.build_function(bytecode, args, ret, unique, safety)?;
+        let (id, sig, deopt_sites) =
+            jit.build_function(bytecode, args, ret, unique, safety, self.safepoint)?;
         jit.module.finalize_definitions()?;
         let code = jit.module.get_finalized_function(id);
         drop(jit);
@@ -470,7 +483,7 @@ pub fn compile<C: bytecode::Constant>(
     args: &[JitType],
     ret: Option<JitType>,
 ) -> Result<CompiledCode, JitCompileError> {
-    JitEngine::new().compile(bytecode, args, ret, Safety::Permissive)
+    JitEngine::new(None).compile(bytecode, args, ret, Safety::Permissive)
 }
 
 pub struct CompiledCode {
@@ -520,13 +533,16 @@ impl CompiledCode {
         if status != 0 {
             // A status that is not the sentinel is the index of the site
             // describing the record its guard just wrote into this buffer.
-            let site = (status != DEOPT_STATUS_NESTED)
-                .then(|| &self.deopt_sites[status as usize - 1])
-                .filter(|site| site.resumable);
-            return match site {
+            let site =
+                (status != DEOPT_STATUS_NESTED).then(|| &self.deopt_sites[status as usize - 1]);
+            let state = site.filter(|site| site.resumable).map(|site| {
                 // SAFETY: this is the site whose guard wrote the record, and
                 // the buffer it wrote is still in scope.
-                Some(site) => Outcome::Deopt(unsafe { Self::read_deopt(site, deopt_ptr) }),
+                unsafe { Self::read_deopt(site, deopt_ptr) }
+            });
+            return match state {
+                _ if site.is_some_and(|site| site.safepoint) => Outcome::Interrupted(state),
+                Some(state) => Outcome::Deopt(state),
                 None => Outcome::Restart,
             };
         }
@@ -586,8 +602,15 @@ pub enum Outcome {
     /// A guard fired, but left nothing this call can carry on from, so it has
     /// to be run again from the start. Either the record in the buffer belongs
     /// to a nested frame, or it belongs to a site that cannot describe every
-    /// local that can be bound where it fires.
+    /// local that can be bound where it fires. A poll a nested frame made
+    /// arrives here too: its status is overwritten by the frame it returned
+    /// to, which leaves nothing to tell the two apart.
     Restart,
+    /// A backward jump polled and found the thread had been asked to leave the
+    /// bytecode loop. The code is still right for the values it was given, so
+    /// it stays installed; only this call finishes interpreted, from the
+    /// record where there is one and from the start where there is not.
+    Interrupted(Option<DeoptState>),
 }
 
 /// Everything the interpreter needs to pick up where the guard stopped.
@@ -631,6 +654,11 @@ pub(crate) struct DeoptSite {
     /// reading its fastlocals other than a `LoadFast` can see it go:
     /// `f_locals`, a tracer stepping the frame, a debugger stopped in it.
     pub(crate) resumable: bool,
+    /// Whether this is the poll a backward jump makes rather than a guard. A
+    /// guard fires because the compiled code is wrong for the values it was
+    /// given; a poll fires because the thread was asked to stop, which says
+    /// nothing about the code. Only the first is a reason to throw it away.
+    pub(crate) safepoint: bool,
 }
 
 /// What one value-stack slot holds at a deopt site. Only `Value` occupies a

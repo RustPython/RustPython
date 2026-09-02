@@ -138,7 +138,7 @@ mod tests {
     /// whether the backend can read a partially-defined local.
     #[test]
     fn conditionally_defined_local_is_not_compiled() {
-        let engine = JitEngine::new();
+        let engine = JitEngine::new(None);
         let f = py_function_def!(f => r#"
         def f(c: bool) -> int:
             if c:

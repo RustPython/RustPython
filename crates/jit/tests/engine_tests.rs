@@ -6,7 +6,7 @@ mod tests {
     /// be made unique before they can live in one engine.
     #[test]
     fn same_name_functions_coexist() {
-        let engine = JitEngine::new();
+        let engine = JitEngine::new(None);
         let first = py_function_def!(foo => r#"
     def foo(a: int, b: int) -> int:
         return a
@@ -36,7 +36,7 @@ mod tests {
     /// A rejected function must not leave half-built state in the shared context.
     #[test]
     fn failed_compile_does_not_poison_engine() {
-        let engine = JitEngine::new();
+        let engine = JitEngine::new(None);
         let unsupported = py_function_def!(unsupported => r#"
     def unsupported(a: int) -> int:
         return [a]
@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn compiled_code_keeps_engine_alive() {
         let code = {
-            let engine = JitEngine::new();
+            let engine = JitEngine::new(None);
             let f = py_function_def!(f => r#"
     def f(a: int) -> int:
         return a
@@ -100,7 +100,7 @@ mod tests {
     /// buffer is turned down rather than compiled into an overrun.
     #[test]
     fn parameters_beyond_the_buffer_are_rejected() {
-        let engine = JitEngine::new();
+        let engine = JitEngine::new(None);
         let widest = py_function_def!(widest => r#"
     def widest(a0: int, a1: int, a2: int, a3: int, a4: int, a5: int, a6: int, a7: int, a8: int, a9: int, a10: int, a11: int, a12: int, a13: int, a14: int, a15: int) -> int:
         return a15

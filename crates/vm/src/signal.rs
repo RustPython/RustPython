@@ -28,6 +28,19 @@ const QSBR_BIT: u8 = 1 << 1;
 /// allocation that tripped the threshold.
 #[cfg(feature = "threading")]
 const GC_BIT: u8 = 1 << 2;
+/// A stop-the-world is in progress, so some thread has been asked to park.
+#[cfg(feature = "threading")]
+const STOP_BIT: u8 = 1 << 3;
+/// The interpreter is shutting down, so every thread but the main one must
+/// stop running bytecode. Set once and never cleared.
+#[cfg(feature = "threading")]
+const FINALIZING_BIT: u8 = 1 << 4;
+
+/// Stop-the-world spans currently open. A single bit could not be cleared
+/// safely: two interpreters can stop their own worlds at once, and whichever
+/// finished first would clear the bit out from under the other.
+#[cfg(feature = "threading")]
+static STOP_REQUESTS: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
 #[expect(
     clippy::declare_interior_mutable_const,
@@ -145,6 +158,49 @@ pub(crate) fn clear_qsbr_bit() {
 #[cfg(feature = "threading")]
 pub(crate) fn qsbr_bit_set() -> bool {
     EVAL_BREAKER.load(Ordering::Relaxed) & QSBR_BIT != 0
+}
+
+/// Open a stop-the-world span, so the word says a thread may have to park.
+#[cfg(feature = "threading")]
+pub(crate) fn begin_stop_request() {
+    if STOP_REQUESTS.fetch_add(1, Ordering::Release) == 0 {
+        EVAL_BREAKER.fetch_or(STOP_BIT, Ordering::Release);
+    }
+}
+
+/// Close one, clearing the bit once the last one is closed.
+#[cfg(feature = "threading")]
+pub(crate) fn end_stop_request() {
+    if STOP_REQUESTS.fetch_sub(1, Ordering::Release) == 1 {
+        EVAL_BREAKER.fetch_and(!STOP_BIT, Ordering::Release);
+    }
+}
+
+/// Close every span at once. Only a fork child, where the threads whose spans
+/// they were do not exist any more, has spans nobody will ever close.
+#[cfg(feature = "threading")]
+pub(crate) fn reset_stop_requests() {
+    STOP_REQUESTS.store(0, Ordering::Release);
+    EVAL_BREAKER.fetch_and(!STOP_BIT, Ordering::Release);
+}
+
+/// Record that the interpreter has started shutting down.
+#[cfg(feature = "threading")]
+pub(crate) fn set_finalizing_bit() {
+    EVAL_BREAKER.fetch_or(FINALIZING_BIT, Ordering::Release);
+}
+
+/// The word compiled code polls at every backward jump.
+///
+/// Every reason a thread has to leave the bytecode loop sets a bit here before
+/// it becomes true of any one thread, so a zero word means no thread has to
+/// leave. The converse does not hold - the bits say nothing about *which*
+/// thread - which is why a poll that finds the word non-zero hands the frame
+/// back to the interpreter to make the per-thread checks
+/// `VirtualMachine::eval_breaker_tripped` makes.
+#[cfg(feature = "jit")]
+pub(crate) fn eval_breaker_word() -> &'static AtomicU8 {
+    &EVAL_BREAKER
 }
 
 /// Schedule an automatic collection to run at the next bytecode safepoint.
