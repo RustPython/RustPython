@@ -846,7 +846,7 @@ impl PyMemoryView {
     }
 
     // memory_exit
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, *exc_info)")]
     fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         self.py_release(vm)
     }

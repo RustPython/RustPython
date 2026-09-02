@@ -294,7 +294,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 
 #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
 impl PyBaseObject {
-    #[pymethod(raw)]
+    #[pymethod(raw, text_signature = "($self, /)")]
     fn __getstate__(vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
         let (zelf,): (PyObjectRef,) = args.bind_for(vm, callee)?;
         object_getstate_default(&zelf, false, vm)
@@ -388,7 +388,7 @@ impl PyBaseObject {
         }
     }
 
-    #[pyclassmethod]
+    #[pyclassmethod(text_signature = "($type, object, /)")]
     fn __subclasshook__(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }

@@ -2989,7 +2989,7 @@ impl Py<PyType> {
         subclass.real_is_subclass(self.as_object(), vm)
     }
 
-    #[pyclassmethod]
+    #[pyclassmethod(text_signature = "($type, object, /)")]
     fn __subclasshook__(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }

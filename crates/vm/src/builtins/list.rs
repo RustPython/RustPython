@@ -206,7 +206,7 @@ impl PyList {
         Ok(())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, iterable, /)")]
     fn extend(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_meth_o(vm, "list.extend", &func_args)?;
         let (x,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -219,7 +219,7 @@ impl PyList {
         elements.insert(position, element);
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, index, object, /)")]
     fn insert(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_no_kwargs(vm, "list.insert", &func_args)?;
         check_positional(vm, "insert", func_args.args.len(), 2, 2)?;
@@ -263,14 +263,14 @@ impl PyList {
         Ok(zelf)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn clear(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_noargs(vm, "list.clear", &func_args)?;
         let _removed = core::mem::take(self.borrow_vec_mut().deref_mut());
         Ok(())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn copy(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         check_noargs(vm, "list.copy", &func_args)?;
         Ok(Self::from(self.borrow_vec().to_vec()).into_ref(&vm.ctx))
@@ -286,7 +286,7 @@ impl PyList {
             + self.elements.read().capacity() * core::mem::size_of::<PyObjectRef>()
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn reverse(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_noargs(vm, "list.reverse", &func_args)?;
         self.borrow_vec_mut().reverse();
@@ -357,7 +357,7 @@ impl PyList {
         Self::irepeat(zelf, n.into(), vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, value, /)")]
     fn count(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "list.count", &func_args)?;
         if func_args.args.len() != 1 {
@@ -374,7 +374,7 @@ impl PyList {
         self.mut_contains(vm, &needle)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, value, start=0, stop=sys.maxsize, /)")]
     fn index(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "list.index", &func_args)?;
         check_positional(vm, "index", func_args.args.len(), 1, 3)?;
@@ -389,7 +389,7 @@ impl PyList {
         }
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, index=-1, /)")]
     fn pop(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_no_kwargs(vm, "list.pop", &func_args)?;
         check_positional(vm, "pop", func_args.args.len(), 0, 1)?;
@@ -409,7 +409,7 @@ impl PyList {
         }
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, value, /)")]
     fn remove(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_meth_o(vm, "list.remove", &func_args)?;
         let (needle,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -464,7 +464,7 @@ impl PyList {
         Ok(())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, *, key=None, reverse=False)")]
     fn sort(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         if !func_args.args.is_empty() {
             return Err(vm.new_type_error("sort() takes no positional arguments"));

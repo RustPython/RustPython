@@ -263,7 +263,7 @@ impl PyBytes {
         self.inner.contains(needle, vm)
     }
 
-    #[pystaticmethod]
+    #[pystaticmethod(text_signature = "(frm, to, /)")]
     fn maketrans(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         check_no_kwargs(vm, "bytes.maketrans", &func_args)?;
         check_positional(vm, "maketrans", func_args.args.len(), 2, 2)?;
@@ -275,61 +275,61 @@ impl PyBytes {
         self._getitem(&needle, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isalnum(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytes.isalnum", &func_args)?;
         Ok(self.inner.isalnum())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isalpha(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytes.isalpha", &func_args)?;
         Ok(self.inner.isalpha())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isascii(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytes.isascii", &func_args)?;
         Ok(self.inner.isascii())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isdigit(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytes.isdigit", &func_args)?;
         Ok(self.inner.isdigit())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn islower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytes.islower", &func_args)?;
         Ok(self.inner.islower())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isspace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytes.isspace", &func_args)?;
         Ok(self.inner.isspace())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isupper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytes.isupper", &func_args)?;
         Ok(self.inner.isupper())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn istitle(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytes.istitle", &func_args)?;
         Ok(self.inner.istitle())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn lower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "bytes.lower", &func_args)?;
         Ok(self.inner.lower().into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn upper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "bytes.upper", &func_args)?;
         Ok(self.inner.upper().into())
@@ -345,7 +345,7 @@ impl PyBytes {
         self.inner.swapcase().into()
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, sep=<unrepresentable>, bytes_per_sep=1)")]
     pub(crate) fn hex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
         // clinic signature: max 2 optional arguments
         if func_args.args.len() > 2 {
@@ -366,7 +366,7 @@ impl PyBytes {
         PyType::call(&cls, vec![bytes].into(), vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, fillchar=b' ', /)")]
     fn center(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytes.center", &func_args)?;
         check_positional(vm, "center", func_args.args.len(), 1, 2)?;
@@ -374,7 +374,7 @@ impl PyBytes {
         Ok(self.inner.center(options, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, fillchar=b' ', /)")]
     fn ljust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytes.ljust", &func_args)?;
         check_positional(vm, "ljust", func_args.args.len(), 1, 2)?;
@@ -382,7 +382,7 @@ impl PyBytes {
         Ok(self.inner.ljust(options, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, fillchar=b' ', /)")]
     fn rjust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytes.rjust", &func_args)?;
         check_positional(vm, "rjust", func_args.args.len(), 1, 2)?;
@@ -390,7 +390,7 @@ impl PyBytes {
         Ok(self.inner.rjust(options, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn count(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "bytes.count", &func_args)?;
         check_positional(vm, "count", func_args.args.len(), 1, 3)?;
@@ -403,7 +403,7 @@ impl PyBytes {
         Ok(self.inner.join(iter, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, suffix[, start[, end]], /)")]
     fn endswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_no_kwargs(vm, "bytes.endswith", &func_args)?;
         check_positional(vm, "endswith", func_args.args.len(), 1, 3)?;
@@ -422,7 +422,7 @@ impl PyBytes {
         )
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, prefix[, start[, end]], /)")]
     fn startswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_no_kwargs(vm, "bytes.startswith", &func_args)?;
         check_positional(vm, "startswith", func_args.args.len(), 1, 3)?;
@@ -441,7 +441,7 @@ impl PyBytes {
         )
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn find(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
         check_no_kwargs(vm, "bytes.find", &func_args)?;
         check_positional(vm, "find", func_args.args.len(), 1, 3)?;
@@ -450,7 +450,7 @@ impl PyBytes {
         Ok(index.map_or(-1, |v| v as isize))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn index(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "bytes.index", &func_args)?;
         check_positional(vm, "index", func_args.args.len(), 1, 3)?;
@@ -459,7 +459,7 @@ impl PyBytes {
         index.ok_or_else(|| vm.new_value_error("subsection not found"))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn rfind(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
         check_no_kwargs(vm, "bytes.rfind", &func_args)?;
         check_positional(vm, "rfind", func_args.args.len(), 1, 3)?;
@@ -468,7 +468,7 @@ impl PyBytes {
         Ok(index.map_or(-1, |v| v as isize))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn rindex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "bytes.rindex", &func_args)?;
         check_positional(vm, "rindex", func_args.args.len(), 1, 3)?;
@@ -482,7 +482,7 @@ impl PyBytes {
         Ok(self.inner.translate(options, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, bytes=None, /)")]
     fn strip(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytes.strip", &func_args)?;
         check_positional(vm, "strip", func_args.args.len(), 0, 1)?;
@@ -490,21 +490,21 @@ impl PyBytes {
         Ok(self.inner.strip(chars).into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, prefix, /)")]
     fn removeprefix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_meth_o(vm, "bytes.removeprefix", &func_args)?;
         let (prefix,): (PyBytesInner,) = func_args.bind(vm)?;
         Ok(self.inner.removeprefix(prefix).into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, suffix, /)")]
     fn removesuffix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_meth_o(vm, "bytes.removesuffix", &func_args)?;
         let (suffix,): (PyBytesInner,) = func_args.bind(vm)?;
         Ok(self.inner.removesuffix(suffix).into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, sep=None, maxsplit=-1)")]
     fn split(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // clinic signature: max 2 optional arguments
         if func_args.args.len() + func_args.kwargs.len() > 2 {
@@ -518,7 +518,7 @@ impl PyBytes {
             .split(options, |s, vm| vm.ctx.new_bytes(s.to_vec()).into(), vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, sep=None, maxsplit=-1)")]
     fn rsplit(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // clinic signature: max 2 optional arguments
         if func_args.args.len() + func_args.kwargs.len() > 2 {
@@ -532,7 +532,7 @@ impl PyBytes {
             .rsplit(options, |s, vm| vm.ctx.new_bytes(s.to_vec()).into(), vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sep, /)")]
     fn partition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         check_meth_o(vm, "bytes.partition", &func_args)?;
         let (sep,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -549,7 +549,7 @@ impl PyBytes {
         )))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sep, /)")]
     fn rpartition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         check_meth_o(vm, "bytes.rpartition", &func_args)?;
         let (sep,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -571,7 +571,7 @@ impl PyBytes {
         Ok(self.inner.expandtabs(options, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, keepends=False)")]
     fn splitlines(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // clinic signature: max 1 optional argument
         if func_args.args.len() + func_args.kwargs.len() > 1 {
@@ -586,7 +586,7 @@ impl PyBytes {
             .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()).into()))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, /)")]
     fn zfill(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_meth_o(vm, "bytes.zfill", &func_args)?;
         let (width,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -594,7 +594,7 @@ impl PyBytes {
         Ok(self.inner.zfill(width, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, old, new, count=-1, /)")]
     fn replace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytes.replace", &func_args)?;
         check_positional(vm, "replace", func_args.args.len(), 2, 3)?;
@@ -603,7 +603,7 @@ impl PyBytes {
         Ok(self.inner.replace(old, new, count, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn title(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "bytes.title", &func_args)?;
         Ok(self.inner.title().into())
@@ -668,7 +668,7 @@ impl PyRef<PyBytes> {
         }
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, bytes=None, /)")]
     fn lstrip(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytes.lstrip", &func_args)?;
         check_positional(vm, "lstrip", func_args.args.len(), 0, 1)?;
@@ -681,7 +681,7 @@ impl PyRef<PyBytes> {
         })
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, bytes=None, /)")]
     fn rstrip(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytes.rstrip", &func_args)?;
         check_positional(vm, "rstrip", func_args.args.len(), 0, 1)?;
@@ -701,7 +701,7 @@ impl PyRef<PyBytes> {
     /// For a list of possible encodings,
     /// see https://docs.python.org/3/library/codecs.html#standard-encodings
     /// currently, only 'utf-8' and 'ascii' implemented
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, encoding='utf-8', errors='strict')")]
     fn decode(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         // decode() takes at most 2 optional arguments
         if func_args.args.len() > 2 {

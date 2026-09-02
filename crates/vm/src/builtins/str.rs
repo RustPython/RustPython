@@ -836,7 +836,7 @@ impl PyStr {
         matches!(self.kind(), StrKind::Ascii)
     }
 
-    #[pymethod(name = "isascii")]
+    #[pymethod(name = "isascii", text_signature = "($self, /)")]
     fn isascii_py(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.isascii", &func_args)?;
         Ok(self.isascii())
@@ -860,7 +860,7 @@ impl PyStr {
             .ok_or_else(|| vm.new_overflow_error("string is too long to generate repr"))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn lower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "str.lower", &func_args)?;
         Ok(match self.as_str_kind() {
@@ -875,7 +875,7 @@ impl PyStr {
     // Lower, upper, and title case are special properties. Case folding erases those
     // differences. For ASCII, case folding is the same as lower case but other scripts have
     // their own, well-defined mappings.
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn casefold(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "str.casefold", &func_args)?;
         Ok(match self.as_str_kind() {
@@ -885,7 +885,7 @@ impl PyStr {
         })
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn upper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "str.upper", &func_args)?;
         Ok(match self.as_str_kind() {
@@ -895,7 +895,7 @@ impl PyStr {
         })
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn capitalize(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         check_noargs(vm, "str.capitalize", &func_args)?;
         Ok(match self.as_str_kind() {
@@ -912,7 +912,7 @@ impl PyStr {
         })
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, sep=None, maxsplit=-1)")]
     fn split(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // clinic signature: max 2 optional arguments
         let total = args.args.len() + args.kwargs.len();
@@ -972,7 +972,7 @@ impl PyStr {
         Ok(elements)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, sep=None, maxsplit=-1)")]
     fn rsplit(
         zelf: &Py<Self>,
         func_args: FuncArgs,
@@ -1003,7 +1003,7 @@ impl PyStr {
         Ok(elements)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, chars=None, /)")]
     fn strip(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "str.strip", &func_args)?;
         check_positional(vm, "strip", func_args.args.len(), 0, 1)?;
@@ -1042,7 +1042,7 @@ impl PyStr {
         })
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, chars=None, /)")]
     fn lstrip(
         zelf: PyRef<Self>,
         func_args: FuncArgs,
@@ -1065,7 +1065,7 @@ impl PyStr {
         })
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, chars=None, /)")]
     fn rstrip(
         zelf: PyRef<Self>,
         func_args: FuncArgs,
@@ -1088,7 +1088,7 @@ impl PyStr {
         })
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, suffix[, start[, end]], /)")]
     fn endswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_no_kwargs(vm, "str.endswith", &func_args)?;
         check_positional(vm, "endswith", func_args.args.len(), 1, 3)?;
@@ -1101,7 +1101,7 @@ impl PyStr {
         )
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, prefix[, start[, end]], /)")]
     fn startswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_no_kwargs(vm, "str.startswith", &func_args)?;
         check_positional(vm, "startswith", func_args.args.len(), 1, 3)?;
@@ -1166,7 +1166,7 @@ impl PyStr {
         }
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, prefix, /)")]
     fn removeprefix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         check_meth_o(vm, "str.removeprefix", &func_args)?;
         let (pref,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -1182,7 +1182,7 @@ impl PyStr {
             .to_owned())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, suffix, /)")]
     fn removesuffix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         check_meth_o(vm, "str.removesuffix", &func_args)?;
         let (suffix,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -1198,25 +1198,25 @@ impl PyStr {
             .to_owned())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isalnum(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.isalnum", &func_args)?;
         Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_alnum))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isnumeric(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.isnumeric", &func_args)?;
         Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_numeric))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isdigit(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.isdigit", &func_args)?;
         Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_digit))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isdecimal(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.isdecimal", &func_args)?;
         Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_decimal))
@@ -1226,14 +1226,14 @@ impl PyStr {
         cformat_string(vm, self.as_wtf8(), values)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, *args, **kwargs)")]
     fn format(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let format_str =
             FormatString::from_str(self.as_wtf8()).map_err(|e| e.to_pyexception(vm))?;
         format(&format_str, &args, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, mapping, /)")]
     fn format_map(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         check_meth_o(vm, "str.format_map", &func_args)?;
         let (mapping,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -1274,13 +1274,13 @@ impl PyStr {
         }
     }
 
-    #[pymethod(name = "title")]
+    #[pymethod(name = "title", text_signature = "($self, /)")]
     fn title_py(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         check_noargs(vm, "str.title", &func_args)?;
         Ok(self.title())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn swapcase(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         check_noargs(vm, "str.swapcase", &func_args)?;
         Ok(match self.as_str_kind() {
@@ -1293,13 +1293,13 @@ impl PyStr {
         })
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isalpha(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.isalpha", &func_args)?;
         Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_alpha))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, old, new, /, count=-1)")]
     fn replace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         use core::cmp::Ordering;
 
@@ -1359,20 +1359,20 @@ impl PyStr {
         self.char_all(unicode::classify::is_printable)
     }
 
-    #[pymethod(name = "isprintable")]
+    #[pymethod(name = "isprintable", text_signature = "($self, /)")]
     fn isprintable_py(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.isprintable", &func_args)?;
         Ok(self.isprintable())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isspace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.isspace", &func_args)?;
         Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_space))
     }
 
     // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn islower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.islower", &func_args)?;
         Ok(match self.as_str_kind() {
@@ -1383,7 +1383,7 @@ impl PyStr {
     }
 
     // Return true if all cased characters in the string are uppercase and there is at least one cased character, false otherwise.
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isupper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.isupper", &func_args)?;
         Ok(match self.as_str_kind() {
@@ -1393,7 +1393,7 @@ impl PyStr {
         })
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, keepends=False)")]
     fn splitlines(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // clinic signature: max 1 optional argument
         let total = func_args.args.len() + func_args.kwargs.len();
@@ -1495,7 +1495,7 @@ impl PyStr {
         Ok(self.as_wtf8().py_find(sub.as_wtf8(), range, find))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn find(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
         check_no_kwargs(vm, "str.find", &func_args)?;
         check_positional(vm, "find", func_args.args.len(), 1, 3)?;
@@ -1510,7 +1510,7 @@ impl PyStr {
             .map_or(-1, |v| v as isize))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn rfind(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
         check_no_kwargs(vm, "str.rfind", &func_args)?;
         check_positional(vm, "rfind", func_args.args.len(), 1, 3)?;
@@ -1525,7 +1525,7 @@ impl PyStr {
             .map_or(-1, |v| v as isize))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn index(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "str.index", &func_args)?;
         check_positional(vm, "index", func_args.args.len(), 1, 3)?;
@@ -1539,7 +1539,7 @@ impl PyStr {
         .ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn rindex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "str.rindex", &func_args)?;
         check_positional(vm, "rindex", func_args.args.len(), 1, 3)?;
@@ -1553,7 +1553,7 @@ impl PyStr {
         .ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sep, /)")]
     pub fn partition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_meth_o(vm, "str.partition", &func_args)?;
         let (sep,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -1577,7 +1577,7 @@ impl PyStr {
         Ok(partition.to_pyobject(vm))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sep, /)")]
     pub fn rpartition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_meth_o(vm, "str.rpartition", &func_args)?;
         let (sep,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -1628,13 +1628,13 @@ impl PyStr {
         cased
     }
 
-    #[pymethod(name = "istitle")]
+    #[pymethod(name = "istitle", text_signature = "($self, /)")]
     fn istitle_py(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.istitle", &func_args)?;
         Ok(self.istitle())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn count(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "str.count", &func_args)?;
         check_positional(vm, "count", func_args.args.len(), 1, 3)?;
@@ -1654,7 +1654,7 @@ impl PyStr {
         }))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, /)")]
     fn zfill(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         check_meth_o(vm, "str.zfill", &func_args)?;
         let (width,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -1702,7 +1702,7 @@ impl PyStr {
             .ok_or_else(|| vm.new_memory_error(""))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, fillchar=' ', /)")]
     fn center(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         check_no_kwargs(vm, "str.center", &func_args)?;
         check_positional(vm, "center", func_args.args.len(), 1, 2)?;
@@ -1710,7 +1710,7 @@ impl PyStr {
         self._pad(width, fillchar, AnyStr::py_center, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, fillchar=' ', /)")]
     fn ljust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         check_no_kwargs(vm, "str.ljust", &func_args)?;
         check_positional(vm, "ljust", func_args.args.len(), 1, 2)?;
@@ -1718,7 +1718,7 @@ impl PyStr {
         self._pad(width, fillchar, AnyStr::py_ljust, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, fillchar=' ', /)")]
     fn rjust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         check_no_kwargs(vm, "str.rjust", &func_args)?;
         check_positional(vm, "rjust", func_args.args.len(), 1, 2)?;
@@ -1726,7 +1726,7 @@ impl PyStr {
         self._pad(width, fillchar, AnyStr::py_rjust, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, tabsize=8)")]
     fn expandtabs(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         // clinic signature: max 1 optional argument
         let total = func_args.args.len() + func_args.kwargs.len();
@@ -1750,7 +1750,7 @@ impl PyStr {
         is_identifier_start && chars.all(unicode::identifier::is_continue)
     }
 
-    #[pymethod(name = "isidentifier")]
+    #[pymethod(name = "isidentifier", text_signature = "($self, /)")]
     fn isidentifier_py(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "str.isidentifier", &func_args)?;
         Ok(self.isidentifier())
@@ -1794,7 +1794,7 @@ impl PyStr {
         Ok(translated)
     }
 
-    #[pystaticmethod]
+    #[pystaticmethod(text_signature = "(x, y=<unrepresentable>, z=<unrepresentable>, /)")]
     fn maketrans(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_no_kwargs(vm, "str.maketrans", &func_args)?;
         check_positional(vm, "maketrans", func_args.args.len(), 1, 3)?;
@@ -1892,7 +1892,7 @@ impl PyStr {
         }
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, encoding='utf-8', errors='strict')")]
     fn encode(zelf: PyRef<Self>, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         // clinic signature: max 2 optional arguments
         let total = func_args.args.len() + func_args.kwargs.len();

@@ -808,7 +808,7 @@ impl PySet {
         self.inner.clear()
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, object, /)")]
     pub fn add(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_no_kwargs(vm, "set.add", &func_args)?;
         if func_args.args.len() != 1 {
@@ -821,28 +821,28 @@ impl PySet {
         self.inner.add(&item, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, object, /)")]
     fn remove(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_meth_o(vm, "set.remove", &func_args)?;
         let (item,): (PyObjectRef,) = func_args.bind(vm)?;
         self.inner.remove(item, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, object, /)")]
     pub fn discard(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_meth_o(vm, "set.discard", &func_args)?;
         let (item,): (PyObjectRef,) = func_args.bind(vm)?;
         self.inner.discard(&item, vm).map(|_| ())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     pub fn clear(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_noargs(vm, "set.clear", &func_args)?;
         self.inner.clear();
         Ok(())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     pub fn pop(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_noargs(vm, "set.pop", &func_args)?;
         self.inner.pop(vm)
