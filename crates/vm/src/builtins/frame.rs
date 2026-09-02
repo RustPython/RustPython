@@ -501,6 +501,38 @@ impl FrameObject {
         let tid = self.iframe().attached_tid();
         (tid != 0 && tid != crate::stdlib::_thread::get_ident()).then_some(tid)
     }
+
+    /// Where the frame this object stands for is executing. A materialized
+    /// frame's own copy only catches up when the source returns, so while the
+    /// source runs the position has to be read from it: a frame observed from
+    /// inside a call it made still reports that call's instruction.
+    fn live_lasti(&self, #[allow(unused)] vm: &VirtualMachine) -> u32 {
+        let live = self.find_live_source_iframe();
+        if !live.is_null() {
+            return unsafe { (*live).lasti.load(Relaxed) };
+        }
+        #[cfg(feature = "threading")]
+        if let Some(tid) = self.source_thread() {
+            return self.lasti_from_thread(tid, vm);
+        }
+        self.lasti()
+    }
+
+    /// `live_lasti` for a source frame still running on thread `tid`.
+    #[cfg(feature = "threading")]
+    #[cold]
+    fn lasti_from_thread(&self, tid: u64, vm: &VirtualMachine) -> u32 {
+        vm.state.stop_the_world.stop_the_world(&vm.state);
+        scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
+        // SAFETY: the world is stopped, so the owning thread is parked.
+        let live = unsafe { self.find_live_source_iframe_on(tid, vm) };
+        if live.is_null() {
+            // The source frame returned between the read of `attached_tid`
+            // and the stop, so this object's own copy is up to date.
+            return self.lasti();
+        }
+        unsafe { (*live).lasti.load(Relaxed) }
+    }
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(Py))]
@@ -521,33 +553,18 @@ impl FrameObject {
     }
 
     #[pygetset]
-    fn f_lasti(&self) -> u32 {
-        // Return byte offset (each instruction is 2 bytes) for compatibility.
-        // For materialized frames, read live lasti from the source iframe on
-        // the TLS chain so f_lasti reflects the current execution position.
-        let live = self.find_live_source_iframe();
-        let val = if !live.is_null() {
-            unsafe { (*live).lasti.load(Relaxed) }
-        } else {
-            self.lasti()
-        };
-        val * 2
+    fn f_lasti(&self, vm: &VirtualMachine) -> u32 {
+        // Byte offset — each instruction is 2 bytes.
+        self.live_lasti(vm) * 2
     }
 
     #[pygetset]
-    pub fn f_lineno(&self) -> usize {
+    pub fn f_lineno(&self, vm: &VirtualMachine) -> usize {
         let code = self.iframe().code();
         let first_line = || code.first_line_number.map_or(1, |n| n.get());
         // A running frame advances lasti past the instruction it is about to
-        // execute, so the line being executed is the one before it. The live
-        // position has to be read rather than this object's copy: a frame
-        // observed from inside a call it made still reports that call's line.
-        let live = self.find_live_source_iframe();
-        let lasti = if live.is_null() {
-            self.lasti()
-        } else {
-            unsafe { (*live).lasti.load(Relaxed) }
-        };
+        // execute, so the line being executed is the one before it.
+        let lasti = self.live_lasti(vm);
         let Some(idx) = lasti.checked_sub(1) else {
             // Execution has not started.
             return first_line();
