@@ -896,32 +896,30 @@ mod builtins {
     fn min_or_max(
         mut args: FuncArgs,
         vm: &VirtualMachine,
-        func_name: &str,
+        func_name: &'static str,
         op: PyComparisonOp,
     ) -> PyResult {
+        // A call with nothing to compare is refused before the keywords are read.
+        if args.args.is_empty() {
+            return Err(vm.new_arity_type_error(func_name, 1..=usize::MAX, 0));
+        }
+
         let default = args.take_keyword("default");
         let key_func = args.take_keyword("key");
 
-        if let Some(err) = args.check_kwargs_empty(vm) {
+        if let Some(err) = args.check_kwargs_empty_for(vm, func_name) {
             return Err(err);
         }
 
-        let candidates = match args.args.len().cmp(&1) {
-            core::cmp::Ordering::Greater => {
-                if default.is_some() {
-                    return Err(vm.new_type_error(format!(
-                        "Cannot specify a default for {func_name}() with multiple positional arguments"
-                    )));
-                }
-                args.args
+        let candidates = if args.args.len() > 1 {
+            if default.is_some() {
+                return Err(vm.new_type_error(format!(
+                    "Cannot specify a default for {func_name}() with multiple positional arguments"
+                )));
             }
-            core::cmp::Ordering::Equal => args.args[0].try_to_value(vm)?,
-            core::cmp::Ordering::Less => {
-                // zero arguments means type error:
-                return Err(
-                    vm.new_type_error(format!("{func_name} expected at least 1 argument, got 0"))
-                );
-            }
+            args.args
+        } else {
+            args.args[0].try_to_value(vm)?
         };
 
         let mut candidates_iter = candidates.into_iter();

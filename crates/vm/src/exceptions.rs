@@ -1658,6 +1658,7 @@ impl ToPyException for rustpython_host_env::multiprocessing::SemError {
 }
 
 pub(super) mod types {
+    use crate::class::PyClassDef;
     use crate::common::lock::PyRwLock;
     use crate::object::{Traverse, TraverseFn};
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
@@ -1918,9 +1919,10 @@ pub(super) mod types {
 
             // Reject unknown kwargs
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_type_error(format!(
-                    "AttributeError() got an unexpected keyword argument '{invalid_key}'"
-                )));
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some(Self::NAME),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Pass args without kwargs to BaseException_init
@@ -2079,9 +2081,10 @@ pub(super) mod types {
 
             // Reject unknown kwargs
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_type_error(format!(
-                    "NameError() got an unexpected keyword argument '{invalid_key}'"
-                )));
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some(Self::NAME),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Pass args without kwargs to BaseException_init

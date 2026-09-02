@@ -194,7 +194,7 @@ phf = { version = "0.14.0", default-features = false, features = ["macros"]}
 adler32 = "1.2.0"
 approx = "0.5.1"
 ascii = { version = "1.1", default-features = false }
-base64 = "0.22"
+base64 = "0.23"
 blake2 = "0.11.0-rc.6"
 bitflags = "2.11.0"
 bitflagset = "0.0.3"
@@ -215,7 +215,6 @@ dyn-clone = "1.0.10"
 exitcode = "1.1.2"
 flame = "0.2.2"
 flamer = "0.5"
-flate2 = { version = "1.1.9", default-features = false }
 # Bump only when the openssl crate bumps it
 foreign-types-shared = "0.1"
 gethostname = "1.0.2"
@@ -241,6 +240,7 @@ xz = "0.4.6-rc.0"
 xz-sys = "0.4.6-rc.0"
 libsqlite3-sys = "0.38"
 libz-rs-sys = "0.6"
+zlib-rs = { version = "=0.6.7", default-features = false, features = ["rust-allocator", "__internal-api"] }
 lock_api = "0.4"
 log = "0.4.30"
 lz4_flex = "0.13"
