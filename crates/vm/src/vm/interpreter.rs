@@ -699,9 +699,14 @@ impl Interpreter {
             vm.state.finalizing.store(true, Ordering::Release);
             // Compiled code cannot read that flag, and a daemon thread inside a
             // compiled loop would otherwise never leave it - shutdown would
-            // wait on a thread that had already been told to stop.
+            // wait on a thread that had already been told to stop. The span
+            // ends with this function: the word is shared by every interpreter
+            // in the process, and one left set costs every interpreter that
+            // outlives this one the per-instruction slow path.
             #[cfg(feature = "threading")]
-            crate::signal::set_finalizing_bit();
+            crate::signal::begin_finalize_request();
+            #[cfg(feature = "threading")]
+            scopeguard::defer! { crate::signal::end_finalize_request(); }
 
             // GC pass - collect cycles before module cleanup
             vm.state.gc.collect_force(2);
