@@ -642,7 +642,7 @@ impl Py<PyFunction> {
             };
             iframe.localsplus.push_stack_opt(value);
         }
-        iframe.lasti.store(state.offset, Relaxed);
+        iframe.set_lasti(state.offset);
     }
 
     pub fn invoke_with_locals(

@@ -1097,6 +1097,12 @@ impl InterpreterFrame {
         self.lasti.load(Relaxed)
     }
 
+    /// Set the instruction index the frame runs from next.
+    #[inline(always)]
+    pub fn set_lasti(&self, lasti: u32) {
+        self.lasti.store(lasti, Relaxed);
+    }
+
     /// Get the previous InterpreterFrame in the chain, or null.
     #[inline(always)]
     pub fn previous(&self) -> *const Self {
