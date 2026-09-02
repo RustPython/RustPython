@@ -31,8 +31,8 @@ const GC_BIT: u8 = 1 << 2;
 /// A stop-the-world is in progress, so some thread has been asked to park.
 #[cfg(feature = "threading")]
 const STOP_BIT: u8 = 1 << 3;
-/// The interpreter is shutting down, so every thread but the main one must
-/// stop running bytecode. Set once and never cleared.
+/// An interpreter is shutting down, so every thread but the one driving that
+/// shutdown must stop running bytecode.
 #[cfg(feature = "threading")]
 const FINALIZING_BIT: u8 = 1 << 4;
 
@@ -41,6 +41,14 @@ const FINALIZING_BIT: u8 = 1 << 4;
 /// finished first would clear the bit out from under the other.
 #[cfg(feature = "threading")]
 static STOP_REQUESTS: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// Shutdowns currently in progress, counted for the same reason as the
+/// stop-the-world spans: a subinterpreter is finalized while the interpreter
+/// that owns it is finalizing, and the word is shared by every interpreter in
+/// the process. An interpreter that leaves the bit behind slows every one that
+/// outlives it down to the per-instruction slow path.
+#[cfg(feature = "threading")]
+static FINALIZE_REQUESTS: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
 #[expect(
     clippy::declare_interior_mutable_const,
@@ -184,10 +192,22 @@ pub(crate) fn reset_stop_requests() {
     EVAL_BREAKER.fetch_and(!STOP_BIT, Ordering::Release);
 }
 
-/// Record that the interpreter has started shutting down.
+/// Open a shutdown span, so the word says a thread may have to stop.
 #[cfg(feature = "threading")]
-pub(crate) fn set_finalizing_bit() {
-    EVAL_BREAKER.fetch_or(FINALIZING_BIT, Ordering::Release);
+pub(crate) fn begin_finalize_request() {
+    if FINALIZE_REQUESTS.fetch_add(1, Ordering::Release) == 0 {
+        EVAL_BREAKER.fetch_or(FINALIZING_BIT, Ordering::Release);
+    }
+}
+
+/// Close one, clearing the bit once the last one is closed. The threads the
+/// span was opened for belong to an interpreter that no longer exists by the
+/// time this runs.
+#[cfg(feature = "threading")]
+pub(crate) fn end_finalize_request() {
+    if FINALIZE_REQUESTS.fetch_sub(1, Ordering::Release) == 1 {
+        EVAL_BREAKER.fetch_and(!FINALIZING_BIT, Ordering::Release);
+    }
 }
 
 /// The word compiled code polls at every backward jump.
