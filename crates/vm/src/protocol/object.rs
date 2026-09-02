@@ -3,8 +3,8 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple, PyTupleRef,
-        PyType, PyTypeRef, PyUtf8Str, int::check_int_to_str_digits, pystr::AsPyStr,
+        PyBaseObject, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple,
+        PyTupleRef, PyType, PyTypeRef, PyUtf8Str, int::check_int_to_str_digits, pystr::AsPyStr,
     },
     common::{hash::PyHash, str::to_ascii},
     convert::ToPyObject,
@@ -57,7 +57,7 @@ impl PyObjectRef {
 
     // PyObject *PyObject_Dir(PyObject *o)
     pub fn dir(self, vm: &VirtualMachine) -> PyResult<PyList> {
-        let attributes = self.class().get_attributes();
+        let attributes = self.class().get_attributes(&vm.ctx);
 
         let dict = PyDict::from_attributes(attributes, vm)?.into_ref(&vm.ctx);
 
@@ -93,7 +93,7 @@ impl PyObject {
         let Some(_aiter_method) = aiter_method else {
             return Err(vm.new_type_error(format!(
                 "'{}' object is not an async iterable",
-                self.class().name()
+                self.class().slot_name()
             )));
         };
 
@@ -110,7 +110,7 @@ impl PyObject {
         if !iterator.class().has_attr(identifier!(vm, __anext__)) {
             return Err(vm.new_type_error(format!(
                 "'{}' object is not an async iterator",
-                iterator.class().name()
+                iterator.class().slot_name()
             )));
         }
 
@@ -151,7 +151,7 @@ impl PyObject {
                 let has_getattr = cls.slots.getattro.load().is_some();
                 vm.new_type_error(format!(
                     "'{}' object has {} attributes ({} {})",
-                    cls.name(),
+                    cls.slot_name(),
                     if has_getattr { "only read-only" } else { "no" },
                     if attr_value.is_assign() {
                         "assign to"
@@ -195,47 +195,50 @@ impl PyObject {
             return descriptor(attr, self.to_owned(), value, vm);
         }
 
-        if let Some(instance_dict) = self.instance_dict() {
-            if let PySetterValue::Assign(value) = value {
-                instance_dict
-                    .get_or_insert(vm)
-                    .set_item(attr_name, value, vm)?;
-            } else if let Some(dict) = instance_dict.get() {
-                dict.del_item(attr_name, vm).map_err(|e| {
-                    if e.fast_isinstance(vm.ctx.exceptions.key_error) {
-                        vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned())
-                    } else {
-                        e
-                    }
-                })?;
-            } else {
-                return Err(vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned()));
+        let Some(instance_dict) = self.instance_dict() else {
+            let name = self.class().slot_name();
+            if descr.is_some() {
+                return Err(vm.new_attribute_error(format!(
+                    "'{name}' object attribute '{attr_name}' is read-only"
+                )));
             }
-            Ok(())
-        } else if descr.is_some() {
-            // _PyObject_GenericSetAttrWithDict: a class attribute without
-            // __set__ and no instance __dict__ is read-only
-            Err(vm.new_attribute_error(format!(
-                "'{}' object attribute '{}' is read-only",
-                self.class().name(),
-                attr_name
-            )))
-        } else if self.class().slots.setattro.load().is_some_and(|setattro| {
-            let generic: crate::types::SetattroFunc = crate::builtins::PyBaseObject::slot_setattro;
-            crate::types::fn_addr(setattro) == crate::types::fn_addr(generic)
-        }) {
-            // ... and when tp_setattro is the generic one, the error mentions
-            // that the type has no __dict__ for new attributes
-            let err = vm.new_attribute_error(format!(
-                "'{}' object has no attribute '{}' and no __dict__ for setting new attributes",
-                self.class().name(),
-                attr_name
-            ));
-            vm.set_attribute_error_context(&err, self.to_owned(), attr_name.to_owned());
-            Err(err)
+            // Only a type that left __setattr__ alone can be told about the
+            // missing __dict__, since overriding it is what hides the slot.
+            let generic_setattro = self.class().slots.setattro.load().is_some_and(|f| {
+                crate::types::fn_addr(f)
+                    == crate::types::fn_addr(
+                        PyBaseObject::slot_setattro as crate::types::SetattroFunc,
+                    )
+            });
+            let msg = if generic_setattro {
+                format!(
+                    "'{name}' object has no attribute '{attr_name}' and no \
+                     __dict__ for setting new attributes"
+                )
+            } else {
+                format!("'{name}' object has no attribute '{attr_name}'")
+            };
+            let exc = vm.new_attribute_error(msg);
+            vm.set_attribute_error_context(&exc, self.to_owned(), attr_name.to_owned());
+            return Err(exc);
+        };
+
+        if let PySetterValue::Assign(value) = value {
+            instance_dict
+                .get_or_insert(vm)
+                .set_item(attr_name, value, vm)?;
+        } else if let Some(dict) = instance_dict.get() {
+            dict.del_item(attr_name, vm).map_err(|e| {
+                if e.fast_isinstance(vm.ctx.exceptions.key_error) {
+                    vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned())
+                } else {
+                    e
+                }
+            })?;
         } else {
-            Err(vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned()))
+            return Err(vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned()));
         }
+        Ok(())
     }
 
     pub fn generic_getattr(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
@@ -362,8 +365,8 @@ impl PyObject {
             _ => Err(vm.new_type_error(format!(
                 "'{}' not supported between instances of '{}' and '{}'",
                 op.operator_token(),
-                self.class().name(),
-                other.class().name()
+                self.class().slot_name(),
+                other.class().slot_name()
             ))),
         }
     }
@@ -451,23 +454,20 @@ impl PyObject {
         s.downcast::<PyStr>().map_err(|obj| {
             vm.new_type_error(format!(
                 "__str__ returned non-string (type {})",
-                obj.class().name()
+                obj.class().slot_name()
             ))
         })
     }
 
-    // Equivalent to CPython's check_class. Returns Ok(()) if cls is a valid class,
-    // Err with TypeError if not. Uses abstract_get_bases internally.
-    fn check_class<F>(&self, vm: &VirtualMachine, msg: F) -> PyResult<()>
-    where
-        F: Fn() -> String,
-    {
+    // check_class. Returns Ok(()) if cls is a valid class, Err with TypeError if
+    // not. Uses abstract_get_bases internally.
+    fn check_class(&self, vm: &VirtualMachine, msg: &'static str) -> PyResult<()> {
         if self.abstract_get_bases(vm)?.is_some() {
             // Has __bases__, it's a valid class
             Ok(())
         } else {
             // No __bases__ or __bases__ is not a tuple
-            Err(vm.new_type_error(msg()))
+            Err(vm.new_type_error(msg))
         }
     }
 
@@ -549,13 +549,14 @@ impl PyObject {
         }
 
         // Check if derived is a class
-        self.check_class(vm, || "issubclass() arg 1 must be a class".to_owned())?;
+        self.check_class(vm, "issubclass() arg 1 must be a class")?;
 
         // Check if cls is a class, tuple, or union (matches CPython's order and message)
         if !cls.class().is(vm.ctx.types.union_type) {
-            cls.check_class(vm, || {
-                "issubclass() arg 2 must be a class, a tuple of classes, or a union".to_owned()
-            })?;
+            cls.check_class(
+                vm,
+                "issubclass() arg 2 must be a class, a tuple of classes, or a union",
+            )?;
         }
 
         self.abstract_issubclass(cls, vm)
@@ -635,9 +636,10 @@ impl PyObject {
             Ok(retval)
         } else {
             // Not a type object, check if it's a valid class
-            cls.check_class(vm, || {
-                "isinstance() arg 2 must be a type, a tuple of types, or a union".to_owned()
-            })?;
+            cls.check_class(
+                vm,
+                "isinstance() arg 2 must be a type, a tuple of types, or a union",
+            )?;
 
             if let Some(i_cls) =
                 vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
@@ -710,7 +712,7 @@ impl PyObject {
             return vm.with_recursion("while hashing", || hash(self, vm));
         }
 
-        Err(vm.new_type_error(format!("unhashable type: '{}'", self.class().name())))
+        Err(vm.new_type_error(format!("unhashable type: '{}'", self.class().slot_name())))
     }
 
     // type protocol
@@ -734,7 +736,7 @@ impl PyObject {
         self.length_opt(vm).ok_or_else(|| {
             vm.new_type_error(format!(
                 "object of type '{}' has no len()",
-                self.class().name()
+                self.class().slot_name()
             ))
         })?
     }
@@ -766,10 +768,13 @@ impl PyObject {
                 }
                 return Err(vm.new_type_error(format!(
                     "type '{}' is not subscriptable",
-                    self.downcast_ref::<PyType>().unwrap().name()
+                    self.downcast_ref::<PyType>().unwrap().slot_name()
                 )));
             }
-            Err(vm.new_type_error(format!("'{}' object is not subscriptable", self.class())))
+            Err(vm.new_type_error(format!(
+                "'{}' object is not subscriptable",
+                self.class().slot_name()
+            )))
         }
     }
 
@@ -796,8 +801,8 @@ impl PyObject {
         }
 
         Err(vm.new_type_error(format!(
-            "'{}' does not support item assignment",
-            self.class()
+            "'{}' object does not support item assignment",
+            self.class().slot_name()
         )))
     }
 
@@ -817,7 +822,15 @@ impl PyObject {
             return f(seq, i, None, vm);
         }
 
-        Err(vm.new_type_error(format!("'{}' does not support item deletion", self.class())))
+        // A type carrying a sequence table turns the deletion down in
+        // PySequence_DelItem's words instead; every heap type carries one.
+        let name = self.class().slot_name();
+        let msg = if seq.slots().has_any() || self.class().heaptype_ext.is_some() {
+            format!("'{name}' object doesn't support item deletion")
+        } else {
+            format!("'{name}' object does not support item deletion")
+        };
+        Err(vm.new_type_error(msg))
     }
 
     /// Equivalent to CPython's _PyObject_LookupSpecial

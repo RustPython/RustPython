@@ -1,24 +1,21 @@
 use super::{
-    PositionIterInternal, PyBytesRef, PyDict, PySlice, PyTuple, PyTupleRef, PyType, PyTypeRef,
+    PositionIterInternal, PyBytesRef, PyDict, PyTuple, PyTupleRef, PyType, PyTypeRef,
     int::PyInt,
-    iter::{
-        IterStatus::{self, Exhausted},
-        builtins_iter,
-    },
+    iter::{IterStatus, builtins_iter},
 };
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
-    TryFromBorrowedObject, VirtualMachine,
+    TryFromBorrowedObject, TryFromObject, VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper, StringRange, adjust_indices},
     atomic_func,
     bytes_inner::{swapcase_ascii, title_ascii},
     cformat::cformat_string,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::{
         lock::LazyLock,
         str::{PyKindStr, StrData, StrKind},
     },
-    convert::{ToPyException, ToPyObject, ToPyResult, TryFromObject},
+    convert::{ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
     function::{
         ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
@@ -30,7 +27,7 @@ use crate::{
         BufferFlags, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods,
     },
     sequence::SequenceExt,
-    sliceable::SliceableSequenceOp,
+    sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SelfIter,
@@ -382,7 +379,11 @@ impl IterNext for PyStrIterator {
                 internal.1 += ch.len_wtf8();
                 return Ok(PyIterReturn::Return(ch.to_pyobject(vm)));
             }
-            internal.0.status = Exhausted;
+            let released = internal.0.exhaust();
+            // The string is released after the lock. A `__del__` that iterates
+            // again would otherwise reach for a lock this call still holds.
+            drop(internal);
+            drop(released);
         }
         Ok(PyIterReturn::StopIteration(None))
     }
@@ -461,7 +462,7 @@ impl Constructor for PyStr {
         let encoding_kw = func_args.kwargs.contains_key("encoding");
         let errors_kw = func_args.kwargs.contains_key("errors");
 
-        let mut args: Self::Args = func_args.bind(vm)?;
+        let mut args: Self::Args = func_args.bind_for(vm, Self::NAME)?;
 
         if let OptionalArg::Present(encoding) = args.encoding {
             args.encoding = OptionalArg::Present(
@@ -762,7 +763,7 @@ impl PyStr {
         } else {
             Err(vm.new_type_error(format!(
                 "'in <string>' requires string as left operand, not {}",
-                needle.class().name()
+                needle.class().slot_name()
             )))
         }
     }
@@ -772,34 +773,11 @@ impl PyStr {
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        // CPython parity (unicode_subscript): ints and __index__ objects index
-        // single characters, slices slice, anything else is a TypeError.
-        let index = if let Some(i) = needle.downcast_ref::<PyInt>() {
-            Some(i.as_bigint().to_isize())
-        } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
-            return self
-                .getitem_by_slice(vm, slice.to_saturated(vm)?)
-                .to_pyresult(vm);
-        } else if let Some(i) = needle.try_index_opt(vm) {
-            Some(i?.as_bigint().to_isize())
-        } else {
-            None
+        let item = match SequenceIndex::try_from_str_subscript(vm, needle)? {
+            SequenceIndex::Int(i) => self.getitem_by_index(vm, i)?.to_pyobject(vm),
+            SequenceIndex::Slice(slice) => self.getitem_by_slice(vm, slice)?.to_pyobject(vm),
         };
-        match index {
-            Some(i) => {
-                let i = i.ok_or_else(|| {
-                    vm.new_index_error("cannot fit 'int' into an index-sized integer")
-                })?;
-                let pos = self
-                    .wrap_index(i)
-                    .ok_or_else(|| vm.new_index_error("string index out of range"))?;
-                Ok(self.do_get(pos).to_pyobject(vm))
-            }
-            None => Err(vm.new_type_error(format!(
-                "string indices must be integers, not '{}'",
-                needle.class().name()
-            ))),
-        }
+        Ok(item)
     }
 
     fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -965,8 +943,8 @@ impl PyStr {
                         .collect()
                 },
                 |v, n, vm| {
-                    v.as_bytes().py_split_whitespace(n, |s| {
-                        unsafe { AsciiStr::from_ascii_unchecked(s) }.to_pyobject(vm)
+                    v.as_str().py_split_whitespace(n, |s| {
+                        unsafe { AsciiStr::from_ascii_unchecked(s.as_bytes()) }.to_pyobject(vm)
                     })
                 },
             ),
@@ -1041,21 +1019,24 @@ impl PyStr {
                             .trim_matches(|c| memchr::memchr(c as _, chars.as_bytes()).is_some());
                         unsafe { AsciiStr::from_ascii_unchecked(s.as_bytes()) }
                     },
-                    |s| s.trim(),
+                    |s| {
+                        let s = s.as_str().trim_matches(unicode::classify::is_space);
+                        unsafe { AsciiStr::from_ascii_unchecked(s.as_bytes()) }
+                    },
                 )
                 .into(),
             PyKindStr::Utf8(s) => s
                 .py_strip(
                     chars,
                     |s, chars| s.trim_matches(|c| chars.contains(c)),
-                    |s| s.trim(),
+                    |s| s.trim_matches(unicode::classify::is_space),
                 )
                 .into(),
             PyKindStr::Wtf8(w) => w
                 .py_strip(
                     chars,
                     |s, chars| s.trim_matches(|c| chars.code_points().contains(&c)),
-                    |s| s.trim(),
+                    |s| s.trim_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
                 )
                 .into(),
         })
@@ -1075,7 +1056,7 @@ impl PyStr {
         let stripped = s.py_strip(
             chars,
             |s, chars| s.trim_start_matches(|c| chars.contains_code_point(c)),
-            |s| s.trim_start(),
+            |s| s.trim_start_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
         );
         Ok(if s == stripped {
             zelf
@@ -1098,7 +1079,7 @@ impl PyStr {
         let stripped = s.py_strip(
             chars,
             |s, chars| s.trim_end_matches(|c| chars.contains_code_point(c)),
-            |s| s.trim_end(),
+            |s| s.trim_end_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
         );
         Ok(if s == stripped {
             zelf
@@ -1454,34 +1435,28 @@ impl PyStr {
 
     #[pymethod]
     fn join(zelf: PyRef<Self>, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        // CPython: PyUnicode_Join collects the sequence first, then reports the
-        // index of the first non-str item. The iterable conversion reports
-        // "can only join an iterable" (PySequence_Fast).
-        let iterable = <ArgIterable<PyObjectRef> as TryFromObject>::try_from_object(vm, iterable)
+        // `PyUnicode_Join()` reaches its elements through `PySequence_Fast()`,
+        // which fills a list from the iterator and so asks it how long it is,
+        // and which has its own wording for what it cannot iterate.
+        let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)
             .map_err(|_| vm.new_type_error("can only join an iterable"))?;
-        let items = iterable.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        let items = items
-            .into_iter()
-            .enumerate()
-            .map(|(i, item)| {
-                item.downcast::<Self>().map_err(|item| {
-                    vm.new_type_error(format!(
-                        "sequence item {i}: expected str instance, {} found",
-                        item.class().name()
-                    ))
-                })
+        let iter = iterable.iter_sized(vm)?.enumerate().map(|(i, obj)| {
+            obj?.downcast::<Self>().map_err(|obj| {
+                vm.new_type_error(format!(
+                    "sequence item {i}: expected str instance, {} found",
+                    obj.class().slot_name()
+                ))
             })
-            .collect::<Result<Vec<_>, _>>()?;
-        let joined = match items.as_slice() {
-            [first] => {
+        });
+        let joined = match iter.exactly_one() {
+            Ok(first) => {
+                let first = first?;
                 if first.as_object().class().is(vm.ctx.types.str_type) {
-                    return Ok(first.clone());
+                    return Ok(first);
                 }
                 first.as_wtf8().to_owned()
             }
-            _ => zelf
-                .as_wtf8()
-                .py_join(items.iter().map(|item| Ok(item.clone())))?,
+            Err(iter) => zelf.as_wtf8().py_join(iter)?,
         };
         Ok(vm.ctx.new_str(joined))
     }
@@ -1752,7 +1727,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn expandtabs(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+    fn expandtabs(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         // clinic signature: max 1 optional argument
         let total = func_args.args.len() + func_args.kwargs.len();
         if total > 1 {
@@ -1762,14 +1737,7 @@ impl PyStr {
         }
         let args: anystr::ExpandTabsArgs = func_args.bind(vm)?;
         let tabsize = args.tabsize(vm)?;
-        let s = self.try_as_utf8(vm)?;
-        // TODO: support WTF-8
-        Ok(if tabsize == 0 {
-            // a non-positive tab size simply removes the tabs
-            s.as_str().chars().filter(|&c| c != '\t').collect()
-        } else {
-            rustpython_common::str::expandtabs(s.as_str(), tabsize)
-        })
+        Ok(rustpython_common::str::expandtabs(self.as_wtf8(), tabsize))
     }
 
     pub fn isidentifier(&self) -> bool {
@@ -1792,7 +1760,10 @@ impl PyStr {
     #[pymethod]
     pub fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         vm.get_method_or_type_error(table.clone(), identifier!(vm, __getitem__), || {
-            format!("'{}' object is not subscriptable", table.class().name())
+            format!(
+                "'{}' object is not subscriptable",
+                table.class().slot_name()
+            )
         })?;
 
         let mut translated = Wtf8Buf::new();
@@ -2504,6 +2475,13 @@ impl SliceableSequenceOp for PyStr {
         self.data.nth_char(index)
     }
 
+    fn getitem_by_index(&self, vm: &VirtualMachine, index: isize) -> PyResult<Self::Item> {
+        let pos = self
+            .wrap_index(index)
+            .ok_or_else(|| vm.new_index_error("string index out of range"))?;
+        Ok(self.do_get(pos))
+    }
+
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
         if let PyKindStr::Ascii(s) = self.as_str_kind() {
             return s[range].into();
@@ -2890,16 +2868,16 @@ impl AnyStr for str {
         let mut splits = Vec::new();
         let mut last_offset = 0;
         let mut count = maxsplit;
-        for (offset, _) in self.match_indices(|c: char| c.is_ascii_whitespace() || c == '\x0b') {
+        for (offset, separator) in self.match_indices(unicode::classify::is_space) {
             if last_offset == offset {
-                last_offset += 1;
+                last_offset += separator.len();
                 continue;
             }
             if count == 0 {
                 break;
             }
             splits.push(convert(&self[last_offset..offset]));
-            last_offset = offset + 1;
+            last_offset = offset + separator.len();
             count -= 1;
         }
         if last_offset != self.len() {
@@ -2916,15 +2894,15 @@ impl AnyStr for str {
         let mut splits = Vec::new();
         let mut last_offset = self.len();
         let mut count = maxsplit;
-        for (offset, _) in self.rmatch_indices(|c: char| c.is_ascii_whitespace() || c == '\x0b') {
-            if last_offset == offset + 1 {
-                last_offset -= 1;
+        for (offset, separator) in self.rmatch_indices(unicode::classify::is_space) {
+            if last_offset == offset + separator.len() {
+                last_offset = offset;
                 continue;
             }
             if count == 0 {
                 break;
             }
-            splits.push(convert(&self[offset + 1..last_offset]));
+            splits.push(convert(&self[offset + separator.len()..last_offset]));
             last_offset = offset;
             count -= 1;
         }
@@ -3009,19 +2987,19 @@ impl AnyStr for Wtf8 {
         let mut splits = Vec::new();
         let mut last_offset = 0;
         let mut count = maxsplit;
-        for (offset, _) in self
+        for (offset, separator) in self
             .code_point_indices()
-            .filter(|(_, c)| c.is_char_and(|c| c.is_ascii_whitespace() || c == '\x0b'))
+            .filter(|(_, c)| c.is_char_and(unicode::classify::is_space))
         {
             if last_offset == offset {
-                last_offset += 1;
+                last_offset += separator.len_wtf8();
                 continue;
             }
             if count == 0 {
                 break;
             }
             splits.push(convert(&self[last_offset..offset]));
-            last_offset = offset + 1;
+            last_offset = offset + separator.len_wtf8();
             count -= 1;
         }
         if last_offset != self.len() {
@@ -3038,19 +3016,19 @@ impl AnyStr for Wtf8 {
         let mut splits = Vec::new();
         let mut last_offset = self.len();
         let mut count = maxsplit;
-        for (offset, _) in self
+        for (offset, separator) in self
             .code_point_indices()
             .rev()
-            .filter(|(_, c)| c.is_char_and(|c| c.is_ascii_whitespace() || c == '\x0b'))
+            .filter(|(_, c)| c.is_char_and(unicode::classify::is_space))
         {
-            if last_offset == offset + 1 {
-                last_offset -= 1;
+            if last_offset == offset + separator.len_wtf8() {
+                last_offset = offset;
                 continue;
             }
             if count == 0 {
                 break;
             }
-            splits.push(convert(&self[offset + 1..last_offset]));
+            splits.push(convert(&self[offset + separator.len_wtf8()..last_offset]));
             last_offset = offset;
             count -= 1;
         }

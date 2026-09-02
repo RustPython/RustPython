@@ -80,7 +80,10 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
-    name: Run rust tests
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: Run rust tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -114,20 +117,20 @@ jobs:
         uses: ./.github/actions/install-macos-deps
 
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+        run: cargo test --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
         env:
           INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
       - name: run c-api tests
         working-directory: crates/capi
-        run: cargo test
+        run: cargo test --locked
         if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
 
       - name: check compilation without host_env (sandbox mode)
         run: |
-          cargo check -p rustpython-vm --no-default-features --features compiler
-          cargo check -p rustpython-stdlib --no-default-features --features compiler
-          cargo build --no-default-features --features stdlib,importlib,stdio,encodings,freeze-stdlib
+          cargo check --locked -p rustpython-vm --no-default-features --features compiler
+          cargo check --locked -p rustpython-stdlib --no-default-features --features compiler
+          cargo build --locked --no-default-features --features stdlib,importlib,stdio,encodings,freeze-stdlib
         if: runner.os == 'Linux'
 
       - name: sandbox smoke test
@@ -137,11 +140,11 @@ jobs:
         if: runner.os == 'Linux'
 
       - name: Test openssl build
-        run: cargo build --no-default-features --features ssl-openssl
+        run: cargo build --locked --no-default-features --features ssl-openssl
         if: runner.os == 'Linux'
 
       - name: Test vendored OpenSSL build
-        run: cargo build --no-default-features --features ssl-openssl-vendor
+        run: cargo build --locked --no-default-features --features ssl-openssl-vendor
         if: runner.os == 'Linux'
 
       # - name: Install tk-dev for tkinter build
@@ -159,13 +162,16 @@ jobs:
         if: runner.os == 'Linux'
 
       - name: run update_lib tests
-        run: cargo run -- -m unittest discover -s scripts/update_lib/tests -v
+        run: cargo run --locked -- -m unittest discover -s scripts/update_lib/tests -v
         env:
           PYTHONPATH: scripts
         if: runner.os == 'Linux'
 
   cargo_check:
-    name: cargo check
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: cargo check (${{ matrix.os }}, ${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     needs:
       - determine_changes
@@ -274,11 +280,11 @@ jobs:
       #     args: --ignore-rust-version
 
       - name: Check compilation with threading
-        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
+        run: cargo check --locked --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
 
       - name: Check compilation with ssl
         if: ${{ !matrix.skip_ssl }}
-        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS }}
+        run: cargo check --locked --target "${{ matrix.target }}" ${{ env.CARGO_ARGS }}
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
@@ -292,7 +298,10 @@ jobs:
         test_multiprocessing_fork
         test_multiprocessing_forkserver
         test_multiprocessing_spawn
-    name: Run snippets and cpython tests
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: Run snippets and cpython tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -302,8 +311,7 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          env_polluting_tests:
-            - test_set
+          env_polluting_tests: []
           skips: []
           timeout: 50
         - os: ubuntu-latest
@@ -311,8 +319,7 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          env_polluting_tests:
-            - test_set
+          env_polluting_tests: []
           skips: []
           timeout: 60
         - os: windows-2025
@@ -320,8 +327,7 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          env_polluting_tests:
-            - test_set
+          env_polluting_tests: []
           skips: []
           timeout: 50
       fail-fast: false
@@ -357,7 +363,7 @@ jobs:
 
       # Keep features in sync with update-caches.yml CARGO_ARGS.
       - name: build rustpython
-        run: cargo build --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
+        run: cargo build --locked --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
 
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
@@ -465,7 +471,10 @@ jobs:
         run: python -I scripts/whats_left.py ${{ env.CARGO_ARGS }} --features jit
 
   clippy:
-    name: clippy
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: clippy (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs:
       - determine_changes
@@ -507,7 +516,7 @@ jobs:
         continue-on-error: true
 
       - name: Clippy
-        run: cargo clippy --keep-going ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
+        run: cargo clippy --locked --keep-going ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
 
   cargo_shear:
     name: cargo shear
@@ -526,12 +535,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: cargo-bins/cargo-binstall@e00d2c94cc0067b77737821097a62d91c0301baa # v1.21.1
+      - uses: cargo-bins/cargo-binstall@75b4bfae1b2c753a6806bbce6e6cb89b602de33c # v1.22.0
 
       - name: cargo shear
         run: |
           cargo binstall --no-confirm cargo-shear
-          cargo shear
+          cargo shear --locked
 
   lint:
     name: Lint
@@ -554,7 +563,7 @@ jobs:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@d63ba7532e0942965320cd8d73cbae4c7b3c5283 # v1.73.1
+        uses: reviewdog/action-actionlint@dbe5299849118fd6f099ba563d263d770955a64a # v1.73.2
 
       - name: zizmor
         uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
@@ -644,7 +653,7 @@ jobs:
             ${{ runner.os }}-
 
       - name: Run tests under miri
-        run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test -p rustpython-vm -- miri_test
+        run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test --locked -p rustpython-vm -- miri_test
         env:
           # miri-ignore-leaks because the type-object circular reference means that there will always be
           # a memory leak, at least until we have proper cyclic gc
@@ -683,7 +692,7 @@ jobs:
             ${{ runner.os }}-
 
       - name: cargo clippy
-        run: cargo clippy --keep-going --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
+        run: cargo --locked clippy --keep-going --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
 
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -773,6 +782,8 @@ jobs:
     name: Run snippets and cpython tests on wasm-wasi
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -807,13 +818,13 @@ jobs:
           clang: true
 
       - name: build rustpython
-        run: cargo build --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env --verbose
+        run: cargo build --locked --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env --verbose
       - name: run snippets
         run: |
-          wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
-          wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_time.py"
+          wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
+          wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_time.py"
       - name: run cpython unittest
-        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
+        run: wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
 
   cargo_doc:
     needs:

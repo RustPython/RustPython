@@ -6,6 +6,7 @@ pub use rustpython_host_env::posix::set_inheritable;
 
 #[pymodule(name = "posix", with(
     super::os::_os,
+    super::posix_unix_like::_posix_unix_like,
     #[cfg(any(
         target_os = "linux",
         target_os = "netbsd",
@@ -23,7 +24,7 @@ pub mod module {
         function::{ArgMapping, KwArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
-            _os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, dir_fd_and_fd_invalid,
+            _os, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, dir_fd_and_fd_invalid,
             fd_and_follow_symlinks_invalid, fs_metadata, warn_if_bool_fd,
         },
     };
@@ -384,18 +385,6 @@ pub mod module {
             .map_err(|err| err.to_pyexception(vm))
     }
 
-    #[pyattr]
-    fn environ(vm: &VirtualMachine) -> PyDictRef {
-        let environ = vm.ctx.new_dict();
-        for (key, value) in crate::host_env::os::vars_os() {
-            let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
-            let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
-            environ.set_item(&*key, value, vm).unwrap();
-        }
-
-        environ
-    }
-
     #[pyfunction]
     fn _create_environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
@@ -405,16 +394,6 @@ pub mod module {
             environ.set_item(&*key, value, vm).unwrap();
         }
         environ
-    }
-
-    #[derive(FromArgs)]
-    pub(super) struct SymlinkArgs<'fd> {
-        src: OsPath,
-        dst: OsPath,
-        #[pyarg(flatten)]
-        _target_is_directory: TargetIsDirectory,
-        #[pyarg(flatten)]
-        dir_fd: DirFd<'fd, { _os::SYMLINK_DIR_FD as usize }>,
     }
 
     #[pyfunction]
@@ -431,25 +410,6 @@ pub mod module {
             let [] = args.dir_fd.0;
             rustpython_host_env::posix::symlink(&src, &dst).map_err(|err| err.into_pyexception(vm))
         }
-    }
-
-    #[pyfunction]
-    #[pyfunction(name = "unlink")]
-    fn remove(
-        path: OsPath,
-        dir_fd: DirFd<'_, { _os::UNLINK_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        #[cfg(not(target_os = "redox"))]
-        if let Some(fd) = dir_fd.raw_opt() {
-            let c_path = path.clone().into_cstring(vm)?;
-            return rustpython_host_env::posix::unlinkat(fd, &c_path)
-                .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm));
-        }
-        #[cfg(target_os = "redox")]
-        let [] = dir_fd.0;
-        crate::host_env::fs::remove_file(&path)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -865,6 +825,11 @@ pub mod module {
                 "can't fork at interpreter shutdown".into(),
             ));
         }
+        if !vm.state.allow_fork() {
+            return Err(
+                vm.new_runtime_error("fork not supported for isolated subinterpreters".to_owned())
+            );
+        }
 
         // RustPython does not yet have C-level audit hooks; call sys.audit()
         // to preserve Python-visible behavior and failure semantics.
@@ -1080,6 +1045,11 @@ pub mod module {
 
     #[pyfunction]
     fn execv(path: OsPath, argv: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let c_path = path.clone().into_cstring(vm)?;
 
         if !argv.downcastable::<crate::builtins::PyList>()
@@ -1110,6 +1080,11 @@ pub mod module {
         env: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let c_path = path.clone().into_cstring(vm)?;
 
         if !argv.downcastable::<crate::builtins::PyList>()
@@ -2488,6 +2463,7 @@ mod posix_sched {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyTupleRef,
+        class::PyClassDef,
         convert::{IntoPyException, ToPyObject},
         function::FuncArgs,
         types::PyStructSequence,
@@ -2517,7 +2493,7 @@ mod posix_sched {
             vm: &VirtualMachine,
         ) -> PyResult {
             use crate::PyPayload;
-            let SchedParamArgs { sched_priority } = args.bind(vm)?;
+            let SchedParamArgs { sched_priority } = args.bind_for(vm, Self::NAME)?;
             let items = vec![sched_priority];
             crate::builtins::PyTuple::new_unchecked(items.into_boxed_slice())
                 .into_ref_with_type(vm, cls)

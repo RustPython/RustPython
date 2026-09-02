@@ -7,6 +7,7 @@ use crate::{
     convert::{IntoPyException, ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
     host_env::{crt_fd, posix::RawMode},
+    ospath::OsPath,
 };
 use core::marker::PhantomData;
 use std::{io, path::Path};
@@ -121,6 +122,18 @@ impl<const AVAILABLE: usize, KW: DirFdKeyword> FromArgs for DirFd<'_, AVAILABLE,
         let fd = fd.map_err(|e| e.to_pyexception(vm))?;
         Ok(Self([fd; AVAILABLE], PhantomData))
     }
+}
+
+#[derive(FromArgs)]
+pub(crate) struct SymlinkArgs<'fd> {
+    pub src: OsPath,
+    pub dst: OsPath,
+    #[cfg_attr(any(unix, target_os = "wasi"), expect(unused))]
+    #[pyarg(flatten)]
+    pub target_is_directory: TargetIsDirectory,
+    #[cfg_attr(not(unix), expect(unused))]
+    #[pyarg(flatten)]
+    pub dir_fd: DirFd<'fd, { _os::SYMLINK_DIR_FD as usize }>,
 }
 
 #[derive(FromArgs)]
@@ -259,6 +272,7 @@ pub(super) mod _os {
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
+        class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
@@ -290,7 +304,7 @@ pub(super) mod _os {
     const STAT_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const UTIME_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
-    pub(crate) const UNLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    pub(crate) const UNLINK_DIR_FD: bool = cfg!(not(windows));
     const RENAME_DIR_FD: bool = cfg!(any(unix, target_os = "wasi"));
     const RMDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const SCANDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
@@ -389,7 +403,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn read(fd: crt_fd::Borrowed<'_>, n: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        let mut buffer = vec![0u8; n];
+        let mut buffer = vm.new_zeroed_bytes(n)?;
         loop {
             match vm.allow_threads(|| crt_fd::read(fd, &mut buffer)) {
                 Ok(n) => {
@@ -405,24 +419,47 @@ pub(super) mod _os {
         }
     }
 
+    /// `read(2)` into `buf`, retrying on EINTR (PEP 475).
+    fn read_into_slice(
+        fd: crt_fd::Borrowed<'_>,
+        buf: &mut [u8],
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        loop {
+            match vm.allow_threads(|| crt_fd::read(fd, buf)) {
+                Ok(n) => return Ok(n),
+                Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(e) => return Err(e.into_pyexception(vm)),
+            }
+        }
+    }
+
     #[pyfunction]
     fn readinto(
         fd: crt_fd::Borrowed<'_>,
         buffer: ArgMemoryBuffer,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        buffer.with_ref(|buf| {
-            loop {
-                match vm.allow_threads(|| crt_fd::read(fd, buf)) {
-                    Ok(n) => return Ok(n),
-                    Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
-                        vm.check_signals()?;
-                        continue;
-                    }
-                    Err(e) => return Err(e.into_pyexception(vm)),
-                }
-            }
-        })
+        if rustpython_host_env::io::reads_without_waiting(fd) {
+            // The read answers from the file itself, so it returns without
+            // waiting on anyone; write where the caller asked directly.
+            return buffer.with_ref(|buf| read_into_slice(fd, buf, vm));
+        }
+
+        // A pipe, socket or terminal answers only when the other end writes,
+        // which may be never. Holding the export for the whole call is what
+        // keeps the target from being resized meanwhile; but reaching its
+        // bytes takes a lock that every other thread touching the same object
+        // waits on, and a thread waiting on a lock never reaches a safepoint,
+        // so holding that one across the wait stops the world from being
+        // stopped at all. Read aside and take the lock for the copy.
+        let mut scratch = vm.new_zeroed_bytes(buffer.len())?;
+        let n = read_into_slice(fd, &mut scratch, vm)?;
+        buffer.borrow_buf_mut()[..n].copy_from_slice(&scratch[..n]);
+        Ok(n)
     }
 
     #[pyfunction]
@@ -1383,7 +1420,7 @@ pub(super) mod _os {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let result = crate::types::struct_sequence_new(
                 cls.clone(),
-                args.bind(vm)?,
+                args.bind_for(vm, Self::NAME)?,
                 StatResultData::OPTIONAL_FIELD_NAMES,
                 vm,
             )?;
@@ -2108,7 +2145,7 @@ pub(super) mod _os {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             crate::types::struct_sequence_new(
                 cls,
-                args.bind(vm)?,
+                args.bind_for(vm, Self::NAME)?,
                 StatvfsResultData::OPTIONAL_FIELD_NAMES,
                 vm,
             )
@@ -2267,7 +2304,7 @@ pub(crate) fn envobj_to_dict(
     }
     let keys = vm.call_method(obj, "keys", ())?;
     let dict = vm.ctx.new_dict();
-    for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm)? {
+    for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {
         let key = key?;
         let val = obj.get_item(&*key, vm)?;
         dict.set_item(&*key, val, vm)?;

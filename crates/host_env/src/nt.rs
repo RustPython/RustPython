@@ -1724,27 +1724,41 @@ fn copy_from_small_buf(buf: &mut [u8; 4], dest: &mut [u8]) -> usize {
     n
 }
 
+/// The length to cut `buf` down to so it ends on a whole UTF-8 sequence:
+/// `_find_last_utf8_boundary` in `Modules/_io/winconsoleio.c`.
+///
+/// Only the last three bytes can begin a sequence the buffer does not also
+/// end, so the scan stops there.  A byte from `0xf8` up starts nothing at all
+/// -- the four-byte sequences end at `0xf7` -- and an invalid byte is left in
+/// place for the decoder to answer with U+FFFD, the same as any other byte
+/// that is not the start of an incomplete sequence.
 fn find_last_utf8_boundary(buf: &[u8], len: usize) -> usize {
     let len = len.min(buf.len());
-    for count in 1..=4.min(len) {
+    for count in 1..=3.min(len) {
         let c = buf[len - count];
         if c < 0x80 {
+            // No starting byte found.
             return len;
         }
         if c >= 0xc0 {
-            let expected = if c < 0xe0 {
-                2
+            let incomplete = if c < 0xe0 {
+                // 2-byte sequence
+                count < 2
             } else if c < 0xf0 {
-                3
+                // 3-byte sequence
+                count < 3
             } else {
-                4
+                // 4-byte sequence, or a byte that starts no sequence.
+                c < 0xf8
             };
-            if count < expected {
+            if incomplete {
                 return len - count;
             }
+            // Either complete or invalid sequence.
             return len;
         }
     }
+    // Either a complete 4-byte sequence or an invalid one.
     len
 }
 
@@ -2155,5 +2169,44 @@ pub fn execve(
         Err(crate::os::errno_io_error())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod find_last_utf8_boundary_tests {
+    use super::find_last_utf8_boundary;
+
+    #[test]
+    fn keeps_a_complete_tail() {
+        assert_eq!(find_last_utf8_boundary(b"abc", 3), 3);
+        // 2-, 3- and 4-byte sequences, each ending exactly at `len`.
+        assert_eq!(find_last_utf8_boundary("a\u{a2}".as_bytes(), 3), 3);
+        assert_eq!(find_last_utf8_boundary("a\u{20ac}".as_bytes(), 4), 4);
+        assert_eq!(find_last_utf8_boundary("a\u{10348}".as_bytes(), 5), 5);
+    }
+
+    #[test]
+    fn cuts_an_incomplete_tail() {
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0xc2], 2), 1);
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0xe2, 0x82], 3), 1);
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0xf0, 0x90, 0x8d], 4), 1);
+    }
+
+    #[test]
+    fn leaves_a_byte_that_starts_no_sequence() {
+        // 0xf8..=0xff begin nothing, so the tail is whole as it stands and
+        // the decoder answers each byte with U+FFFD.
+        for c in 0xf8..=0xffu8 {
+            assert_eq!(find_last_utf8_boundary(&[b'a', c], 2), 2, "{c:#04x}");
+            assert_eq!(find_last_utf8_boundary(&[c], 1), 1, "{c:#04x}");
+        }
+        // A continuation byte alone is not a start either.
+        assert_eq!(find_last_utf8_boundary(&[b'a', 0x80, 0x80, 0x80], 4), 4);
+    }
+
+    #[test]
+    fn handles_an_empty_buffer() {
+        assert_eq!(find_last_utf8_boundary(b"", 0), 0);
+        assert_eq!(find_last_utf8_boundary(b"ab", 9), 2);
     }
 }

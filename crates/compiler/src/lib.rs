@@ -1,3 +1,6 @@
+extern crate alloc;
+
+use alloc::borrow::Cow;
 pub use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_parser::ParseErrorType;
 use ruff_source_file::{PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation};
@@ -71,18 +74,15 @@ impl CompileError {
         })
     }
 
-    fn from_source_error(
-        source_file: &SourceFile,
-        message: String,
-        start: usize,
-        end: usize,
-    ) -> Self {
-        let start = TextSize::new(start as u32);
-        let end = TextSize::new(end as u32);
-        let (location, end_location) = source_locations(source_file, start, end);
+    fn from_source_error(source_file: &SourceFile, diagnostic: CpythonDiagnostic) -> Self {
+        let (location, end_location) = source_locations(
+            source_file,
+            diagnostic.range.start(),
+            diagnostic.range.end(),
+        );
         Self::Parse(ParseError {
-            error: parser::ParseErrorType::OtherError(message),
-            raw_location: ruff_text_size::TextRange::new(start, end),
+            error: parser::ParseErrorType::OtherError(diagnostic.message),
+            raw_location: diagnostic.range,
             location,
             end_location,
             source_path: source_file.name().to_owned(),
@@ -110,7 +110,9 @@ impl CompileError {
     #[must_use]
     pub fn python_end_location(&self) -> Option<(usize, usize)> {
         match self {
-            Self::Codegen(_) => None,
+            Self::Codegen(codegen_error) => codegen_error
+                .end_location
+                .map(|end| (end.line.get(), end.character_offset.get())),
             Self::Parse(parse_error) => Some((
                 parse_error.end_location.line.get(),
                 parse_error.end_location.character_offset.get(),
@@ -127,17 +129,19 @@ impl CompileError {
     }
 }
 
+// A syntax error the parser reports counts its columns in characters rather
+// than in the bytes the range is measured in. An offset that lands inside a
+// character walks back to where that character starts, the way decoding the
+// line up to a truncated offset would.
 fn source_location(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
+    let text = source_file.source_text();
+    let mut index = offset.to_usize().min(text.len());
+    while !text.is_char_boundary(index) {
+        index -= 1;
+    }
     source_file
         .to_source_code()
-        .source_location(offset, PositionEncoding::Utf8)
-}
-
-// Call only with UTF-8 character boundaries for Python-facing offsets.
-fn source_location_in_code_points(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
-    source_file
-        .to_source_code()
-        .source_location(offset, PositionEncoding::Utf32)
+        .source_location(TextSize::new(index as u32), PositionEncoding::Utf32)
 }
 
 fn source_locations(
@@ -145,10 +149,9 @@ fn source_locations(
     start: TextSize,
     end: TextSize,
 ) -> (SourceLocation, SourceLocation) {
-    let source_code = source_file.to_source_code();
     (
-        source_code.source_location(start, PositionEncoding::Utf8),
-        source_code.source_location(end, PositionEncoding::Utf8),
+        source_location(source_file, start),
+        source_location(source_file, end),
     )
 }
 
@@ -173,37 +176,47 @@ impl NormalizedParseDiagnostic {
         }
     }
 
-    fn other(source_file: &SourceFile, message: String, start: usize, end: usize) -> Self {
+    fn other(source_file: &SourceFile, diagnostic: CpythonDiagnostic) -> Self {
         let (location, end_location) = source_locations(
             source_file,
-            TextSize::new(start as u32),
-            TextSize::new(end as u32),
+            diagnostic.range.start(),
+            diagnostic.range.end(),
         );
         Self::new(
-            parser::ParseErrorType::OtherError(message),
+            parser::ParseErrorType::OtherError(diagnostic.message),
             location,
             end_location,
-        )
-    }
-
-    fn other_in_code_points(
-        source_file: &SourceFile,
-        message: String,
-        start: usize,
-        end: usize,
-    ) -> Self {
-        let start = TextSize::new(start as u32);
-        let end = TextSize::new(end as u32);
-        Self::new(
-            parser::ParseErrorType::OtherError(message),
-            source_location_in_code_points(source_file, start),
-            source_location_in_code_points(source_file, end),
         )
     }
 
     const fn with_unclosed_bracket(mut self, is_unclosed_bracket: bool) -> Self {
         self.is_unclosed_bracket = is_unclosed_bracket;
         self
+    }
+}
+
+/// What CPython would have reported for a piece of source, before it is resolved to a line and
+/// column. These are reconstructed by re-scanning after ruff's parse has already failed, so they
+/// carry CPython's wording rather than a translation of ruff's own error, and they never reach
+/// ruff — `NormalizedParseDiagnostic` and `CompileError` are the only things that consume one.
+struct CpythonDiagnostic {
+    message: String,
+    range: ruff_text_size::TextRange,
+}
+
+impl CpythonDiagnostic {
+    /// The `u32` cast is ruff's invariant rather than one this adds: its `Lexer::new` asserts
+    /// that the source fits in a `u32` ("Lexer only supports files with a size up to 4GB") and
+    /// relies on that for its own offset arithmetic, and nothing here runs until that lexer has
+    /// read the source and the parse built on it has failed.
+    fn new(message: String, start: usize, end: usize) -> Self {
+        Self {
+            message,
+            range: ruff_text_size::TextRange::new(
+                TextSize::new(start as u32),
+                TextSize::new(end as u32),
+            ),
+        }
     }
 }
 
@@ -220,35 +233,24 @@ fn cpython_parse_diagnostic_override(
 
     macro_rules! source_error {
         ($expr:expr) => {
-            if let Some((message, start, end)) = $expr {
-                return Some(NormalizedParseDiagnostic::other(
-                    source_file,
-                    message,
-                    start,
-                    end,
-                ));
+            if let Some(error) = $expr {
+                return Some(NormalizedParseDiagnostic::other(source_file, error));
             }
         };
     }
 
-    if let Some((message, offset)) = invalid_number_literal_error(source_text) {
-        return Some(NormalizedParseDiagnostic::other(
-            source_file,
-            message,
-            offset,
-            offset,
-        ));
-    }
+    source_error!(invalid_number_literal_error(source_text));
     source_error!(invalid_legacy_statement_error(source_text));
     source_error!(non_printable_character_error(source_text));
     source_error!(stray_character_error(source_text));
     source_error!(incompatible_string_prefix_error(source_text));
     source_error!(invalid_interpolated_string_error(source_text));
+    source_error!(mixed_tstring_literal_error(error, source_text));
 
-    if let Some((message, start, end, unclosed)) = bracket_syntax_error(source_text) {
+    if let Some(bracket) = bracket_syntax_error(source_text) {
         return Some(
-            NormalizedParseDiagnostic::other(source_file, message, start, end)
-                .with_unclosed_bracket(unclosed),
+            NormalizedParseDiagnostic::other(source_file, bracket.diagnostic)
+                .with_unclosed_bracket(bracket.unclosed),
         );
     }
 
@@ -276,15 +278,7 @@ fn cpython_parse_diagnostic_override(
         ));
     }
 
-    if let Some((message, start, end)) = unterminated_string_error(source_text) {
-        // The scanner reports quote positions, which are UTF-8 character boundaries.
-        return Some(NormalizedParseDiagnostic::other_in_code_points(
-            source_file,
-            message,
-            start,
-            end,
-        ));
-    }
+    source_error!(unterminated_string_error(source_text));
     if statement_level {
         source_error!(expected_indented_block_error(error, source_text));
     }
@@ -413,6 +407,19 @@ fn cpython_parse_diagnostic_override(
         ));
     }
 
+    // CPython's PEG parser collapses a bare "expected an expression" failure
+    // into the generic "invalid syntax" message. rustpython-vm's `vm_new.rs`
+    // does this same collapse for its own callers; rustpython-compiler has no
+    // vm dependency, so mirror it here.
+    if matches!(&error.error, parser::ParseErrorType::ExpectedExpression) {
+        let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
+        return Some(NormalizedParseDiagnostic::new(
+            parser::ParseErrorType::OtherError("invalid syntax".into()),
+            loc,
+            end_loc,
+        ));
+    }
+
     None
 }
 
@@ -421,7 +428,7 @@ fn cpython_parse_diagnostic_override(
 /// CPython's `invalid_with_stmt` reports "expected ':'" for the plain and the
 /// parenthesized form alike; without this the parenthesized form is claimed by
 /// the generic "forgot a comma?" heuristic.
-fn missing_with_colon_error(source: &str) -> Option<(String, usize, usize)> {
+fn missing_with_colon_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut line_start = 0usize;
     for line in source.split_inclusive('\n') {
@@ -433,7 +440,7 @@ fn missing_with_colon_error(source: &str) -> Option<(String, usize, usize)> {
         if starts_identifier(bytes, index, b"with")
             && let Some(end) = header_end_without_colon(bytes, index + 4)
         {
-            return Some(("expected ':'".to_owned(), end, end));
+            return Some(CpythonDiagnostic::new("expected ':'".to_owned(), end, end));
         }
         line_start = line_end;
     }
@@ -474,7 +481,7 @@ fn header_end_without_colon(bytes: &[u8], mut index: usize) -> Option<usize> {
 /// CPython's `invalid_starred_expression` reports "Invalid star expression" for
 /// `A[*]`, `A[*:]` and `A[*(1:2)]`. A bare `*` outside brackets, and a `*` in a
 /// parameter list, are diagnosed elsewhere.
-fn invalid_star_expression_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_star_expression_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut open_brackets: Vec<StarContext> = Vec::new();
     let mut index = 0usize;
@@ -510,7 +517,11 @@ fn invalid_star_expression_error(source: &str) -> Option<(String, usize, usize)>
                         .trim()
                         .is_empty()
                 {
-                    return Some(("invalid syntax".to_owned(), index, index + 2));
+                    return Some(CpythonDiagnostic::new(
+                        "invalid syntax".to_owned(),
+                        index,
+                        index + 2,
+                    ));
                 }
                 index += 2;
             }
@@ -539,7 +550,7 @@ fn invalid_star_expression_error(source: &str) -> Option<(String, usize, usize)>
                 if operand.is_empty()
                     || parser::parse(operand, parser::Mode::Expression.into()).is_err()
                 {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "Invalid star expression".to_owned(),
                         index,
                         (index + 1).max(operand_end),
@@ -647,10 +658,7 @@ fn star_operand_end(bytes: &[u8], mut index: usize) -> usize {
 
 /// A character the tokenizer cannot use, reported only where the parser stopped
 /// so that valid non-ASCII identifiers elsewhere are never blamed.
-fn invalid_character_error(
-    error: &parser::ParseError,
-    source: &str,
-) -> Option<(String, usize, usize)> {
+fn invalid_character_error(error: &parser::ParseError, source: &str) -> Option<CpythonDiagnostic> {
     let mut offset = error.location.start().to_usize().min(source.len());
     while !source.is_char_boundary(offset) {
         offset -= 1;
@@ -677,7 +685,7 @@ fn invalid_character_error(
     let end = start + character.len_utf8();
     let code_point = character as u32;
     if character.is_control() || character.is_whitespace() {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             format!("invalid non-printable character U+{code_point:04X}"),
             start,
             end,
@@ -686,7 +694,7 @@ fn invalid_character_error(
     if character.is_alphanumeric() || character == '_' {
         return None;
     }
-    Some((
+    Some(CpythonDiagnostic::new(
         format!("invalid character '{character}' (U+{code_point:04X})"),
         start,
         end,
@@ -697,7 +705,7 @@ fn invalid_character_error(
 ///
 /// CPython's tokenizer stops at the first one, so it wins over later semantic
 /// checks such as a repeated keyword argument earlier on the same line.
-fn stray_character_error(source: &str) -> Option<(String, usize, usize)> {
+fn stray_character_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
@@ -709,7 +717,11 @@ fn stray_character_error(source: &str) -> Option<(String, usize, usize)> {
             }
             b'\'' | b'"' => index = skip_quoted_string(bytes, index),
             b'$' | b'?' | b'`' => {
-                return Some(("invalid syntax".to_owned(), index, index + 1));
+                return Some(CpythonDiagnostic::new(
+                    "invalid syntax".to_owned(),
+                    index,
+                    index + 1,
+                ));
             }
             _ => index += 1,
         }
@@ -722,7 +734,7 @@ fn stray_character_error(source: &str) -> Option<(String, usize, usize)> {
 /// The parser reports whichever problem it reaches first; CPython checks the
 /// separator's position before the rest of the list, so `def foo(/,a,b=,c)`
 /// complains about the `/` rather than the missing default.
-fn invalid_slash_parameter_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_slash_parameter_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
@@ -761,7 +773,7 @@ fn invalid_slash_parameter_error(source: &str) -> Option<(String, usize, usize)>
     None
 }
 
-fn slash_parameter_error(source: &str, start: usize, end: usize) -> Option<(String, usize, usize)> {
+fn slash_parameter_error(source: &str, start: usize, end: usize) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let items = split_top_level_items(bytes, start, end);
     let slash = items
@@ -776,12 +788,16 @@ fn slash_parameter_error(source: &str, start: usize, end: usize) -> Option<(Stri
         } else {
             "invalid syntax"
         };
-        return Some((message.to_owned(), slash_start, slash_end));
+        return Some(CpythonDiagnostic::new(
+            message.to_owned(),
+            slash_start,
+            slash_end,
+        ));
     }
     items[..slash]
         .iter()
         .any(|&(item_start, item_end)| source[item_start..item_end].trim() == "*")
-        .then(|| ("/ must be ahead of *".to_owned(), slash_start, slash_end))
+        .then(|| CpythonDiagnostic::new("/ must be ahead of *".to_owned(), slash_start, slash_end))
 }
 
 /// Split a bracketed list into its top-level comma-separated items.
@@ -952,6 +968,10 @@ fn adjusted_error_locations(
     let mut locations = source_locations(source_file, range.start(), range.end());
     if locations.1.character_offset.get() == 1 && locations.1.line > locations.0.line {
         locations.1 = source_location(source_file, range.end() - TextSize::from(1));
+        locations.1.character_offset = locations.1.character_offset.saturating_add(1);
+    } else if range.is_empty() {
+        // The parser blames a token, and the narrowest token still covers a
+        // character, so an error reported between two of them spans one.
         locations.1.character_offset = locations.1.character_offset.saturating_add(1);
     }
     locations
@@ -1137,7 +1157,9 @@ fn invalid_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, 
             None
         };
         if !bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-            return Some((message, sign.unwrap_or(exponent)));
+            // Without a sign the exponent letter is put back, so the position
+            // is the digit before it rather than the letter.
+            return Some((message, sign.unwrap_or_else(|| exponent.saturating_sub(1))));
         }
         if let Some(offset) = decimal_tail_error(bytes, index) {
             return Some((message, offset));
@@ -1146,7 +1168,7 @@ fn invalid_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, 
     None
 }
 
-fn leading_zero_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize)> {
+fn leading_zero_decimal_literal_error(bytes: &[u8], start: usize) -> Option<CpythonDiagnostic> {
     if bytes.get(start) != Some(&b'0') {
         return None;
     }
@@ -1170,40 +1192,39 @@ fn leading_zero_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(Str
             bytes.get(after_digits),
             Some(b'.' | b'e' | b'E' | b'j' | b'J')
         ) {
-            return Some((
-                "leading zeros in decimal integer literals are not permitted; use an 0o prefix for octal integers".to_owned(),
+            return Some(CpythonDiagnostic::new(
+                "leading zeros in decimal integer literals are not permitted; use an 0o prefix for octal integers"
+                    .to_owned(),
                 start,
+                index,
             ));
         }
     }
     None
 }
 
-fn invalid_numeric_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize)> {
+fn invalid_numeric_literal_error(bytes: &[u8], start: usize) -> Option<CpythonDiagnostic> {
     if bytes.get(start) == Some(&b'0') {
-        match bytes.get(start + 1) {
-            Some(b'x' | b'X') => {
-                return invalid_radix_literal_error(bytes, start, "hexadecimal", |byte| {
-                    byte.is_ascii_hexdigit()
-                });
-            }
-            Some(b'o' | b'O') => {
-                return invalid_radix_literal_error(bytes, start, "octal", |byte| {
-                    matches!(byte, b'0'..=b'7')
-                });
-            }
-            Some(b'b' | b'B') => {
-                return invalid_radix_literal_error(bytes, start, "binary", |byte| {
-                    matches!(byte, b'0' | b'1')
-                });
-            }
-            _ => {}
+        let radix = match bytes.get(start + 1) {
+            Some(b'x' | b'X') => invalid_radix_literal_error(bytes, start, "hexadecimal", |byte| {
+                byte.is_ascii_hexdigit()
+            }),
+            Some(b'o' | b'O') => invalid_radix_literal_error(bytes, start, "octal", |byte| {
+                matches!(byte, b'0'..=b'7')
+            }),
+            Some(b'b' | b'B') => invalid_radix_literal_error(bytes, start, "binary", |byte| {
+                matches!(byte, b'0' | b'1')
+            }),
+            _ => None,
+        };
+        if let Some(radix) = radix {
+            return Some(point_span(radix));
         }
         if let Some(err) = leading_zero_decimal_literal_error(bytes, start) {
             return Some(err);
         }
     }
-    invalid_decimal_literal_error(bytes, start)
+    invalid_decimal_literal_error(bytes, start).map(point_span)
 }
 
 fn consume_exponent(bytes: &[u8], index: usize) -> usize {
@@ -1295,7 +1316,12 @@ fn skip_quoted_string(bytes: &[u8], mut index: usize) -> usize {
     index
 }
 
-fn invalid_number_literal_error(source: &str) -> Option<(String, usize)> {
+// An error the tokenizer reports at a single position spans nothing.
+fn point_span((message, offset): (String, usize)) -> CpythonDiagnostic {
+    CpythonDiagnostic::new(message, offset, offset)
+}
+
+fn invalid_number_literal_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -1326,14 +1352,23 @@ fn invalid_number_literal_error(source: &str) -> Option<(String, usize)> {
                 };
                 if end > index {
                     if source[end..].starts_with('⁄') {
-                        return Some(("invalid character '⁄' (U+2044)".to_owned(), end));
+                        return Some(CpythonDiagnostic::new(
+                            "invalid character '⁄' (U+2044)".to_owned(),
+                            end,
+                            end,
+                        ));
                     }
                     if bytes
                         .get(end)
                         .is_some_and(|byte| *byte < 128 && is_ascii_identifier_char(*byte))
                         && !numeric_keyword_suffix(&bytes[end..])
                     {
-                        return Some((format!("invalid {kind} literal"), end.saturating_sub(1)));
+                        let offset = end.saturating_sub(1);
+                        return Some(CpythonDiagnostic::new(
+                            format!("invalid {kind} literal"),
+                            offset,
+                            offset,
+                        ));
                     }
                 }
                 index = end.max(index + 1);
@@ -1400,7 +1435,7 @@ fn previous_non_empty_line_number(source: &str, offset: usize) -> Option<usize> 
 fn expected_indented_block_error(
     error: &parser::ParseError,
     source: &str,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let parser::ParseErrorType::OtherError(message) = &error.error else {
         return None;
     };
@@ -1417,7 +1452,7 @@ fn expected_indented_block_error(
     {
         clause = "'except*' statement";
     }
-    Some((
+    Some(CpythonDiagnostic::new(
         format!("expected an indented block after {clause} on line {line}"),
         start,
         end,
@@ -1676,7 +1711,7 @@ fn invalid_type_param_item_error(
     source: &str,
     start: usize,
     end: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let (start, end) = trim_target_range(bytes, start, end);
     if start >= end || bytes.get(start) != Some(&b'*') {
@@ -1699,14 +1734,14 @@ fn invalid_type_param_item_error(
         (true, false) => "cannot use bound with ParamSpec",
         (true, true) => "cannot use constraints with ParamSpec",
     };
-    Some((message.to_owned(), colon, colon + 1))
+    Some(CpythonDiagnostic::new(message.to_owned(), colon, colon + 1))
 }
 
 fn invalid_type_param_list_error(
     source: &str,
     open: usize,
     close: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut item_start = open + 1;
     let mut index = item_start;
@@ -1736,7 +1771,7 @@ fn invalid_type_param_list_error(
     None
 }
 
-fn invalid_type_param_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_type_param_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
@@ -1767,24 +1802,28 @@ fn invalid_comprehension_in_slice(
     bytes: &[u8],
     open: usize,
     close: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let for_index = find_keyword_at_level(bytes, open + 1, close, b"for")?;
     let item_start = next_non_horizontal_whitespace(bytes, open + 1);
     if item_start >= for_index {
         return None;
     }
     if bytes.get(item_start..item_start + 2) == Some(b"**") && bytes.get(open) == Some(&b'{') {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "dict unpacking cannot be used in dict comprehension".to_owned(),
             item_start,
             item_start + 2,
         ));
     }
     if bytes.get(item_start..item_start + 2) == Some(b"**") && bytes.get(open) == Some(&b'(') {
-        return Some(("invalid syntax".to_owned(), for_index, for_index + 3));
+        return Some(CpythonDiagnostic::new(
+            "invalid syntax".to_owned(),
+            for_index,
+            for_index + 3,
+        ));
     }
     if bytes.get(item_start) == Some(&b'*') {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "iterable unpacking cannot be used in comprehension".to_owned(),
             item_start,
             item_start + 1,
@@ -1797,7 +1836,7 @@ fn invalid_comprehension_in_slice(
         && let Some(comma) = top_level_byte(bytes, open + 1, for_index, b',')
     {
         let (start, _) = trim_target_range(bytes, open + 1, comma);
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "did you forget parentheses around the comprehension target?".to_owned(),
             start,
             comma + 1,
@@ -1806,7 +1845,7 @@ fn invalid_comprehension_in_slice(
     None
 }
 
-fn invalid_comprehension_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_comprehension_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
@@ -1838,11 +1877,7 @@ fn invalid_comprehension_error(source: &str) -> Option<(String, usize, usize)> {
     None
 }
 
-fn invalid_group_in_slice(
-    bytes: &[u8],
-    open: usize,
-    close: usize,
-) -> Option<(String, usize, usize)> {
+fn invalid_group_in_slice(bytes: &[u8], open: usize, close: usize) -> Option<CpythonDiagnostic> {
     let (item_start, item_end) = trim_target_range(bytes, open + 1, close);
     if item_start >= item_end
         || top_level_byte(bytes, item_start, item_end, b',').is_some()
@@ -1852,14 +1887,14 @@ fn invalid_group_in_slice(
         return None;
     }
     if bytes.get(item_start..item_start + 2) == Some(b"**") {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "cannot use double starred expression here".to_owned(),
             item_start,
             item_start + 2,
         ));
     }
     if bytes.get(item_start) == Some(&b'*') {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "cannot use starred expression here".to_owned(),
             item_start,
             item_start + 1,
@@ -1868,7 +1903,7 @@ fn invalid_group_in_slice(
     None
 }
 
-fn invalid_group_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_group_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
@@ -1895,7 +1930,7 @@ fn invalid_group_error(source: &str) -> Option<(String, usize, usize)> {
     None
 }
 
-fn invalid_parameter_star_annotation_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_parameter_star_annotation_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
@@ -1918,7 +1953,7 @@ fn invalid_parameter_star_annotation_error(source: &str) -> Option<(String, usiz
                     if let Some(colon) = top_level_colon(bytes, param_start, param_end) {
                         let value_start = next_non_horizontal_whitespace(bytes, colon + 1);
                         if bytes.get(value_start) == Some(&b'*') {
-                            return Some((
+                            return Some(CpythonDiagnostic::new(
                                 "invalid syntax".to_owned(),
                                 value_start,
                                 value_start + 1,
@@ -1935,7 +1970,7 @@ fn invalid_parameter_star_annotation_error(source: &str) -> Option<(String, usiz
     None
 }
 
-fn invalid_def_type_params_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_def_type_params_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -1959,7 +1994,11 @@ fn invalid_def_type_params_error(source: &str) -> Option<(String, usize, usize)>
                     if bytes.get(after_close) == Some(&b'(')
                         && type_param_list_is_malformed(bytes, bracket + 1, close)
                     {
-                        return Some(("expected '('".to_owned(), bracket, bracket + 1));
+                        return Some(CpythonDiagnostic::new(
+                            "expected '('".to_owned(),
+                            bracket,
+                            bracket + 1,
+                        ));
                     }
                 }
                 index = name_end.max(index + 3);
@@ -2019,7 +2058,7 @@ fn invalid_parameter_list_slice_error(
     start: usize,
     end: usize,
     kind: ParameterListKind,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = start;
     let mut level = 0usize;
@@ -2037,7 +2076,7 @@ fn invalid_parameter_list_slice_error(
                 }) =>
             {
                 let name_end = identifier_end(bytes, index, end);
-                return Some((
+                return Some(CpythonDiagnostic::new(
                     "arguments cannot follow var-keyword argument".to_owned(),
                     index,
                     name_end,
@@ -2061,7 +2100,7 @@ fn invalid_parameter_list_slice_error(
                 if top_level_byte(bytes, index, param_end, b'=').is_some() {
                     default_seen = true;
                 } else if default_seen {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "parameter without a default follows parameter with a default".to_owned(),
                         index,
                         name_end,
@@ -2079,7 +2118,7 @@ fn invalid_parameter_list_slice_error(
                         "Lambda expression parameters cannot be parenthesized"
                     }
                 };
-                return Some((message.to_owned(), index, close + 1));
+                return Some(CpythonDiagnostic::new(message.to_owned(), index, close + 1));
             }
             b'(' | b'[' | b'{' => {
                 level += 1;
@@ -2091,25 +2130,33 @@ fn invalid_parameter_list_slice_error(
             }
             b'/' if level == 0 => {
                 if var_keyword_seen {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "arguments cannot follow var-keyword argument".to_owned(),
                         index,
                         index + 1,
                     ));
                 }
                 if slash_seen {
-                    return Some(("/ may appear only once".to_owned(), index, index + 1));
+                    return Some(CpythonDiagnostic::new(
+                        "/ may appear only once".to_owned(),
+                        index,
+                        index + 1,
+                    ));
                 }
                 slash_seen = true;
                 let next = next_non_horizontal_whitespace(bytes, index + 1);
                 if bytes.get(next) == Some(&b'*') {
-                    return Some(("expected comma between / and *".to_owned(), next, next + 1));
+                    return Some(CpythonDiagnostic::new(
+                        "expected comma between / and *".to_owned(),
+                        next,
+                        next + 1,
+                    ));
                 }
                 index += 1;
             }
             b'*' if level == 0 => {
                 if var_keyword_seen {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "arguments cannot follow var-keyword argument".to_owned(),
                         index,
                         index + 1,
@@ -2120,7 +2167,7 @@ fn invalid_parameter_list_slice_error(
                 let name_start = next_non_horizontal_whitespace(bytes, index + stars);
                 for keyword in [b"True".as_slice(), b"False".as_slice(), b"None".as_slice()] {
                     if starts_identifier(bytes, name_start, keyword) {
-                        return Some((
+                        return Some(CpythonDiagnostic::new(
                             "invalid syntax".to_owned(),
                             name_start,
                             name_start + keyword.len(),
@@ -2136,21 +2183,21 @@ fn invalid_parameter_list_slice_error(
                     })
                     .unwrap_or(end);
                 if stars == 1 && matches!(bytes.get(name_start), Some(b')' | b',' | b':')) {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "named arguments must follow bare *".to_owned(),
                         index,
                         index + 1,
                     ));
                 }
                 if stars == 1 && top_level_byte(bytes, name_start, param_end, b'=').is_some() {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "var-positional argument cannot have default value".to_owned(),
                         index,
                         index + 1,
                     ));
                 }
                 if stars == 2 && top_level_byte(bytes, name_start, param_end, b'=').is_some() {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "var-keyword argument cannot have default value".to_owned(),
                         index,
                         index + 2,
@@ -2170,9 +2217,13 @@ fn invalid_parameter_list_slice_error(
                     if matches!(kind, ParameterListKind::Lambda)
                         && matches!(bytes.get(value_start), Some(b':'))
                     {
-                        return Some(("invalid syntax".to_owned(), index, index + 1));
+                        return Some(CpythonDiagnostic::new(
+                            "invalid syntax".to_owned(),
+                            index,
+                            index + 1,
+                        ));
                     }
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "expected default value expression".to_owned(),
                         index,
                         index + 1,
@@ -2186,7 +2237,7 @@ fn invalid_parameter_list_slice_error(
     None
 }
 
-fn invalid_parameter_list_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_parameter_list_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
@@ -2256,7 +2307,7 @@ fn invalid_call_argument_assignment_error(
     source: &str,
     arg_start: usize,
     equal: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let start = bytes[arg_start..equal]
         .iter()
@@ -2268,21 +2319,21 @@ fn invalid_call_argument_assignment_error(
     }
     let value_start = next_non_horizontal_whitespace(bytes, equal + 1);
     if matches!(bytes.get(value_start), None | Some(b',' | b')')) {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "expected argument value expression".to_owned(),
             target_start,
             equal + 1,
         ));
     }
     if bytes.get(target_start..target_start + 2) == Some(b"**") {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "cannot assign to keyword argument unpacking".to_owned(),
             target_start,
             value_start,
         ));
     }
     if bytes.get(target_start) == Some(&b'*') {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "cannot assign to iterable argument unpacking".to_owned(),
             target_start,
             value_start,
@@ -2291,7 +2342,7 @@ fn invalid_call_argument_assignment_error(
     for keyword in [b"True".as_slice(), b"False".as_slice(), b"None".as_slice()] {
         if bytes.get(target_start..target_end) == Some(keyword) {
             let keyword = ::core::str::from_utf8(keyword).ok()?;
-            return Some((
+            return Some(CpythonDiagnostic::new(
                 format!("cannot assign to {keyword}"),
                 target_start,
                 target_end,
@@ -2301,7 +2352,7 @@ fn invalid_call_argument_assignment_error(
     if is_simple_keyword_name(bytes, target_start, target_end) {
         return None;
     }
-    Some((
+    Some(CpythonDiagnostic::new(
         "expression cannot contain assignment, perhaps you meant \"==\"?".to_owned(),
         target_start,
         equal,
@@ -2312,14 +2363,14 @@ fn invalid_call_star_expression_error(
     bytes: &[u8],
     arg_start: usize,
     index: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let start = next_non_horizontal_whitespace(bytes, arg_start);
     if start != index || bytes.get(index) != Some(&b'*') {
         return None;
     }
     let after_star = next_non_horizontal_whitespace(bytes, index + 1);
     if matches!(bytes.get(after_star), None | Some(b',' | b')' | b':')) {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "Invalid star expression".to_owned(),
             index,
             (index + 1).min(bytes.len()),
@@ -2328,7 +2379,7 @@ fn invalid_call_star_expression_error(
     None
 }
 
-fn invalid_call_argument_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_call_argument_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     let mut level = 0usize;
@@ -2452,7 +2503,7 @@ fn invalid_dict_entry_error(
     item_end: usize,
     colon: Option<usize>,
     saw_dict_item: bool,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let (item_start, item_end) = trim_target_range(bytes, item_start, item_end);
     if item_start >= item_end {
@@ -2461,24 +2512,28 @@ fn invalid_dict_entry_error(
     if let Some(colon) = colon {
         let value_start = next_non_horizontal_whitespace(bytes, colon + 1);
         if value_start >= item_end {
-            return Some((
+            return Some(CpythonDiagnostic::new(
                 "expression expected after dictionary key and ':'".to_owned(),
                 colon,
                 colon + 1,
             ));
         }
         if bytes.get(value_start) == Some(&b'*') {
-            return Some((
+            return Some(CpythonDiagnostic::new(
                 "cannot use a starred expression in a dictionary value".to_owned(),
                 value_start,
                 value_start + 1,
             ));
         }
         if !expression_slice_is_valid(source, value_start, item_end) {
-            return Some(("invalid syntax".to_owned(), value_start, value_start));
+            return Some(CpythonDiagnostic::new(
+                "invalid syntax".to_owned(),
+                value_start,
+                value_start,
+            ));
         }
     } else if saw_dict_item {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "':' expected after dictionary key".to_owned(),
             item_end.saturating_sub(1),
             item_end,
@@ -2491,7 +2546,7 @@ fn invalid_dict_literal_error(
     source: &str,
     open: usize,
     close: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut item_start = open + 1;
     let mut index = item_start;
@@ -2532,7 +2587,7 @@ fn invalid_dict_literal_error(
     None
 }
 
-fn invalid_dict_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_dict_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
@@ -2580,7 +2635,7 @@ fn invalid_collection_assignment_in_slice(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let mut item_start = start;
     let mut index = start;
     let mut level = 0usize;
@@ -2611,7 +2666,7 @@ fn invalid_collection_assignment_in_slice(
                             return None;
                         }
                         if matches!(expr_name, "expression" | "attribute" | "subscript") {
-                            return Some((
+                            return Some(CpythonDiagnostic::new(
                                 format!(
                                     "cannot assign to {expr_name} here. Maybe you meant '==' instead of '='?"
                                 ),
@@ -2620,7 +2675,7 @@ fn invalid_collection_assignment_in_slice(
                             ));
                         }
                     }
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "invalid syntax. Maybe you meant '==' or ':=' instead of '='?".to_owned(),
                         start,
                         index + 1,
@@ -2634,7 +2689,7 @@ fn invalid_collection_assignment_in_slice(
     None
 }
 
-fn invalid_collection_assignment_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_collection_assignment_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
@@ -2669,7 +2724,7 @@ fn invalid_collection_assignment_error(source: &str) -> Option<(String, usize, u
     None
 }
 
-fn expression_assignment_error(source: &str) -> Option<(String, usize, usize)> {
+fn expression_assignment_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     let mut paren_arg_starts: Vec<(Option<usize>, bool)> = Vec::new();
@@ -2720,7 +2775,7 @@ fn expression_assignment_error(source: &str) -> Option<(String, usize, usize)> {
                     while matches!(bytes.get(expr_start), Some(b' ' | b'\t' | b'\x0c')) {
                         expr_start += 1;
                     }
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "expression cannot contain assignment, perhaps you meant \"==\"?"
                             .to_owned(),
                         expr_start,
@@ -2741,7 +2796,7 @@ fn expression_assignment_error(source: &str) -> Option<(String, usize, usize)> {
 /// `==` or `:=`, any other `bitwise_or` reports what cannot be assigned to, and
 /// everything else (list, tuple, genexp, `True`/`None`/`False`, or an operand
 /// that sits above `bitwise_or`) falls through to a plain "invalid syntax".
-fn invalid_condition_assignment_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_condition_assignment_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut line_start = 0usize;
     for line in source.split_inclusive('\n') {
@@ -2764,11 +2819,7 @@ fn invalid_condition_assignment_error(source: &str) -> Option<(String, usize, us
     None
 }
 
-fn condition_assignment_error(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Option<(String, usize, usize)> {
+fn condition_assignment_error(source: &str, start: usize, end: usize) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let equals = (start..end).find(|&index| {
         !matches!(bytes[index], b'\'' | b'"') && is_plain_assignment_operator(bytes, index)
@@ -2798,7 +2849,7 @@ fn condition_assignment_error(
     let range_start = target_start + target.range().start().to_usize();
     let range_end = target_start + target.range().end().to_usize();
     if matches!(target, ast::Expr::Name(_)) {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "invalid syntax. Maybe you meant '==' or ':=' instead of '='?".to_owned(),
             range_start,
             range_end,
@@ -2817,7 +2868,7 @@ fn condition_assignment_error(
         return None;
     }
     let name = delete_target_expr_name(target);
-    Some((
+    Some(CpythonDiagnostic::new(
         format!("cannot assign to {name} here. Maybe you meant '==' instead of '='?"),
         range_start,
         range_end,
@@ -2852,7 +2903,7 @@ fn is_bitwise_or_operand(source: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn invalid_named_expression_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_named_expression_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index + 1 < bytes.len() {
@@ -2871,7 +2922,7 @@ fn invalid_named_expression_error(source: &str) -> Option<(String, usize, usize)
                         expression_name_and_range(&source[target_start..target_end])
                     && !is_name
                 {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         format!("cannot use assignment expressions with {expr_name}"),
                         target_start + start,
                         target_start + end,
@@ -2891,7 +2942,7 @@ struct AssignmentContext {
     call: bool,
 }
 
-fn invalid_plain_assignment_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_plain_assignment_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut stack: Vec<AssignmentContext> = Vec::new();
     let mut index = 0;
@@ -2933,7 +2984,7 @@ fn invalid_plain_assignment_error(source: &str) -> Option<(String, usize, usize)
                             expression_name_and_range(&source[target_start..target_end])
                         && matches!(expr_name, "expression" | "attribute" | "subscript")
                     {
-                        return Some((
+                        return Some(CpythonDiagnostic::new(
                             format!(
                                 "cannot assign to {expr_name} here. Maybe you meant '==' instead of '='?"
                             ),
@@ -2988,7 +3039,7 @@ fn annotation_target_error_for_slice(
     source: &str,
     start: usize,
     colon: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let (target_start, target_end) = trim_target_range(bytes, start, colon);
     if target_start >= target_end {
@@ -3003,17 +3054,17 @@ fn annotation_target_error_for_slice(
     };
     match expression.body.as_ref() {
         ast::Expr::Name(_) | ast::Expr::Attribute(_) | ast::Expr::Subscript(_) => None,
-        ast::Expr::List(_) => Some((
+        ast::Expr::List(_) => Some(CpythonDiagnostic::new(
             "only single target (not list) can be annotated".to_owned(),
             target_start,
             target_end,
         )),
-        ast::Expr::Tuple(_) => Some((
+        ast::Expr::Tuple(_) => Some(CpythonDiagnostic::new(
             "only single target (not tuple) can be annotated".to_owned(),
             target_start,
             target_end,
         )),
-        _ => Some((
+        _ => Some(CpythonDiagnostic::new(
             "illegal target for annotation".to_owned(),
             target_start,
             target_end,
@@ -3046,7 +3097,7 @@ fn invalid_annotation_line_start(bytes: &[u8], line_start: usize) -> bool {
     true
 }
 
-fn invalid_annotation_target_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_annotation_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut line_start = 0usize;
     for line in source.split_inclusive('\n') {
@@ -3262,14 +3313,14 @@ fn assignment_target_error_for_slice(
     source: &str,
     start: usize,
     end: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let (target_start, target_end) = trim_target_range(bytes, start, end);
     if target_start >= target_end {
         return None;
     }
     if starts_identifier(bytes, target_start, b"yield") {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             "assignment to yield expression not possible".to_owned(),
             target_start,
             target_start + 5,
@@ -3304,7 +3355,7 @@ fn assignment_target_error_for_slice(
             | ast::Expr::FString(_)
             | ast::Expr::TString(_)
     );
-    Some((
+    Some(CpythonDiagnostic::new(
         invalid_assignment_message(name, top_level && bitwise_like),
         invalid_start,
         invalid_end,
@@ -3315,15 +3366,11 @@ fn star_target_error_for_slice(
     source: &str,
     start: usize,
     end: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     invalid_target_error_for_slice(source, start, end, invalid_assignment_target)
 }
 
-fn for_target_error_for_slice(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Option<(String, usize, usize)> {
+fn for_target_error_for_slice(source: &str, start: usize, end: usize) -> Option<CpythonDiagnostic> {
     invalid_target_error_for_slice(source, start, end, invalid_for_target)
 }
 
@@ -3332,7 +3379,7 @@ fn invalid_target_error_for_slice(
     start: usize,
     end: usize,
     invalid_target: for<'a> fn(&'a ast::Expr) -> Option<&'a ast::Expr>,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let (target_start, target_end) = trim_target_range(bytes, start, end);
     if target_start >= target_end {
@@ -3349,7 +3396,7 @@ fn invalid_target_error_for_slice(
     let name = delete_target_expr_name(invalid_target);
     let invalid_start = target_start + invalid_target.range().start().to_usize();
     let invalid_end = target_start + invalid_target.range().end().to_usize();
-    Some((
+    Some(CpythonDiagnostic::new(
         format!("cannot assign to {name}"),
         invalid_start,
         invalid_end,
@@ -3384,7 +3431,7 @@ fn non_in_compare_for_target_error(
     source: &str,
     start: usize,
     end: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let (target_start, target_end) = trim_target_range(bytes, start, end);
     if target_start >= target_end {
@@ -3404,7 +3451,7 @@ fn non_in_compare_for_target_error(
         return None;
     }
     let operator = first_compare_operator_at_level(bytes, target_start, target_end)?;
-    Some((
+    Some(CpythonDiagnostic::new(
         "invalid syntax".to_owned(),
         operator,
         (operator + 1).min(target_end),
@@ -3444,7 +3491,7 @@ fn top_level_plain_assignment_offsets(bytes: &[u8]) -> Vec<usize> {
 fn invalid_assignment_target_error(
     error: &parser::ParseError,
     source: &str,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let offsets = top_level_plain_assignment_offsets(bytes);
     if offsets.is_empty() {
@@ -3552,7 +3599,7 @@ fn top_level_augassign_offset(bytes: &[u8]) -> Option<(usize, usize)> {
     None
 }
 
-fn invalid_augassign_target_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_augassign_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let (operator, _) = top_level_augassign_offset(bytes)?;
     let (target_start, target_end) = trim_target_range(bytes, 0, operator);
@@ -3567,7 +3614,7 @@ fn invalid_augassign_target_error(source: &str) -> Option<(String, usize, usize)
         return None;
     };
     let name = delete_target_expr_name(&expression.body);
-    Some((
+    Some(CpythonDiagnostic::new(
         format!("'{name}' is an illegal expression for augmented assignment"),
         target_start,
         target_end,
@@ -3596,7 +3643,7 @@ fn find_for_target_delimiter(bytes: &[u8], mut index: usize, end: usize) -> Opti
     None
 }
 
-fn invalid_for_target_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_for_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     while index < bytes.len() {
@@ -3654,7 +3701,7 @@ fn find_with_target_delimiter(bytes: &[u8], mut index: usize, end: usize) -> Opt
     None
 }
 
-fn invalid_with_target_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_with_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut line_start = 0usize;
     for line in source.split_inclusive('\n') {
@@ -3707,7 +3754,7 @@ fn find_missing_in_if_keyword(bytes: &[u8], mut index: usize, end: usize) -> Opt
     None
 }
 
-fn invalid_for_if_clause_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_for_if_clause_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     let mut level = 0usize;
@@ -3733,7 +3780,7 @@ fn invalid_for_if_clause_error(source: &str) -> Option<(String, usize, usize)> {
                     .find('\n')
                     .map_or(bytes.len(), |newline| index + newline);
                 if let Some(if_index) = find_missing_in_if_keyword(bytes, target_start, line_end) {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "'in' expected after for-loop variables".to_owned(),
                         if_index,
                         (if_index + 2).min(line_end),
@@ -3747,7 +3794,7 @@ fn invalid_for_if_clause_error(source: &str) -> Option<(String, usize, usize)> {
     None
 }
 
-fn invalid_delete_target_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_delete_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -3780,14 +3827,14 @@ fn invalid_delete_target_error(source: &str) -> Option<(String, usize, usize)> {
                     continue;
                 }
                 if parenthesized_single_starred_delete_target(bytes, target_start, target_end) {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "cannot use starred expression here".to_owned(),
                         target_start,
                         target_end,
                     ));
                 }
                 if bytes.get(target_start) == Some(&b'*') {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "cannot delete starred".to_owned(),
                         target_start,
                         (target_start + 1).min(target_end),
@@ -3809,10 +3856,18 @@ fn invalid_delete_target_error(source: &str) -> Option<(String, usize, usize)> {
                 let start = target_start + invalid_target.range().start().to_usize();
                 let end = target_start + invalid_target.range().end().to_usize();
                 if matches!(invalid_target, ast::Expr::FString(_)) {
-                    return Some(("invalid syntax".to_owned(), start, end));
+                    return Some(CpythonDiagnostic::new(
+                        "invalid syntax".to_owned(),
+                        start,
+                        end,
+                    ));
                 }
                 let name = delete_target_expr_name(invalid_target);
-                return Some((format!("cannot delete {name}"), start, end));
+                return Some(CpythonDiagnostic::new(
+                    format!("cannot delete {name}"),
+                    start,
+                    end,
+                ));
             }
             _ => index += 1,
         }
@@ -3931,7 +3986,7 @@ fn expression_name_and_range(source: &str) -> Option<(&'static str, usize, usize
     ))
 }
 
-fn invalid_standalone_except_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_standalone_except_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut line_start = 0usize;
     let mut seen_try = false;
@@ -3953,14 +4008,18 @@ fn invalid_standalone_except_error(source: &str) -> Option<(String, usize, usize
             } else {
                 column + 6
             };
-            return Some(("invalid syntax".to_owned(), column, end));
+            return Some(CpythonDiagnostic::new(
+                "invalid syntax".to_owned(),
+                column,
+                end,
+            ));
         }
         line_start = line_end;
     }
     None
 }
 
-fn invalid_import_statement_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_import_statement_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut line_start = 0usize;
     for line in source.split_inclusive('\n') {
@@ -3970,7 +4029,7 @@ fn invalid_import_statement_error(source: &str) -> Option<(String, usize, usize)
             && starts_identifier(bytes, column, b"import")
             && find_keyword_at_level(bytes, column + 6, line_end, b"from").is_some()
         {
-            return Some((
+            return Some(CpythonDiagnostic::new(
                 "Did you mean to use 'from ... import ...' instead?".to_owned(),
                 column,
                 column + 6,
@@ -4030,7 +4089,7 @@ fn import_target_error_for_slice(
     source: &str,
     start: usize,
     end: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let (target_start, target_end) = trim_target_range(bytes, start, end);
     if target_start >= target_end || valid_import_alias_name(bytes, target_start, target_end) {
@@ -4047,7 +4106,11 @@ fn import_target_error_for_slice(
     let name = delete_target_expr_name(&expression.body);
     let start = target_start + expression.body.range().start().to_usize();
     let end = target_start + expression.body.range().end().to_usize();
-    Some((format!("cannot use {name} as import target"), start, end))
+    Some(CpythonDiagnostic::new(
+        format!("cannot use {name} as import target"),
+        start,
+        end,
+    ))
 }
 
 fn statement_starts_import(bytes: &[u8], line_start: usize, line_end: usize) -> bool {
@@ -4059,7 +4122,7 @@ fn statement_starts_import(bytes: &[u8], line_start: usize, line_end: usize) -> 
         && find_keyword_at_level(bytes, column + 4, line_end, b"import").is_some()
 }
 
-fn invalid_import_target_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_import_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut line_start = 0usize;
     let mut in_parenthesized_from_import = false;
@@ -4094,7 +4157,7 @@ fn invalid_import_target_error(source: &str) -> Option<(String, usize, usize)> {
     None
 }
 
-fn invalid_except_as_target_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_except_as_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut line_start = 0usize;
     let mut seen_try = false;
@@ -4150,7 +4213,7 @@ fn invalid_except_as_target_error(source: &str) -> Option<(String, usize, usize)
         };
         if !is_name {
             let statement = if starred { "except*" } else { "except" };
-            return Some((
+            return Some(CpythonDiagnostic::new(
                 format!("cannot use {statement} statement with {expr_name}"),
                 target_start + start,
                 target_start + end,
@@ -4161,7 +4224,7 @@ fn invalid_except_as_target_error(source: &str) -> Option<(String, usize, usize)
     None
 }
 
-fn invalid_match_as_target_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_match_as_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let quoted_ranges = quoted_string_ranges(bytes);
     let mut quoted_range = 0usize;
@@ -4193,7 +4256,7 @@ fn invalid_match_as_target_error(source: &str) -> Option<(String, usize, usize)>
                 continue;
             }
             if source[target_start..target_end].trim() == "_" {
-                return Some((
+                return Some(CpythonDiagnostic::new(
                     "cannot use '_' as a target".to_owned(),
                     target_start,
                     target_end,
@@ -4205,7 +4268,7 @@ fn invalid_match_as_target_error(source: &str) -> Option<(String, usize, usize)>
                 continue;
             };
             if !is_name && expr_name != "subscript" {
-                return Some((
+                return Some(CpythonDiagnostic::new(
                     format!("cannot use {expr_name} as pattern target"),
                     target_start + start,
                     target_start + end,
@@ -4250,7 +4313,7 @@ fn offset_in_ranges(ranges: &[(usize, usize)], range_index: &mut usize, offset: 
         .is_some_and(|(start, end)| *start <= offset && offset < *end)
 }
 
-fn invalid_match_mapping_rest_wildcard_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_match_mapping_rest_wildcard_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let next_line_end = |line_start: usize| {
         line_start
@@ -4295,7 +4358,7 @@ fn invalid_match_mapping_rest_wildcard_error(source: &str) -> Option<(String, us
                                 let name_start = next_non_horizontal_whitespace(bytes, rest + 2);
                                 let name_end = identifier_end(bytes, name_start, line_end);
                                 if source.get(name_start..name_end) == Some("_") {
-                                    return Some((
+                                    return Some(CpythonDiagnostic::new(
                                         "invalid syntax".to_owned(),
                                         name_start,
                                         name_end,
@@ -4314,7 +4377,7 @@ fn invalid_match_mapping_rest_wildcard_error(source: &str) -> Option<(String, us
     None
 }
 
-fn invalid_if_expression_statement_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_if_expression_statement_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut line_start = 0usize;
     for line in source.split_inclusive('\n') {
@@ -4323,7 +4386,7 @@ fn invalid_if_expression_statement_error(source: &str) -> Option<(String, usize,
             && let Some((start, end)) = statement_before_if_expression(bytes, line_start, if_index)
             && find_keyword_at_level(bytes, if_index + 2, line_end, b"else").is_some()
         {
-            return Some((
+            return Some(CpythonDiagnostic::new(
                 "expected expression before 'if', but statement is given".to_owned(),
                 start,
                 end,
@@ -4334,7 +4397,7 @@ fn invalid_if_expression_statement_error(source: &str) -> Option<(String, usize,
             && let Some((start, end)) =
                 statement_after_else_expression(bytes, else_index + 4, line_end)
         {
-            return Some((
+            return Some(CpythonDiagnostic::new(
                 "expected expression after 'else', but statement is given".to_owned(),
                 start,
                 end,
@@ -4397,7 +4460,7 @@ fn statement_after_else_expression(
     None
 }
 
-fn invalid_else_elif_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_else_elif_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut line_start = 0usize;
     let mut else_indents: Vec<usize> = Vec::new();
@@ -4420,7 +4483,7 @@ fn invalid_else_elif_error(source: &str) -> Option<(String, usize, usize)> {
         {
             else_indents.push(line_column);
         } else if starts_identifier(bytes, column, b"elif") && else_indents.contains(&line_column) {
-            return Some((
+            return Some(CpythonDiagnostic::new(
                 "'elif' block follows an 'else' block".to_owned(),
                 column,
                 column + 4,
@@ -4431,7 +4494,7 @@ fn invalid_else_elif_error(source: &str) -> Option<(String, usize, usize)> {
     None
 }
 
-fn mixed_except_handlers_error(source: &str) -> Option<(String, usize, usize)> {
+fn mixed_except_handlers_error(source: &str) -> Option<CpythonDiagnostic> {
     let message = "cannot have both 'except' and 'except*' on the same 'try'".to_owned();
     let mut seen_except = false;
     let mut seen_except_star = false;
@@ -4445,12 +4508,20 @@ fn mixed_except_handlers_error(source: &str) -> Option<(String, usize, usize)> {
         let token_start = line_start + column;
         if bytes.get(column..column + 7) == Some(b"except*") {
             if seen_except {
-                return Some((message, token_start, token_start + 7));
+                return Some(CpythonDiagnostic::new(
+                    message,
+                    token_start,
+                    token_start + 7,
+                ));
             }
             seen_except_star = true;
         } else if starts_identifier(bytes, column, b"except") {
             if seen_except_star {
-                return Some((message, token_start, token_start + 6));
+                return Some(CpythonDiagnostic::new(
+                    message,
+                    token_start,
+                    token_start + 6,
+                ));
             }
             seen_except = true;
         }
@@ -4459,7 +4530,7 @@ fn mixed_except_handlers_error(source: &str) -> Option<(String, usize, usize)> {
     None
 }
 
-fn non_printable_character_error(source: &str) -> Option<(String, usize, usize)> {
+fn non_printable_character_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -4473,7 +4544,7 @@ fn non_printable_character_error(source: &str) -> Option<(String, usize, usize)>
                 index = skip_quoted_string(bytes, index);
             }
             byte if byte.is_ascii_control() && !matches!(byte, b'\t' | b'\n' | b'\r' | b'\x0c') => {
-                return Some((
+                return Some(CpythonDiagnostic::new(
                     format!("invalid non-printable character U+{byte:04X}"),
                     index,
                     index + 1,
@@ -4482,7 +4553,7 @@ fn non_printable_character_error(source: &str) -> Option<(String, usize, usize)>
             byte if byte >= 0x80 => {
                 let ch = source[index..].chars().next()?;
                 if ch.is_control() {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         format!("invalid non-printable character U+{:04X}", ch as u32),
                         index,
                         index + ch.len_utf8(),
@@ -4501,7 +4572,7 @@ fn non_printable_character_error(source: &str) -> Option<(String, usize, usize)>
 /// `rb`, `rf` and `rt` are the only pairs that may be mixed; the checks below
 /// run in the same order as `_PyLexer_check_string_prefixes` so a prefix with
 /// several conflicts reports the same pair CPython does.
-fn incompatible_string_prefix_error(source: &str) -> Option<(String, usize, usize)> {
+fn incompatible_string_prefix_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -4522,7 +4593,7 @@ fn incompatible_string_prefix_error(source: &str) -> Option<(String, usize, usiz
                     continue;
                 }
                 if let Some(message) = incompatible_prefix_message(&bytes[start..index]) {
-                    return Some((message, start, index));
+                    return Some(CpythonDiagnostic::new(message, start, index));
                 }
                 index = skip_quoted_string(bytes, index);
             }
@@ -4561,7 +4632,7 @@ fn incompatible_prefix_message(prefix: &[u8]) -> Option<String> {
     None
 }
 
-fn unterminated_string_error(source: &str) -> Option<(String, usize, usize)> {
+fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     let mut line = 1usize;
@@ -4593,11 +4664,10 @@ fn unterminated_string_error(source: &str) -> Option<(String, usize, usize)> {
                     let c = bytes[index];
                     if c == b'\n' {
                         if quote_size == 1 {
-                            return Some((
-                                unterminated_string_message(line, false, has_escaped_quote),
-                                start,
-                                start + 1,
-                            ));
+                            // A single-quoted literal cannot span a line, so this is the same
+                            // "the literal never ended" case as running out of source; CPython
+                            // spells the two as one condition in lexer.c too.
+                            break;
                         }
                         line += 1;
                         index += 1;
@@ -4626,15 +4696,21 @@ fn unterminated_string_error(source: &str) -> Option<(String, usize, usize)> {
                     }
                 }
                 if !closed {
+                    if let Some(error) =
+                        unclosed_replacement_field_error(bytes, start, start + quote_size, index)
+                    {
+                        return Some(error);
+                    }
                     let detected_line = if quote_size == 3 { line } else { start_line };
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         unterminated_string_message(
                             detected_line,
                             quote_size == 3,
                             has_escaped_quote,
+                            interpolated_string_prefix(bytes, start),
                         ),
                         start,
-                        start + 1,
+                        start,
                     ));
                 }
             }
@@ -4644,7 +4720,7 @@ fn unterminated_string_error(source: &str) -> Option<(String, usize, usize)> {
     None
 }
 
-fn invalid_interpolated_string_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_interpolated_string_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -4683,12 +4759,87 @@ fn invalid_interpolated_string_error(source: &str) -> Option<(String, usize, usi
     None
 }
 
+/// Whether the literal opened at `quote` carries a `b` in its prefix.
+fn is_bytes_literal(bytes: &[u8], quote: usize) -> bool {
+    let mut start = quote;
+    while quote - start < 2
+        && start > 0
+        && matches!(
+            bytes[start - 1].to_ascii_lowercase(),
+            b'r' | b'b' | b'u' | b'f' | b't'
+        )
+    {
+        start -= 1;
+    }
+    if start > 0 && is_ascii_identifier_char(bytes[start - 1]) {
+        return false;
+    }
+    bytes[start..quote]
+        .iter()
+        .any(|byte| byte.eq_ignore_ascii_case(&b'b'))
+}
+
+/// Which of CPython's two messages a mixed literal concatenation gets. Ruff reports only the
+/// bytes/non-bytes mix, so `t"x" b"y"` arrives here as a bytes error where CPython names the
+/// t-string, and this scanner owns the choice between them.
+///
+/// CPython's `invalid_string_tstring_concat` is an `invalid_` rule, reached only on the error
+/// pass, and the `strings` rule tries `(fstring|string)+` first. That alternative consumes the
+/// concatenation's leading run of non-t-string literals, so a bytes/non-bytes mix among *those*
+/// raises from `_PyPegen_concatenate_strings` on the first pass and the t-string rule never runs.
+/// The bytes message therefore keeps precedence for `"a" b"b" t"c"` but not for `t"x" b"y"`.
+fn mixed_tstring_literal_error(
+    error: &parser::ParseError,
+    source: &str,
+) -> Option<CpythonDiagnostic> {
+    let parser::ParseErrorType::OtherError(message) = &error.error else {
+        return None;
+    };
+    if !message.eq_ignore_ascii_case("bytes literal cannot be mixed with non-bytes literals") {
+        return None;
+    }
+
+    let start = error.location.start().to_usize();
+    let end = error.location.end().to_usize();
+    let bytes = source.as_bytes();
+    if end > bytes.len() {
+        return None;
+    }
+
+    let mut index = start;
+    let (mut bytes_seen, mut nonbytes_seen) = (false, false);
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => {
+                if interpolated_string_prefix(bytes, index) == Some("t-string") {
+                    let message = if bytes_seen && nonbytes_seen {
+                        // Reported here rather than left to ruff's error so that the scanners
+                        // further down the chain cannot claim the concatenation instead.
+                        "cannot mix bytes and nonbytes literals"
+                    } else {
+                        "cannot mix t-string literals with string or bytes literals"
+                    };
+                    return Some(CpythonDiagnostic::new(message.to_owned(), start, end));
+                }
+                if is_bytes_literal(bytes, index) {
+                    bytes_seen = true;
+                } else {
+                    nonbytes_seen = true;
+                }
+                index = skip_quoted_string(bytes, index);
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
 fn single_quoted_format_spec_newline_error(
     bytes: &[u8],
     quote_index: usize,
     quote: u8,
     prefix: &str,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     if bytes.get(quote_index + 1) == Some(&quote) && bytes.get(quote_index + 2) == Some(&quote) {
         return None;
     }
@@ -4708,7 +4859,7 @@ fn single_quoted_format_spec_newline_error(
                         replacement_field_closing_brace(bytes, separator + 1, content_end)
                             .unwrap_or(content_end);
                     if bytes[separator + 1..format_end].contains(&b'\n') {
-                        return Some((
+                        return Some(CpythonDiagnostic::new(
                             format!(
                                 "{prefix}: newlines are not allowed in format specifiers for single quoted {prefix}s"
                             ),
@@ -4786,17 +4937,19 @@ fn invalid_replacement_field_error(
     start: usize,
     end: usize,
     prefix: &str,
-) -> Option<(String, usize, usize)> {
+) -> Option<CpythonDiagnostic> {
     let mut index = start;
     while index < end {
         match bytes[index] {
             b'{' if bytes.get(index + 1) == Some(&b'{') => index += 2,
             b'}' if bytes.get(index + 1) == Some(&b'}') => index += 2,
             b'{' => {
-                if let Some(error) = replacement_field_error(bytes, index, end, prefix) {
+                if let Some(error) = replacement_field_error(bytes, index, end, prefix, 0) {
                     return Some(error);
                 }
-                index += 1;
+                // Resume in the literal text. Inside the field a `#` starts a comment and a `{`
+                // opens no new field, so walking on byte by byte would misread both.
+                index = replacement_field_end(bytes, index, end).unwrap_or(end);
             }
             _ => index += 1,
         }
@@ -4804,50 +4957,233 @@ fn invalid_replacement_field_error(
     None
 }
 
+/// Position just past a replacement field's closing brace. The expression part is code, where a
+/// comment runs to the end of the line; past the separator only nested fields nest.
+fn replacement_field_end(bytes: &[u8], open: usize, end: usize) -> Option<usize> {
+    let expr_start = skip_replacement_field_trivia(bytes, open + 1, end);
+    let separator = replacement_field_separator(bytes, expr_start, end)?;
+    if bytes[separator] == b'}' {
+        return Some(separator + 1);
+    }
+    replacement_field_closing_brace(bytes, separator + 1, end).map(|brace| brace + 1)
+}
+
+/// The one-based line holding `offset`. Counted on demand: these scanners only run once the
+/// source has failed to parse, and tracking a line through the spans they skip would have to
+/// re-scan them anyway.
+fn line_of_offset(bytes: &[u8], offset: usize) -> usize {
+    1 + bytes[..offset]
+        .iter()
+        .filter(|byte| **byte == b'\n')
+        .count()
+}
+
+/// Brackets opened in a replacement field's expression must close before the field does. CPython
+/// words these exactly as it does for brackets anywhere else, except that a closer with nothing
+/// open is attributed to the literal. `start..end` must cover only the expression: a format spec
+/// is plain text, so a bracket there opens nothing.
+fn replacement_field_bracket_error(
+    bytes: &[u8],
+    start: usize,
+    end: usize,
+    prefix: &str,
+) -> Option<CpythonDiagnostic> {
+    // Each entry carries where its bracket opened, so a mismatch can name that line.
+    let mut stack: Vec<(u8, usize)> = Vec::new();
+    let mut index = start;
+    while index < end {
+        let byte = bytes[index];
+        match byte {
+            b'\'' | b'"' => {
+                index = skip_quoted_string(bytes, index);
+                continue;
+            }
+            b'#' => {
+                index = skip_replacement_field_comment(bytes, index, end);
+                continue;
+            }
+            b'(' | b'[' | b'{' => stack.push((byte, index)),
+            b')' | b']' | b'}' => {
+                let expected = expected_opening_bracket(byte as char) as u8;
+                match stack.last() {
+                    // The field's own closing brace: everything inside it balanced.
+                    None if byte == b'}' => return None,
+                    None => {
+                        return Some(CpythonDiagnostic::new(
+                            format!("{prefix}: unmatched '{}'", byte as char),
+                            index,
+                            index + 1,
+                        ));
+                    }
+                    Some(&(opening, _)) if opening == expected => {
+                        stack.pop();
+                    }
+                    Some(&(opening, opened_at)) => {
+                        // CPython names the opening line only when it is not the closing one,
+                        // comparing `parenlinenostack[level]` against the current `lineno`.
+                        let opening_line = line_of_offset(bytes, opened_at);
+                        let suffix = if opening_line == line_of_offset(bytes, index) {
+                            String::new()
+                        } else {
+                            format!(" on line {opening_line}")
+                        };
+                        return Some(CpythonDiagnostic::new(
+                            format!(
+                                "closing parenthesis '{}' does not match opening parenthesis '{}'{suffix}",
+                                byte as char, opening as char
+                            ),
+                            index,
+                            index + 1,
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+/// A `#` in a replacement field's expression starts a comment. When no newline follows it before
+/// the end of the literal, the comment swallows the closing brace and the field can never close.
+/// `start..end` must cover only the expression: `#` is an ordinary character in a format spec,
+/// where it selects the alternate form.
+fn replacement_field_comment_error(
+    bytes: &[u8],
+    open: usize,
+    start: usize,
+    end: usize,
+    literal_end: usize,
+) -> Option<CpythonDiagnostic> {
+    let mut index = start;
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => {
+                index = skip_quoted_string(bytes, index);
+                continue;
+            }
+            b'#' => {
+                if !bytes[index..literal_end].contains(&b'\n') {
+                    return Some(CpythonDiagnostic::new(
+                        "'{' was never closed".to_owned(),
+                        open,
+                        open + 1,
+                    ));
+                }
+                index = skip_replacement_field_comment(bytes, index, end);
+                continue;
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// Advances past a comment, stopping on the newline that ends it.
+fn skip_replacement_field_comment(bytes: &[u8], mut index: usize, end: usize) -> usize {
+    while index < end && bytes[index] != b'\n' {
+        index += 1;
+    }
+    index
+}
+
+/// Whitespace and comments may both precede a replacement field's expression.
+fn skip_replacement_field_trivia(bytes: &[u8], mut index: usize, end: usize) -> usize {
+    loop {
+        index = skip_ascii_whitespace(bytes, index, end);
+        if index < end && bytes[index] == b'#' {
+            index = skip_replacement_field_comment(bytes, index, end);
+            continue;
+        }
+        return index;
+    }
+}
+
+/// Bounds the mutual recursion between a replacement field and the format spec it contains,
+/// so that pathologically nested input cannot exhaust the stack.
+const MAX_REPLACEMENT_FIELD_DEPTH: usize = 32;
+
 fn replacement_field_error(
     bytes: &[u8],
     open: usize,
     end: usize,
     prefix: &str,
-) -> Option<(String, usize, usize)> {
-    let expr_start = skip_ascii_whitespace(bytes, open + 1, end);
-    if let Some(backslash) = replacement_field_line_continuation(bytes, expr_start, end) {
-        return Some((
+    depth: usize,
+) -> Option<CpythonDiagnostic> {
+    let expr_start = skip_replacement_field_trivia(bytes, open + 1, end);
+
+    // The expression runs up to the field's first top-level `=`, `!`, `:` or `}`. Everything past
+    // it is a conversion or a format spec, which are text rather than code, so the checks that
+    // treat the field as code have to stop here.
+    let separator = replacement_field_separator(bytes, expr_start, end);
+    let expr_end = separator.unwrap_or(end);
+
+    if let Some(backslash) = replacement_field_line_continuation(bytes, expr_start, expr_end) {
+        return Some(CpythonDiagnostic::new(
             "unexpected character after line continuation character".to_owned(),
             backslash + 1,
             (backslash + 2).min(end),
         ));
     }
-    if let Some(quote) = unterminated_string_in_replacement_field(bytes, expr_start, end) {
-        return Some((
-            unterminated_string_message(1, false, false),
+    if let Some(quote) = unterminated_string_in_replacement_field(bytes, expr_start, expr_end) {
+        return Some(CpythonDiagnostic::new(
+            unterminated_string_message(1, false, false, None),
             quote,
             quote + 1,
         ));
     }
-    match bytes.get(expr_start).copied() {
-        Some(marker @ (b'=' | b'!' | b':' | b'}')) => {
-            return Some((
-                format!(
-                    "{prefix}: valid expression required before '{}'",
-                    marker as char
-                ),
+    // Brackets are reported ahead of everything else in the field, and a comment that swallows
+    // the closing brace ahead of the expression itself. The comment scan starts at the brace
+    // because a comment may also sit between it and the expression.
+    if let Some(error) = replacement_field_bracket_error(bytes, expr_start, expr_end, prefix) {
+        return Some(error);
+    }
+    if let Some(error) = replacement_field_comment_error(bytes, open, open + 1, expr_end, end) {
+        return Some(error);
+    }
+
+    // Nothing follows `{` at all, so the field simply never closed. CPython asks for the
+    // brace here; an expression that merely fails to start is reported further down.
+    if expr_start >= end {
+        return Some(CpythonDiagnostic::new(
+            format!("{prefix}: expecting '}}'"),
+            open,
+            open + 1,
+        ));
+    }
+
+    if let marker @ (b'=' | b'!' | b':' | b'}') = bytes[expr_start]
+        && is_replacement_field_marker(bytes, expr_start)
+    {
+        return Some(CpythonDiagnostic::new(
+            format!(
+                "{prefix}: valid expression required before '{}'",
+                marker as char
+            ),
+            expr_start,
+            expr_start + 1,
+        ));
+    }
+
+    // A `{` display is a valid expression, but only if something can follow it. CPython
+    // reports the inner brace when it cannot, as in `f'{3:{{>10}'`.
+    if bytes[expr_start] == b'{' {
+        let inner = skip_ascii_whitespace(bytes, expr_start + 1, end);
+        if inner < end
+            && bytes[inner] != b'}'
+            && invalid_replacement_expression_start(bytes, inner, end)
+        {
+            return Some(CpythonDiagnostic::new(
+                format!("{prefix}: expecting a valid expression after '{{'"),
                 expr_start,
                 expr_start + 1,
-            ));
-        }
-        Some(_) => {}
-        None => {
-            return Some((
-                format!("{prefix}: expecting a valid expression after '{{'"),
-                open,
-                open + 1,
             ));
         }
     }
 
     if starts_identifier(bytes, expr_start, b"lambda") {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             format!("{prefix}: lambda expressions are not allowed without parentheses"),
             expr_start,
             expr_start + b"lambda".len(),
@@ -4855,27 +5191,57 @@ fn replacement_field_error(
     }
 
     if invalid_replacement_expression_start(bytes, expr_start, end) {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             format!("{prefix}: expecting a valid expression after '{{'"),
             open,
             open + 1,
         ));
     }
 
-    let Some(separator) = replacement_field_separator(bytes, expr_start, end) else {
-        return Some((format!("{prefix}: expecting '}}'"), open, open + 1));
+    // The expression started fine but ran into a character that cannot continue it. CPython
+    // points at that character and lists the separators it wanted instead.
+    if let Some(stray) = replacement_expression_stray_character(bytes, expr_start, expr_end) {
+        return Some(CpythonDiagnostic::new(
+            format!("{prefix}: expecting '=', or '!', or ':', or '}}'"),
+            stray,
+            stray + 1,
+        ));
+    }
+
+    let Some(separator) = separator else {
+        return Some(CpythonDiagnostic::new(
+            format!("{prefix}: expecting '}}'"),
+            open,
+            open + 1,
+        ));
     };
+
+    // Only now that the field is known to close. A stray character above is a finished token
+    // the parser rejects on lookahead, but a dangling operator makes it ask for one more, and
+    // producing that token runs into the literal's closing quote: lexer.c then answers from
+    // `INSIDE_FSTRING(tok)` with "%c-string: expecting '}'" before any `invalid_` rule is tried.
+    if let Some(operator) = dangling_operator(bytes, expr_start, expr_end) {
+        return Some(CpythonDiagnostic::new(
+            format!("{prefix}: expecting '=', or '!', or ':', or '}}'"),
+            operator,
+            operator + 1,
+        ));
+    }
 
     if bytes[separator] == b':'
         && replacement_expression_has_parse_error(bytes, expr_start, separator)
     {
-        return Some(("invalid syntax".to_owned(), expr_start, separator));
+        return Some(CpythonDiagnostic::new(
+            "invalid syntax".to_owned(),
+            expr_start,
+            separator,
+        ));
     }
 
     match bytes[separator] {
-        b'=' => invalid_debug_expression_error(bytes, separator, end, prefix),
-        b'!' => invalid_conversion_error(bytes, separator, end, prefix),
-        b':' => invalid_format_spec_error(bytes, separator, end, prefix),
+        b'=' => invalid_debug_expression_error(bytes, separator, end, prefix, depth),
+        b'!' => invalid_conversion_error(bytes, separator, end, prefix, depth),
+        b':' => invalid_format_spec_error(bytes, separator, end, prefix, depth),
         b'}' => None,
         _ => unreachable!(),
     }
@@ -4890,6 +5256,7 @@ fn replacement_field_line_continuation(
     while index < end {
         match bytes[index] {
             b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
             b'\\' => return Some(index),
             b'(' | b'[' | b'{' => {
                 level += 1;
@@ -4899,7 +5266,11 @@ fn replacement_field_line_continuation(
                 level -= 1;
                 index += 1;
             }
-            b'=' | b'!' | b':' | b'}' if level == 0 => return None,
+            b'=' | b'!' | b':' | b'}'
+                if level == 0 && is_replacement_field_marker(bytes, index) =>
+            {
+                return None;
+            }
             _ => index += 1,
         }
     }
@@ -4920,6 +5291,7 @@ fn unterminated_string_in_replacement_field(
                 }
                 index = string_end;
             }
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
             _ => index += 1,
         }
     }
@@ -4938,10 +5310,22 @@ fn invalid_replacement_expression_start(bytes: &[u8], index: usize, end: usize) 
         return true;
     }
 
+    // A leading `.` is Ellipsis or a float without an integer part, both of which start a
+    // perfectly good expression.
+    if bytes[index] == b'.'
+        && (bytes[index..end].starts_with(b"...")
+            || bytes
+                .get(index + 1)
+                .is_some_and(|byte| byte.is_ascii_digit()))
+    {
+        return false;
+    }
+
     if matches!(
         bytes[index],
-        b'.' | b',' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^' | b'<' | b'>' | b'@'
-    ) {
+        b'.' | b',' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^' | b'<' | b'>' | b'@' | b'=' | b'!'
+    ) || is_stray_in_replacement_expression(bytes[index])
+    {
         return true;
     }
 
@@ -4953,6 +5337,11 @@ fn invalid_replacement_expression_start(bytes: &[u8], index: usize, end: usize) 
                 || byte.is_ascii_alphabetic()
                 || byte.is_ascii_digit()
                 || matches!(*byte, b'\'' | b'"' | b'(' | b'[' | b'{')
+                // `-.5` is a signed float.
+                || (*byte == b'.'
+                    && bytes
+                        .get(operand + 1)
+                        .is_some_and(|next| next.is_ascii_digit()))
         });
     }
 
@@ -4970,11 +5359,31 @@ fn invalid_replacement_expression_start(bytes: &[u8], index: usize, end: usize) 
     .any(|keyword| starts_identifier(bytes, index, keyword))
 }
 
+/// A top-level `=` or `!` marks a debug specifier or a conversion only when it is not part of a
+/// longer operator. CPython's tokenizer consumes `==`, `!=`, `<=`, `+=` and the rest as single
+/// tokens before it ever considers the debug marker, so those must not end the expression here.
+fn is_replacement_field_marker(bytes: &[u8], index: usize) -> bool {
+    match bytes[index] {
+        b'=' => {
+            if bytes.get(index + 1) == Some(&b'=') {
+                return false;
+            }
+            !index
+                .checked_sub(1)
+                .and_then(|previous| bytes.get(previous).copied())
+                .is_some_and(precedes_equals_in_one_operator)
+        }
+        b'!' => bytes.get(index + 1) != Some(&b'='),
+        _ => true,
+    }
+}
+
 fn replacement_field_separator(bytes: &[u8], mut index: usize, end: usize) -> Option<usize> {
     let mut level = 0usize;
     while index < end {
         match bytes[index] {
             b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
             b'(' | b'[' | b'{' => {
                 level += 1;
                 index += 1;
@@ -4983,11 +5392,171 @@ fn replacement_field_separator(bytes: &[u8], mut index: usize, end: usize) -> Op
                 level -= 1;
                 index += 1;
             }
-            b'=' | b'!' | b':' | b'}' if level == 0 => return Some(index),
+            b'=' | b'!' | b':' | b'}'
+                if level == 0 && is_replacement_field_marker(bytes, index) =>
+            {
+                return Some(index);
+            }
             _ => index += 1,
         }
     }
     None
+}
+
+/// Characters that can neither start nor continue a replacement field expression. CPython's
+/// interpolated-string tokenizer stops at them and asks for a separator instead.
+const fn is_stray_in_replacement_expression(byte: u8) -> bool {
+    matches!(byte, b';' | b'$' | b'?' | b'`')
+}
+
+fn replacement_expression_stray_character(
+    bytes: &[u8],
+    mut index: usize,
+    end: usize,
+) -> Option<usize> {
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
+            byte if is_stray_in_replacement_expression(byte) => return Some(index),
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// A byte that pairs with a following `=` to make one operator token, so that the `=` belongs
+/// to it rather than opening a debug specifier: `==`, `!=`, `<=`, `>=`, the augmented
+/// assignments, and the `:=` walrus. Against `is_dangling_operator_byte` below, this has `:`
+/// and lacks `.` and `~`, because neither `.=` nor `~=` is a Python operator.
+const fn precedes_equals_in_one_operator(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'!' | b'%'
+            | b'&'
+            | b'*'
+            | b'+'
+            | b'-'
+            | b'/'
+            | b':'
+            | b'<'
+            | b'='
+            | b'>'
+            | b'@'
+            | b'^'
+            | b'|'
+    )
+}
+
+/// Characters that make up an operator which cannot end an expression. Against
+/// `precedes_equals_in_one_operator` above, this has `.` and `~` for `a.b.` and `~a`, and lacks
+/// `:`, which separates a replacement field's parts rather than operating on anything.
+const fn is_dangling_operator_byte(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'!' | b'%'
+            | b'&'
+            | b'*'
+            | b'+'
+            | b'-'
+            | b'.'
+            | b'/'
+            | b'<'
+            | b'='
+            | b'>'
+            | b'@'
+            | b'^'
+            | b'|'
+            | b'~'
+    )
+}
+
+/// The identifier that ends just before `word`, skipping the whitespace between them.
+fn preceding_keyword(bytes: &[u8], start: usize, word: usize) -> Option<(usize, &[u8])> {
+    let mut cursor = word;
+    while cursor > start && matches!(bytes[cursor - 1], b' ' | b'\t' | b'\r' | b'\n' | 0x0c) {
+        cursor -= 1;
+    }
+    let stop = cursor;
+    while cursor > start && is_ascii_identifier_char(bytes[cursor - 1]) {
+        cursor -= 1;
+    }
+    (cursor < stop).then(|| (cursor, &bytes[cursor..stop]))
+}
+
+/// A replacement field expression cannot end on an operator that still wants an operand.
+/// CPython's tokenizer then reaches the field brace with the expression unfinished and asks for
+/// a separator, pointing at the operator that left it that way. Returns that operator's start.
+fn dangling_operator(bytes: &[u8], start: usize, end: usize) -> Option<usize> {
+    // The region cannot be read backwards: the newline that ends a comment is whitespace, so
+    // trimming from `end` would step into the comment body. Walk forward instead and keep the
+    // position just past the last byte that is really part of the expression.
+    let mut index = start;
+    let mut tail = start;
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => {
+                index = skip_quoted_string(bytes, index).min(end);
+                tail = index;
+            }
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
+            b' ' | b'\t' | b'\r' | b'\n' | 0x0c => index += 1,
+            _ => {
+                index += 1;
+                tail = index;
+            }
+        }
+    }
+    if tail == start {
+        return None;
+    }
+
+    // A trailing keyword operator reads back as an identifier.
+    if is_ascii_identifier_char(bytes[tail - 1]) {
+        let mut word = tail;
+        while word > start && is_ascii_identifier_char(bytes[word - 1]) {
+            word -= 1;
+        }
+        if ![
+            b"and".as_slice(),
+            b"or".as_slice(),
+            b"not".as_slice(),
+            b"in".as_slice(),
+            b"is".as_slice(),
+            b"if".as_slice(),
+            b"for".as_slice(),
+        ]
+        .iter()
+        .any(|keyword| &bytes[word..tail] == *keyword)
+        {
+            return None;
+        }
+        // `is not` and `not in` are single operators, and CPython points at their first word.
+        let previous = preceding_keyword(bytes, start, word);
+        return Some(match (previous, &bytes[word..tail]) {
+            (Some((at, b"is")), b"not") | (Some((at, b"not")), b"in") => at,
+            _ => word,
+        });
+    }
+
+    if !is_dangling_operator_byte(bytes[tail - 1]) {
+        return None;
+    }
+    let mut token = tail;
+    while token > start && is_dangling_operator_byte(bytes[token - 1]) {
+        token -= 1;
+    }
+
+    // `1.` is a float: that dot finishes the literal rather than dangling.
+    if bytes[token..tail] == *b"." && token > start && bytes[token - 1].is_ascii_digit() {
+        return None;
+    }
+    // `...` is Ellipsis, so consume whole triples: a leftover dot is what dangles.
+    if bytes[token..tail].iter().all(|byte| *byte == b'.') {
+        let leftover = (tail - token) % 3;
+        return (leftover != 0).then(|| tail - leftover);
+    }
+    Some(token)
 }
 
 fn invalid_debug_expression_error(
@@ -4995,12 +5564,21 @@ fn invalid_debug_expression_error(
     equals: usize,
     end: usize,
     prefix: &str,
-) -> Option<(String, usize, usize)> {
+    depth: usize,
+) -> Option<CpythonDiagnostic> {
     let next = equals + 1;
-    if next >= end || matches!(bytes[next], b'!' | b':' | b'}') {
+    if next >= end {
         return None;
     }
-    Some((
+    // A conversion or format spec may follow `=`, and is validated exactly as it would be
+    // when following the expression directly.
+    match bytes[next] {
+        b'!' => return invalid_conversion_error(bytes, next, end, prefix, depth),
+        b':' => return invalid_format_spec_error(bytes, next, end, prefix, depth),
+        b'}' => return None,
+        _ => {}
+    }
+    Some(CpythonDiagnostic::new(
         format!("{prefix}: expecting '!', or ':', or '}}'"),
         next,
         next.saturating_add(1).min(end),
@@ -5012,10 +5590,15 @@ fn invalid_conversion_error(
     bang: usize,
     end: usize,
     prefix: &str,
-) -> Option<(String, usize, usize)> {
+    depth: usize,
+) -> Option<CpythonDiagnostic> {
     let next = bang + 1;
     if next >= end {
-        return Some((format!("{prefix}: expecting '}}'"), bang, bang + 1));
+        return Some(CpythonDiagnostic::new(
+            format!("{prefix}: expecting '}}'"),
+            bang,
+            bang + 1,
+        ));
     }
 
     if bytes[next].is_ascii_whitespace() {
@@ -5028,19 +5611,39 @@ fn invalid_conversion_error(
         } else {
             "missing conversion character"
         };
-        return Some((format!("{prefix}: {message}"), next, next + 1));
+        return Some(CpythonDiagnostic::new(
+            format!("{prefix}: {message}"),
+            next,
+            next + 1,
+        ));
     }
 
     if matches!(bytes[next], b':' | b'}') {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             format!("{prefix}: missing conversion character"),
             next,
             next + 1,
         ));
     }
 
+    // A non-ASCII character is still a conversion character as far as CPython is concerned,
+    // so it gets named in the message like any other invalid one.
+    if bytes[next] >= 0x80
+        && let Some(character) = ::core::str::from_utf8(&bytes[next..end])
+            .ok()
+            .and_then(|text| text.chars().next())
+    {
+        return Some(CpythonDiagnostic::new(
+            format!(
+                "{prefix}: invalid conversion character '{character}': expected 's', 'r', or 'a'"
+            ),
+            next,
+            next + character.len_utf8(),
+        ));
+    }
+
     if !bytes[next].is_ascii_alphabetic() && bytes[next] != b'_' {
-        return Some((
+        return Some(CpythonDiagnostic::new(
             format!("{prefix}: invalid conversion character"),
             next,
             next + 1,
@@ -5051,7 +5654,7 @@ fn invalid_conversion_error(
     let conversion = &bytes[next..conversion_end];
     if !matches!(conversion, b"s" | b"r" | b"a") {
         let conversion = ::core::str::from_utf8(conversion).unwrap_or("");
-        return Some((
+        return Some(CpythonDiagnostic::new(
             format!(
                 "{prefix}: invalid conversion character '{conversion}': expected 's', 'r', or 'a'"
             ),
@@ -5060,11 +5663,17 @@ fn invalid_conversion_error(
         ));
     }
 
-    if conversion_end >= end || matches!(bytes[conversion_end], b':' | b'}') {
+    if conversion_end >= end {
         return None;
     }
 
-    Some((
+    match bytes[conversion_end] {
+        b':' => return invalid_format_spec_error(bytes, conversion_end, end, prefix, depth),
+        b'}' => return None,
+        _ => {}
+    }
+
+    Some(CpythonDiagnostic::new(
         format!("{prefix}: expecting ':' or '}}'"),
         conversion_end,
         conversion_end + 1,
@@ -5076,11 +5685,33 @@ fn invalid_format_spec_error(
     colon: usize,
     end: usize,
     prefix: &str,
-) -> Option<(String, usize, usize)> {
-    if replacement_field_closing_brace(bytes, colon + 1, end).is_some() {
-        return None;
+    depth: usize,
+) -> Option<CpythonDiagnostic> {
+    // Unlike literal text, a format spec has no `{{` escape: every `{` opens a nested
+    // replacement field, so the outer scanner cannot validate these for us.
+    let mut index = colon + 1;
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'{' => {
+                if depth < MAX_REPLACEMENT_FIELD_DEPTH
+                    && let Some(error) =
+                        replacement_field_error(bytes, index, end, prefix, depth + 1)
+                {
+                    return Some(error);
+                }
+                // Resume after the nested field. Walking into it again from every enclosing
+                // spec would re-scan the same bytes once per level, which costs O(2^depth).
+                let Some(after) = replacement_field_end(bytes, index, end) else {
+                    break;
+                };
+                index = after;
+            }
+            b'}' => return None,
+            _ => index += 1,
+        }
     }
-    Some((
+    Some(CpythonDiagnostic::new(
         format!("{prefix}: expecting '}}', or format specs"),
         colon,
         colon + 1,
@@ -5173,11 +5804,11 @@ fn string_literal_prefix(bytes: &[u8], start: usize, quote: usize) -> bool {
     valid && (start == 0 || !is_ascii_identifier_char(bytes[start - 1]))
 }
 
-fn invalid_expression_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_expression_error(source: &str) -> Option<CpythonDiagnostic> {
     invalid_string_expression_error(source).or_else(|| missing_comma_expression_error(source))
 }
 
-fn invalid_string_expression_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_string_expression_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -5191,7 +5822,7 @@ fn invalid_string_expression_error(source: &str) -> Option<(String, usize, usize
             {
                 let next = skip_ascii_whitespace(bytes, expr_end, bytes.len());
                 if string_literal_end_at(bytes, next).is_some() {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         "invalid syntax. Is this intended to be part of the string?".to_owned(),
                         expr_start,
                         expr_end,
@@ -5206,7 +5837,7 @@ fn invalid_string_expression_error(source: &str) -> Option<(String, usize, usize
     None
 }
 
-fn missing_comma_expression_error(source: &str) -> Option<(String, usize, usize)> {
+fn missing_comma_expression_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut stack: Vec<u8> = Vec::new();
     let mut index = 0;
@@ -5245,10 +5876,15 @@ fn missing_comma_expression_error(source: &str) -> Option<(String, usize, usize)
                         && expression_atom_start(bytes, next)
                         && !expression_continuation_keyword(bytes, next)
                     {
-                        return Some((
+                        // The diagnostic covers both atoms, so it ends past
+                        // the whole second one.  `next + 1` ended past its
+                        // first byte instead, which is only the same thing
+                        // when that atom is one ASCII character.
+                        let second_end = adjacent_atom_end(bytes, next).unwrap_or(next + 1);
+                        return Some(CpythonDiagnostic::new(
                             "invalid syntax. Perhaps you forgot a comma?".to_owned(),
                             index,
-                            next + 1,
+                            second_end,
                         ));
                     }
                     index = atom_end;
@@ -5350,19 +5986,118 @@ fn adjacent_atom_end(bytes: &[u8], index: usize) -> Option<usize> {
     }
 }
 
+struct OpenDelimiter {
+    position: usize,
+    opener: u8,
+    in_format_spec: bool,
+}
+
+/// An f-string or t-string that runs off the end with a replacement field still open reports
+/// the brace rather than the missing quote, matching CPython — but only while the tokenizer is
+/// still reading the field's *expression*. Past the field's own `:` it is emitting FSTRING_MIDDLE
+/// again, so running out of input there is an unterminated literal like any other, and
+/// `f'{a:>5` gets the quote message where `f'{a` gets the brace.
+fn unclosed_replacement_field_error(
+    bytes: &[u8],
+    quote_start: usize,
+    content_start: usize,
+    content_end: usize,
+) -> Option<CpythonDiagnostic> {
+    interpolated_string_prefix(bytes, quote_start)?;
+
+    // Brackets and quotes are delimiters only once a field is open; in the literal's text they
+    // are ordinary characters. And past a field's own format spec the tokenizer emits literal
+    // text again, so a field still open at end of input is an unclosed brace only before that.
+    let mut open: Vec<OpenDelimiter> = Vec::new();
+    let mut index = content_start;
+    while index < content_end {
+        let inside_expression = matches!(
+            open.last(),
+            Some(OpenDelimiter {
+                opener: b'{',
+                in_format_spec: false,
+                ..
+            })
+        );
+        match bytes[index] {
+            // `{{` and `}}` escape only in literal text, which is where a brace at depth zero is.
+            b'{' if open.is_empty() && bytes.get(index + 1) == Some(&b'{') => index += 2,
+            b'}' if open.is_empty() && bytes.get(index + 1) == Some(&b'}') => index += 2,
+            b'{' => {
+                open.push(OpenDelimiter {
+                    position: index,
+                    opener: b'{',
+                    in_format_spec: false,
+                });
+                index += 1;
+            }
+            b'}' => {
+                open.pop();
+                index += 1;
+            }
+            byte @ (b'(' | b'[') if !open.is_empty() => {
+                open.push(OpenDelimiter {
+                    position: index,
+                    opener: byte,
+                    in_format_spec: false,
+                });
+                index += 1;
+            }
+            b')' | b']' if !open.is_empty() => {
+                open.pop();
+                index += 1;
+            }
+            // Only the field's own `:` opens a format spec — one in a slice, a display or a
+            // lambda belongs to whatever bracket encloses it.
+            b':' if inside_expression => {
+                open.last_mut().expect("a brace is open").in_format_spec = true;
+                index += 1;
+            }
+            b'\'' | b'"' if !open.is_empty() => {
+                index = skip_quoted_string(bytes, index).min(content_end);
+            }
+            b'#' if inside_expression => {
+                index = skip_replacement_field_comment(bytes, index, content_end);
+            }
+            _ => index += 1,
+        }
+    }
+
+    // CPython names the innermost unclosed delimiter, so a bracket opened inside the expression
+    // takes the message from the field that encloses it.
+    let &OpenDelimiter {
+        position,
+        opener,
+        in_format_spec,
+    } = open.last()?;
+    (!in_format_spec).then(|| {
+        CpythonDiagnostic::new(
+            format!("'{}' was never closed", opener as char),
+            position,
+            position + 1,
+        )
+    })
+}
+
 fn unterminated_string_message(
     detected_line: usize,
     triple: bool,
     has_escaped_quote: bool,
+    prefix: Option<&str>,
 ) -> String {
+    // CPython names the literal kind, e.g. "unterminated f-string literal".
+    let kind = prefix.unwrap_or("string");
     if triple {
-        format!("unterminated triple-quoted string literal (detected at line {detected_line})")
-    } else if has_escaped_quote {
+        format!("unterminated triple-quoted {kind} literal (detected at line {detected_line})")
+    // The escaped-quote hint belongs to the plain-string branch of CPython's tokenizer alone.
+    // Its interpolated branch has only the two forms above and below, so pairing the hint with
+    // a prefix would invent a message CPython never emits.
+    } else if has_escaped_quote && prefix.is_none() {
         format!(
-            "unterminated string literal (detected at line {detected_line}); perhaps you escaped the end quote?"
+            "unterminated {kind} literal (detected at line {detected_line}); perhaps you escaped the end quote?"
         )
     } else {
-        format!("unterminated string literal (detected at line {detected_line})")
+        format!("unterminated {kind} literal (detected at line {detected_line})")
     }
 }
 
@@ -5375,7 +6110,14 @@ fn expected_opening_bracket(closing: char) -> char {
     }
 }
 
-fn bracket_syntax_error(source: &str) -> Option<(String, usize, usize, bool)> {
+/// A bracket diagnostic, and whether it is an opener that was never closed. The caller needs
+/// that apart from the message because ruff reports the unclosed case as an EOF error.
+struct BracketError {
+    diagnostic: CpythonDiagnostic,
+    unclosed: bool,
+}
+
+fn bracket_syntax_error(source: &str) -> Option<BracketError> {
     let mut stack: Vec<(char, usize, usize)> = Vec::new();
     let mut in_string = false;
     let mut string_quote = '\0';
@@ -5456,7 +6198,14 @@ fn bracket_syntax_error(source: &str) -> Option<(String, usize, usize, bool)> {
             ')' | ']' | '}' => {
                 let expected = expected_opening_bracket(ch);
                 let Some(&(opening, _, opening_line)) = stack.last() else {
-                    return Some((format!("unmatched '{ch}'"), byte_offset, byte_offset, false));
+                    return Some(BracketError {
+                        diagnostic: CpythonDiagnostic::new(
+                            format!("unmatched '{ch}'"),
+                            byte_offset,
+                            byte_offset,
+                        ),
+                        unclosed: false,
+                    });
                 };
                 if opening == expected {
                     stack.pop();
@@ -5466,14 +6215,16 @@ fn bracket_syntax_error(source: &str) -> Option<(String, usize, usize, bool)> {
                     } else {
                         String::new()
                     };
-                    return Some((
-                        format!(
-                            "closing parenthesis '{ch}' does not match opening parenthesis '{opening}'{suffix}"
+                    return Some(BracketError {
+                        diagnostic: CpythonDiagnostic::new(
+                            format!(
+                                "closing parenthesis '{ch}' does not match opening parenthesis '{opening}'{suffix}"
+                            ),
+                            byte_offset,
+                            byte_offset,
                         ),
-                        byte_offset,
-                        byte_offset,
-                        false,
-                    ));
+                        unclosed: false,
+                    });
                 }
             }
             _ => {}
@@ -5482,13 +6233,13 @@ fn bracket_syntax_error(source: &str) -> Option<(String, usize, usize, bool)> {
         index += 1;
     }
 
-    stack.last().map(|(opening, byte_offset, _)| {
-        (
+    stack.last().map(|(opening, byte_offset, _)| BracketError {
+        diagnostic: CpythonDiagnostic::new(
             format!("'{opening}' was never closed"),
             *byte_offset,
             *byte_offset,
-            true,
-        )
+        ),
+        unclosed: true,
     })
 }
 
@@ -5548,7 +6299,7 @@ fn legacy_statement_container_has_invalid_attribute(bytes: &[u8], start: usize) 
     false
 }
 
-fn invalid_legacy_statement_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_legacy_statement_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -5589,7 +6340,7 @@ fn invalid_legacy_statement_error(source: &str) -> Option<(String, usize, usize)
                 if bytes.get(cursor).is_some_and(|byte| {
                     *byte != b'(' && is_legacy_statement_expression_start(*byte)
                 }) {
-                    return Some((
+                    return Some(CpythonDiagnostic::new(
                         format!(
                             "Missing parentheses in call to '{keyword}'. Did you mean {keyword}(...)?"
                         ),
@@ -5634,19 +6385,14 @@ pub fn long_decimal_integer_literal_error(
         let digits = literal.bytes().filter(u8::is_ascii_digit).count();
         (digits > max_str_digits).then(|| {
             let start = token.range().start().to_usize();
-            CompileError::from_source_error(
-                source_file,
-                format!(
+            CompileError::from_source_error(source_file, CpythonDiagnostic::new(format!(
                     "Exceeds the limit ({max_str_digits} digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit - Consider hexadecimal for huge integer literals to avoid decimal conversion limits."
-                ),
-                start,
-                start,
-            )
+                ), start, start))
         })
     })
 }
 
-fn invalid_parenthesized_import_star_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_parenthesized_import_star_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -5673,7 +6419,11 @@ fn invalid_parenthesized_import_star_error(source: &str) -> Option<(String, usiz
                                 && !matches!(bytes[cursor], b')' | b'\n' | b';')
                             {
                                 if bytes[cursor] == b'*' {
-                                    return Some(("invalid syntax".to_owned(), cursor, cursor + 1));
+                                    return Some(CpythonDiagnostic::new(
+                                        "invalid syntax".to_owned(),
+                                        cursor,
+                                        cursor + 1,
+                                    ));
                                 }
                                 cursor += 1;
                             }
@@ -5690,7 +6440,7 @@ fn invalid_parenthesized_import_star_error(source: &str) -> Option<(String, usiz
     None
 }
 
-fn too_many_nested_parentheses_error(source: &str) -> Option<(String, usize, usize)> {
+fn too_many_nested_parentheses_error(source: &str) -> Option<CpythonDiagnostic> {
     const MAXLEVEL: usize = 200;
 
     let bytes = source.as_bytes();
@@ -5708,7 +6458,11 @@ fn too_many_nested_parentheses_error(source: &str) -> Option<(String, usize, usi
             }
             b'(' | b'[' | b'{' => {
                 if level >= MAXLEVEL {
-                    return Some(("too many nested parentheses".to_owned(), index, index + 1));
+                    return Some(CpythonDiagnostic::new(
+                        "too many nested parentheses".to_owned(),
+                        index,
+                        index + 1,
+                    ));
                 }
                 level += 1;
                 index += 1;
@@ -5723,7 +6477,7 @@ fn too_many_nested_parentheses_error(source: &str) -> Option<(String, usize, usi
     None
 }
 
-fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<(String, usize, usize)> {
+fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -5742,7 +6496,11 @@ fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<(Stri
                     cursor += 1;
                 }
                 if starts_identifier(bytes, cursor, b"yield") {
-                    return Some(("invalid syntax".to_owned(), cursor, cursor + 5));
+                    return Some(CpythonDiagnostic::new(
+                        "invalid syntax".to_owned(),
+                        cursor,
+                        cursor + 5,
+                    ));
                 }
                 index += 1;
             }
@@ -5752,20 +6510,31 @@ fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<(Stri
     None
 }
 
+/// The byte-order mark is only stripped while decoding source bytes, so one
+/// that survives into the text is just a non-printable character. The tokenizer
+/// rejects it everywhere except at the very start of the text, which is where
+/// this covers.
+#[doc(hidden)]
+#[must_use]
+pub fn leading_byte_order_mark_error(source_file: &SourceFile) -> Option<CompileError> {
+    source_file.source_text().starts_with('\u{feff}').then(|| {
+        CompileError::from_source_error(
+            source_file,
+            CpythonDiagnostic::new("invalid non-printable character U+FEFF".to_owned(), 0, 0),
+        )
+    })
+}
+
 fn post_parse_source_error(
     source_file: &SourceFile,
     tokens: &Tokens,
     opts: &CompileOpts,
 ) -> Option<CompileError> {
-    if let Some((message, start, end)) =
-        too_many_nested_parentheses_error(source_file.source_text())
-    {
-        return Some(CompileError::from_source_error(
-            source_file,
-            message,
-            start,
-            end,
-        ));
+    if let Some(error) = leading_byte_order_mark_error(source_file) {
+        return Some(error);
+    }
+    if let Some(error) = too_many_nested_parentheses_error(source_file.source_text()) {
+        return Some(CompileError::from_source_error(source_file, error));
     }
     if let Some(error) =
         long_decimal_integer_literal_error(source_file, tokens, opts.int_max_str_digits)
@@ -5777,9 +6546,7 @@ fn post_parse_source_error(
         .or_else(|| invalid_match_as_target_error(source_file.source_text()))
         .or_else(|| invalid_unparenthesized_yield_after_comma_error(source_file.source_text()))
         .or_else(|| invalid_parenthesized_import_star_error(source_file.source_text()))
-        .map(|(message, start, end)| {
-            CompileError::from_source_error(source_file, message, start, end)
-        })
+        .map(|error| CompileError::from_source_error(source_file, error))
 }
 
 fn is_compound_stmt(stmt: &ast::Stmt) -> bool {
@@ -5796,6 +6563,121 @@ fn is_compound_stmt(stmt: &ast::Stmt) -> bool {
     )
 }
 
+/// Syntax the reference grammar has no rule for, but that this parser accepts.
+///
+/// A bare generator expression is one: `f(x for x in y)` is the `primary
+/// genexp` alternative of a call, and a class header only takes `arguments`,
+/// which has no such alternative. A format spec nested more than two deep is
+/// the other; the tokenizer runs out of nesting levels for it.
+#[doc(hidden)]
+#[must_use]
+pub fn unsupported_grammar_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
+    use ast::visitor::Visitor;
+
+    /// The deepest chain of format specs one string literal may hold.
+    const MAX_FORMAT_SPEC_DEPTH: usize = 2;
+
+    struct Checker<'a> {
+        source_file: &'a SourceFile,
+        error: Option<CompileError>,
+    }
+
+    impl Checker<'_> {
+        fn fail(&mut self, message: &str, range: ruff_text_size::TextRange) {
+            self.error = Some(CompileError::from_source_error(
+                self.source_file,
+                CpythonDiagnostic::new(
+                    message.to_owned(),
+                    range.start().to_usize(),
+                    range.end().to_usize(),
+                ),
+            ));
+        }
+
+        fn check_format_specs(
+            &mut self,
+            kind: &str,
+            elements: &ast::InterpolatedStringElements,
+            depth: usize,
+        ) {
+            for element in elements.interpolations() {
+                let Some(format_spec) = &element.format_spec else {
+                    continue;
+                };
+                if depth == MAX_FORMAT_SPEC_DEPTH {
+                    self.fail(
+                        &alloc::format!("{kind}: expressions nested too deeply"),
+                        format_spec.range,
+                    );
+                    return;
+                }
+                self.check_format_specs(kind, &format_spec.elements, depth + 1);
+                if self.error.is_some() {
+                    return;
+                }
+            }
+        }
+    }
+
+    impl<'a> Visitor<'a> for Checker<'_> {
+        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+            if self.error.is_some() {
+                return;
+            }
+            if let ast::Stmt::ClassDef(class_def) = stmt
+                && let Some(arguments) = &class_def.arguments
+                && let [ast::Expr::Generator(generator)] = &arguments.args[..]
+                && !generator.parenthesized
+            {
+                let range = generator
+                    .generators
+                    .first()
+                    .map_or(generator.range, |comprehension| comprehension.range);
+                self.fail("invalid syntax", range);
+                return;
+            }
+            ast::visitor::walk_stmt(self, stmt);
+        }
+
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            if self.error.is_some() {
+                return;
+            }
+            // Each literal counts its own nesting: one written inside a format
+            // spec starts over.
+            match expr {
+                ast::Expr::FString(fstring) => {
+                    for part in &fstring.value {
+                        if let ast::FStringPart::FString(part) = part {
+                            self.check_format_specs("f-string", &part.elements, 0);
+                        }
+                    }
+                }
+                ast::Expr::TString(tstring) => {
+                    for part in &tstring.value {
+                        self.check_format_specs("t-string", &part.elements, 0);
+                    }
+                }
+                _ => {}
+            }
+            if self.error.is_some() {
+                return;
+            }
+            ast::visitor::walk_expr(self, expr);
+        }
+    }
+
+    let mut checker = Checker {
+        source_file,
+        error: None,
+    };
+    match ast {
+        ast::Mod::Module(module) => checker.visit_body(&module.body),
+        ast::Mod::Expression(expression) => checker.visit_expr(&expression.body),
+    }
+    checker.error
+}
+
 fn single_mode_body_error(body: &[ast::Stmt], source_file: &SourceFile) -> Option<CompileError> {
     let first = body.first()?;
     let source_code = source_file.to_source_code();
@@ -5810,9 +6692,11 @@ fn single_mode_body_error(body: &[ast::Stmt], source_file: &SourceFile) -> Optio
     }) {
         return Some(CompileError::from_source_error(
             source_file,
-            "multiple statements found while compiling a single statement".to_owned(),
-            first.range().end().to_usize(),
-            first.range().end().to_usize(),
+            CpythonDiagnostic::new(
+                "multiple statements found while compiling a single statement".to_owned(),
+                first.range().end().to_usize(),
+                first.range().end().to_usize(),
+            ),
         ));
     }
 
@@ -5822,9 +6706,11 @@ fn single_mode_body_error(body: &[ast::Stmt], source_file: &SourceFile) -> Optio
     {
         return Some(CompileError::from_source_error(
             source_file,
-            "invalid syntax".to_owned(),
-            first.range().start().to_usize(),
-            first.range().start().to_usize(),
+            CpythonDiagnostic::new(
+                "invalid syntax".to_owned(),
+                first.range().start().to_usize(),
+                first.range().start().to_usize(),
+            ),
         ));
     }
     None
@@ -5867,9 +6753,7 @@ pub fn dont_imply_dedent_source_error(source_file: &SourceFile) -> Option<Compil
     let eof = source.len();
     Some(CompileError::from_source_error(
         source_file,
-        "incomplete input".to_owned(),
-        eof,
-        eof,
+        CpythonDiagnostic::new("incomplete input".to_owned(), eof, eof),
     ))
 }
 
@@ -6028,8 +6912,18 @@ fn _compile_with_syntax_warning_handler<'a>(
         Mode::Single | Mode::BlockExpr => parser::Mode::Module,
     };
     let parser_options = parser::ParseOptions::from(parser_mode);
-    let parsed = parser::parse(source_file.source_text(), parser_options)
-        .map_err(|err| CompileError::from_ruff_parse_error(err, &source_file, mode))?;
+    let barry_source = prepare_barry_as_flufl_source(
+        source_file.source_text(),
+        parser_options.clone(),
+        opts.future_features
+            .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+    );
+    let parsed = parser::parse(barry_source.source(), parser_options);
+    if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
+        return Err(error);
+    }
+    let parsed =
+        parsed.map_err(|err| CompileError::from_ruff_parse_error(err, &source_file, mode))?;
     if opts.dont_imply_dedent
         && matches!(mode, Mode::Single)
         && let Some(error) = dont_imply_dedent_source_error(&source_file)
@@ -6040,6 +6934,9 @@ fn _compile_with_syntax_warning_handler<'a>(
         return Err(error);
     }
     let ast = parsed.into_syntax();
+    if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+        return Err(error);
+    }
     let single_mode_error = matches!(mode, Mode::Single)
         .then(|| single_mode_source_error(&ast, &source_file))
         .flatten();
@@ -6055,6 +6952,190 @@ fn _compile_with_syntax_warning_handler<'a>(
         return Err(error);
     }
     Ok(code)
+}
+
+#[doc(hidden)]
+pub struct BarrySource<'a> {
+    source: Cow<'a, str>,
+    not_equal: Option<ruff_text_size::TextRange>,
+    legacy_not_equal: Vec<ruff_text_size::TextRange>,
+}
+
+impl BarrySource<'_> {
+    #[must_use]
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    #[must_use]
+    pub fn not_equal_before(
+        &self,
+        parse_error: Option<&parser::ParseError>,
+    ) -> Option<ruff_text_size::TextRange> {
+        self.not_equal.filter(|range| {
+            parse_error.is_none_or(|error| {
+                let diagnostic_start = if matches!(
+                    &error.error,
+                    parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
+                ) {
+                    find_unclosed_bracket(&self.source).map_or_else(
+                        || error.location.start(),
+                        |(_, offset)| TextSize::new(offset as u32),
+                    )
+                } else {
+                    error.location.start()
+                };
+                range.start() <= diagnostic_start
+            })
+        })
+    }
+
+    /// The obsolete `<>` operator the parse error points at, if any. In Barry
+    /// mode the operator was rewritten to `!=`, so the error lands on its
+    /// start; outside Barry mode ruff lexes `<` and then an unexpected `>`, so
+    /// the error lands one character in. Either way the whole operator is one
+    /// token to the tokenizer, so report it as one.
+    #[must_use]
+    pub fn invalid_legacy_operator(
+        &self,
+        parse_error: &parser::ParseError,
+    ) -> Option<ruff_text_size::TextRange> {
+        let location = parse_error.location.start();
+        self.legacy_not_equal
+            .iter()
+            .copied()
+            .find(|range| range.contains(location) || range.start() == location)
+            .filter(|range| self.outranks_unclosed_bracket(*range))
+    }
+
+    /// Whether `range` outranks an unclosed bracket. The bracket is reported
+    /// at itself, so it wins over anything that starts after it.
+    fn outranks_unclosed_bracket(&self, range: ruff_text_size::TextRange) -> bool {
+        find_unclosed_bracket(&self.source)
+            .is_none_or(|(_, offset)| range.start() <= TextSize::new(offset as u32))
+    }
+
+    /// The diagnostic for this source, if any: an obsolete `<>` the parse
+    /// error points at, or -- in Barry mode only -- the first `!=`. A `<>`
+    /// takes precedence over a `!=` reported later in the source.
+    #[must_use]
+    pub fn diagnostic(
+        &self,
+        parse_error: Option<&parser::ParseError>,
+        source_file: &SourceFile,
+    ) -> Option<CompileError> {
+        if let Some(range) = parse_error.and_then(|error| self.invalid_legacy_operator(error)) {
+            return Some(barry_as_flufl_invalid_legacy_operator_error(
+                source_file,
+                range,
+            ));
+        }
+        self.not_equal_before(parse_error)
+            .map(|range| barry_as_flufl_not_equal_error(source_file, range))
+    }
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn barry_as_flufl_not_equal_error(
+    source_file: &SourceFile,
+    range: ruff_text_size::TextRange,
+) -> CompileError {
+    CompileError::from_source_error(
+        source_file,
+        CpythonDiagnostic::new(
+            "with Barry as BDFL, use '<>' instead of '!='".to_owned(),
+            range.start().to_usize(),
+            range.end().to_usize(),
+        ),
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn barry_as_flufl_invalid_legacy_operator_error(
+    source_file: &SourceFile,
+    range: ruff_text_size::TextRange,
+) -> CompileError {
+    CompileError::from_source_error(
+        source_file,
+        CpythonDiagnostic::new(
+            "invalid syntax".to_owned(),
+            range.start().to_usize(),
+            range.end().to_usize(),
+        ),
+    )
+}
+
+/// Every `<>` in `source`, located by plain text search. Only used where the
+/// operator is not rewritten, so an occurrence inside a string or a comment
+/// costs nothing: it can never coincide with the location of a parse error.
+fn textual_legacy_not_equal(source: &str) -> Vec<ruff_text_size::TextRange> {
+    source
+        .match_indices("<>")
+        .map(|(offset, matched)| {
+            ruff_text_size::TextRange::at(
+                TextSize::new(offset as u32),
+                TextSize::new(matched.len() as u32),
+            )
+        })
+        .collect()
+}
+
+#[doc(hidden)]
+pub fn prepare_barry_as_flufl_source(
+    source: &str,
+    parser_options: parser::ParseOptions,
+    inherited: bool,
+) -> BarrySource<'_> {
+    let scanned = (inherited || source.contains("barry_as_FLUFL"))
+        .then(|| parser::parse_unchecked(source, parser_options));
+    let enabled = scanned.as_ref().is_some_and(|scanned| {
+        inherited
+            || codegen::preprocess::future_features(scanned.syntax())
+                .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
+    });
+    let Some(scanned) = scanned.filter(|_| enabled) else {
+        return BarrySource {
+            source: Cow::Borrowed(source),
+            not_equal: None,
+            legacy_not_equal: textual_legacy_not_equal(source),
+        };
+    };
+
+    let not_equal = scanned
+        .tokens()
+        .iter()
+        .find(|token| token.kind() == TokenKind::NotEqual)
+        .map(Ranged::range);
+    let replacements = scanned
+        .tokens()
+        .windows(2)
+        .filter_map(|tokens| {
+            let [less, greater] = tokens else {
+                return None;
+            };
+            (less.kind() == TokenKind::Less
+                && greater.kind() == TokenKind::Greater
+                && less.end() == greater.start())
+            .then(|| ruff_text_size::TextRange::new(less.start(), greater.end()))
+        })
+        .collect::<Vec<_>>();
+
+    let source = if replacements.is_empty() {
+        Cow::Borrowed(source)
+    } else {
+        let mut rewritten = source.to_owned();
+        for range in replacements.iter().rev() {
+            rewritten.replace_range(range.start().to_usize()..range.end().to_usize(), "!=");
+        }
+        Cow::Owned(rewritten)
+    };
+    BarrySource {
+        source,
+        not_equal,
+        legacy_not_equal: replacements,
+    }
 }
 
 pub fn compile_with_syntax_warning_handler<'a>(
@@ -6081,42 +7162,102 @@ pub fn compile_symtable(
     _compile_symtable(source_file, mode)
 }
 
+/// Bring a module into the shape the symbol table is built from.
+fn symtable_preprocess_module(
+    module: &mut ast::ModModule,
+    source_file: &SourceFile,
+) -> Result<(), CompileError> {
+    let future_features = codegen::preprocess::checked_future_features_in_body(&module.body)
+        .map_err(|error| future_feature_error(error, source_file))?;
+    let future_annotations =
+        future_features.contains(core::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
+    // Constant folding is left out; the symbol table is built from the parsed
+    // program as written.
+    codegen::preprocess::preprocess_statements(&mut module.body, 0, future_annotations, true);
+    Ok(())
+}
+
+fn future_feature_error(
+    error: codegen::preprocess::FutureFeatureError,
+    source_file: &SourceFile,
+) -> CompileError {
+    let source_code = source_file.to_source_code();
+    let location = source_code.source_location(error.range.start(), PositionEncoding::Utf8);
+    let end_location = source_code.source_location(error.range.end(), PositionEncoding::Utf8);
+    let error = match error.kind {
+        codegen::preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
+            codegen::error::CodegenErrorType::InvalidFutureFeature(feature)
+        }
+        codegen::preprocess::FutureFeatureErrorKind::InvalidBraces => {
+            codegen::error::CodegenErrorType::InvalidFutureBraces
+        }
+    };
+    codegen::error::CodegenError {
+        location: Some(location),
+        end_location: Some(end_location),
+        error,
+        source_path: source_file.name().to_owned(),
+    }
+    .into()
+}
+
 pub fn _compile_symtable(
     source_file: SourceFile,
     mode: Mode,
 ) -> Result<symboltable::SymbolTable, CompileError> {
+    let parser_mode = match mode {
+        Mode::Exec | Mode::Single | Mode::BlockExpr => parser::Mode::Module,
+        Mode::Eval => parser::Mode::Expression,
+    };
+    let parser_options = parser::ParseOptions::from(parser_mode);
+    let barry_source =
+        prepare_barry_as_flufl_source(source_file.source_text(), parser_options.clone(), false);
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
-            let ast = ruff_python_parser::parse_module(source_file.source_text())
-                .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
+            let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
+            if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
+                return Err(error);
+            }
+            let ast =
+                parsed.map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
             if let Some(error) =
                 post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
             {
                 return Err(error);
             }
             let ast = ast.into_syntax();
+            if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+                return Err(error);
+            }
+            let ast = ast.expect_module();
             if matches!(mode, Mode::Single)
                 && let Some(error) = single_mode_body_error(&ast.body, &source_file)
             {
                 return Err(error);
             }
+            let mut ast = ast;
+            symtable_preprocess_module(&mut ast, &source_file)?;
             symboltable::SymbolTable::scan_program(&ast, source_file.clone())
         }
         Mode::Eval => {
-            let ast = ruff_python_parser::parse(
-                source_file.source_text(),
-                parser::Mode::Expression.into(),
-            )
-            .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
+            let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
+            if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
+                return Err(error);
+            }
+            let ast =
+                parsed.map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
             if let Some(error) =
                 post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
             {
                 return Err(error);
             }
-            symboltable::SymbolTable::scan_expr(
-                &ast.into_syntax().expect_expression(),
-                source_file.clone(),
-            )
+            let ast = ast.into_syntax();
+            if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+                return Err(error);
+            }
+            let mut ast = ast;
+            codegen::preprocess::preprocess_mod(&mut ast, 0, false, true);
+            symboltable::SymbolTable::scan_expr(&ast.expect_expression(), source_file.clone())
         }
     };
     res.map_err(|e| e.into_codegen_error(source_file.name().to_owned()).into())
@@ -6134,6 +7275,269 @@ mod tests {
     }
 
     #[test]
+    fn interpolated_string_diagnostics_match_cpython() {
+        for (source, expected) in [
+            ("f'{'", "f-string: expecting '}'"),
+            ("t'{'", "t-string: expecting '}'"),
+            (
+                "f'{1=}{;'",
+                "f-string: expecting a valid expression after '{'",
+            ),
+            (
+                "t'{x;y}'",
+                "t-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            ("t'{x!s:'", "t-string: expecting '}', or format specs"),
+            ("t'{x=!}'", "t-string: missing conversion character"),
+            (
+                "t'{x:{;}}'",
+                "t-string: expecting a valid expression after '{'",
+            ),
+            ("f'{1#}'", "'{' was never closed"),
+            ("t'{", "'{' was never closed"),
+            // A field is only "never closed" while the tokenizer is reading its expression.
+            // Past the field's own `:` it emits literal text again, so the quote is what is
+            // missing — and a `:` in a slice, a display or a lambda is not the field's own.
+            ("f'{a", "'{' was never closed"),
+            ("f'{a!r", "'{' was never closed"),
+            ("f'{a=", "'{' was never closed"),
+            ("f'{ {1:2}", "'{' was never closed"),
+            ("f'{d[1:2]", "'{' was never closed"),
+            ("f'{(lambda x: x)", "'{' was never closed"),
+            ("f'{a:{b:{c", "'{' was never closed"),
+            ("f'{a:", "unterminated f-string literal"),
+            ("f'{a:>5", "unterminated f-string literal"),
+            ("f'{a!r:", "unterminated f-string literal"),
+            ("f'{a}{b:", "unterminated f-string literal"),
+            ("f'{a:{b}c", "unterminated f-string literal"),
+            ("t'{a:>5", "unterminated t-string literal"),
+            ("f'''{a:>5", "unterminated triple-quoted f-string literal"),
+            // CPython names the innermost unclosed delimiter, not the field around it.
+            ("f'{a[", "'[' was never closed"),
+            ("f'{(a", "'(' was never closed"),
+            ("f'{)#}'", "f-string: unmatched ')'"),
+            (
+                "f'{a[4)}'",
+                "closing parenthesis ')' does not match opening parenthesis '['",
+            ),
+            ("t'", "unterminated t-string literal (detected at line 1)"),
+            (
+                "t'''",
+                "unterminated triple-quoted t-string literal (detected at line 1)",
+            ),
+            (
+                "t\"x\" b\"y\"",
+                "cannot mix t-string literals with string or bytes literals",
+            ),
+            (
+                "b\"x\" t\"y\"",
+                "cannot mix t-string literals with string or bytes literals",
+            ),
+            // The literals ahead of the first t-string already mix, so CPython's first pass
+            // raises from `_PyPegen_concatenate_strings` before the t-string rule is reached.
+            (
+                "\"a\" b\"b\" t\"c\"",
+                "cannot mix bytes and nonbytes literals",
+            ),
+            // A dangling operator ends the expression before a separator could follow.
+            (
+                "f'{a==}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a and}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a is not}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a.b.}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            ("t'{a~}'", "t-string: expecting '=', or '!', or ':', or '}'"),
+            // A doubled `=` or `!` opens no debug specifier and no conversion, so the field has
+            // no expression at all rather than an empty one before a marker.
+            (
+                "f'{==a}'",
+                "f-string: expecting a valid expression after '{'",
+            ),
+            (
+                "f'{!=a}'",
+                "f-string: expecting a valid expression after '{'",
+            ),
+            (
+                "t'{==a}'",
+                "t-string: expecting a valid expression after '{'",
+            ),
+            ("f'{=a}'", "f-string: valid expression required before '='"),
+            ("f'{!}'", "f-string: valid expression required before '!'"),
+        ] {
+            let err = compile(source, Mode::Eval, "<interp>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert!(
+                err.to_string().contains(expected),
+                "{source:?}: expected {expected:?}, got {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn interpolated_literals_do_not_take_the_escaped_quote_hint() {
+        // Parser/lexer/lexer.c offers "perhaps you escaped the end quote?" from its plain-string
+        // branch only; the interpolated branch has just the triple-quoted and plain forms. The
+        // assertion has to be exact: the hint is a suffix, so `contains` would pass either way.
+        for (source, expected) in [
+            (
+                r"f'\'",
+                "unterminated f-string literal (detected at line 1)",
+            ),
+            (
+                r"t'\'",
+                "unterminated t-string literal (detected at line 1)",
+            ),
+        ] {
+            let err = compile(source, Mode::Eval, "<escaped>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert_eq!(err.to_string(), expected, "{source:?}");
+        }
+        // A literal without a prefix still gets it.
+        let err = compile(r"'\'", Mode::Eval, "<escaped>", CompileOpts::default())
+            .expect_err("should not compile");
+        assert_eq!(
+            err.to_string(),
+            "unterminated string literal (detected at line 1); perhaps you escaped the end quote?"
+        );
+    }
+
+    #[test]
+    fn a_field_bracket_mismatch_names_the_opening_line() {
+        // CPython compares `parenlinenostack[level]` against the current `lineno`, so it names
+        // the opening line only when the two brackets are not on the same one.
+        for (source, expected) in [
+            (
+                "x = f\"\"\"{a[\n4)}\"\"\"\n",
+                "closing parenthesis ')' does not match opening parenthesis '[' on line 1",
+            ),
+            (
+                "x = f\"\"\"{a(\n\n4]}\"\"\"\n",
+                "closing parenthesis ']' does not match opening parenthesis '(' on line 1",
+            ),
+            (
+                "x = f\"{a[4)}\"\n",
+                "closing parenthesis ')' does not match opening parenthesis '['",
+            ),
+        ] {
+            let err = compile(source, Mode::Exec, "<paren>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert_eq!(err.to_string(), expected, "{source:?}");
+        }
+    }
+
+    #[test]
+    fn a_dangling_operator_needs_the_field_to_close() {
+        // A stray character is a finished token, so CPython's grammar rejects it on lookahead
+        // and names the separators even when the field never closes. A dangling operator makes
+        // the parser ask for one more token, and producing it hits the closing quote, where
+        // lexer.c answers "expecting '}'" from the tokenizer instead.
+        for (source, expected) in [
+            ("f'{a;'", "f-string: expecting '=', or '!', or ':', or '}'"),
+            ("f'{a$'", "f-string: expecting '=', or '!', or ':', or '}'"),
+            ("f'{a?'", "f-string: expecting '=', or '!', or ':', or '}'"),
+            ("f'{a and'", "f-string: expecting '}'"),
+            ("f'{a+'", "f-string: expecting '}'"),
+            ("f'{a=='", "f-string: expecting '}'"),
+            ("f'{a.b.'", "f-string: expecting '}'"),
+            ("f'{a is not'", "f-string: expecting '}'"),
+            ("t'{a and'", "t-string: expecting '}'"),
+            // With the field closed, the operator is what gets named.
+            (
+                "f'{a and}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+            (
+                "f'{a==}'",
+                "f-string: expecting '=', or '!', or ':', or '}'",
+            ),
+        ] {
+            let err = compile(source, Mode::Eval, "<dangling>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert!(
+                err.to_string().contains(expected),
+                "{source:?}: expected {expected:?}, got {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn deeply_nested_format_specs_stay_linear() {
+        // Each enclosing spec used to re-scan every field nested inside it, which made this
+        // O(2^depth): a 110-byte source took six seconds. The scan now resumes past a nested
+        // field once it has checked it, so this has to finish immediately.
+        for depth in [32usize, 200] {
+            let source = format!("x = f\"{}{}\"\n$", "{1:".repeat(depth), "}".repeat(depth));
+            compile(&source, Mode::Exec, "<nested>", CompileOpts::default())
+                .expect_err("the trailing `$` is a syntax error");
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::literal_string_with_formatting_args,
+        reason = "these are Python format specs, not Rust format args"
+    )]
+    fn valid_interpolated_literals_do_not_shadow_a_later_syntax_error() {
+        // A format spec is text rather than code, and a `#` in a replacement field starts a
+        // comment. Mistaking either for expression syntax would blame a perfectly good literal
+        // for the `$` further down, so the reported line must stay on the `$`.
+        for source in [
+            "x = f\"{1:(}\"\n$",
+            "x = f\"{1:[}\"\n$",
+            "x = f\"{1:#x}\"\n$",
+            "x = f\"{1!r:#>5}\"\n$",
+            "x = t\"{1:(}\"\n$",
+            "x = f\"\"\"{1 # (\n}\"\"\"\n$",
+            "x = f\"\"\"{1 # {\n}\"\"\"\n$",
+            "x = f\"\"\"{1 # ]\n}\"\"\"\n$",
+            "x = f\"\"\"{1 # a\\ b\n}\"\"\"\n$",
+            // A comment tail is not the end of the expression, whatever it looks like.
+            "x = f\"\"\"{a # +\n}\"\"\"\n$",
+            "x = f\"\"\"{a # and\n}\"\"\"\n$",
+            "x = f\"\"\"{a # ==\n}\"\"\"\n$",
+            "x = t\"\"\"{a # .\n}\"\"\"\n$",
+            "x = f\"\"\"{1:{a # +\n}}\"\"\"\n$",
+            "x = f\"\"\"{a # +\n + b}\"\"\"\n$",
+            // A signed leading-dot float is an operand.
+            "x = f\"{-.5}\"\n$",
+            "x = f\"{+.5}\"\n$",
+            // Ellipsis and a leading-dot float start real expressions.
+            "x = f\"{...}\"\n$",
+            "x = f\"{.5}\"\n$",
+            "x = t\"{...}\"\n$",
+            // A dangling operator is reported, but a complete one is not.
+            "x = f\"{a+b}\"\n$",
+            "x = f\"{a.b.c}\"\n$",
+            "x = f\"{1.}\"\n$",
+            // A comparison operator is not a debug or conversion marker.
+            "x = f\"{a==b}\"\n$",
+            "x = f\"{a!=b}\"\n$",
+            "x = f\"{a<=b}\"\n$",
+            "x = f\"{a>=b}\"\n$",
+            "x = t\"{a==b}\"\n$",
+            "x = f\"{a:{b==c}}\"\n$",
+        ] {
+            let err = compile(source, Mode::Exec, "<interp>", CompileOpts::default())
+                .expect_err("the trailing `$` is a syntax error");
+            assert_eq!(
+                err.python_location().0,
+                source.lines().count(),
+                "{source:?} reported the wrong line: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn dont_imply_dedent_requires_terminating_newline() {
         let code = "if True:\n    pass";
 
@@ -6146,6 +7550,154 @@ mod tests {
 
         compile("if True:\n    pass\n", Mode::Single, "<>", opts).expect("compile error");
         compile(code, Mode::Single, "<>", CompileOpts::default()).expect("compile error");
+    }
+
+    #[test]
+    fn barry_as_flufl_rewrites_legacy_not_equal_after_future_import() {
+        let code = compile(
+            "from __future__ import barry_as_FLUFL\nresult = 2 <> 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect("Barry comparison should compile");
+        assert!(
+            code.flags
+                .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
+        );
+    }
+
+    #[test]
+    fn inherited_barry_as_flufl_rewrites_legacy_not_equal() {
+        let opts = CompileOpts {
+            future_features: core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL,
+            ..CompileOpts::default()
+        };
+        compile("2 <> 3", Mode::Single, "<barry>", opts)
+            .expect("inherited Barry comparison should compile");
+    }
+
+    #[test]
+    fn barry_as_flufl_rejects_modern_not_equal() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n2 != 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("Barry mode should reject !=");
+        assert_eq!(
+            err.to_string(),
+            "with Barry as BDFL, use '<>' instead of '!='"
+        );
+        assert_eq!(err.python_location(), (2, 3));
+    }
+
+    #[test]
+    fn missing_comma_diagnostic_spans_the_whole_second_atom() {
+        // `(start, end)` reported as one-based character columns, matching
+        // `SyntaxError.offset` / `.end_offset`.
+        let span = |source: &str| {
+            let err = compile(source, Mode::Eval, "<comma>", CompileOpts::default())
+                .expect_err("two adjacent atoms are a syntax error");
+            assert_eq!(
+                err.to_string(),
+                "invalid syntax. Perhaps you forgot a comma?"
+            );
+            (
+                err.python_location().1,
+                err.python_end_location().unwrap().1,
+            )
+        };
+
+        // A one-character second atom is the case that already worked.
+        assert_eq!(span("(a b)"), (2, 5));
+        // A longer one ends where it ends, not one byte in.
+        assert_eq!(span("(a bb)"), (2, 6));
+        assert_eq!(span("(a bbb)"), (2, 7));
+        assert_eq!(span("(1 22)"), (2, 6));
+        // A non-ASCII atom is one character but several bytes, so counting
+        // bytes here used to stop inside it and round back off the boundary.
+        assert_eq!(span("(a \u{3b2})"), (2, 5));
+        assert_eq!(span("(a \u{3b2}\u{3b2})"), (2, 6));
+        assert_eq!(span("(\u{3b1}\u{3b1} \u{3b2})"), (2, 6));
+        // The first atom's width was never the problem; pin it anyway.
+        assert_eq!(span("(\u{3b1} b)"), (2, 5));
+        // Other bracket kinds take the same path.
+        assert_eq!(span("[\u{3b1} \u{3b2}]"), (2, 5));
+    }
+
+    #[test]
+    fn obsolete_not_equal_diagnostic_spans_the_whole_operator() {
+        let err = compile("2 <> 3\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("'<>' outside Barry mode is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 3));
+        assert_eq!(err.python_end_location(), Some((1, 5)));
+
+        // Only `<>` spans two characters; any other token that cannot start an
+        // expression keeps its own location.
+        let err = compile("2 <;\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("'<;' is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 4));
+        assert_eq!(err.python_end_location(), Some((1, 5)));
+
+        // A `<>` that starts a statement is reported at the `<` too, where the
+        // parser stops instead of one character in.
+        let err = compile("<>\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("a bare '<>' is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 1));
+        assert_eq!(err.python_end_location(), Some((1, 3)));
+
+        // A bracket left open earlier in the source outranks the operator.
+        let err = compile(
+            "(\n2 <> 3",
+            Mode::Exec,
+            "<obsolete>",
+            CompileOpts::default(),
+        )
+        .expect_err("the bracket is never closed");
+        assert_eq!(err.to_string(), "'(' was never closed");
+        assert_eq!(err.python_location(), (1, 1));
+    }
+
+    #[test]
+    fn barry_as_flufl_does_not_rewrite_strings_or_comments() {
+        compile(
+            "from __future__ import barry_as_FLUFL\nx = '<>'\n# <>\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect("Barry markers in strings and comments should stay untouched");
+    }
+
+    #[test]
+    fn syntax_error_before_barry_not_equal_takes_precedence() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n<>\n2 != 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("the earlier invalid comparison should fail");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (2, 1));
+    }
+
+    #[test]
+    fn unclosed_bracket_before_barry_not_equal_takes_precedence() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n(\n2 != 3",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("the earlier unclosed bracket should fail");
+        assert_eq!(err.to_string(), "'(' was never closed");
+        assert_eq!(err.python_location(), (2, 1));
     }
 
     #[test]

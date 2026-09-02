@@ -2452,7 +2452,6 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertEqual(exc.offset, 1)
         self.assertEqual(exc.end_offset, 12)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_file_source(self):
         self.addCleanup(unlink, TESTFN)
         err = run_script('return "ä"')

@@ -5,7 +5,7 @@ use super::{
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::{float_ops, format::FormatSpec, hash, wtf8::Wtf8Buf},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
@@ -181,7 +181,8 @@ impl Constructor for PyFloat {
         check_positional(vm, "float", args.args.len(), 0, 1)?;
         // Bind before the fast path so FromArgs::arity decides how many arguments
         // are acceptable, rather than a count repeated here.
-        let arg: Self::Args = args.bind(vm)?;
+        let arg: Self::Args = args.bind_for(vm, Self::NAME)?;
+
         // Optimization: return exact float as-is
         if cls.is(vm.ctx.types.float_type)
             && let OptionalArg::Present(first) = &arg
@@ -225,8 +226,8 @@ pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64>
         &*buffer_lock
     } else {
         return Err(vm.new_type_error(format!(
-            "float() argument must be a string or a number, not '{}'",
-            val.class().name()
+            "float() argument must be a string or a real number, not '{}'",
+            val.class().slot_name()
         )));
     };
     crate::literal::float::parse_bytes(b).ok_or_else(|| {
@@ -381,7 +382,7 @@ impl PyFloat {
         }
     }
 
-    #[pyclassmethod]
+    #[pyclassmethod(text_signature = "(string, /)")]
     fn fromhex(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_meth_o(vm, "float.fromhex", &func_args)?;
         if !func_args.args[0].fast_isinstance(vm.ctx.types.str_type) {

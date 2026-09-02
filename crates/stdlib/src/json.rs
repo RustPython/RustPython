@@ -1,9 +1,7 @@
 pub(crate) use _json::module_def;
-mod machinery;
 
 #[pymodule]
 mod _json {
-    use super::machinery;
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyStr, PyStrRef, PyType},
@@ -14,7 +12,7 @@ mod _json {
     };
     use core::str::FromStr;
     use malachite_bigint::BigInt;
-    use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_common::{json, wtf8::Wtf8Buf};
     use std::collections::HashMap;
 
     /// Skip JSON whitespace characters (space, tab, newline, carriage return).
@@ -113,10 +111,9 @@ mod _json {
             match first_byte {
                 b'"' => {
                     // Parse string - pass slice starting after the quote
-                    let (wtf8_result, chars_consumed, _bytes_consumed) =
-                        machinery::scanstring(&wtf8[byte_idx + 1..], char_idx + 1, self.strict)
+                    let (wtf8_result, end_char_idx, _bytes_consumed) =
+                        json::scan_string(&wtf8[byte_idx + 1..], char_idx + 1, self.strict)
                             .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
-                    let end_char_idx = char_idx + 1 + chars_consumed;
                     return Ok(PyIterReturn::Return(
                         vm.new_tuple((wtf8_result, end_char_idx)).into(),
                     ));
@@ -297,11 +294,11 @@ mod _json {
                 byte_idx += 1;
 
                 // Parse key string using scanstring with byte slice
-                let (key_wtf8, chars_consumed, bytes_consumed) =
-                    machinery::scanstring(&wtf8[byte_idx..], char_idx, self.strict)
+                let (key_wtf8, end_char_idx, bytes_consumed) =
+                    json::scan_string(&wtf8[byte_idx..], char_idx, self.strict)
                         .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
 
-                char_idx += chars_consumed;
+                char_idx = end_char_idx;
                 byte_idx += bytes_consumed;
 
                 // Key memoization - reuse existing key strings.
@@ -559,15 +556,11 @@ mod _json {
                         // String - pass slice starting after the quote.
                         // Feed the Wtf8Buf directly to new_str; routing through
                         // .to_string() here would lossy-collapse surrogates to U+FFFD.
-                        let (wtf8_result, chars_consumed, bytes_consumed) =
-                            machinery::scanstring(&wtf8[byte_idx + 1..], char_idx + 1, self.strict)
+                        let (wtf8_result, end_char_idx, bytes_consumed) =
+                            json::scan_string(&wtf8[byte_idx + 1..], char_idx + 1, self.strict)
                                 .map_err(|e| py_decode_error(e, pystr.clone(), vm))?;
                         let py_str = vm.ctx.new_str(wtf8_result);
-                        Ok((
-                            py_str.into(),
-                            char_idx + 1 + chars_consumed,
-                            byte_idx + 1 + bytes_consumed,
-                        ))
+                        Ok((py_str.into(), end_char_idx, byte_idx + 1 + bytes_consumed))
                     }
                     b'{' => {
                         // Object
@@ -658,7 +651,10 @@ mod _json {
             pos: usize,
             vm: &VirtualMachine,
         ) -> PyBaseExceptionRef {
-            let err = machinery::DecodeError::new(msg, pos);
+            let err = json::DecodeError {
+                msg: msg.to_owned(),
+                pos,
+            };
             py_decode_error(err, s, vm)
         }
     }
@@ -691,22 +687,6 @@ mod _json {
         }
     }
 
-    fn encode_string(wtf8: &rustpython_common::wtf8::Wtf8, ascii_only: bool) -> Wtf8Buf {
-        flame_guard!("_json::encode_string");
-        let mut buf = Vec::<u8>::with_capacity(wtf8.len() + 2);
-        machinery::write_json_string(wtf8, ascii_only, &mut buf)
-            // SAFETY: writing to a vec can't fail
-            .unwrap_or_else(|_| unsafe { core::hint::unreachable_unchecked() });
-        // write_json_string is designed to produce valid WTF-8 bytes:
-        // - ASCII control characters and JSON-specials are written as ASCII escapes
-        // - Valid Unicode scalars are written as UTF-8 (a subset of WTF-8)
-        // - Lone surrogates (ascii_only=false branch only) pass through as the
-        //   input's WTF-8 byte sequences unchanged
-        // Use the checked constructor so any violation of that invariant
-        // surfaces as a panic during testing instead of undefined behavior.
-        Wtf8Buf::from_bytes(buf).expect("write_json_string produced invalid WTF-8")
-    }
-
     #[pyfunction]
     fn encode_basestring(s: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let s = s.downcast::<PyStr>().map_err(|o| {
@@ -715,7 +695,7 @@ mod _json {
                 o.class().name()
             ))
         })?;
-        Ok(encode_string(s.as_wtf8(), false))
+        Ok(json::encode_string(s.as_wtf8(), false))
     }
 
     #[pyfunction]
@@ -726,11 +706,11 @@ mod _json {
                 o.class().name()
             ))
         })?;
-        Ok(encode_string(s.as_wtf8(), true))
+        Ok(json::encode_string(s.as_wtf8(), true))
     }
 
     fn py_decode_error(
-        e: machinery::DecodeError,
+        e: json::DecodeError,
         s: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
@@ -774,10 +754,10 @@ mod _json {
                 .map_or(wtf8.len(), |(i, _)| i)
         };
 
-        let (result, chars_consumed, _bytes_consumed) =
-            machinery::scanstring(&wtf8[byte_idx..], end, strict.unwrap_or(true))
+        let (result, end_char_idx, _bytes_consumed) =
+            json::scan_string(&wtf8[byte_idx..], end, strict.unwrap_or(true))
                 .map_err(|e| py_decode_error(e, s, vm))?;
 
-        Ok((result, end + chars_consumed))
+        Ok((result, end_char_idx))
     }
 }

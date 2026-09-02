@@ -850,3 +850,114 @@ def test_cast_bounds_the_dimensions():
 
 
 test_cast_bounds_the_dimensions()
+
+
+def test_setitem_error_kinds():
+    import array
+
+    # A value the format has no room for and a value of the wrong kind are
+    # different errors, the way they are for any other conversion.
+    for fmt, over, under in (
+        ("B", 300, -1),
+        ("b", 128, -129),
+        ("i", 2**31, -(2**31) - 1),
+    ):
+        view = memoryview(array.array(fmt, [0, 0]))
+        for value in (over, under):
+            try:
+                view[0] = value
+            except ValueError as e:
+                assert str(e) == f"memoryview: invalid value for format '{fmt}'", e
+            else:
+                raise AssertionError(f"expected ValueError for {fmt!r} {value}")
+        for value in ("x", 1.5, None, [1]):
+            try:
+                view[0] = value
+            except TypeError as e:
+                assert str(e) == f"memoryview: invalid type for format '{fmt}'", e
+            else:
+                raise AssertionError(f"expected TypeError for {fmt!r} {value!r}")
+
+    # A bytes item is a value error when it is the wrong length.
+    chars = memoryview(bytearray(b"ab")).cast("c")
+    for value in (b"", b"xy"):
+        try:
+            chars[0] = value
+        except ValueError as e:
+            assert str(e) == "memoryview: invalid value for format 'c'", e
+        else:
+            raise AssertionError(f"expected ValueError for {value!r}")
+
+
+def test_setitem_propagates_index_errors():
+    # An error raised by the value's own code is the answer, not a report that
+    # the value was the wrong kind.
+    class Boom:
+        def __index__(self):
+            raise ZeroDivisionError("boom")
+
+    class NotAnInt:
+        def __index__(self):
+            return "not an int"
+
+    view = memoryview(bytearray(b"ab"))
+    try:
+        view[0] = Boom()
+    except ZeroDivisionError as e:
+        assert str(e) == "boom", e
+    else:
+        raise AssertionError("expected ZeroDivisionError")
+
+    try:
+        view[0] = NotAnInt()
+    except TypeError as e:
+        assert str(e) == "memoryview: invalid type for format 'B'", e
+    else:
+        raise AssertionError("expected TypeError")
+
+
+def test_delete_answers_readonly_first():
+    # Nothing can be deleted from a memoryview, but what cannot be written
+    # says so first.
+    try:
+        del memoryview(b"ab")[0]
+    except TypeError as e:
+        assert str(e) == "cannot modify read-only memory", e
+    else:
+        raise AssertionError("expected TypeError")
+
+    view = memoryview(bytearray(b"abcd"))
+    for needle in (0, slice(0, 2)):
+        try:
+            del view[needle]
+        except TypeError as e:
+            assert str(e) == "cannot delete memory", e
+        else:
+            raise AssertionError(f"expected TypeError for {needle!r}")
+
+
+test_setitem_error_kinds()
+test_setitem_propagates_index_errors()
+test_delete_answers_readonly_first()
+
+
+def test_bool_format_keeps_its_own_error():
+    # Deciding truth is the value's own code, and what it raises is the answer.
+    class Raises:
+        def __init__(self, exc):
+            self.exc = exc
+
+        def __bool__(self):
+            raise self.exc
+
+    view = memoryview(bytearray(b"\x00")).cast("?")
+    for exc in (ZeroDivisionError("boom"), ValueError("nope"), TypeError("nah")):
+        try:
+            view[0] = Raises(exc)
+        except type(exc) as e:
+            assert str(e) == str(exc), e
+        else:
+            raise AssertionError(f"expected {type(exc).__name__}")
+
+
+test_bool_format_keeps_its_own_error()

@@ -6,6 +6,8 @@ use ruff_python_parser::{InterpolatedStringErrorType, LexicalErrorType, ParseErr
 use rustpython_common::wtf8::Wtf8Buf;
 use rustpython_compiler_core::SourceLocation;
 
+use core::ops::RangeInclusive;
+
 #[cfg(feature = "parser")]
 use rustpython_compiler::{CompileError, ParseError};
 
@@ -20,7 +22,9 @@ use crate::{
     },
     convert::{ToPyException, ToPyObject},
     exceptions::OSErrorBuilder,
-    function::{FuncArgs, IntoPyNativeFn, PyMethodFlags},
+    function::{
+        FuncArgs, IntoPyNativeFn, PyMethodFlags, arity_message, unexpected_keyword_message,
+    },
     scope::Scope,
     set_attrs,
     types::{Constructor, Initializer},
@@ -86,6 +90,11 @@ impl SyntaxErrorInfo {
                 InterpolatedStringErrorType::UnterminatedString,
             )) => "unterminated f-string literal".into(),
 
+            ParseErrorType::TStringError(InterpolatedStringErrorType::UnterminatedString)
+            | ParseErrorType::Lexical(LexicalErrorType::TStringError(
+                InterpolatedStringErrorType::UnterminatedString,
+            )) => "unterminated t-string literal".into(),
+
             ParseErrorType::FStringError(
                 InterpolatedStringErrorType::UnterminatedTripleQuotedString,
             )
@@ -93,13 +102,22 @@ impl SyntaxErrorInfo {
                 InterpolatedStringErrorType::UnterminatedTripleQuotedString,
             )) => "unterminated triple-quoted f-string literal".into(),
 
-            ParseErrorType::FStringError(_)
-            | ParseErrorType::Lexical(LexicalErrorType::FStringError(_)) => {
-                // Replace backticks with single quotes to match CPython's error messages
-                format!("invalid syntax: {}", self.msg.replace('`', "'"))
-            }
+            ParseErrorType::TStringError(
+                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+            )
+            | ParseErrorType::Lexical(LexicalErrorType::TStringError(
+                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+            )) => "unterminated triple-quoted t-string literal".into(),
 
-            ParseErrorType::UnexpectedExpressionToken => format!("invalid syntax: {}", self.msg),
+            // ruff already prefixes these with `f-string: ` / `t-string: `, matching CPython.
+            // It quotes braces with backticks where CPython uses single quotes.
+            ParseErrorType::FStringError(_)
+            | ParseErrorType::TStringError(_)
+            | ParseErrorType::Lexical(
+                LexicalErrorType::FStringError(_) | LexicalErrorType::TStringError(_),
+            ) => self.msg.replace('`', "'"),
+
+            ParseErrorType::UnexpectedExpressionToken => "invalid syntax".into(),
 
             ParseErrorType::ExpectedToken { expected, found } => {
                 Self::handle_expected_token(*expected, *found).into()
@@ -166,6 +184,10 @@ impl SyntaxErrorInfo {
                 "arguments cannot follow var-keyword argument".into()
             }
 
+            ParseErrorType::InvalidAnnotatedAssignmentTarget => {
+                "illegal target for annotation".into()
+            }
+
             ParseErrorType::Lexical(LexicalErrorType::UnrecognizedToken { .. })
             | ParseErrorType::SimpleStatementsOnSameLine
             | ParseErrorType::SimpleAndCompoundStatementOnSameLine
@@ -175,15 +197,32 @@ impl SyntaxErrorInfo {
                 "invalid syntax".into()
             }
 
+            // What the parser says when it cannot continue the list it is
+            // recovering; each of these situations is a plain "invalid syntax".
             ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case(
-                    "Expected a type parameter or the end of the type parameter list",
+                if matches!(
+                    s.as_str(),
+                    "Expected a statement"
+                        | "Expected an `elif` or `else` clause, or the end of the `if` statement."
+                        | "Expected an `except` or `finally` clause or the end of the `try` statement."
+                        | "The keyword is not allowed as a variable declaration name"
+                        | "Expected an assignment target"
+                        | "Expected a type parameter or the end of the type parameter list"
+                        | "Expected an import name or a ')'"
+                        | "Expected an import name"
+                        | "Expected an expression or the end of the slice list"
+                        | "Expected an expression or a ']'"
+                        | "Expected an expression or a '}'"
+                        | "Expected an expression or a ')'"
+                        | "Expected an expression"
+                        | "Expected a pattern or the end of the sequence pattern"
+                        | "Expected a mapping pattern or the end of the mapping pattern"
+                        | "Expected a pattern or a ')'"
+                        | "Expected a delete target"
+                        | "Expected a parameter or the end of the parameter list"
+                        | "Expected an expression or the end of the with item list"
                 ) =>
             {
-                "invalid syntax".into()
-            }
-
-            ParseErrorType::OtherError(s) if s.eq_ignore_ascii_case("Expected a statement") => {
                 "invalid syntax".into()
             }
 
@@ -311,6 +350,26 @@ impl VirtualMachine {
         Ok(scope)
     }
 
+    /// Create `__main__` if it is missing and return it.
+    pub fn ensure_main_module(&self) -> PyResult<PyRef<PyModule>> {
+        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        if let Ok(existing) = sys_modules.get_item("__main__", self)
+            && let Ok(module) = existing.downcast::<PyModule>()
+        {
+            return Ok(module);
+        }
+        let dict = self.ctx.new_dict();
+        let main_module = self.new_module("__main__", dict, None);
+        sys_modules.set_item("__main__", main_module.clone().into(), self)?;
+        Ok(main_module)
+    }
+
+    /// `__dict__` of this interpreter's `__main__` module.
+    pub fn main_namespace(&self) -> PyResult<PyDictRef> {
+        let main = self.ensure_main_module()?;
+        Ok(main.dict())
+    }
+
     pub fn new_function<F, FKind>(&self, name: &'static str, f: F) -> PyRef<PyNativeFunction>
     where
         F: IntoPyNativeFn<FKind>,
@@ -432,7 +491,7 @@ impl VirtualMachine {
     pub fn new_no_attribute_error(&self, obj: PyObjectRef, name: PyStrRef) -> PyBaseExceptionRef {
         let msg = format!(
             "'{}' object has no attribute '{}'",
-            obj.class().name(),
+            obj.class().slot_name(),
             name
         );
         let attribute_error = self.new_attribute_error(msg);
@@ -454,11 +513,35 @@ impl VirtualMachine {
         name_error
     }
 
+    /// The error a call that passed the wrong number of arguments gets. The
+    /// name is the function the call was for; `Self::NAME` is the one a slot
+    /// wants. `_PyArg_CheckPositional`
+    pub fn new_arity_type_error(
+        &self,
+        func_name: &str,
+        arity: RangeInclusive<usize>,
+        num_given: usize,
+    ) -> PyBaseExceptionRef {
+        let too_few = num_given < *arity.start();
+        self.new_type_error(arity_message(Some(func_name), &arity, too_few, num_given))
+    }
+
+    /// The error a call that passed a keyword the function doesn't take gets.
+    /// The name is left off where the parser has none of its own, the way
+    /// `_PyArg_Parser.fname` is NULL. `_PyArg_UnpackKeywords`
+    pub fn new_unexpected_keyword_type_error(
+        &self,
+        func_name: Option<&str>,
+        keyword: &str,
+    ) -> PyBaseExceptionRef {
+        self.new_type_error(unexpected_keyword_message(func_name, keyword))
+    }
+
     pub fn new_unsupported_unary_error(&self, a: &PyObject, op: &str) -> PyBaseExceptionRef {
         self.new_type_error(format!(
             "bad operand type for {}: '{}'",
             op,
-            a.class().name()
+            a.class().slot_name()
         ))
     }
 
@@ -471,8 +554,8 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "unsupported operand type(s) for {}: '{}' and '{}'",
             op,
-            a.class().name(),
-            b.class().name()
+            a.class().slot_name(),
+            b.class().slot_name()
         ))
     }
 
@@ -484,11 +567,11 @@ impl VirtualMachine {
         op: &str,
     ) -> PyBaseExceptionRef {
         self.new_type_error(format!(
-            "Unsupported operand types for '{}': '{}', '{}', and '{}'",
+            "unsupported operand type(s) for {}: '{}', '{}', '{}'",
             op,
-            a.class().name(),
-            b.class().name(),
-            c.class().name()
+            a.class().slot_name(),
+            b.class().slot_name(),
+            c.class().slot_name()
         ))
     }
 
@@ -679,6 +762,9 @@ impl VirtualMachine {
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::FStringError(
                             ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                        )
+                        | ruff_python_parser::LexicalErrorType::TStringError(
+                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
                         ),
                     ),
                 ..
@@ -837,6 +923,18 @@ impl VirtualMachine {
             || msg.starts_with("except expressions without parentheses are")
             || msg.starts_with("Pattern matching is");
         let line_end_binary_operator_error = msg.starts_with("The '@' operator is");
+        let unclosed_bracket_error = cfg_select! {
+            feature = "parser" => {
+                matches!(
+                    error,
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        is_unclosed_bracket: true,
+                        ..
+                    })
+                )
+            }
+            _ => false,
+        };
 
         let syntax_error = self.new_exception_msg(syntax_error_type, msg.into());
 
@@ -860,6 +958,10 @@ impl VirtualMachine {
                         .is_some_and(|ch| ch.is_ascii_whitespace()));
             let (end_lineno, end_offset) = if no_end_offset {
                 (end_lineno, -1)
+            } else if unclosed_bracket_error {
+                // The bracket that was never closed is marked where it opened,
+                // and the span stops there.
+                (end_lineno, 0)
             } else if line_end_binary_operator_error && end_offset == offset_raw {
                 (end_lineno, (end_offset + 1) as isize)
             } else if narrow_caret {

@@ -1,6 +1,6 @@
 use super::{
     IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef,
-    iter::builtins_reversed,
+    iter::builtins_reversed, locked_rev_next,
 };
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
@@ -155,9 +155,9 @@ impl PyReverseSequenceIterator {
 impl SelfIter for PyReverseSequenceIterator {}
 impl IterNext for PyReverseSequenceIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal
-            .lock()
-            .rev_next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(&pos, vm), vm))
+        locked_rev_next(&zelf.internal, |obj, pos| {
+            PyIterReturn::from_getitem_result(obj.get_item(&pos, vm), vm)
+        })
     }
 }
 

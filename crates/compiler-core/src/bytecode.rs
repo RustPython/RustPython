@@ -11,7 +11,7 @@ use bitflags::bitflags;
 use core::{
     cell::UnsafeCell,
     hash, mem,
-    ops::{Deref, Index, IndexMut},
+    ops::{Deref, DerefMut, Index, IndexMut},
     sync::atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering},
 };
 use itertools::Itertools;
@@ -383,11 +383,23 @@ impl<C: Constant> Deref for Constants<C> {
     }
 }
 
+impl<C: Constant> DerefMut for Constants<C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl<C: Constant> Index<oparg::ConstIdx> for Constants<C> {
     type Output = C;
 
     fn index(&self, consti: oparg::ConstIdx) -> &Self::Output {
         &self.0[consti.as_usize()]
+    }
+}
+
+impl<C: Constant> IndexMut<oparg::ConstIdx> for Constants<C> {
+    fn index_mut(&mut self, consti: oparg::ConstIdx) -> &mut Self::Output {
+        &mut self.0[consti.as_usize()]
     }
 }
 
@@ -481,6 +493,19 @@ bitflags! {
         const HAS_DOCSTRING = 0x4000000;
         const METHOD = 0x8000000;
     }
+}
+
+impl CodeFlags {
+    /// The `__future__` flags that `compile()` accepts and that a compiled code
+    /// object inherits from its caller. Mirrors `PyCF_MASK`.
+    pub const FUTURE_MASK: Self = Self::FUTURE_DIVISION
+        .union(Self::FUTURE_ABSOLUTE_IMPORT)
+        .union(Self::FUTURE_WITH_STATEMENT)
+        .union(Self::FUTURE_PRINT_FUNCTION)
+        .union(Self::FUTURE_UNICODE_LITERALS)
+        .union(Self::FUTURE_BARRY_AS_BDFL)
+        .union(Self::FUTURE_GENERATOR_STOP)
+        .union(Self::FUTURE_ANNOTATIONS);
 }
 
 #[repr(C)]

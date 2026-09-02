@@ -742,26 +742,31 @@ pub mod levenshtein {
 
 /// Replace all tabs in a string with spaces, using the given tab size.
 #[must_use]
-pub fn expandtabs(input: &str, tab_size: usize) -> String {
+pub fn expandtabs(input: &Wtf8, tab_size: usize) -> Wtf8Buf {
+    // A tab size of zero, which is also where a negative one lands, leaves no
+    // column for a tab to advance to: the tabs come out and nothing else moves.
+    // Going through the arithmetic anyway subtracts the current column from a
+    // tab stop of zero and underflows on the first tab, so the width asked for
+    // next is `usize::MAX`. The bytes version of this already returns here.
+    if tab_size == 0 {
+        return input.code_points().filter(|ch| *ch != '\t').collect();
+    }
+
     let tab_stop = tab_size;
-    let mut expanded_str = String::with_capacity(input.len());
+    let mut expanded_str = Wtf8Buf::with_capacity(input.len());
     let mut tab_size = tab_stop;
     let mut col_count = 0usize;
-    for ch in input.chars() {
-        match ch {
-            '\t' => {
-                let num_spaces = tab_size - col_count;
-                col_count += num_spaces;
-                let expand = " ".repeat(num_spaces);
-                expanded_str.push_str(&expand);
-            }
-            '\r' | '\n' => {
-                expanded_str.push(ch);
+    for ch in input.code_points() {
+        if ch == '\t' {
+            let num_spaces = tab_size - col_count;
+            col_count += num_spaces;
+            expanded_str.push_str(&" ".repeat(num_spaces));
+        } else {
+            expanded_str.push(ch);
+            if ch == '\r' || ch == '\n' {
                 col_count = 0;
                 tab_size = 0;
-            }
-            _ => {
-                expanded_str.push(ch);
+            } else {
                 col_count += 1;
             }
         }
@@ -904,5 +909,33 @@ mod tests {
 
         let s = "0😀😃😄😁😆😅😂🤣9";
         assert_eq!(get_chars(s, 3..7), "😄😁😆😅");
+    }
+
+    fn expandtabs(input: &str, tab_size: usize) -> Wtf8Buf {
+        super::expandtabs(Wtf8::new(input), tab_size)
+    }
+
+    #[test]
+    fn expandtabs_with_zero_tab_size_drops_tabs() {
+        // A tab that follows a character used to subtract that column from a
+        // tab stop of zero, so the width of the run of spaces came out as
+        // `usize::MAX` and the allocation aborted the process.
+        assert_eq!(expandtabs("a\tb", 0), Wtf8Buf::from("ab"));
+        assert_eq!(expandtabs("ab\tcd\tef", 0), Wtf8Buf::from("abcdef"));
+        assert_eq!(expandtabs("a\nb\tc", 0), Wtf8Buf::from("a\nbc"));
+        assert_eq!(expandtabs("á\tb", 0), Wtf8Buf::from("áb"));
+        assert_eq!(expandtabs("\ta", 0), Wtf8Buf::from("a"));
+        assert_eq!(expandtabs("\t", 0), Wtf8Buf::from(""));
+        assert_eq!(expandtabs("", 0), Wtf8Buf::from(""));
+        assert_eq!(expandtabs("no tabs", 0), Wtf8Buf::from("no tabs"));
+    }
+
+    #[test]
+    fn expandtabs_with_a_real_tab_size_is_unchanged() {
+        assert_eq!(expandtabs("a\tb", 8), Wtf8Buf::from("a       b"));
+        assert_eq!(expandtabs("a\tb", 1), Wtf8Buf::from("a b"));
+        assert_eq!(expandtabs("abcd\te", 4), Wtf8Buf::from("abcd    e"));
+        assert_eq!(expandtabs("a\nb\tc", 4), Wtf8Buf::from("a\nb   c"));
+        assert_eq!(expandtabs("\ta", 4), Wtf8Buf::from("    a"));
     }
 }

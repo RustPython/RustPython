@@ -234,7 +234,7 @@ impl PyMethodDef {
     ) -> [Self; SUM_LEN] {
         const NULL_METHOD: PyMethodDef = PyMethodDef {
             name: "",
-            func: &|_, _| unreachable!(),
+            func: &|_, _, _| unreachable!(),
             flags: PyMethodFlags::empty(),
             doc: None,
         };

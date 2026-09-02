@@ -512,13 +512,10 @@ impl SetAttr for PyCUnionType {
         // Store in type's attributes dict
         match &value {
             PySetterValue::Assign(v) => {
-                pytype
-                    .attributes
-                    .write()
-                    .insert(attr_name_interned, v.clone());
+                pytype.attributes.set(attr_name_interned, v.clone());
             }
             PySetterValue::Delete => {
-                let prev = pytype.attributes.write().shift_remove(attr_name_interned);
+                let prev = pytype.attributes.remove(attr_name_interned);
                 if prev.is_none() {
                     return Err(vm.new_attribute_error(format!(
                         "type object '{}' has no attribute '{}'",

@@ -31,7 +31,7 @@ mod builtins {
         types::PyComparisonOp,
         vm::compile_mode::{
             CompilerFlags, PY_EVAL_INPUT, PY_FILE_INPUT, PY_FUNC_TYPE_INPUT, PY_SINGLE_INPUT,
-            compile_future_feature_mask, compile_future_features_from_flags,
+            compile_future_features_from_flags,
         },
     };
     use itertools::Itertools;
@@ -145,9 +145,7 @@ mod builtins {
     ) -> bytecode::CodeFlags {
         let mut future_features = compile_future_features_from_flags(flags);
         if !dont_inherit && let Some(code) = crate::frame::current_code() {
-            future_features |= bytecode::CodeFlags::from_bits_truncate(
-                code.flags.bits() & compile_future_feature_mask().bits(),
-            );
+            future_features |= code.flags & bytecode::CodeFlags::FUTURE_MASK;
         }
         future_features
     }
@@ -709,9 +707,7 @@ mod builtins {
                 let source = string.as_str();
                 let mut opts = vm.compile_opts();
                 if let Some(code) = crate::frame::current_code() {
-                    opts.future_features = bytecode::CodeFlags::from_bits_truncate(
-                        code.flags.bits() & compile_future_feature_mask().bits(),
-                    );
+                    opts.future_features = code.flags & bytecode::CodeFlags::FUTURE_MASK;
                 }
                 vm.compile_with_opts(source, mode, "<string>", opts)
                     .map_err(|err| err.into_pyexception(vm, Some(source)))?
@@ -971,32 +967,30 @@ mod builtins {
     fn min_or_max(
         mut args: FuncArgs,
         vm: &VirtualMachine,
-        func_name: &str,
+        func_name: &'static str,
         op: PyComparisonOp,
     ) -> PyResult {
+        // A call with nothing to compare is refused before the keywords are read.
+        if args.args.is_empty() {
+            return Err(vm.new_arity_type_error(func_name, 1..=usize::MAX, 0));
+        }
+
         let default = args.take_keyword("default");
         let key_func = args.take_keyword("key");
 
-        if let Some(err) = args.check_kwargs_empty(vm) {
+        if let Some(err) = args.check_kwargs_empty_for(vm, func_name) {
             return Err(err);
         }
 
-        let candidates = match args.args.len().cmp(&1) {
-            core::cmp::Ordering::Greater => {
-                if default.is_some() {
-                    return Err(vm.new_type_error(format!(
-                        "Cannot specify a default for {func_name}() with multiple positional arguments"
-                    )));
-                }
-                args.args
+        let candidates = if args.args.len() > 1 {
+            if default.is_some() {
+                return Err(vm.new_type_error(format!(
+                    "Cannot specify a default for {func_name}() with multiple positional arguments"
+                )));
             }
-            core::cmp::Ordering::Equal => args.args[0].try_to_value(vm)?,
-            core::cmp::Ordering::Less => {
-                // zero arguments means type error:
-                return Err(
-                    vm.new_type_error(format!("{func_name} expected at least 1 argument, got 0"))
-                );
-            }
+            args.args
+        } else {
+            args.args[0].try_to_value(vm)?
         };
 
         let mut candidates_iter = candidates.into_iter();
@@ -1049,7 +1043,7 @@ mod builtins {
         if !PyIter::check(&iterator) {
             return Err(vm.new_type_error(format!(
                 "'{}' object is not an iterator",
-                iterator.class().name()
+                iterator.class().slot_name()
             )));
         }
         PyIter::new(iterator)
@@ -1280,7 +1274,7 @@ mod builtins {
             .ok_or_else(|| {
                 vm.new_type_error(format!(
                     "type {} doesn't define __round__ method",
-                    number.class().name()
+                    number.class().slot_name()
                 ))
             })?;
         match ndigits.flatten() {
@@ -1319,7 +1313,9 @@ mod builtins {
         check_positional(vm, "sorted", func_args.args.len(), 1, 1)?;
         type SortedArgs = (PyObjectRef, SortOptions);
         let (iterable, opts): SortedArgs = func_args.bind(vm)?;
-        let items: Vec<_> = iterable.try_to_value(vm)?;
+        // `PySequence_List()`, so the room comes from what the iterable reports
+        // rather than from its iterator.
+        let items = vm.extract_elements_sized(&iterable, &|| 0, Ok)?;
         let lst = PyList::from(items);
         lst.sort_inner(opts, vm)?;
         Ok(lst)

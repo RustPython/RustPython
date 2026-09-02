@@ -42,17 +42,17 @@ pub(crate) mod ssl_error {
     impl PySSLError {
         // Returns strerror attribute if available, otherwise str(args)
         #[pymethod]
-        fn __str__(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             use crate::vm::AsObject;
             // Try to get strerror attribute first (OSError compatibility)
-            if let Ok(strerror) = exc.as_object().get_attr("strerror", vm)
+            if let Ok(strerror) = zelf.as_object().get_attr("strerror", vm)
                 && !vm.is_none(&strerror)
             {
                 return strerror.str(vm);
             }
 
             // Otherwise return str(args) like CPython's OSError fallback
-            exc.args().as_object().str(vm)
+            zelf.args().as_object().str(vm)
         }
     }
 

@@ -11,7 +11,8 @@ use crate::function::{Either, FuncArgs, OptionalArg};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, Representable};
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, set_attrs,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    class::PyClassDef, set_attrs,
 };
 use alloc::borrow::Cow;
 use core::fmt::Debug;
@@ -984,7 +985,7 @@ impl Constructor for PyCSimple {
     type Args = (OptionalArg,);
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let args: Self::Args = args.bind(vm)?;
+        let args: Self::Args = args.bind_for(vm, Self::NAME)?;
         let _type_ = cls
             .type_code(vm)
             .ok_or_else(|| vm.new_type_error("abstract class"))?;
