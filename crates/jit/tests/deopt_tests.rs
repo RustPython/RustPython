@@ -378,41 +378,39 @@ def div(a: float, b: int) -> float:
         }
     }
 
-    /// `0.0 ** negative` raises rather than returning an infinity. This
-    /// reads the sign bit of the exponent, not its value, so `-0.0` deopts
-    /// it exactly as `-1.0` does.
+    /// `0.0 ** negative` raises rather than returning an infinity. The
+    /// exponent is read by its value, so `-0.0` is not one of them - see
+    /// `basic_power` in float_tests.rs for the answer it gets instead.
     #[test]
     fn float_power_deopts_on_zero_base_negative_exponent() {
         let code = jit_function! { pow => r#"
 def pow(a: float, b: float) -> float:
     return a ** b
 "# };
-        for exponent in [-1.0f64, -0.0f64] {
-            match code.invoke(&[0.0f64.into(), exponent.into()]) {
+        // A `-0.0` base is a zero base like any other.
+        for base in [0.0f64, -0.0f64] {
+            match code.invoke(&[base.into(), (-1.0f64).into()]) {
                 Ok(Outcome::Deopt(state)) => {
-                    assert_eq!(state.stack, vec![float(0.0), float(exponent)]);
+                    assert_eq!(state.stack, vec![float(base), float(-1.0)]);
                 }
-                other => panic!("expected a deopt for 0.0 ** {exponent}, got {other:?}"),
+                other => panic!("expected a deopt for {base} ** -1.0, got {other:?}"),
             }
         }
     }
 
     /// A negative base raised to a fractional power is complex. The base is
-    /// read by its sign bit too, so a `-0.0` base is caught the same way a
-    /// `-8.0` one is.
+    /// read by its value too, so `-0.0` is not one of those either.
     #[test]
     fn float_power_deopts_on_negative_base_fractional_exponent() {
         let code = jit_function! { pow => r#"
 def pow(a: float, b: float) -> float:
     return a ** b
 "# };
-        for base in [-8.0f64, -0.0f64] {
-            match code.invoke(&[base.into(), 0.5f64.into()]) {
-                Ok(Outcome::Deopt(state)) => {
-                    assert_eq!(state.stack, vec![float(base), float(0.5)]);
-                }
-                other => panic!("expected a deopt for {base} ** 0.5, got {other:?}"),
+        match code.invoke(&[(-8.0f64).into(), 0.5f64.into()]) {
+            Ok(Outcome::Deopt(state)) => {
+                assert_eq!(state.stack, vec![float(-8.0), float(0.5)]);
             }
+            other => panic!("expected a deopt for -8.0 ** 0.5, got {other:?}"),
         }
     }
 

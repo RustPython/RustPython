@@ -1357,24 +1357,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         Ok((quotient, remainder))
     }
 
-    /// The sign bit of an f64, matching `f64::is_sign_negative` - true for
-    /// `-0.0` and a negative NaN, not just an ordinary negative number.
-    /// `fcmp` compares values and cannot see this bit; reinterpreting the
-    /// bits as a signed integer and testing that sign is what
-    /// `f64::is_sign_negative` itself does.
-    fn is_sign_negative(&mut self, v: Value) -> Value {
-        let bits = self.builder.ins().bitcast(types::I64, MemFlags::new(), v);
-        self.builder.ins().icmp_imm(IntCC::SignedLessThan, bits, 0)
-    }
-
     /// Computes a raised to the power b by calling the same `f64::powf` the
     /// interpreter's `float_pow` calls, once the two guards ahead of it in
     /// `float_pow` rule out its other two outcomes: `ZeroDivisionError` and a
-    /// complex result. This is `float_pow` translated guard for guard,
-    /// including the parts that look wrong - the first guard below reads the
-    /// SIGN BIT of the exponent, not its value, because that is what
-    /// `is_sign_negative` does, so `0.0 ** -0.0` deopts exactly as
-    /// `0.0 ** -1.0` does.
+    /// complex result. This is `float_pow` translated guard for guard.
     fn compile_fpow(
         &mut self,
         a: Value,
@@ -1383,25 +1369,22 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     ) -> Result<Value, JitCompileError> {
         let zero_f = self.builder.ins().f64const(0.0);
 
-        // v1.is_zero() && v2.is_sign_negative() -> ZeroDivisionError.
+        // v1.is_zero() && v2 < 0.0 -> ZeroDivisionError. Both comparisons are
+        // ordered, so neither a `-0.0` nor a nan operand takes this exit, and
+        // both `0.0` and `-0.0` count as a zero base.
         let base_zero = self.builder.ins().fcmp(FloatCC::Equal, a, zero_f);
-        let exp_sign_negative = self.is_sign_negative(b);
-        let divides_by_zero = self.builder.ins().band(base_zero, exp_sign_negative);
+        let exp_negative = self.builder.ins().fcmp(FloatCC::LessThan, b, zero_f);
+        let divides_by_zero = self.builder.ins().band(base_zero, exp_negative);
         self.deopt_branch(divides_by_zero, operands)?;
 
-        // v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON ->
-        // complex result - a `-0.0` base is caught by its sign bit here too,
-        // the same as the exponent above.
-        let base_sign_negative = self.is_sign_negative(a);
+        // v1 < 0.0 && v2.is_finite() && v2 != v2.floor() -> complex result.
+        // A value never sits below its own floor, so ordered `>` against it is
+        // that pair of conditions in one: an infinity equals its floor, and a
+        // nan is unordered against everything, itself included.
+        let base_negative = self.builder.ins().fcmp(FloatCC::LessThan, a, zero_f);
         let b_floor = self.builder.ins().floor(b);
-        let diff = self.builder.ins().fsub(b_floor, b);
-        let abs_diff = self.builder.ins().fabs(diff);
-        let epsilon = self.builder.ins().f64const(f64::EPSILON);
-        let fractional = self
-            .builder
-            .ins()
-            .fcmp(FloatCC::GreaterThan, abs_diff, epsilon);
-        let complex = self.builder.ins().band(base_sign_negative, fractional);
+        let fractional = self.builder.ins().fcmp(FloatCC::GreaterThan, b, b_floor);
+        let complex = self.builder.ins().band(base_negative, fractional);
         self.deopt_branch(complex, operands)?;
 
         // ans = v1.powf(v2), through the exact function the interpreter

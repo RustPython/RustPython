@@ -173,6 +173,17 @@ mod tests {
         // `+0.0`: `(-0.0) ** 3.0` is `-0.0`.
         assert_bits_eq!(pow(-0.0, 3.0), Ok(-0.0f64));
 
+        // `-0.0` is a zero, not a negative number, on either side of the
+        // operator: it is neither the negative exponent that makes a zero
+        // base raise, nor the negative base that makes a fractional exponent
+        // complex. Both of those give up to the interpreter, so a compiled
+        // answer here is also the proof that neither guard fired.
+        assert_bits_eq!(pow(0.0, -0.0), Ok(1.0f64));
+        assert_bits_eq!(pow(-0.0, -0.0), Ok(1.0f64));
+        assert_bits_eq!(pow(-0.0, 0.5), Ok(0.0f64));
+        // A nan exponent is not a fractional one, however negative the base.
+        assert_bits_eq!(pow(-2.0, f64::NAN), Ok(f64::NAN));
+
         // Test positive float base, positive float exponent
         assert_bits_eq!(pow(2.0, 2.0), Ok(4.0f64));
         assert_bits_eq!(pow(3.0, 3.0), Ok(27.0f64));
