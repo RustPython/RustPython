@@ -1182,21 +1182,6 @@ impl InterpreterFrame {
         top
     }
 
-    /// Create a lightweight FrameObject with empty localsplus, suitable for
-    /// f_back chain building (retained_back). Unlike `materialize`, this does
-    /// NOT store into `temporary_refs` or set the `materialized` pointer, so
-    /// the returned FrameObject is only kept alive by the caller's `PyRef`.
-    /// This prevents non-GC-tracked `temporary_refs` on a stack-allocated
-    /// iframe from defeating cycle collection.
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn materialize_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
-        if let Some(fo) = self.frame_obj() {
-            return fo.to_owned();
-        }
-        self.materialize_slow_chain(vm)
-    }
-
     #[cold]
     fn materialize_slow(&self, vm: &VirtualMachine) -> &Py<FrameObject> {
         // Create a full FrameObject with its own InterpreterFrame copy.
@@ -1291,10 +1276,10 @@ impl InterpreterFrame {
         unsafe { &*(fo_ptr as *const Py<FrameObject>) }
     }
 
-    /// Like `materialize_slow` but with empty localsplus to avoid extra
-    /// refcounts on local variables. Only suitable for f_back chain building.
-    /// Returns an owned `PyRef` without storing into `temporary_refs` or
-    /// setting the `materialized` pointer, so GC can still detect cycles.
+    /// Like `materialize_slow` but detached: empty localsplus that nothing
+    /// ever fills, and no store into `temporary_refs` or the `materialized`
+    /// pointer, so the copy is kept alive only by the returned `PyRef`.
+    #[cfg(feature = "threading")]
     #[cold]
     fn materialize_slow_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
         let code: PyRef<PyCode> = self.code().to_owned();

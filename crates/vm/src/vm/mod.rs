@@ -2425,8 +2425,13 @@ impl VirtualMachine {
                 // the frame object, so it is now readable from anywhere.
                 fo.iframe().detach();
                 if !old_chain.is_null() {
+                    // The frame object has to be attached to the caller, not
+                    // a standalone copy of it: the caller runs this same
+                    // block when it returns and finds only an attached one,
+                    // so a copy would end the chain here and `f_back` would
+                    // stop one link up from every escaped frame.
                     let prev_iframe = unsafe { &*old_chain };
-                    let back_fo = prev_iframe.materialize_chain(self);
+                    let back_fo = prev_iframe.materialize(self).to_owned();
                     *fo.iframe().cold().retained_back.lock() = Some(back_fo);
                 }
                 fo.iframe().owner.store(
