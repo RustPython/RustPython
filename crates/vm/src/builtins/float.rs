@@ -156,9 +156,13 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
 }
 
 pub(crate) fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
-    if v1.is_zero() && v2.is_sign_negative() {
+    // Both tests are on the value, not the sign bit: `-0.0` is neither a
+    // negative exponent nor a negative base, so `0.0 ** -0.0` is 1.0 and
+    // `(-0.0) ** 0.5` is 0.0. An exponent that is not a number falls through
+    // to `powf`, which answers it the way `pow` is defined to.
+    if v1.is_zero() && v2 < 0.0 {
         Err(vm.new_zero_division_error("zero to a negative power"))
-    } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
+    } else if v1 < 0.0 && v2.is_finite() && v2 != v2.floor() {
         let v1 = Complex64::new(v1, 0.);
         let v2 = Complex64::new(v2, 0.);
         Ok(super::complex::complex_pow(v1, v2, vm)?.to_pyobject(vm))
