@@ -14,7 +14,7 @@ use crate::{
         ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
         bytes_decode,
     },
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::{
         atomic::{AtomicUsize, Ordering},
         lock::{
@@ -347,7 +347,7 @@ impl PyByteArray {
                 func_args.args.len()
             )));
         }
-        let options: ByteInnerHexOptions = func_args.bind(vm)?;
+        let options: ByteInnerHexOptions = func_args.bind_for(vm, "hex")?;
         // gh-143195: measuring the separator runs Python, so it happens before
         // the buffer is borrowed, and with the buffer exported so a re-entrant
         // __len__ that resizes this bytearray raises BufferError
@@ -522,7 +522,7 @@ impl PyByteArray {
                 func_args.args.len()
             )));
         }
-        let options: ByteInnerTranslateOptions = func_args.bind(vm)?;
+        let options: ByteInnerTranslateOptions = func_args.bind_for(vm, "translate")?;
         Ok(self.inner().translate(options, vm)?.into())
     }
 
@@ -628,7 +628,7 @@ impl PyByteArray {
                 func_args.args.len()
             )));
         }
-        let options: anystr::ExpandTabsArgs = func_args.bind(vm)?;
+        let options: anystr::ExpandTabsArgs = func_args.bind_for(vm, "expandtabs")?;
         Ok(self.inner().expandtabs(options, vm)?.into())
     }
 
@@ -641,7 +641,7 @@ impl PyByteArray {
                 func_args.args.len()
             )));
         }
-        let options: anystr::SplitLinesArgs = func_args.bind(vm)?;
+        let options: anystr::SplitLinesArgs = func_args.bind_for(vm, "splitlines")?;
         Ok(self
             .inner()
             .splitlines(options, |x| vm.ctx.new_bytearray(x.to_vec()).into()))
@@ -886,7 +886,7 @@ impl PyRef<PyByteArray> {
                 func_args.args.len()
             )));
         }
-        let args: DecodeArgs = func_args.bind(vm)?;
+        let args: DecodeArgs = func_args.bind_for(vm, "decode")?;
         bytes_decode(self.into(), args, vm)
     }
 }
@@ -905,7 +905,7 @@ impl Initializer for PyByteArray {
         }
         ByteInnerNewOptions::check_encoding_errors(&args, "bytearray", vm)?;
         let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-        let options: Self::Args = args.bind(vm)?;
+        let options: Self::Args = args.bind_for(vm, Self::NAME)?;
         Self::init(zelf, options, vm)
     }
 

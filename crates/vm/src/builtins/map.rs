@@ -2,7 +2,7 @@ use super::PyType;
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyTupleRef, PyTypeRef},
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     function::{ArgIntoBool, FuncArgs, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, Iterable, SelfIter},
@@ -35,11 +35,21 @@ impl Constructor for PyMap {
     type Args = (PyObjectRef, PosArgs<PyIter>, PyMapNewArgs);
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // map_new: keywords are checked before the positional count
+        if let Some(key) = args
+            .kwargs
+            .keys()
+            .find(|key| !matches!(key.as_str(), Ok("strict")))
+        {
+            return Err(
+                vm.new_type_error(format!("map() got an unexpected keyword argument '{key}'"))
+            );
+        }
         // map() requires a callable and at least one iterable
         if args.args.len() < 2 {
             return Err(vm.new_type_error("map() must have at least two arguments."));
         }
-        let args: Self::Args = args.bind(vm)?;
+        let args: Self::Args = args.bind_for(vm, Self::NAME)?;
         let payload = Self::py_new(&cls, args, vm)?;
         payload.into_ref_with_type(vm, cls).map(Into::into)
     }

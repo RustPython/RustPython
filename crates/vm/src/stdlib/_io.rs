@@ -5168,7 +5168,7 @@ mod _io {
         if func_args.args.is_empty() && !func_args.kwargs.contains_key("file") {
             return Err(vm.new_type_error("open() missing required argument 'file' (pos 1)"));
         }
-        let args: IoOpenArgs = func_args.bind(vm)?;
+        let args: IoOpenArgs = func_args.bind_for(vm, "open")?;
         io_open(
             args.file,
             args.mode.as_ref().into_option().map(|s| s.as_str()),

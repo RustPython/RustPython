@@ -189,11 +189,11 @@ impl PyList {
     }
 
     #[pymethod]
-    fn append(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        check_meth_o(vm, "list.append", &func_args)?;
-        let (x,): (PyObjectRef,) = func_args.bind(vm)?;
+    // Typed rather than `FuncArgs`: a single-object signature is what marks
+    // the method METH_O, and only a METH_O method takes the CALL fast path
+    // that a tight `append` loop lives on.
+    fn append(&self, x: PyObjectRef) {
         self.append_inner(x);
-        Ok(())
     }
 
     pub(crate) fn extend_inner(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -469,7 +469,7 @@ impl PyList {
         if !func_args.args.is_empty() {
             return Err(vm.new_type_error("sort() takes no positional arguments"));
         }
-        let options: SortOptions = func_args.bind(vm)?;
+        let options: SortOptions = func_args.bind_for(vm, "sort")?;
         self.sort_inner(options, vm)
     }
 
