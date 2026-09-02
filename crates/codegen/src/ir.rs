@@ -63,6 +63,42 @@ fn is_within_opcode_range(opcode: AnyOpcode) -> bool {
 #[derive(Clone, Debug, Default)]
 pub struct ConstantPool {
     constants: Vec<ConstantData>,
+    /// De-dup index: digest of a canonicalized constant -> positions in
+    /// `constants` sharing that digest. Kept separate from `constants` so
+    /// `constants` stays a plain, order-preserving `Vec` for every other
+    /// consumer (indexing, iteration, in-place compaction in
+    /// `remove_unused_consts`). NaN-bearing constants are intentionally
+    /// never registered here, since they must never be deduplicated (see
+    /// `find_existing`).
+    index: crate::IndexMap<u64, Vec<u32>>,
+}
+
+/// A tiny, fully self-contained FNV-1a accumulator used only to build the
+/// `ConstantPool` de-dup digest. It does not need to match any external
+/// hash quality/seed contract, only to be deterministic within a single
+/// compilation.
+struct ConstantDigestHasher(u64);
+
+impl ConstantDigestHasher {
+    const OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    fn new() -> Self {
+        Self(Self::OFFSET_BASIS)
+    }
+}
+
+impl core::hash::Hasher for ConstantDigestHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.0 ^= u64::from(byte);
+            self.0 = self.0.wrapping_mul(Self::PRIME);
+        }
+    }
 }
 
 impl ConstantPool {
@@ -165,6 +201,73 @@ impl ConstantPool {
             .expect("constant key canonicalization only fails on allocation error")
     }
 
+    /// Digest used for the de-dup `index`. Mirrors `constant_key_eq`: it
+    /// must treat frozensets as order-independent so two frozensets built
+    /// from the same (already-deduplicated) elements in different orders
+    /// still land in the same bucket. Every other variant recurses in the
+    /// same order `constant_key_eq` compares them. A hash collision only
+    /// costs an extra `constant_key_eq` check in `find_existing`'s bucket
+    /// scan; it can never cause an incorrect match.
+    fn constant_key_digest(constant: &ConstantData) -> u64 {
+        use core::hash::{Hash, Hasher};
+        match constant {
+            ConstantData::Tuple { elements } => {
+                let mut hasher = ConstantDigestHasher::new();
+                elements.len().hash(&mut hasher);
+                for element in elements {
+                    Self::constant_key_digest(element).hash(&mut hasher);
+                }
+                hasher.finish()
+            }
+            ConstantData::Slice { elements } => {
+                let mut hasher = ConstantDigestHasher::new();
+                for element in elements.iter() {
+                    Self::constant_key_digest(element).hash(&mut hasher);
+                }
+                hasher.finish()
+            }
+            ConstantData::Frozenset { elements } => {
+                // Order-independent: XOR the per-element digests together so
+                // permutations of the same elements land in the same bucket.
+                let combined = elements.iter().fold(0u64, |acc, element| {
+                    acc ^ Self::constant_key_digest(element)
+                });
+                let mut hasher = ConstantDigestHasher::new();
+                elements.len().hash(&mut hasher);
+                combined.hash(&mut hasher);
+                hasher.finish()
+            }
+            other => {
+                let mut hasher = ConstantDigestHasher::new();
+                other.hash(&mut hasher);
+                hasher.finish()
+            }
+        }
+    }
+
+    /// Registers `constant` (already stored at `idx` in `self.constants`)
+    /// in the de-dup index, unless it contains NaN.
+    fn index_insert(&mut self, constant: &ConstantData, idx: usize) {
+        if Self::constant_contains_nan(constant) {
+            return;
+        }
+        let digest = Self::constant_key_digest(constant);
+        self.index.entry(digest).or_default().push(idx as u32);
+    }
+
+    /// Rebuilds the de-dup index from scratch to match the current contents
+    /// of `self.constants`. Used after `remove_unused_consts` reorders and
+    /// truncates the constant list in place.
+    fn rebuild_index(&mut self) {
+        self.index.clear();
+        for (idx, constant) in self.constants.iter().enumerate() {
+            if !Self::constant_contains_nan(constant) {
+                let digest = Self::constant_key_digest(constant);
+                self.index.entry(digest).or_default().push(idx as u32);
+            }
+        }
+    }
+
     /// Index of an already-stored constant equal to `constant`, if any.
     /// _PyCode_ConstantKey() keeps NaN-bearing constants distinct because
     /// Python-level NaN keys do not compare equal.
@@ -172,9 +275,13 @@ impl ConstantPool {
         if Self::constant_contains_nan(constant) {
             return None;
         }
-        self.constants
+        let digest = Self::constant_key_digest(constant);
+        let bucket = self.index.get(&digest)?;
+        bucket
             .iter()
-            .position(|existing| Self::constant_key_eq(existing, constant))
+            .copied()
+            .map(|idx| idx as usize)
+            .find(|&idx| Self::constant_key_eq(&self.constants[idx], constant))
     }
 
     pub fn insert_full(&mut self, constant: ConstantData) -> (usize, bool) {
@@ -183,6 +290,7 @@ impl ConstantPool {
             return (idx, false);
         }
         let idx = self.constants.len();
+        self.index_insert(&constant, idx);
         self.constants.push(constant);
         (idx, true)
     }
@@ -196,6 +304,7 @@ impl ConstantPool {
             .try_reserve_exact(1)
             .map_err(|_| InternalError::MalformedControlFlowGraph)?;
         let idx = self.constants.len();
+        self.index_insert(&constant, idx);
         self.constants.push(constant);
         Ok((idx, true))
     }
@@ -225,6 +334,7 @@ impl ConstantPool {
 
     pub fn clear(&mut self) {
         self.constants.clear();
+        self.index.clear();
     }
 }
 
@@ -2622,18 +2732,26 @@ impl Blocks {
         }
 
         // Move all used consts to the beginning of the consts list.
+        // Each `old_index` is visited exactly once (index_map's used-const
+        // entries are the strictly-increasing original indices of the used
+        // consts), so moving the value out with `mem::replace` instead of
+        // cloning is safe: a source slot is never read again after its
+        // designated iteration, and any position that later becomes a
+        // destination gets unconditionally overwritten anyway.
         debug_assert!(n_used_consts < nconsts);
         for (i, item) in index_map.iter().enumerate().take(n_used_consts) {
             let old_index = *item as usize;
             debug_assert!(i <= old_index && old_index < nconsts);
             if i != old_index {
-                let value = consts.constants[old_index].clone();
+                let value =
+                    core::mem::replace(&mut consts.constants[old_index], ConstantData::None);
                 consts.constants[i] = value;
             }
         }
 
         // Truncate the consts list at its new size.
         consts.constants.truncate(n_used_consts);
+        consts.rebuild_index();
 
         // Adjust const indices in the bytecode.
         let mut reverse_index_map = Vec::new();

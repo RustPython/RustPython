@@ -178,6 +178,10 @@ struct Compiler<'a> {
     source_file: SourceFile,
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
+    /// Memoized `(range, location, end_location)` conversion of
+    /// `current_source_range`, since it changes far less often than
+    /// instructions get emitted. See `current_locations`.
+    current_source_locations: Option<(TextRange, SourceLocation, SourceLocation)>,
     future_features: bytecode::CodeFlags,
     future_annotations: bool,
     ctx: CompileContext,
@@ -1109,6 +1113,7 @@ impl<'warnings> Compiler<'warnings> {
             source_file,
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
+            current_source_locations: None,
             future_features: opts.future_features,
             future_annotations: false,
             ctx: CompileContext {
@@ -3145,6 +3150,17 @@ impl<'warnings> Compiler<'warnings> {
         })
     }
 
+    /// Whether `name`, referenced at module scope, is declared `global` in
+    /// some nested (function/class) scope. Only meaningful - and only
+    /// worth the recursive scan - when the current scope is actually the
+    /// module scope, so callers should only reach for this from the
+    /// `Local`/`Unknown` scope arms where the result is actually used.
+    fn module_global_from_nested_scope(&self, name: &Name) -> bool {
+        let current_table = self.current_symbol_table();
+        current_table.typ == CompilerScope::Module
+            && Self::module_name_declared_global_in_nested_scope(current_table, name)
+    }
+
     // = compiler_nameop
     fn compile_name(&mut self, name: &Name, usage: NameUsage) -> CompileResult<()> {
         enum NameOp {
@@ -3265,18 +3281,12 @@ impl<'warnings> Compiler<'warnings> {
             }
         };
 
-        let module_global_from_nested_scope = {
-            let current_table = self.current_symbol_table();
-            current_table.typ == CompilerScope::Module
-                && Self::module_name_declared_global_in_nested_scope(current_table, name.as_ref())
-        };
-
         // Determine operation type based on scope
         let op_type = match actual_scope {
             SymbolScope::Free => NameOp::Deref,
             SymbolScope::Cell => NameOp::Deref,
             SymbolScope::Local => {
-                if module_global_from_nested_scope {
+                if self.module_global_from_nested_scope(name.as_ref()) {
                     NameOp::Global
                 } else if is_function_like
                     || self
@@ -3315,7 +3325,7 @@ impl<'warnings> Compiler<'warnings> {
                 }
             }
             SymbolScope::Unknown => {
-                if module_global_from_nested_scope {
+                if self.module_global_from_nested_scope(name.as_ref()) {
                     NameOp::Global
                 } else {
                     NameOp::Name
@@ -11289,10 +11299,7 @@ impl<'warnings> Compiler<'warnings> {
             target == BlockIdx::NULL || instr.has_target(),
             "CPython codegen_addop_j only accepts HAS_TARGET opcodes"
         );
-        let range = self.current_source_range;
-        let source = self.source_file.to_source_code();
-        let location = source.source_location(range.start(), PositionEncoding::Utf8);
-        let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
+        let (location, end_location) = self.current_locations();
         let except_handler = None;
         self.cpython_cfg_builder_addop(ir::InstructionInfo {
             instr,
@@ -11324,10 +11331,7 @@ impl<'warnings> Compiler<'warnings> {
             !instr.is_assembler(),
             "CPython codegen_addop_j must not emit assembler-only opcodes"
         );
-        let range = self.current_source_range;
-        let source = self.source_file.to_source_code();
-        let location = source.source_location(range.start(), PositionEncoding::Utf8);
-        let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
+        let (location, end_location) = self.current_locations();
         let target = self
             .current_code_info()
             .block_for_instr_sequence_label(target_label);
@@ -12325,6 +12329,25 @@ impl<'warnings> Compiler<'warnings> {
 
     const fn set_source_range(&mut self, range: TextRange) {
         self.current_source_range = range;
+    }
+
+    /// Converts `self.current_source_range` to `(location, end_location)`,
+    /// reusing the last conversion when the range hasn't changed since.
+    /// `current_source_range` is set far less often than instructions are
+    /// emitted, so this avoids two binary searches per emitted instruction
+    /// in the common case.
+    fn current_locations(&mut self) -> (SourceLocation, SourceLocation) {
+        let range = self.current_source_range;
+        if let Some((cached_range, location, end_location)) = self.current_source_locations
+            && cached_range == range
+        {
+            return (location, end_location);
+        }
+        let source = self.source_file.to_source_code();
+        let location = source.source_location(range.start(), PositionEncoding::Utf8);
+        let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
+        self.current_source_locations = Some((range, location, end_location));
+        (location, end_location)
     }
 
     fn update_start_location_to_match_attr(
