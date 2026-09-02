@@ -11,6 +11,7 @@ license.workspace = true
 [features]
 default = ["std"]
 binascii = ["dep:base64", "dep:crc32fast"]
+bz2 = ["std", "dep:bzip2"]
 cjk-codecs = []
 inet = ["std"]
 json = ["dep:memchr", "std"]
@@ -28,6 +29,7 @@ rustpython-wtf8 = { workspace = true }
 ascii = { workspace = true }
 base64 = { workspace = true, optional = true }
 bitflags = { workspace = true }
+bzip2 = { workspace = true, optional = true }
 crc32fast = { workspace = true, optional = true }
 getrandom = { workspace = true }
 itertools = { workspace = true }

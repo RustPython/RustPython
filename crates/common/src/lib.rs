@@ -11,7 +11,7 @@ pub mod binascii;
 pub mod borrow;
 pub mod boxvec;
 pub mod cformat;
-#[cfg(any(feature = "lzma", feature = "zlib"))]
+#[cfg(any(feature = "bz2", feature = "lzma", feature = "zlib"))]
 pub mod compression;
 pub mod encodings;
 pub mod float_ops;
