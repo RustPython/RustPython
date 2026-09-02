@@ -17,6 +17,8 @@ pub mod encodings;
 pub mod float_ops;
 pub mod format;
 pub mod hash;
+#[cfg(feature = "hashlib")]
+pub mod hashlib;
 #[cfg(feature = "inet")]
 pub mod inet;
 pub mod int;
