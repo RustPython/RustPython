@@ -207,7 +207,7 @@ mod builtins {
                 )));
             }
         }
-        let args: CompileArgs = func_args.bind(vm)?;
+        let args: CompileArgs = func_args.bind_for(vm, "compile")?;
         #[cfg(not(feature = "ast"))]
         {
             _ = args; // to disable unused warning
@@ -590,7 +590,7 @@ mod builtins {
         );
         let (source, scope): EvalArgs = func_args
             .clone()
-            .bind(vm)
+            .bind_for(vm, "eval")
             .map_err(|e| check_exec_source_error(e, &func_args, "eval", vm))?;
         let scope = scope.make_scope(vm, "eval")?;
 
@@ -634,7 +634,7 @@ mod builtins {
     fn exec(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let args: ExecArgs = func_args
             .clone()
-            .bind(vm)
+            .bind_for(vm, "exec")
             .map_err(|e| check_exec_source_error(e, &func_args, "exec", vm))?;
         let ExecArgs {
             source,
@@ -1312,7 +1312,8 @@ mod builtins {
     fn sorted(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyList> {
         check_positional(vm, "sorted", func_args.args.len(), 1, 1)?;
         type SortedArgs = (PyObjectRef, SortOptions);
-        let (iterable, opts): SortedArgs = func_args.bind(vm)?;
+        // sorted() hands its keywords to list.sort(), which names itself
+        let (iterable, opts): SortedArgs = func_args.bind_for(vm, "sort")?;
         // `PySequence_List()`, so the room comes from what the iterable reports
         // rather than from its iterator.
         let items = vm.extract_elements_sized(&iterable, &|| 0, Ok)?;
@@ -1378,7 +1379,7 @@ mod builtins {
         if func_args.args.is_empty() && !func_args.kwargs.contains_key("name") {
             return Err(vm.new_type_error("__import__() missing required argument 'name' (pos 1)"));
         }
-        let args: ImportArgs = func_args.bind(vm)?;
+        let args: ImportArgs = func_args.bind_for(vm, "__import__")?;
         // builtin___import__: "module name must be a string"
         let name = args
             .name

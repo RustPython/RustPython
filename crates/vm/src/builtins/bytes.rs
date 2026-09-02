@@ -354,7 +354,7 @@ impl PyBytes {
                 func_args.args.len()
             )));
         }
-        let options: ByteInnerHexOptions = func_args.bind(vm)?;
+        let options: ByteInnerHexOptions = func_args.bind_for(vm, "hex")?;
         let (sep, bytes_per_sep) = options.resolve(vm)?;
         Ok(self.inner.hex(sep, bytes_per_sep))
     }
@@ -513,7 +513,7 @@ impl PyBytes {
                 func_args.args.len() + func_args.kwargs.len()
             )));
         }
-        let options: ByteInnerSplitOptions = func_args.bind(vm)?;
+        let options: ByteInnerSplitOptions = func_args.bind_for(vm, "split")?;
         self.inner
             .split(options, |s, vm| vm.ctx.new_bytes(s.to_vec()).into(), vm)
     }
@@ -527,7 +527,7 @@ impl PyBytes {
                 func_args.args.len() + func_args.kwargs.len()
             )));
         }
-        let options: ByteInnerSplitOptions = func_args.bind(vm)?;
+        let options: ByteInnerSplitOptions = func_args.bind_for(vm, "rsplit")?;
         self.inner
             .rsplit(options, |s, vm| vm.ctx.new_bytes(s.to_vec()).into(), vm)
     }
@@ -580,7 +580,7 @@ impl PyBytes {
                 func_args.args.len() + func_args.kwargs.len()
             )));
         }
-        let options: anystr::SplitLinesArgs = func_args.bind(vm)?;
+        let options: anystr::SplitLinesArgs = func_args.bind_for(vm, "splitlines")?;
         Ok(self
             .inner
             .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()).into()))
@@ -710,7 +710,7 @@ impl PyRef<PyBytes> {
                 func_args.args.len()
             )));
         }
-        let args: DecodeArgs = func_args.bind(vm)?;
+        let args: DecodeArgs = func_args.bind_for(vm, "decode")?;
         bytes_decode(self.into(), args, vm)
     }
 }

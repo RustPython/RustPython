@@ -921,7 +921,7 @@ impl PyStr {
                 vm.new_type_error(format!("split() takes at most 2 arguments ({total} given)"))
             );
         }
-        let args: SplitArgs = args.bind(vm)?;
+        let args: SplitArgs = args.bind_for(vm, "split")?;
         let (sep, maxsplit) = args.get_value(vm)?;
         let elements = match zelf.as_str_kind() {
             PyKindStr::Ascii(s) => py_split_str(
@@ -985,7 +985,7 @@ impl PyStr {
                 "rsplit() takes at most 2 arguments ({total} given)"
             )));
         }
-        let args: SplitArgs = func_args.bind(vm)?;
+        let args: SplitArgs = func_args.bind_for(vm, "rsplit")?;
         let (sep, maxsplit) = args.get_value(vm)?;
         let mut elements = py_split_str(
             zelf.as_wtf8(),
@@ -1317,7 +1317,7 @@ impl PyStr {
                 "replace() takes at most 3 arguments ({total} given)"
             )));
         }
-        let args: ReplaceArgs = func_args.bind(vm)?;
+        let args: ReplaceArgs = func_args.bind_for(vm, "replace")?;
         let s = self.as_wtf8();
         let ReplaceArgs { old, new, count } = args;
         let old = old.downcast::<Self>().map_err(|old| {
@@ -1402,7 +1402,7 @@ impl PyStr {
                 "splitlines() takes at most 1 argument ({total} given)"
             )));
         }
-        let args: anystr::SplitLinesArgs = func_args.bind(vm)?;
+        let args: anystr::SplitLinesArgs = func_args.bind_for(vm, "splitlines")?;
         let into_wrapper = |s: &Wtf8| self.new_substr(s.to_owned()).to_pyobject(vm);
         let mut elements = Vec::new();
         let mut last_i = 0;
@@ -1735,7 +1735,7 @@ impl PyStr {
                 "expandtabs() takes at most 1 argument ({total} given)"
             )));
         }
-        let args: anystr::ExpandTabsArgs = func_args.bind(vm)?;
+        let args: anystr::ExpandTabsArgs = func_args.bind_for(vm, "expandtabs")?;
         let tabsize = args.tabsize(vm)?;
         Ok(rustpython_common::str::expandtabs(self.as_wtf8(), tabsize))
     }
@@ -1901,7 +1901,7 @@ impl PyStr {
                 "encode() takes at most 2 arguments ({total} given)"
             )));
         }
-        let args: EncodeArgs = func_args.bind(vm)?;
+        let args: EncodeArgs = func_args.bind_for(vm, "encode")?;
         let encoding = encode_str_arg(args.encoding, "encoding", vm)?;
         let errors = encode_str_arg(args.errors, "errors", vm)?;
         encode_string(zelf, encoding, errors, vm)
