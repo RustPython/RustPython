@@ -552,7 +552,7 @@ impl PyInt {
         core::mem::size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn as_integer_ratio(
         &self,
         func_args: FuncArgs,
@@ -562,14 +562,14 @@ impl PyInt {
         Ok((vm.ctx.new_bigint(&self.value), 1))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn bit_length(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<u64> {
         // method_noargs wrapper: "int.bit_length() takes no arguments (N given)"
         check_noargs(vm, "int.bit_length", &func_args)?;
         Ok(self.value.bits())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn conjugate(
         zelf: PyRef<Self>,
         func_args: FuncArgs,
@@ -666,7 +666,7 @@ impl PyInt {
         1
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn is_integer(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "int.is_integer", &func_args)?;
         Ok(true)

@@ -437,7 +437,7 @@ impl PyTuple {
         PyArithmeticValue::from_option(added.ok())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, value, /)")]
     fn count(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_meth_o(vm, "tuple.count", &func_args)?;
         let (needle,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -480,7 +480,7 @@ impl PyTuple {
         self._getitem(&needle, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, value, start=0, stop=sys.maxsize, /)")]
     fn index(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "tuple.index", &func_args)?;
         check_positional(vm, "index", func_args.args.len(), 1, 3)?;

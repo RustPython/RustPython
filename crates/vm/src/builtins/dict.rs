@@ -386,7 +386,7 @@ impl PyDict {
     flags(BASETYPE, MAPPING, _MATCH_SELF)
 )]
 impl PyDict {
-    #[pyclassmethod]
+    #[pyclassmethod(text_signature = "($type, iterable, value=None, /)")]
     fn fromkeys(class: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_no_kwargs(vm, "dict.fromkeys", &func_args)?;
         check_positional(vm, "fromkeys", func_args.args.len(), 1, 2)?;
@@ -435,7 +435,7 @@ impl PyDict {
         self.inner_delitem(&*key, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     pub fn clear(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_noargs(vm, "dict.clear", &func_args)?;
         self.clear_inner();
@@ -455,7 +455,7 @@ impl PyDict {
         self.inner_setitem(&*key, value, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, key, default=None, /)")]
     fn get(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_no_kwargs(vm, "dict.get", &func_args)?;
         check_positional(vm, "get", func_args.args.len(), 1, 2)?;
@@ -477,7 +477,7 @@ impl PyDict {
             .setdefault(vm, &*key, || default.unwrap_or_none(vm))
     }
 
-    #[pymethod(name = "setdefault")]
+    #[pymethod(name = "setdefault", text_signature = "($self, key, default=None, /)")]
     fn setdefault_method(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_no_kwargs(vm, "dict.setdefault", &func_args)?;
         check_positional(vm, "setdefault", func_args.args.len(), 1, 2)?;
@@ -487,7 +487,7 @@ impl PyDict {
             .setdefault(vm, &*key, || default.unwrap_or_none(vm))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     pub fn copy(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "dict.copy", &func_args)?;
         Ok(self.copy_inner())
@@ -533,7 +533,7 @@ impl PyDict {
         Ok(vm.ctx.not_implemented())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, key, default=<unrepresentable>, /)")]
     fn pop(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_no_kwargs(vm, "dict.pop", &func_args)?;
         check_positional(vm, "pop", func_args.args.len(), 1, 2)?;
@@ -545,7 +545,7 @@ impl PyDict {
         }
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn popitem(
         &self,
         func_args: FuncArgs,
@@ -619,19 +619,19 @@ impl Py<PyDict> {
 
 #[pyclass]
 impl PyRef<PyDict> {
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn keys(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyDictKeys> {
         check_noargs(vm, "dict.keys", &func_args)?;
         Ok(PyDictKeys::new(self))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn values(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyDictValues> {
         check_noargs(vm, "dict.values", &func_args)?;
         Ok(PyDictValues::new(self))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn items(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyDictItems> {
         check_noargs(vm, "dict.items", &func_args)?;
         Ok(PyDictItems::new(self))

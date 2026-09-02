@@ -235,7 +235,7 @@ impl PyProperty {
         Ok(new_prop_ref)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, object, /)")]
     fn getter(
         zelf: PyRef<Self>,
         func_args: FuncArgs,
@@ -246,7 +246,7 @@ impl PyProperty {
         Self::clone_property_with(zelf, getter, None, None, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, object, /)")]
     fn setter(
         zelf: PyRef<Self>,
         func_args: FuncArgs,
@@ -257,7 +257,7 @@ impl PyProperty {
         Self::clone_property_with(zelf, None, setter, None, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, object, /)")]
     fn deleter(
         zelf: PyRef<Self>,
         func_args: FuncArgs,

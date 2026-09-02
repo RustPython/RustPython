@@ -44,7 +44,7 @@ impl PyNamespace {
         result.into_pytuple(vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, **changes)")]
     fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() {
             return Err(vm.new_type_error("__replace__() takes no positional arguments"));

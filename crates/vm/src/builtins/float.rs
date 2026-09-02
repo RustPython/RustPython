@@ -339,12 +339,12 @@ impl PyFloat {
         0.0f64
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     const fn conjugate(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn is_integer(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "float.is_integer", &func_args)?;
         Ok(crate::literal::float::is_integer(self.value))
@@ -382,7 +382,7 @@ impl PyFloat {
         }
     }
 
-    #[pyclassmethod(text_signature = "(string, /)")]
+    #[pyclassmethod(text_signature = "($type, string, /)")]
     fn fromhex(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_meth_o(vm, "float.fromhex", &func_args)?;
         if !func_args.args[0].fast_isinstance(vm.ctx.types.str_type) {
@@ -402,7 +402,7 @@ impl PyFloat {
         PyType::call(&cls, vec![vm.ctx.new_float(result).into()].into(), vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn hex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
         check_noargs(vm, "float.hex", &func_args)?;
         Ok(crate::literal::float::to_hex(self.value))

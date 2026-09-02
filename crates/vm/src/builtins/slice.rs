@@ -234,7 +234,7 @@ impl PySlice {
         Ok((start, stop, step))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, object, /)")]
     fn indices(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         check_meth_o(vm, "slice.indices", &func_args)?;
         let (length,): (ArgIndex,) = func_args.bind(vm)?;

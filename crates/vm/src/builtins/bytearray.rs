@@ -266,79 +266,79 @@ impl PyByteArray {
         PyBytesInner::maketrans(from, to, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isalnum(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytearray.isalnum", &func_args)?;
         Ok(self.inner().isalnum())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isalpha(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytearray.isalpha", &func_args)?;
         Ok(self.inner().isalpha())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isascii(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytearray.isascii", &func_args)?;
         Ok(self.inner().isascii())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isdigit(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytearray.isdigit", &func_args)?;
         Ok(self.inner().isdigit())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn islower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytearray.islower", &func_args)?;
         Ok(self.inner().islower())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isspace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytearray.isspace", &func_args)?;
         Ok(self.inner().isspace())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn isupper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytearray.isupper", &func_args)?;
         Ok(self.inner().isupper())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn istitle(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_noargs(vm, "bytearray.istitle", &func_args)?;
         Ok(self.inner().istitle())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn lower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "bytearray.lower", &func_args)?;
         Ok(self.inner().lower().into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn upper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "bytearray.upper", &func_args)?;
         Ok(self.inner().upper().into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn capitalize(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "bytearray.capitalize", &func_args)?;
         Ok(self.inner().capitalize().into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn swapcase(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "bytearray.swapcase", &func_args)?;
         Ok(self.inner().swapcase().into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, sep=<unrepresentable>, bytes_per_sep=1)")]
     fn hex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
         // clinic signature: max 2 optional arguments
         if func_args.args.len() > 2 {
@@ -366,7 +366,7 @@ impl PyByteArray {
         PyType::call(&cls, args, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, fillchar=b' ', /)")]
     fn center(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytearray.center", &func_args)?;
         check_positional(vm, "center", func_args.args.len(), 1, 2)?;
@@ -374,7 +374,7 @@ impl PyByteArray {
         Ok(self.inner().center(options, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, fillchar=b' ', /)")]
     fn ljust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytearray.ljust", &func_args)?;
         check_positional(vm, "ljust", func_args.args.len(), 1, 2)?;
@@ -382,7 +382,7 @@ impl PyByteArray {
         Ok(self.inner().ljust(options, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, fillchar=b' ', /)")]
     fn rjust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytearray.rjust", &func_args)?;
         check_positional(vm, "rjust", func_args.args.len(), 1, 2)?;
@@ -390,7 +390,7 @@ impl PyByteArray {
         Ok(self.inner().rjust(options, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn count(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "bytearray.count", &func_args)?;
         check_positional(vm, "count", func_args.args.len(), 1, 3)?;
@@ -402,7 +402,7 @@ impl PyByteArray {
         result
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, iterable_of_bytes, /)")]
     fn join(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_meth_o(vm, "bytearray.join", &func_args)?;
         let (iter,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -412,7 +412,7 @@ impl PyByteArray {
         Ok(separator.join(iter, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, suffix[, start[, end]], /)")]
     fn endswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_no_kwargs(vm, "bytearray.endswith", &func_args)?;
         check_positional(vm, "endswith", func_args.args.len(), 1, 3)?;
@@ -432,7 +432,7 @@ impl PyByteArray {
         )
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, prefix[, start[, end]], /)")]
     fn startswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_no_kwargs(vm, "bytearray.startswith", &func_args)?;
         check_positional(vm, "startswith", func_args.args.len(), 1, 3)?;
@@ -472,7 +472,7 @@ impl PyByteArray {
         result
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn find(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
         check_no_kwargs(vm, "bytearray.find", &func_args)?;
         check_positional(vm, "find", func_args.args.len(), 1, 3)?;
@@ -481,7 +481,7 @@ impl PyByteArray {
         Ok(index.map_or(-1, |v| v as isize))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn index(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "bytearray.index", &func_args)?;
         check_positional(vm, "index", func_args.args.len(), 1, 3)?;
@@ -490,7 +490,7 @@ impl PyByteArray {
         index.ok_or_else(|| vm.new_value_error("subsection not found"))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn rfind(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
         check_no_kwargs(vm, "bytearray.rfind", &func_args)?;
         check_positional(vm, "rfind", func_args.args.len(), 1, 3)?;
@@ -499,7 +499,7 @@ impl PyByteArray {
         Ok(index.map_or(-1, |v| v as isize))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
     fn rindex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_no_kwargs(vm, "bytearray.rindex", &func_args)?;
         check_positional(vm, "rindex", func_args.args.len(), 1, 3)?;
@@ -508,7 +508,7 @@ impl PyByteArray {
         index.ok_or_else(|| vm.new_value_error("subsection not found"))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, table, /, delete=b'')")]
     fn translate(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         // clinic signature: table is positional-only, delete is optional
         if func_args.args.is_empty() {
@@ -526,7 +526,7 @@ impl PyByteArray {
         Ok(self.inner().translate(options, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, bytes=None, /)")]
     fn strip(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytearray.strip", &func_args)?;
         check_positional(vm, "strip", func_args.args.len(), 0, 1)?;
@@ -534,21 +534,21 @@ impl PyByteArray {
         Ok(self.inner().strip(chars).into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, prefix, /)")]
     fn removeprefix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_meth_o(vm, "bytearray.removeprefix", &func_args)?;
         let (prefix,): (PyBytesInner,) = func_args.bind(vm)?;
         Ok(self.inner().removeprefix(prefix).into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, suffix, /)")]
     fn removesuffix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_meth_o(vm, "bytearray.removesuffix", &func_args)?;
         let (suffix,): (PyBytesInner,) = func_args.bind(vm)?;
         Ok(self.inner().removesuffix(suffix).to_vec().into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, sep=None, maxsplit=-1)")]
     fn split(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // clinic signature: max 2 optional arguments
         if func_args.args.len() > 2 {
@@ -569,7 +569,7 @@ impl PyByteArray {
         result
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, sep=None, maxsplit=-1)")]
     fn rsplit(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // clinic signature: max 2 optional arguments
         if func_args.args.len() > 2 {
@@ -589,7 +589,7 @@ impl PyByteArray {
         result
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sep, /)")]
     fn partition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         check_meth_o(vm, "bytearray.partition", &func_args)?;
         let (sep,): (PyBytesInner,) = func_args.bind(vm)?;
@@ -605,7 +605,7 @@ impl PyByteArray {
         )))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, sep, /)")]
     fn rpartition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         check_meth_o(vm, "bytearray.rpartition", &func_args)?;
         let (sep,): (PyBytesInner,) = func_args.bind(vm)?;
@@ -619,7 +619,7 @@ impl PyByteArray {
         )))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, tabsize=8)")]
     fn expandtabs(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         // clinic signature: max 1 optional argument
         if func_args.args.len() > 1 {
@@ -632,7 +632,7 @@ impl PyByteArray {
         Ok(self.inner().expandtabs(options, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, keepends=False)")]
     fn splitlines(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // clinic signature: max 1 optional argument
         if func_args.args.len() > 1 {
@@ -647,7 +647,7 @@ impl PyByteArray {
             .splitlines(options, |x| vm.ctx.new_bytearray(x.to_vec()).into()))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, width, /)")]
     fn zfill(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_meth_o(vm, "bytearray.zfill", &func_args)?;
         let (width,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -655,7 +655,7 @@ impl PyByteArray {
         Ok(self.inner().zfill(width, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, old, new, count=-1, /)")]
     fn replace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytearray.replace", &func_args)?;
         check_positional(vm, "replace", func_args.args.len(), 2, 3)?;
@@ -664,13 +664,13 @@ impl PyByteArray {
         Ok(self.inner().replace(old, new, count, vm)?.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn copy(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "bytearray.copy", &func_args)?;
         Ok(self.borrow_buf().to_vec().into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn title(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "bytearray.title", &func_args)?;
         Ok(self.inner().title().into())
@@ -693,7 +693,7 @@ impl PyByteArray {
         Ok(formatted.into())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn reverse(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_noargs(vm, "bytearray.reverse", &func_args)?;
         self.borrow_buf_mut().reverse();
@@ -731,7 +731,7 @@ impl Py<PyByteArray> {
         PyByteArray::_setitem(self, &needle, value, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, index=-1, /)")]
     fn pop(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<u8> {
         check_no_kwargs(vm, "bytearray.pop", &func_args)?;
         check_positional(vm, "pop", func_args.args.len(), 0, 1)?;
@@ -746,7 +746,7 @@ impl Py<PyByteArray> {
         Ok(elements.remove(index))
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, index, item, /)")]
     fn insert(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_no_kwargs(vm, "bytearray.insert", &func_args)?;
         check_positional(vm, "insert", func_args.args.len(), 2, 2)?;
@@ -759,7 +759,7 @@ impl Py<PyByteArray> {
         Ok(())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, item, /)")]
     fn append(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_meth_o(vm, "bytearray.append", &func_args)?;
         let (object,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -768,7 +768,7 @@ impl Py<PyByteArray> {
         Ok(())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, value, /)")]
     fn remove(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_meth_o(vm, "bytearray.remove", &func_args)?;
         let (object,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -781,7 +781,7 @@ impl Py<PyByteArray> {
         Ok(())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, iterable_of_ints, /)")]
     fn extend(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_meth_o(vm, "bytearray.extend", &func_args)?;
         let (object,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -816,7 +816,7 @@ impl Py<PyByteArray> {
         Ok(())
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     fn clear(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_noargs(vm, "bytearray.clear", &func_args)?;
         self.try_resizable(vm)?.elements.clear();
@@ -845,7 +845,7 @@ impl Py<PyByteArray> {
 
 #[pyclass]
 impl PyRef<PyByteArray> {
-    #[pymethod]
+    #[pymethod(text_signature = "($self, bytes=None, /)")]
     fn lstrip(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytearray.lstrip", &func_args)?;
         check_positional(vm, "lstrip", func_args.args.len(), 0, 1)?;
@@ -861,7 +861,7 @@ impl PyRef<PyByteArray> {
         }
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, bytes=None, /)")]
     fn rstrip(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_no_kwargs(vm, "bytearray.rstrip", &func_args)?;
         check_positional(vm, "rstrip", func_args.args.len(), 0, 1)?;
@@ -877,7 +877,7 @@ impl PyRef<PyByteArray> {
         }
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, encoding='utf-8', errors='strict')")]
     fn decode(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         // clinic signature: max 2 optional arguments
         if func_args.args.len() > 2 {
