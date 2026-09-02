@@ -6,6 +6,7 @@ pub use rustpython_host_env::posix::set_inheritable;
 
 #[pymodule(name = "posix", with(
     super::os::_os,
+    super::posix_unix_like::_posix_unix_like,
     #[cfg(any(
         target_os = "linux",
         target_os = "netbsd",
@@ -23,8 +24,7 @@ pub mod module {
         function::{ArgMapping, Either, KwArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
-            _os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata,
-            warn_if_bool_fd,
+            _os, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata, warn_if_bool_fd,
         },
     };
     #[cfg(any(
@@ -384,18 +384,6 @@ pub mod module {
             .map_err(|err| err.to_pyexception(vm))
     }
 
-    #[pyattr]
-    fn environ(vm: &VirtualMachine) -> PyDictRef {
-        let environ = vm.ctx.new_dict();
-        for (key, value) in crate::host_env::os::vars_os() {
-            let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
-            let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
-            environ.set_item(&*key, value, vm).unwrap();
-        }
-
-        environ
-    }
-
     #[pyfunction]
     fn _create_environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
@@ -405,16 +393,6 @@ pub mod module {
             environ.set_item(&*key, value, vm).unwrap();
         }
         environ
-    }
-
-    #[derive(FromArgs)]
-    pub(super) struct SymlinkArgs<'fd> {
-        src: OsPath,
-        dst: OsPath,
-        #[pyarg(flatten)]
-        _target_is_directory: TargetIsDirectory,
-        #[pyarg(flatten)]
-        dir_fd: DirFd<'fd, { _os::SYMLINK_DIR_FD as usize }>,
     }
 
     #[pyfunction]
@@ -431,17 +409,6 @@ pub mod module {
             let [] = args.dir_fd.0;
             rustpython_host_env::posix::symlink(&src, &dst).map_err(|err| err.into_pyexception(vm))
         }
-    }
-
-    #[pyfunction]
-    #[pyfunction(name = "unlink")]
-    fn remove(
-        path: OsPath,
-        dir_fd: DirFd<'_, { _os::UNLINK_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        rustpython_host_env::posix::unlinkat(dir_fd.get_opt(), &path)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[cfg(not(target_os = "redox"))]

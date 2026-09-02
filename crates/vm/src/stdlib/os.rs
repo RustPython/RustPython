@@ -7,6 +7,7 @@ use crate::{
     convert::{IntoPyException, ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
     host_env::{crt_fd, posix::RawMode},
+    ospath::OsPath,
 };
 use core::marker::PhantomData;
 use std::{io, path::Path};
@@ -121,6 +122,18 @@ impl<const AVAILABLE: usize, KW: DirFdKeyword> FromArgs for DirFd<'_, AVAILABLE,
         let fd = fd.map_err(|e| e.to_pyexception(vm))?;
         Ok(Self([fd; AVAILABLE], PhantomData))
     }
+}
+
+#[derive(FromArgs)]
+pub(crate) struct SymlinkArgs<'fd> {
+    pub src: OsPath,
+    pub dst: OsPath,
+    #[cfg_attr(any(unix, target_os = "wasi"), expect(unused))]
+    #[pyarg(flatten)]
+    pub target_is_directory: TargetIsDirectory,
+    #[cfg_attr(not(unix), expect(unused))]
+    #[pyarg(flatten)]
+    pub dir_fd: DirFd<'fd, { _os::SYMLINK_DIR_FD as usize }>,
 }
 
 #[derive(FromArgs)]

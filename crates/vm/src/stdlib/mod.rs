@@ -37,6 +37,8 @@ pub mod posix;
 #[cfg(all(feature = "host_env", not(any(unix, windows))))]
 #[path = "posix_compat.rs"]
 pub mod posix;
+#[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
+pub mod posix_unix_like;
 
 #[cfg(all(
     feature = "host_env",
