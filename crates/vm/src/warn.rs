@@ -581,7 +581,7 @@ fn setup_context(
         (
             f.iframe().globals().to_owned(),
             f.iframe().code().source_path(),
-            f.f_lineno(),
+            f.f_lineno(vm),
         )
     } else if let Some(frame) = vm.current_frame() {
         // We have a frame but it wasn't found during stack walking

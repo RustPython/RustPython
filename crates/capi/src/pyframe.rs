@@ -14,8 +14,8 @@ pub unsafe extern "C" fn PyFrame_GetCode(frame: *mut PyFrameObject) -> *mut PyCo
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyFrame_GetLineNumber(frame: *mut PyFrameObject) -> c_int {
-    with_vm(|_vm| {
-        let lineno = unsafe { &*frame }.f_lineno();
+    with_vm(|vm| {
+        let lineno = unsafe { &*frame }.f_lineno(vm);
         Ok(lineno.try_into().unwrap_or(c_int::MAX))
     })
 }
