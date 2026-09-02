@@ -6,7 +6,7 @@ mod tests {
     /// so the test cannot pass because of an unrelated compile failure.
     macro_rules! assert_strict_rejects {
         ($name:ident => $src:expr) => {{
-            let engine = JitEngine::new();
+            let engine = JitEngine::new(None);
             let f = py_function_def!($name => $src);
             assert!(
                 f.compile_on(&engine, Safety::Strict).is_err(),
@@ -21,7 +21,7 @@ mod tests {
 
     macro_rules! assert_accepted {
         ($safety:expr, $name:ident => $src:expr) => {{
-            let engine = JitEngine::new();
+            let engine = JitEngine::new(None);
             let f = py_function_def!($name => $src);
             f.compile_on(&engine, $safety)
                 .expect(concat!(stringify!($name), " should compile"))

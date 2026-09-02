@@ -689,6 +689,16 @@ impl Py<PyFunction> {
                         // unobservable - they touch nothing outside the frame.
                         self.deoptimize(vm);
                     }
+                    Some(Ok(Outcome::Interrupted(state))) => {
+                        // A backward jump found the thread had been asked out
+                        // of the bytecode loop. That is no verdict on the code,
+                        // which stays installed for the next call; only this
+                        // call finishes interpreted, which is where the signal,
+                        // the stop or the shutdown is answered. Without a
+                        // record it starts over, on the same footing as a
+                        // guard's restart.
+                        resume = state.filter(|state| self.deopt_state_fits(state));
+                    }
                     Some(Ok(Outcome::Deopt(state))) => {
                         // The resume lands on the instruction the guard belongs
                         // to, so the interpreter re-executes it - including a

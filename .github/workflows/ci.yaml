@@ -158,12 +158,13 @@ jobs:
         if: runner.os == 'Linux'
 
       # The snippets cover arithmetic. These cover the rest of what the
-      # automatic call path moves through: frames, tracebacks and tracing.
+      # automatic call path moves through: frames, tracebacks, tracing, and
+      # the threads that have to be able to leave a compiled loop.
       - name: Test aot against the CPython suite
         run: |
           target/debug/rustpython -X aot=1 -m test \
             test_sys test_traceback test_sys_settrace test_monitoring \
-            test_bdb test_trace test_exceptions test_generators
+            test_bdb test_trace test_exceptions test_generators test_threading
         if: runner.os == 'Linux'
 
       # - name: Install tk-dev for tkinter build

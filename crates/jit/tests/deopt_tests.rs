@@ -489,7 +489,7 @@ def f(a: int, b: int, c: bool) -> int:
     /// function stays compilable.
     #[test]
     fn a_guard_under_a_self_call_describes_the_callable() {
-        let engine = JitEngine::new();
+        let engine = JitEngine::new(None);
         let f = py_function_def! { countdown => r#"
 def countdown(a: int, b: int) -> int:
     if a < 0:
@@ -522,7 +522,7 @@ def countdown(a: int, b: int) -> int:
     /// It has to come back as a restart instead.
     #[test]
     fn a_caller_stops_when_a_nested_frame_gives_up() {
-        let engine = JitEngine::new();
+        let engine = JitEngine::new(None);
         let f = py_function_def! { blow => r#"
 def blow(n: int) -> int:
     if n == 0:

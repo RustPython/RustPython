@@ -163,7 +163,7 @@ where
     let global_state = PyRc::new(PyGlobalState {
         gc: crate::gc_state::GcInterpreterState::new(&ctx),
         #[cfg(feature = "jit")]
-        jit_engine: rustpython_jit::JitEngine::new(),
+        jit_engine: rustpython_jit::JitEngine::new(Some(crate::signal::eval_breaker_word())),
         #[cfg(feature = "jit")]
         aot_stats: Default::default(),
         interpreter_id,
@@ -697,6 +697,11 @@ impl Interpreter {
             // Now suppress unraisable exceptions from daemon threads and __del__
             // methods during the rest of shutdown.
             vm.state.finalizing.store(true, Ordering::Release);
+            // Compiled code cannot read that flag, and a daemon thread inside a
+            // compiled loop would otherwise never leave it - shutdown would
+            // wait on a thread that had already been told to stop.
+            #[cfg(feature = "threading")]
+            crate::signal::set_finalizing_bit();
 
             // GC pass - collect cycles before module cleanup
             vm.state.gc.collect_force(2);
