@@ -163,6 +163,30 @@ if AOT:
         raise AssertionError("expected a BaseException to reach the caller")
 
 
+# A frame that outlives its call has to keep resolving `f_back` past its
+# immediate caller. Each frame on the way back gets a frame object only
+# because the one below it returned and asked for one, so a link that stops
+# after the first hop hides the entire stack behind it.
+def innermost():
+    return sys._getframe()
+
+
+def middle():
+    return innermost()
+
+
+def outermost():
+    return middle()
+
+
+walked = []
+frame = outermost()
+while frame is not None:
+    walked.append(frame.f_code.co_name)
+    frame = frame.f_back
+assert walked[:4] == ["innermost", "middle", "outermost", "<module>"], walked
+
+
 if AOT:
     compiled, rejected, deoptimized = sys._jit._stats()
     # `scale`, `wide`, `wide2`, `divide`, `fib_iter`, and the rebound
