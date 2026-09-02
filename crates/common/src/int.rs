@@ -5,6 +5,13 @@ use num_traits::{One, ToPrimitive, Zero};
 
 #[must_use]
 pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
+    // A rational carries no signed zero, so `0 / -1` would round to `0.0`. A
+    // quotient of two differently signed operands is negative down to and
+    // including its zero, and only an exactly zero numerator loses that here:
+    // a quotient too small to represent still rounds to `-0.0` on its own.
+    if numerator.is_zero() && denominator.sign() == Sign::Minus {
+        return -0.0;
+    }
     let rational = Rational::from_integers_ref(numerator.into(), denominator.into());
     match rational.rounding_into(RoundingMode::Nearest) {
         // returned value is $t::MAX but still less than the original
