@@ -145,21 +145,62 @@ cargo build --release --target wasm32-wasip1 --features="freeze-stdlib"
 
 ### JIT (Just in time) compiler
 
-RustPython has a **very** experimental JIT compiler that compile python functions into native code.
+RustPython has a **very** experimental JIT compiler that compiles python functions into native code.
+It comes in two forms: an automatic one that tries every function once, as it is first called, and
+an explicit `__jit__()` that compiles the one function it is called on.
 
 #### Building
 
-By default the JIT compiler isn't enabled, it's enabled with the `jit` cargo feature.
+Neither is built by default.
 
 ```bash
-cargo run --features jit
+cargo run --features aot   # automatic, and the explicit one with it
+cargo run --features jit   # explicit `__jit__()` alone
 ```
 
 This requires autoconf, automake, libtool, and clang to be installed.
 
-#### Using
+#### Using the automatic compiler
 
-To compile a function, call `__jit__()` on it.
+A build that has it still has to be switched on, with `-X aot=1`, `RUSTPYTHON_AOT=1`
+or `PYTHON_JIT=1`; `-X aot=0` and `=0` switch it back off. Every function is then
+offered to the compiler the first time it is called. The attempt happens once,
+so a function it turns down costs that one attempt and is interpreted from then on.
+
+`sys._jit.is_available()` reports whether the compiler was built in, `is_enabled()`
+whether it is switched on, and `_stats()` returns `(compiled, rejected, deoptimized)`
+for the functions it has looked at so far — a RustPython extension.
+
+#### What it compiles
+
+Annotated scalar functions, and nothing else. The argument and return types come
+from the annotations rather than from the values a call arrives with, so a function
+without them is turned down however it is called.
+
+Taken: `int`, `float` and `bool` arguments, locals and return values; arithmetic,
+comparison and boolean operators; `if`, `while`, and the assignments between them.
+
+Turned down: missing annotations, `*args`/`**kwargs`, closures, generators and
+coroutines, `try`/`except`, attributes and methods, containers, `for`, calls to
+anything but the function itself, and expressions that merge with an operand still
+on the stack, such as a conditional expression. A call a function makes to itself
+is compiled only by `__jit__()`; the automatic path turns those down too, because
+the global it goes through can be rebound between one call and the next.
+
+Where a machine word runs out — an overflow, a division by zero, a shift past the
+width, a power with no real answer — the compiled code hands the frame back at the
+instruction it could not do, with the values it had, and the interpreter carries on
+from there. The native code is dropped at that point, and the function is
+interpreted afterwards.
+
+Compiled code runs with no python frame. That is why `sys._jit.is_active()` is
+always `False`, why such a call reports no line and no return to `sys.settrace` or
+`sys.monitoring`, and why a call is interpreted, and left uncompiled, while either
+of those is installed.
+
+#### Using `__jit__()`
+
+To compile a single function, call `__jit__()` on it. This needs only the `jit` feature.
 
 ```python
 def foo():
