@@ -65,15 +65,6 @@ impl Constructor for PyMap {
 #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl PyMap {
     #[pymethod]
-    fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        self.iterators.iter().try_fold(0, |prev, cur| {
-            let cur = cur.as_ref().to_owned().length_hint(0, vm)?;
-            let max = core::cmp::max(prev, cur);
-            Ok(max)
-        })
-    }
-
-    #[pymethod]
     fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
         let cls = zelf.class().to_owned();
         let mut vec = vec![zelf.mapper.clone()];

@@ -6,7 +6,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine, atomic_func,
     builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType},
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::hash,
     convert::ToPyObject,
     function::{FuncArgs, PyComparisonValue},
@@ -62,7 +62,7 @@ impl Constructor for PyGenericAlias {
         if !args.kwargs.is_empty() {
             return Err(vm.new_type_error("GenericAlias() takes no keyword arguments"));
         }
-        let (origin, arguments): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
+        let (origin, arguments): (PyObjectRef, PyObjectRef) = args.bind_for(vm, Self::NAME)?;
         let args = if let Ok(tuple) = arguments.try_to_ref::<PyTuple>(vm) {
             tuple.to_owned()
         } else {
@@ -551,12 +551,15 @@ pub(crate) fn subs_parameters(
         };
 
         if unpack {
-            if let Ok(tuple) = substituted_arg.try_to_ref::<PyTuple>(vm) {
-                for elem in tuple {
-                    new_args.push(elem.clone());
-                }
-            } else {
-                new_args.push(substituted_arg);
+            let tuple = substituted_arg.try_to_ref::<PyTuple>(vm).map_err(|_| {
+                vm.new_type_error(format!(
+                    "expected __typing_subst__ of {} objects to return a tuple, not {}",
+                    arg.class().fully_qualified_name(vm),
+                    substituted_arg.class().fully_qualified_name(vm),
+                ))
+            })?;
+            for elem in tuple {
+                new_args.push(elem.clone());
             }
         } else {
             new_args.push(substituted_arg);

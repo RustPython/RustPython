@@ -538,7 +538,6 @@ class DeepRecursionInSplitAndSubgroup(unittest.TestCase):
             e = ExceptionGroup('eg', [e])
         return e
 
-    @unittest.skip("TODO: RUSTPYTHON; Segfault")
     @skip_emscripten_stack_overflow()
     @skip_wasi_stack_overflow()
     def test_deep_split(self):
@@ -546,7 +545,6 @@ class DeepRecursionInSplitAndSubgroup(unittest.TestCase):
         with self.assertRaises(RecursionError):
             e.split(TypeError)
 
-    @unittest.skip("TODO: RUSTPYTHON; Segfault")
     @skip_emscripten_stack_overflow()
     @skip_wasi_stack_overflow()
     def test_deep_subgroup(self):

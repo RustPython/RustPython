@@ -258,30 +258,49 @@ pub enum SequenceIndex {
 }
 
 impl SequenceIndex {
+    /// The index or slice `obj` stands for, or `None` when it is neither.
+    fn try_from_object_opt(vm: &VirtualMachine, obj: &PyObject) -> Option<PyResult<Self>> {
+        const OVERFLOW: &str = "cannot fit 'int' into an index-sized integer";
+        if let Some(i) = obj.downcast_ref::<PyInt>() {
+            // TODO: number protocol
+            Some(
+                i.try_to_primitive(vm)
+                    .map_err(|_| vm.new_index_error(OVERFLOW))
+                    .map(Self::Int),
+            )
+        } else if let Some(slice) = obj.downcast_ref::<PySlice>() {
+            Some(slice.to_saturated(vm).map(Self::Slice))
+        } else {
+            // TODO: __index__ for indices is no more supported?
+            obj.try_index_opt(vm).map(|i| {
+                i?.try_to_primitive(vm)
+                    .map_err(|_| vm.new_index_error(OVERFLOW))
+                    .map(Self::Int)
+            })
+        }
+    }
+
     pub fn try_from_borrowed_object(
         vm: &VirtualMachine,
         obj: &PyObject,
         type_name: &str,
     ) -> PyResult<Self> {
-        if let Some(i) = obj.downcast_ref::<PyInt>() {
-            // TODO: number protocol
-            i.try_to_primitive(vm)
-                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
-                .map(Self::Int)
-        } else if let Some(slice) = obj.downcast_ref::<PySlice>() {
-            slice.to_saturated(vm).map(Self::Slice)
-        } else if let Some(i) = obj.try_index_opt(vm) {
-            // TODO: __index__ for indices is no more supported?
-            i?.try_to_primitive(vm)
-                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
-                .map(Self::Int)
-        } else {
+        Self::try_from_object_opt(vm, obj).unwrap_or_else(|| {
             Err(vm.new_type_error(format!(
-                "{} indices must be integers or slices, not {}",
-                type_name,
+                "{type_name} indices must be integers or slices, not {}",
                 obj.class().slot_name()
             )))
-        }
+        })
+    }
+
+    /// `unicode_subscript`, which turns down what it cannot use in its own words.
+    pub fn try_from_str_subscript(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+        Self::try_from_object_opt(vm, obj).unwrap_or_else(|| {
+            Err(vm.new_type_error(format!(
+                "string indices must be integers, not '{}'",
+                obj.class().slot_name()
+            )))
+        })
     }
 }
 

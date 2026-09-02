@@ -32,6 +32,49 @@ except ValueError as error:
 else:
     raise AssertionError("expected ValueError for '=8s' string format specifier")
 
+# regression: a sign, a space or an alternate form used to be accepted and dropped.
+for spec, flag in [
+    ("+", "Sign"),
+    ("-", "Sign"),
+    ("+5", "Sign"),
+    (" ", "Space"),
+    (" 5", "Space"),
+    ("#", "Alternate form (#)"),
+    ("#5", "Alternate form (#)"),
+    ("+.2", "Sign"),
+]:
+    try:
+        format("result", spec)
+    except ValueError as error:
+        expected = f"{flag} not allowed in string format specifier"
+        if str(error) != expected:
+            raise AssertionError(
+                f"{spec!r}: unexpected error message: {error}"
+            ) from error
+    else:
+        raise AssertionError(
+            f"expected ValueError for {spec!r} string format specifier"
+        )
+
+# regression: unknown conversion specifiers used to be silently ignored instead of raising.
+# The ValueError case itself is covered by test_str, but here we're testing the error message.
+try:
+    "{0!x}".format(3)
+except ValueError as error:
+    if str(error) != "Unknown conversion specifier x":
+        raise AssertionError(f"unexpected error message: {error}") from error
+else:
+    raise AssertionError("expected ValueError for unknown conversion specifier '!x'")
+
+# 'b' is a valid conversion specifier for %-style bytes formatting, but not for str.format().
+try:
+    "{0!b}".format(3)
+except ValueError as error:
+    if str(error) != "Unknown conversion specifier b":
+        raise AssertionError(f"unexpected error message: {error}") from error
+else:
+    raise AssertionError("expected ValueError for unknown conversion specifier '!b'")
+
 assert "{:,}".format(100) == "100"
 assert "{:,}".format(1024) == "1,024"
 assert "{:_}".format(65536) == "65_536"
@@ -259,3 +302,37 @@ assert "{:.4e}".format(1234.5) == "1.2345e+03"
 assert "{:.3g}".format(1234.5) == "1.23e+03"
 assert f"{float('nan'):.10f}" == "nan"
 assert f"{float('inf'):.10f}" == "inf"
+
+# bool has no __format__ of its own, so the int rules apply. Only the bare
+# spec spells the value out.
+assert format(True, "") == "True"
+assert format(False, "") == "False"
+assert f"{True}" == "True"
+assert f"{True:}" == "True"
+
+assert format(True, "5") == "    1"
+assert format(True, "<5") == "1    "
+assert format(False, ">5") == "    0"
+assert format(True, "^5") == "  1  "
+assert format(True, "=5") == "    1"
+assert format(True, "05") == "00001"
+assert format(False, "05") == "00000"
+assert format(True, "+") == "+1"
+assert format(False, " ") == " 0"
+assert format(True, ",") == "1"
+assert format(True, "<") == "1"
+assert "{:>6}|{:^6}".format(True, False) == "     1|  0   "
+
+# The presentation types were already right, and stay right.
+assert format(True, "d") == "1"
+assert format(True, "#b") == "0b1"
+assert format(False, "x") == "0"
+assert format(True, "c") == "\x01"
+assert format(True, "e") == "1.000000e+00"
+assert format(True, "%") == "100.000000%"
+
+# Precision belongs to no integer spec, bool included.
+assert_raises(ValueError, format, True, ".2")
+assert_raises(ValueError, format, True, "5.2")
+assert_raises(ValueError, format, True, "z")
+assert_raises(ValueError, format, True, "s")

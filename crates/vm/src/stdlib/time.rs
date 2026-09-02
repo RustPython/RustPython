@@ -17,6 +17,7 @@ mod decl {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyStrRef, PyTypeRef},
+        class::PyClassDef,
         function::{Either, FuncArgs, OptionalArg},
         types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
     };
@@ -813,7 +814,7 @@ mod decl {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             struct_sequence_new(
                 cls,
-                args.bind(vm)?,
+                args.bind_for(vm, Self::NAME)?,
                 StructTimeData::OPTIONAL_FIELD_NAMES,
                 vm,
             )

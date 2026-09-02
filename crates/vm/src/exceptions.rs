@@ -1616,6 +1616,7 @@ impl ToPyException for rustpython_host_env::multiprocessing::SemError {
 }
 
 pub(super) mod types {
+    use crate::class::PyClassDef;
     use crate::common::lock::PyRwLock;
     use crate::object::{Traverse, TraverseFn};
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
@@ -1876,9 +1877,10 @@ pub(super) mod types {
 
             // Reject unknown kwargs
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_type_error(format!(
-                    "AttributeError() got an unexpected keyword argument '{invalid_key}'"
-                )));
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some(Self::NAME),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Pass args without kwargs to BaseException_init
@@ -1916,11 +1918,11 @@ pub(super) mod types {
     #[pyexception(with(Initializer))]
     impl PyImportError {
         #[pymethod]
-        fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
-            let obj = exc.as_object().to_owned();
-            let args: PyObjectRef = match exc.get_arg(0) {
+        fn __reduce__(zelf: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
+            let obj = zelf.as_object().to_owned();
+            let args: PyObjectRef = match zelf.get_arg(0) {
                 Some(arg) => vm.new_tuple((arg,)).into(),
-                None => exc.args().into(),
+                None => zelf.args().into(),
             };
             let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into(), args];
 
@@ -2031,9 +2033,10 @@ pub(super) mod types {
 
             // Reject unknown kwargs
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_type_error(format!(
-                    "NameError() got an unexpected keyword argument '{invalid_key}'"
-                )));
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some(Self::NAME),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Pass args without kwargs to BaseException_init
@@ -2360,15 +2363,15 @@ pub(super) mod types {
         }
 
         #[pymethod]
-        fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
-            let args = exc.args();
-            let obj = exc.as_object().to_owned();
+        fn __reduce__(zelf: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
+            let args = zelf.args();
+            let obj = zelf.as_object().to_owned();
             let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into()];
 
             if args.len() >= 2 && args.len() <= 5 {
                 // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
-                let errno = exc.get_arg(0).unwrap();
-                let msg = exc.get_arg(1).unwrap();
+                let errno = zelf.get_arg(0).unwrap();
+                let msg = zelf.get_arg(1).unwrap();
 
                 if let Ok(filename) = obj.get_attr("filename", vm) {
                     if !vm.is_none(&filename) {

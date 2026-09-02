@@ -1,14 +1,14 @@
 //! Implementation of the python bytearray object.
 use super::{
     PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef,
-    PyType, PyTypeRef, iter::builtins_iter,
+    PyType, PyTypeRef, iter::builtins_iter, locked_next,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
     anystr::{self, AnyStr},
     atomic_func,
-    byte::{bytes_from_object, value_from_object},
+    byte::{bytearray_extend_from_object, bytearray_from_object, value_from_object},
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -18,14 +18,14 @@ use crate::{
     common::{
         atomic::{AtomicUsize, Ordering},
         lock::{
-            PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock,
-            PyRwLockReadGuard, PyRwLockWriteGuard,
+            PyDetachingRwLock, PyDetachingRwLockReadGuard, PyDetachingRwLockWriteGuard,
+            PyMappedDetachingRwLockReadGuard, PyMappedDetachingRwLockWriteGuard, PyMutex,
         },
     },
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption,
-        PyComparisonValue, check_meth_o, check_no_kwargs, check_noargs, check_positional,
+        ArgBytesLike, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
+        check_meth_o, check_no_kwargs, check_noargs, check_positional,
     },
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
@@ -44,7 +44,7 @@ use core::mem::size_of;
 #[pyclass(module = false, name = "bytearray", unhashable = true)]
 #[derive(Debug, Default)]
 pub struct PyByteArray {
-    inner: PyRwLock<PyBytesInner>,
+    inner: PyDetachingRwLock<PyBytesInner>,
     exports: AtomicUsize,
 }
 
@@ -82,17 +82,17 @@ impl PyByteArray {
 
     const fn from_inner(inner: PyBytesInner) -> Self {
         Self {
-            inner: PyRwLock::new(inner),
+            inner: PyDetachingRwLock::new(inner),
             exports: AtomicUsize::new(0),
         }
     }
 
-    pub fn borrow_buf(&self) -> PyMappedRwLockReadGuard<'_, [u8]> {
-        PyRwLockReadGuard::map(self.inner.read(), |inner| &*inner.elements)
+    pub fn borrow_buf(&self) -> PyMappedDetachingRwLockReadGuard<'_, [u8]> {
+        PyDetachingRwLockReadGuard::map(self.inner.read(), |inner| &*inner.elements)
     }
 
-    pub fn borrow_buf_mut(&self) -> PyMappedRwLockWriteGuard<'_, Vec<u8>> {
-        PyRwLockWriteGuard::map(self.inner.write(), |inner| &mut inner.elements)
+    pub fn borrow_buf_mut(&self) -> PyMappedDetachingRwLockWriteGuard<'_, Vec<u8>> {
+        PyDetachingRwLockWriteGuard::map(self.inner.write(), |inner| &mut inner.elements)
     }
 
     fn repeat(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
@@ -116,7 +116,7 @@ impl PyByteArray {
                 let items = if zelf.is(&value) {
                     zelf.borrow_buf().to_vec()
                 } else {
-                    bytes_from_object(vm, &value)?
+                    bytearray_from_object(vm, &value)?
                 };
                 if let Some(mut w) = zelf.try_resizable_opt() {
                     w.elements.setitem_by_slice(vm, slice, &items)
@@ -195,11 +195,11 @@ impl PyByteArray {
     }
 
     #[inline]
-    fn inner(&self) -> PyRwLockReadGuard<'_, PyBytesInner> {
+    fn inner(&self) -> PyDetachingRwLockReadGuard<'_, PyBytesInner> {
         self.inner.read()
     }
     #[inline]
-    fn inner_mut(&self) -> PyRwLockWriteGuard<'_, PyBytesInner> {
+    fn inner_mut(&self) -> PyDetachingRwLockWriteGuard<'_, PyBytesInner> {
         self.inner.write()
     }
 
@@ -405,7 +405,7 @@ impl PyByteArray {
     #[pymethod]
     fn join(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_meth_o(vm, "bytearray.join", &func_args)?;
-        let (iter,): (ArgIterable<PyBytesInner>,) = func_args.bind(vm)?;
+        let (iter,): (PyObjectRef,) = func_args.bind(vm)?;
         // Driving the iterable runs Python, which can reach this bytearray,
         // so the separator is taken by value rather than left borrowed.
         let separator = self.inner().clone();
@@ -810,7 +810,7 @@ impl Py<PyByteArray> {
                     vm.new_buffer_error("non-contiguous buffer is not a bytes-like object")
                 })?
                 .to_vec(),
-            None => bytes_from_object(vm, &object)?,
+            None => bytearray_extend_from_object(vm, &object)?,
         };
         self.try_resizable(vm)?.elements.extend(items);
         Ok(())
@@ -911,7 +911,7 @@ impl Initializer for PyByteArray {
 
     fn init(zelf: PyRef<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // First unpack bytearray and *then* get a lock to set it.
-        let mut inner = options.get_bytearray_inner("bytearray", vm)?;
+        let mut inner = options.get_inner(bytearray_from_object, vm)?;
         core::mem::swap(&mut *zelf.inner_mut(), &mut inner);
         Ok(())
     }
@@ -934,9 +934,10 @@ impl Comparable for PyByteArray {
 static BUFFER_METHODS: BufferMethods = BufferMethods {
     obj_bytes: |buffer| buffer.obj_as::<PyByteArray>().borrow_buf().into(),
     obj_bytes_mut: |buffer| {
-        PyMappedRwLockWriteGuard::map(buffer.obj_as::<PyByteArray>().borrow_buf_mut(), |x| {
-            x.as_mut_slice()
-        })
+        PyMappedDetachingRwLockWriteGuard::map(
+            buffer.obj_as::<PyByteArray>().borrow_buf_mut(),
+            |x| x.as_mut_slice(),
+        )
         .into()
     },
     release: |buffer| {
@@ -978,7 +979,7 @@ impl AsBuffer for PyByteArray {
 }
 
 impl BufferResizeGuard for PyByteArray {
-    type Resizable<'a> = PyRwLockWriteGuard<'a, PyBytesInner>;
+    type Resizable<'a> = PyDetachingRwLockWriteGuard<'a, PyBytesInner>;
 
     fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
         // An export is a borrow someone else still holds, so it is answered
@@ -1141,7 +1142,7 @@ impl PyByteArrayIterator {
 impl SelfIter for PyByteArrayIterator {}
 impl IterNext for PyByteArrayIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|bytearray, pos| {
+        locked_next(&zelf.internal, |bytearray, pos| {
             let buf = bytearray.borrow_buf();
             Ok(PyIterReturn::from_result(
                 buf.get(pos).map(|&x| vm.new_pyobj(x)).ok_or(None),

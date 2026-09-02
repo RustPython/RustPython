@@ -8,6 +8,7 @@ mod _collections {
         builtins::{
             IterStatus::{Active, Exhausted},
             PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyStr, PyType, PyTypeRef,
+            locked_step,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
@@ -76,6 +77,10 @@ mod _collections {
         fn borrow_deque_mut(&self) -> PyRwLockWriteGuard<'_, VecDeque<PyObjectRef>> {
             self.deque.write()
         }
+
+        fn is_over_maxlen(&self, deque: &VecDeque<PyObjectRef>) -> bool {
+            self.maxlen.is_some_and(|maxlen| deque.len() > maxlen)
+        }
     }
 
     #[pyclass(
@@ -95,20 +100,22 @@ mod _collections {
         fn append(&self, obj: PyObjectRef) {
             self.state.fetch_add(1);
             let mut deque = self.borrow_deque_mut();
-            if self.maxlen == Some(deque.len()) {
+            deque.push_back(obj);
+            // Trim after pushing, so that a `maxlen` of zero drops what just
+            // arrived instead of popping from an empty deque and keeping it.
+            if self.is_over_maxlen(&deque) {
                 deque.pop_front();
             }
-            deque.push_back(obj);
         }
 
         #[pymethod]
         fn appendleft(&self, obj: PyObjectRef) {
             self.state.fetch_add(1);
             let mut deque = self.borrow_deque_mut();
-            if self.maxlen == Some(deque.len()) {
+            deque.push_front(obj);
+            if self.is_over_maxlen(&deque) {
                 deque.pop_back();
             }
-            deque.push_front(obj);
         }
 
         #[pymethod]
@@ -277,6 +284,7 @@ mod _collections {
         fn __reversed__(zelf: PyRef<Self>) -> PyReverseDequeIterator {
             PyReverseDequeIterator {
                 state: zelf.state.load(),
+                counter: AtomicCell::new(zelf.__len__()),
                 internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
             }
         }
@@ -632,6 +640,11 @@ mod _collections {
     #[derive(Debug, PyPayload)]
     struct PyDequeIterator {
         state: usize,
+        /// How many elements are left to walk, `dequeiterobject.counter`. Kept
+        /// beside the deque rather than read back from it, because a mutated
+        /// deque is walked no further and what is left of it then reads as
+        /// nothing.
+        counter: AtomicCell<usize>,
         internal: PyMutex<PositionIterInternal<PyDequeRef>>,
     }
 
@@ -656,6 +669,8 @@ mod _collections {
             if let OptionalArg::Present(index) = index {
                 let index = max(index, 0) as usize;
                 iter.internal.lock().position = index;
+                iter.counter
+                    .store(iter.counter.load().saturating_sub(index));
             }
             Ok(iter)
         }
@@ -666,13 +681,14 @@ mod _collections {
         pub(crate) fn new(deque: PyDequeRef) -> Self {
             Self {
                 state: deque.state.load(),
+                counter: AtomicCell::new(deque.__len__()),
                 internal: PyMutex::new(PositionIterInternal::new(deque, 0)),
             }
         }
 
         #[pymethod]
         fn __length_hint__(&self) -> usize {
-            self.internal.lock().length_hint(|obj| obj.__len__())
+            self.counter.load()
         }
 
         #[pymethod]
@@ -693,16 +709,62 @@ mod _collections {
     }
 
     impl SelfIter for PyDequeIterator {}
+
+    /// Whether the deque moved under an iterator that captured `state`. What is
+    /// left to walk is emptied before the error goes out, the way
+    /// `deque_iternext()` zeroes its counter before it raises.
+    fn deque_moved(
+        internal: &PositionIterInternal<PyDequeRef>,
+        state: usize,
+        counter: &AtomicCell<usize>,
+    ) -> bool {
+        let Active(deque) = &internal.status else {
+            return false;
+        };
+        if state == deque.state.load() {
+            return false;
+        }
+        counter.store(0);
+        true
+    }
+
+    /// Hand back the element at the position the iterator keeps, `at` reaching
+    /// for it. Both deque iterators end here; they differ in whether they look
+    /// at the deque or at the count first.
+    fn deque_take(
+        internal: &mut PositionIterInternal<PyDequeRef>,
+        counter: &AtomicCell<usize>,
+        at: impl FnOnce(&VecDeque<PyObjectRef>, usize) -> Option<PyObjectRef>,
+    ) -> (PyResult<PyIterReturn>, Option<PyDequeRef>) {
+        let item = match &internal.status {
+            Active(deque) if counter.load() != 0 => at(&deque.borrow_deque(), internal.position),
+            _ => None,
+        };
+        let Some(item) = item else {
+            counter.store(0);
+            return (Ok(PyIterReturn::StopIteration(None)), internal.exhaust());
+        };
+        internal.position += 1;
+        counter.store(counter.load() - 1);
+        (Ok(PyIterReturn::Return(item)), None)
+    }
+
+    fn deque_mutated(vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        Err(vm.new_runtime_error("deque mutated during iteration"))
+    }
+
     impl IterNext for PyDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            zelf.internal.lock().next(|deque, pos| {
-                if zelf.state != deque.state.load() {
-                    return Err(vm.new_runtime_error("Deque mutated during iteration"));
+            locked_step(&zelf.internal, |internal| {
+                // The deque before the count, as in `deque_iternext()`, so an
+                // iterator still holding a deque that moved raises again on
+                // every call rather than running out after the first.
+                if deque_moved(internal, zelf.state, &zelf.counter) {
+                    return (deque_mutated(vm), None);
                 }
-                let deque = deque.borrow_deque();
-                Ok(PyIterReturn::from_result(
-                    deque.get(pos).cloned().ok_or(None),
-                ))
+                deque_take(internal, &zelf.counter, |deque, pos| {
+                    deque.get(pos).cloned()
+                })
             })
         }
     }
@@ -712,6 +774,8 @@ mod _collections {
     #[derive(Debug, PyPayload)]
     struct PyReverseDequeIterator {
         state: usize,
+        /// As in [`PyDequeIterator`].
+        counter: AtomicCell<usize>,
         // position is counting from the tail
         internal: PyMutex<PositionIterInternal<PyDequeRef>>,
     }
@@ -728,6 +792,8 @@ mod _collections {
             if let OptionalArg::Present(index) = index {
                 let index = max(index, 0) as usize;
                 iter.internal.lock().position = index;
+                iter.counter
+                    .store(iter.counter.load().saturating_sub(index));
             }
             Ok(iter)
         }
@@ -737,7 +803,7 @@ mod _collections {
     impl PyReverseDequeIterator {
         #[pymethod]
         fn __length_hint__(&self) -> usize {
-            self.internal.lock().length_hint(|obj| obj.__len__())
+            self.counter.load()
         }
 
         #[pymethod]
@@ -761,17 +827,19 @@ mod _collections {
 
     impl IterNext for PyReverseDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            zelf.internal.lock().next(|deque, pos| {
-                if deque.state.load() != zelf.state {
-                    return Err(vm.new_runtime_error("Deque mutated during iteration"));
+            locked_step(&zelf.internal, |internal| {
+                // The count before the deque, as in `dequereviter_next()`, so
+                // an iterator that has raised once runs out instead.
+                if zelf.counter.load() != 0 && deque_moved(internal, zelf.state, &zelf.counter) {
+                    return (deque_mutated(vm), None);
                 }
-                let deque = deque.borrow_deque();
-                let r = deque
-                    .len()
-                    .checked_sub(pos + 1)
-                    .and_then(|pos| deque.get(pos))
-                    .cloned();
-                Ok(PyIterReturn::from_result(r.ok_or(None)))
+                deque_take(internal, &zelf.counter, |deque, pos| {
+                    deque
+                        .len()
+                        .checked_sub(pos + 1)
+                        .and_then(|pos| deque.get(pos))
+                        .cloned()
+                })
             })
         }
     }

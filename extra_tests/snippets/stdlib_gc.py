@@ -65,4 +65,54 @@ assert collects(lambda c: itertools.combinations(c, 1))
 # tee holds its buffer through a second object, which has to be walked too
 assert collects(lambda c: itertools.tee(c)[0])
 
+
+# A view keeps the object it looks at in a field of its own, and the wrapper a
+# `__buffer__` produces keeps the exporter the same way.
+class Buf(bytearray):
+    pass
+
+
+def collects_view(wrap):
+    """Report whether the collector breaks a cycle that runs through a view."""
+
+    def build():
+        container = Buf(b"abc")
+        node = Node()
+        container.node = node
+        node.held = wrap(container)
+        return weakref.ref(node)
+
+    gc.collect()
+    ref = build()
+    gc.collect()
+    return ref() is None
+
+
+assert collects_view(memoryview)
+assert collects_view(lambda c: memoryview(c)[1:])
+assert collects_view(lambda c: memoryview(c).cast("B"))
+assert collects_view(lambda c: memoryview(memoryview(c)))
+
+
+class Exporter:
+    def __buffer__(self, flags):
+        return memoryview(b"abcdef")
+
+
+def collects_exporter():
+    def build():
+        exporter = Exporter()
+        node = Node()
+        exporter.node = node
+        node.held = memoryview(exporter)
+        return weakref.ref(node)
+
+    gc.collect()
+    ref = build()
+    gc.collect()
+    return ref() is None
+
+
+assert collects_exporter()
+
 print("ok")

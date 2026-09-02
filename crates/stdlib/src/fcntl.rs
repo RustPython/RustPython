@@ -78,8 +78,9 @@ mod fcntl {
                 None => 0,
                 Some(a) => a.try_index(vm)?.as_u32_mask(),
             };
-            let ret = host_fcntl::fcntl_int(fd, cmd, int as i32)
-                .map_err(|_| vm.new_last_errno_error())?;
+            let ret = vm
+                .allow_threads(|| host_fcntl::fcntl_int(fd, cmd, int as i32))
+                .map_err(|err| err.to_pyexception(vm))?;
             return Ok(vm.new_pyobj(ret));
         }
         let arg = arg.unwrap();
@@ -98,8 +99,8 @@ mod fcntl {
                 .ok_or_else(|| vm.new_value_error("fcntl argument 3 is too long"))?
                 .copy_from_slice(&s)
         }
-        host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len])
-            .map_err(|_| vm.new_last_errno_error())?;
+        vm.allow_threads(|| host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len]))
+            .map_err(|err| err.to_pyexception(vm))?;
         Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into())
     }
 
@@ -122,8 +123,9 @@ mod fcntl {
                 None => 0,
                 Some(a) => a.try_index(vm)?.as_u32_mask() as i32,
             };
-            let ret =
-                host_fcntl::ioctl_int(fd, request, i).map_err(|_| vm.new_last_errno_error())?;
+            let ret = vm
+                .allow_threads(|| host_fcntl::ioctl_int(fd, request, i))
+                .map_err(|err| err.to_pyexception(vm))?;
             return Ok(vm.ctx.new_int(ret).into());
         }
         let arg = arg.unwrap();
@@ -150,10 +152,19 @@ mod fcntl {
         };
         let buf_len = match rw_arg {
             Some(rw_arg) => {
-                let mut arg_buf = rw_arg.borrow_buf_mut();
-                let ret =
-                    unsafe { host_fcntl::ioctl_ptr(fd, request, arg_buf.as_mut_ptr().cast()) }
-                        .map_err(|_| vm.new_last_errno_error())?;
+                // A terminal or a socket answers an ioctl when it is
+                // ready to, so the call runs detached, and the target's
+                // bytes go in and come back through a buffer of our own
+                // rather than stay locked meanwhile -- `fcntl_ioctl_impl`
+                // copies through one the same way.
+                let mut scratch = vm.new_zeroed_bytes(rw_arg.len())?;
+                scratch.copy_from_slice(&rw_arg.borrow_buf_mut());
+                let ret = vm
+                    .allow_threads(|| unsafe {
+                        host_fcntl::ioctl_ptr(fd, request, scratch.as_mut_ptr().cast())
+                    })
+                    .map_err(|err| err.to_pyexception(vm))?;
+                rw_arg.borrow_buf_mut().copy_from_slice(&scratch);
                 return Ok(vm.ctx.new_int(ret).into());
             }
             None => {
@@ -161,8 +172,8 @@ mod fcntl {
                 fill_buf(&ro.borrow_bytes(), vm)?
             }
         };
-        unsafe { host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast()) }
-            .map_err(|_| vm.new_last_errno_error())?;
+        vm.allow_threads(|| unsafe { host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast()) })
+            .map_err(|err| err.to_pyexception(vm))?;
         Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
     }
 
@@ -170,7 +181,10 @@ mod fcntl {
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
-        host_fcntl::flock(fd, operation).map_err(|_| vm.new_last_errno_error())?;
+        // LOCK_EX without LOCK_NB waits for whoever holds the lock, which may
+        // be for good.
+        vm.allow_threads(|| host_fcntl::flock(fd, operation))
+            .map_err(|err| err.to_pyexception(vm))?;
         Ok(vm.ctx.none())
     }
 
@@ -197,8 +211,10 @@ mod fcntl {
             OptionalArg::Present(w) => w,
             OptionalArg::Missing => 0,
         };
-        let ret =
-            host_fcntl::lockf(fd, cmd, len, start, whence).map_err(|err| err.to_pyexception(vm))?;
+        // F_LOCK and F_TLOCK differ in exactly this: the first one waits.
+        let ret = vm
+            .allow_threads(|| host_fcntl::lockf(fd, cmd, len, start, whence))
+            .map_err(|err| err.to_pyexception(vm))?;
         Ok(vm.ctx.new_int(ret).into())
     }
 }

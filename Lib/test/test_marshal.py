@@ -703,7 +703,6 @@ class InstancingTestCase(unittest.TestCase, HelperMixin):
         self.helper(code)
         self.helper3(code)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def testRecursion(self):
         obj = 1.2345
         d = {"hello": obj, "goodbye": obj, obj: "hello"}

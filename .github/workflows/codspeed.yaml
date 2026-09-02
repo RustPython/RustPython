@@ -1,0 +1,80 @@
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [unlabeled, opened, synchronize, reopened]
+  merge_group:
+  # `workflow_dispatch` allows CodSpeed to trigger backtest
+  # performance analysis in order to generate initial data.
+  workflow_dispatch:
+
+name: CodSpeed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  CI: true
+
+jobs:
+  benchmarks:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    name: Run benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write # for OpenID Connect authentication with CodSpeed
+    env:
+      CACHE_PATHS: |
+        # https://doc.rust-lang.org/cargo/guide/cargo-home.html#caching-the-cargo-home-in-ci
+        ~/.cargo/.crates2.json
+        ~/.cargo/.crates.toml
+        ~/.cargo/bin/
+        ~/.cargo/registry/index/
+        ~/.cargo/registry/cache/
+        ~/.cargo/git/db/
+        target/
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The benchmarks are linked against libpython through the pyo3 dev-dependency.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+
+      - name: Restore cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: codspeed-v2-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: codspeed-v2-
+        continue-on-error: true
+
+      - name: Install cargo-codspeed
+        run: cargo install cargo-codspeed --locked --version ^5
+
+      - name: Build the benchmark targets
+        run: cargo codspeed build --locked --measurement-mode simulation -p rustpython -p rustpython-sre_engine
+
+      - name: Save cache
+        if: ${{ github.ref == 'refs/heads/main' }} # only save on main
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: codspeed-v2-${{ hashFiles('**/Cargo.lock') }}
+        continue-on-error: true
+
+      - name: Run the benchmarks
+        uses: CodSpeedHQ/action@373d6868929f444bc08d901fd0eb0ad52a8875ea # v5.2.1
+        with:
+          mode: simulation
+          run: cargo codspeed run -p rustpython -p rustpython-sre_engine

@@ -4,7 +4,7 @@ use crate::{
     TryFromBorrowedObject, VirtualMachine,
     builtins::PyUtf8StrRef,
     byte::bytes_from_object,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::{
         format::FormatSpec,
         hash,
@@ -261,7 +261,7 @@ impl Constructor for PyInt {
             return Ok(args.args[0].clone());
         }
 
-        let options: IntOptions = args.bind(vm)?;
+        let options: IntOptions = args.bind_for(vm, Self::NAME)?;
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
                 let base = base
@@ -610,7 +610,7 @@ impl PyInt {
             Sign::Minus if !signed => {
                 return Err(vm.new_overflow_error("can't convert negative int to unsigned"));
             }
-            Sign::NoSign => return Ok(vec![0u8; byte_len].into()),
+            Sign::NoSign => return Ok(vm.new_zeroed_bytes(byte_len)?.into()),
             _ => {}
         }
 
@@ -626,10 +626,10 @@ impl PyInt {
             return Err(vm.new_overflow_error("int too big to convert"));
         }
 
-        let mut append_bytes = match value.sign() {
-            Sign::Minus => vec![255u8; byte_len - origin_len],
-            _ => vec![0u8; byte_len - origin_len],
-        };
+        let mut append_bytes = vm.new_zeroed_bytes(byte_len - origin_len)?;
+        if value.sign() == Sign::Minus {
+            append_bytes.fill(255);
+        }
 
         let bytes = match args.byteorder {
             ArgByteOrder::Big => {

@@ -7,7 +7,6 @@ use crate::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, pystr,
         pystr::PyUtf8StrRef,
     },
-    byte::bytes_from_object,
     cformat::cformat_bytes,
     common::hash,
     common::wtf8::is_py_ascii_whitespace,
@@ -17,6 +16,11 @@ use crate::{
     sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
 };
+/// How a source object that is neither a size nor a string is turned into
+/// bytes: [`crate::byte::bytes_from_object`] or
+/// [`crate::byte::bytearray_from_object`].
+pub(crate) type FromObject = fn(&VirtualMachine, &PyObject) -> PyResult<Vec<u8>>;
+
 use bstr::ByteSlice;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -92,22 +96,10 @@ impl ByteInnerNewOptions {
 
     fn get_value_from_source(
         source: PyObjectRef,
-        name: &str,
+        from_object: FromObject,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
-        // PyBytes_FromObject: "cannot convert '%.200s' object to bytes"
-        bytes_from_object(vm, &source)
-            .map_err(|e| {
-                if e.fast_isinstance(vm.ctx.exceptions.type_error) {
-                    vm.new_type_error(format!(
-                        "cannot convert '{}' object to {name}",
-                        source.class().name()
-                    ))
-                } else {
-                    e
-                }
-            })
-            .map(|x| x.into())
+        from_object(vm, &source).map(|x| x.into())
     }
 
     fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
@@ -125,7 +117,7 @@ impl ByteInnerNewOptions {
 
     fn handle_object_fallback(
         obj: PyObjectRef,
-        name: &str,
+        from_object: FromObject,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
         match_class!(match obj {
@@ -134,12 +126,15 @@ impl ByteInnerNewOptions {
             }
             _s @ PyStr => Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned())),
             obj => {
-                Self::get_value_from_source(obj, name, vm)
+                Self::get_value_from_source(obj, from_object, vm)
             }
         })
     }
 
-    pub fn get_bytearray_inner(self, name: &str, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    /// `from_object` is how a source that is neither a size nor a string is
+    /// read: `bytes()` and `bytearray()` differ in whether they ask it how long
+    /// it is.
+    pub fn get_inner(self, from_object: FromObject, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         match (self.source, self.encoding, self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
@@ -151,7 +146,7 @@ impl ByteInnerNewOptions {
                             // TypeError means the object doesn't support __index__, so fall back
                             if e.fast_isinstance(vm.ctx.exceptions.type_error) {
                                 // Fall back to treating as buffer-like object
-                                Self::handle_object_fallback(obj, name, vm)
+                                Self::handle_object_fallback(obj, from_object, vm)
                             } else {
                                 // Propagate other exceptions (e.g., ZeroDivisionError)
                                 Err(e)
@@ -159,7 +154,7 @@ impl ByteInnerNewOptions {
                         }
                     }
                 } else {
-                    Self::handle_object_fallback(obj, name, vm)
+                    Self::handle_object_fallback(obj, from_object, vm)
                 }
             }
             (OptionalArg::Present(obj), OptionalArg::Present(encoding), errors) => {
@@ -705,8 +700,22 @@ impl PyBytesInner {
             .py_count(needle.as_slice(), range, |h, n| h.find_iter(n).count()))
     }
 
-    pub fn join(&self, iterable: ArgIterable<Self>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let iter = iterable.iter(vm)?;
+    // stringlib_bytes_join
+    pub fn join(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        // `PySequence_Fast()`, as in `PyUnicode_Join()`.
+        let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)
+            .map_err(|_| vm.new_type_error("can only join an iterable"))?;
+        let iter = iterable.iter_sized(vm)?.enumerate().map(|(i, obj)| {
+            let obj = obj?;
+            // Whatever the buffer lookup ran into, the item is only ever
+            // reported as the wrong kind of thing.
+            Self::try_from_object(vm, obj.clone()).map_err(|_| {
+                vm.new_type_error(format!(
+                    "sequence item {i}: expected a bytes-like object, {} found",
+                    obj.class().slot_name()
+                ))
+            })
+        });
         self.elements.py_join(iter)
     }
 

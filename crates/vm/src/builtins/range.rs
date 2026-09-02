@@ -6,7 +6,7 @@ use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine, atomic_func,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::hash::PyHash,
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue, check_positional},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
@@ -39,7 +39,7 @@ fn iter_search(
 ) -> PyResult<usize> {
     let mut count = 0;
     let iter = obj.get_iter(vm)?;
-    for element in iter.iter_without_hint::<PyObjectRef>(vm)? {
+    for element in iter.iter::<PyObjectRef>(vm)? {
         if vm.bool_eq(item, &*element?)? {
             match flag {
                 SearchType::Index => return Ok(count),
@@ -347,10 +347,10 @@ impl PyRange {
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_positional(vm, "range", args.args.len(), 1, 3)?;
         let range = if args.args.len() <= 1 {
-            let stop = args.bind(vm)?;
+            let stop = args.bind_for(vm, Self::NAME)?;
             Self::new(cls, stop, vm)
         } else {
-            let (start, stop, step) = args.bind(vm)?;
+            let (start, stop, step) = args.bind_for(vm, Self::NAME)?;
             Self::new_from(cls, start, stop, step, vm)
         }?;
 
@@ -715,13 +715,17 @@ fn range_iter_reduce(
     vm: &VirtualMachine,
 ) -> PyTupleRef {
     let iter = builtins_iter(vm);
+    // CPython pickles the remaining range with a None state. next() increments
+    // the index unconditionally, so clamp it to length before rebasing start.
+    let index = BigInt::from(index).min(length.clone());
     let stop = start.clone() + length * step.clone();
+    let start = start + index * step.clone();
     let range = PyRange {
         start: PyInt::from(start).into_ref(&vm.ctx),
         stop: PyInt::from(stop).into_ref(&vm.ctx),
         step: PyInt::from(step).into_ref(&vm.ctx),
     };
-    vm.new_tuple((iter, (range,), index))
+    vm.new_tuple((iter, (range,), vm.ctx.none()))
 }
 
 // Silently clips state (i.e index) in range [0, usize::MAX].

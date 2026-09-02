@@ -64,3 +64,8 @@ pub fn stat_path(
         .map(Option::Some)
         .map_err(Into::into)
 }
+
+pub fn unlinkat(dir_fd: Option<crt_fd::Borrowed<'_>>, path: impl AsRef<Path>) -> io::Result<()> {
+    let dir_fd = dir_fd.as_ref().map_or(fs::CWD, AsFd::as_fd);
+    fs::unlinkat(dir_fd, path.as_ref(), AtFlags::empty()).map_err(Into::into)
+}

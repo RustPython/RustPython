@@ -13,9 +13,6 @@
 //!
 //! Warning: This library contains AI-generated code and comments. Do not trust any code or comment without verification. Please have a qualified expert review the code and remove this notice after review.
 
-// false positive: core::io::{Cursor, ErrorKind} are unstable (core_io), unusable on stable
-#![expect(clippy::std_instead_of_core)]
-
 // OID (Object Identifier) management module
 mod oid;
 
@@ -3833,7 +3830,7 @@ mod _ssl {
 
             // Use compat layer for unified read logic with proper EOF handling
             // This matches SSL_read_ex() approach
-            let mut buf = vec![0u8; len];
+            let mut buf = vm.new_zeroed_bytes(len)?;
             let read_result = {
                 let mut conn_guard = self.connection.lock();
                 let conn = conn_guard
@@ -5150,14 +5147,13 @@ mod _ssl {
     }
 
     #[pyfunction]
-    fn RAND_bytes(n: i64, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+    fn RAND_bytes(n: i32, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         // Validate n is not negative
         if n < 0 {
             return Err(vm.new_value_error("num must be positive"));
         }
 
-        let n_usize = n as usize;
-        let mut buf = vec![0u8; n_usize];
+        let mut buf = vm.new_zeroed_bytes(n as usize)?;
         CryptoExt::get_provider()
             .secure_random
             .fill(&mut buf)
@@ -5166,7 +5162,7 @@ mod _ssl {
     }
 
     #[pyfunction]
-    fn RAND_pseudo_bytes(n: i64, vm: &VirtualMachine) -> PyResult<(PyBytesRef, bool)> {
+    fn RAND_pseudo_bytes(n: i32, vm: &VirtualMachine) -> PyResult<(PyBytesRef, bool)> {
         // Rustls providers expose cryptographically strong random bytes.
         let bytes = RAND_bytes(n, vm)?;
         Ok((bytes, true))

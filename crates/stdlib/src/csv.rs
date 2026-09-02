@@ -16,7 +16,7 @@ mod _csv {
     use itertools::Itertools;
     use parking_lot::Mutex;
     use rustpython_common::{lock::LazyLock, wtf8::Wtf8Buf};
-    use rustpython_vm::{match_class, sliceable::SliceableSequenceOp};
+    use rustpython_vm::match_class;
     use std::collections::HashMap;
 
     #[pyattr]
@@ -100,8 +100,10 @@ mod _csv {
     impl Constructor for PyDialect {
         type Args = PyObjectRef;
 
-        fn py_new(_cls: &Py<PyType>, ctx: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            Self::try_from_object(vm, ctx)
+        fn py_new(_cls: &Py<PyType>, obj: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let dialect = Self::try_from_object(vm, obj)?;
+            validate_dialect(vm, &dialect)?;
+            Ok(dialect)
         }
     }
 
@@ -173,12 +175,11 @@ mod _csv {
         } else {
             match_class!(match obj.to_owned() {
                 s @ PyStr => {
-                    Ok(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
+                    parse_single_char(&s, |len| {
                         vm.new_type_error(format!(
-                            r#""delimiter" must be a unicode character, not a string of length {}"#,
-                            s.len()
+                            r#""delimiter" must be a unicode character, not a string of length {len}"#
                         ))
-                    })?)
+                    })
                 }
                 attr => {
                     Err(vm.new_type_error(format!(
@@ -193,8 +194,13 @@ mod _csv {
     fn parse_quotechar_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<u8>> {
         match_class!(match obj.get_attr("quotechar", vm)? {
             s @ PyStr => {
-                Ok(Some(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
-                    new_csv_error(vm, format!(r#""quotechar" must be a unicode character or None, not a string of length {}"#, s.len()))
+                Ok(Some(parse_single_char(&s, |len| {
+                    new_csv_error(
+                        vm,
+                        format!(
+                            r#""quotechar" must be a unicode character or None, not a string of length {len}"#
+                        ),
+                    )
                 })?))
             }
             _n @ PyNone => {
@@ -215,10 +221,12 @@ mod _csv {
     fn parse_escapechar_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<u8>> {
         match_class!(match obj.get_attr("escapechar", vm)? {
             s @ PyStr => {
-                Ok(Some(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
+                Ok(Some(parse_single_char(&s, |len| {
                     new_csv_error(
                         vm,
-                        format!(r#""escapechar" must be a unicode character or None, not a string of length {}"#, s.len()),
+                        format!(
+                            r#""escapechar" must be a unicode character or None, not a string of length {len}"#
+                        ),
                     )
                 })?))
             }
@@ -234,26 +242,7 @@ mod _csv {
         })
     }
 
-    /// Validate that a line terminator is ASCII and return it as a `str`.
-    ///
-    /// The writer's quoting and escaping predicates compare raw bytes, so a
-    /// non-ASCII terminator would either quote a field that merely shares a
-    /// UTF-8 lead byte or splice an escape character into the middle of a
-    /// multi-byte sequence. Reject those here.
-    ///
-    /// The ASCII check must come before any UTF-8 conversion so that lone
-    /// surrogates are reported as this `csv.Error` too.
-    ///
-    /// TODO: RUSTPYTHON; handle non-ASCII terminators code-point-wise as part
-    /// of full Unicode dialect support.
-    fn ascii_lineterminator<'a>(vm: &VirtualMachine, s: &'a PyStr) -> PyResult<&'a str> {
-        if !s.as_wtf8().is_ascii() {
-            return Err(new_csv_error(
-                vm,
-                r#""lineterminator" must be an ASCII string"#,
-            ));
-        }
-        // An ASCII string is always valid UTF-8.
+    fn parse_lineterminator<'a>(vm: &VirtualMachine, s: &'a PyStr) -> PyResult<&'a str> {
         s.to_str()
             .ok_or_else(|| new_csv_error(vm, r#""lineterminator" must be a string"#))
     }
@@ -265,7 +254,7 @@ mod _csv {
                 // arbitrary-length terminator; the manual writer paths emit it
                 // verbatim and the csv-core writer path appends it after a
                 // sentinel terminator (see `writerow`).
-                let value = ascii_lineterminator(vm, &s)?;
+                let value = parse_lineterminator(vm, &s)?;
                 Ok(value.to_owned())
             }
             attr => {
@@ -275,6 +264,18 @@ mod _csv {
                 )))
             }
         })
+    }
+
+    fn parse_single_char(
+        s: &Py<PyStr>,
+        error: impl Fn(usize) -> PyBaseExceptionRef,
+    ) -> PyResult<u8> {
+        let ch = s
+            .as_wtf8()
+            .code_points()
+            .exactly_one()
+            .map_err(|_| error(s.char_len()))?;
+        u8::try_from(ch.to_u32()).map_err(|_| error(s.char_len()))
     }
 
     fn prase_quoting_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<QuoteStyle> {
@@ -344,6 +345,7 @@ mod _csv {
         };
 
         let dialect = opts.update_py_dialect(dialect);
+        validate_dialect(vm, &dialect)?;
         GLOBAL_HASHMAP
             .lock()
             .insert(name.as_str().to_owned(), dialect);
@@ -441,13 +443,14 @@ mod _csv {
         _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Reader> {
+        let dialect = options.result(vm)?;
         Ok(Reader {
             iter,
             state: PyMutex::new(ReadState {
                 line_num: 0,
                 record_completed: false,
             }),
-            dialect: options.result(vm)?,
+            dialect,
         })
     }
 
@@ -466,14 +469,15 @@ mod _csv {
                 return Err(vm.new_type_error(r#"argument 1 must have a "write" method"#));
             }
         };
+        let dialect = options.result(vm)?;
 
         Ok(Writer {
             write,
             state: PyMutex::new(WriteState {
                 buffer: vec![0; 1024],
-                writer: options.to_writer(),
+                writer: FormatOptions::to_writer(&dialect),
             }),
-            dialect: options.result(vm)?,
+            dialect,
         })
     }
 
@@ -557,7 +561,7 @@ mod _csv {
         dialect: DialectItem,
         delimiter: Option<u8>,
         quotechar: Option<Option<u8>>,
-        escapechar: Option<u8>,
+        escapechar: Option<Option<u8>>,
         doublequote: Option<bool>,
         skipinitialspace: Option<bool>,
         lineterminator: Option<String>,
@@ -640,11 +644,15 @@ mod _csv {
 
             if let Some(escapechar) = args.kwargs.swap_remove("escapechar") {
                 res.escapechar = match_class!(match escapechar {
-                    s @ PyStr =>
-                        Some(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
-                            vm.new_type_error(r#""escapechar" must be a 1-character string"#)
-                        })?),
-                    _ => None,
+                    s @ PyStr => Some(Some(parse_single_char(&s, |_| {
+                        vm.new_type_error(r#""escapechar" must be a 1-character string"#)
+                    })?)),
+                    PyNone => Some(None),
+                    _ => {
+                        return Err(ArgumentError::Exception(
+                            vm.new_type_error(r#""escapechar" must be a 1-character string"#),
+                        ));
+                    }
                 })
             };
 
@@ -655,7 +663,7 @@ mod _csv {
                         lineterminator.class().name()
                     ))
                 })?;
-                let value = ascii_lineterminator(vm, s)?;
+                let value = parse_lineterminator(vm, s)?;
                 res.lineterminator = Some(value.to_owned());
             };
 
@@ -690,9 +698,9 @@ mod _csv {
 
             if let Some(quotechar) = args.kwargs.swap_remove("quotechar") {
                 res.quotechar = match_class!(match quotechar {
-                    s @ PyStr => Some(Some(s.as_bytes().iter().copied().exactly_one().map_err(
-                        |_| { vm.new_type_error(r#""quotechar" must be a 1-character string"#) }
-                    )?)),
+                    s @ PyStr => Some(Some(parse_single_char(&s, |_| {
+                        vm.new_type_error(r#""quotechar" must be a 1-character string"#)
+                    })?)),
                     PyNone => {
                         if res
                             .quoting
@@ -723,16 +731,69 @@ mod _csv {
             };
 
             if let Some(last_arg) = args.kwargs.pop() {
-                return Err(
-                    rustpython_vm::function::ArgumentError::InvalidKeywordArgument(format!(
-                        "'{}' is an invalid keyword argument for this function",
-                        last_arg.0
-                    )),
-                );
+                // The dialect is parsed by a parser of its own, which has no
+                // name to give the message.
+                return Err(ArgumentError::Exception(
+                    vm.new_unexpected_keyword_type_error(None, &last_arg.0.to_string()),
+                ));
             }
 
             Ok(res)
         }
+    }
+
+    fn validate_dialect(vm: &VirtualMachine, dialect: &PyDialect) -> PyResult<()> {
+        let special = |name: &str, value: u8| {
+            if matches!(value, b'\r' | b'\n') {
+                Err(vm.new_value_error(format!(
+                    "{name} must be a single character, not a line break"
+                )))
+            } else {
+                Ok(())
+            }
+        };
+
+        special("delimiter", dialect.delimiter)?;
+        if let Some(quotechar) = dialect.quotechar {
+            special("quotechar", quotechar)?;
+        }
+        if let Some(escapechar) = dialect.escapechar {
+            special("escapechar", escapechar)?;
+        }
+
+        if dialect.skipinitialspace
+            && (matches!(dialect.escapechar, Some(b' ')) || matches!(dialect.quotechar, Some(b' ')))
+        {
+            return Err(vm.new_value_error(
+                "escapechar or quotechar cannot be a space when skipinitialspace is enabled",
+            ));
+        }
+
+        let values: [(&str, Option<u8>); 3] = [
+            ("delimiter", Some(dialect.delimiter)),
+            ("quotechar", dialect.quotechar),
+            ("escapechar", dialect.escapechar),
+        ];
+        for (index, (left_name, left)) in values.iter().enumerate() {
+            for (right_name, right) in values.iter().skip(index + 1) {
+                if left.is_some() && left == right {
+                    return Err(vm.new_value_error(format!(
+                        "{left_name} and {right_name} cannot be the same"
+                    )));
+                }
+            }
+            if left.is_some_and(|value| {
+                dialect
+                    .lineterminator
+                    .chars()
+                    .any(|character| character == value as char)
+            }) {
+                return Err(vm.new_value_error(format!(
+                    "{left_name} and lineterminator cannot be the same"
+                )));
+            }
+        }
+        Ok(())
     }
 
     impl FormatOptions {
@@ -752,7 +813,7 @@ mod _csv {
             check_and_fill!(res, skipinitialspace);
 
             if let Some(t) = self.escapechar {
-                res.escapechar = Some(t);
+                res.escapechar = t;
             };
 
             if let Some(t) = self.quotechar {
@@ -768,7 +829,7 @@ mod _csv {
         }
 
         fn result(&self, vm: &VirtualMachine) -> PyResult<PyDialect> {
-            match &self.dialect {
+            let dialect = match &self.dialect {
                 DialectItem::Str(name) => {
                     let g = GLOBAL_HASHMAP.lock();
                     if let Some(dialect) = g.get(name) {
@@ -789,84 +850,28 @@ mod _csv {
                     quoting: QuoteStyle::Minimal,
                     strict: false,
                 })),
-            }
+            }?;
+            validate_dialect(vm, &dialect)?;
+            Ok(dialect)
         }
 
-        fn get_quoting(&self) -> QuoteStyle {
-            let mut quoting = match &self.dialect {
-                DialectItem::Str(name) => {
-                    let g = GLOBAL_HASHMAP.lock();
-                    if let Some(dialect) = g.get(name) {
-                        dialect.quoting
-                    } else {
-                        QuoteStyle::Minimal
-                    }
-                }
-                DialectItem::Obj(obj) => obj.quoting,
-                _ => QuoteStyle::Minimal,
-            };
-
-            if let Some(attr) = self.quoting {
-                quoting = attr
-            }
-
-            quoting
-        }
-
-        fn to_writer(&self) -> csv_core::Writer {
+        fn to_writer(dialect: &PyDialect) -> csv_core::Writer {
             let mut builder = csv_core::WriterBuilder::new();
-            let mut writer = match &self.dialect {
-                DialectItem::Str(name) => {
-                    let g = GLOBAL_HASHMAP.lock();
-                    if let Some(dialect) = g.get(name) {
-                        let mut builder = builder
-                            .delimiter(dialect.delimiter)
-                            .double_quote(dialect.doublequote);
+            let mut writer = builder
+                .delimiter(dialect.delimiter)
+                .double_quote(dialect.doublequote);
 
-                        if let Some(t) = dialect.quotechar {
-                            builder = builder.quote(t);
-                        }
-
-                        builder
-
-                        // TODO: RUSTPYTHON; Perfecting the remaining attributes.
-                    } else {
-                        &mut builder
-                    }
-                }
-                DialectItem::Obj(obj) => {
-                    let mut builder = builder
-                        .delimiter(obj.delimiter)
-                        .double_quote(obj.doublequote);
-
-                    if let Some(t) = obj.quotechar {
-                        builder = builder.quote(t);
-                    }
-
-                    builder
-                }
-                _ => &mut builder,
-            };
-
-            if let Some(t) = self.delimiter {
-                writer = writer.delimiter(t);
-            }
-
-            if let Some(Some(t)) = self.quotechar {
+            if let Some(t) = dialect.quotechar {
                 writer = writer.quote(t);
-            }
-
-            if let Some(t) = self.doublequote {
-                writer = writer.double_quote(t);
             }
 
             writer = writer.terminator(Terminator::Any(CSV_CORE_TERMINATOR_SENTINEL));
 
-            if let Some(e) = self.escapechar {
+            if let Some(e) = dialect.escapechar {
                 writer = writer.escape(e);
             }
 
-            writer = writer.quote_style(self.get_quoting().into());
+            writer = writer.quote_style(dialect.quoting.into());
 
             writer.build()
         }
@@ -1285,16 +1290,35 @@ mod _csv {
         dialect: &PyDialect,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        for &byte in data {
-            if field_needs_escape(byte, dialect) {
+        let mut data = data;
+        while let Some((&byte, rest)) = data.split_first() {
+            if field_needs_escape(data, dialect) {
                 let escapechar = dialect
                     .escapechar
                     .ok_or_else(|| new_csv_error(vm, "need to escape, but no escapechar set"))?;
                 output.push(escapechar);
             }
             output.push(byte);
+            data = rest;
         }
         Ok(())
+    }
+
+    fn data_contains_lineterminator_char(data: &[u8], dialect: &PyDialect) -> bool {
+        dialect.lineterminator.chars().any(|character| {
+            let mut encoded = [0; 4];
+            let character = character.encode_utf8(&mut encoded).as_bytes();
+            data.windows(character.len())
+                .any(|window| window == character)
+        })
+    }
+
+    fn data_starts_with_lineterminator_char(data: &[u8], dialect: &PyDialect) -> bool {
+        dialect.lineterminator.chars().any(|character| {
+            let mut encoded = [0; 4];
+            let character = character.encode_utf8(&mut encoded).as_bytes();
+            data.starts_with(character)
+        })
     }
 
     fn field_needs_quotes(data: &[u8], dialect: &PyDialect) -> bool {
@@ -1302,22 +1326,16 @@ mod _csv {
             byte == dialect.delimiter
                 || dialect.quotechar == Some(byte)
                 || matches!(byte, b'\r' | b'\n')
-                // CPython quotes a field containing any character of the line
-                // terminator. The terminator is ASCII-validated at parse time, so
-                // comparing raw bytes cannot match part of a multi-byte character.
-                // TODO: RUSTPYTHON; supporting non-ASCII terminators needs
-                //       code-point-wise quoting and escaping as part of full
-                //       Unicode dialect support.
-                || dialect.lineterminator.as_bytes().contains(&byte)
-        })
+        }) || data_contains_lineterminator_char(data, dialect)
     }
 
-    fn field_needs_escape(byte: u8, dialect: &PyDialect) -> bool {
+    fn field_needs_escape(data: &[u8], dialect: &PyDialect) -> bool {
+        let byte = data[0];
         byte == dialect.delimiter
             || dialect.quotechar == Some(byte)
             || dialect.escapechar == Some(byte)
             || matches!(byte, b'\r' | b'\n')
-            || dialect.lineterminator.as_bytes().contains(&byte)
+            || data_starts_with_lineterminator_char(data, dialect)
     }
 
     fn write_lineterminator(output: &mut Vec<u8>, terminator: &str) {

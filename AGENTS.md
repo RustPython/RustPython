@@ -123,6 +123,10 @@ cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlaunch
 # Run C-API tests from their directory so their separate Cargo config applies
 (cd crates/capi && cargo test)
 
+# Run Clippy with the same C-API separation
+cargo clippy --workspace --all-targets --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi
+(cd crates/capi && cargo clippy --all-targets)
+
 # Run Python snippets tests (debug mode recommended for faster compilation)
 cargo run -- extra_tests/snippets/builtin_bytes.py
 

@@ -7,6 +7,7 @@ mod decl {
         builtins::{
             PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int,
         },
+        class::PyClassDef,
         common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
         convert::ToPyObject,
         function::{FuncArgs, OptionalArg, OptionalOption, PosArgs},
@@ -755,19 +756,16 @@ mod decl {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let (iter, start, stop, step) = match args.args.len() {
                 0 | 1 => {
-                    return Err(vm.new_type_error(format!(
-                        "islice expected at least 2 arguments, got {}",
-                        args.args.len()
-                    )));
+                    return Err(vm.new_arity_type_error(Self::NAME, 2..=4, args.args.len()));
                 }
                 2 => {
-                    let (iter, stop): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
+                    let (iter, stop): (PyObjectRef, PyObjectRef) = args.bind_for(vm, Self::NAME)?;
                     (iter, 0usize, stop, 1usize)
                 }
                 _ => {
                     let (iter, start, stop, step) = if args.args.len() == 3 {
                         let (iter, start, stop): (PyObjectRef, PyObjectRef, PyObjectRef) =
-                            args.bind(vm)?;
+                            args.bind_for(vm, Self::NAME)?;
                         (iter, start, stop, 1usize)
                     } else {
                         let (iter, start, stop, step): (
@@ -775,7 +773,7 @@ mod decl {
                             PyObjectRef,
                             PyObjectRef,
                             PyObjectRef,
-                        ) = args.bind(vm)?;
+                        ) = args.bind_for(vm, Self::NAME)?;
 
                         let step = if !vm.is_none(&step) {
                             pyobject_to_opt_usize(step, "Step", vm)?
@@ -1123,7 +1121,7 @@ mod decl {
     #[derive(FromArgs)]
     struct ProductArgs {
         #[pyarg(named, optional)]
-        repeat: OptionalArg<usize>,
+        repeat: OptionalArg<isize>,
     }
 
     impl Constructor for PyItertoolsProduct {
@@ -1135,19 +1133,47 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
             let repeat = args.repeat.unwrap_or(1);
-            let mut pools = Vec::new();
-            for arg in iterables.iter() {
-                pools.push(arg.try_to_value(vm)?);
+            if repeat < 0 {
+                return Err(vm.new_value_error("repeat argument cannot be negative"));
             }
-            let pools = core::iter::repeat_n(pools, repeat)
-                .flatten()
-                .collect::<Vec<Vec<PyObjectRef>>>();
+            let repeat = repeat as usize;
+
+            // The count is settled before the arguments are read, the way
+            // `product_new()` settles it before it calls `PySequence_Tuple()`
+            // on any of them, so a repeat too large to serve does not run their
+            // code first.
+            let npools = iterables
+                .iter()
+                .len()
+                .checked_mul(repeat)
+                .filter(|n| *n <= isize::MAX as usize / size_of::<usize>())
+                .ok_or_else(|| vm.new_overflow_error("repeat argument too large"))?;
+
+            let mut single: Vec<Vec<PyObjectRef>> = Vec::new();
+            for arg in iterables.iter() {
+                single.push(arg.try_to_value(vm)?);
+            }
+
+            let mut pools: Vec<Vec<PyObjectRef>> = Vec::new();
+            pools
+                .try_reserve_exact(npools)
+                .map_err(|_| vm.new_memory_error(""))?;
+            // Filled by index, the way `product_new()` fills a tuple of
+            // `npools`. Repeating the arguments `repeat` times instead walks
+            // that many steps even when there are no arguments to repeat, so
+            // `product(repeat=2**62)` would spin rather than answer `[()]`.
+            pools.extend((0..npools).map(|i| single[i % single.len()].clone()));
+
+            let mut idxs = Vec::new();
+            idxs.try_reserve_exact(npools)
+                .map_err(|_| vm.new_memory_error(""))?;
+            idxs.resize(npools, 0);
 
             let l = pools.len();
 
             Ok(Self {
                 pools,
-                idxs: PyRwLock::new(vec![0; l]),
+                idxs: PyRwLock::new(idxs),
                 cur: AtomicCell::new(l.wrapping_sub(1)),
                 stop: AtomicCell::new(false),
             })

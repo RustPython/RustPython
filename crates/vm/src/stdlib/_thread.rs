@@ -484,16 +484,8 @@ pub(crate) mod _thread {
         }
 
         let given = f_args.args.len();
-        if given < 2 {
-            return Err(vm.new_type_error(format!(
-                "start_new_thread expected at least 2 arguments, got {given}"
-            )));
-        }
-
-        if given > 3 {
-            return Err(vm.new_type_error(format!(
-                "start_new_thread expected at most 3 arguments, got {given}"
-            )));
+        if !(2..=3).contains(&given) {
+            return Err(vm.new_arity_type_error("start_new_thread", 2..=3, given));
         }
 
         let func_obj = f_args.take_positional().unwrap();
@@ -531,6 +523,11 @@ pub(crate) mod _thread {
             vm,
         )?;
 
+        if !vm.state.allow_threads() {
+            return Err(vm.new_runtime_error(
+                "thread is not supported for isolated subinterpreters".to_owned(),
+            ));
+        }
         if vm
             .state
             .finalizing
@@ -547,7 +544,12 @@ pub(crate) mod _thread {
         let args = FuncArgs::new(
             args.to_vec(),
             kwargs
-                .map_or_else(Default::default, |k| k.to_attributes(vm))
+                .map_or_else(
+                    || Ok(Default::default()),
+                    |k| {
+                        k.to_attributes(vm, |vm| Err(vm.new_type_error("keywords must be strings")))
+                    },
+                )?
                 .into_iter()
                 .map(|(k, v)| (k.as_str().to_owned(), v))
                 .collect::<KwArgs>(),
@@ -616,25 +618,32 @@ pub(crate) mod _thread {
     const DEFAULT_THREAD_STACK_SIZE: usize = 8 * 1024 * 1024;
 
     /// Configure a `thread::Builder` with the stack size to use for a new
-    /// Python thread. Uses the value set via `threading.stack_size(N)` when
-    /// the user has provided one (non-zero). Otherwise, debug builds fall
-    /// back to [`DEFAULT_THREAD_STACK_SIZE`] and release builds leave the
-    /// builder unmodified (Rust's std default applies).
+    /// Python thread. Release builds use the value set via
+    /// `threading.stack_size(N)` when the user has provided one (non-zero) and
+    /// otherwise leave the builder unmodified (Rust's std default applies).
+    ///
+    /// Debug builds take [`DEFAULT_THREAD_STACK_SIZE`] as a floor rather than
+    /// only as a default: an unoptimized `ExecutingFrame::run` reserves around
+    /// eighty kilobytes of stack where an optimized one reserves under a
+    /// thousand, so a size that holds a Python call chain in release holds
+    /// three of its frames here — starting a thread at all needs six. The
+    /// value `threading.stack_size()` reports is untouched.
     fn apply_thread_stack_size(
         thread_builder: thread::Builder,
         vm: &VirtualMachine,
     ) -> thread::Builder {
         let configured = vm.state.stacksize.load();
-        if configured != 0 {
-            return thread_builder.stack_size(configured);
-        }
         #[cfg(debug_assertions)]
         {
-            thread_builder.stack_size(DEFAULT_THREAD_STACK_SIZE)
+            thread_builder.stack_size(configured.max(DEFAULT_THREAD_STACK_SIZE))
         }
         #[cfg(not(debug_assertions))]
         {
-            thread_builder
+            if configured == 0 {
+                thread_builder
+            } else {
+                thread_builder.stack_size(configured)
+            }
         }
     }
 
@@ -690,9 +699,8 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn daemon_threads_allowed() -> bool {
-        // RustPython always allows daemon threads
-        true
+    fn daemon_threads_allowed(vm: &VirtualMachine) -> bool {
+        vm.state.allow_daemon_threads()
     }
 
     // Registry for non-daemon threads that need to be joined at shutdown
@@ -1806,6 +1814,11 @@ pub(crate) mod _thread {
             vm,
         )?;
 
+        if !vm.state.allow_threads() {
+            return Err(vm.new_runtime_error(
+                "thread is not supported for isolated subinterpreters".to_owned(),
+            ));
+        }
         if vm
             .state
             .finalizing
@@ -2027,6 +2040,31 @@ pub(crate) mod _thread {
                     stack_size >= DEFAULT_THREAD_STACK_SIZE,
                     "Python thread stack size is {stack_size} bytes, expected at least {DEFAULT_THREAD_STACK_SIZE}"
                 );
+            });
+        }
+
+        /// A size small enough for CPython's frames is not small enough for an
+        /// unoptimized build's: `test_threading` asks for 256 KiB, which holds
+        /// three of them where starting a thread needs six. The size the
+        /// request set is still what `threading.stack_size()` answers with.
+        #[test]
+        #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
+        fn explicit_python_thread_stack_size_is_a_floor_debug() {
+            const REQUESTED: usize = 256 * 1024;
+
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                vm.state.stacksize.store(REQUESTED);
+                let builder = apply_thread_stack_size(thread::Builder::new(), vm);
+                let stack_size = builder
+                    .spawn(current_thread_stack_size)
+                    .expect("failed to spawn thread")
+                    .join()
+                    .expect("thread panicked");
+                assert!(
+                    stack_size >= DEFAULT_THREAD_STACK_SIZE,
+                    "Python thread stack size is {stack_size} bytes, expected at least {DEFAULT_THREAD_STACK_SIZE}"
+                );
+                assert_eq!(vm.state.stacksize.load(), REQUESTED);
             });
         }
 

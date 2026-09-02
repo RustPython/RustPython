@@ -7,7 +7,7 @@ use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 use super::{PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::hash::{PyHash, PyUHash},
     convert::ToPyObject,
     function::{
@@ -132,7 +132,7 @@ impl PySlice {
         let slice: Self = match args.args.len() {
             0 => unreachable!("rejected by check_positional"),
             1 => {
-                let stop = args.bind(vm)?;
+                let stop = args.bind_for(vm, Self::NAME)?;
                 Self {
                     start: None,
                     stop,
@@ -141,7 +141,7 @@ impl PySlice {
             }
             _ => {
                 let (start, stop, step): (PyObjectRef, PyObjectRef, OptionalArg<PyObjectRef>) =
-                    args.bind(vm)?;
+                    args.bind_for(vm, Self::NAME)?;
                 Self {
                     start: Some(start),
                     stop,
@@ -376,7 +376,7 @@ impl Representable for PySlice {
     }
 }
 
-#[pyclass(module = false, name = "EllipsisType")]
+#[pyclass(module = false, name = "ellipsis")]
 #[derive(Debug)]
 pub struct PyEllipsis;
 
@@ -391,7 +391,7 @@ impl Constructor for PyEllipsis {
     type Args = ();
 
     fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let _: () = args.bind(vm)?;
+        let _: () = args.bind_for(vm, Self::NAME)?;
         Ok(vm.ctx.ellipsis.clone().into())
     }
 

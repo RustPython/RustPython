@@ -930,3 +930,124 @@ assert list1 == []
 # that product must raise instead of wrapping into a short allocation.
 with assert_raises(MemoryError):
     [1] * sys.maxsize
+
+
+# A list takes the length an iterable reports before reading it, so one that
+# reports more than can be held says so instead of filling memory.
+class Reports:
+    def __init__(self, hint):
+        self.hint = hint
+
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+    def __length_hint__(self):
+        return self.hint
+
+
+with assert_raises(MemoryError):
+    list(Reports(sys.maxsize))
+with assert_raises(MemoryError):
+    [].extend(Reports(sys.maxsize))
+with assert_raises(MemoryError):
+    empty = []
+    empty += Reports(sys.maxsize)
+
+# A report that leaves no room for what the list already holds cannot be true,
+# so it is passed over rather than refused.
+held = [1, 2, 3, 4]
+held.extend(Reports(sys.maxsize))
+assert held == [1, 2, 3, 4, 1, 2, 3]
+
+
+# Reporting runs the iterable's own code, so what the list holds is counted
+# after the report rather than before it.
+grew = []
+
+
+class Grows:
+    def __iter__(self):
+        return iter([7])
+
+    def __length_hint__(self):
+        grew.extend([0] * 100)
+        return sys.maxsize - 50
+
+
+grew.extend(Grows())
+assert len(grew) == 101 and grew[-1] == 7, grew[-3:]
+
+shrunk = [1] * 100
+
+
+class Shrinks:
+    def __iter__(self):
+        return iter([])
+
+    def __length_hint__(self):
+        shrunk.clear()
+        return sys.maxsize
+
+
+with assert_raises(MemoryError):
+    shrunk.extend(Shrinks())
+
+
+# Only the callers that take the room ask at all, which is why an iterable whose
+# __len__ raises reaches tuple() but not list().
+class Lazy:
+    def __len__(self):
+        raise NotImplementedError
+
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+
+assert tuple(Lazy()) == (1, 2, 3)
+assert (lambda *a: a)(*Lazy()) == (1, 2, 3)
+assert min(Lazy()) == 1
+with assert_raises(NotImplementedError):
+    list(Lazy())
+with assert_raises(NotImplementedError):
+    sorted(Lazy())
+with assert_raises(NotImplementedError):
+    [].extend(Lazy())
+with assert_raises(NotImplementedError):
+    [*Lazy()]
+
+
+# Nothing asks the iterator, so what it would have answered never runs.
+class LoudIterator:
+    def __init__(self):
+        self.i = iter([1, 2, 3])
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.i)
+
+    def __length_hint__(self):
+        raise NotImplementedError
+
+
+class HandsOutLoud:
+    def __iter__(self):
+        return LoudIterator()
+
+
+assert tuple(HandsOutLoud()) == (1, 2, 3)
+assert (lambda *a: a)(*HandsOutLoud()) == (1, 2, 3)
+assert min(HandsOutLoud()) == 1
+assert max(HandsOutLoud()) == 3
+assert list(HandsOutLoud()) == [1, 2, 3]
+assert sorted(HandsOutLoud()) == [1, 2, 3]
+assert bytearray(HandsOutLoud()) == bytearray(b"\x01\x02\x03")
+held = [0]
+held.extend(HandsOutLoud())
+assert held == [0, 1, 2, 3]
+
+
+# A report the list can act on is acted on.
+assert list(Reports(3)) == [1, 2, 3]
+assert list(Reports(0)) == [1, 2, 3]

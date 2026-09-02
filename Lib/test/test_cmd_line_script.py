@@ -234,7 +234,6 @@ class CmdLineTest(unittest.TestCase):
                                importlib.machinery.SourceFileLoader,
                                expected_cwd=script_dir)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_script_abspath(self):
         # pass the script using the relative path, expect the absolute path
         # in __file__

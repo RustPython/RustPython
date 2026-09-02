@@ -1,13 +1,13 @@
 use super::{
-    PositionIterInternal, PyBaseExceptionRef, PyBytes, PyBytesRef, PyGenericAlias, PyInt,
-    PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef,
-    iter::builtins_iter,
+    PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
+    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
+    locked_next,
 };
 use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine, atomic_func,
-    buffer::FormatSpec,
+    buffer::{FormatSpec, PackErrorKind},
     bytes_inner::{ByteInnerHexOptions, bytes_to_hex},
     class::{PyClassImpl, StaticType},
     common::{
@@ -47,7 +47,7 @@ struct PyMemoryViewFromFlagsArgs {
     flags: ArgIndex,
 }
 
-#[pyclass(module = false, name = "memoryview")]
+#[pyclass(module = false, name = "memoryview", traverse)]
 #[derive(Debug)]
 pub struct PyMemoryView {
     /// One share of the acquisition this view is looking at, given up when the
@@ -55,17 +55,23 @@ pub struct PyMemoryView {
     buffer: PyBuffer,
     // the released memoryview does not mean the buffer is destroyed
     // because the possible another memoryview is viewing from it
+    #[pytraverse(skip)]
     released: AtomicCell<bool>,
     /// Forbids handing out anything that outlives this view, for the window
     /// passed to `__release_buffer__`.
+    #[pytraverse(skip)]
     restricted: AtomicCell<bool>,
+    #[pytraverse(skip)]
     format_spec: FormatSpec,
     // memoryview's options could be different from buffer's options
+    #[pytraverse(skip)]
     desc: BufferDescriptor,
+    #[pytraverse(skip)]
     hash: OnceCell<PyHash>,
     /// Buffers handed out of this view that have not been given back yet. The
     /// view cannot be released while any of them is outstanding, so that what
     /// reads them keeps reading memory that is still there. self->exports
+    #[pytraverse(skip)]
     exports: AtomicCell<usize>,
 }
 
@@ -118,6 +124,15 @@ impl PyMemoryView {
         Self::from_object_with_flags(obj, BufferFlags::FULL_RO, vm)
     }
 
+    /// One share of the underlying buffer export. Used for cross-interpreter
+    /// `send_buffer` so the destination memoryview sees the same memory.
+    #[must_use]
+    pub fn clone_buffer(&self) -> PyBuffer {
+        let mut buffer = self.buffer.clone();
+        buffer.desc = self.desc.clone();
+        buffer
+    }
+
     // PyMemoryView_FromObjectAndFlags
     pub fn from_object_with_flags(
         obj: &PyObject,
@@ -128,11 +143,10 @@ impl PyMemoryView {
             other.try_not_released(vm)?;
             other.try_not_restricted(vm)?;
             Ok(other.new_view())
-        } else if obj.class().slots.as_buffer.load().is_some() {
+        } else if obj.check_buffer() {
             let buffer = PyBuffer::from_object(vm, obj, flags)?;
             Self::from_buffer(buffer, vm)
         } else {
-            // PyMemoryView_FromObjectAndFlags prefixes the buffer error
             Err(vm.new_type_error(format!(
                 "memoryview: a bytes-like object is required, not '{}'",
                 obj.class().name()
@@ -336,37 +350,23 @@ impl PyMemoryView {
         // conversion runs `__index__` or `__float__`, which can read or write the
         // same buffer.
         // TODO: Optimize
-        // Mirror CPython's pack_single(): conversion errors are re-raised as
-        // "invalid type" (TypeError) or "invalid value" (ValueError) for the format
-        let format = &*self.desc.format;
-        let fix_error = |e: PyBaseExceptionRef| {
-            if e.fast_isinstance(vm.ctx.exceptions.type_error) {
-                vm.new_type_error(format!("memoryview: invalid type for format '{format}'"))
-            } else if e.fast_isinstance(vm.ctx.exceptions.overflow_error)
-                || e.fast_isinstance(vm.ctx.exceptions.value_error)
-            {
-                vm.new_value_error(format!("memoryview: invalid value for format '{format}'"))
-            } else if e.fast_isinstance(crate::buffer::struct_error_type(vm)) {
-                // struct.error distinguishes wrong types from out-of-range
-                // values by message
-                let msg = e
-                    .as_object()
-                    .str(vm)
-                    .ok()
-                    .and_then(|s| s.to_str().map(str::to_owned));
-                let is_type_error = msg
-                    .as_deref()
-                    .is_some_and(|msg| msg.contains("is not an integer"));
-                if is_type_error {
-                    vm.new_type_error(format!("memoryview: invalid type for format '{format}'"))
-                } else {
-                    vm.new_value_error(format!("memoryview: invalid value for format '{format}'"))
-                }
-            } else {
-                e
+        // A value of the wrong kind and a value the format has no room for are
+        // different errors here, though packing reports both the same way.
+        let data = self.format_spec.try_pack(vec![value], vm).map_err(|err| {
+            let what = match err.kind {
+                PackErrorKind::Type => "type",
+                PackErrorKind::Value => "value",
+                PackErrorKind::Raised => return err.exception,
+            };
+            let msg = format!(
+                "memoryview: invalid {what} for format '{}'",
+                self.desc.format
+            );
+            match err.kind {
+                PackErrorKind::Type => vm.new_type_error(msg),
+                _ => vm.new_value_error(msg),
             }
-        };
-        let data = self.format_spec.pack(vec![value], vm).map_err(fix_error)?;
+        })?;
         // The conversion, and the index that produced `pos`, could have released
         // the view; `pos` addresses a buffer that is no longer there.
         // CHECK_RELEASED_INT_AGAIN
@@ -874,6 +874,9 @@ impl PyMemoryView {
     }
 
     fn __delitem__(&self, _needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.try_not_released(vm)?;
+        // What cannot be written cannot be deleted from either, and that is
+        // the first thing answered.
         if self.desc.readonly {
             return Err(vm.new_type_error("cannot modify read-only memory"));
         }
@@ -1165,10 +1168,6 @@ impl Py<PyMemoryView> {
         if self.desc.readonly {
             return Err(vm.new_type_error("cannot modify read-only memory"));
         }
-        if value.is(&vm.ctx.none) {
-            return Err(vm.new_type_error("cannot delete memory"));
-        }
-
         if self.desc.ndim() == 0 {
             // TODO: merge branches when we got conditional if let
             if needle.is(&vm.ctx.ellipsis) {
@@ -1323,7 +1322,7 @@ impl AsMapping for PyMemoryView {
                 if let Some(value) = value {
                     zelf.__setitem__(needle.to_owned(), value, vm)
                 } else {
-                    Err(vm.new_type_error("cannot delete memory".to_owned()))
+                    zelf.__delitem__(needle.to_owned(), vm)
                 }
             }),
         };
@@ -1365,8 +1364,8 @@ impl Comparable for PyMemoryView {
             _ => Err(vm.new_type_error(format!(
                 "'{}' not supported between instances of '{}' and '{}'",
                 op.operator_token(),
-                zelf.class().name(),
-                other.class().name()
+                zelf.class().slot_name(),
+                other.class().slot_name()
             ))),
         }
     }
@@ -1430,7 +1429,7 @@ pub(crate) fn init(ctx: &'static Context) {
     PyBufferWindow::extend_class(ctx, PyBufferWindow::init_builtin_type());
 }
 
-#[pyclass(module = false, name = "_buffer_wrapper")]
+#[pyclass(module = false, name = "_buffer_wrapper", traverse)]
 #[derive(Debug)]
 struct PyBufferWrapper {
     // bw->obj: the object whose `__buffer__` produced the view
@@ -1441,6 +1440,7 @@ struct PyBufferWrapper {
     /// forwards shares of it rather than owning one.
     view: PyBuffer,
     /// Exports handed out for this wrapper; the wrapper is spent at zero.
+    #[pytraverse(skip)]
     exports: AtomicCell<usize>,
 }
 
@@ -1486,7 +1486,7 @@ static BUFFER_WRAPPER_METHODS: BufferMethods = BufferMethods {
 // Read-only window over an exporter, handed to `__release_buffer__`. It owns no
 // export, like a `Py_buffer` whose `obj` is NULL, so releasing it is inert and
 // cannot recurse back into the hook.
-#[pyclass(module = false, name = "_buffer_window")]
+#[pyclass(module = false, name = "_buffer_window", traverse)]
 #[derive(Debug)]
 struct PyBufferWindow {
     source: PyBuffer,
@@ -1714,7 +1714,7 @@ impl PyMemoryViewIterator {
 impl SelfIter for PyMemoryViewIterator {}
 impl IterNext for PyMemoryViewIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|mv, pos| {
+        locked_next(&zelf.internal, |mv, pos| {
             let len = mv.__len__(vm)?;
             Ok(if pos >= len {
                 PyIterReturn::StopIteration(None)

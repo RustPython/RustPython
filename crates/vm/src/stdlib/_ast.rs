@@ -388,17 +388,7 @@ fn text_range_to_source_range(source_file: &SourceFile, text_range: TextRange) -
     let start_row = index.line_index(text_range.start());
     let end_row = index.line_index(text_range.end());
     let start_col = text_range.start() - index.line_start(start_row, source);
-    let (end_row, end_col) = {
-        let end_col = text_range.end() - index.line_start(end_row, source);
-        if end_col == TextSize::new(0) && end_row > start_row {
-            let prev_line_end = text_range.end() - TextSize::new(1);
-            let row = index.line_index(prev_line_end);
-            let col = prev_line_end - index.line_start(row, source) + TextSize::new(1);
-            (row, col)
-        } else {
-            (end_row, end_col)
-        }
-    };
+    let end_col = text_range.end() - index.line_start(end_row, source);
 
     PySourceRange {
         start: PySourceLocation {
@@ -1035,7 +1025,7 @@ fn type_comment_parse_error(
         raw_location: range,
         location: source_range.start.to_source_location(),
         end_location: source_range.end.to_source_location(),
-        source_path: "<unknown>".to_string(),
+        source_path: source_file.name().to_owned(),
         is_unclosed_bracket: false,
     }
     .into()
@@ -1046,9 +1036,9 @@ fn future_feature_compile_error(
     source_file: &SourceFile,
     error: codegen::preprocess::FutureFeatureError,
 ) -> CompileError {
-    let location = source_file
-        .to_source_code()
-        .source_location(error.range.start(), PositionEncoding::Utf8);
+    let source_code = source_file.to_source_code();
+    let location = source_code.source_location(error.range.start(), PositionEncoding::Utf8);
+    let end_location = source_code.source_location(error.range.end(), PositionEncoding::Utf8);
     let error = match error.kind {
         codegen::preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
             codegen::error::CodegenErrorType::InvalidFutureFeature(feature)
@@ -1059,6 +1049,7 @@ fn future_feature_compile_error(
     };
     codegen::error::CodegenError {
         location: Some(location),
+        end_location: Some(end_location),
         error,
         source_path: source_file.name().to_owned(),
     }
@@ -1763,7 +1754,7 @@ fn ipython_escape_command_syntax_error(
             raw_location: range,
             location: source_range.start.to_source_location(),
             end_location: source_range.end.to_source_location(),
-            source_path: "<unknown>".to_owned(),
+            source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
         }
         .into(),
@@ -1797,23 +1788,29 @@ fn empty_arguments_object(vm: &VirtualMachine) -> PyObjectRef {
 pub(crate) fn parse(
     vm: &VirtualMachine,
     source: &str,
+    filename: &str,
     mode: parser::Mode,
     optimize: u8,
     target_version: Option<ast::PythonVersion>,
     type_comments: bool,
     optimized_ast: bool,
     interactive: bool,
-    explicit_future_annotations: bool,
+    explicit_future_features: crate::bytecode::CodeFlags,
     dont_imply_dedent: bool,
 ) -> Result<PyObjectRef, CompileError> {
-    let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
+    let source_file = SourceFileBuilder::new(filename.to_owned(), source.to_owned()).finish();
     let mut options = parser::ParseOptions::from(mode);
     let target_version = target_version.unwrap_or(ast::PythonVersion::PY314);
     if let Some(error) = feature_version_syntax_error(source, &source_file, target_version) {
         return Err(error);
     }
     options = options.with_target_version(target_version);
-    let parsed = parser::parse_unchecked(source, options);
+    let barry_source = rustpython_compiler::prepare_barry_as_flufl_source(
+        source,
+        options.clone(),
+        explicit_future_features.contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+    );
+    let parsed = parser::parse_unchecked(barry_source.source(), options);
     let type_comment_source =
         type_comments.then(|| TypeCommentSource::new(source, parsed.tokens()));
     if let Some(lines) = &type_comment_source
@@ -1823,16 +1820,22 @@ pub(crate) fn parse(
     }
     if let Err(errors) = parsed.as_result() {
         let parse_error = errors[0].clone();
+        if let Some(error) = barry_source.diagnostic(Some(&parse_error), &source_file) {
+            return Err(error);
+        }
         let range = text_range_to_source_range(&source_file, parse_error.location);
         return Err(ParseError {
             error: parse_error.error,
             raw_location: parse_error.location,
             location: range.start.to_source_location(),
             end_location: range.end.to_source_location(),
-            source_path: "<unknown>".to_string(),
+            source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
         }
         .into());
+    }
+    if let Some(error) = barry_source.diagnostic(None, &source_file) {
+        return Err(error);
     }
     if dont_imply_dedent
         && interactive
@@ -1855,7 +1858,7 @@ pub(crate) fn parse(
             raw_location: error.range(),
             location: range.start.to_source_location(),
             end_location: range.end.to_source_location(),
-            source_path: "<unknown>".to_string(),
+            source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
         }
         .into());
@@ -1869,7 +1872,13 @@ pub(crate) fn parse(
         return Err(error);
     }
 
+    if let Some(error) = rustpython_compiler::leading_byte_order_mark_error(&source_file) {
+        return Err(error);
+    }
     let mut top = parsed.into_syntax();
+    if let Some(error) = rustpython_compiler::unsupported_grammar_error(&top, &source_file) {
+        return Err(error);
+    }
     if let Some(error) = ipython_escape_command_syntax_error(&top, &source_file) {
         return Err(error);
     }
@@ -1880,7 +1889,8 @@ pub(crate) fn parse(
     {
         let future_features = codegen::preprocess::checked_future_features(&top)
             .map_err(|err| future_feature_compile_error(&source_file, err))?;
-        let future_annotations = explicit_future_annotations
+        let future_annotations = explicit_future_features
+            .contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS)
             || future_features.contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
         if interactive && let ast::Mod::Module(module) = &mut top {
             codegen::preprocess::preprocess_statements(
@@ -1945,6 +1955,7 @@ pub(crate) fn wrap_interactive(vm: &VirtualMachine, module_obj: PyObjectRef) -> 
 pub(crate) fn parse_func_type(
     vm: &VirtualMachine,
     source: &str,
+    filename: &str,
     optimize: u8,
     target_version: Option<ast::PythonVersion>,
 ) -> Result<PyObjectRef, CompileError> {
@@ -1956,7 +1967,7 @@ pub(crate) fn parse_func_type(
             raw_location: TextRange::default(),
             location: SourceLocation::default(),
             end_location: SourceLocation::default(),
-            source_path: "<unknown>".to_owned(),
+            source_path: filename.to_owned(),
             is_unclosed_bracket: false,
         }
         .into()
@@ -1984,7 +1995,7 @@ pub(crate) fn parse_func_type(
             raw_location: TextRange::default(),
             location: SourceLocation::default(),
             end_location: SourceLocation::default(),
-            source_path: "<unknown>".to_owned(),
+            source_path: filename.to_owned(),
             is_unclosed_bracket: false,
         }
         .into());
@@ -1994,7 +2005,7 @@ pub(crate) fn parse_func_type(
     let right = source[split_at + 2..].trim();
 
     let parse_expr = |expr_src: &str| -> Result<ast::Expr, CompileError> {
-        let source_file = SourceFileBuilder::new("".to_owned(), expr_src.to_owned()).finish();
+        let source_file = SourceFileBuilder::new(filename.to_owned(), expr_src.to_owned()).finish();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
             .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY314));
         let parsed = parser::parse(expr_src, options).map_err(|parse_error| {
@@ -2004,7 +2015,7 @@ pub(crate) fn parse_func_type(
                 raw_location: parse_error.location,
                 location: range.start.to_source_location(),
                 end_location: range.end.to_source_location(),
-                source_path: "<unknown>".to_string(),
+                source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
             }
         })?;
@@ -2025,7 +2036,7 @@ pub(crate) fn parse_func_type(
             return Err(invalid_func_type());
         }
         let call_source = format!("__rustpython_func_type__({inner})");
-        let source_file = SourceFileBuilder::new("".to_owned(), call_source.clone()).finish();
+        let source_file = SourceFileBuilder::new(filename.to_owned(), call_source.clone()).finish();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
             .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY314));
         let parsed = parser::parse(&call_source, options).map_err(|parse_error| {
@@ -2035,7 +2046,7 @@ pub(crate) fn parse_func_type(
                 raw_location: parse_error.location,
                 location: range.start.to_source_location(),
                 end_location: range.end.to_source_location(),
-                source_path: "<unknown>".to_string(),
+                source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
             }
         })?;
@@ -2477,6 +2488,7 @@ pub(crate) fn compile(
                 );
                 let marker = codegen::error::CodegenError {
                     location: Some(location),
+                    end_location: None,
                     error: codegen::error::CodegenErrorType::SyntaxError(message),
                     source_path: source_path.clone(),
                 };

@@ -196,7 +196,6 @@ class TestTString(unittest.TestCase, TStringBaseCase):
         self.assertEqual(t_interp.conversion, None)
         self.assertEqual(t_interp.format_spec, "")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON multiple instances of AssertionError
     def test_syntax_errors(self):
         for case, err in (
             ("t'", "unterminated t-string literal"),
@@ -231,7 +230,6 @@ class TestTString(unittest.TestCase, TStringBaseCase):
         with self.assertRaises(NameError):
             eval("t'Hello, {name}'")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_literal_concatenation(self):
         # Test concatenation of t-string literals
         t = t"Hello, " t"world"

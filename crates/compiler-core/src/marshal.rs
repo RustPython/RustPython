@@ -15,6 +15,8 @@ pub enum MarshalError {
     EofObject,
     /// Unexpected End Of File at a direct byte read (e.g. a length byte)
     EofByte,
+    /// A run of bytes that the data ends in the middle of
+    DataTooShort,
     /// Nesting deeper than MAX_MARSHAL_STACK_DEPTH
     RecursionLimitExceeded,
     /// TYPE_NULL read where an object was expected
@@ -63,6 +65,7 @@ impl core::fmt::Display for MarshalError {
             Self::Eof => f.write_str("unexpected end of data"),
             Self::EofObject => f.write_str("unexpected end of data at object boundary"),
             Self::EofByte => f.write_str("unexpected end of data at byte read"),
+            Self::DataTooShort => f.write_str("data ends in the middle of a value"),
             Self::RecursionLimitExceeded => f.write_str("recursion limit exceeded"),
             Self::NullObject => f.write_str("null object in marshal data"),
             Self::NullInTuple => f.write_str("null object in marshal data for tuple"),
@@ -189,7 +192,9 @@ pub trait Read {
     }
 
     fn read_u8(&mut self) -> Result<u8> {
-        Ok(u8::from_le_bytes(*self.read_array()?))
+        // A single byte is not a run that got cut short: nothing came at all.
+        let byte = self.read_array().map_err(|_| MarshalError::Eof)?;
+        Ok(u8::from_le_bytes(*byte))
     }
 
     /// Read a type byte at an object boundary (CPython `r_object`'s `r_byte`).
@@ -234,7 +239,9 @@ impl Read for &[u8] {
     }
 
     fn read_array<const N: usize>(&mut self) -> Result<&[u8; N]> {
-        let (chunk, rest) = self.split_first_chunk::<N>().ok_or(MarshalError::Eof)?;
+        let (chunk, rest) = self
+            .split_first_chunk::<N>()
+            .ok_or(MarshalError::DataTooShort)?;
         *self = rest;
         Ok(chunk)
     }
@@ -242,7 +249,8 @@ impl Read for &[u8] {
 
 impl<'a> ReadBorrowed<'a> for &'a [u8] {
     fn read_slice_borrow(&mut self, n: u32) -> Result<&'a [u8]> {
-        self.split_off(..n as usize).ok_or(MarshalError::Eof)
+        self.split_off(..n as usize)
+            .ok_or(MarshalError::DataTooShort)
     }
 }
 
@@ -254,7 +262,7 @@ pub struct Cursor<B> {
 impl<B: AsRef<[u8]>> Read for Cursor<B> {
     fn read_slice(&mut self, n: u32) -> Result<&[u8]> {
         let data = &self.data.as_ref()[self.position..];
-        let slice = data.get(..n as usize).ok_or(MarshalError::Eof)?;
+        let slice = data.get(..n as usize).ok_or(MarshalError::DataTooShort)?;
         self.position += n as usize;
         Ok(slice)
     }

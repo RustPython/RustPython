@@ -401,3 +401,9 @@ try:
     assert str(huge)
 finally:
     sys.set_int_max_str_digits(_orig_limit)
+
+# to_bytes is handed the length to allocate, so one that cannot be satisfied
+# must raise. Zero and non-zero take different paths to the same buffer.
+for value in (0, 1, -1):
+    with assert_raises(MemoryError):
+        value.to_bytes(2**60, "big", signed=True)

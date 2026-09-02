@@ -2,17 +2,19 @@
 
 use super::PyType;
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-    builtins::type_::PointerSlot,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc, PySetterValue},
+    object::{Traverse, TraverseFn},
     types::{GetDescriptor, Representable},
 };
 
-#[pyclass(module = false, name = "getset_descriptor")]
+#[pyclass(module = false, name = "getset_descriptor", traverse = "manual")]
 pub struct PyGetSet {
     name: String,
-    class: PointerSlot<Py<PyType>>, // A class type freed before getset is non-sense.
+    /// `d_type`. Owned: a type's namespace can outlive the type, and the
+    /// descriptors it holds have to stay valid for as long as it does.
+    class: PyRef<PyType>,
     getter: Option<PyGetterFunc>,
     setter: Option<PySetterFunc>,
     // doc: Option<String>,
@@ -35,6 +37,13 @@ impl core::fmt::Debug for PyGetSet {
                 "None"
             },
         )
+    }
+}
+
+// Only `class` is traced: the getter and setter closures are plain functions.
+unsafe impl Traverse for PyGetSet {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.class.traverse(tracer_fn);
     }
 }
 
@@ -70,10 +79,10 @@ impl GetDescriptor for PyGetSet {
 
 impl PyGetSet {
     #[must_use]
-    pub fn new(name: &str, class: &'static Py<PyType>) -> Self {
+    pub fn new(name: &str, class: &Py<PyType>) -> Self {
         Self {
             name: name.into(),
-            class: PointerSlot::from(class),
+            class: class.to_owned(),
             getter: None,
             setter: None,
         }
@@ -128,26 +137,22 @@ impl PyGetSet {
 
     #[pygetset]
     fn __qualname__(&self) -> String {
-        format!(
-            "{}.{}",
-            unsafe { self.class.borrow_static() }.slot_name(),
-            self.name.clone()
-        )
+        format!("{}.{}", self.class.slot_name(), self.name.clone())
     }
 
     #[pymember]
     fn __objclass__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-        Ok(unsafe { zelf.class.borrow_static() }.to_owned().into())
+        Ok(zelf.class.clone().into())
     }
 }
 
 impl Representable for PyGetSet {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let class = unsafe { zelf.class.borrow_static() };
+        let class = &zelf.class;
         // Special case for object type
-        if core::ptr::eq(class, vm.ctx.types.object_type) {
+        if class.is(vm.ctx.types.object_type) {
             Ok(format!("<attribute '{}'>", zelf.name))
         } else {
             Ok(format!(

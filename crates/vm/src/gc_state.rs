@@ -4,7 +4,7 @@
 
 use crate::common::linked_list::LinkedList;
 use crate::common::lock::{PyMutex, PyRwLock};
-use crate::object::{GC_NO_OWNER, GC_PERMANENT, GC_UNTRACKED, GcLink, GcOwner};
+use crate::object::{GC_NO_OWNER, GC_PERMANENT, GC_REACHABLE, GC_UNTRACKED, GcLink, GcOwner};
 use crate::{AsObject, PyObject, PyObjectRef};
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize, Ordering};
@@ -160,11 +160,11 @@ struct GcPtr(NonNull<PyObject>);
 /// choosing keys that collide. Nothing chooses these keys: they are addresses
 /// this process handed out, and the tables live and die inside one collection.
 /// What a collection needs from them is speed -- it hashes every tracked
-/// object and every edge between them -- so this runs the address through a
-/// handful of multiplies and shifts instead. The shifts are what earns the
-/// speed: a table picks its bucket from the low bits, and an address arrives
-/// with its low bits zeroed by alignment, so entropy has to be carried
-/// downward or every object lands in the same few buckets.
+/// object -- so this runs the address through a handful of multiplies and
+/// shifts instead. The shifts are what earns the speed: a table picks its
+/// bucket from the low bits, and an address arrives with its low bits zeroed
+/// by alignment, so entropy has to be carried downward or every object lands
+/// in the same few buckets.
 #[derive(Default)]
 struct GcPtrHasher(u64);
 
@@ -299,9 +299,9 @@ impl Drop for CollectStopTheWorld {
 pub struct GcState {
     /// Per-generation intrusive linked lists for object tracking.
     /// Objects start in gen0, survivors are promoted to gen1, then gen2.
-    generation_lists: [PyRwLock<LinkedList<GcLink, PyObject>>; 3],
+    generation_lists: [PyRwLock<LinkedList<GcLink>>; 3],
     /// Frozen/permanent objects (excluded from normal GC)
-    permanent_list: PyRwLock<LinkedList<GcLink, PyObject>>,
+    permanent_list: PyRwLock<LinkedList<GcLink>>,
     /// Number of tracked objects per generation, across all interpreters.
     ///
     /// Advisory: they drive the collection threshold and `gc.get_count()`, and
@@ -322,7 +322,7 @@ pub struct GcState {
 }
 
 // SAFETY: All fields are either inherently Send/Sync (atomics, RwLock, Mutex) or protected by PyMutex.
-// LinkedList<GcLink, PyObject> is Send+Sync because GcLink's Target (PyObject) is Send+Sync.
+// LinkedList<GcLink> is Send+Sync because GcLink's Target (PyObject) is Send+Sync.
 #[cfg(feature = "threading")]
 unsafe impl Send for GcState {}
 #[cfg(feature = "threading")]
@@ -418,8 +418,7 @@ impl GcState {
 
             let (list_lock, count) = if obj_gen <= 2 {
                 (
-                    &self.generation_lists[obj_gen as usize]
-                        as &PyRwLock<LinkedList<GcLink, PyObject>>,
+                    &self.generation_lists[obj_gen as usize] as &PyRwLock<LinkedList<GcLink>>,
                     &self.counts[obj_gen as usize],
                 )
             } else if obj_gen == GC_PERMANENT {
@@ -459,7 +458,7 @@ impl GcState {
     /// If generation is Some(n), returns those in generation n only.
     pub fn get_objects(&self, generation: Option<i32>, owner: GcOwner) -> Vec<PyObjectRef> {
         fn collect_from_list(
-            list: &LinkedList<GcLink, PyObject>,
+            list: &LinkedList<GcLink>,
             owner: GcOwner,
         ) -> impl Iterator<Item = PyObjectRef> + '_ {
             list.iter()
@@ -594,12 +593,12 @@ impl GcState {
             retired.sort_unstable();
             retired
         };
-        // The candidates and their reference counts go in one table, not a set
-        // beside a map: every edge in the heap is looked up here, and the two
-        // held the same keys, so a second table only bought a second hash of
-        // the same address. `candidate_ptrs` keeps them in a walkable order,
-        // since the counts are written while the candidates are read.
-        let mut gc_refs: GcMap<GcPtr, usize> = GcMap::default();
+        // Each candidate carries its own count, with `GcBits::COLLECTING`
+        // saying the count is there. Every edge in the heap is answered from
+        // that bit and that field; a table keyed by address turned each of
+        // those answers into a hash of the address instead. `candidate_ptrs`
+        // keeps the candidates in a walkable order, and the bit is what keeps
+        // an object that appears in two generation lists out of it twice.
         let mut candidate_ptrs: Vec<GcPtr> = Vec::new();
         for gen_list in &gen_locks {
             for obj in gen_list.iter() {
@@ -607,12 +606,9 @@ impl GcState {
                     obj.set_gc_owner(GC_NO_OWNER);
                 }
                 let strong_count = obj.strong_count();
-                let ptr = GcPtr(NonNull::from(obj));
-                if strong_count > 0
-                    && is_owned_by(obj, owner)
-                    && gc_refs.insert(ptr, strong_count).is_none()
-                {
-                    candidate_ptrs.push(ptr);
+                if strong_count > 0 && is_owned_by(obj, owner) && !obj.is_gc_collecting() {
+                    obj.start_gc_refs(strong_count);
+                    candidate_ptrs.push(GcPtr(NonNull::from(obj)));
                 }
             }
         }
@@ -679,24 +675,23 @@ impl GcState {
             unsafe { obj.gc_extend_referent_ptrs(&mut referent_ptrs) };
             let end = referent_ptrs.len();
             for &child_ptr in &referent_ptrs[start..end] {
-                if let Some(refs) = gc_refs.get_mut(&GcPtr(child_ptr)) {
-                    *refs = refs.saturating_sub(1);
+                // SAFETY: the referents came from `traverse`, which handed out
+                // live references to them, and the world is stopped.
+                let child = unsafe { child_ptr.as_ref() };
+                if child.is_gc_collecting() {
+                    child.subtract_gc_ref();
                 }
             }
             referent_ranges.insert(ptr, (start, end));
         }
 
         // Step 4: Find reachable objects (gc_refs > 0) and traverse from them
-        let mut reachable: GcSet<GcPtr> = GcSet::default();
         let mut worklist: Vec<GcPtr> = Vec::new();
 
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "Iteration order doesn't matter here"
-        )]
-        for (&ptr, &refs) in &gc_refs {
-            if refs > 0 {
-                reachable.insert(ptr);
+        for &ptr in &candidate_ptrs {
+            let obj = unsafe { ptr.0.as_ref() };
+            if obj.gc_refs() > 0 {
+                obj.mark_gc_reachable();
                 worklist.push(ptr);
             }
         }
@@ -717,20 +712,29 @@ impl GcState {
                     }
                 };
                 for &child_ptr in children {
-                    let gc_ptr = GcPtr(child_ptr);
-                    if gc_refs.contains_key(&gc_ptr) && reachable.insert(gc_ptr) {
-                        worklist.push(gc_ptr);
+                    // SAFETY: as in step 3, the referents are live.
+                    let child = unsafe { child_ptr.as_ref() };
+                    if child.is_gc_collecting() && child.mark_gc_reachable() {
+                        worklist.push(GcPtr(child_ptr));
                     }
                 }
             }
         }
 
-        // Step 5: Find unreachable objects
-        let unreachable: Vec<GcPtr> = candidate_ptrs
-            .iter()
-            .filter(|ptr| !reachable.contains(ptr))
-            .copied()
-            .collect();
+        // Step 5: Split the candidates on what step 4 concluded, and hand the
+        // headers back: nothing past here reads `gc_refs`, and a candidate that
+        // kept the bit would be passed over by every later collection.
+        let mut reachable: Vec<GcPtr> = Vec::new();
+        let mut unreachable: Vec<GcPtr> = Vec::new();
+        for &ptr in &candidate_ptrs {
+            let obj = unsafe { ptr.0.as_ref() };
+            if obj.gc_refs() == GC_REACHABLE {
+                reachable.push(ptr);
+            } else {
+                unreachable.push(ptr);
+            }
+            obj.end_gc_refs();
+        }
 
         // With the world stopped, every frame on any thread's call stack is a
         // live root that is externally referenced and must have been

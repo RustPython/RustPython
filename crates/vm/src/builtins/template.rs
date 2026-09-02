@@ -5,7 +5,7 @@ use super::{
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::lock::LazyLock,
     function::{FuncArgs, PyComparisonValue},
     protocol::{PyIterReturn, PySequenceMethods},
@@ -127,9 +127,9 @@ impl PyTemplate {
         let template_type = Self::class(&vm.ctx);
         if !(zelf.class().is(template_type) && other.class().is(template_type)) {
             return Err(vm.new_type_error(format!(
-                "can only concatenate string.templatelib.Template (not \"{}\") \
-                 to string.templatelib.Template",
-                other.class().name()
+                r#"can only concatenate {name} (not "{}") to {name}"#,
+                other.class().slot_name(),
+                name = Self::TP_NAME,
             )));
         }
         let other = other.downcast_ref::<Self>().unwrap();

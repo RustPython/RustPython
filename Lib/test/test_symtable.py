@@ -299,7 +299,6 @@ class SymtableTest(unittest.TestCase):
 
         self.assertRaises(KeyError, self.top.lookup, "not_here")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_namespaces(self):
         self.assertTrue(self.top.lookup("Mine").is_namespace())
         self.assertTrue(self.Mine.lookup("a_method").is_namespace())
@@ -360,7 +359,6 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.spam.lookup("x").get_name(), "x")
         self.assertEqual(self.Mine.get_name(), "Mine")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Tuples differ: () != ('a_method',)
     def test_class_get_methods(self):
         deprecation_mess = (
             re.escape('symtable.Class.get_methods() is deprecated '
@@ -442,7 +440,6 @@ class SymtableTest(unittest.TestCase):
                         check_body('\n'.join((gen, func)), ('genexpr',))
                         check_body('\n'.join((func, gen)), ('genexpr',))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: name 'x' is parameter and global
     def test_filename_correct(self):
         ### Bug tickler: SyntaxError file name correct whether error raised
         ### while parsing or building symbol table.
@@ -474,7 +471,6 @@ class SymtableTest(unittest.TestCase):
     def test_exec(self):
         symbols = symtable.symtable("def f(x): return x", "?", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_bytes(self):
         top = symtable.symtable(TEST_CODE.encode('utf8'), "?", "exec")
         self.assertIsNotNone(find_block(top, "Mine"))
@@ -563,7 +559,6 @@ class ComprehensionTests(unittest.TestCase):
 class CommandLineTest(unittest.TestCase):
     maxDiff = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_file(self):
         filename = os_helper.TESTFN
         self.addCleanup(os_helper.unlink, filename)

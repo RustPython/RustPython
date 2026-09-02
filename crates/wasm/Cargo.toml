@@ -49,4 +49,4 @@ wasm-opt = false#["-O1"]
 workspace = true
 
 [package.metadata.cargo-shear]
-ignored = ["serde", "rustpython-common"]
+ignored = ["serde"]
