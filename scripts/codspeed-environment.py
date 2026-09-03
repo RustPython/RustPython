@@ -23,9 +23,11 @@ as under RustPython, and the runner's default interpreter moves with its image.
 
 The rule this enforces: `main` defines the environment.  Every run on it records
 what it measured on, and a run on any other ref measures only when it matches
-that recording.  A mismatch is skipped rather than uploaded, because an uploaded
-cross-environment run is published as a regression of the branch that happened
-to draw the other machine.
+that recording.  Anything else is skipped rather than uploaded, because an
+uploaded cross-environment run is published as a regression of the branch that
+happened to draw the other machine.  A recording that cannot be read is
+"anything else" too: an unknown machine is not a matching one, and reading it as
+one would leave the guard open exactly while it has nothing to check against.
 
     codspeed-environment.py --record build/codspeed-environment.json
     codspeed-environment.py --record CURRENT --reference REFERENCE --github-output
@@ -220,8 +222,8 @@ def main(argv=None):
     parser.add_argument(
         "--reference",
         metavar="PATH",
-        help="compare against a previously recorded environment; a missing file"
-        " is not a mismatch, because there is nothing yet to disagree with",
+        help="compare against a previously recorded environment; a file that"
+        " cannot be read leaves the machine unidentified, which is not a match",
     )
     parser.add_argument(
         "--github-output",
@@ -235,18 +237,34 @@ def main(argv=None):
     _render(current)
 
     match = True
+    annotation = ""
     if args.reference:
         try:
             with open(args.reference, encoding="utf-8") as handle:
                 reference = json.load(handle)
         except (OSError, ValueError):
-            print(
-                f"\nNo reference environment at {args.reference}; recording this one."
+            match = False
+            # A warning rather than a notice: a mismatch is the guard working,
+            # while an unreadable recording means it has nothing to work from,
+            # and a job that quietly measures nothing forever looks the same as
+            # one that measures.
+            annotation = (
+                "::warning title=CodSpeed benchmarks skipped::No recording of the"
+                " machine the comparison base was measured on could be read at"
+                f" {args.reference}, so a measurement taken here cannot be shown"
+                " to be comparable with it."
             )
+            print(f"\nNo reference environment at {args.reference}.")
         else:
             moved = differences(current, reference)
             if moved:
                 match = False
+                annotation = (
+                    "::notice title=CodSpeed benchmarks skipped::"
+                    f"This runner ({current['cpu_brand']}, {current['digest']}) is"
+                    " not the machine the comparison base was measured on, and an"
+                    " upload from it would be published as a regression."
+                )
                 # Digest the reference's own fields rather than reading back the
                 # digest stored beside them, so a recording written by an older
                 # field set is named by what it actually holds.
@@ -272,15 +290,10 @@ def main(argv=None):
             handle.write("\n")
 
     if args.github_output:
-        if not match:
-            # A skipped job is otherwise indistinguishable from one that never
-            # had benchmarks, and the reason is the one fact a reader needs.
-            print(
-                "::notice title=CodSpeed benchmarks skipped::"
-                f"This runner ({current['cpu_brand']}, {current['digest']}) is not"
-                " the machine the comparison base was measured on, and an"
-                " upload from it would be published as a regression."
-            )
+        # A skipped job is otherwise indistinguishable from one that never had
+        # benchmarks, and the reason is the one fact a reader needs.
+        if annotation:
+            print(annotation)
         output = os.environ.get("GITHUB_OUTPUT")
         if output:
             with open(output, "a", encoding="utf-8") as handle:
