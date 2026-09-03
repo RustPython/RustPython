@@ -143,7 +143,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         self.assertTrue(lzd.eof)
         self.assertEqual(lzd.unused_data, b"")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; EOFError: End of stream already reached
     def test_decompressor_chunks_empty(self):
         lzd = LZMADecompressor()
         out = []
@@ -159,7 +158,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         self.assertTrue(lzd.eof)
         self.assertEqual(lzd.unused_data, b"")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'LZMADecompressor' object has no attribute 'check'
     def test_decompressor_chunks_maxsize(self):
         lzd = LZMADecompressor()
         max_length = 100
@@ -1352,7 +1350,6 @@ class FileTestCase(unittest.TestCase):
         f.close()
         self.assertRaises(ValueError, f.tell)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: True is not false
     def test_issue21872(self):
         # sometimes decompress data incompletely
 
