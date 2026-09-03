@@ -326,7 +326,7 @@ SyntaxError: did you forget parentheses around the comprehension target?
 
 # Incorrectly closed strings
 
->>> "The interesting object "The important object" is very important"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> "The interesting object "The important object" is very important"
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Is this intended to be part of the string?
 
@@ -353,7 +353,7 @@ SyntaxError: invalid syntax. Perhaps you forgot a comma?
 # Make sure soft keywords constructs don't raise specialized
 # errors regarding missing commas or other spezialiced errors
 
->>> match x:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> match x:
 ...     y = 3
 Traceback (most recent call last):
 SyntaxError: invalid syntax
@@ -370,7 +370,7 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> match ...:
 ...     case {**rest, "key": value}:
 ...        ...
 Traceback (most recent call last):
@@ -423,7 +423,7 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> def foo(/,a,b=,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(/,a,b=,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: at least one argument must precede /
@@ -860,7 +860,7 @@ SyntaxError: 'None' is an illegal expression for augmented assignment
 >>> __debug__ += 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
->>> f() += 1 # TODO: RUSTPYTHON; Raises an exception # doctest: +SKIP
+>>> f() += 1
 Traceback (most recent call last):
 SyntaxError: 'function call' is an illegal expression for augmented assignment
 
@@ -1013,7 +1013,7 @@ Misuse of the nonlocal and global statement can lead to a few unique syntax erro
      ...
    SyntaxError: name 'x' is parameter and nonlocal
 
-   >>> def f():  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> def f():
    ...     global x
    ...     nonlocal x
    Traceback (most recent call last):
@@ -1045,7 +1045,7 @@ This tests assignment-context; there was a bug in Python 2.5 where compiling
 a complex 'if' (one with 'elif') would fail to notice an invalid suite,
 leading to spurious errors.
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   x() = 1
    ... elif 1:
    ...   pass
@@ -1053,7 +1053,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   pass
    ... elif 1:
    ...   x() = 1
@@ -1061,7 +1061,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   x() = 1
    ... elif 1:
    ...   pass
@@ -1071,7 +1071,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   pass
    ... elif 1:
    ...   x() = 1
@@ -1081,7 +1081,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   pass
    ... elif 1:
    ...   pass
@@ -1185,7 +1185,7 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech as something)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech as something)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
@@ -1195,12 +1195,12 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech, block as something)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech, block as something)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech, block as something, bluch)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech, block as something, bluch)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
@@ -1264,22 +1264,22 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: cannot assign to __debug__
 
-   >>> if x = 3:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if x = 3:
    ...    pass
    Traceback (most recent call last):
    SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
 
-   >>> while x = 3:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> while x = 3:
    ...    pass
    Traceback (most recent call last):
    SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
 
-   >>> if x.a = 3:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if x.a = 3:
    ...    pass
    Traceback (most recent call last):
    SyntaxError: cannot assign to attribute here. Maybe you meant '==' instead of '='?
 
-   >>> while x.a = 3:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> while x.a = 3:
    ...    pass
    Traceback (most recent call last):
    SyntaxError: cannot assign to attribute here. Maybe you meant '==' instead of '='?
@@ -1440,17 +1440,17 @@ Better error message for using `except as` with not a name:
 
 Regression tests for gh-133999:
 
-   >>> try: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try: pass
    ... except TypeError as name: raise from None
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
-   >>> try: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try: pass
    ... except* TypeError as name: raise from None
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
-   >>> match 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> match 1:
    ...     case 1 | 2 as abc: raise from None
    Traceback (most recent call last):
    SyntaxError: invalid syntax
@@ -1464,11 +1464,11 @@ Ensure that early = are not matched by the parser as invalid comparisons
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
-   >>> dict(x=34, (x for x in range 10), 1); x $ y  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> dict(x=34, (x for x in range 10), 1); x $ y
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
-   >>> dict(x=34, x=1, y=2); x $ y  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> dict(x=34, x=1, y=2); x $ y
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
@@ -1693,11 +1693,11 @@ Specialized indentation errors:
    IndentationError: expected an indented block after 'case' statement on line 4
 
 Make sure that the old "raise X, Y[, Z]" form is gone:
-   >>> raise X, Y  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> raise X, Y
    Traceback (most recent call last):
      ...
    SyntaxError: invalid syntax
-   >>> raise X, Y, Z  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> raise X, Y, Z
    Traceback (most recent call last):
      ...
    SyntaxError: invalid syntax
@@ -1885,99 +1885,99 @@ Traceback (most recent call last):
    ...
 SyntaxError: keyword argument repeated: a
 
->>> {1, 2, 3} = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> {1, 2, 3} = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to set display here. Maybe you meant '==' instead of '='?
 
->>> {1: 2, 3: 4} = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> {1: 2, 3: 4} = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to dict literal here. Maybe you meant '==' instead of '='?
 
->>> f'{x}' = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f'{x}' = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to f-string expression here. Maybe you meant '==' instead of '='?
 
->>> f'{x}-{y}' = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f'{x}-{y}' = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to f-string expression here. Maybe you meant '==' instead of '='?
 
->>> ub''  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ub''
 Traceback (most recent call last):
 SyntaxError: 'u' and 'b' prefixes are incompatible
 
->>> bu"привет"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> bu"привет"
 Traceback (most recent call last):
 SyntaxError: 'u' and 'b' prefixes are incompatible
 
->>> ur''  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ur''
 Traceback (most recent call last):
 SyntaxError: 'u' and 'r' prefixes are incompatible
 
->>> ru"\t"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ru"\t"
 Traceback (most recent call last):
 SyntaxError: 'u' and 'r' prefixes are incompatible
 
->>> uf'{1 + 1}'  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> uf'{1 + 1}'
 Traceback (most recent call last):
 SyntaxError: 'u' and 'f' prefixes are incompatible
 
->>> fu""  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> fu""
 Traceback (most recent call last):
 SyntaxError: 'u' and 'f' prefixes are incompatible
 
->>> ut'{1}'  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ut'{1}'
 Traceback (most recent call last):
 SyntaxError: 'u' and 't' prefixes are incompatible
 
->>> tu"234"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> tu"234"
 Traceback (most recent call last):
 SyntaxError: 'u' and 't' prefixes are incompatible
 
->>> bf'{x!r}'  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> bf'{x!r}'
 Traceback (most recent call last):
 SyntaxError: 'b' and 'f' prefixes are incompatible
 
->>> fb"text"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> fb"text"
 Traceback (most recent call last):
 SyntaxError: 'b' and 'f' prefixes are incompatible
 
->>> bt"text"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> bt"text"
 Traceback (most recent call last):
 SyntaxError: 'b' and 't' prefixes are incompatible
 
->>> tb''  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> tb''
 Traceback (most recent call last):
 SyntaxError: 'b' and 't' prefixes are incompatible
 
->>> tf"{0.3:.02f}"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> tf"{0.3:.02f}"
 Traceback (most recent call last):
 SyntaxError: 'f' and 't' prefixes are incompatible
 
->>> ft'{x=}'  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ft'{x=}'
 Traceback (most recent call last):
 SyntaxError: 'f' and 't' prefixes are incompatible
 
->>> tfu"{x=}"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> tfu"{x=}"
 Traceback (most recent call last):
 SyntaxError: 'u' and 'f' prefixes are incompatible
 
->>> turf"{x=}"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> turf"{x=}"
 Traceback (most recent call last):
 SyntaxError: 'u' and 'r' prefixes are incompatible
 
->>> burft"{x=}"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> burft"{x=}"
 Traceback (most recent call last):
 SyntaxError: 'u' and 'b' prefixes are incompatible
 
->>> brft"{x=}"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> brft"{x=}"
 Traceback (most recent call last):
 SyntaxError: 'b' and 'f' prefixes are incompatible
 
->>> t'{x}' = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> t'{x}' = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to t-string expression here. Maybe you meant '==' instead of '='?
 
->>> t'{x}-{y}' = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> t'{x}-{y}' = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to t-string expression here. Maybe you meant '==' instead of '='?
 
@@ -2077,7 +2077,7 @@ SyntaxError: cannot use literal as import target
 Traceback (most recent call last):
 SyntaxError: cannot use literal as import target
 
->>> from a import (b as c.d)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (b as c.d)
 Traceback (most recent call last):
 SyntaxError: cannot use attribute as import target
 
@@ -2085,18 +2085,18 @@ SyntaxError: cannot use attribute as import target
 Traceback (most recent call last):
 SyntaxError: cannot use literal as import target
 
->>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (
 ...   b as f())
 Traceback (most recent call last):
 SyntaxError: cannot use function call as import target
 
->>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (
 ...   b as [],
 ... )
 Traceback (most recent call last):
 SyntaxError: cannot use list as import target
 
->>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (
 ...   b,
 ...   c as ()
 ... )
@@ -2233,7 +2233,7 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: cannot assign to __debug__
 
-    >>> import ä £  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> import ä £
     Traceback (most recent call last):
     SyntaxError: invalid character '£' (U+00A3)
 
@@ -2245,7 +2245,7 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: cannot use '_' as a target
 
-    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> match ...:
     ...   case 42 as 1+2+4:
     ...     ...
     Traceback (most recent call last):
@@ -2263,13 +2263,13 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: cannot use tuple as pattern target
 
-    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> match ...:
     ...   case 42 as (a + 1):
     ...     ...
     Traceback (most recent call last):
     SyntaxError: cannot use expression as pattern target
 
-    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> match ...:
     ...   case (32 as x) | (42 as a()):
     ...     ...
     Traceback (most recent call last):
@@ -2360,22 +2360,22 @@ A[*b:*b]
 
 A[*(1:2)]
 
-    >>> A[*(1:2)]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> A[*(1:2)]
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
-    >>> A[*(1:2)] = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> A[*(1:2)] = 1
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
-    >>> del A[*(1:2)]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> del A[*(1:2)]
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
 
 A[*:] and A[:*]
 
-    >>> A[*:]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> A[*:]
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
@@ -2386,7 +2386,7 @@ A[*:] and A[:*]
 
 A[*]
 
-    >>> A[*]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> A[*]
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression

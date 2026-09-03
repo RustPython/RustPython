@@ -204,7 +204,7 @@ fn already_warned(
             return Ok(true);
         }
     } else if let Ok(dict) = PyDictRef::try_from_object(vm, registry.to_owned()) {
-        dict.clear();
+        dict.clear_inner();
         dict.set_item(
             identifier!(&vm.ctx, version),
             vm.ctx.new_int(current_version).into(),

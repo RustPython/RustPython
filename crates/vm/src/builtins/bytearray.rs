@@ -14,7 +14,7 @@ use crate::{
         ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
         bytes_decode,
     },
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::{
         atomic::{AtomicUsize, Ordering},
         lock::{
@@ -23,7 +23,10 @@ use crate::{
         },
     },
     convert::{ToPyObject, ToPyResult},
-    function::{ArgBytesLike, ArgSize, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{
+        ArgBytesLike, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
+        check_meth_o, check_no_kwargs, check_noargs, check_positional,
+    },
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PyNumberMethods, PySequenceMethods,
@@ -223,13 +226,20 @@ impl PyByteArray {
         Ok(vm.ctx.new_str(repr))
     }
 
-    fn __add__(&self, other: ArgBytesLike) -> Self {
-        self.inner().add(&other.borrow_buf()).into()
+    fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        // bytearray_concat: "can't concat %.100s to %.100s"
+        let class_name = other.class().slot_name().to_string();
+        let other = <ArgBytesLike as TryFromObject>::try_from_object(vm, other)
+            .map_err(|_| vm.new_type_error(format!("can't concat {class_name} to bytearray")))?;
+        Ok(self.inner().add(&other.borrow_buf()).into())
     }
 
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let needle = ByteInnerSub::from_contains_arg(needle, vm)?;
-        self.inner().contains(needle, vm)
+        self.exports.fetch_add(1, Ordering::Release);
+        let result = ByteInnerSub::from_contains_arg(needle, vm)
+            .and_then(|needle| self.inner().contains(needle, vm));
+        self.exports.fetch_sub(1, Ordering::Release);
+        result
     }
 
     fn __iadd__(
@@ -256,71 +266,95 @@ impl PyByteArray {
         PyBytesInner::maketrans(from, to, vm)
     }
 
-    #[pymethod]
-    fn isalnum(&self) -> bool {
-        self.inner().isalnum()
+    #[pymethod(text_signature = "($self, /)")]
+    fn isalnum(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytearray.isalnum", &func_args)?;
+        Ok(self.inner().isalnum())
     }
 
-    #[pymethod]
-    fn isalpha(&self) -> bool {
-        self.inner().isalpha()
+    #[pymethod(text_signature = "($self, /)")]
+    fn isalpha(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytearray.isalpha", &func_args)?;
+        Ok(self.inner().isalpha())
     }
 
-    #[pymethod]
-    fn isascii(&self) -> bool {
-        self.inner().isascii()
+    #[pymethod(text_signature = "($self, /)")]
+    fn isascii(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytearray.isascii", &func_args)?;
+        Ok(self.inner().isascii())
     }
 
-    #[pymethod]
-    fn isdigit(&self) -> bool {
-        self.inner().isdigit()
+    #[pymethod(text_signature = "($self, /)")]
+    fn isdigit(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytearray.isdigit", &func_args)?;
+        Ok(self.inner().isdigit())
     }
 
-    #[pymethod]
-    fn islower(&self) -> bool {
-        self.inner().islower()
+    #[pymethod(text_signature = "($self, /)")]
+    fn islower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytearray.islower", &func_args)?;
+        Ok(self.inner().islower())
     }
 
-    #[pymethod]
-    fn isspace(&self) -> bool {
-        self.inner().isspace()
+    #[pymethod(text_signature = "($self, /)")]
+    fn isspace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytearray.isspace", &func_args)?;
+        Ok(self.inner().isspace())
     }
 
-    #[pymethod]
-    fn isupper(&self) -> bool {
-        self.inner().isupper()
+    #[pymethod(text_signature = "($self, /)")]
+    fn isupper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytearray.isupper", &func_args)?;
+        Ok(self.inner().isupper())
     }
 
-    #[pymethod]
-    fn istitle(&self) -> bool {
-        self.inner().istitle()
+    #[pymethod(text_signature = "($self, /)")]
+    fn istitle(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytearray.istitle", &func_args)?;
+        Ok(self.inner().istitle())
     }
 
-    #[pymethod]
-    fn lower(&self) -> Self {
-        self.inner().lower().into()
+    #[pymethod(text_signature = "($self, /)")]
+    fn lower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytearray.lower", &func_args)?;
+        Ok(self.inner().lower().into())
     }
 
-    #[pymethod]
-    fn upper(&self) -> Self {
-        self.inner().upper().into()
+    #[pymethod(text_signature = "($self, /)")]
+    fn upper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytearray.upper", &func_args)?;
+        Ok(self.inner().upper().into())
     }
 
-    #[pymethod]
-    fn capitalize(&self) -> Self {
-        self.inner().capitalize().into()
+    #[pymethod(text_signature = "($self, /)")]
+    fn capitalize(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytearray.capitalize", &func_args)?;
+        Ok(self.inner().capitalize().into())
     }
 
-    #[pymethod]
-    fn swapcase(&self) -> Self {
-        self.inner().swapcase().into()
+    #[pymethod(text_signature = "($self, /)")]
+    fn swapcase(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytearray.swapcase", &func_args)?;
+        Ok(self.inner().swapcase().into())
     }
 
-    #[pymethod]
-    fn hex(&self, options: ByteInnerHexOptions, vm: &VirtualMachine) -> PyResult<String> {
-        // Measuring the separator runs Python, so it happens before the buffer
-        // is borrowed.
-        let (sep, bytes_per_sep) = options.resolve(vm)?;
+    #[pymethod(text_signature = "($self, /, sep=<unrepresentable>, bytes_per_sep=1)")]
+    fn hex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+        // clinic signature: max 2 optional arguments
+        if func_args.args.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "hex() takes at most 2 arguments ({} given)",
+                func_args.args.len()
+            )));
+        }
+        let options: ByteInnerHexOptions = func_args.bind_for(vm, "hex")?;
+        // gh-143195: measuring the separator runs Python, so it happens before
+        // the buffer is borrowed, and with the buffer exported so a re-entrant
+        // __len__ that resizes this bytearray raises BufferError
+        self.exports.fetch_add(1, Ordering::Release);
+        let resolved = options.resolve(vm);
+        self.exports.fetch_sub(1, Ordering::Release);
+        let (sep, bytes_per_sep) = resolved?;
         Ok(self.inner().hex(sep, bytes_per_sep))
     }
 
@@ -332,39 +366,60 @@ impl PyByteArray {
         PyType::call(&cls, args, vm)
     }
 
-    #[pymethod]
-    fn center(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    #[pymethod(text_signature = "($self, width, fillchar=b' ', /)")]
+    fn center(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytearray.center", &func_args)?;
+        check_positional(vm, "center", func_args.args.len(), 1, 2)?;
+        let options: ByteInnerPaddingOptions = func_args.bind(vm)?;
         Ok(self.inner().center(options, vm)?.into())
     }
 
-    #[pymethod]
-    fn ljust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    #[pymethod(text_signature = "($self, width, fillchar=b' ', /)")]
+    fn ljust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytearray.ljust", &func_args)?;
+        check_positional(vm, "ljust", func_args.args.len(), 1, 2)?;
+        let options: ByteInnerPaddingOptions = func_args.bind(vm)?;
         Ok(self.inner().ljust(options, vm)?.into())
     }
 
-    #[pymethod]
-    fn rjust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    #[pymethod(text_signature = "($self, width, fillchar=b' ', /)")]
+    fn rjust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytearray.rjust", &func_args)?;
+        check_positional(vm, "rjust", func_args.args.len(), 1, 2)?;
+        let options: ByteInnerPaddingOptions = func_args.bind(vm)?;
         Ok(self.inner().rjust(options, vm)?.into())
     }
 
-    #[pymethod]
-    fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
-        self.inner().count(options, vm)
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
+    fn count(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "bytearray.count", &func_args)?;
+        check_positional(vm, "count", func_args.args.len(), 1, 3)?;
+        let options: ByteInnerFindOptions = func_args.bind(vm)?;
+        // gh-142560: as the find family
+        self.exports.fetch_add(1, Ordering::Release);
+        let result = self.inner().count(options, vm);
+        self.exports.fetch_sub(1, Ordering::Release);
+        result
     }
 
-    #[pymethod]
-    fn join(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    #[pymethod(text_signature = "($self, iterable_of_bytes, /)")]
+    fn join(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_meth_o(vm, "bytearray.join", &func_args)?;
+        let (iter,): (PyObjectRef,) = func_args.bind(vm)?;
         // Driving the iterable runs Python, which can reach this bytearray,
         // so the separator is taken by value rather than left borrowed.
         let separator = self.inner().clone();
         Ok(separator.join(iter, vm)?.into())
     }
 
-    #[pymethod]
-    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod(text_signature = "($self, suffix[, start[, end]], /)")]
+    fn endswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_no_kwargs(vm, "bytearray.endswith", &func_args)?;
+        check_positional(vm, "endswith", func_args.args.len(), 1, 3)?;
+        let options: anystr::StartsEndsWithArgs = func_args.bind(vm)?;
         let borrowed = self.borrow_buf();
         let (affix, substr) =
-            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r), vm)? {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -377,15 +432,14 @@ impl PyByteArray {
         )
     }
 
-    #[pymethod]
-    fn startswith(
-        &self,
-        options: anystr::StartsEndsWithArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    #[pymethod(text_signature = "($self, prefix[, start[, end]], /)")]
+    fn startswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_no_kwargs(vm, "bytearray.startswith", &func_args)?;
+        check_positional(vm, "startswith", func_args.args.len(), 1, 3)?;
+        let options: anystr::StartsEndsWithArgs = func_args.bind(vm)?;
         let borrowed = self.borrow_buf();
         let (affix, substr) =
-            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r), vm)? {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -398,72 +452,147 @@ impl PyByteArray {
         )
     }
 
-    #[pymethod]
-    fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        let index = self.inner().find(options, |h, n| h.find(n), vm)?;
+    /// gh-142560: the needle/slice-index conversion can re-enter and resize
+    /// this bytearray; the export guard turns that into BufferError
+    fn find_with_guard(
+        &self,
+        options: ByteInnerFindOptions,
+        rfind: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<usize>> {
+        self.exports.fetch_add(1, Ordering::Release);
+        let result = self.inner().find(
+            options,
+            |h, n| {
+                if rfind { h.rfind(n) } else { h.find(n) }
+            },
+            vm,
+        );
+        self.exports.fetch_sub(1, Ordering::Release);
+        result
+    }
+
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
+    fn find(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
+        check_no_kwargs(vm, "bytearray.find", &func_args)?;
+        check_positional(vm, "find", func_args.args.len(), 1, 3)?;
+        let options: ByteInnerFindOptions = func_args.bind(vm)?;
+        let index = self.find_with_guard(options, false, vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
-    #[pymethod]
-    fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
-        let index = self.inner().find(options, |h, n| h.find(n), vm)?;
-        index.ok_or_else(|| vm.new_value_error("substring not found"))
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
+    fn index(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "bytearray.index", &func_args)?;
+        check_positional(vm, "index", func_args.args.len(), 1, 3)?;
+        let options: ByteInnerFindOptions = func_args.bind(vm)?;
+        let index = self.find_with_guard(options, false, vm)?;
+        index.ok_or_else(|| vm.new_value_error("subsection not found"))
     }
 
-    #[pymethod]
-    fn rfind(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        let index = self.inner().find(options, |h, n| h.rfind(n), vm)?;
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
+    fn rfind(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
+        check_no_kwargs(vm, "bytearray.rfind", &func_args)?;
+        check_positional(vm, "rfind", func_args.args.len(), 1, 3)?;
+        let options: ByteInnerFindOptions = func_args.bind(vm)?;
+        let index = self.find_with_guard(options, true, vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
-    #[pymethod]
-    fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
-        let index = self.inner().find(options, |h, n| h.rfind(n), vm)?;
-        index.ok_or_else(|| vm.new_value_error("substring not found"))
+    #[pymethod(text_signature = "($self, sub[, start[, end]], /)")]
+    fn rindex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "bytearray.rindex", &func_args)?;
+        check_positional(vm, "rindex", func_args.args.len(), 1, 3)?;
+        let options: ByteInnerFindOptions = func_args.bind(vm)?;
+        let index = self.find_with_guard(options, true, vm)?;
+        index.ok_or_else(|| vm.new_value_error("subsection not found"))
     }
 
-    #[pymethod]
-    fn translate(&self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    #[pymethod(text_signature = "($self, table, /, delete=b'')")]
+    fn translate(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        // clinic signature: table is positional-only, delete is optional
+        if func_args.args.is_empty() {
+            return Err(
+                vm.new_type_error("translate() takes at least 1 positional argument (0 given)")
+            );
+        }
+        if func_args.args.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "translate() takes at most 2 arguments ({} given)",
+                func_args.args.len()
+            )));
+        }
+        let options: ByteInnerTranslateOptions = func_args.bind_for(vm, "translate")?;
         Ok(self.inner().translate(options, vm)?.into())
     }
 
-    #[pymethod]
-    fn strip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
-        self.inner().strip(chars).into()
+    #[pymethod(text_signature = "($self, bytes=None, /)")]
+    fn strip(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytearray.strip", &func_args)?;
+        check_positional(vm, "strip", func_args.args.len(), 0, 1)?;
+        let chars: OptionalOption<PyBytesInner> = func_args.bind(vm)?;
+        Ok(self.inner().strip(chars).into())
     }
 
-    #[pymethod]
-    fn removeprefix(&self, prefix: PyBytesInner) -> Self {
-        self.inner().removeprefix(prefix).into()
+    #[pymethod(text_signature = "($self, prefix, /)")]
+    fn removeprefix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_meth_o(vm, "bytearray.removeprefix", &func_args)?;
+        let (prefix,): (PyBytesInner,) = func_args.bind(vm)?;
+        Ok(self.inner().removeprefix(prefix).into())
     }
 
-    #[pymethod]
-    fn removesuffix(&self, suffix: PyBytesInner) -> Self {
-        self.inner().removesuffix(suffix).to_vec().into()
+    #[pymethod(text_signature = "($self, suffix, /)")]
+    fn removesuffix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_meth_o(vm, "bytearray.removesuffix", &func_args)?;
+        let (suffix,): (PyBytesInner,) = func_args.bind(vm)?;
+        Ok(self.inner().removesuffix(suffix).to_vec().into())
     }
 
-    #[pymethod]
-    fn split(
-        &self,
-        options: ByteInnerSplitOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<PyObjectRef>> {
-        self.inner()
-            .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
+    #[pymethod(text_signature = "($self, /, sep=None, maxsplit=-1)")]
+    fn split(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        // clinic signature: max 2 optional arguments
+        if func_args.args.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "split() takes at most 2 arguments ({} given)",
+                func_args.args.len()
+            )));
+        }
+        // gh-142560: the separator conversion can re-enter and resize
+        self.exports.fetch_add(1, Ordering::Release);
+        let result = func_args
+            .bind::<ByteInnerSplitOptions>(vm)
+            .and_then(|options| {
+                self.inner()
+                    .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
+            });
+        self.exports.fetch_sub(1, Ordering::Release);
+        result
     }
 
-    #[pymethod]
-    fn rsplit(
-        &self,
-        options: ByteInnerSplitOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<PyObjectRef>> {
-        self.inner()
-            .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
+    #[pymethod(text_signature = "($self, /, sep=None, maxsplit=-1)")]
+    fn rsplit(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        // clinic signature: max 2 optional arguments
+        if func_args.args.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "rsplit() takes at most 2 arguments ({} given)",
+                func_args.args.len()
+            )));
+        }
+        self.exports.fetch_add(1, Ordering::Release);
+        let result = func_args
+            .bind::<ByteInnerSplitOptions>(vm)
+            .and_then(|options| {
+                self.inner()
+                    .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
+            });
+        self.exports.fetch_sub(1, Ordering::Release);
+        result
     }
 
-    #[pymethod]
-    fn partition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    #[pymethod(text_signature = "($self, sep, /)")]
+    fn partition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        check_meth_o(vm, "bytearray.partition", &func_args)?;
+        let (sep,): (PyBytesInner,) = func_args.bind(vm)?;
         // sep ALWAYS converted to  bytearray even it's bytes or memoryview
         // so its ok to accept PyBytesInner
         let value = self.inner();
@@ -476,8 +605,10 @@ impl PyByteArray {
         )))
     }
 
-    #[pymethod]
-    fn rpartition(&self, sep: PyBytesInner, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    #[pymethod(text_signature = "($self, sep, /)")]
+    fn rpartition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        check_meth_o(vm, "bytearray.rpartition", &func_args)?;
+        let (sep,): (PyBytesInner,) = func_args.bind(vm)?;
         let value = self.inner();
         let (back, has_mid, front) = value.rpartition(&sep, vm)?;
         Ok(vm.new_tuple((
@@ -488,41 +619,61 @@ impl PyByteArray {
         )))
     }
 
-    #[pymethod]
-    fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Self {
-        self.inner().expandtabs(options).into()
+    #[pymethod(text_signature = "($self, /, tabsize=8)")]
+    fn expandtabs(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        // clinic signature: max 1 optional argument
+        if func_args.args.len() > 1 {
+            return Err(vm.new_type_error(format!(
+                "expandtabs() takes at most 1 argument ({} given)",
+                func_args.args.len()
+            )));
+        }
+        let options: anystr::ExpandTabsArgs = func_args.bind_for(vm, "expandtabs")?;
+        Ok(self.inner().expandtabs(options, vm)?.into())
     }
 
-    #[pymethod]
-    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        self.inner()
-            .splitlines(options, |x| vm.ctx.new_bytearray(x.to_vec()).into())
+    #[pymethod(text_signature = "($self, /, keepends=False)")]
+    fn splitlines(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        // clinic signature: max 1 optional argument
+        if func_args.args.len() > 1 {
+            return Err(vm.new_type_error(format!(
+                "splitlines() takes at most 1 argument ({} given)",
+                func_args.args.len()
+            )));
+        }
+        let options: anystr::SplitLinesArgs = func_args.bind_for(vm, "splitlines")?;
+        Ok(self
+            .inner()
+            .splitlines(options, |x| vm.ctx.new_bytearray(x.to_vec()).into()))
     }
 
-    #[pymethod]
-    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Self> {
+    #[pymethod(text_signature = "($self, width, /)")]
+    fn zfill(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_meth_o(vm, "bytearray.zfill", &func_args)?;
+        let (width,): (PyObjectRef,) = func_args.bind(vm)?;
+        let width = crate::builtins::to_c_ssize_t(&width, vm)?;
         Ok(self.inner().zfill(width, vm)?.into())
     }
 
-    #[pymethod]
-    fn replace(
-        &self,
-        old: PyBytesInner,
-        new: PyBytesInner,
-        count: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
+    #[pymethod(text_signature = "($self, old, new, count=-1, /)")]
+    fn replace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytearray.replace", &func_args)?;
+        check_positional(vm, "replace", func_args.args.len(), 2, 3)?;
+        let (old, new, count): (PyBytesInner, PyBytesInner, OptionalArg<isize>) =
+            func_args.bind(vm)?;
         Ok(self.inner().replace(old, new, count, vm)?.into())
     }
 
-    #[pymethod]
-    fn copy(&self) -> Self {
-        self.borrow_buf().to_vec().into()
+    #[pymethod(text_signature = "($self, /)")]
+    fn copy(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytearray.copy", &func_args)?;
+        Ok(self.borrow_buf().to_vec().into())
     }
 
-    #[pymethod]
-    fn title(&self) -> Self {
-        self.inner().title().into()
+    #[pymethod(text_signature = "($self, /)")]
+    fn title(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytearray.title", &func_args)?;
+        Ok(self.inner().title().into())
     }
 
     fn __mul__(&self, value: ArgSize, vm: &VirtualMachine) -> PyResult<Self> {
@@ -542,9 +693,11 @@ impl PyByteArray {
         Ok(formatted.into())
     }
 
-    #[pymethod]
-    fn reverse(&self) {
+    #[pymethod(text_signature = "($self, /)")]
+    fn reverse(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_noargs(vm, "bytearray.reverse", &func_args)?;
         self.borrow_buf_mut().reverse();
+        Ok(())
     }
 
     #[pymethod]
@@ -578,8 +731,14 @@ impl Py<PyByteArray> {
         PyByteArray::_setitem(self, &needle, value, vm)
     }
 
-    #[pymethod]
-    fn pop(&self, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<u8> {
+    #[pymethod(text_signature = "($self, index=-1, /)")]
+    fn pop(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<u8> {
+        check_no_kwargs(vm, "bytearray.pop", &func_args)?;
+        check_positional(vm, "pop", func_args.args.len(), 0, 1)?;
+        let index: OptionalArg<PyObjectRef> = func_args.bind(vm)?;
+        let index = index
+            .map(|obj| crate::builtins::to_c_ssize_t(&obj, vm))
+            .transpose()?;
         let elements = &mut self.try_resizable(vm)?.elements;
         let index = elements
             .wrap_index(index.unwrap_or(-1))
@@ -587,8 +746,12 @@ impl Py<PyByteArray> {
         Ok(elements.remove(index))
     }
 
-    #[pymethod]
-    fn insert(&self, index: isize, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod(text_signature = "($self, index, item, /)")]
+    fn insert(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_no_kwargs(vm, "bytearray.insert", &func_args)?;
+        check_positional(vm, "insert", func_args.args.len(), 2, 2)?;
+        let (index, object): (PyObjectRef, PyObjectRef) = func_args.bind(vm)?;
+        let index = crate::builtins::to_c_ssize_t(&index, vm)?;
         let value = value_from_object(vm, &object)?;
         let elements = &mut self.try_resizable(vm)?.elements;
         let index = elements.saturate_index(index);
@@ -596,15 +759,19 @@ impl Py<PyByteArray> {
         Ok(())
     }
 
-    #[pymethod]
-    fn append(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod(text_signature = "($self, item, /)")]
+    fn append(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_meth_o(vm, "bytearray.append", &func_args)?;
+        let (object,): (PyObjectRef,) = func_args.bind(vm)?;
         let value = value_from_object(vm, &object)?;
         self.try_resizable(vm)?.elements.push(value);
         Ok(())
     }
 
-    #[pymethod]
-    fn remove(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod(text_signature = "($self, value, /)")]
+    fn remove(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_meth_o(vm, "bytearray.remove", &func_args)?;
+        let (object,): (PyObjectRef,) = func_args.bind(vm)?;
         let value = value_from_object(vm, &object)?;
         let elements = &mut self.try_resizable(vm)?.elements;
         let index = elements
@@ -614,8 +781,10 @@ impl Py<PyByteArray> {
         Ok(())
     }
 
-    #[pymethod]
-    fn extend(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod(text_signature = "($self, iterable_of_ints, /)")]
+    fn extend(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_meth_o(vm, "bytearray.extend", &func_args)?;
+        let (object,): (PyObjectRef,) = func_args.bind(vm)?;
         if self.is(&object) {
             return PyByteArray::irepeat(self, 2, vm);
         }
@@ -647,8 +816,9 @@ impl Py<PyByteArray> {
         Ok(())
     }
 
-    #[pymethod]
-    fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod(text_signature = "($self, /)")]
+    fn clear(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_noargs(vm, "bytearray.clear", &func_args)?;
         self.try_resizable(vm)?.elements.clear();
         Ok(())
     }
@@ -675,34 +845,48 @@ impl Py<PyByteArray> {
 
 #[pyclass]
 impl PyRef<PyByteArray> {
-    #[pymethod]
-    fn lstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
+    #[pymethod(text_signature = "($self, bytes=None, /)")]
+    fn lstrip(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytearray.lstrip", &func_args)?;
+        check_positional(vm, "lstrip", func_args.args.len(), 0, 1)?;
+        let chars: OptionalOption<PyBytesInner> = func_args.bind(vm)?;
         let inner = self.inner();
         let stripped = inner.lstrip(chars);
         let elements = &inner.elements;
         if stripped == elements {
             drop(inner);
-            self
+            Ok(self)
         } else {
-            vm.ctx.new_pyref(PyByteArray::from(stripped.to_vec()))
+            Ok(vm.ctx.new_pyref(PyByteArray::from(stripped.to_vec())))
         }
     }
 
-    #[pymethod]
-    fn rstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
+    #[pymethod(text_signature = "($self, bytes=None, /)")]
+    fn rstrip(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytearray.rstrip", &func_args)?;
+        check_positional(vm, "rstrip", func_args.args.len(), 0, 1)?;
+        let chars: OptionalOption<PyBytesInner> = func_args.bind(vm)?;
         let inner = self.inner();
         let stripped = inner.rstrip(chars);
         let elements = &inner.elements;
         if stripped == elements {
             drop(inner);
-            self
+            Ok(self)
         } else {
-            vm.ctx.new_pyref(PyByteArray::from(stripped.to_vec()))
+            Ok(vm.ctx.new_pyref(PyByteArray::from(stripped.to_vec())))
         }
     }
 
-    #[pymethod]
-    fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    #[pymethod(text_signature = "($self, /, encoding='utf-8', errors='strict')")]
+    fn decode(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        // clinic signature: max 2 optional arguments
+        if func_args.args.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "decode() takes at most 2 arguments ({} given)",
+                func_args.args.len()
+            )));
+        }
+        let args: DecodeArgs = func_args.bind_for(vm, "decode")?;
         bytes_decode(self.into(), args, vm)
     }
 }
@@ -711,6 +895,19 @@ impl DefaultConstructor for PyByteArray {}
 
 impl Initializer for PyByteArray {
     type Args = ByteInnerNewOptions;
+
+    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        if args.args.len() > 3 {
+            return Err(vm.new_type_error(format!(
+                "bytearray() takes at most 3 arguments ({} given)",
+                args.args.len()
+            )));
+        }
+        ByteInnerNewOptions::check_encoding_errors(&args, "bytearray", vm)?;
+        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+        let options: Self::Args = args.bind_for(vm, Self::NAME)?;
+        Self::init(zelf, options, vm)
+    }
 
     fn init(zelf: PyRef<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // First unpack bytearray and *then* get a lock to set it.
@@ -821,6 +1018,13 @@ impl AsSequence for PyByteArray {
                 PyByteArray::sequence_downcast(seq)
                     .inner()
                     .concat(other, vm)
+                    .map_err(|_| {
+                        // bytearray_concat: "can't concat %.100s to %.100s"
+                        vm.new_type_error(format!(
+                            "can't concat {} to bytearray",
+                            other.class().slot_name()
+                        ))
+                    })
                     .map(|x| PyByteArray::from(x).into_pyobject(vm))
             }),
             repeat: atomic_func!(|seq, n, vm| {
@@ -846,7 +1050,10 @@ impl AsSequence for PyByteArray {
                 PyByteArray::sequence_downcast(seq).__contains__(other.to_owned(), vm)
             }),
             inplace_concat: atomic_func!(|seq, other, vm| {
-                let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;
+                let class_name = other.class().slot_name().to_string();
+                let other = ArgBytesLike::try_from_object(vm, other.to_owned()).map_err(|_| {
+                    vm.new_type_error(format!("can't concat {class_name} to bytearray"))
+                })?;
                 let zelf = PyByteArray::sequence_downcast(seq).to_owned();
                 PyByteArray::__iadd__(zelf, other, vm).map(|x| x.into())
             }),

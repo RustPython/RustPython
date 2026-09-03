@@ -1432,7 +1432,7 @@ class CopyTests(unittest.TestCase):
         self.assertIs(node.ctx, context)
         self.assertRaises(AttributeError, getattr, node, 'unknown')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs non-string keyword keys to reach the callee instead of being rejected by the call itself
     def test_replace_non_str_kwarg(self):
         node = ast.Name(id="x")
         errmsg = "got an unexpected keyword argument <object object"

@@ -155,7 +155,7 @@ impl VirtualMachine {
         };
         let items: Vec<_> = seq.try_to_value(self)?;
         let lst = PyList::from(items);
-        lst.sort(Default::default(), self)?;
+        lst.sort_inner(Default::default(), self)?;
         Ok(lst)
     }
 

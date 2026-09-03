@@ -7,10 +7,11 @@ mod fcntl {
     use rustpython_host_env::fcntl as host_fcntl;
 
     use crate::vm::{
-        PyResult, VirtualMachine,
+        PyObjectRef, PyResult, VirtualMachine,
         builtins::PyIntRef,
-        convert::ToPyException,
-        function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
+        convert::{ToPyException, TryFromObject},
+        function::{ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg},
+        identifier,
         stdlib::_io,
     };
 
@@ -64,91 +65,116 @@ mod fcntl {
     fn fcntl(
         _io::Fildes(fd): _io::Fildes,
         cmd: i32,
-        arg: OptionalArg<Either<ArgStrOrBytesLike, PyIntRef>>,
+        arg: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let int = match arg {
-            OptionalArg::Present(Either::A(arg)) => {
-                let mut buf = [0u8; 1024];
-                let arg_len;
-                {
-                    let s = arg.borrow_bytes();
-                    arg_len = s.len();
-                    buf.get_mut(..arg_len)
-                        .ok_or_else(|| vm.new_value_error("fcntl string arg too long"))?
-                        .copy_from_slice(&s)
-                }
-                vm.allow_threads(|| host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len]))
-                    .map_err(|err| err.to_pyexception(vm))?;
-                return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
-            }
-            OptionalArg::Present(Either::B(i)) => i.as_u32_mask(),
-            OptionalArg::Missing => 0,
-        };
-        let ret = vm
-            .allow_threads(|| host_fcntl::fcntl_int(fd, cmd, int as i32))
+        let arg = arg.into_option();
+        // CPython dispatch order: __index__ first, then str/buffer
+        let is_index = arg
+            .as_ref()
+            .is_some_and(|a| a.class().has_attr(identifier!(vm, __index__)));
+        if arg.is_none() || is_index {
+            let int = match &arg {
+                None => 0,
+                Some(a) => a.try_index(vm)?.as_u32_mask(),
+            };
+            let ret = vm
+                .allow_threads(|| host_fcntl::fcntl_int(fd, cmd, int as i32))
+                .map_err(|err| err.to_pyexception(vm))?;
+            return Ok(vm.new_pyobj(ret));
+        }
+        let arg = arg.unwrap();
+        let arg = ArgStrOrBytesLike::try_from_object(vm, arg.clone()).map_err(|_| {
+            vm.new_type_error(format!(
+                "fcntl() argument 3 must be an integer, a bytes-like object, or a string, not {}",
+                arg.class().name()
+            ))
+        })?;
+        let mut buf = [0u8; 1024];
+        let arg_len;
+        {
+            let s = arg.borrow_bytes();
+            arg_len = s.len();
+            buf.get_mut(..arg_len)
+                .ok_or_else(|| vm.new_value_error("fcntl argument 3 is too long"))?
+                .copy_from_slice(&s)
+        }
+        vm.allow_threads(|| host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len]))
             .map_err(|err| err.to_pyexception(vm))?;
-        Ok(vm.new_pyobj(ret))
+        Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into())
     }
 
     #[pyfunction]
     fn ioctl(
         _io::Fildes(fd): _io::Fildes,
         request: i64,
-        arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
+        arg: OptionalArg<PyObjectRef>,
         mutate_flag: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let request = host_fcntl::normalize_ioctl_request(request);
-        let arg = arg.unwrap_or_else(|| Either::B(0));
-        match arg {
-            Either::A(buf_kind) => {
-                const BUF_SIZE: usize = 1024;
-                let mut buf = [0u8; BUF_SIZE + 1]; // nul byte
-                let mut fill_buf = |b: &[u8]| {
-                    if b.len() > BUF_SIZE {
-                        return Err(vm.new_value_error("fcntl string arg too long"));
-                    }
-                    buf[..b.len()].copy_from_slice(b);
-                    Ok(b.len())
-                };
-                let buf_len = match buf_kind {
-                    Either::A(rw_arg) => {
-                        let mutate_flag = mutate_flag.unwrap_or(true);
-                        if mutate_flag {
-                            // A terminal or a socket answers an ioctl when it is
-                            // ready to, so the call runs detached, and the target's
-                            // bytes go in and come back through a buffer of our own
-                            // rather than stay locked meanwhile -- `fcntl_ioctl_impl`
-                            // copies through one the same way.
-                            let mut scratch = vm.new_zeroed_bytes(rw_arg.len())?;
-                            scratch.copy_from_slice(&rw_arg.borrow_buf_mut());
-                            let ret = vm
-                                .allow_threads(|| unsafe {
-                                    host_fcntl::ioctl_ptr(fd, request, scratch.as_mut_ptr().cast())
-                                })
-                                .map_err(|err| err.to_pyexception(vm))?;
-                            rw_arg.borrow_buf_mut().copy_from_slice(&scratch);
-                            return Ok(vm.ctx.new_int(ret).into());
-                        }
-                        // treat like an immutable buffer
-                        fill_buf(&rw_arg.borrow_buf_mut())?
-                    }
-                    Either::B(ro_buf) => fill_buf(&ro_buf.borrow_bytes())?,
-                };
-                vm.allow_threads(|| unsafe {
-                    host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast())
-                })
+        let arg = arg.into_option();
+        // CPython dispatch order: __index__ first, then str/buffer
+        let is_index = arg
+            .as_ref()
+            .is_some_and(|a| a.class().has_attr(identifier!(vm, __index__)));
+        if arg.is_none() || is_index {
+            let i = match &arg {
+                None => 0,
+                Some(a) => a.try_index(vm)?.as_u32_mask() as i32,
+            };
+            let ret = vm
+                .allow_threads(|| host_fcntl::ioctl_int(fd, request, i))
                 .map_err(|err| err.to_pyexception(vm))?;
-                Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
-            }
-            Either::B(i) => {
-                let ret = vm
-                    .allow_threads(|| host_fcntl::ioctl_int(fd, request, i))
-                    .map_err(|err| err.to_pyexception(vm))?;
-                Ok(vm.ctx.new_int(ret).into())
-            }
+            return Ok(vm.ctx.new_int(ret).into());
         }
+        let arg = arg.unwrap();
+        let arg_type_name = arg.class().name().to_owned();
+        let type_error = |vm: &VirtualMachine| {
+            vm.new_type_error(format!(
+                "ioctl() argument 3 must be an integer, a bytes-like object, or a string, not {arg_type_name}"
+            ))
+        };
+        const BUF_SIZE: usize = 1024;
+        let mut buf = [0u8; BUF_SIZE + 1]; // nul byte
+        let mut fill_buf = |b: &[u8], vm: &VirtualMachine| {
+            if b.len() > BUF_SIZE {
+                return Err(vm.new_value_error("ioctl argument 3 is too long"));
+            }
+            buf[..b.len()].copy_from_slice(b);
+            Ok(b.len())
+        };
+        let mutate_flag = mutate_flag.unwrap_or(true);
+        let rw_arg = if mutate_flag {
+            ArgMemoryBuffer::try_from_object(vm, arg.clone()).ok()
+        } else {
+            None
+        };
+        let buf_len = match rw_arg {
+            Some(rw_arg) => {
+                // A terminal or a socket answers an ioctl when it is
+                // ready to, so the call runs detached, and the target's
+                // bytes go in and come back through a buffer of our own
+                // rather than stay locked meanwhile -- `fcntl_ioctl_impl`
+                // copies through one the same way.
+                let mut scratch = vm.new_zeroed_bytes(rw_arg.len())?;
+                scratch.copy_from_slice(&rw_arg.borrow_buf_mut());
+                let ret = vm
+                    .allow_threads(|| unsafe {
+                        host_fcntl::ioctl_ptr(fd, request, scratch.as_mut_ptr().cast())
+                    })
+                    .map_err(|err| err.to_pyexception(vm))?;
+                rw_arg.borrow_buf_mut().copy_from_slice(&scratch);
+                return Ok(vm.ctx.new_int(ret).into());
+            }
+            None => {
+                let ro = ArgStrOrBytesLike::try_from_object(vm, arg).map_err(|_| type_error(vm))?;
+                fill_buf(&ro.borrow_bytes(), vm)?
+            }
+        };
+        vm.allow_threads(|| unsafe { host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast()) })
+            .map_err(|err| err.to_pyexception(vm))?;
+        Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
     }
 
     // XXX: at the time of writing, wasi and redox don't have the necessary constants/function
@@ -157,10 +183,9 @@ mod fcntl {
     fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
         // LOCK_EX without LOCK_NB waits for whoever holds the lock, which may
         // be for good.
-        let ret = vm
-            .allow_threads(|| host_fcntl::flock(fd, operation))
+        vm.allow_threads(|| host_fcntl::flock(fd, operation))
             .map_err(|err| err.to_pyexception(vm))?;
-        Ok(vm.ctx.new_int(ret).into())
+        Ok(vm.ctx.none())
     }
 
     // XXX: at the time of writing, wasi and redox don't have the necessary constants

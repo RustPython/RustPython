@@ -9,7 +9,7 @@ mod zlib {
         Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyIntRef, PyType, PyTypeRef},
         common::lock::PyMutex,
-        convert::TryFromBorrowedObject,
+        convert::{TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgPrimitiveIndex, ArgSize, OptionalArg},
         types::Constructor,
     };
@@ -92,8 +92,8 @@ mod zlib {
         data: ArgBytesLike,
         #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i32>,
-        #[pyarg(any, default = ArgPrimitiveIndex { value: DEF_BUF_SIZE })]
-        bufsize: ArgPrimitiveIndex<usize>,
+        #[pyarg(any, default = ArgPrimitiveIndex { value: DEF_BUF_SIZE as isize })]
+        bufsize: ArgPrimitiveIndex<isize>,
     }
 
     #[pyfunction]
@@ -103,7 +103,11 @@ mod zlib {
             wbits,
             bufsize,
         } = args;
-        data.with_ref(|data| backend::decompress(data, wbits.value, bufsize.value))
+        if bufsize.value < 0 {
+            return Err(vm.new_value_error("bufsize must be non-negative"));
+        }
+        let bufsize = (bufsize.value as usize).max(1);
+        data.with_ref(|data| backend::decompress(data, wbits.value, bufsize))
             .map_err(|err| new_init_or_zlib_error(err, vm))
     }
 
@@ -112,7 +116,12 @@ mod zlib {
         #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i32>,
         #[pyarg(any, optional)]
-        zdict: OptionalArg<ArgBytesLike>,
+        zdict: OptionalArg<PyObjectRef>,
+    }
+
+    fn parse_zdict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<ArgBytesLike> {
+        ArgBytesLike::try_from_object(vm, obj)
+            .map_err(|_| vm.new_type_error("zdict argument must support the buffer protocol"))
     }
 
     fn owned_dict(zdict: OptionalArg<ArgBytesLike>) -> Option<Vec<u8>> {
@@ -123,7 +132,13 @@ mod zlib {
 
     #[pyfunction]
     fn decompressobj(args: DecompressobjArgs, vm: &VirtualMachine) -> PyResult<PyDecompress> {
-        let decompress = backend::Decompressor::new(args.wbits.value, owned_dict(args.zdict))
+        let zdict = args
+            .zdict
+            .into_option()
+            .map(|obj| parse_zdict(obj, vm))
+            .transpose()?
+            .map(|dict| dict.with_ref(|data| data.to_vec()));
+        let decompress = backend::Decompressor::new(args.wbits.value, zdict)
             .map_err(|err| new_init_or_zlib_error(err, vm))?;
         Ok(PyDecompress {
             inner: PyMutex::new(PyDecompressInner {
@@ -411,9 +426,14 @@ mod zlib {
         type Args = DecompressobjArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let decompress =
-                backend::ZlibDecompressor::new(args.wbits.value, owned_dict(args.zdict))
-                    .map_err(|err| new_init_or_zlib_error(err, vm))?;
+            let zdict = args
+                .zdict
+                .into_option()
+                .map(|obj| parse_zdict(obj, vm))
+                .transpose()?
+                .map(|dict| dict.with_ref(|data| data.to_vec()));
+            let decompress = backend::ZlibDecompressor::new(args.wbits.value, zdict)
+                .map_err(|err| new_init_or_zlib_error(err, vm))?;
             Ok(Self {
                 inner: PyMutex::new(PyZlibDecompressorInner {
                     decompress,

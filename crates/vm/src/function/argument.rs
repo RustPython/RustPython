@@ -10,6 +10,70 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use std::hash::DefaultHasher;
 
+/// Mirrors _PyArg_CheckPositional (Python/getargs.c): the message style used
+/// by METH_FASTCALL builtins that validate counts by hand.
+pub fn check_positional(
+    vm: &VirtualMachine,
+    name: &str,
+    nargs: usize,
+    min: usize,
+    max: usize,
+) -> PyResult<()> {
+    if nargs < min {
+        Err(vm.new_type_error(format!(
+            "{name} expected {}{min} argument{}, got {nargs}",
+            if min == max { "" } else { "at least " },
+            if min == 1 { "" } else { "s" },
+        )))
+    } else if nargs > max {
+        Err(vm.new_type_error(format!(
+            "{name} expected {}{max} argument{}, got {nargs}",
+            if min == max { "" } else { "at most " },
+            if max == 1 { "" } else { "s" },
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+/// Mirrors cfunction_vectorcall_O: METH_O builtins take exactly one
+/// positional argument and no keyword arguments.
+pub fn check_meth_o(vm: &VirtualMachine, name: &str, func_args: &FuncArgs) -> PyResult<()> {
+    if let Some(key) = func_args.kwargs.keys().next() {
+        let _ = key;
+        return Err(vm.new_type_error(format!("{name}() takes no keyword arguments")));
+    }
+    let nargs = func_args.args.len();
+    if nargs != 1 {
+        return Err(vm.new_type_error(format!(
+            "{name}() takes exactly one argument ({nargs} given)"
+        )));
+    }
+    Ok(())
+}
+
+/// Mirrors cfunction_vectorcall_NOARGS: no positional or keyword arguments.
+pub fn check_noargs(vm: &VirtualMachine, name: &str, func_args: &FuncArgs) -> PyResult<()> {
+    check_no_kwargs(vm, name, func_args)?;
+    if !func_args.args.is_empty() {
+        return Err(vm.new_type_error(format!(
+            "{name}() takes no arguments ({} given)",
+            func_args.args.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Mirrors cfunction_check_kwargs for METH_FASTCALL builtins without the
+/// METH_KEYWORDS flag.
+pub fn check_no_kwargs(vm: &VirtualMachine, name: &str, func_args: &FuncArgs) -> PyResult<()> {
+    if let Some(key) = func_args.kwargs.keys().next() {
+        let _ = key;
+        return Err(vm.new_type_error(format!("{name}() takes no keyword arguments")));
+    }
+    Ok(())
+}
+
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
     fn into_method_args(self, obj: PyObjectRef, vm: &VirtualMachine) -> FuncArgs {
@@ -497,6 +561,8 @@ impl ArgumentError {
         callee: Callee,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
+        // _PyArg_CheckPositional renders the exact form when min == max and
+        // uses singular "argument" for 1
         match self {
             Self::TooFewArgs => callee.wrong_arity(arity, true, num_given, vm),
             Self::TooManyArgs => callee.wrong_arity(arity, false, num_given, vm),

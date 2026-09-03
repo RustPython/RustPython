@@ -1605,12 +1605,10 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(''.lower),
             "lower() method of builtins.str instance")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_method_o(self):
         self.assertEqual(self._get_summary_line(set.add),
             "add(self, object, /) unbound builtins.set method")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bound_builtin_method_o(self):
         self.assertEqual(self._get_summary_line(set().add),
             "add(object, /) method of builtins.set instance")

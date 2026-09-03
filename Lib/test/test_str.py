@@ -2672,7 +2672,6 @@ class StrTest(string_tests.StringLikeTest,
         proc = assert_python_failure('-X', 'dev', '-c', code)
         self.assertEqual(proc.rc, 10, proc)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "str expected at most 3 arguments, got 4" does not match "expected at most 3 arguments, got 4"
     def test_str_invalid_call(self):
         # too many args
         with self.assertRaisesRegex(TypeError, r"str expected at most 3 arguments, got 4"):

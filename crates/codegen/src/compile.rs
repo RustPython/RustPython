@@ -5993,6 +5993,17 @@ impl<'warnings> Compiler<'warnings> {
         arguments: Option<&ast::Arguments>,
         preserve_value_before_store: bool,
     ) -> CompileResult<()> {
+        // A lone unparenthesized generator expression is not a valid base list:
+        // `class C(x for x in L)` is rejected, `class C((x for x in L))` is not.
+        if let Some(arguments) = arguments
+            && arguments.keywords.is_empty()
+            && let [ast::Expr::Generator(generator)] = &*arguments.args
+            && !generator.parenthesized
+        {
+            self.set_source_range(generator.range);
+            return Err(self.error(CodegenErrorType::SyntaxError("invalid syntax".to_owned())));
+        }
+
         // CPython's ClassDef LOC(s) starts at the class line even when
         // decorators are present.
         let stmt_source_range = self.current_source_range;

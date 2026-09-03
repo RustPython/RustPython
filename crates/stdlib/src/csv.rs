@@ -448,7 +448,7 @@ mod _csv {
             iter,
             state: PyMutex::new(ReadState {
                 line_num: 0,
-                generation: 0,
+                record_completed: false,
             }),
             dialect,
         })
@@ -879,7 +879,9 @@ mod _csv {
 
     struct ReadState {
         line_num: u64,
-        generation: u64,
+        // Set when a (possibly re-entrant) __next__ call returned a record;
+        // mirrors CPython's `fields == NULL` state.
+        record_completed: bool,
     }
 
     #[pyclass(no_attr, module = "_csv", name = "reader", traverse)]
@@ -1151,18 +1153,13 @@ mod _csv {
     }
 
     fn next_input_item(zelf: &Py<Reader>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let generation = zelf.state.lock().generation;
         // Advancing user code may re-enter this reader, so do not hold its lock here.
         let result = zelf.iter.next(vm)?;
-        let mut state = zelf.state.lock();
-        if state.generation != generation {
+        if zelf.state.lock().record_completed {
             return Err(new_csv_error(
                 vm,
                 "iterator has already advanced the reader",
             ));
-        }
-        if matches!(result, PyIterReturn::Return(_)) {
-            state.generation += 1;
         }
         Ok(result)
     }
@@ -1186,6 +1183,7 @@ mod _csv {
 
     impl IterNext for Reader {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            zelf.state.lock().record_completed = false;
             let mut parser = CsvParser::new(*GLOBAL_FIELD_LIMIT.lock());
 
             loop {
@@ -1217,11 +1215,16 @@ mod _csv {
                         // Virtual EOL marks an iterator-item boundary, not true EOF.
                         parser.process_parser_input(EOL, &zelf.dialect, vm)?;
                         if parser.state == ParserState::StartRecord {
+                            zelf.state.lock().record_completed = true;
                             return Ok(parser.into_result(vm));
                         }
                     }
                     PyIterReturn::StopIteration(_) => {
-                        return finish_at_true_eof(parser, &zelf.dialect, vm);
+                        let result = finish_at_true_eof(parser, &zelf.dialect, vm)?;
+                        if matches!(result, PyIterReturn::Return(_)) {
+                            zelf.state.lock().record_completed = true;
+                        }
+                        return Ok(result);
                     }
                 }
             }

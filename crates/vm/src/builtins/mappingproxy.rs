@@ -164,7 +164,7 @@ impl PyMappingProxy {
 
     fn class_to_dict(class: &Py<PyType>, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = class.attributes.as_dict() {
-            return Ok(dict.copy().to_pyobject(vm));
+            return Ok(dict.copy_inner().to_pyobject(vm));
         }
         Ok(PyDict::from_attributes(class.attributes.attributes(&vm.ctx), vm)?.to_pyobject(vm))
     }

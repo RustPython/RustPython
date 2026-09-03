@@ -1940,8 +1940,16 @@ impl PyObject {
                 zelf.0.ref_count.inc_by(2);
 
                 if let Err(e) = slot_del(zelf, vm) {
-                    let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
-                    vm.run_unraisable(e, None, del_method);
+                    // PyErr_FormatUnraisable("Exception ignored while
+                    // calling deallocator %R", del)
+                    let msg =
+                        zelf.get_class_attr(identifier!(vm, __del__))
+                            .and_then(|del_method| {
+                                del_method.repr(vm).ok().map(|repr| {
+                                    format!("Exception ignored while calling deallocator {repr}")
+                                })
+                            });
+                    vm.run_unraisable(e, msg, vm.ctx.none.clone().into());
                 }
 
                 // Undo the temporary resurrection. Always remove both

@@ -4726,7 +4726,7 @@ mod _io {
             if !vm.is_none(dict) {
                 let dict_ref: PyRef<PyDict> = dict.clone().try_into_value(vm)?;
                 if let Some(obj_dict) = zelf.as_object().dict() {
-                    obj_dict.clear();
+                    obj_dict.clear_inner();
                     for (key, value) in dict_ref {
                         obj_dict.set_item(&*key, value, vm)?;
                     }
@@ -4984,7 +4984,7 @@ mod _io {
             if !vm.is_none(dict) {
                 let dict_ref: PyRef<PyDict> = dict.clone().try_into_value(vm)?;
                 if let Some(obj_dict) = zelf.as_object().dict() {
-                    obj_dict.clear();
+                    obj_dict.clear_inner();
                     for (key, value) in dict_ref {
                         obj_dict.set_item(&*key, value, vm)?;
                     }
@@ -5164,7 +5164,11 @@ mod _io {
     }
 
     #[pyfunction]
-    fn open(args: IoOpenArgs, vm: &VirtualMachine) -> PyResult {
+    fn open(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if func_args.args.is_empty() && !func_args.kwargs.contains_key("file") {
+            return Err(vm.new_type_error("open() missing required argument 'file' (pos 1)"));
+        }
+        let args: IoOpenArgs = func_args.bind_for(vm, "open")?;
         io_open(
             args.file,
             args.mode.as_ref().into_option().map(|s| s.as_str()),

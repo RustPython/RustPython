@@ -13,7 +13,10 @@ use crate::{
     builtins::{PyFloat, PyInt, PyStr, PyTuple},
     class::PyClassImpl,
     convert::ToPyObject,
-    function::{ArgSize, Either, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{
+        ArgSize, Either, FuncArgs, OptionalArg, PyComparisonValue, check_meth_o, check_no_kwargs,
+        check_noargs, check_positional,
+    },
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -181,13 +184,19 @@ pub type PyListRef = PyRef<PyList>;
     flags(BASETYPE, SEQUENCE, _MATCH_SELF)
 )]
 impl PyList {
-    #[pymethod]
-    pub(crate) fn append(&self, x: PyObjectRef) {
+    pub(crate) fn append_inner(&self, x: PyObjectRef) {
         self.borrow_vec_mut().push(x);
     }
 
     #[pymethod]
-    pub(crate) fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    // Typed rather than `FuncArgs`: a single-object signature is what marks
+    // the method METH_O, and only a METH_O method takes the CALL fast path
+    // that a tight `append` loop lives on.
+    fn append(&self, x: PyObjectRef) {
+        self.append_inner(x);
+    }
+
+    pub(crate) fn extend_inner(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // What is already here decides whether the iterable's length hint is
         // believable, so it goes along with the request for the elements. It is
         // counted where `list_extend()` reads `Py_SIZE(self)`, after the
@@ -197,19 +206,34 @@ impl PyList {
         Ok(())
     }
 
-    #[pymethod]
-    pub(crate) fn insert(&self, position: isize, element: PyObjectRef) {
+    #[pymethod(text_signature = "($self, iterable, /)")]
+    fn extend(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_meth_o(vm, "list.extend", &func_args)?;
+        let (x,): (PyObjectRef,) = func_args.bind(vm)?;
+        self.extend_inner(x, vm)
+    }
+
+    pub(crate) fn insert_inner(&self, position: isize, element: PyObjectRef) {
         let mut elements = self.borrow_vec_mut();
         let position = elements.saturate_index(position);
         elements.insert(position, element);
     }
 
+    #[pymethod(text_signature = "($self, index, object, /)")]
+    fn insert(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_no_kwargs(vm, "list.insert", &func_args)?;
+        check_positional(vm, "insert", func_args.args.len(), 2, 2)?;
+        type InsertArgs = (isize, PyObjectRef);
+        let (position, element): InsertArgs = func_args.bind(vm)?;
+        self.insert_inner(position, element);
+        Ok(())
+    }
+
     fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let other = other.downcast_ref::<Self>().ok_or_else(|| {
             vm.new_type_error(format!(
-                "Cannot add {} and {}",
-                Self::class(&vm.ctx).name(),
-                other.class().name()
+                "can only concatenate list (not \"{}\") to list",
+                other.class().slot_name()
             ))
         })?;
         let mut elements = self.borrow_vec().to_vec();
@@ -226,7 +250,7 @@ impl PyList {
         other: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        zelf.extend(other.to_owned(), vm)?;
+        zelf.extend_inner(other.to_owned(), vm)?;
         Ok(zelf.to_owned().into())
     }
 
@@ -235,18 +259,21 @@ impl PyList {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        zelf.extend(other, vm)?;
+        zelf.extend_inner(other, vm)?;
         Ok(zelf)
     }
 
-    #[pymethod]
-    fn clear(&self) {
+    #[pymethod(text_signature = "($self, /)")]
+    fn clear(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_noargs(vm, "list.clear", &func_args)?;
         let _removed = core::mem::take(self.borrow_vec_mut().deref_mut());
+        Ok(())
     }
 
-    #[pymethod]
-    fn copy(&self, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::from(self.borrow_vec().to_vec()).into_ref(&vm.ctx)
+    #[pymethod(text_signature = "($self, /)")]
+    fn copy(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        check_noargs(vm, "list.copy", &func_args)?;
+        Ok(Self::from(self.borrow_vec().to_vec()).into_ref(&vm.ctx))
     }
 
     pub fn __len__(&self) -> usize {
@@ -259,9 +286,11 @@ impl PyList {
             + self.elements.read().capacity() * core::mem::size_of::<PyObjectRef>()
     }
 
-    #[pymethod]
-    fn reverse(&self) {
+    #[pymethod(text_signature = "($self, /)")]
+    fn reverse(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_noargs(vm, "list.reverse", &func_args)?;
         self.borrow_vec_mut().reverse();
+        Ok(())
     }
 
     #[pymethod]
@@ -328,8 +357,16 @@ impl PyList {
         Self::irepeat(zelf, n.into(), vm)
     }
 
-    #[pymethod]
-    fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    #[pymethod(text_signature = "($self, value, /)")]
+    fn count(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "list.count", &func_args)?;
+        if func_args.args.len() != 1 {
+            return Err(vm.new_type_error(format!(
+                "list.count() takes exactly one argument ({} given)",
+                func_args.args.len()
+            )));
+        }
+        let (needle,): (PyObjectRef,) = func_args.bind(vm)?;
         self.mut_count(vm, &needle)
     }
 
@@ -337,13 +374,12 @@ impl PyList {
         self.mut_contains(vm, &needle)
     }
 
-    #[pymethod]
-    fn index(
-        &self,
-        needle: PyObjectRef,
-        range: OptionalRangeArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
+    #[pymethod(text_signature = "($self, value, start=0, stop=sys.maxsize, /)")]
+    fn index(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "list.index", &func_args)?;
+        check_positional(vm, "index", func_args.args.len(), 1, 3)?;
+        type IndexArgs = (PyObjectRef, OptionalRangeArgs);
+        let (needle, range): IndexArgs = func_args.bind(vm)?;
         let (start, stop) = range.saturate(self.__len__(), vm)?;
         let index = self.mut_index_range(vm, &needle, start..stop)?;
         if let Some(index) = index.into() {
@@ -353,8 +389,12 @@ impl PyList {
         }
     }
 
-    #[pymethod]
-    fn pop(&self, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(text_signature = "($self, index=-1, /)")]
+    fn pop(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_no_kwargs(vm, "list.pop", &func_args)?;
+        check_positional(vm, "pop", func_args.args.len(), 0, 1)?;
+        type PopArgs = (OptionalArg<isize>,);
+        let (i,): PopArgs = func_args.bind(vm)?;
         let mut i = i.into_option().unwrap_or(-1);
         let mut elements = self.borrow_vec_mut();
         if i < 0 {
@@ -369,8 +409,10 @@ impl PyList {
         }
     }
 
-    #[pymethod]
-    fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pymethod(text_signature = "($self, value, /)")]
+    fn remove(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_meth_o(vm, "list.remove", &func_args)?;
+        let (needle,): (PyObjectRef,) = func_args.bind(vm)?;
         let index = self.mut_index(vm, &needle)?;
 
         if let Some(index) = index.into() {
@@ -382,7 +424,7 @@ impl PyList {
             drop(removed);
             Ok(())
         } else {
-            Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
+            Err(vm.new_value_error("list.remove(x): x not in list"))
         }
     }
 
@@ -397,8 +439,7 @@ impl PyList {
         self._delitem(&subscript, vm)
     }
 
-    #[pymethod]
-    pub(crate) fn sort(&self, options: SortOptions, vm: &VirtualMachine) -> PyResult<()> {
+    pub(crate) fn sort_inner(&self, options: SortOptions, vm: &VirtualMachine) -> PyResult<()> {
         // replace list contents with [] for duration of sort.
         // this prevents keyfunc from messing with the list and makes it easy to
         // check if it tries to append elements to it.
@@ -421,6 +462,15 @@ impl PyList {
         }
 
         Ok(())
+    }
+
+    #[pymethod(text_signature = "($self, /, *, key=None, reverse=False)")]
+    fn sort(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        if !func_args.args.is_empty() {
+            return Err(vm.new_type_error("sort() takes no positional arguments"));
+        }
+        let options: SortOptions = func_args.bind_for(vm, "sort")?;
+        self.sort_inner(options, vm)
     }
 
     #[pyclassmethod]

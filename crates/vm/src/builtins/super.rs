@@ -61,8 +61,8 @@ impl Constructor for PySuper {
 
 #[derive(FromArgs)]
 pub struct InitArgs {
-    #[pyarg(positional, optional, error_msg = "super() argument 1 must be a type")]
-    py_type: OptionalArg<PyTypeRef>,
+    #[pyarg(positional, optional)]
+    py_type: OptionalArg<PyObjectRef>,
     #[pyarg(positional, optional)]
     py_obj: OptionalArg<PyObjectRef>,
 }
@@ -77,6 +77,12 @@ impl Initializer for PySuper {
     ) -> PyResult<()> {
         // Get the type:
         let (typ, obj) = if let OptionalArg::Present(ty) = py_type {
+            let ty = ty.downcast::<PyType>().map_err(|ty| {
+                vm.new_type_error(format!(
+                    "super() argument 1 must be a type, not {:.200}",
+                    ty.class().name()
+                ))
+            })?;
             (ty, py_obj.unwrap_or_none(vm))
         } else {
             // Access the InterpreterFrame directly — no need to materialize
@@ -118,13 +124,15 @@ impl Initializer for PySuper {
             let free_start = nlocalsplus - nfrees;
             for (i, var) in code.freevars.iter().enumerate() {
                 if var.as_bytes() == b"__class__" {
-                    let class = fastlocals[free_start + i]
+                    let cell = fastlocals[free_start + i]
                         .as_ref()
                         .and_then(|v| v.downcast_ref::<PyCell>())
-                        .and_then(|c| c.get())
+                        .ok_or_else(|| vm.new_runtime_error("super(): bad __class__ cell"))?;
+                    let class = cell
+                        .get()
                         .ok_or_else(|| vm.new_runtime_error("super(): empty __class__ cell"))?;
                     typ = Some(class.downcast().map_err(|o| {
-                        vm.new_type_error(format!(
+                        vm.new_runtime_error(format!(
                             "super(): __class__ is not a type ({})",
                             o.class().name()
                         ))
@@ -132,11 +140,8 @@ impl Initializer for PySuper {
                     break;
                 }
             }
-            let typ = typ.ok_or_else(|| {
-                vm.new_type_error(
-                    "super must be called with 1 argument or from inside class method",
-                )
-            })?;
+            let typ =
+                typ.ok_or_else(|| vm.new_runtime_error("super(): __class__ cell not found"))?;
 
             (typ, obj)
         };

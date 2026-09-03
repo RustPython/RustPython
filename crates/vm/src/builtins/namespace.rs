@@ -44,7 +44,7 @@ impl PyNamespace {
         result.into_pytuple(vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /, **changes)")]
     fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() {
             return Err(vm.new_type_error("__replace__() takes no positional arguments"));
@@ -54,7 +54,7 @@ impl PyNamespace {
         let cls: PyObjectRef = zelf.class().to_owned().into();
         let result = cls.call((), vm)?;
 
-        if !zelf.class().is(result.class()) {
+        if !result.fast_isinstance(Self::class(&vm.ctx)) {
             return Err(vm.new_type_error(format!(
                 "expect {} type, but {}() returned '{}' object",
                 Self::class(&vm.ctx).slot_name(),

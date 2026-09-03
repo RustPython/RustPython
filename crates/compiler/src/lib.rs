@@ -226,6 +226,10 @@ fn cpython_parse_diagnostic_override(
     mode: Mode,
 ) -> Option<NormalizedParseDiagnostic> {
     let source_text = source_file.source_text();
+    // `eval` accepts a single expression, so a diagnostic that only makes sense
+    // for a statement never applies: CPython reports a plain "invalid syntax"
+    // for `eval("x() = 1")` while `exec` gets the detailed message.
+    let statement_level = !matches!(mode, Mode::Eval);
 
     macro_rules! source_error {
         ($expr:expr) => {
@@ -238,6 +242,8 @@ fn cpython_parse_diagnostic_override(
     source_error!(invalid_number_literal_error(source_text));
     source_error!(invalid_legacy_statement_error(source_text));
     source_error!(non_printable_character_error(source_text));
+    source_error!(stray_character_error(source_text));
+    source_error!(incompatible_string_prefix_error(source_text));
     source_error!(invalid_interpolated_string_error(source_text));
     source_error!(mixed_tstring_literal_error(error, source_text));
 
@@ -273,7 +279,9 @@ fn cpython_parse_diagnostic_override(
     }
 
     source_error!(unterminated_string_error(source_text));
-    source_error!(expected_indented_block_error(error, source_text));
+    if statement_level {
+        source_error!(expected_indented_block_error(error, source_text));
+    }
 
     if matches!(
         &error.error,
@@ -285,8 +293,31 @@ fn cpython_parse_diagnostic_override(
     source_error!(invalid_type_param_error(source_text));
     source_error!(invalid_comprehension_error(source_text));
     source_error!(invalid_parameter_star_annotation_error(source_text));
+    source_error!(invalid_slash_parameter_error(source_text));
     source_error!(invalid_parameter_list_error(source_text));
     source_error!(invalid_call_argument_error(source_text));
+
+    // Lexical problems are reported the same way in both modes, but from here
+    // on the diagnostics describe statements. In `eval` CPython has already
+    // given up with a plain "invalid syntax" by this point.
+    if !statement_level && statement_only_diagnostic(error, source_text) {
+        let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
+        return Some(NormalizedParseDiagnostic::new(
+            parser::ParseErrorType::OtherError("invalid syntax".to_owned()),
+            loc,
+            end_loc,
+        ));
+    }
+
+    // These two recognise a specific malformed `as` target. Inside parentheses
+    // the generic "forgot a comma?" heuristic below also matches, so they have
+    // to be consulted first to keep CPython's more precise message.
+    if statement_level {
+        source_error!(missing_with_colon_error(source_text));
+        source_error!(invalid_import_target_error(source_text));
+        source_error!(invalid_match_as_target_error(source_text));
+    }
+    source_error!(invalid_star_expression_error(source_text));
 
     if is_missing_comma_between_literals(error) {
         let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
@@ -298,30 +329,36 @@ fn cpython_parse_diagnostic_override(
         ));
     }
 
-    source_error!(invalid_dict_error(source_text));
+    // A `case` mapping pattern is not a dict display, so the dictionary-key
+    // wording does not apply to it.
+    if !error_offset_in_case_pattern(error, source_text) {
+        source_error!(invalid_dict_error(source_text));
+    }
     source_error!(invalid_collection_assignment_error(source_text));
     source_error!(invalid_group_error(source_text));
-    source_error!(invalid_def_type_params_error(source_text));
     source_error!(invalid_expression_error(source_text));
     source_error!(invalid_named_expression_error(source_text));
     source_error!(invalid_plain_assignment_error(source_text));
     source_error!(expression_assignment_error(source_text));
-    source_error!(invalid_annotation_target_error(source_text));
-    source_error!(invalid_assignment_target_error(source_text));
-    source_error!(invalid_augassign_target_error(source_text));
-    source_error!(invalid_for_target_error(source_text));
-    source_error!(invalid_with_target_error(source_text));
-    source_error!(invalid_delete_target_error(source_text));
-    source_error!(invalid_standalone_except_error(source_text));
-    source_error!(invalid_import_statement_error(source_text));
-    source_error!(invalid_import_target_error(source_text));
-    source_error!(invalid_except_as_target_error(source_text));
-    source_error!(invalid_match_mapping_rest_wildcard_error(source_text));
-    source_error!(invalid_match_as_target_error(source_text));
     source_error!(invalid_for_if_clause_error(source_text));
-    source_error!(invalid_if_expression_statement_error(source_text));
-    source_error!(invalid_else_elif_error(source_text));
-    source_error!(mixed_except_handlers_error(source_text));
+
+    if statement_level {
+        source_error!(invalid_def_type_params_error(source_text));
+        source_error!(invalid_annotation_target_error(source_text));
+        source_error!(invalid_assignment_target_error(error, source_text));
+        source_error!(invalid_augassign_target_error(source_text));
+        source_error!(invalid_for_target_error(source_text));
+        source_error!(invalid_with_target_error(source_text));
+        source_error!(invalid_delete_target_error(source_text));
+        source_error!(invalid_standalone_except_error(source_text));
+        source_error!(invalid_import_statement_error(source_text));
+        source_error!(invalid_except_as_target_error(source_text));
+        source_error!(invalid_match_mapping_rest_wildcard_error(source_text));
+        source_error!(invalid_condition_assignment_error(source_text));
+        source_error!(invalid_if_expression_statement_error(source_text));
+        source_error!(invalid_else_elif_error(source_text));
+        source_error!(mixed_except_handlers_error(source_text));
+    }
 
     if matches!(
         &error.error,
@@ -340,6 +377,20 @@ fn cpython_parse_diagnostic_override(
         parser::ParseErrorType::InvalidAssignmentTarget
     ) {
         return Some(invalid_assignment_target_diagnostic(error, source_file));
+    }
+
+    source_error!(invalid_character_error(error, source_text));
+
+    // Nothing more specific applied. A few parser diagnostics describe the
+    // construct in terms CPython has no message for, so they collapse to the
+    // plain "invalid syntax" CPython reports in the same position.
+    if is_parser_only_diagnostic(error) || dict_key_error_in_pattern(error, source_text) {
+        let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
+        return Some(NormalizedParseDiagnostic::new(
+            parser::ParseErrorType::OtherError("invalid syntax".to_owned()),
+            loc,
+            end_loc,
+        ));
     }
 
     if matches!(
@@ -370,6 +421,483 @@ fn cpython_parse_diagnostic_override(
     }
 
     None
+}
+
+/// `with` headers must end in `:`.
+///
+/// CPython's `invalid_with_stmt` reports "expected ':'" for the plain and the
+/// parenthesized form alike; without this the parenthesized form is claimed by
+/// the generic "forgot a comma?" heuristic.
+fn missing_with_colon_error(source: &str) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let mut line_start = 0usize;
+    for line in source.split_inclusive('\n') {
+        let line_end = line_start + line.len();
+        let mut index = skip_horizontal_whitespace(bytes, line_start);
+        if starts_identifier(bytes, index, b"async") {
+            index = skip_horizontal_whitespace(bytes, index + 5);
+        }
+        if starts_identifier(bytes, index, b"with")
+            && let Some(end) = header_end_without_colon(bytes, index + 4)
+        {
+            return Some(CpythonDiagnostic::new("expected ':'".to_owned(), end, end));
+        }
+        line_start = line_end;
+    }
+    None
+}
+
+/// End of a statement header that never reached a top-level `:`, or `None` when
+/// the colon is present. Brackets and continuations keep the header open.
+fn header_end_without_colon(bytes: &[u8], mut index: usize) -> Option<usize> {
+    let mut level = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'\\' if bytes.get(index + 1) == Some(&b'\n') => index += 2,
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                level = level.saturating_sub(1);
+                index += 1;
+            }
+            b':' if level == 0 => return None,
+            b'\n' if level == 0 => return Some(index),
+            _ => index += 1,
+        }
+    }
+    Some(index)
+}
+
+/// A `*` inside a display or subscript whose operand is missing or unparsable.
+///
+/// CPython's `invalid_starred_expression` reports "Invalid star expression" for
+/// `A[*]`, `A[*:]` and `A[*(1:2)]`. A bare `*` outside brackets, and a `*` in a
+/// parameter list, are diagnosed elsewhere.
+fn invalid_star_expression_error(source: &str) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let mut open_brackets: Vec<StarContext> = Vec::new();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' | b'[' | b'{' => {
+                open_brackets.push(StarContext {
+                    parameter_list: bytes[index] == b'('
+                        && is_function_parameter_list(bytes, index),
+                    subscript_or_call: bytes[index] != b'{'
+                        && opens_subscript_or_call(bytes, index),
+                });
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                open_brackets.pop();
+                index += 1;
+            }
+            // `f(**)` and `{a: 1, **}` are plain invalid syntax for CPython,
+            // not the "double starred expression" or dictionary-key errors.
+            b'*' if bytes.get(index + 1) == Some(&b'*') => {
+                let operand_start = skip_horizontal_whitespace(bytes, index + 2);
+                if open_brackets
+                    .last()
+                    .is_some_and(|context| !context.parameter_list)
+                    && source[operand_start..star_operand_end(bytes, operand_start)]
+                        .trim()
+                        .is_empty()
+                {
+                    return Some(CpythonDiagnostic::new(
+                        "invalid syntax".to_owned(),
+                        index,
+                        index + 2,
+                    ));
+                }
+                index += 2;
+            }
+            b'*' => {
+                let Some(context) = open_brackets.last().copied() else {
+                    index += 1;
+                    continue;
+                };
+                // Only an element start can be a star expression: a `*` after a
+                // slice colon or an operand is something else entirely.
+                let after_comma = match previous_significant_byte(bytes, index) {
+                    Some(b'(' | b'[' | b'{') => false,
+                    Some(b',') => true,
+                    _ => {
+                        index += 1;
+                        continue;
+                    }
+                };
+                if context.parameter_list || (after_comma && !context.subscript_or_call) {
+                    index += 1;
+                    continue;
+                }
+                let operand_start = skip_horizontal_whitespace(bytes, index + 1);
+                let operand_end = star_operand_end(bytes, operand_start);
+                let operand = source[operand_start..operand_end].trim();
+                if operand.is_empty()
+                    || parser::parse(operand, parser::Mode::Expression.into()).is_err()
+                {
+                    return Some(CpythonDiagnostic::new(
+                        "Invalid star expression".to_owned(),
+                        index,
+                        (index + 1).max(operand_end),
+                    ));
+                }
+                index = operand_end.max(index + 1);
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+#[derive(Clone, Copy)]
+struct StarContext {
+    parameter_list: bool,
+    subscript_or_call: bool,
+}
+
+/// Whether a bracket subscripts or calls the expression to its left, rather
+/// than opening a display. `[a, *]` is a list display, `A[a, *]` a subscript.
+fn opens_subscript_or_call(bytes: &[u8], open: usize) -> bool {
+    let mut cursor = open;
+    while cursor > 0 && matches!(bytes.get(cursor - 1), Some(b' ' | b'\t' | b'\x0c')) {
+        cursor -= 1;
+    }
+    match cursor.checked_sub(1).and_then(|before| bytes.get(before)) {
+        Some(b')' | b']' | b'\'' | b'"') => true,
+        Some(byte) if is_ascii_identifier_char(*byte) || *byte >= 0x80 => {
+            let mut start = cursor;
+            while start > 0
+                && bytes
+                    .get(start - 1)
+                    .is_some_and(|byte| is_ascii_identifier_char(*byte) || *byte >= 0x80)
+            {
+                start -= 1;
+            }
+            // A keyword before the bracket still leaves it a display.
+            !matches!(
+                &bytes[start..cursor],
+                b"return"
+                    | b"yield"
+                    | b"in"
+                    | b"not"
+                    | b"and"
+                    | b"or"
+                    | b"if"
+                    | b"else"
+                    | b"elif"
+                    | b"while"
+                    | b"assert"
+                    | b"del"
+                    | b"lambda"
+                    | b"from"
+                    | b"import"
+                    | b"await"
+                    | b"is"
+                    | b"for"
+                    | b"with"
+                    | b"as"
+                    | b"case"
+                    | b"match"
+                    | b"raise"
+                    | b"global"
+                    | b"nonlocal"
+            )
+        }
+        _ => false,
+    }
+}
+
+fn previous_significant_byte(bytes: &[u8], mut index: usize) -> Option<u8> {
+    while index > 0 && matches!(bytes.get(index - 1), Some(b' ' | b'\t' | b'\x0c')) {
+        index -= 1;
+    }
+    index
+        .checked_sub(1)
+        .and_then(|before| bytes.get(before))
+        .copied()
+}
+
+fn star_operand_end(bytes: &[u8], mut index: usize) -> usize {
+    let mut level = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' | b'\n' => return index,
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                if level == 0 {
+                    return index;
+                }
+                level -= 1;
+                index += 1;
+            }
+            b',' | b':' | b'=' if level == 0 => return index,
+            _ => index += 1,
+        }
+    }
+    index
+}
+
+/// A character the tokenizer cannot use, reported only where the parser stopped
+/// so that valid non-ASCII identifiers elsewhere are never blamed.
+fn invalid_character_error(error: &parser::ParseError, source: &str) -> Option<CpythonDiagnostic> {
+    let mut offset = error.location.start().to_usize().min(source.len());
+    while !source.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    let (before, after) = source.split_at(offset);
+    // The parser stops just past the offending character, so look behind first.
+    let character = before
+        .chars()
+        .next_back()
+        .filter(|character| !character.is_ascii())
+        .or_else(|| after.chars().next())?;
+    if character.is_ascii() {
+        return None;
+    }
+    let start = before
+        .char_indices()
+        .next_back()
+        .map_or(offset, |(start, _)| start);
+    // Inside a literal the character is the string's problem, not the
+    // tokenizer's: `b"€"` reports that bytes must be ASCII.
+    if offset_in_ranges(&quoted_string_ranges(source.as_bytes()), &mut 0, start) {
+        return None;
+    }
+    let end = start + character.len_utf8();
+    let code_point = character as u32;
+    if character.is_control() || character.is_whitespace() {
+        return Some(CpythonDiagnostic::new(
+            format!("invalid non-printable character U+{code_point:04X}"),
+            start,
+            end,
+        ));
+    }
+    if character.is_alphanumeric() || character == '_' {
+        return None;
+    }
+    Some(CpythonDiagnostic::new(
+        format!("invalid character '{character}' (U+{code_point:04X})"),
+        start,
+        end,
+    ))
+}
+
+/// Characters that can never appear in Python source.
+///
+/// CPython's tokenizer stops at the first one, so it wins over later semantic
+/// checks such as a repeated keyword argument earlier on the same line.
+fn stray_character_error(source: &str) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'$' | b'?' | b'`' => {
+                return Some(CpythonDiagnostic::new(
+                    "invalid syntax".to_owned(),
+                    index,
+                    index + 1,
+                ));
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// Misplaced `/` in a parameter list.
+///
+/// The parser reports whichever problem it reaches first; CPython checks the
+/// separator's position before the rest of the list, so `def foo(/,a,b=,c)`
+/// complains about the `/` rather than the missing default.
+fn invalid_slash_parameter_error(source: &str) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' if is_function_parameter_list(bytes, index) => {
+                let Some(close) = matching_delimiter(bytes, index, b')') else {
+                    index += 1;
+                    continue;
+                };
+                if let Some(error) = slash_parameter_error(source, index + 1, close) {
+                    return Some(error);
+                }
+                index = close + 1;
+            }
+            _ if starts_identifier(bytes, index, b"lambda") => {
+                let parameters = index + 6;
+                match find_lambda_parameter_end(bytes, parameters) {
+                    Some(end) => {
+                        if let Some(error) = slash_parameter_error(source, parameters, end) {
+                            return Some(error);
+                        }
+                        index = end;
+                    }
+                    None => index = parameters,
+                }
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn slash_parameter_error(source: &str, start: usize, end: usize) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let items = split_top_level_items(bytes, start, end);
+    let slash = items
+        .iter()
+        .position(|&(item_start, item_end)| source[item_start..item_end].trim() == "/")?;
+    let (slash_start, slash_end) = items[slash];
+    if slash == 0 {
+        // CPython's rule is `"/" ','`, so a lone `def f(/)` without the comma
+        // has nothing to report beyond plain invalid syntax.
+        let message = if bytes.get(skip_horizontal_whitespace(bytes, slash_end)) == Some(&b',') {
+            "at least one argument must precede /"
+        } else {
+            "invalid syntax"
+        };
+        return Some(CpythonDiagnostic::new(
+            message.to_owned(),
+            slash_start,
+            slash_end,
+        ));
+    }
+    items[..slash]
+        .iter()
+        .any(|&(item_start, item_end)| source[item_start..item_end].trim() == "*")
+        .then(|| CpythonDiagnostic::new("/ must be ahead of *".to_owned(), slash_start, slash_end))
+}
+
+/// Split a bracketed list into its top-level comma-separated items.
+fn split_top_level_items(bytes: &[u8], start: usize, end: usize) -> Vec<(usize, usize)> {
+    let mut items = Vec::new();
+    let mut level = 0usize;
+    let mut index = start;
+    let mut item_start = start;
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index).min(end),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                level = level.saturating_sub(1);
+                index += 1;
+            }
+            b',' if level == 0 => {
+                items.push(trim_target_range(bytes, item_start, index));
+                index += 1;
+                item_start = index;
+            }
+            _ => index += 1,
+        }
+    }
+    let (last_start, last_end) = trim_target_range(bytes, item_start, end);
+    if last_start < last_end {
+        items.push((last_start, last_end));
+    }
+    items
+}
+
+/// Diagnostics the parser phrases in its own terms, with no CPython
+/// counterpart anywhere in the grammar. CPython reports "invalid syntax".
+fn is_parser_only_diagnostic(error: &parser::ParseError) -> bool {
+    const PARSER_ONLY: [&str; 5] = [
+        "unparenthesized tuple expression cannot be used here",
+        "exception missing in `raise` statement with cause",
+        "expected `case` block",
+        "pattern cannot follow a double star pattern",
+        "only one double star pattern is allowed",
+    ];
+    let message = error.error.to_string();
+    PARSER_ONLY
+        .iter()
+        .any(|candidate| candidate.eq_ignore_ascii_case(&message))
+}
+
+/// A malformed mapping pattern reports a dictionary-key error, but CPython only
+/// uses that wording for real dict displays; in a `case` it is invalid syntax.
+fn dict_key_error_in_pattern(error: &parser::ParseError, source: &str) -> bool {
+    let message = error.error.to_string();
+    if !message.eq_ignore_ascii_case("':' expected after dictionary key")
+        && !message.eq_ignore_ascii_case("expression expected after dictionary key and ':'")
+    {
+        return false;
+    }
+    error_offset_in_case_pattern(error, source)
+}
+
+/// Whether the parser stopped on a `case` line, i.e. inside a match pattern.
+fn error_offset_in_case_pattern(error: &parser::ParseError, source: &str) -> bool {
+    let bytes = source.as_bytes();
+    let offset = error.location.start().to_usize().min(source.len());
+    let line_start = source[..offset]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    starts_identifier(
+        bytes,
+        skip_horizontal_whitespace(bytes, line_start),
+        b"case",
+    )
+}
+
+/// Whether the source only makes sense as a statement.
+///
+/// `eval` compiles a single expression, so CPython never reaches the grammar
+/// rules behind these diagnostics and reports a bare "invalid syntax" instead.
+fn statement_only_diagnostic(error: &parser::ParseError, source: &str) -> bool {
+    expected_indented_block_error(error, source).is_some()
+        || missing_with_colon_error(source).is_some()
+        || invalid_import_target_error(source).is_some()
+        || invalid_match_as_target_error(source).is_some()
+        || invalid_def_type_params_error(source).is_some()
+        || invalid_annotation_target_error(source).is_some()
+        || invalid_assignment_target_error(error, source).is_some()
+        || invalid_augassign_target_error(source).is_some()
+        || invalid_for_target_error(source).is_some()
+        || invalid_with_target_error(source).is_some()
+        || invalid_delete_target_error(source).is_some()
+        || invalid_standalone_except_error(source).is_some()
+        || invalid_import_statement_error(source).is_some()
+        || invalid_except_as_target_error(source).is_some()
+        || invalid_match_mapping_rest_wildcard_error(source).is_some()
+        || invalid_if_expression_statement_error(source).is_some()
+        || invalid_else_elif_error(source).is_some()
+        || mixed_except_handlers_error(source).is_some()
+        || invalid_condition_assignment_error(source).is_some()
 }
 
 fn eof_parse_diagnostic(
@@ -2262,6 +2790,119 @@ fn expression_assignment_error(source: &str) -> Option<CpythonDiagnostic> {
     None
 }
 
+/// Diagnose `=` where a condition expects a comparison, as in `if x = 3:`.
+///
+/// This mirrors CPython's `invalid_named_expression` rule: a bare name suggests
+/// `==` or `:=`, any other `bitwise_or` reports what cannot be assigned to, and
+/// everything else (list, tuple, genexp, `True`/`None`/`False`, or an operand
+/// that sits above `bitwise_or`) falls through to a plain "invalid syntax".
+fn invalid_condition_assignment_error(source: &str) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let mut line_start = 0usize;
+    for line in source.split_inclusive('\n') {
+        let line_end = line_start + line.len();
+        let keyword_start = skip_horizontal_whitespace(bytes, line_start);
+        let keyword_len = [&b"elif"[..], b"while", b"if"]
+            .into_iter()
+            .find(|keyword| starts_identifier(bytes, keyword_start, keyword))
+            .map(<[u8]>::len);
+        if let Some(keyword_len) = keyword_len
+            && let Some(colon) =
+                find_byte_at_level(bytes, keyword_start + keyword_len, line_end, b':')
+            && let Some(error) =
+                condition_assignment_error(source, keyword_start + keyword_len, colon)
+        {
+            return Some(error);
+        }
+        line_start = line_end;
+    }
+    None
+}
+
+fn condition_assignment_error(source: &str, start: usize, end: usize) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let equals = (start..end).find(|&index| {
+        !matches!(bytes[index], b'\'' | b'"') && is_plain_assignment_operator(bytes, index)
+    })?;
+    // `if x = 3 = 4:` is not this rule; CPython stops at a plain "invalid syntax".
+    if (equals + 1..end).any(|index| is_plain_assignment_operator(bytes, index)) {
+        return None;
+    }
+    let (target_start, target_end) = trim_target_range(bytes, start, equals);
+    let (value_start, value_end) = trim_target_range(bytes, equals + 1, end);
+    if target_start >= target_end || value_start >= value_end {
+        return None;
+    }
+    // The rule only matches when both sides are `bitwise_or` operands.
+    if !is_bitwise_or_operand(&source[value_start..value_end]) {
+        return None;
+    }
+    let parsed = parser::parse(
+        &source[target_start..target_end],
+        parser::Mode::Expression.into(),
+    )
+    .ok()?;
+    let ast::Mod::Expression(expression) = parsed.into_syntax() else {
+        return None;
+    };
+    let target = expression.body.as_ref();
+    let range_start = target_start + target.range().start().to_usize();
+    let range_end = target_start + target.range().end().to_usize();
+    if matches!(target, ast::Expr::Name(_)) {
+        return Some(CpythonDiagnostic::new(
+            "invalid syntax. Maybe you meant '==' or ':=' instead of '='?".to_owned(),
+            range_start,
+            range_end,
+        ));
+    }
+    // CPython excludes these displays and keyword constants from the rule.
+    if matches!(
+        target,
+        ast::Expr::List(_)
+            | ast::Expr::Tuple(_)
+            | ast::Expr::Generator(_)
+            | ast::Expr::BooleanLiteral(_)
+            | ast::Expr::NoneLiteral(_)
+    ) || !is_bitwise_or_expr(target)
+    {
+        return None;
+    }
+    let name = delete_target_expr_name(target);
+    Some(CpythonDiagnostic::new(
+        format!("cannot assign to {name} here. Maybe you meant '==' instead of '='?"),
+        range_start,
+        range_end,
+    ))
+}
+
+/// Whether an expression sits at or below `bitwise_or` in CPython's grammar.
+fn is_bitwise_or_expr(expression: &ast::Expr) -> bool {
+    !matches!(
+        expression,
+        ast::Expr::BoolOp(_)
+            | ast::Expr::Compare(_)
+            | ast::Expr::If(_)
+            | ast::Expr::Lambda(_)
+            | ast::Expr::Named(_)
+            | ast::Expr::Starred(_)
+            | ast::Expr::Yield(_)
+            | ast::Expr::YieldFrom(_)
+    ) && !matches!(
+        expression,
+        ast::Expr::UnaryOp(unary) if unary.op == ast::UnaryOp::Not
+    )
+}
+
+fn is_bitwise_or_operand(source: &str) -> bool {
+    parser::parse(source, parser::Mode::Expression.into())
+        .ok()
+        .and_then(|parsed| match parsed.into_syntax() {
+            ast::Mod::Expression(expression) => Some(is_bitwise_or_expr(expression.body.as_ref())),
+            ast::Mod::Module(_) => None,
+        })
+        .unwrap_or(false)
+}
+
 fn invalid_named_expression_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
@@ -2695,15 +3336,10 @@ fn assignment_target_error_for_slice(
     let invalid_target = invalid_assignment_target(&expression.body)?;
     let invalid_start = target_start + invalid_target.range().start().to_usize();
     let invalid_end = target_start + invalid_target.range().end().to_usize();
-    if matches!(invalid_target, ast::Expr::FString(_)) {
-        return Some(CpythonDiagnostic::new(
-            "invalid syntax".to_owned(),
-            invalid_start,
-            invalid_end,
-        ));
-    }
     let name = delete_target_expr_name(invalid_target);
     let top_level = invalid_target.range() == expression.body.range();
+    // CPython's `invalid_named_expression` rule produces the "here" hint for any
+    // `bitwise_or '=' bitwise_or`, excluding list/tuple/genexp displays.
     let bitwise_like = matches!(
         invalid_target,
         ast::Expr::Call(_)
@@ -2714,6 +3350,10 @@ fn assignment_target_error_for_slice(
             | ast::Expr::StringLiteral(_)
             | ast::Expr::BytesLiteral(_)
             | ast::Expr::EllipsisLiteral(_)
+            | ast::Expr::Set(_)
+            | ast::Expr::Dict(_)
+            | ast::Expr::FString(_)
+            | ast::Expr::TString(_)
     );
     Some(CpythonDiagnostic::new(
         invalid_assignment_message(name, top_level && bitwise_like),
@@ -2848,20 +3488,66 @@ fn top_level_plain_assignment_offsets(bytes: &[u8]) -> Vec<usize> {
     offsets
 }
 
-fn invalid_assignment_target_error(source: &str) -> Option<CpythonDiagnostic> {
+fn invalid_assignment_target_error(
+    error: &parser::ParseError,
+    source: &str,
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let offsets = top_level_plain_assignment_offsets(bytes);
     if offsets.is_empty() {
         return None;
     }
+    let error_offset = error.location.start().to_usize();
     let mut start = 0usize;
     for offset in offsets {
-        if let Some(error) = assignment_target_error_for_slice(source, start, offset) {
+        let target_start = statement_slice_start(bytes, start, offset);
+        // Narrowing to the enclosing statement must not step over the failure
+        // the parser actually reported: an earlier malformed header (`if 1`
+        // with no colon) is what CPython complains about, not this assignment.
+        if error_offset >= target_start
+            && let Some(error) = assignment_target_error_for_slice(source, target_start, offset)
+        {
             return Some(error);
         }
         start = offset + 1;
     }
     None
+}
+
+/// Find where the statement containing an assignment begins.
+///
+/// Anything before the last top-level newline, `;` or compound-header `:`
+/// belongs to an earlier statement, so an indented `x() = 1` is examined on its
+/// own rather than together with the `if` header above it.
+fn statement_slice_start(bytes: &[u8], start: usize, end: usize) -> usize {
+    let mut index = start;
+    let mut level = 0usize;
+    let mut boundary = start;
+    while index < end {
+        match bytes[index] {
+            b'#' if level == 0 => {
+                while index < end && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index).min(end),
+            b'\\' if bytes.get(index + 1) == Some(&b'\n') => index += 2,
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                level = level.saturating_sub(1);
+                index += 1;
+            }
+            b'\n' | b';' | b':' if level == 0 => {
+                index += 1;
+                boundary = index;
+            }
+            _ => index += 1,
+        }
+    }
+    boundary
 }
 
 fn top_level_augassign_offset(bytes: &[u8]) -> Option<(usize, usize)> {
@@ -3224,6 +3910,45 @@ fn find_keyword_at_level(
     None
 }
 
+/// Like [`find_keyword_at_level`], but matches at any bracket depth.
+fn find_keyword(bytes: &[u8], mut index: usize, end: usize, keyword: &[u8]) -> Option<usize> {
+    while index < end {
+        match bytes[index] {
+            b'#' => return None,
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            _ if starts_identifier(bytes, index, keyword) => return Some(index),
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// End of a `case ... as <target>` target: the enclosing bracket closes it, as
+/// does a `:`, `,` or `|` at the target's own level.
+fn match_as_target_end(bytes: &[u8], mut index: usize, end: usize) -> usize {
+    let mut level = 0usize;
+    while index < end {
+        match bytes[index] {
+            b'#' => return index,
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                if level == 0 {
+                    return index;
+                }
+                level -= 1;
+                index += 1;
+            }
+            b':' | b',' | b'|' if level == 0 => return index,
+            _ => index += 1,
+        }
+    }
+    index
+}
+
 fn find_byte_at_level(bytes: &[u8], mut index: usize, end: usize, needle: u8) -> Option<usize> {
     let mut level = 0usize;
     while index < end {
@@ -3515,48 +4240,40 @@ fn invalid_match_as_target_error(source: &str) -> Option<CpythonDiagnostic> {
             continue;
         }
         column += 4;
-        let Some(as_index) = find_keyword_at_level(bytes, column, line_end, b"as") else {
-            line_start = line_end;
-            continue;
-        };
-        let target_start = skip_horizontal_whitespace(bytes, as_index + 2);
-        let Some(delimiter) = find_byte_at_level(bytes, target_start, line_end, b':')
-            .into_iter()
-            .chain(find_byte_at_level(bytes, target_start, line_end, b','))
-            .min()
-        else {
-            line_start = line_end;
-            continue;
-        };
-        let mut target_end = delimiter;
-        while target_end > target_start
-            && matches!(bytes.get(target_end - 1), Some(b' ' | b'\t' | b'\x0c'))
-        {
-            target_end -= 1;
-        }
-        if source[target_start..target_end].trim() == "_" {
-            return Some(CpythonDiagnostic::new(
-                "cannot use '_' as a target".to_owned(),
-                target_start,
-                target_end,
-            ));
-        }
-        let Some((expr_name, start, end, is_name)) =
-            expression_name_and_range(&source[target_start..target_end])
-        else {
-            line_start = line_end;
-            continue;
-        };
-        if !is_name {
-            if matches!(expr_name, "expression" | "subscript") {
-                line_start = line_end;
+        // `as` can appear inside parenthesized alternatives such as
+        // `case (32 as x) | (42 as a()):`, so every occurrence on the line is
+        // examined rather than only those at the top bracket level.
+        while let Some(as_index) = find_keyword(bytes, column, line_end, b"as") {
+            column = as_index + 2;
+            let target_start = skip_horizontal_whitespace(bytes, column);
+            let mut target_end = match_as_target_end(bytes, target_start, line_end);
+            while target_end > target_start
+                && matches!(bytes.get(target_end - 1), Some(b' ' | b'\t' | b'\x0c'))
+            {
+                target_end -= 1;
+            }
+            if target_start >= target_end {
                 continue;
             }
-            return Some(CpythonDiagnostic::new(
-                format!("cannot use {expr_name} as pattern target"),
-                target_start + start,
-                target_start + end,
-            ));
+            if source[target_start..target_end].trim() == "_" {
+                return Some(CpythonDiagnostic::new(
+                    "cannot use '_' as a target".to_owned(),
+                    target_start,
+                    target_end,
+                ));
+            }
+            let Some((expr_name, start, end, is_name)) =
+                expression_name_and_range(&source[target_start..target_end])
+            else {
+                continue;
+            };
+            if !is_name && expr_name != "subscript" {
+                return Some(CpythonDiagnostic::new(
+                    format!("cannot use {expr_name} as pattern target"),
+                    target_start + start,
+                    target_start + end,
+                ));
+            }
         }
         line_start = line_end;
     }
@@ -3845,6 +4562,71 @@ fn non_printable_character_error(source: &str) -> Option<CpythonDiagnostic> {
                 index += ch.len_utf8();
             }
             _ => index += 1,
+        }
+    }
+    None
+}
+
+/// Reject string prefix combinations CPython's lexer refuses.
+///
+/// `rb`, `rf` and `rt` are the only pairs that may be mixed; the checks below
+/// run in the same order as `_PyLexer_check_string_prefixes` so a prefix with
+/// several conflicts reports the same pair CPython does.
+fn incompatible_string_prefix_error(source: &str) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            byte if byte.is_ascii_alphabetic() || byte == b'_' => {
+                let start = index;
+                while index < bytes.len() && is_ascii_identifier_char(bytes[index]) {
+                    index += 1;
+                }
+                // Only an identifier glued to a quote can be a string prefix.
+                if !matches!(bytes.get(index), Some(b'\'' | b'"')) {
+                    continue;
+                }
+                if let Some(message) = incompatible_prefix_message(&bytes[start..index]) {
+                    return Some(CpythonDiagnostic::new(message, start, index));
+                }
+                index = skip_quoted_string(bytes, index);
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn incompatible_prefix_message(prefix: &[u8]) -> Option<String> {
+    let saw = |wanted: u8| prefix.iter().any(|byte| byte.eq_ignore_ascii_case(&wanted));
+    // A run containing anything else is not a string prefix at all.
+    if !prefix
+        .iter()
+        .all(|byte| matches!(byte.to_ascii_lowercase(), b'b' | b'r' | b'u' | b'f' | b't'))
+    {
+        return None;
+    }
+    for (first, second) in [
+        (b'u', b'b'),
+        (b'u', b'r'),
+        (b'u', b'f'),
+        (b'u', b't'),
+        (b'b', b'f'),
+        (b'b', b't'),
+        (b'f', b't'),
+    ] {
+        if saw(first) && saw(second) {
+            let first = first as char;
+            let second = second as char;
+            return Some(format!(
+                "'{first}' and '{second}' prefixes are incompatible"
+            ));
         }
     }
     None
@@ -5032,8 +5814,11 @@ fn invalid_string_expression_error(source: &str) -> Option<CpythonDiagnostic> {
     while index < bytes.len() {
         if let Some(first_string_end) = string_literal_end_at(bytes, index) {
             let expr_start = skip_ascii_whitespace(bytes, first_string_end, bytes.len());
+            // CPython's rule is `STRING (!STRING expression)+ STRING`, so any
+            // number of atoms may sit between the two string literals.
             if expression_atom_start(bytes, expr_start)
-                && let Some(expr_end) = adjacent_atom_end(bytes, expr_start)
+                && string_literal_end_at(bytes, expr_start).is_none()
+                && let Some(expr_end) = adjacent_atom_run_end(bytes, expr_start)
             {
                 let next = skip_ascii_whitespace(bytes, expr_end, bytes.len());
                 if string_literal_end_at(bytes, next).is_some() {
@@ -5157,6 +5942,28 @@ fn expression_atom_start_byte(byte: u8) -> bool {
         || byte.is_ascii_alphabetic()
         || byte.is_ascii_digit()
         || matches!(byte, b'\'' | b'"' | b'(' | b'[' | b'{')
+}
+
+/// End of a run of atoms sitting between two string literals, including
+/// attribute access (`b.c`) and several space-separated names.
+fn adjacent_atom_run_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut end = adjacent_atom_end(bytes, start)?;
+    loop {
+        // `b.c` continues the same atom.
+        while bytes.get(end) == Some(&b'.')
+            && let Some(attribute_end) = adjacent_atom_end(bytes, end + 1)
+        {
+            end = attribute_end;
+        }
+        let next = skip_ascii_whitespace(bytes, end, bytes.len());
+        if next == end || string_literal_end_at(bytes, next).is_some() {
+            return Some(end);
+        }
+        match adjacent_atom_end(bytes, next) {
+            Some(atom_end) if atom_end > next => end = atom_end,
+            _ => return Some(end),
+        }
+    }
 }
 
 fn adjacent_atom_end(bytes: &[u8], index: usize) -> Option<usize> {

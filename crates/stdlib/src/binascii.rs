@@ -10,8 +10,8 @@ use rustpython_vm::{VirtualMachine, builtins::PyBaseExceptionRef};
 mod decl {
     use super::new_binascii_error;
     use crate::vm::{
-        PyResult, VirtualMachine,
-        builtins::{PyIntRef, PyTypeRef},
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::{PyIntRef, PyStr, PyStrRef, PyTypeRef},
         function::{ArgAsciiBuffer, ArgBytesLike, OptionalArg},
     };
     use rustpython_common::binascii;
@@ -28,6 +28,48 @@ mod decl {
     #[pyattr(name = "Incomplete", once)]
     fn incomplete_type(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type("binascii", "Incomplete", None)
+    }
+
+    // Like the ascii_buffer converter in CPython.
+    enum AsciiBuffer {
+        String(PyStrRef),
+        Buffer(ArgBytesLike),
+    }
+
+    impl TryFromObject for AsciiBuffer {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            match obj.downcast::<PyStr>() {
+                Ok(s) => {
+                    if s.as_wtf8().is_ascii() {
+                        Ok(Self::String(s))
+                    } else {
+                        Err(vm.new_value_error(
+                            "string argument should contain only ASCII characters",
+                        ))
+                    }
+                }
+                Err(obj) => ArgBytesLike::try_from_object(vm, obj.clone())
+                    .map(Self::Buffer)
+                    .map_err(|_| {
+                        vm.new_type_error(format!(
+                            "argument should be bytes, buffer or ASCII string, not '{:.100}'",
+                            obj.class().name()
+                        ))
+                    }),
+            }
+        }
+    }
+
+    impl AsciiBuffer {
+        fn with_ref<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&[u8]) -> R,
+        {
+            match self {
+                Self::String(s) => f(s.as_bytes()),
+                Self::Buffer(b) => b.with_ref(f),
+            }
+        }
     }
 
     #[pyfunction(name = "b2a_hex")]
@@ -56,7 +98,7 @@ mod decl {
 
     #[pyfunction(name = "a2b_hex")]
     #[pyfunction]
-    fn unhexlify(data: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn unhexlify(data: AsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         data.with_ref(binascii::unhexlify)
             .map_err(|e| new_binascii_error(e, vm))
     }
@@ -81,7 +123,7 @@ mod decl {
     #[derive(FromArgs)]
     struct A2bBase64Args {
         #[pyarg(any)]
-        s: ArgAsciiBuffer,
+        s: AsciiBuffer,
         #[pyarg(named, default = false)]
         strict_mode: bool,
     }
@@ -101,7 +143,7 @@ mod decl {
     #[derive(FromArgs)]
     struct A2bQpArgs {
         #[pyarg(any)]
-        data: ArgAsciiBuffer,
+        data: AsciiBuffer,
         #[pyarg(named, default = false)]
         header: bool,
     }
@@ -136,7 +178,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn a2b_uu(s: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn a2b_uu(s: AsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         s.with_ref(binascii::a2b_uu)
             .map_err(|e| new_binascii_error(e, vm))
     }

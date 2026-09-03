@@ -10,7 +10,10 @@ use crate::{
     atomic_func,
     class::{PyClassDef, PyClassImpl},
     convert::{ToPyObject, TransmuteFromObject},
-    function::{ArgSize, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{
+        ArgSize, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, check_meth_o,
+        check_no_kwargs, check_positional,
+    },
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -434,8 +437,10 @@ impl PyTuple {
         PyArithmeticValue::from_option(added.ok())
     }
 
-    #[pymethod]
-    fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    #[pymethod(text_signature = "($self, value, /)")]
+    fn count(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_meth_o(vm, "tuple.count", &func_args)?;
+        let (needle,): (PyObjectRef,) = func_args.bind(vm)?;
         let mut count: usize = 0;
         for element in self {
             if vm.identical_or_equal(element, &needle)? {
@@ -475,13 +480,12 @@ impl PyTuple {
         self._getitem(&needle, vm)
     }
 
-    #[pymethod]
-    fn index(
-        &self,
-        needle: PyObjectRef,
-        range: OptionalRangeArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
+    #[pymethod(text_signature = "($self, value, start=0, stop=sys.maxsize, /)")]
+    fn index(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "tuple.index", &func_args)?;
+        check_positional(vm, "index", func_args.args.len(), 1, 3)?;
+        type IndexArgs = (PyObjectRef, OptionalRangeArgs);
+        let (needle, range): IndexArgs = func_args.bind(vm)?;
         let (start, stop) = range.saturate(self.len(), vm)?;
         for (index, element) in self.elements.iter().enumerate().take(stop).skip(start) {
             if vm.identical_or_equal(element, &needle)? {
@@ -549,8 +553,8 @@ impl AsSequence for PyTuple {
                 match PyTuple::__add__(zelf.to_owned(), other.to_owned(), vm) {
                     PyArithmeticValue::Implemented(tuple) => Ok(tuple.into()),
                     PyArithmeticValue::NotImplemented => Err(vm.new_type_error(format!(
-                        "can only concatenate tuple (not '{}') to tuple",
-                        other.class().name()
+                        "can only concatenate tuple (not \"{}\") to tuple",
+                        other.class().slot_name()
                     ))),
                 }
             }),

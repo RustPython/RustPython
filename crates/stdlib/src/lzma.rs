@@ -7,7 +7,9 @@ mod _lzma {
     use crate::compression::DecompressArgs;
     use alloc::fmt;
     use rustpython_common::{compression::lzma as backend, lock::PyMutex};
-    use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytesRef, PyDict, PyType, PyTypeRef};
+    use rustpython_vm::builtins::{
+        PyBaseExceptionRef, PyBytesRef, PyDict, PyStr, PyType, PyTypeRef,
+    };
     use rustpython_vm::function::ArgBytesLike;
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
@@ -93,7 +95,7 @@ mod _lzma {
             backend::Error::Memory => vm.new_memory_error(""),
             backend::Error::Value(message) => vm.new_value_error(message),
             backend::Error::Lzma(message) => new_lzma_error(message, vm),
-            backend::Error::Eof => vm.new_eof_error("End of stream already reached"),
+            backend::Error::Eof => vm.new_eof_error("Already at end of stream"),
         }
     }
 
@@ -137,6 +139,30 @@ mod _lzma {
         })
     }
 
+    /// A spec dict is unpacked as keyword arguments in CPython, so a key the
+    /// filter does not take makes the whole specifier invalid.
+    fn check_filter_spec_keys(
+        spec: &PyObjectRef,
+        allowed: &[&str],
+        error: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let dict = spec.downcast_ref::<PyDict>().ok_or_else(|| {
+            vm.new_type_error("Filter specifier must be a dict or dict-like object")
+        })?;
+        for key in dict.keys_vec() {
+            let ok = key.downcast_ref::<PyStr>().is_some_and(|k| {
+                allowed
+                    .iter()
+                    .any(|a| k.as_wtf8().as_bytes() == a.as_bytes())
+            });
+            if !ok {
+                return Err(vm.new_value_error(error.to_owned()));
+            }
+        }
+        Ok(())
+    }
+
     fn parse_filter_chain_item(
         spec: &PyObjectRef,
         vm: &VirtualMachine,
@@ -144,6 +170,23 @@ mod _lzma {
         let mut parsed = filter_spec_with_id(spec, vm)?;
         match parsed.id {
             FILTER_LZMA1 | FILTER_LZMA2 => {
+                check_filter_spec_keys(
+                    spec,
+                    &[
+                        "id",
+                        "preset",
+                        "dict_size",
+                        "lc",
+                        "lp",
+                        "pb",
+                        "mode",
+                        "nice_len",
+                        "mf",
+                        "depth",
+                    ],
+                    "Invalid filter specifier for LZMA filter",
+                    vm,
+                )?;
                 parsed.preset = get_dict_opt_u32(spec, "preset", vm)?;
                 parsed.dict_size = get_dict_opt_u32(spec, "dict_size", vm)?;
                 parsed.lc = get_dict_opt_u32(spec, "lc", vm)?;
@@ -154,9 +197,23 @@ mod _lzma {
                 parsed.mf = get_dict_opt_u32(spec, "mf", vm)?;
                 parsed.depth = get_dict_opt_u32(spec, "depth", vm)?;
             }
-            FILTER_DELTA => parsed.dist = get_dict_opt_u32(spec, "dist", vm)?,
+            FILTER_DELTA => {
+                check_filter_spec_keys(
+                    spec,
+                    &["id", "dist"],
+                    "Invalid filter specifier for delta filter",
+                    vm,
+                )?;
+                parsed.dist = get_dict_opt_u32(spec, "dist", vm)?;
+            }
             FILTER_X86 | FILTER_POWERPC | FILTER_IA64 | FILTER_ARM | FILTER_ARMTHUMB
             | FILTER_SPARC => {
+                check_filter_spec_keys(
+                    spec,
+                    &["id", "start_offset"],
+                    "Invalid filter specifier for BCJ filter",
+                    vm,
+                )?;
                 parsed.start_offset = get_dict_opt_u32(spec, "start_offset", vm)?;
             }
             _ => {}

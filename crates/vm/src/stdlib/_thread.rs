@@ -681,15 +681,16 @@ pub(crate) mod _thread {
     fn stack_size(size: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult<usize> {
         const MIN_SIZE: usize = PY_OS_MIN_STACK_SIZE + SYSTEM_PAGE_SIZE;
 
-        let Ok(size) = size.map_or(Ok(0), |v| v.try_to_primitive(vm)) else {
-            return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
-        };
+        // CPython parses the argument as Py_ssize_t; conversion only fails on overflow.
+        let size: isize = size
+            .map_or(Ok(0), |v| v.try_to_primitive(vm))
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C ssize_t"))?;
 
-        if size != 0 && size < MIN_SIZE {
+        if size != 0 && size < MIN_SIZE as isize {
             return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
         }
 
-        Ok(vm.state.stacksize.swap(size))
+        Ok(vm.state.stacksize.swap(size as usize))
     }
 
     #[pyfunction]

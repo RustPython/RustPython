@@ -8,7 +8,7 @@ use crate::{
     VirtualMachine, atomic_func,
     class::{PyClassDef, PyClassImpl},
     common::hash::PyHash,
-    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue, check_positional},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Hashable, IterNext, Iterable, PyComparisonOp,
@@ -51,13 +51,7 @@ fn iter_search(
     match flag {
         SearchType::Count => Ok(count),
         SearchType::Contains => Ok(0),
-        SearchType::Index => Err(vm.new_value_error(format!(
-            "{} not in range",
-            item.repr(vm)
-                .as_ref()
-                .map_or_else(|_| "value".as_ref(), |s| s.as_wtf8())
-                .to_owned()
-        ))),
+        SearchType::Index => Err(vm.new_value_error("sequence.index(x): x not in sequence")),
     }
 }
 
@@ -351,9 +345,8 @@ impl PyRange {
 
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let range = if args.args.is_empty() {
-            return Err(vm.new_arity_type_error(Self::NAME, 1..=3, 0));
-        } else if args.args.len() == 1 {
+        check_positional(vm, "range", args.args.len(), 1, 3)?;
+        let range = if args.args.len() <= 1 {
             let stop = args.bind_for(vm, Self::NAME)?;
             Self::new(cls, stop, vm)
         } else {
@@ -398,7 +391,7 @@ impl Py<PyRange> {
         if let Ok(int) = needle.clone().downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
                 Some(idx) => Ok(idx),
-                None => Err(vm.new_value_error(format!("{int} is not in range"))),
+                None => Err(vm.new_value_error("sequence.index(x): x not in sequence")),
             }
         } else {
             // Fallback to iteration.

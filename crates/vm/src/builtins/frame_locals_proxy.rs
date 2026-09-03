@@ -242,7 +242,7 @@ impl FrameLocalsProxy {
         let Some(other) = other.downcast_ref::<PyDict>() else {
             return Ok(vm.ctx.not_implemented());
         };
-        let result = other.copy().into_ref(&vm.ctx);
+        let result = other.copy_inner().into_ref(&vm.ctx);
         result.merge_object(self.snapshot(vm)?.into(), vm)?;
         Ok(result.into())
     }

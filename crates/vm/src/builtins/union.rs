@@ -313,7 +313,7 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<U
                     .call_method(hashable_set.as_ref(), "__contains__", (arg.clone(),))
                     .and_then(|r| r.try_to_bool(vm))?;
                 if !contains {
-                    hashable_set.add(arg.clone(), vm)?;
+                    hashable_set.add_element(arg.as_object(), vm)?;
                     hashable_list.push(arg.clone());
                     new_args.push(arg.clone());
                 }

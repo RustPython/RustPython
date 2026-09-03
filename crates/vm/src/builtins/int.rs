@@ -13,8 +13,8 @@ use crate::{
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
-        PyComparisonValue,
+        ArgByteOrder, ArgIntoBool, ArgSize, FuncArgs, OptionalArg, OptionalOption,
+        PyArithmeticValue, PyComparisonValue, check_noargs, check_positional,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err, numeric_literal_from_str},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -246,6 +246,8 @@ impl Constructor for PyInt {
     type Args = FuncArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // int_vectorcall: _PyArg_CheckPositional("int", nargs, 0, 2)
+        check_positional(vm, "int", args.args.len(), 0, 2)?;
         if cls.is(vm.ctx.types.bool_type) {
             return Err(vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()"));
         }
@@ -529,8 +531,8 @@ impl PyInt {
         if spec.is_empty() && !zelf.class().is(vm.ctx.types.int_type) {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        let format_spec =
-            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let format_spec = FormatSpec::parse(spec.as_str())
+            .map_err(|err| crate::format::format_spec_error_with_type(err, zelf.as_object(), vm))?;
         if format_spec.is_decimal_int_format() {
             check_int_to_str_digits(&zelf.value, vm)?;
         }
@@ -550,19 +552,31 @@ impl PyInt {
         core::mem::size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
     }
 
-    #[pymethod]
-    fn as_integer_ratio(&self, vm: &VirtualMachine) -> (PyRef<Self>, i32) {
-        (vm.ctx.new_bigint(&self.value), 1)
+    #[pymethod(text_signature = "($self, /)")]
+    fn as_integer_ratio(
+        &self,
+        func_args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyRef<Self>, i32)> {
+        check_noargs(vm, "int.as_integer_ratio", &func_args)?;
+        Ok((vm.ctx.new_bigint(&self.value), 1))
     }
 
-    #[pymethod]
-    fn bit_length(&self) -> u64 {
-        self.value.bits()
+    #[pymethod(text_signature = "($self, /)")]
+    fn bit_length(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<u64> {
+        // method_noargs wrapper: "int.bit_length() takes no arguments (N given)"
+        check_noargs(vm, "int.bit_length", &func_args)?;
+        Ok(self.value.bits())
     }
 
-    #[pymethod]
-    fn conjugate(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
-        zelf.__int__(vm)
+    #[pymethod(text_signature = "($self, /)")]
+    fn conjugate(
+        zelf: PyRef<Self>,
+        func_args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRefExact<Self>> {
+        check_noargs(vm, "int.conjugate", &func_args)?;
+        Ok(zelf.__int__(vm))
     }
 
     #[pyclassmethod]
@@ -586,7 +600,10 @@ impl PyInt {
     #[pymethod]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
         let signed = args.signed.map_or(false, Into::into);
-        let byte_len = args.length;
+        let length = args.length.map_or(1isize, |arg| arg.value);
+        let byte_len: usize = length
+            .try_into()
+            .map_err(|_| vm.new_value_error("length argument must be non-negative"))?;
 
         let value = self.as_bigint();
         match value.sign() {
@@ -649,9 +666,10 @@ impl PyInt {
         1
     }
 
-    #[pymethod]
-    const fn is_integer(&self) -> bool {
-        true
+    #[pymethod(text_signature = "($self, /)")]
+    fn is_integer(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "int.is_integer", &func_args)?;
+        Ok(true)
     }
 
     #[pymethod]
@@ -811,8 +829,8 @@ struct IntFromByteArgs {
 
 #[derive(FromArgs)]
 struct IntToByteArgs {
-    #[pyarg(any, default = 1)]
-    length: usize,
+    #[pyarg(any, optional)]
+    length: OptionalArg<ArgSize>,
     #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
     #[pyarg(named, optional)]

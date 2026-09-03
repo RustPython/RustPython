@@ -10,7 +10,9 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     common::hash::{PyHash, PyUHash},
     convert::ToPyObject,
-    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{
+        ArgIndex, FuncArgs, OptionalArg, PyComparisonValue, check_meth_o, check_positional,
+    },
     sliceable::SaturatedSlice,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
@@ -126,10 +128,9 @@ impl PySlice {
 
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_positional(vm, "slice", args.args.len(), 1, 3)?;
         let slice: Self = match args.args.len() {
-            0 => {
-                return Err(vm.new_arity_type_error(Self::NAME, 1..=3, 0));
-            }
+            0 => unreachable!("rejected by check_positional"),
             1 => {
                 let stop = args.bind_for(vm, Self::NAME)?;
                 Self {
@@ -166,7 +167,7 @@ impl PySlice {
             step = this_step.as_bigint().clone();
 
             if step.is_zero() {
-                return Err(vm.new_value_error("slice step cannot be zero."));
+                return Err(vm.new_value_error("slice step cannot be zero"));
             }
         }
 
@@ -233,8 +234,10 @@ impl PySlice {
         Ok((start, stop, step))
     }
 
-    #[pymethod]
-    fn indices(&self, length: ArgIndex, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    #[pymethod(text_signature = "($self, object, /)")]
+    fn indices(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        check_meth_o(vm, "slice.indices", &func_args)?;
+        let (length,): (ArgIndex,) = func_args.bind(vm)?;
         let length = length.into_int_ref();
         let length = length.as_bigint();
         if length.is_negative() {

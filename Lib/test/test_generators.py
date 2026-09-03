@@ -2729,7 +2729,7 @@ RuntimeError: generator ignored GeneratorExit
 
 Our ill-behaved code should be invoked during GC:
 
->>> with support.catch_unraisable_exception() as cm:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> with support.catch_unraisable_exception() as cm:
 ...     g = f()
 ...     next(g)
 ...     gen_repr = repr(g)
@@ -2847,7 +2847,7 @@ to test.
 ...             raise RuntimeError(message)
 ...         invoke("del failed")
 ...
->>> with support.catch_unraisable_exception() as cm:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> with support.catch_unraisable_exception() as cm:
 ...     leaker = Leaker()
 ...     del_repr = repr(type(leaker).__del__)
 ...     del leaker

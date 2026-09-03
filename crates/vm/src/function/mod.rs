@@ -13,7 +13,8 @@ mod time;
 
 pub use argument::{
     ArgumentError, Callee, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
-    OptionalArg, OptionalOption, PosArgs,
+    OptionalArg, OptionalOption, PosArgs, check_meth_o, check_no_kwargs, check_noargs,
+    check_positional,
 };
 pub(crate) use argument::{arity_message, unexpected_keyword_message};
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};

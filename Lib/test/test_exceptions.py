@@ -1724,7 +1724,6 @@ class ExceptionTests(unittest.TestCase):
             os.listdir(__file__)
         self.assertEqual(cm.exception.errno, errno.ENOTDIR, cm.exception)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None != 'Exception ignored while calling dealloca[83 chars]200>'
     def test_unraisable(self):
         # Issue #22836: PyErr_WriteUnraisable() should give sensible reports
         class BrokenDel:

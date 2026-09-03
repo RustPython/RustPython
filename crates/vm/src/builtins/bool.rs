@@ -107,10 +107,17 @@ impl Constructor for PyBool {
 impl PyBool {
     #[pymethod]
     fn __format__(zelf: PyObjectRef, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
+        let class_name = zelf.class().name().to_string();
         let new_bool = zelf.try_to_bool(vm)?;
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_bool(new_bool))
-            .map_err(|err| err.into_pyexception(vm))
+            .map_err(|err| match err {
+                rustpython_common::format::FormatSpecError::InvalidFormatSpecifier(spec) => vm
+                    .new_value_error(format!(
+                        "Invalid format specifier '{spec}' for object of type '{class_name}'"
+                    )),
+                other => other.into_pyexception(vm),
+            })
     }
 }
 

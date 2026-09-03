@@ -1095,7 +1095,10 @@ where
             }
         };
         let drop_first_typed = usize::from(implicit_self.is_some());
-        let sig_doc = text_signature(func.sig(), &py_name, implicit_self);
+        let sig_doc = match item_meta.explicit_text_signature()? {
+            Some(params) => Some(format!("{py_name}{params}")),
+            None => text_signature(func.sig(), &py_name, implicit_self),
+        };
         let call_flags = infer_native_call_flags(func.sig(), drop_first_typed);
 
         // Add #[allow(non_snake_case)] for setter methods like set___name__
@@ -1610,7 +1613,7 @@ impl ToTokens for MemberNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "text_signature"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)

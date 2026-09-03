@@ -360,7 +360,11 @@ mod math {
 
     #[pyfunction]
     fn trunc(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        try_magic_method(identifier!(vm, __trunc__), vm, &x)
+        let method =
+            vm.get_method_or_type_error(x.to_owned(), identifier!(vm, __trunc__), || {
+                format!("type {} doesn't define __trunc__ method", x.class().name())
+            })?;
+        method.call((), vm)
     }
 
     #[pyfunction]
@@ -407,13 +411,16 @@ mod math {
     #[pyfunction]
     fn ldexp(
         x: Either<PyRef<PyFloat>, PyIntRef>,
-        i: PyIntRef,
+        i: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<f64> {
         let value = match x {
             Either::A(f) => f.to_f64(),
             Either::B(z) => try_bigint_to_f64(z.as_bigint(), vm)?,
         };
+        let i = i
+            .downcast::<PyInt>()
+            .map_err(|_| vm.new_type_error("Expected an int as second argument to ldexp."))?;
         pymath::math::ldexp_bigint(value, i.as_bigint()).map_err(|err| pymath_exception(err, vm))
     }
 
@@ -426,7 +433,10 @@ mod math {
     fn fsum(seq: ArgIterable<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
         let values: Result<Vec<f64>, _> =
             seq.iter(vm)?.map(|r| r.map(|v| v.into_float())).collect();
-        pymath::math::fsum(values?).map_err(|err| pymath_exception(err, vm))
+        pymath::math::fsum(values?).map_err(|err| match err {
+            pymath::Error::EDOM => vm.new_value_error("-inf + inf in fsum"),
+            pymath::Error::ERANGE => vm.new_overflow_error("intermediate overflow in fsum"),
+        })
     }
 
     #[pyfunction]

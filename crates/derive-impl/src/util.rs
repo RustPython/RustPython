@@ -296,6 +296,13 @@ pub(crate) trait ItemMeta: Sized {
         self.inner()._optional_str("name").ok().flatten()
     }
 
+    /// An explicitly declared `__text_signature__` parameter list, for a
+    /// function whose Rust arguments cannot describe its Python ones, e.g. one
+    /// that takes `FuncArgs` to check its own arity.
+    fn explicit_text_signature(&self) -> Result<Option<String>> {
+        self.inner()._optional_str("text_signature")
+    }
+
     fn new_meta_error(&self, msg: &str) -> syn::Error {
         let inner = self.inner();
         err_span!(inner.meta_ident, "#[{}] {}", inner.meta_name(), msg)
@@ -304,7 +311,7 @@ pub(crate) trait ItemMeta: Sized {
 pub(crate) struct SimpleItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for SimpleItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "text_signature"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)

@@ -278,7 +278,7 @@ mod _functools {
 
             if dict.is(&vm.ctx.none) {
                 // If dict is None, clear the instance dict
-                instance_dict.clear();
+                instance_dict.clear_inner();
                 return Ok(());
             }
 
@@ -288,7 +288,7 @@ mod _functools {
                 .map_err(|_| vm.new_type_error("invalid partial state"))?;
 
             // Clear existing dict and update with new values
-            instance_dict.clear();
+            instance_dict.clear_inner();
             for (key, value) in dict_obj {
                 instance_dict.set_item(&*key, value, vm)?;
             }

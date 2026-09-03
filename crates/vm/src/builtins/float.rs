@@ -10,6 +10,7 @@ use crate::{
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
         ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue,
+        check_meth_o, check_noargs, check_positional,
     },
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -176,6 +177,8 @@ impl Constructor for PyFloat {
     type Args = OptionalArg<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // float_vectorcall: _PyArg_CheckPositional("float", nargs, 0, 1)
+        check_positional(vm, "float", args.args.len(), 0, 1)?;
         // Bind before the fast path so FromArgs::arity decides how many arguments
         // are acceptable, rather than a count repeated here.
         let arg: Self::Args = args.bind_for(vm, Self::NAME)?;
@@ -250,8 +253,8 @@ impl PyFloat {
         if spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        let format_spec =
-            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let format_spec = FormatSpec::parse(spec.as_str())
+            .map_err(|err| crate::format::format_spec_error_with_type(err, zelf.as_object(), vm))?;
         let result = if format_spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
             format_spec.format_float_locale(zelf.value, &locale)
@@ -336,14 +339,15 @@ impl PyFloat {
         0.0f64
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, /)")]
     const fn conjugate(zelf: PyRef<Self>) -> PyRef<Self> {
         zelf
     }
 
-    #[pymethod]
-    fn is_integer(&self) -> bool {
-        crate::literal::float::is_integer(self.value)
+    #[pymethod(text_signature = "($self, /)")]
+    fn is_integer(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "float.is_integer", &func_args)?;
+        Ok(crate::literal::float::is_integer(self.value))
     }
 
     #[pymethod]
@@ -378,8 +382,13 @@ impl PyFloat {
         }
     }
 
-    #[pyclassmethod]
-    fn fromhex(cls: PyTypeRef, string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
+    #[pyclassmethod(text_signature = "($type, string, /)")]
+    fn fromhex(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_meth_o(vm, "float.fromhex", &func_args)?;
+        if !func_args.args[0].fast_isinstance(vm.ctx.types.str_type) {
+            return Err(vm.new_type_error("bad argument type for built-in operation"));
+        }
+        let (string,): (PyUtf8StrRef,) = func_args.bind(vm)?;
         use float_ops::HexFloatError;
         let result = float_ops::from_hex(string.as_str()).map_err(|e| match e {
             HexFloatError::Overflow => {
@@ -393,9 +402,10 @@ impl PyFloat {
         PyType::call(&cls, vec![vm.ctx.new_float(result).into()].into(), vm)
     }
 
-    #[pymethod]
-    fn hex(&self) -> String {
-        crate::literal::float::to_hex(self.value)
+    #[pymethod(text_signature = "($self, /)")]
+    fn hex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+        check_noargs(vm, "float.hex", &func_args)?;
+        Ok(crate::literal::float::to_hex(self.value))
     }
 
     #[pymethod]

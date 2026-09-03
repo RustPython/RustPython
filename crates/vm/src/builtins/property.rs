@@ -3,7 +3,7 @@
 */
 use super::PyType;
 use crate::common::lock::PyRwLock;
-use crate::function::{IntoFuncArgs, PosArgs};
+use crate::function::{IntoFuncArgs, PosArgs, check_meth_o};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -235,30 +235,36 @@ impl PyProperty {
         Ok(new_prop_ref)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, object, /)")]
     fn getter(
         zelf: PyRef<Self>,
-        getter: Option<PyObjectRef>,
+        func_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
+        check_meth_o(vm, "property.getter", &func_args)?;
+        let (getter,): (Option<PyObjectRef>,) = func_args.bind(vm)?;
         Self::clone_property_with(zelf, getter, None, None, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, object, /)")]
     fn setter(
         zelf: PyRef<Self>,
-        setter: Option<PyObjectRef>,
+        func_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
+        check_meth_o(vm, "property.setter", &func_args)?;
+        let (setter,): (Option<PyObjectRef>,) = func_args.bind(vm)?;
         Self::clone_property_with(zelf, None, setter, None, vm)
     }
 
-    #[pymethod]
+    #[pymethod(text_signature = "($self, object, /)")]
     fn deleter(
         zelf: PyRef<Self>,
-        deleter: Option<PyObjectRef>,
+        func_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
+        check_meth_o(vm, "property.deleter", &func_args)?;
+        let (deleter,): (Option<PyObjectRef>,) = func_args.bind(vm)?;
         Self::clone_property_with(zelf, None, None, deleter, vm)
     }
 

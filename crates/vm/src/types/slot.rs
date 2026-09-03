@@ -368,6 +368,13 @@ pub(crate) fn contains_wrapper(
     needle: &PyObject,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
+    // slot_sq_contains: if __contains__ is None, the object is not a container
+    let cls = obj.class();
+    if let Some(attr) = cls.get_attr(identifier!(vm, __contains__))
+        && vm.is_none(&attr)
+    {
+        return Err(vm.new_type_error(format!("'{}' object is not a container", cls.name())));
+    }
     let ret = vm.call_special_method(obj, identifier!(vm, __contains__), (needle,))?;
     ret.try_to_bool(vm)
 }
@@ -590,6 +597,16 @@ fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 fn bool_wrapper(num: PyNumber<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+    // slot_nb_bool: if __bool__ is None, the object cannot be interpreted as a boolean
+    let cls = num.obj.class();
+    if let Some(attr) = cls.get_attr(identifier!(vm, __bool__))
+        && vm.is_none(&attr)
+    {
+        return Err(vm.new_type_error(format!(
+            "'{}' cannot be interpreted as a boolean",
+            cls.name()
+        )));
+    }
     let result = vm.call_special_method(num.obj, identifier!(vm, __bool__), ())?;
     // __bool__ must return exactly bool, not int subclass
     if !result.class().is(vm.ctx.types.bool_type) {

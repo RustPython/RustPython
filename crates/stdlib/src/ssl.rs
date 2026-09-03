@@ -49,7 +49,8 @@ mod _ssl {
             },
             convert::IntoPyException,
             function::{
-                ArgBytesLike, ArgMemoryBuffer, Either, FuncArgs, OptionalArg, PyComparisonValue,
+                ArgBytesLike, ArgMemoryBuffer, Either, FsPath, FuncArgs, OptionalArg,
+                PyComparisonValue,
             },
             stdlib::_warnings,
             types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -881,20 +882,20 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct LoadVerifyLocationsArgs {
-        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
-        cafile: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
-        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
-        capath: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
+        #[pyarg(any, optional)]
+        cafile: OptionalArg<Option<PyObjectRef>>,
+        #[pyarg(any, optional)]
+        capath: OptionalArg<Option<PyObjectRef>>,
         #[pyarg(any, optional, error_msg = "cadata should be a str or bytes")]
         cadata: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
     }
 
     #[derive(FromArgs)]
     struct LoadCertChainArgs {
-        #[pyarg(any, error_msg = "path should be a str or bytes")]
-        certfile: Either<PyStrRef, ArgBytesLike>,
-        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
-        keyfile: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
+        #[pyarg(any)]
+        certfile: PyObjectRef,
+        #[pyarg(any, optional)]
+        keyfile: OptionalArg<Option<PyObjectRef>>,
         #[pyarg(any, optional)]
         password: OptionalArg<PyObjectRef>,
     }
@@ -923,6 +924,37 @@ mod _ssl {
                 )?;
             }
             Ok(())
+        }
+
+        // CPython set_min_max_proto_version(): contexts with a fixed protocol
+        // reject minimum_version/maximum_version changes before value checks.
+        fn check_version_modification_supported(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if !matches!(
+                self.protocol,
+                PROTOCOL_TLS | PROTOCOL_TLS_CLIENT | PROTOCOL_TLS_SERVER
+            ) {
+                return Err(vm.new_value_error(
+                    "The context's protocol doesn't support modification of highest and lowest version.",
+                ));
+            }
+            Ok(())
+        }
+
+        // CPython set_min_max_proto_version(): only TLSVersion enum members are
+        // accepted; anything else is formatted as an unsigned hex version.
+        fn check_supported_tls_version(value: i32, vm: &VirtualMachine) -> PyResult<()> {
+            match value {
+                PROTO_SSLv3
+                | PROTO_TLSv1
+                | PROTO_TLSv1_1
+                | PROTO_MINIMUM_SUPPORTED
+                | PROTO_MAXIMUM_SUPPORTED
+                | PROTO_TLSv1_2
+                | PROTO_TLSv1_3 => Ok(()),
+                _ => Err(
+                    vm.new_value_error(format!("Unsupported TLS/SSL version {:#x}", value as u32))
+                ),
+            }
         }
 
         // Helper method to convert DER certificate bytes to Python dict
@@ -1000,7 +1032,7 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_num_tickets(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             if value < 0 {
-                return Err(vm.new_value_error("num_tickets must be a non-negative integer"));
+                return Err(vm.new_value_error("value must be non-negative"));
             }
             if self.protocol != PROTOCOL_TLS_SERVER {
                 return Err(
@@ -1058,16 +1090,8 @@ mod _ssl {
 
         #[pygetset(setter)]
         fn set_minimum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
-            // Validate that the value is a valid TLS version constant
-            // Valid values: 0 (default), -2 (MINIMUM_SUPPORTED), -1 (MAXIMUM_SUPPORTED),
-            // or 0x0300-0x0304 (SSLv3-TLSv1.3)
-            if value != 0
-                && value != -2
-                && value != -1
-                && !(PROTO_SSLv3..=PROTO_TLSv1_3).contains(&value)
-            {
-                return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
-            }
+            self.check_version_modification_supported(vm)?;
+            Self::check_supported_tls_version(value, vm)?;
             Self::warn_deprecated_tls_version(value, vm)?;
 
             // Convert special values to rustls actual supported versions
@@ -1091,16 +1115,8 @@ mod _ssl {
 
         #[pygetset(setter)]
         fn set_maximum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
-            // Validate that the value is a valid TLS version constant
-            // Valid values: 0 (default), -2 (MINIMUM_SUPPORTED), -1 (MAXIMUM_SUPPORTED),
-            // or 0x0300-0x0304 (SSLv3-TLSv1.3)
-            if value != 0
-                && value != -2
-                && value != -1
-                && !(PROTO_SSLv3..=PROTO_TLSv1_3).contains(&value)
-            {
-                return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
-            }
+            self.check_version_modification_supported(vm)?;
+            Self::check_supported_tls_version(value, vm)?;
             Self::warn_deprecated_tls_version(value, vm)?;
 
             // Convert special values to rustls actual supported versions
@@ -1120,11 +1136,17 @@ mod _ssl {
             let crypto_ext = CryptoExt::get_ext();
 
             // Parse certfile argument (str or bytes) to path
-            let cert_path = Self::parse_path_arg(&args.certfile, vm)?;
+            let cert_path = Self::parse_path_arg(
+                args.certfile,
+                "certfile should be a valid filesystem path",
+                vm,
+            )?;
 
             // Parse keyfile argument (default to certfile if not provided)
             let key_path = match args.keyfile {
-                OptionalArg::Present(Some(ref k)) => Self::parse_path_arg(k, vm)?,
+                OptionalArg::Present(Some(k)) => {
+                    Self::parse_path_arg(k, "keyfile should be a valid filesystem path", vm)?
+                }
                 _ => cert_path.clone(),
             };
 
@@ -1312,14 +1334,22 @@ mod _ssl {
             }
 
             // Parse arguments BEFORE acquiring locks to reduce lock scope
-            let cafile_path = if let OptionalArg::Present(Some(ref cafile_obj)) = args.cafile {
-                Some(Self::parse_path_arg(cafile_obj, vm)?)
+            let cafile_path = if let OptionalArg::Present(Some(cafile_obj)) = args.cafile {
+                Some(Self::parse_path_arg(
+                    cafile_obj,
+                    "cafile should be a valid filesystem path",
+                    vm,
+                )?)
             } else {
                 None
             };
 
-            let capath_dir = if let OptionalArg::Present(Some(ref capath_obj)) = args.capath {
-                Some(Self::parse_path_arg(capath_obj, vm)?)
+            let capath_dir = if let OptionalArg::Present(Some(capath_obj)) = args.capath {
+                Some(Self::parse_path_arg(
+                    capath_obj,
+                    "capath should be a valid filesystem path",
+                    vm,
+                )?)
             } else {
                 None
             };
@@ -1862,7 +1892,7 @@ mod _ssl {
             let curve_name = if let Ok(s) = PyUtf8StrRef::try_from_object(vm, name.clone()) {
                 s.as_str().to_owned()
             } else if name.check_buffer() {
-                let b = ArgBytesLike::try_from_object(vm, name)?;
+                let b = ArgBytesLike::try_from_object(vm, name.clone())?;
                 String::from_utf8(b.borrow_buf().to_vec())
                     .map_err(|_| vm.new_value_error("Invalid curve name encoding"))?
             } else {
@@ -1884,7 +1914,10 @@ mod _ssl {
             ];
 
             if !valid_curves.contains(&curve_name.as_str()) {
-                return Err(vm.new_value_error(format!("unknown curve name '{curve_name}'")));
+                return Err(vm.new_value_error(format!(
+                    "unknown elliptic curve name {}",
+                    name.repr(vm)?.to_string_lossy()
+                )));
             }
 
             // Store the curve name to be used during handshake
@@ -2075,14 +2108,25 @@ mod _ssl {
 
         /// Parse path argument (str or bytes) to string
         fn parse_path_arg(
-            arg: &Either<PyStrRef, ArgBytesLike>,
+            arg: PyObjectRef,
+            err_msg: &'static str,
             vm: &VirtualMachine,
         ) -> PyResult<String> {
-            match arg {
-                Either::A(s) => Ok(s.clone().try_into_utf8(vm)?.as_str().to_owned()),
-                Either::B(b) => String::from_utf8(b.borrow_buf().to_vec())
-                    .map_err(|_| vm.new_value_error("path contains invalid UTF-8")),
+            // PyUnicode_FSConverter semantics: os.fspath() conversion with
+            // conversion TypeErrors replaced by err_msg, then reject NULs.
+            let path =
+                FsPath::try_from(arg, false, "expected str, bytes or os.PathLike object", vm)
+                    .map_err(|e| {
+                        if e.class().is(vm.ctx.exceptions.type_error) {
+                            vm.new_type_error(err_msg)
+                        } else {
+                            e
+                        }
+                    })?;
+            if path.as_bytes().contains(&0) {
+                return Err(vm.new_value_error("embedded null byte"));
             }
+            Ok(path.to_string_lossy().into_owned())
         }
 
         /// Parse password argument (str, bytes-like, or callable)
@@ -2258,6 +2302,17 @@ mod _ssl {
             arg: &Either<PyStrRef, ArgBytesLike>,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<u8>> {
+            // CPython _add_ca_certs() length checks
+            let len = match arg {
+                Either::A(s) => s.as_bytes().len(),
+                Either::B(b) => b.borrow_buf().len(),
+            };
+            if len == 0 {
+                return Err(vm.new_value_error("Empty certificate data"));
+            }
+            if len > i32::MAX as usize {
+                return Err(vm.new_overflow_error("Certificate data is too long."));
+            }
             match arg {
                 Either::A(s) => Ok(s.clone().try_into_utf8(vm)?.as_str().as_bytes().to_vec()),
                 Either::B(b) => Ok(b.borrow_buf().to_vec()),
@@ -2298,7 +2353,9 @@ mod _ssl {
                     ));
                 }
                 _ => {
-                    return Err(vm.new_value_error(format!("invalid protocol version: {protocol}")));
+                    return Err(vm.new_value_error(format!(
+                        "invalid or unsupported protocol version {protocol}"
+                    )));
                 }
             };
             if let Some(protocol_name) = deprecated_protocol {
@@ -3711,6 +3768,11 @@ mod _ssl {
             if let OptionalArg::Present(buf_arg) = &buffer {
                 let buf_len = buf_arg.len();
                 if len_val <= 0 || len > buf_len {
+                    // CPython truncates the length to a C int and rejects buffers
+                    // too large for that
+                    if buf_len > i32::MAX as usize {
+                        return Err(vm.new_overflow_error("maximum length can't fit in a C 'int'"));
+                    }
                     len = buf_len;
                 }
             }
@@ -4087,7 +4149,10 @@ mod _ssl {
         }
 
         #[pygetset(setter)]
-        fn set_context(&self, value: PyRef<PySSLContext>, _vm: &VirtualMachine) {
+        fn set_context(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let value = value
+                .downcast::<PySSLContext>()
+                .map_err(|_| vm.new_type_error("The value must be a SSLContext"))?;
             // Update context reference immediately
             // SSL_set_SSL_CTX allows context changes at any time,
             // even after handshake completion
@@ -4095,6 +4160,7 @@ mod _ssl {
 
             // Clear pending context as we've applied the change
             *self.pending_context.write() = None;
+            Ok(())
         }
 
         #[pygetset]
@@ -4699,7 +4765,7 @@ mod _ssl {
 
             if cb_type_str != "tls-unique" {
                 return Err(vm.new_value_error(format!(
-                    "Unsupported channel binding type '{cb_type_str}'",
+                    "'{cb_type_str}' channel binding type not implemented",
                 )));
             }
 
@@ -4933,6 +4999,43 @@ mod _ssl {
         name: OptionalArg<bool>,
     }
 
+    // Mimics the dotted-OID syntax acceptance of OpenSSL's OBJ_txt2obj():
+    // first arc 0-2 without leading zeros, second arc below 40 when the first
+    // is 0 or 1, at least two numeric arcs; trailing junk is ignored.
+    fn oid_syntax_accepted(s: &str) -> bool {
+        let s = s.as_bytes();
+        let numeric_arc = |mut i: usize| -> (usize, Option<u64>) {
+            let start = i;
+            let mut v = 0u64;
+            while i < s.len() && s[i].is_ascii_digit() {
+                v = v.saturating_mul(10).saturating_add((s[i] - b'0') as u64);
+                i += 1;
+            }
+            (i, (i > start).then_some(v))
+        };
+
+        let (i, Some(first)) = numeric_arc(0) else {
+            return false;
+        };
+        if (s[0] == b'0' && i > 1) || first > 2 || i >= s.len() || s[i] != b'.' {
+            return false;
+        }
+        let (mut j, second) = numeric_arc(i + 1);
+        if let Some(second) = second
+            && first < 2
+            && second > 39
+        {
+            return false;
+        }
+        let mut numeric_arcs = 1 + usize::from(second.is_some());
+        while j < s.len() && s[j] == b'.' {
+            let (next, arc) = numeric_arc(j + 1);
+            j = next;
+            numeric_arcs += usize::from(arc.is_some());
+        }
+        numeric_arcs >= 2
+    }
+
     #[pyfunction]
     fn txt2obj(args: Txt2ObjArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let txt = args.txt.as_str();
@@ -4951,7 +5054,17 @@ mod _ssl {
             None
         };
 
-        let entry = entry.ok_or_else(|| vm.new_value_error(format!("unknown object '{txt}'")))?;
+        let entry = entry.ok_or_else(|| {
+            // OpenSSL instantiates any syntactically valid dotted OID and only
+            // then fails to map it to a NID; invalid syntax fails the lookup.
+            if oid_syntax_accepted(txt) {
+                vm.new_value_error("Unknown object")
+            } else {
+                // CPython truncates the text with "%.100s"
+                let end = txt.char_indices().nth(100).map_or(txt.len(), |(i, _)| i);
+                vm.new_value_error(format!("unknown object '{}'", &txt[..end]))
+            }
+        })?;
 
         // Return tuple: (nid, shortname, longname, oid)
         Ok(vm
@@ -4966,6 +5079,13 @@ mod _ssl {
 
     #[pyfunction]
     fn nid2obj(nid: i32, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if nid < 0 {
+            return Err(vm.new_value_error("NID must be positive."));
+        }
+        if nid == 0 {
+            // OBJ_nid2obj(0) yields NID_undef, which asn1obj2py rejects
+            return Err(vm.new_value_error("Unknown object"));
+        }
         let entry = oid::find_by_nid(nid)
             .ok_or_else(|| vm.new_value_error(format!("unknown NID {nid}")))?;
 
@@ -5051,30 +5171,34 @@ mod _ssl {
     /// Test helper to decode a certificate from a file path
     ///
     /// This is a simplified wrapper around cert_der_to_dict_helper that handles
-    /// file reading and PEM/DER auto-detection. Used by test suite.
+    /// file reading and PEM parsing. Used by test suite.
     #[pyfunction]
     fn _test_decode_cert(path: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        // Read certificate file
+        // Read certificate file; CPython reports file-open and PEM-decode
+        // failures as SSLError
         let path_str = path.as_str();
-        let cert_data = rustpython_host_env::fs::read(path_str).map_err(|e| {
-            vm.new_os_error(format!("Failed to read certificate file {path_str}: {e}"))
+        let cert_data = rustpython_host_env::fs::read(path_str).map_err(|_| {
+            vm.new_os_subtype_error(
+                PySSLError::class(&vm.ctx).to_owned(),
+                None,
+                "Can't open file",
+            )
+            .upcast()
         })?;
 
-        // Auto-detect PEM vs DER format
-        let cert_der = if cert_data
-            .windows(27)
-            .any(|w| w == b"-----BEGIN CERTIFICATE-----")
-        {
-            // Parse PEM format
-            let mut cursor = std::io::Cursor::new(&cert_data);
-            rustls_pemfile::certs(&mut cursor)
-                .find_map(|r| r.ok())
-                .ok_or_else(|| vm.new_value_error("No valid certificate found in PEM file"))?
-                .to_vec()
-        } else {
-            // Assume DER format
-            cert_data
-        };
+        // CPython only accepts PEM input here
+        let mut cursor = std::io::Cursor::new(&cert_data);
+        let cert_der = rustls_pemfile::certs(&mut cursor)
+            .find_map(|r| r.ok())
+            .ok_or_else(|| {
+                vm.new_os_subtype_error(
+                    PySSLError::class(&vm.ctx).to_owned(),
+                    None,
+                    "Error decoding PEM-encoded file",
+                )
+                .upcast()
+            })?
+            .to_vec();
 
         // Reuse the comprehensive helper function
         cert::cert_der_to_dict_helper(vm, &cert_der)

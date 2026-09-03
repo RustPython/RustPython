@@ -3715,7 +3715,7 @@ impl ExecutingFrame<'_> {
             Instruction::BuildSet { count: size } => {
                 let set = PySet::default().into_ref(&vm.ctx);
                 for element in self.pop_multiple(size.get(arg) as usize) {
-                    set.add(element, vm)?;
+                    set.add_element(&element, vm)?;
                 }
                 self.push_value(set.into());
                 Ok(None)
@@ -4064,7 +4064,27 @@ impl ExecutingFrame<'_> {
             }
             Instruction::GetAiter => {
                 let aiterable = self.pop_value();
-                let aiter = vm.call_special_method(&aiterable, identifier!(vm, __aiter__), ())?;
+                // GET_AITER: __aiter__ is resolved through the type slot
+                // (am_aiter), and its result must implement __anext__.
+                let aiter = match vm.get_special_method(&aiterable, identifier!(vm, __aiter__))? {
+                    Some(method) => method.invoke((), vm)?,
+                    None => {
+                        return Err(vm.new_type_error(format!(
+                            "'async for' requires an object with __aiter__ method, got {:.100}",
+                            aiterable.class().name()
+                        )));
+                    }
+                };
+                if vm
+                    .get_special_method(&aiter, identifier!(vm, __anext__))?
+                    .is_none()
+                {
+                    return Err(vm.new_type_error(format!(
+                        "'async for' received an object from __aiter__ \
+                         that does not implement __anext__: {:.100}",
+                        aiter.class().name()
+                    )));
+                }
                 self.push_value(aiter);
                 Ok(None)
             }
@@ -4087,25 +4107,15 @@ impl ExecutingFrame<'_> {
                     let next_iter =
                         vm.call_special_method(aiter, identifier!(vm, __anext__), ())?;
 
-                    // _PyCoro_GetAwaitableIter in CPython
-                    fn get_awaitable_iter(next_iter: &PyObject, vm: &VirtualMachine) -> PyResult {
-                        let gen_is_coroutine = |_| {
-                            // TODO: cpython gen_is_coroutine
-                            true
-                        };
-                        if next_iter.class().is(vm.ctx.types.coroutine_type)
-                            || gen_is_coroutine(next_iter)
-                        {
-                            return Ok(next_iter.to_owned());
-                        }
-                        // TODO: error handling
-                        vm.call_special_method(next_iter, identifier!(vm, __await__), ())
-                    }
-                    get_awaitable_iter(&next_iter, vm).map_err(|_| {
-                        vm.new_type_error(format!(
-                            "'async for' received an invalid object from __anext__: {:.200}",
+                    // _PyCoro_GetAwaitableIter in CPython; failures are
+                    // re-raised from cause like _PyErr_FormatFromCause
+                    crate::coroutine::get_awaitable_iter(next_iter.clone(), vm).map_err(|e| {
+                        let err = vm.new_type_error(format!(
+                            "'async for' received an invalid object from __anext__: {:.100}",
                             next_iter.class().name()
-                        ))
+                        ));
+                        err.set___cause__(Some(e));
+                        err
                     })?
                 };
                 self.push_value(awaitable);
@@ -4245,7 +4255,7 @@ impl ExecutingFrame<'_> {
                     // SAFETY: trust compiler
                     obj.downcast_unchecked_ref()
                 };
-                list.append(item);
+                list.append_inner(item);
                 Ok(None)
             }
             Instruction::ListExtend { i } => {
@@ -4263,7 +4273,7 @@ impl ExecutingFrame<'_> {
                     && iterable
                         .get_class_attr(vm.ctx.intern_str("__getitem__"))
                         .is_none();
-                list.extend(iterable, vm).map_err(|e| {
+                list.extend_inner(iterable, vm).map_err(|e| {
                     if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
                         vm.new_type_error(format!(
                             "Value after * must be an iterable, not {type_name}"
@@ -4639,7 +4649,7 @@ impl ExecutingFrame<'_> {
                                         "{type_name}() got multiple sub-patterns for attribute {attr_repr}"
                                     )));
                                 }
-                                seen_attrs.add(attr_name.clone(), vm)?;
+                                seen_attrs.add_element(attr_name.as_object(), vm)?;
                                 match subject.get_attr(attr_name_str, vm) {
                                     Ok(value) => extracted.push(value),
                                     Err(e)
@@ -4692,7 +4702,7 @@ impl ExecutingFrame<'_> {
                                 "{type_name}() got multiple sub-patterns for attribute {attr_repr}"
                             )));
                         }
-                        seen_attrs.add(name.clone(), vm)?;
+                        seen_attrs.add_element(name.as_object(), vm)?;
                         match subject.get_attr(name_str, vm) {
                             Ok(value) => extracted.push(value),
                             Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
@@ -4746,7 +4756,7 @@ impl ExecutingFrame<'_> {
                                     key.as_object().repr(vm)?
                                 )));
                             }
-                            seen_keys.add(key.as_object().to_owned(), vm)?;
+                            seen_keys.add_element(key.as_object(), vm)?;
                             // value = map.get(key, dummy)
                             {
                                 let value =
@@ -4768,7 +4778,7 @@ impl ExecutingFrame<'_> {
                                     key.as_object().repr(vm)?
                                 )));
                             }
-                            seen_keys.add(key.as_object().to_owned(), vm)?;
+                            seen_keys.add_element(key.as_object(), vm)?;
                             match subject.get_item(key.as_object(), vm) {
                                 Ok(value) => values.push(value),
                                 Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
@@ -4932,7 +4942,7 @@ impl ExecutingFrame<'_> {
                     // SAFETY: trust compiler
                     obj.downcast_unchecked_ref()
                 };
-                set.add(item, vm)?;
+                set.add_element(&item, vm)?;
                 Ok(None)
             }
             Instruction::SetUpdate { i } => {
@@ -4944,7 +4954,7 @@ impl ExecutingFrame<'_> {
                 };
                 let iter = PyIter::try_from_object(vm, iterable)?;
                 while let PyIterReturn::Return(item) = iter.next(vm)? {
-                    set.add(item, vm)?;
+                    set.add_element(&item, vm)?;
                 }
                 Ok(None)
             }
@@ -6327,7 +6337,7 @@ impl ExecutingFrame<'_> {
                         if let Some(list_obj) = self_or_null.as_ref()
                             && let Some(list) = list_obj.downcast_ref::<PyList>()
                         {
-                            list.append(item);
+                            list.append_inner(item);
                             // CALL_LIST_APPEND fuses the following POP_TOP.
                             self.jump_relative_forward(
                                 1,
@@ -8349,7 +8359,10 @@ impl ExecutingFrame<'_> {
         };
         let exception = match kind {
             bytecode::RaiseKind::RaiseCause | bytecode::RaiseKind::Raise => {
-                ExceptionCtor::try_from_object(vm, self.pop_value())?.instantiate(vm)?
+                // do_raise reports the plain message
+                ExceptionCtor::try_from_object(vm, self.pop_value())
+                    .map_err(|_| vm.new_type_error("exceptions must derive from BaseException"))?
+                    .instantiate(vm)?
             }
             bytecode::RaiseKind::BareRaise => {
                 // RAISE_VARARGS 0: bare `raise` gets exception from VM state

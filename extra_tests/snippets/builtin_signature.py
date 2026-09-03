@@ -48,6 +48,12 @@ assert str(inspect.signature(isinstance)) == "(obj, class_or_tuple, /)"
 assert str(inspect.signature(issubclass)) == "(cls, class_or_tuple, /)"
 assert str(inspect.signature(aiter)) == "(async_iterable, /)"
 
+# A function that takes FuncArgs to check its own arity has no Rust parameter
+# list to report, so it declares the signature itself.
+assert str(inspect.signature(round)) == "(number, ndigits=None)"
+assert str(inspect.signature(globals)) == "()"
+assert str(inspect.signature(ascii)) == "(obj, /)"
+
 # A generated signature is stored in __doc__ and read back out of it, so it
 # needs the `--` terminator even when the function has no documentation.
 assert str(inspect.signature(os.getpid)) == "()"
@@ -68,7 +74,7 @@ if sys.implementation.name == "rustpython":
     # We cannot derive them until FromArgs reports the parameters of its own
     # structs, so until then we report no signature, which is at least how
     # CPython behaves for the builtins it has no signature for.
-    for f in (round, sum):
+    for f in (sum,):
         assert f.__text_signature__ is None, f.__name__
         try:
             inspect.signature(f)

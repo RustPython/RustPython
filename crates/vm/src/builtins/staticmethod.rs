@@ -1,7 +1,7 @@
 use super::{PyGenericAlias, PyStr, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    class::{PyClassDef, PyClassImpl},
+    class::PyClassImpl,
     common::lock::PyMutex,
     function::{FuncArgs, PySetterValue},
     types::{Callable, Constructor, GetDescriptor, Initializer, Representable},
@@ -43,12 +43,10 @@ impl From<PyObjectRef> for PyStaticMethod {
 impl Constructor for PyStaticMethod {
     type Args = PyObjectRef;
 
-    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        // Validate the signature here, but defer storing the callable and
-        // copying its attributes to `__init__` so that subclasses overriding
-        // `__init__` without calling `super().__init__()` see `__func__` as
-        // `None`, matching CPython.
-        let _: Self::Args = args.bind_for(vm, Self::NAME)?;
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Like CPython's sm_new, __new__ ignores its arguments; the callable
+        // is stored and signature-validated in `__init__`, so that objects
+        // created via `__new__` alone see `__func__` as `None`.
         let result = Self {
             callable: PyMutex::new(vm.ctx.none()),
         }
@@ -76,9 +74,18 @@ impl PyStaticMethod {
 }
 
 impl Initializer for PyStaticMethod {
-    type Args = PyObjectRef;
+    type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error("staticmethod() takes no keyword arguments"));
+        }
+        let callable = match args.args.len() {
+            1 => args.args.into_iter().next().unwrap(),
+            n => {
+                return Err(vm.new_type_error(format!("staticmethod expected 1 argument, got {n}")));
+            }
+        };
         *zelf.callable.lock() = callable.clone();
         if let Ok(doc) = callable.get_attr("__doc__", vm) {
             zelf.as_object().set_attr("__doc__", doc, vm)?;

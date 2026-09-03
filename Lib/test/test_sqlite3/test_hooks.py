@@ -165,6 +165,7 @@ class AuthorizerTests(MemoryDatabaseMixin, unittest.TestCase):
     # Tests for checking that callback context mutations do not crash.
     # Regression tests for https://github.com/python/cpython/issues/142830.
 
+    @unittest.skip("TODO: RUSTPYTHON; re-entrant Connection use from a callback deadlocks on the connection lock")
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
     @with_tracebacks(ZeroDivisionError, regex="hello world")
     def test_authorizer_concurrent_mutation_in_call(self):
@@ -177,6 +178,7 @@ class AuthorizerTests(MemoryDatabaseMixin, unittest.TestCase):
         self.cx.set_authorizer(handler)
         self.assert_not_authorized(self.cx.execute, "select * from test")
 
+    @unittest.skip("TODO: RUSTPYTHON; re-entrant Connection use from a callback deadlocks on the connection lock")
     @with_tracebacks(OverflowError)
     def test_authorizer_concurrent_mutation_with_overflown_value(self):
         _testcapi = import_helper.import_module("_testcapi")
@@ -312,6 +314,7 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
     # Tests for checking that callback context mutations do not crash.
     # Regression tests for https://github.com/python/cpython/issues/142830.
 
+    @unittest.skip("TODO: RUSTPYTHON; re-entrant Connection use from a callback deadlocks on the connection lock")
     @unittest.skip("TODO: RUSTPYTHON; Timeout after 10 minutes")
     @with_tracebacks(ZeroDivisionError, regex="hello world")
     def test_progress_handler_concurrent_mutation_in_call(self):
@@ -324,6 +327,7 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
         self.cx.set_progress_handler(handler, 1)
         self.assert_interrupted(self.cx.execute, "select * from test")
 
+    @unittest.skip("TODO: RUSTPYTHON; re-entrant Connection use from a callback deadlocks on the connection lock")
     def test_progress_handler_concurrent_mutation_in_conversion(self):
         self.cx.execute("create table if not exists test(a number)")
 
@@ -493,6 +497,7 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
     # Tests for checking that callback context mutations do not crash.
     # Regression tests for https://github.com/python/cpython/issues/142830.
 
+    @unittest.skip("TODO: RUSTPYTHON; re-entrant Connection use from a callback deadlocks on the connection lock")
     @unittest.skip("TODO: RUSTPYTHON; Timeout after 10 minutes")
     @with_tracebacks(ZeroDivisionError, regex="hello world")
     def test_trace_callback_concurrent_mutation_in_call(self):

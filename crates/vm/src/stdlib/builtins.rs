@@ -14,7 +14,6 @@ mod builtins {
             PyUtf8StrRef,
             enumerate::PyReverseSequenceIterator,
             function::{PyCell, PyCellRef, PyFunction},
-            int::PyIntRef,
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
         },
@@ -23,7 +22,7 @@ mod builtins {
         function::{
             ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgPrimitiveIndex,
             ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
-            PosArgs,
+            PosArgs, check_meth_o, check_no_kwargs, check_noargs, check_positional,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -43,8 +42,10 @@ mod builtins {
     const CODEGEN_NOT_SUPPORTED: &str =
         "can't compile() to bytecode when the `codegen` feature of rustpython is disabled";
 
-    #[pyfunction]
-    fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pyfunction(text_signature = "(x, /)")]
+    fn abs(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_meth_o(vm, "abs", &func_args)?;
+        let (x,): (PyObjectRef,) = func_args.bind(vm)?;
         vm._abs(&x)
     }
 
@@ -68,28 +69,42 @@ mod builtins {
         Ok(false)
     }
 
-    #[pyfunction]
     pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         obj.ascii(vm)
     }
 
-    #[pyfunction]
-    fn bin(number: PyIntRef) -> String {
-        let x = number.as_bigint();
-        if x.is_negative() {
+    #[pyfunction(name = "ascii", text_signature = "(obj, /)")]
+    fn py_ascii(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        check_meth_o(vm, "ascii", &func_args)?;
+        let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
+        ascii(obj, vm)
+    }
+
+    #[pyfunction(text_signature = "(number, /)")]
+    fn bin(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+        check_meth_o(vm, "bin", &func_args)?;
+        let (x,): (ArgIndex,) = func_args.bind(vm)?;
+        let x = x.into_int_ref();
+        let x = x.as_bigint();
+        Ok(if x.is_negative() {
             format!("-0b{:b}", x.abs())
         } else {
             format!("0b{x:b}")
-        }
+        })
     }
 
-    #[pyfunction]
-    fn callable(obj: PyObjectRef) -> bool {
-        obj.is_callable()
+    #[pyfunction(text_signature = "(obj, /)")]
+    fn callable(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_meth_o(vm, "callable", &func_args)?;
+        let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
+        Ok(obj.is_callable())
     }
 
-    #[pyfunction]
-    fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<CodePoint> {
+    #[pyfunction(text_signature = "(i, /)")]
+    fn chr(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<CodePoint> {
+        check_meth_o(vm, "chr", &func_args)?;
+        let (i,): (ArgIndex,) = func_args.bind(vm)?;
+        let i = i.into_int_ref();
         let value = i
             .as_bigint()
             .to_u32()
@@ -183,7 +198,16 @@ mod builtins {
 
     #[cfg(any(feature = "parser", feature = "compiler"))]
     #[pyfunction]
-    fn compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
+    fn compile(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // clinic signature: source, filename and mode are required
+        for (pos, name) in [(1, "source"), (2, "filename"), (3, "mode")] {
+            if func_args.args.len() < pos && !func_args.kwargs.contains_key(name) {
+                return Err(vm.new_type_error(format!(
+                    "compile() missing required argument '{name}' (pos {pos})"
+                )));
+            }
+        }
+        let args: CompileArgs = func_args.bind_for(vm, "compile")?;
         #[cfg(not(feature = "ast"))]
         {
             _ = args; // to disable unused warning
@@ -405,9 +429,12 @@ mod builtins {
         vm.dir(obj.into_option())
     }
 
-    #[pyfunction]
-    fn divmod(x: PyObjectRef, y: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._divmod(&x, &y)
+    #[pyfunction(text_signature = "(x, y, /)")]
+    fn divmod(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_no_kwargs(vm, "divmod", &func_args)?;
+        check_positional(vm, "divmod", func_args.args.len(), 2, 2)?;
+        let (a, b): (PyObjectRef, PyObjectRef) = func_args.bind(vm)?;
+        vm._divmod(&a, &b)
     }
 
     #[derive(FromArgs)]
@@ -534,12 +561,37 @@ mod builtins {
             })
     }
 
-    #[pyfunction]
-    fn eval(
-        source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
-        scope: ScopeArgs,
+    /// builtin_exec/builtin_eval: the source argument accepts str, bytes,
+    /// bytearray or code; anything else gets the clinic-style message.
+    fn check_exec_source_error(
+        original: crate::builtins::PyBaseExceptionRef,
+        func_args: &FuncArgs,
+        name: &str,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> crate::builtins::PyBaseExceptionRef {
+        if let Some(source) = func_args.args.first()
+            && !(source.fast_isinstance(vm.ctx.types.str_type)
+                || source.fast_isinstance(vm.ctx.types.bytes_type)
+                || source.fast_isinstance(vm.ctx.types.bytearray_type)
+                || source.fast_isinstance(vm.ctx.types.code_type))
+        {
+            return vm.new_type_error(format!(
+                "{name}() arg 1 must be a string, bytes or code object"
+            ));
+        }
+        original
+    }
+
+    #[pyfunction]
+    fn eval(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        type EvalArgs = (
+            Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
+            ScopeArgs,
+        );
+        let (source, scope): EvalArgs = func_args
+            .clone()
+            .bind_for(vm, "eval")
+            .map_err(|e| check_exec_source_error(e, &func_args, "eval", vm))?;
         let scope = scope.make_scope(vm, "eval")?;
 
         // source as string
@@ -579,7 +631,11 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn exec(args: ExecArgs, vm: &VirtualMachine) -> PyResult {
+    fn exec(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let args: ExecArgs = func_args
+            .clone()
+            .bind_for(vm, "exec")
+            .map_err(|e| check_exec_source_error(e, &func_args, "exec", vm))?;
         let ExecArgs {
             source,
             globals,
@@ -676,21 +732,27 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn format(
-        value: PyObjectRef,
-        format_spec: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
+    fn format(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        check_no_kwargs(vm, "format", &func_args)?;
+        check_positional(vm, "format", func_args.args.len(), 1, 2)?;
+        if let Some(spec) = func_args.args.get(1)
+            && !spec.fast_isinstance(vm.ctx.types.str_type)
+        {
+            return Err(vm.new_type_error(format!(
+                "format() argument 2 must be str, not {}",
+                spec.class().name()
+            )));
+        }
+        let (value, format_spec): (PyObjectRef, OptionalArg<PyStrRef>) = func_args.bind(vm)?;
         vm.format(&value, format_spec.unwrap_or(vm.ctx.new_str("")))
     }
 
     #[pyfunction]
-    fn getattr(
-        obj: PyObjectRef,
-        attr: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn getattr(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_no_kwargs(vm, "getattr", &func_args)?;
+        check_positional(vm, "getattr", func_args.args.len(), 2, 3)?;
+        type GetattrArgs = (PyObjectRef, PyObjectRef, OptionalArg<PyObjectRef>);
+        let (obj, attr, default): GetattrArgs = func_args.bind(vm)?;
         let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
@@ -705,9 +767,10 @@ mod builtins {
         }
     }
 
-    #[pyfunction]
-    fn globals(vm: &VirtualMachine) -> PyDictRef {
-        vm.current_globals()
+    #[pyfunction(text_signature = "()")]
+    fn globals(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        check_noargs(vm, "globals", &func_args)?;
+        Ok(vm.current_globals())
     }
 
     #[pyfunction]
@@ -721,8 +784,10 @@ mod builtins {
         Ok(vm.get_attribute_opt(obj, attr)?.is_some())
     }
 
-    #[pyfunction]
-    fn hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+    #[pyfunction(text_signature = "(obj, /)")]
+    fn hash(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyHash> {
+        check_meth_o(vm, "hash", &func_args)?;
+        let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
         obj.hash(vm)
     }
 
@@ -737,16 +802,20 @@ mod builtins {
         }
     }
 
-    #[pyfunction]
-    fn hex(number: ArgIndex) -> String {
+    #[pyfunction(text_signature = "(number, /)")]
+    fn hex(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+        check_meth_o(vm, "hex", &func_args)?;
+        let (number,): (ArgIndex,) = func_args.bind(vm)?;
         let number = number.into_int_ref();
         let n = number.as_bigint();
-        format!("{n:#x}")
+        Ok(format!("{n:#x}"))
     }
 
-    #[pyfunction]
-    fn id(obj: PyObjectRef) -> usize {
-        obj.get_id()
+    #[pyfunction(text_signature = "(obj, /)")]
+    fn id(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_meth_o(vm, "id", &func_args)?;
+        let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
+        Ok(obj.get_id())
     }
 
     #[pyfunction]
@@ -816,22 +885,20 @@ mod builtins {
         false
     }
 
-    #[pyfunction]
-    fn isinstance(
-        obj: PyObjectRef,
-        class_or_tuple: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
-        obj.is_instance(&class_or_tuple, vm)
+    #[pyfunction(text_signature = "(obj, class_or_tuple, /)")]
+    fn isinstance(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_no_kwargs(vm, "isinstance", &func_args)?;
+        check_positional(vm, "isinstance", func_args.args.len(), 2, 2)?;
+        let (obj, typ): (PyObjectRef, PyObjectRef) = func_args.bind(vm)?;
+        obj.is_instance(&typ, vm)
     }
 
-    #[pyfunction]
-    fn issubclass(
-        cls: PyObjectRef,
-        class_or_tuple: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
-        cls.is_subclass(&class_or_tuple, vm)
+    #[pyfunction(text_signature = "(cls, class_or_tuple, /)")]
+    fn issubclass(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_no_kwargs(vm, "issubclass", &func_args)?;
+        check_positional(vm, "issubclass", func_args.args.len(), 2, 2)?;
+        let (subclass, typ): (PyObjectRef, PyObjectRef) = func_args.bind(vm)?;
+        subclass.is_subclass(&typ, vm)
     }
 
     #[pyfunction]
@@ -841,7 +908,8 @@ mod builtins {
         vm: &VirtualMachine,
     ) -> PyResult<PyIter> {
         if let OptionalArg::Present(sentinel) = sentinel {
-            let callable = ArgCallable::try_from_object(vm, iter_target)?;
+            let callable = ArgCallable::try_from_object(vm, iter_target)
+                .map_err(|_| vm.new_type_error("iter(v, w): v must be callable"))?;
             let iterator = PyCallableIterator::new(callable, sentinel)
                 .into_ref(&vm.ctx)
                 .into();
@@ -883,13 +951,16 @@ mod builtins {
         }
     }
 
-    #[pyfunction]
-    fn len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    #[pyfunction(text_signature = "(obj, /)")]
+    fn len(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_meth_o(vm, "len", &func_args)?;
+        let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
         obj.length(vm)
     }
 
-    #[pyfunction]
-    fn locals(vm: &VirtualMachine) -> PyResult<ArgMapping> {
+    #[pyfunction(text_signature = "()")]
+    fn locals(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<ArgMapping> {
+        check_noargs(vm, "locals", &func_args)?;
         vm.current_locals()
     }
 
@@ -964,11 +1035,11 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn next(
-        iterator: PyObjectRef,
-        default_value: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyIterReturn> {
+    fn next(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        check_no_kwargs(vm, "next", &func_args)?;
+        check_positional(vm, "next", func_args.args.len(), 1, 2)?;
+        type NextArgs = (PyObjectRef, OptionalArg<PyObjectRef>);
+        let (iterator, default_value): NextArgs = func_args.bind(vm)?;
         if !PyIter::check(&iterator) {
             return Err(vm.new_type_error(format!(
                 "'{}' object is not an iterator",
@@ -985,8 +1056,10 @@ mod builtins {
             })
     }
 
-    #[pyfunction]
-    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyObjectRef {
+    #[pyfunction(text_signature = "(number, /)")]
+    fn oct(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_meth_o(vm, "oct", &func_args)?;
+        let (number,): (ArgIndex,) = func_args.bind(vm)?;
         let number = number.into_int_ref();
         let n = number.as_bigint();
         let s = if n.is_negative() {
@@ -995,12 +1068,14 @@ mod builtins {
             format!("0o{n:o}")
         };
 
-        vm.ctx.new_str(s).into()
+        Ok(vm.ctx.new_str(s).into())
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(character, /)")]
     // builtin_ord
-    fn ord(character: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+    fn ord(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<u32> {
+        check_meth_o(vm, "ord", &func_args)?;
+        let (character,): (PyObjectRef,) = func_args.bind(vm)?;
         let bytes = if let Some(string) = character.downcast_ref::<PyStr>() {
             return match string.as_wtf8().code_points().exactly_one() {
                 Ok(character) => Ok(character.to_u32()),
@@ -1039,7 +1114,29 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn pow(args: PowArgs, vm: &VirtualMachine) -> PyResult {
+    fn pow(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // clinic signature: pow(base, exp, /, mod=None) - both are required
+        for (pos, name) in [(1, "base"), (2, "exp")] {
+            if func_args.args.len() < pos && !func_args.kwargs.contains_key(name) {
+                return Err(vm.new_type_error(format!(
+                    "pow() missing required argument '{name}' (pos {pos})"
+                )));
+            }
+        }
+        if func_args.args.len() > 3 {
+            return Err(vm.new_type_error(format!(
+                "pow() takes at most 3 arguments ({} given)",
+                func_args.args.len()
+            )));
+        }
+        for key in func_args.kwargs.keys() {
+            if !matches!(key.as_str(), Ok("exp" | "mod" | "base")) {
+                return Err(
+                    vm.new_type_error(format!("pow() got an unexpected keyword argument '{key}'"))
+                );
+            }
+        }
+        let args: PowArgs = func_args.bind(vm)?;
         let PowArgs {
             base: x,
             exp: y,
@@ -1060,9 +1157,9 @@ mod builtins {
     #[derive(Debug, Default, FromArgs)]
     pub struct PrintOptions {
         #[pyarg(named, default)]
-        sep: Option<PyStrRef>,
+        sep: Option<PyObjectRef>,
         #[pyarg(named, default)]
-        end: Option<PyStrRef>,
+        end: Option<PyObjectRef>,
         #[pyarg(named, default = ArgIntoBool::FALSE)]
         flush: ArgIntoBool,
         #[pyarg(named, default)]
@@ -1077,7 +1174,16 @@ mod builtins {
         };
         let write = |obj: PyStrRef| vm.call_method(&file, "write", (obj,));
 
-        let sep = options.sep.unwrap_or_else(|| vm.ctx.new_str(" "));
+        let sep = match options.sep {
+            Some(sep) if !vm.is_none(&sep) => Some(sep.downcast::<PyStr>().map_err(|sep| {
+                vm.new_type_error(format!(
+                    "sep must be None or a string, not {}",
+                    sep.class().name()
+                ))
+            })?),
+            _ => None,
+        }
+        .unwrap_or_else(|| vm.ctx.new_str(" "));
 
         let mut first = true;
         for object in objects {
@@ -1090,7 +1196,16 @@ mod builtins {
             write(object.str(vm)?)?;
         }
 
-        let end = options.end.unwrap_or_else(|| vm.ctx.new_str("\n"));
+        let end = match options.end {
+            Some(end) if !vm.is_none(&end) => Some(end.downcast::<PyStr>().map_err(|end| {
+                vm.new_type_error(format!(
+                    "end must be None or a string, not {}",
+                    end.class().name()
+                ))
+            })?),
+            _ => None,
+        }
+        .unwrap_or_else(|| vm.ctx.new_str("\n"));
         write(end)?;
 
         if options.flush.into() {
@@ -1100,18 +1215,27 @@ mod builtins {
         Ok(())
     }
 
-    #[pyfunction]
-    fn repr(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    #[pyfunction(text_signature = "(obj, /)")]
+    fn repr(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        check_meth_o(vm, "repr", &func_args)?;
+        let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
         obj.repr(vm)
     }
 
     #[pyfunction]
     pub fn reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(reversed_method) = vm.get_method(obj.clone(), identifier!(vm, __reversed__)) {
-            reversed_method?.call((), vm)
+            let reversed_method = reversed_method?;
+            // reversed_new: __reversed__ set to None disables the protocol
+            if vm.is_none(&reversed_method) {
+                return Err(
+                    vm.new_type_error(format!("'{}' object is not reversible", obj.class().name()))
+                );
+            }
+            reversed_method.call((), vm)
         } else {
             vm.get_method_or_type_error(obj.clone(), identifier!(vm, __getitem__), || {
-                "argument to reversed() must be a sequence".to_owned()
+                format!("'{}' object is not reversible", obj.class().name())
             })?;
             let len = obj.length(vm)?;
             let obj_iterator = PyReverseSequenceIterator::new(obj, len);
@@ -1126,8 +1250,25 @@ mod builtins {
         ndigits: OptionalOption<PyObjectRef>,
     }
 
-    #[pyfunction]
-    fn round(RoundArgs { number, ndigits }: RoundArgs, vm: &VirtualMachine) -> PyResult {
+    #[pyfunction(text_signature = "(number, ndigits=None)")]
+    fn round(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if func_args.args.is_empty() && !func_args.kwargs.contains_key("number") {
+            return Err(vm.new_type_error("round() missing required argument 'number' (pos 1)"));
+        }
+        if func_args.args.len() + func_args.kwargs.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "round() takes at most 2 arguments ({} given)",
+                func_args.args.len() + func_args.kwargs.len()
+            )));
+        }
+        for key in func_args.kwargs.keys() {
+            if !matches!(key.as_str(), Ok("number" | "ndigits")) {
+                return Err(vm.new_type_error(format!(
+                    "round() got an unexpected keyword argument '{key}'"
+                )));
+            }
+        }
+        let RoundArgs { number, ndigits }: RoundArgs = func_args.bind(vm)?;
         let meth = vm
             .get_special_method(&number, identifier!(vm, __round__))?
             .ok_or_else(|| {
@@ -1168,12 +1309,16 @@ mod builtins {
     // builtin_slice
 
     #[pyfunction]
-    fn sorted(iterable: PyObjectRef, opts: SortOptions, vm: &VirtualMachine) -> PyResult<PyList> {
+    fn sorted(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyList> {
+        check_positional(vm, "sorted", func_args.args.len(), 1, 1)?;
+        type SortedArgs = (PyObjectRef, SortOptions);
+        // sorted() hands its keywords to list.sort(), which names itself
+        let (iterable, opts): SortedArgs = func_args.bind_for(vm, "sort")?;
         // `PySequence_List()`, so the room comes from what the iterable reports
         // rather than from its iterator.
         let items = vm.extract_elements_sized(&iterable, &|| 0, Ok)?;
         let lst = PyList::from(items);
-        lst.sort(opts, vm)?;
+        lst.sort_inner(opts, vm)?;
         Ok(lst)
     }
 
@@ -1217,7 +1362,7 @@ mod builtins {
     #[derive(FromArgs)]
     struct ImportArgs {
         #[pyarg(any)]
-        name: PyStrRef,
+        name: PyObjectRef,
         #[pyarg(any, default)]
         globals: Option<PyObjectRef>,
         #[allow(dead_code)]
@@ -1230,8 +1375,17 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn __import__(args: ImportArgs, vm: &VirtualMachine) -> PyResult {
-        crate::import::import_module_level(&args.name, args.globals, args.fromlist, args.level, vm)
+    fn __import__(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if func_args.args.is_empty() && !func_args.kwargs.contains_key("name") {
+            return Err(vm.new_type_error("__import__() missing required argument 'name' (pos 1)"));
+        }
+        let args: ImportArgs = func_args.bind_for(vm, "__import__")?;
+        // builtin___import__: "module name must be a string"
+        let name = args
+            .name
+            .downcast::<PyStr>()
+            .map_err(|_| vm.new_type_error("module name must be a string"))?;
+        crate::import::import_module_level(&name, args.globals, args.fromlist, args.level, vm)
     }
 
     #[pyfunction]
