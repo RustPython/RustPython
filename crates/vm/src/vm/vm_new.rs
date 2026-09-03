@@ -90,6 +90,11 @@ impl SyntaxErrorInfo {
                 InterpolatedStringErrorType::UnterminatedString,
             )) => "unterminated f-string literal".into(),
 
+            ParseErrorType::TStringError(InterpolatedStringErrorType::UnterminatedString)
+            | ParseErrorType::Lexical(LexicalErrorType::TStringError(
+                InterpolatedStringErrorType::UnterminatedString,
+            )) => "unterminated t-string literal".into(),
+
             ParseErrorType::FStringError(
                 InterpolatedStringErrorType::UnterminatedTripleQuotedString,
             )
@@ -97,11 +102,20 @@ impl SyntaxErrorInfo {
                 InterpolatedStringErrorType::UnterminatedTripleQuotedString,
             )) => "unterminated triple-quoted f-string literal".into(),
 
+            ParseErrorType::TStringError(
+                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+            )
+            | ParseErrorType::Lexical(LexicalErrorType::TStringError(
+                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+            )) => "unterminated triple-quoted t-string literal".into(),
+
+            // ruff already prefixes these with `f-string: ` / `t-string: `, matching CPython.
+            // It quotes braces with backticks where CPython uses single quotes.
             ParseErrorType::FStringError(_)
-            | ParseErrorType::Lexical(LexicalErrorType::FStringError(_)) => {
-                // Replace backticks with single quotes to match CPython's error messages
-                format!("invalid syntax: {}", self.msg.replace('`', "'"))
-            }
+            | ParseErrorType::TStringError(_)
+            | ParseErrorType::Lexical(
+                LexicalErrorType::FStringError(_) | LexicalErrorType::TStringError(_),
+            ) => self.msg.replace('`', "'"),
 
             ParseErrorType::UnexpectedExpressionToken => "invalid syntax".into(),
 
@@ -747,6 +761,9 @@ impl VirtualMachine {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::FStringError(
+                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                        )
+                        | ruff_python_parser::LexicalErrorType::TStringError(
                             ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
                         ),
                     ),

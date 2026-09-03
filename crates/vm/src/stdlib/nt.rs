@@ -13,7 +13,7 @@ pub(crate) mod module {
         function::{ArgMapping, Either, OptionalArg},
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd},
-        stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
+        stdlib::os::{_os, DirFd, SupportFunc, SymlinkArgs},
     };
     use core::hint::cold_path;
     use libc::intptr_t;
@@ -99,16 +99,6 @@ pub(crate) mod module {
     #[pyfunction]
     pub(super) fn _supports_virtual_terminal() -> bool {
         host_nt::supports_virtual_terminal()
-    }
-
-    #[derive(FromArgs)]
-    pub(super) struct SymlinkArgs<'fd> {
-        src: OsPath,
-        dst: OsPath,
-        #[pyarg(flatten)]
-        target_is_directory: TargetIsDirectory,
-        #[pyarg(flatten)]
-        _dir_fd: DirFd<'fd, { _os::SYMLINK_DIR_FD as usize }>,
     }
 
     #[pyfunction]
