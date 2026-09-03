@@ -4959,7 +4959,11 @@ mod _ssl {
                 vm.ctx.new_int(entry.nid),
                 vm.ctx.new_str(entry.short_name),
                 vm.ctx.new_str(entry.long_name),
-                vm.ctx.new_str(entry.oid_string()),
+                // OpenSSL names some objects without giving them an OID, and
+                // `nid2obj` reports the fourth field as None for those.
+                entry
+                    .oid_string()
+                    .map_or_else(|| vm.ctx.none(), |oid| vm.ctx.new_str(oid).into()),
             ))
             .into())
     }
@@ -4975,7 +4979,11 @@ mod _ssl {
                 vm.ctx.new_int(entry.nid),
                 vm.ctx.new_str(entry.short_name),
                 vm.ctx.new_str(entry.long_name),
-                vm.ctx.new_str(entry.oid_string()),
+                // OpenSSL names some objects without giving them an OID, and
+                // `nid2obj` reports the fourth field as None for those.
+                entry
+                    .oid_string()
+                    .map_or_else(|| vm.ctx.none(), |oid| vm.ctx.new_str(oid).into()),
             ))
             .into())
     }
