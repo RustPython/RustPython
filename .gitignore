@@ -16,6 +16,7 @@ wasm-pack.log
 flame-graph.html
 flame.txt
 flamescope.json
+/build/codspeed-environment*.json
 /wapm.lock
 /wapm_packages
 /.cargo/config
