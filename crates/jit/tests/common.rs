@@ -1,8 +1,9 @@
+use alloc::sync::Arc;
 use core::ops::ControlFlow;
 use rustpython_compiler_core::bytecode::{
     CodeObject, ConstantData, Constants, Instruction, OpArg, OpArgState,
 };
-use rustpython_jit::{CompiledCode, JitType};
+use rustpython_jit::{CompiledCode, JitCompileError, JitEngine, JitType, Safety};
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 use std::collections::HashMap;
 
@@ -14,6 +15,27 @@ pub(crate) struct Function {
 
 impl Function {
     pub(crate) fn compile(self) -> CompiledCode {
+        let (arg_types, ret_type) = self.signature();
+        rustpython_jit::compile(&self.code, &arg_types, ret_type).expect("Compile failure")
+    }
+
+    /// Compile onto a caller-owned engine, surfacing the error instead of panicking.
+    #[allow(dead_code)]
+    pub(crate) fn compile_on(
+        &self,
+        engine: &Arc<JitEngine>,
+        safety: Safety,
+    ) -> Result<CompiledCode, JitCompileError> {
+        let (arg_types, ret_type) = self.signature();
+        engine.compile(&self.code, &arg_types, ret_type, safety)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn code(&self) -> &CodeObject {
+        &self.code
+    }
+
+    fn signature(&self) -> (Vec<JitType>, Option<JitType>) {
         let mut arg_types = Vec::new();
         for arg in self.code.arg_names().args {
             let arg_type = match self.annotations.get(AsRef::<Wtf8>::as_ref(arg.as_str())) {
@@ -38,7 +60,7 @@ impl Function {
             _ => None,
         };
 
-        rustpython_jit::compile(&self.code, &arg_types, ret_type).expect("Compile failure")
+        (arg_types, ret_type)
     }
 }
 
@@ -309,7 +331,7 @@ impl StackMachine {
     }
 }
 
-macro_rules! jit_function {
+macro_rules! py_function_def {
     ($func_name:ident => $($t:tt)*) => {
         {
             let code = rustpython_derive::py_compile!(
@@ -319,8 +341,14 @@ macro_rules! jit_function {
             let code = code.decode(rustpython_compiler_core::bytecode::BasicBag);
             let mut machine = $crate::common::StackMachine::new();
             machine.run(code);
-            machine.get_function(stringify!($func_name)).compile()
+            machine.get_function(stringify!($func_name))
         }
+    };
+}
+
+macro_rules! jit_function {
+    ($func_name:ident => $($t:tt)*) => {
+        py_function_def!($func_name => $($t)*).compile()
     };
     ($func_name:ident($($arg_name:ident:$arg_type:ty),*) -> $ret_type:ty => $($t:tt)*) => {
         {
@@ -329,9 +357,22 @@ macro_rules! jit_function {
             move |$($arg_name:$arg_type),*| -> Result<$ret_type, rustpython_jit::JitArgumentError> {
                 jit_code
                     .invoke(&[$($arg_name.into()),*])
-                    .map(|ret| match ret {
-                        Some(ret) => ret.try_into().expect("jit function returned unexpected type"),
-                        None => panic!("jit function unexpectedly returned None")
+                    .map(|outcome| match outcome {
+                        rustpython_jit::Outcome::Returned(Some(ret)) => {
+                            ret.try_into().expect("jit function returned unexpected type")
+                        }
+                        rustpython_jit::Outcome::Returned(None) => {
+                            panic!("jit function unexpectedly returned None")
+                        }
+                        rustpython_jit::Outcome::Deopt(state) => {
+                            panic!("jit function unexpectedly deoptimized: {state:?}")
+                        }
+                        rustpython_jit::Outcome::Restart => {
+                            panic!("jit function unexpectedly asked to be restarted")
+                        }
+                        rustpython_jit::Outcome::Interrupted(state) => {
+                            panic!("jit function unexpectedly interrupted: {state:?}")
+                        }
                     })
             }
         }
@@ -343,9 +384,20 @@ macro_rules! jit_function {
             move |$($arg_name:$arg_type),*| -> Result<(), rustpython_jit::JitArgumentError> {
                 jit_code
                     .invoke(&[$($arg_name.into()),*])
-                    .map(|ret| match ret {
-                        Some(ret) => panic!("jit function unexpectedly returned a value {:?}", ret),
-                        None => ()
+                    .map(|outcome| match outcome {
+                        rustpython_jit::Outcome::Returned(None) => (),
+                        rustpython_jit::Outcome::Returned(Some(ret)) => {
+                            panic!("jit function unexpectedly returned a value {ret:?}")
+                        }
+                        rustpython_jit::Outcome::Deopt(state) => {
+                            panic!("jit function unexpectedly deoptimized: {state:?}")
+                        }
+                        rustpython_jit::Outcome::Restart => {
+                            panic!("jit function unexpectedly asked to be restarted")
+                        }
+                        rustpython_jit::Outcome::Interrupted(state) => {
+                            panic!("jit function unexpectedly interrupted: {state:?}")
+                        }
                     })
             }
         }

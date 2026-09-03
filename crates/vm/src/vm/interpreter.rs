@@ -162,6 +162,10 @@ where
     // Create PyGlobalState (≈ PyInterpreterState)
     let global_state = PyRc::new(PyGlobalState {
         gc: crate::gc_state::GcInterpreterState::new(&ctx),
+        #[cfg(feature = "jit")]
+        jit_engine: rustpython_jit::JitEngine::new(Some(crate::signal::eval_breaker_word())),
+        #[cfg(feature = "jit")]
+        aot_stats: Default::default(),
         interpreter_id,
         runtime_root_id,
         whence,
@@ -693,6 +697,16 @@ impl Interpreter {
             // Now suppress unraisable exceptions from daemon threads and __del__
             // methods during the rest of shutdown.
             vm.state.finalizing.store(true, Ordering::Release);
+            // Compiled code cannot read that flag, and a daemon thread inside a
+            // compiled loop would otherwise never leave it - shutdown would
+            // wait on a thread that had already been told to stop. The span
+            // ends with this function: the word is shared by every interpreter
+            // in the process, and one left set costs every interpreter that
+            // outlives this one the per-instruction slow path.
+            #[cfg(feature = "threading")]
+            crate::signal::begin_finalize_request();
+            #[cfg(feature = "threading")]
+            scopeguard::defer! { crate::signal::end_finalize_request(); }
 
             // GC pass - collect cycles before module cleanup
             vm.state.gc.collect_force(2);

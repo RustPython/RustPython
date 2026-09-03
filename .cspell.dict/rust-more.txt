@@ -20,6 +20,7 @@ cstring
 datelike
 deserializer
 deserializers
+fcmp
 fdiv
 flamescope
 flate2
@@ -28,6 +29,8 @@ getres
 hasher
 hexf
 hexversion
+iabs
+iconst
 idents
 illumos
 ilog
@@ -79,6 +82,7 @@ thiserror
 timelike
 timsort
 trai
+uextend
 ulonglong
 unic
 unistd

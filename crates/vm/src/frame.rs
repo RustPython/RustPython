@@ -520,7 +520,13 @@ impl LocalsPlus {
     /// Push a PyObjectRef onto the evaluation stack.
     /// Panics on overflow.
     pub(crate) fn push_stack(&mut self, value: PyObjectRef) {
-        self.stack_try_push(Some(PyStackRef::new_owned(value)))
+        self.push_stack_opt(Some(value));
+    }
+
+    /// Push a value, or the null a call leaves beside its callable.
+    /// Panics on overflow.
+    pub(crate) fn push_stack_opt(&mut self, value: Option<PyObjectRef>) {
+        self.stack_try_push(value.map(PyStackRef::new_owned))
             .expect("stack overflow in push_stack");
     }
 
@@ -1091,6 +1097,12 @@ impl InterpreterFrame {
         self.lasti.load(Relaxed)
     }
 
+    /// Set the instruction index the frame runs from next.
+    #[inline(always)]
+    pub fn set_lasti(&self, lasti: u32) {
+        self.lasti.store(lasti, Relaxed);
+    }
+
     /// Get the previous InterpreterFrame in the chain, or null.
     #[inline(always)]
     pub fn previous(&self) -> *const Self {
@@ -1174,21 +1186,6 @@ impl InterpreterFrame {
             cur = caller.previous();
         }
         top
-    }
-
-    /// Create a lightweight FrameObject with empty localsplus, suitable for
-    /// f_back chain building (retained_back). Unlike `materialize`, this does
-    /// NOT store into `temporary_refs` or set the `materialized` pointer, so
-    /// the returned FrameObject is only kept alive by the caller's `PyRef`.
-    /// This prevents non-GC-tracked `temporary_refs` on a stack-allocated
-    /// iframe from defeating cycle collection.
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn materialize_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
-        if let Some(fo) = self.frame_obj() {
-            return fo.to_owned();
-        }
-        self.materialize_slow_chain(vm)
     }
 
     #[cold]
@@ -1285,10 +1282,10 @@ impl InterpreterFrame {
         unsafe { &*(fo_ptr as *const Py<FrameObject>) }
     }
 
-    /// Like `materialize_slow` but with empty localsplus to avoid extra
-    /// refcounts on local variables. Only suitable for f_back chain building.
-    /// Returns an owned `PyRef` without storing into `temporary_refs` or
-    /// setting the `materialized` pointer, so GC can still detect cycles.
+    /// Like `materialize_slow` but detached: empty localsplus that nothing
+    /// ever fills, and no store into `temporary_refs` or the `materialized`
+    /// pointer, so the copy is kept alive only by the returned `PyRef`.
+    #[cfg(feature = "threading")]
     #[cold]
     fn materialize_slow_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
         let code: PyRef<PyCode> = self.code().to_owned();
@@ -3081,53 +3078,39 @@ impl ExecutingFrame<'_> {
             // (frames entered before sys.settrace() have trace=None).
             // Skip RESUME – it should not generate user-visible line events.
             if vm.use_tracing.get()
-                && self.trace_is_set(vm)
                 && !matches!(
                     self.code.instructions.read_op(idx),
                     Instruction::Resume { .. } | Instruction::InstrumentedResume
                 )
                 && let Some((loc, _)) = self.code.locations.get(idx)
-                && loc.line.get() as u32 != self.prev_line.get()
             {
-                self.prev_line.set(loc.line.get() as u32);
-                vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
-                // Trace callback may have changed lasti via set_f_lineno.
-                // Re-read and restart the loop from the new position.
-                if self.lasti() != (idx as u32 + 1) {
-                    // set_f_lineno defers stack unwinding because we hold
-                    // the state mutex.  Perform it now.
-                    let pops = self.pending_stack_pops();
-                    if pops > 0 {
-                        let from_stack = self.pending_unwind_from_stack();
-                        self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
-                        self.set_pending_stack_pops(0);
+                // The line is recorded even where this frame carries no trace
+                // function, so that a frame which starts being traced part way
+                // through does not report the line it is already on as new.
+                let line = loc.line.get() as u32;
+                let changed = line != self.prev_line.replace(line);
+                if changed && self.trace_is_set(vm) {
+                    vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
+                    // Trace callback may have changed lasti via set_f_lineno.
+                    // Re-read and restart the loop from the new position.
+                    if self.lasti() != (idx as u32 + 1) {
+                        // set_f_lineno defers stack unwinding because we hold
+                        // the state mutex.  Perform it now.
+                        let pops = self.pending_stack_pops();
+                        if pops > 0 {
+                            let from_stack = self.pending_unwind_from_stack();
+                            self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
+                            self.set_pending_stack_pops(0);
+                        }
+                        arg_state.reset();
+                        continue;
                     }
-                    arg_state.reset();
-                    continue;
                 }
             }
             let op = self.code.instructions.read_op(idx);
             let arg = arg_state.extend(self.code.instructions.read_arg(idx));
             let mut do_extend_arg = false;
             let caches = op.cache_entries();
-
-            // Always update prev_line so f_lineno returns the correct line
-            // even when the frame is observed mid-call (e.g. sys._getframe,
-            // warnings.warn). The lookup is a simple array index, so the
-            // cost is negligible.
-            // Update prev_line for f_lineno. Skip RESUME, ExtendedArg,
-            // and InstrumentedLine (it manages prev_line in its own handler;
-            // updating here first would defeat LINE de-duplication).
-            // Other instrumented opcodes update prev_line via
-            // execute_instrumented.
-            if !matches!(
-                op.into(),
-                Opcode::Resume | Opcode::ExtendedArg | Opcode::InstrumentedLine
-            ) && !op.is_instrumented()
-                && let Some((loc, _)) = self.code.locations.get(idx)
-            {
-                self.prev_line.set(loc.line.get() as u32);
-            }
 
             if vm.use_tracing.get() {
                 // Fire 'opcode' trace event for sys.settrace when f_trace_opcodes
@@ -5948,7 +5931,7 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
-                    if func.is_jitted() {
+                    if func.requires_jit_entry(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     let effective_nargs = nargs + u32::from(self_or_null_is_some);
@@ -6013,7 +5996,7 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
-                        if func.is_jitted() {
+                        if func.requires_jit_entry(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         if !func.has_exact_argcount(nargs + 1) {
@@ -6237,7 +6220,7 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
-                    if func.is_jitted() {
+                    if func.requires_jit_entry(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     if self.specialization_call_recursion_guard(vm) {
@@ -6276,7 +6259,7 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
-                        if func.is_jitted() {
+                        if func.requires_jit_entry(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         if self.specialization_call_recursion_guard(vm) {
@@ -6637,7 +6620,7 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
-                    if func.is_jitted() {
+                    if func.requires_jit_entry(vm) {
                         return self.execute_call_kw_vectorcall(nargs, vm);
                     }
                     if self.specialization_call_recursion_guard(vm) {
@@ -6698,7 +6681,7 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
-                        if func.is_jitted() {
+                        if func.requires_jit_entry(vm) {
                             return self.execute_call_kw_vectorcall(nargs, vm);
                         }
                         let nargs_usize = nargs as usize;
@@ -7297,20 +7280,6 @@ impl ExecutingFrame<'_> {
             instruction.is_instrumented(),
             "execute_instrumented called with non-instrumented opcode {instruction:?}"
         );
-        // Update prev_line for f_lineno. The main bytecode loop skips
-        // instrumented opcodes to avoid interfering with LINE event
-        // de-duplication in InstrumentedLine. Update here instead, except
-        // for RESUME (prev_line must stay 0 for the first LINE event) and
-        // InstrumentedLine (manages prev_line in its own handler).
-        if !matches!(
-            instruction,
-            Instruction::InstrumentedResume | Instruction::InstrumentedLine
-        ) {
-            let idx = self.lasti() as usize - 1;
-            if let Some((loc, _)) = self.code.locations.get(idx) {
-                self.prev_line.set(loc.line.get() as u32);
-            }
-        }
         self.monitoring_mask = vm.state.monitoring_events.load();
         match instruction {
             Instruction::InstrumentedResume => {
@@ -7623,12 +7592,6 @@ impl ExecutingFrame<'_> {
                 // If the LINE position also had INSTRUCTION, fire that event too
                 if also_instruction {
                     monitoring::fire_instruction(vm, self.code, offset)?;
-                }
-
-                // Update prev_line for f_lineno since the bytecode loop's
-                // update skips all instrumented opcodes.
-                if let Some((loc, _)) = self.code.locations.get(idx) {
-                    self.prev_line.set(loc.line.get() as u32);
                 }
 
                 // Re-dispatch to the real original opcode
@@ -9957,7 +9920,7 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 1);
 
         if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm) {
-            if self.specialization_eval_frame_active(vm) || func.is_jitted() {
+            if self.specialization_eval_frame_active(vm) || func.requires_jit_entry(vm) {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -10020,7 +9983,7 @@ impl ExecutingFrame<'_> {
                 .function_obj()
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
-                if self.specialization_eval_frame_active(vm) || func.is_jitted() {
+                if self.specialization_eval_frame_active(vm) || func.requires_jit_entry(vm) {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -10315,7 +10278,7 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 2);
 
         if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm) {
-            if self.specialization_eval_frame_active(vm) || func.is_jitted() {
+            if self.specialization_eval_frame_active(vm) || func.requires_jit_entry(vm) {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -10366,7 +10329,7 @@ impl ExecutingFrame<'_> {
                 .function_obj()
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
-                if self.specialization_eval_frame_active(vm) || func.is_jitted() {
+                if self.specialization_eval_frame_active(vm) || func.requires_jit_entry(vm) {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,

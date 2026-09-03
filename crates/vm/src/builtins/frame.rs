@@ -462,6 +462,77 @@ impl FrameObject {
         }
         core::ptr::null()
     }
+
+    /// Find the live source InterpreterFrame for a materialized FrameObject
+    /// on the chain of thread `tid`, which must not be this one — a thread
+    /// publishes its top frame for other threads, but keeps its own in TLS.
+    /// Returns null if that thread is not running the source frame.
+    ///
+    /// # Safety
+    /// Caller must hold the world stopped, so the owning thread is parked and
+    /// its chain is not being popped while it is walked.
+    #[cfg(feature = "threading")]
+    unsafe fn find_live_source_iframe_on(
+        &self,
+        tid: u64,
+        vm: &VirtualMachine,
+    ) -> *const crate::frame::InterpreterFrame {
+        let self_py_ptr = unsafe { Py::<Self>::from_payload_ptr(self) } as usize;
+        let registry = vm.state.thread_frames.lock();
+        let Some(slot) = registry.get(&tid) else {
+            return core::ptr::null();
+        };
+        let mut cur = slot.top_iframe.load(Relaxed) as *const crate::frame::InterpreterFrame;
+        while !cur.is_null() {
+            if unsafe { (*cur).materialized.load(Relaxed) } == self_py_ptr {
+                return cur;
+            }
+            cur = unsafe { &*cur }.previous();
+        }
+        core::ptr::null()
+    }
+
+    /// The other thread that is still running the frame this object was
+    /// materialized from, or `None`. A source frame on this thread does not
+    /// count: `find_live_source_iframe` already covers this thread in full,
+    /// so anything it misses is running elsewhere or has returned.
+    #[cfg(feature = "threading")]
+    fn source_thread(&self) -> Option<u64> {
+        let tid = self.iframe().attached_tid();
+        (tid != 0 && tid != crate::stdlib::_thread::get_ident()).then_some(tid)
+    }
+
+    /// Where the frame this object stands for is executing. A materialized
+    /// frame's own copy only catches up when the source returns, so while the
+    /// source runs the position has to be read from it: a frame observed from
+    /// inside a call it made still reports that call's instruction.
+    fn live_lasti(&self, #[allow(unused)] vm: &VirtualMachine) -> u32 {
+        let live = self.find_live_source_iframe();
+        if !live.is_null() {
+            return unsafe { (*live).lasti.load(Relaxed) };
+        }
+        #[cfg(feature = "threading")]
+        if let Some(tid) = self.source_thread() {
+            return self.lasti_from_thread(tid, vm);
+        }
+        self.lasti()
+    }
+
+    /// `live_lasti` for a source frame still running on thread `tid`.
+    #[cfg(feature = "threading")]
+    #[cold]
+    fn lasti_from_thread(&self, tid: u64, vm: &VirtualMachine) -> u32 {
+        vm.state.stop_the_world.stop_the_world(&vm.state);
+        scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
+        // SAFETY: the world is stopped, so the owning thread is parked.
+        let live = unsafe { self.find_live_source_iframe_on(tid, vm) };
+        if live.is_null() {
+            // The source frame returned between the read of `attached_tid`
+            // and the stop, so this object's own copy is up to date.
+            return self.lasti();
+        }
+        unsafe { (*live).lasti.load(Relaxed) }
+    }
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(Py))]
@@ -482,49 +553,26 @@ impl FrameObject {
     }
 
     #[pygetset]
-    fn f_lasti(&self) -> u32 {
-        // Return byte offset (each instruction is 2 bytes) for compatibility.
-        // For materialized frames, read live lasti from the source iframe on
-        // the TLS chain so f_lasti reflects the current execution position.
-        let live = self.find_live_source_iframe();
-        let val = if !live.is_null() {
-            unsafe { (*live).lasti.load(Relaxed) }
-        } else {
-            self.lasti()
-        };
-        val * 2
+    fn f_lasti(&self, vm: &VirtualMachine) -> u32 {
+        // Byte offset — each instruction is 2 bytes.
+        self.live_lasti(vm) * 2
     }
 
     #[pygetset]
-    pub fn f_lineno(&self) -> usize {
-        // If lasti is 0, execution hasn't started yet - use first line number
-        if self.lasti() == 0 {
-            return self
-                .iframe()
-                .code()
-                .first_line_number
-                .map_or(1, |n| n.get());
-        }
-        // For executing frames (on the TLS chain), use prev_line which is
-        // updated at each bytecode instruction *before* the instruction
-        // runs. This gives the correct line even when observed mid-CALL
-        // (where lasti has already advanced past the CALL instruction).
-        let live = self.find_live_source_iframe();
-        if !live.is_null() {
-            // Read live prev_line. Use read_volatile to bypass LLVM noalias
-            // on the &mut InterpreterFrame borrow held by the running frame.
-            let prev = unsafe {
-                let field_ptr = core::ptr::addr_of!((*live).prev_line);
-                core::ptr::read_volatile(field_ptr as *const u32)
-            };
-            if prev > 0 {
-                return prev as usize;
-            }
-        }
-        // For returned frames, use lasti-based location lookup. This is
-        // correct for exception tracebacks where prev_line may have been
-        // updated by cleanup instructions after the exception.
-        self.current_location().line.get()
+    pub fn f_lineno(&self, vm: &VirtualMachine) -> usize {
+        let code = self.iframe().code();
+        let first_line = || code.first_line_number.map_or(1, |n| n.get());
+        // A running frame advances lasti past the instruction it is about to
+        // execute, so the line being executed is the one before it.
+        let lasti = self.live_lasti(vm);
+        let Some(idx) = lasti.checked_sub(1) else {
+            // Execution has not started.
+            return first_line();
+        };
+        // A live lasti can move between the read and the lookup.
+        code.locations
+            .get(idx as usize)
+            .map_or_else(first_line, |(loc, _)| loc.line.get())
     }
 
     #[pygetset(setter)]
@@ -759,6 +807,42 @@ impl FrameObject {
     }
 }
 
+#[cfg(feature = "threading")]
+impl Py<FrameObject> {
+    /// `f_back` for a frame materialized from one that is still running on
+    /// thread `tid`. Such a copy carries no `previous` of its own, and the
+    /// chain it was taken from lives on that thread's stack.
+    #[cold]
+    fn back_from_thread(&self, tid: u64, vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
+        vm.state.stop_the_world.stop_the_world(&vm.state);
+        scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
+        // SAFETY: the world is stopped, so the owning thread is parked.
+        let live = unsafe { self.find_live_source_iframe_on(tid, vm) };
+        if live.is_null() {
+            // The source frame returned between the read of `attached_tid`
+            // and the stop, so its caller is recorded by now.
+            let retained = self.iframe().cold().retained_back.lock().clone();
+            if let Some(frame) = &retained {
+                frame.mark_escaped();
+            }
+            return retained;
+        }
+        let prev = unsafe { (*live).previous() };
+        if prev.is_null() {
+            return None;
+        }
+        let prev_ref = unsafe { &*prev };
+        if let Some(fo) = prev_ref.frame_obj() {
+            fo.mark_escaped();
+            return Some(fo.to_owned());
+        }
+        // SAFETY: the world is stopped, so the owning thread is parked.
+        let fo = unsafe { prev_ref.materialize_detached_chain(vm) };
+        fo.mark_escaped();
+        Some(fo)
+    }
+}
+
 #[pyclass]
 impl Py<FrameObject> {
     #[pymethod]
@@ -888,6 +972,10 @@ impl Py<FrameObject> {
                 if let Some(frame) = retained {
                     frame.mark_escaped();
                     return Some(frame);
+                }
+                #[cfg(feature = "threading")]
+                if let Some(tid) = self.source_thread() {
+                    return self.back_from_thread(tid, vm);
                 }
                 return None;
             }

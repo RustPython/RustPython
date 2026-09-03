@@ -64,6 +64,11 @@ pub struct Settings {
     // int import_time;
     /// -X no_debug_ranges: disable column info in bytecode
     pub code_debug_ranges: bool,
+
+    /// -X aot, RUSTPYTHON_AOT: compile eligible functions to native code on
+    /// their first call instead of waiting for an explicit `__jit__()`.
+    /// Always false unless built with the `aot` feature.
+    pub aot: bool,
     // int show_ref_count;
     // int dump_refs;
     // wchar_t *dump_refs_file;
@@ -210,6 +215,7 @@ impl Default for Settings {
             hash_seed: None,
             faulthandler: false,
             code_debug_ranges: true,
+            aot: cfg!(feature = "aot"),
             buffered_stdio: true,
             check_hash_pycs_mode: CheckHashPycsMode::Default,
             allow_external_library: cfg!(feature = "importlib"),

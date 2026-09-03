@@ -1,4 +1,6 @@
 #[cfg(feature = "jit")]
+pub(crate) mod aot;
+#[cfg(feature = "jit")]
 mod jit;
 
 use super::{
@@ -22,10 +24,12 @@ use crate::{
         Representable,
     },
 };
+#[cfg(feature = "jit")]
+use core::sync::atomic::AtomicU8;
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use itertools::Itertools;
 #[cfg(feature = "jit")]
-use rustpython_jit::CompiledCode;
+use rustpython_jit::{CompiledCode, DeoptState, Outcome, Safety, StackValue};
 
 fn format_missing_args(
     qualname: impl core::fmt::Display,
@@ -79,6 +83,15 @@ pub struct PyFunction {
     func_version: AtomicU32,
     #[cfg(feature = "jit")]
     jitted_code: PyMutex<Option<CompiledCode>>,
+    /// One of the `aot` state constants. Read on every call, so it is an
+    /// atomic rather than something behind `jitted_code`'s lock.
+    #[cfg(feature = "jit")]
+    jit_state: AtomicU8,
+    /// Calls made so far, counted only until the compiler has looked at this
+    /// function. Beside `jit_state` for the same reason: it is written on
+    /// every call while the function is still cold.
+    #[cfg(feature = "jit")]
+    jit_warmup: AtomicU32,
 }
 
 static FUNC_VERSION_COUNTER: AtomicU32 = AtomicU32::new(1);
@@ -218,6 +231,10 @@ impl PyFunction {
             func_version: AtomicU32::new(next_func_version()),
             #[cfg(feature = "jit")]
             jitted_code: PyMutex::new(None),
+            #[cfg(feature = "jit")]
+            jit_state: AtomicU8::new(aot::UNTRIED),
+            #[cfg(feature = "jit")]
+            jit_warmup: AtomicU32::new(0),
         };
         Ok(func)
     }
@@ -550,18 +567,89 @@ impl Py<PyFunction> {
         self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
     }
 
-    /// Whether this function currently has native JIT code. Adaptive Python
-    /// call specializations must yield to that entry point.
+    /// Whether this call has to go through [`Self::invoke_with_locals`], which
+    /// is where native code is compiled and entered. Adaptive call
+    /// specializations skip that entry point, so they must yield to it - both
+    /// for a function that already has code and for one that has not had its
+    /// single automatic compile attempt yet.
     #[inline]
-    pub(crate) fn is_jitted(&self) -> bool {
+    pub(crate) fn requires_jit_entry(&self, vm: &VirtualMachine) -> bool {
         #[cfg(feature = "jit")]
         {
-            self.jitted_code.lock().is_some()
+            match self.jit_state.load(Relaxed) {
+                aot::COMPILED_AUTO | aot::COMPILED_MANUAL => true,
+                aot::UNTRIED => vm.state.config.settings.aot,
+                _ => false,
+            }
         }
         #[cfg(not(feature = "jit"))]
         {
+            let _ = vm;
             false
         }
+    }
+
+    /// Drop native code and stop trying.
+    ///
+    /// A caller that only wants to stop guessing has to check where the code
+    /// came from first: an explicit `__jit__()` is a standing request, and
+    /// silently undoing it would be a surprise. A guard leaves no such
+    /// choice - the code is wrong for these values however it was asked
+    /// for, and keeping it means hitting the same guard on every retry.
+    #[cfg(feature = "jit")]
+    fn deoptimize(&self, vm: &VirtualMachine) {
+        self.jit_state.store(aot::REJECTED, Relaxed);
+        *self.jitted_code.lock() = None;
+        vm.state.aot_stats.deoptimized.fetch_add(1, Relaxed);
+    }
+
+    /// Whether a deopt record fits the frame this function builds.
+    ///
+    /// Nothing between the guard and here measures the record against the code
+    /// object: the compiler decides the shape and the compiled code writes the
+    /// slots, and the VM takes both on trust. An oversized stack runs off the
+    /// end of the frame, where the push aborts the process instead of raising,
+    /// and an offset past the last instruction resumes into nothing. Check the
+    /// record against the frame it claims to describe and let a mismatch fall
+    /// back to running the call from the start, which costs the call over again
+    /// and gives up nothing else.
+    #[cfg(feature = "jit")]
+    fn deopt_state_fits(&self, state: &DeoptState) -> bool {
+        let code = &*self.code;
+        state.locals.len() <= code.localspluskinds.len()
+            && state.stack.len() <= code.max_stackdepth as usize
+            && (state.offset as usize) < code.instructions.len()
+    }
+
+    /// Put a deopt record into a fresh frame: the locals as the guard saw
+    /// them, the operands the interrupted instruction had already pushed, and
+    /// the offset of that instruction, so the interpreter re-executes it whole.
+    #[cfg(feature = "jit")]
+    fn fill_locals_from_deopt(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        state: DeoptState,
+        vm: &VirtualMachine,
+    ) {
+        use crate::convert::ToPyObject;
+
+        let fastlocals = iframe.localsplus.fastlocals_mut();
+        for (local, value) in fastlocals.iter_mut().zip(state.locals) {
+            // `None` leaves the slot empty, which is what unbound means.
+            *local = value.map(|value| value.to_pyobject(vm));
+        }
+        for entry in state.stack {
+            // The callable and the null beside it take no slot in the record:
+            // they are the same on every path that reaches the guard, so the
+            // site describes them and they are rebuilt here.
+            let value = match entry {
+                StackValue::Value(value) => Some(value.to_pyobject(vm)),
+                StackValue::Callee => Some(self.as_object().to_owned()),
+                StackValue::Null => None,
+            };
+            iframe.localsplus.push_stack_opt(value);
+        }
+        iframe.set_lasti(state.offset);
     }
 
     pub fn invoke_with_locals(
@@ -570,18 +658,82 @@ impl Py<PyFunction> {
         locals: Option<ArgMapping>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        // Where a guard stopped, for the frame built below to carry on from.
         #[cfg(feature = "jit")]
-        if let Some(jitted_code) = self.jitted_code.lock().as_ref() {
-            use crate::convert::ToPyObject;
-            match jit::get_jit_args(self, &func_args, jitted_code, vm) {
-                Ok(args) => {
-                    return Ok(args.invoke().to_pyobject(vm));
+        let mut resume = None;
+        #[cfg(feature = "jit")]
+        'compiled: {
+            // Compiled code runs no frame, so it reports no call, no line and
+            // no return. A tracer or a monitoring tool that asked for those
+            // events would not see the call at all, so while either is
+            // installed the call goes to the interpreter - and is not compiled
+            // on the way past, since the compilation would only be skipped.
+            if vm.use_tracing.get() || vm.state.monitoring_events.load() != 0 {
+                break 'compiled;
+            }
+
+            let mut state = self.jit_state.load(Relaxed);
+            if state == aot::UNTRIED && vm.state.config.settings.aot {
+                state = aot::observe_call(self, &func_args, vm);
+            }
+
+            if matches!(state, aot::COMPILED_AUTO | aot::COMPILED_MANUAL) {
+                // Run the call while holding the lock, but decide what to do
+                // about a failure after releasing it: giving the code back takes it.
+                let outcome = self.jitted_code.lock().as_ref().map(|jitted_code| {
+                    jit::get_jit_args(self, &func_args, jitted_code, vm).map(|args| args.invoke())
+                });
+                match outcome {
+                    Some(Ok(Outcome::Returned(ret))) => {
+                        use crate::convert::ToPyObject;
+                        return Ok(ret.to_pyobject(vm));
+                    }
+                    Some(Ok(Outcome::Restart)) => {
+                        // Nothing to carry on from: either a nested frame gave
+                        // up, or the guard belongs to a site that cannot
+                        // describe the frame. Run the call again from the
+                        // start, which the opcodes with a lowering make
+                        // unobservable - they touch nothing outside the frame.
+                        self.deoptimize(vm);
+                    }
+                    Some(Ok(Outcome::Interrupted(state))) => {
+                        // A backward jump found the thread had been asked out
+                        // of the bytecode loop. That is no verdict on the code,
+                        // which stays installed for the next call; only this
+                        // call finishes interpreted, which is where the signal,
+                        // the stop or the shutdown is answered. Without a
+                        // record it starts over, on the same footing as a
+                        // guard's restart.
+                        resume = state.filter(|state| self.deopt_state_fits(state));
+                    }
+                    Some(Ok(Outcome::Deopt(state))) => {
+                        // The resume lands on the instruction the guard belongs
+                        // to, so the interpreter re-executes it - including a
+                        // recursive call, which would hit the same guard again
+                        // if the code were still installed.
+                        self.deoptimize(vm);
+                        // A record that does not fit is treated as no record,
+                        // which leaves the call to run from the start below.
+                        if self.deopt_state_fits(&state) {
+                            resume = Some(state);
+                        }
+                    }
+                    Some(Err(err)) => {
+                        info!(
+                            "jit: function `{}` is falling back to being interpreted because of \
+                            the error: {}",
+                            self.code.obj_name, err
+                        );
+                        if state == aot::COMPILED_AUTO {
+                            // Nobody asked for this one, and a function whose
+                            // arguments do not fit pays twice over: the failed
+                            // conversion on every call, plus the call
+                            // specialization it displaced.
+                            self.deoptimize(vm);
+                        }
+                    }
+                    None => {}
                 }
-                Err(err) => info!(
-                    "jit: function `{}` is falling back to being interpreted because of the \
-                    error: {}",
-                    self.code.obj_name, err
-                ),
             }
         }
 
@@ -615,6 +767,17 @@ impl Py<PyFunction> {
                 use_datastack,
                 vm,
             );
+            #[cfg(feature = "jit")]
+            match resume {
+                Some(state) => {
+                    // SAFETY: the frame was just built here, and nothing else
+                    // holds it until it is run below.
+                    let iframe = unsafe { frame.iframe_mut() };
+                    self.fill_locals_from_deopt(iframe, state, vm);
+                }
+                None => self.fill_locals_from_args(&frame, func_args, vm)?,
+            }
+            #[cfg(not(feature = "jit"))]
             self.fill_locals_from_args(&frame, func_args, vm)?;
             if is_gen || is_coro || is_async_gen {
                 return Ok(self.make_generator_or_coro(frame, vm));
@@ -652,9 +815,17 @@ impl Py<PyFunction> {
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             vm,
         );
-        let result = self
-            .fill_locals_from_args_iframe(iframe, func_args, vm)
-            .and_then(|()| vm.run_frame_fast(iframe));
+        #[cfg(feature = "jit")]
+        let filled = match resume {
+            Some(state) => {
+                self.fill_locals_from_deopt(iframe, state, vm);
+                Ok(())
+            }
+            None => self.fill_locals_from_args_iframe(iframe, func_args, vm),
+        };
+        #[cfg(not(feature = "jit"))]
+        let filled = self.fill_locals_from_args_iframe(iframe, func_args, vm);
+        let result = filled.and_then(|()| vm.run_frame_fast(iframe));
         // Release data stack memory — must happen on both success and error.
         unsafe {
             if let Some((base, size)) = iframe.release_datastack_frame() {
@@ -934,6 +1105,7 @@ impl PyFunction {
         #[cfg(feature = "jit")]
         {
             *jit_guard = None;
+            self.jit_state.store(aot::UNTRIED, Relaxed);
         }
         self.func_version.store(0, Relaxed);
         Ok(())
@@ -1187,19 +1359,33 @@ impl PyFunction {
         Ok(())
     }
 
+    /// Compile this function to native code, raising `JitError` if it cannot
+    /// be done.
+    ///
+    /// Unlike the automatic AOT path this compiles permissively, so integer
+    /// arithmetic that can trap or wrap is accepted. `force` compiles again over
+    /// code a function already has, and retries one the AOT path rejected.
     #[cfg(feature = "jit")]
     #[pymethod]
-    fn __jit__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        let mut jit_guard = zelf.jitted_code.lock();
-        if jit_guard.is_some() {
+    fn __jit__(zelf: PyRef<Self>, args: JitArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let already_compiled = matches!(
+            zelf.jit_state.load(Relaxed),
+            aot::COMPILED_AUTO | aot::COMPILED_MANUAL
+        );
+        if already_compiled && !args.force.unwrap_or(false) {
             return Ok(());
         }
+
         let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
         let ret_type = jit::jit_ret_type(&zelf, vm)?;
         let code: &Py<PyCode> = &zelf.code;
-        let compiled = rustpython_jit::compile(&code.code, &arg_types, ret_type)
+        let compiled = vm
+            .state
+            .jit_engine
+            .compile(&code.code, &arg_types, ret_type, Safety::Permissive)
             .map_err(|err| jit::new_jit_error(err.to_string(), vm))?;
-        *jit_guard = Some(compiled);
+        *zelf.jitted_code.lock() = Some(compiled);
+        zelf.jit_state.store(aot::COMPILED_MANUAL, Relaxed);
         Ok(())
     }
 }
@@ -1237,6 +1423,13 @@ impl Representable for PyFunction {
             zelf.get_id()
         ))
     }
+}
+
+#[cfg(feature = "jit")]
+#[derive(FromArgs)]
+struct JitArgs {
+    #[pyarg(any, optional)]
+    force: OptionalArg<bool>,
 }
 
 #[derive(FromArgs)]
@@ -1637,7 +1830,7 @@ pub(crate) fn vectorcall_function(
     let code: &Py<PyCode> = &zelf.code;
 
     let has_kwargs = kwnames.is_some_and(|kw| !kw.is_empty());
-    if zelf.is_jitted() {
+    if zelf.requires_jit_entry(vm) {
         let func_args = if has_kwargs {
             FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
         } else {

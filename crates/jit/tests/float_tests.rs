@@ -118,109 +118,178 @@ mod tests {
         def pow(a:float, b: float):
             return a**b
     "##};
+        // `**` calls `f64::powf` after its guards, the same function the
+        // interpreter's `float_pow` calls, so every case below is exact -
+        // there is no rounding step of this crate's own that a relative
+        // comparison would need to absorb.
         // Test base cases
-        assert_approx_eq!(pow(0.0, 0.0), Ok(1.0));
-        assert_approx_eq!(pow(0.0, 1.0), Ok(0.0));
-        assert_approx_eq!(pow(1.0, 0.0), Ok(1.0));
-        assert_approx_eq!(pow(1.0, 1.0), Ok(1.0));
-        assert_approx_eq!(pow(1.0, -1.0), Ok(1.0));
-        assert_approx_eq!(pow(-1.0, 0.0), Ok(1.0));
-        assert_approx_eq!(pow(-1.0, 1.0), Ok(-1.0));
-        assert_approx_eq!(pow(-1.0, -1.0), Ok(-1.0));
+        assert_bits_eq!(pow(0.0, 0.0), Ok(1.0f64));
+        assert_bits_eq!(pow(0.0, 1.0), Ok(0.0f64));
+        assert_bits_eq!(pow(1.0, 0.0), Ok(1.0f64));
+        assert_bits_eq!(pow(1.0, 1.0), Ok(1.0f64));
+        assert_bits_eq!(pow(1.0, -1.0), Ok(1.0f64));
+        assert_bits_eq!(pow(-1.0, 0.0), Ok(1.0f64));
+        assert_bits_eq!(pow(-1.0, 1.0), Ok(-1.0f64));
+        assert_bits_eq!(pow(-1.0, -1.0), Ok(-1.0f64));
 
-        // NaN and Infinity cases
-        assert_approx_eq!(pow(f64::NAN, 0.0), Ok(1.0));
-        //assert_approx_eq!(pow(f64::NAN, 1.0), Ok(f64::NAN)); // Return the correct answer but fails compare
-        //assert_approx_eq!(pow(0.0, f64::NAN), Ok(f64::NAN)); // Return the correct answer but fails compare
-        assert_approx_eq!(pow(f64::INFINITY, 0.0), Ok(1.0));
-        assert_approx_eq!(pow(f64::INFINITY, 1.0), Ok(f64::INFINITY));
-        assert_approx_eq!(pow(f64::INFINITY, f64::INFINITY), Ok(f64::INFINITY));
+        // NaN cases
+        assert_bits_eq!(pow(f64::NAN, 0.0), Ok(1.0f64));
+        assert_bits_eq!(pow(f64::NAN, 2.0), Ok(f64::NAN));
+        assert_bits_eq!(pow(0.0, f64::NAN), Ok(f64::NAN));
+        assert_bits_eq!(pow(1.0, f64::NAN), Ok(1.0f64));
+
+        // An infinite exponent does not deoptimize by itself - only an
+        // overflowing finite-operand result does, see
+        // `float_power_deopts_on_finite_base_overflow` in deopt_tests.rs.
+        // `powf` answers these directly, matching the interpreter exactly
+        // because both call the same function.
+        assert_bits_eq!(pow(f64::INFINITY, f64::INFINITY), Ok(f64::INFINITY));
+        assert_bits_eq!(pow(-1.0, f64::INFINITY), Ok(1.0f64));
+        assert_bits_eq!(pow(-1.0, f64::NEG_INFINITY), Ok(1.0f64));
+        assert_bits_eq!(pow(0.5, f64::INFINITY), Ok(0.0f64));
+        assert_bits_eq!(pow(0.5, f64::NEG_INFINITY), Ok(f64::INFINITY));
+
+        // Infinity base cases:
+        assert_bits_eq!(pow(f64::INFINITY, 0.0), Ok(1.0f64));
+        assert_bits_eq!(pow(f64::INFINITY, 1.0), Ok(f64::INFINITY));
+        // An infinite base with a negative exponent correctly returns a
+        // signed zero rather than an infinity.
+        assert_bits_eq!(pow(f64::INFINITY, -2.0), Ok(0.0f64));
         // Negative infinity cases:
         // For any exponent of 0.0, the result is 1.0.
-        assert_approx_eq!(pow(f64::NEG_INFINITY, 0.0), Ok(1.0));
+        assert_bits_eq!(pow(f64::NEG_INFINITY, 0.0), Ok(1.0f64));
         // For negative infinity base, when b is an odd integer, result is -infinity;
         // when b is even, result is +infinity.
-        assert_approx_eq!(pow(f64::NEG_INFINITY, 1.0), Ok(f64::NEG_INFINITY));
-        assert_approx_eq!(pow(f64::NEG_INFINITY, 2.0), Ok(f64::INFINITY));
-        assert_approx_eq!(pow(f64::NEG_INFINITY, 3.0), Ok(f64::NEG_INFINITY));
-        // Exponent -infinity gives 0.0.
-        assert_approx_eq!(pow(f64::NEG_INFINITY, f64::NEG_INFINITY), Ok(0.0));
+        assert_bits_eq!(pow(f64::NEG_INFINITY, 1.0), Ok(f64::NEG_INFINITY));
+        assert_bits_eq!(pow(f64::NEG_INFINITY, 2.0), Ok(f64::INFINITY));
+        assert_bits_eq!(pow(f64::NEG_INFINITY, 3.0), Ok(f64::NEG_INFINITY));
+        // A negative odd exponent keeps the sign but flips the magnitude to
+        // a zero, the same as the positive-infinity-base case above.
+        assert_bits_eq!(pow(f64::NEG_INFINITY, -3.0), Ok(-0.0f64));
+        // An infinite exponent is not special-cased for this base either.
+        assert_bits_eq!(pow(f64::NEG_INFINITY, f64::NEG_INFINITY), Ok(0.0f64));
+
+        // A negative zero base keeps its sign rather than being flattened to
+        // `+0.0`: `(-0.0) ** 3.0` is `-0.0`.
+        assert_bits_eq!(pow(-0.0, 3.0), Ok(-0.0f64));
+
+        // `-0.0` is a zero, not a negative number, on either side of the
+        // operator: it is neither the negative exponent that makes a zero
+        // base raise, nor the negative base that makes a fractional exponent
+        // complex. Both of those give up to the interpreter, so a compiled
+        // answer here is also the proof that neither guard fired.
+        assert_bits_eq!(pow(0.0, -0.0), Ok(1.0f64));
+        assert_bits_eq!(pow(-0.0, -0.0), Ok(1.0f64));
+        assert_bits_eq!(pow(-0.0, 0.5), Ok(0.0f64));
+        // A nan exponent is not a fractional one, however negative the base.
+        assert_bits_eq!(pow(-2.0, f64::NAN), Ok(f64::NAN));
 
         // Test positive float base, positive float exponent
-        assert_approx_eq!(pow(2.0, 2.0), Ok(4.0));
-        assert_approx_eq!(pow(3.0, 3.0), Ok(27.0));
-        assert_approx_eq!(pow(4.0, 4.0), Ok(256.0));
-        assert_approx_eq!(pow(2.0, 3.0), Ok(8.0));
-        assert_approx_eq!(pow(2.0, 4.0), Ok(16.0));
+        assert_bits_eq!(pow(2.0, 2.0), Ok(4.0f64));
+        assert_bits_eq!(pow(3.0, 3.0), Ok(27.0f64));
+        assert_bits_eq!(pow(4.0, 4.0), Ok(256.0f64));
+        assert_bits_eq!(pow(2.0, 3.0), Ok(8.0f64));
+        assert_bits_eq!(pow(2.0, 4.0), Ok(16.0f64));
         // Test negative float base, positive float exponent (integral exponents only)
-        assert_approx_eq!(pow(-2.0, 2.0), Ok(4.0));
-        assert_approx_eq!(pow(-3.0, 3.0), Ok(-27.0));
-        assert_approx_eq!(pow(-4.0, 4.0), Ok(256.0));
-        assert_approx_eq!(pow(-2.0, 3.0), Ok(-8.0));
-        assert_approx_eq!(pow(-2.0, 4.0), Ok(16.0));
+        assert_bits_eq!(pow(-2.0, 2.0), Ok(4.0f64));
+        assert_bits_eq!(pow(-3.0, 3.0), Ok(-27.0f64));
+        assert_bits_eq!(pow(-4.0, 4.0), Ok(256.0f64));
+        assert_bits_eq!(pow(-2.0, 3.0), Ok(-8.0f64));
+        assert_bits_eq!(pow(-2.0, 4.0), Ok(16.0f64));
+        // A negative base with an integral exponent is real, so the complex
+        // guard must not fire on it.
+        assert_bits_eq!(pow(-8.0, 2.0), Ok(64.0f64));
         // Test positive float base, positive float exponent
-        assert_approx_eq!(pow(2.5, 2.0), Ok(6.25));
-        assert_approx_eq!(pow(3.5, 3.0), Ok(42.875));
-        assert_approx_eq!(pow(4.5, 4.0), Ok(410.0625));
-        assert_approx_eq!(pow(2.5, 3.0), Ok(15.625));
-        assert_approx_eq!(pow(2.5, 4.0), Ok(39.0625));
+        assert_bits_eq!(pow(2.5, 2.0), Ok(6.25f64));
+        assert_bits_eq!(pow(3.5, 3.0), Ok(42.875f64));
+        assert_bits_eq!(pow(4.5, 4.0), Ok(410.0625f64));
+        assert_bits_eq!(pow(2.5, 3.0), Ok(15.625f64));
+        assert_bits_eq!(pow(2.5, 4.0), Ok(39.0625f64));
         // Test negative float base, positive float exponent (integral exponents only)
-        assert_approx_eq!(pow(-2.5, 2.0), Ok(6.25));
-        assert_approx_eq!(pow(-3.5, 3.0), Ok(-42.875));
-        assert_approx_eq!(pow(-4.5, 4.0), Ok(410.0625));
-        assert_approx_eq!(pow(-2.5, 3.0), Ok(-15.625));
-        assert_approx_eq!(pow(-2.5, 4.0), Ok(39.0625));
+        assert_bits_eq!(pow(-2.5, 2.0), Ok(6.25f64));
+        assert_bits_eq!(pow(-3.5, 3.0), Ok(-42.875f64));
+        assert_bits_eq!(pow(-4.5, 4.0), Ok(410.0625f64));
+        assert_bits_eq!(pow(-2.5, 3.0), Ok(-15.625f64));
+        assert_bits_eq!(pow(-2.5, 4.0), Ok(39.0625f64));
         // Test positive float base, positive float exponent with non-integral exponents
-        assert_approx_eq!(pow(2.0, 2.5), Ok(5.656854249492381));
-        assert_approx_eq!(pow(3.0, 3.5), Ok(46.76537180435969));
-        assert_approx_eq!(pow(4.0, 4.5), Ok(512.0));
-        assert_approx_eq!(pow(2.0, 3.5), Ok(11.313708498984761));
-        assert_approx_eq!(pow(2.0, 4.5), Ok(22.627416997969522));
+        assert_bits_eq!(pow(2.0, 2.5), Ok(5.656854249492381f64));
+        assert_bits_eq!(pow(3.0, 3.5), Ok(46.76537180435969f64));
+        assert_bits_eq!(pow(4.0, 4.5), Ok(512.0f64));
+        assert_bits_eq!(pow(2.0, 3.5), Ok(11.313708498984761f64));
+        assert_bits_eq!(pow(2.0, 4.5), Ok(22.627416997969522f64));
         // Test positive float base, negative float exponent
-        assert_approx_eq!(pow(2.0, -2.5), Ok(0.1767766952966369));
-        assert_approx_eq!(pow(3.0, -3.5), Ok(0.021383343303319473));
-        assert_approx_eq!(pow(4.0, -4.5), Ok(0.001953125));
-        assert_approx_eq!(pow(2.0, -3.5), Ok(0.08838834764831845));
-        assert_approx_eq!(pow(2.0, -4.5), Ok(0.04419417382415922));
+        assert_bits_eq!(pow(2.0, -2.5), Ok(0.1767766952966369f64));
+        assert_bits_eq!(pow(3.0, -3.5), Ok(0.021383343303319473f64));
+        assert_bits_eq!(pow(4.0, -4.5), Ok(0.001953125f64));
+        assert_bits_eq!(pow(2.0, -3.5), Ok(0.08838834764831845f64));
+        assert_bits_eq!(pow(2.0, -4.5), Ok(0.04419417382415922f64));
         // Test negative float base, negative float exponent (integral exponents only)
-        assert_approx_eq!(pow(-2.0, -2.0), Ok(0.25));
-        assert_approx_eq!(pow(-3.0, -3.0), Ok(-0.037037037037037035));
-        assert_approx_eq!(pow(-4.0, -4.0), Ok(0.00390625));
-        assert_approx_eq!(pow(-2.0, -3.0), Ok(-0.125));
-        assert_approx_eq!(pow(-2.0, -4.0), Ok(0.0625));
+        assert_bits_eq!(pow(-2.0, -2.0), Ok(0.25f64));
+        assert_bits_eq!(pow(-3.0, -3.0), Ok(-0.037037037037037035f64));
+        assert_bits_eq!(pow(-4.0, -4.0), Ok(0.00390625f64));
+        assert_bits_eq!(pow(-2.0, -3.0), Ok(-0.125f64));
+        assert_bits_eq!(pow(-2.0, -4.0), Ok(0.0625f64));
 
-        // Currently negative float base with non-integral exponent is not supported:
-        // assert_approx_eq!(pow(-2.0, 2.5), Ok(5.656854249492381));
-        // assert_approx_eq!(pow(-3.0, 3.5), Ok(-46.76537180435969));
-        // assert_approx_eq!(pow(-4.0, 4.5), Ok(512.0));
-        // assert_approx_eq!(pow(-2.0, -2.5), Ok(0.1767766952966369));
-        // assert_approx_eq!(pow(-3.0, -3.5), Ok(0.021383343303319473));
-        // assert_approx_eq!(pow(-4.0, -4.5), Ok(0.001953125));
+        // A negative base raised to a non-integral exponent is complex,
+        // which this crate cannot produce, so it deoptimizes instead - see
+        // `float_power_deopts_on_negative_base_fractional_exponent` in
+        // deopt_tests.rs.
 
-        // Extra cases **NOTE** these are not all working:
-        //      * If they are commented in then they work
-        //      * If they are commented out with a number that is the current return value it throws vs the expected value
-        //      * If they are commented out with a "fail to run" that means I couldn't get them to work, could add a case for really big or small values
-        // 1e308^2.0
-        assert_approx_eq!(pow(1e308, 2.0), Ok(f64::INFINITY));
-        // 1e308^(1e-2)
-        assert_approx_eq!(pow(1e308, 1e-2), Ok(1202.2644346174131));
-        // 1e-308^2.0
-        //assert_approx_eq!(pow(1e-308, 2.0), Ok(0.0));  // --8.403311421507407
-        // 1e-308^-2.0
-        assert_approx_eq!(pow(1e-308, -2.0), Ok(f64::INFINITY));
-        // 1e100^(1e50)
-        //assert_approx_eq!(pow(1e100, 1e50), Ok(1.0000000000000002e+150)); // fail to run (Crashes as "illegal hardware instruction")
-        // 1e50^(1e-100)
-        assert_approx_eq!(pow(1e50, 1e-100), Ok(1.0));
-        // 1e308^(-1e2)
-        //assert_approx_eq!(pow(1e308, -1e2), Ok(0.0)); // 2.961801792837933e25
-        // 1e-308^(1e2)
-        //assert_approx_eq!(pow(1e-308, 1e2), Ok(f64::INFINITY)); // 1.6692559244043896e46
-        // 1e308^(-1e308)
-        // assert_approx_eq!(pow(1e308, -1e308), Ok(0.0)); // fail to run (Crashes as "illegal hardware instruction")
-        // 1e-308^(1e308)
-        // assert_approx_eq!(pow(1e-308, 1e308), Ok(0.0)); // fail to run (Crashes as "illegal hardware instruction")
+        // Extreme magnitudes, finite on both sides:
+        assert_bits_eq!(pow(1e308, 1e-2), Ok(1202.2644346174131f64));
+        assert_bits_eq!(pow(1e50, 1e-100), Ok(1.0f64));
+        // 1e308 ** 2.0 overflows a finite base to an infinity, which raises
+        // OverflowError rather than saturating - see
+        // `float_power_deopts_on_finite_base_overflow` in deopt_tests.rs.
+        // Underflowing all the way to zero, in both directions, does not
+        // deoptimize - only an overflow to infinity does.
+        assert_bits_eq!(pow(1e-308, 2.0), Ok(0.0f64));
+        assert_bits_eq!(pow(1e308, -1e2), Ok(0.0f64));
+        assert_bits_eq!(pow(1e-308, 1e2), Ok(0.0f64));
+        assert_bits_eq!(pow(1e308, -1e308), Ok(0.0f64));
+        assert_bits_eq!(pow(1e-308, 1e308), Ok(0.0f64));
+    }
+
+    /// The lowering used to answer float `**` with a hand-rolled
+    /// double–double `ln`/`exp`, which lost whole significant digits on a
+    /// base far from 1: `1023.0 ** 1.0` came back as `1022.9277018310074`,
+    /// and the error stayed small enough at well-scaled inputs that
+    /// `assert_approx_eq!`'s relative tolerance in `basic_power` above never
+    /// caught it. Calling `f64::powf` directly cannot drift from the
+    /// interpreter this way: both sides run the same function on the same
+    /// bits. Four of these 24 pairs overflow a finite base and exponent to
+    /// an infinity and deoptimize instead of returning; see
+    /// `float_power_deopts_on_finite_base_overflow` in deopt_tests.rs.
+    #[test]
+    fn float_power_matches_far_from_one() {
+        let pow = jit_function! { pow(a:f64, b:f64) -> f64 => r##"
+        def pow(a:float, b: float):
+            return a**b
+    "##};
+        assert_bits_eq!(pow(1023.0, 1.0), Ok(1023.0f64));
+        assert_bits_eq!(pow(1023.0, 2.0), Ok(1046529.0f64));
+        assert_bits_eq!(pow(1023.0, -2.0), Ok(9.555396935966418e-7f64));
+        assert_bits_eq!(pow(1023.0, 4.0), Ok(1095222947841.0f64));
+        assert_bits_eq!(pow(1023.0, -320.0), Ok(0.0f64));
+        assert_bits_eq!(pow(1023.0, 0.5), Ok(31.984371183438952f64));
+        assert_bits_eq!(pow(1e-308, 1.0), Ok(1e-308f64));
+        assert_bits_eq!(pow(1e-308, 2.0), Ok(0.0f64));
+        // (1e-308, -2.0) overflows - see deopt_tests.rs.
+        assert_bits_eq!(pow(1e-308, 4.0), Ok(0.0f64));
+        // (1e-308, -320.0) overflows - see deopt_tests.rs.
+        assert_bits_eq!(pow(1e-308, 0.5), Ok(1e-154f64));
+        assert_bits_eq!(pow(1e-100, 1.0), Ok(1e-100f64));
+        assert_bits_eq!(pow(1e-100, 2.0), Ok(1e-200f64));
+        assert_bits_eq!(pow(1e-100, -2.0), Ok(1e200f64));
+        assert_bits_eq!(pow(1e-100, 4.0), Ok(0.0f64));
+        // (1e-100, -320.0) overflows - see deopt_tests.rs.
+        assert_bits_eq!(pow(1e-100, 0.5), Ok(1e-50f64));
+        assert_bits_eq!(pow(1e100, 1.0), Ok(1e100f64));
+        assert_bits_eq!(pow(1e100, 2.0), Ok(1e200f64));
+        assert_bits_eq!(pow(1e100, -2.0), Ok(1e-200f64));
+        // (1e100, 4.0) overflows - see deopt_tests.rs.
+        assert_bits_eq!(pow(1e100, -320.0), Ok(0.0f64));
+        assert_bits_eq!(pow(1e100, 0.5), Ok(1e50f64));
     }
 
     #[test]
@@ -231,11 +300,10 @@ mod tests {
     "## };
 
         assert_approx_eq!(div(5.2, 2.0), Ok(2.6));
+        assert_approx_eq!(div(4.0, 2.0), Ok(2.0));
         assert_approx_eq!(div(3.4, -1.7), Ok(-2.0));
-        assert_eq!(div(1.0, 0.0), Ok(f64::INFINITY));
-        assert_eq!(div(1.0, -0.0), Ok(f64::NEG_INFINITY));
-        assert_eq!(div(-1.0, 0.0), Ok(f64::NEG_INFINITY));
-        assert_eq!(div(-1.0, -0.0), Ok(f64::INFINITY));
+        // Division by zero raises rather than returning an infinity, so it
+        // deoptimizes instead - see deopt_tests.rs.
         assert_bits_eq!(div(-5.2, f64::NAN), Ok(f64::NAN));
         assert_eq!(div(f64::INFINITY, 2.0), Ok(f64::INFINITY));
         assert_bits_eq!(div(-2.0, f64::NEG_INFINITY), Ok(0.0f64));
@@ -253,10 +321,8 @@ mod tests {
 
         assert_approx_eq!(div(5.2, 2), Ok(2.6));
         assert_approx_eq!(div(3.4, -1), Ok(-3.4));
-        assert_eq!(div(1.0, 0), Ok(f64::INFINITY));
-        assert_eq!(div(1.0, -0), Ok(f64::INFINITY));
-        assert_eq!(div(-1.0, 0), Ok(f64::NEG_INFINITY));
-        assert_eq!(div(-1.0, -0), Ok(f64::NEG_INFINITY));
+        // Division by zero raises rather than returning an infinity, so it
+        // deoptimizes instead - see deopt_tests.rs.
         assert_eq!(div(f64::INFINITY, 2), Ok(f64::INFINITY));
         assert_eq!(div(f64::NEG_INFINITY, 3), Ok(f64::NEG_INFINITY));
     }

@@ -279,6 +279,10 @@ impl StopTheWorldState {
         // registration (which also takes this lock), matching the
         // HEAD_LOCK-guarded stop-the-world bookkeeping.
         self.requested.store(true, Ordering::Release);
+        // Announce the span in the eval-breaker word before any thread's own
+        // stop bit is set, so no thread can be asked to park while the word
+        // still reads as nothing to do.
+        crate::signal::begin_stop_request();
         let count = registry
             .keys()
             .filter(|&&thread_id| thread_id != requester)
@@ -538,6 +542,9 @@ impl StopTheWorldState {
         drop(registry);
         self.thread_countdown.store(0, Ordering::Release);
         self.requester.store(0, Ordering::Relaxed);
+        // Every stop bit this span set has been cleared above, so the word can
+        // stop saying there is one.
+        crate::signal::end_stop_request();
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_detached(state);
         // Release the exclusion last, ending the stop→start span so the next
@@ -549,6 +556,7 @@ impl StopTheWorldState {
     /// Reset after fork in the child (only one thread alive).
     pub fn reset_after_fork(&self) {
         self.requested.store(false, Ordering::Relaxed);
+        crate::signal::reset_stop_requests();
         self.world_stopped.store(false, Ordering::Relaxed);
         crate::common::lock::set_world_stopped(false);
         self.requester.store(0, Ordering::Relaxed);
@@ -828,6 +836,12 @@ pub struct PyGlobalState {
     pub id_refcount: AtomicI64,
     /// When true, dropping the last ID ref destroys the interpreter.
     pub require_idref: AtomicBool,
+    /// Owns the machine code of every function compiled in this interpreter.
+    #[cfg(feature = "jit")]
+    pub jit_engine: alloc::sync::Arc<rustpython_jit::JitEngine>,
+    /// What the AOT path has compiled, rejected, and given back.
+    #[cfg(feature = "jit")]
+    pub aot_stats: builtins::function::aot::AotStats,
 }
 
 impl PyGlobalState {
@@ -2419,8 +2433,13 @@ impl VirtualMachine {
                 // the frame object, so it is now readable from anywhere.
                 fo.iframe().detach();
                 if !old_chain.is_null() {
+                    // The frame object has to be attached to the caller, not
+                    // a standalone copy of it: the caller runs this same
+                    // block when it returns and finds only an attached one,
+                    // so a copy would end the chain here and `f_back` would
+                    // stop one link up from every escaped frame.
                     let prev_iframe = unsafe { &*old_chain };
-                    let back_fo = prev_iframe.materialize_chain(self);
+                    let back_fo = prev_iframe.materialize(self).to_owned();
                     *fo.iframe().cold().retained_back.lock() = Some(back_fo);
                 }
                 fo.iframe().owner.store(

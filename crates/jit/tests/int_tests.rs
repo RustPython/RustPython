@@ -2,6 +2,36 @@
 mod tests {
     use core::f64;
 
+    /// Floor division rounds toward negative infinity and the remainder takes
+    /// the divisor's sign, which is not what the machine instructions do.
+    #[test]
+    fn floor_div_and_remainder_follow_the_divisor() {
+        let div = jit_function! { div(a: i64, b: i64) -> i64 => r#"
+        def div(a: int, b: int) -> int:
+            return a // b
+    "# };
+        assert_eq!(div(7, 2), Ok(3));
+        assert_eq!(div(-7, 2), Ok(-4));
+        assert_eq!(div(7, -2), Ok(-4));
+        assert_eq!(div(-7, -2), Ok(3));
+        assert_eq!(div(-6, 2), Ok(-3));
+        // The correction's overflow argument rests on `i64::MIN`'s quotient
+        // only arising where the division is exact; pin both ends of that.
+        assert_eq!(div(i64::MIN, 1), Ok(i64::MIN));
+        assert_eq!(div(i64::MIN, 3), Ok(-3074457345618258603));
+
+        let rem = jit_function! { rem(a: i64, b: i64) -> i64 => r#"
+        def rem(a: int, b: int) -> int:
+            return a % b
+    "# };
+        assert_eq!(rem(7, 2), Ok(1));
+        assert_eq!(rem(-7, 2), Ok(1));
+        assert_eq!(rem(7, -2), Ok(-1));
+        assert_eq!(rem(-7, -2), Ok(-1));
+        assert_eq!(rem(-6, 2), Ok(0));
+        assert_eq!(rem(i64::MIN, 3), Ok(1));
+    }
+
     #[test]
     fn basic_add() {
         let add = jit_function! { add(a:i64, b:i64) -> i64 => r##"
@@ -65,10 +95,9 @@ mod tests {
         assert_eq!(div(1, 100000), Ok(0.00001));
         assert_eq!(div(2, 3), Ok(0.6666666666666666));
         assert_eq!(div(1, 3), Ok(0.3333333333333333));
-        assert_eq!(div(i64::MAX, 2), Ok(4611686018427387904.0));
-        assert_eq!(div(i64::MIN, 2), Ok(-4611686018427387904.0));
-        assert_eq!(div(i64::MIN, -1), Ok(9223372036854775808.0)); // Overflow case
-        assert_eq!(div(i64::MIN, i64::MAX), Ok(-1.0));
+        assert_eq!(div(1i64 << 53, 1), Ok((1i64 << 53) as f64));
+        // An operand past `1 << 53` does not fit a double's significand and
+        // deoptimizes instead; see deopt_tests.rs.
     }
 
     #[test]
@@ -119,7 +148,8 @@ mod tests {
         assert_eq!(modulo(12, 10), Ok(2));
         assert_eq!(modulo(7, 10), Ok(7));
         assert_eq!(modulo(-3, 1), Ok(0));
-        assert_eq!(modulo(-5, 10), Ok(-5));
+        // The remainder takes the divisor's sign, not the dividend's.
+        assert_eq!(modulo(-5, 10), Ok(5));
     }
 
     #[test]
@@ -132,6 +162,14 @@ mod tests {
         assert_eq!(power(10, 2), Ok(100));
         assert_eq!(power(5, 1), Ok(5));
         assert_eq!(power(1, 0), Ok(1));
+        // Square-and-multiply squares the base every iteration and discards
+        // it once there is no further iteration to consume it, so the final
+        // squaring overflowing to 2^64 must not deoptimize an answer - 2^33
+        // and 2^62 - that fits an i64 comfortably. That discard is guarded
+        // on "another iteration exists", not on the bit that would read the
+        // squared value.
+        assert_eq!(power(2, 33), Ok(8589934592));
+        assert_eq!(power(2, 62), Ok(4611686018427387904));
     }
 
     #[test]
