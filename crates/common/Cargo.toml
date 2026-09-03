@@ -16,6 +16,18 @@ cjk-codecs = []
 inet = ["std"]
 json = ["dep:memchr", "std"]
 lzma = ["std", "dep:xz", "dep:xz-sys"]
+hashlib = [
+    "std",
+    "parking_lot",
+    "dep:md-5",
+    "dep:sha1",
+    "dep:sha2",
+    "dep:sha3",
+    "dep:shake",
+    "dep:blake2b_simd",
+    "dep:blake2s_simd",
+    "dep:scrypt",
+]
 std = []
 threading = ["parking_lot", "std"]
 wasm_js = ["getrandom/wasm_js"]
@@ -29,6 +41,8 @@ rustpython-wtf8 = { workspace = true }
 ascii = { workspace = true }
 base64 = { workspace = true, optional = true }
 bitflags = { workspace = true }
+blake2b_simd = { workspace = true, optional = true }
+blake2s_simd = { workspace = true, optional = true }
 bzip2 = { workspace = true, optional = true }
 crc32fast = { workspace = true, optional = true }
 getrandom = { workspace = true }
@@ -38,10 +52,16 @@ libz-rs-sys = { workspace = true, optional = true }
 malachite-bigint = { workspace = true }
 malachite-q = { workspace = true }
 malachite-base = { workspace = true }
+md-5 = { workspace = true, optional = true }
 memchr = { workspace = true, optional = true }
 num-traits = { workspace = true }
 parking_lot = { workspace = true, optional = true }
 radium = { workspace = true }
+scrypt = { workspace = true, optional = true }
+sha1 = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+sha3 = { workspace = true, optional = true }
+shake = { workspace = true, optional = true }
 zlib-rs = { workspace = true, optional = true }
 lock_api = { workspace = true }
 siphasher = { workspace = true }
