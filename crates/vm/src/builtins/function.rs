@@ -87,6 +87,11 @@ pub struct PyFunction {
     /// atomic rather than something behind `jitted_code`'s lock.
     #[cfg(feature = "jit")]
     jit_state: AtomicU8,
+    /// Calls made so far, counted only until the compiler has looked at this
+    /// function. Beside `jit_state` for the same reason: it is written on
+    /// every call while the function is still cold.
+    #[cfg(feature = "jit")]
+    jit_warmup: AtomicU32,
 }
 
 static FUNC_VERSION_COUNTER: AtomicU32 = AtomicU32::new(1);
@@ -228,6 +233,8 @@ impl PyFunction {
             jitted_code: PyMutex::new(None),
             #[cfg(feature = "jit")]
             jit_state: AtomicU8::new(aot::UNTRIED),
+            #[cfg(feature = "jit")]
+            jit_warmup: AtomicU32::new(0),
         };
         Ok(func)
     }
@@ -667,7 +674,7 @@ impl Py<PyFunction> {
 
             let mut state = self.jit_state.load(Relaxed);
             if state == aot::UNTRIED && vm.state.config.settings.aot {
-                state = aot::compile_on_first_call(self, vm)?;
+                state = aot::observe_call(self, &func_args, vm);
             }
 
             if matches!(state, aot::COMPILED_AUTO | aot::COMPILED_MANUAL) {

@@ -146,8 +146,9 @@ cargo build --release --target wasm32-wasip1 --features="freeze-stdlib"
 ### JIT (Just in time) compiler
 
 RustPython has a **very** experimental JIT compiler that compiles python functions into native code.
-It comes in two forms: an automatic one that tries every function once, as it is first called, and
-an explicit `__jit__()` that compiles the one function it is called on.
+It comes in two forms: an automatic one that compiles a function once it has been called
+often enough to be worth it, and an explicit `__jit__()` that compiles the one function
+it is called on.
 
 #### Building
 
@@ -163,9 +164,11 @@ This requires autoconf, automake, libtool, and clang to be installed.
 #### Using the automatic compiler
 
 A build that has it still has to be switched on, with `-X aot=1`, `RUSTPYTHON_AOT=1`
-or `PYTHON_JIT=1`; `-X aot=0` and `=0` switch it back off. Every function is then
-offered to the compiler the first time it is called. The attempt happens once,
-so a function it turns down costs that one attempt and is interpreted from then on.
+or `PYTHON_JIT=1`; `-X aot=0` and `=0` switch it back off. A function is then counted
+as it is called and offered to the compiler once it has been called enough times to
+repay one. The attempt happens once, so a function it turns down costs that one
+attempt and is interpreted from then on; a function called only a handful of times
+is never offered at all.
 
 `sys._jit.is_available()` reports whether the compiler was built in, `is_enabled()`
 whether it is switched on, and `_stats()` returns `(compiled, rejected, deoptimized)`
@@ -173,15 +176,20 @@ for the functions it has looked at so far — a RustPython extension.
 
 #### What it compiles
 
-Annotated scalar functions, and nothing else. The argument and return types come
-from the annotations rather than from the values a call arrives with, so a function
-without them is turned down however it is called.
+Scalar functions, and nothing else. The two forms differ in where the types come
+from: `__jit__()` reads them off the annotations, and turns down a function without
+them; the automatic path takes them from the arguments of the call that made the
+function warm, so an unannotated function compiles as readily as an annotated one.
+Nothing about that reads a `__annotations__` or runs an `__annotate__`.
+
+A guess about types is a guess: a later call whose arguments do not fit the compiled
+signature is run by the interpreter instead.
 
 Taken: `int`, `float` and `bool` arguments, locals and return values; arithmetic,
 comparison and boolean operators; `if`, `while`, and the assignments between them.
 
-Turned down: missing annotations, `*args`/`**kwargs`, closures, generators and
-coroutines, `try`/`except`, attributes and methods, containers, `for`, calls to
+Turned down: arguments of any other type, `*args`/`**kwargs`, closures, generators
+and coroutines, `try`/`except`, attributes and methods, containers, `for`, calls to
 anything but the function itself, and expressions that merge with an operand still
 on the stack, such as a conditional expression. A call a function makes to itself
 is compiled only by `__jit__()`; the automatic path turns those down too, because
