@@ -145,6 +145,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+
+[[package]]
 name = "ascii"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -350,12 +356,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "blake2"
-version = "0.11.0-rc.6"
+name = "blake2b_simd"
+version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "061f1a09225e328e1ffbb378d2d49923c0ca5fee19fb5ac1cc9c1e9d52b93690"
+checksum = "3560a7b1951efe814fcd721938313adc56753ca39f4b23847d7e9a2402f5dbff"
 dependencies = [
- "digest",
+ "arrayvec",
+ "constant_time_eq 0.4.2",
+]
+
+[[package]]
+name = "blake2s_simd"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2380c0236432f7b22a70229df30f218f5293870c056beb76f5ca068e3273a366"
+dependencies = [
+ "arrayvec",
+ "constant_time_eq 0.4.2",
 ]
 
 [[package]]
@@ -712,6 +729,12 @@ name = "const-oid"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
+
+[[package]]
+name = "constant_time_eq"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "constant_time_eq"
@@ -1168,12 +1191,6 @@ name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
-
-[[package]]
-name = "dyn-clone"
-version = "1.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "either"
@@ -2049,9 +2066,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.38.2"
+version = "0.38.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
+checksum = "f6c19a05435c21ac299d71b6a9c13db3e3f47c520517d58990a462a1397a61db"
 dependencies = [
  "cc",
  "pkg-config",
@@ -3326,6 +3343,8 @@ dependencies = [
  "ascii",
  "base64",
  "bitflags 2.13.1",
+ "blake2b_simd",
+ "blake2s_simd",
  "bzip2",
  "crc32fast",
  "getrandom 0.4.3",
@@ -3336,6 +3355,7 @@ dependencies = [
  "malachite-base",
  "malachite-bigint",
  "malachite-q",
+ "md-5",
  "memchr",
  "num-complex",
  "num-traits",
@@ -3344,6 +3364,11 @@ dependencies = [
  "rustpython-literal",
  "rustpython-unicode",
  "rustpython-wtf8",
+ "scrypt",
+ "sha1",
+ "sha2",
+ "sha3",
+ "shake",
  "siphasher",
  "xz",
  "xz-sys",
@@ -3571,17 +3596,13 @@ version = "0.5.0"
 dependencies = [
  "adler32",
  "ascii",
- "blake2",
- "constant_time_eq",
+ "constant_time_eq 0.5.0",
  "crossbeam-utils",
  "csv-core",
  "der",
- "digest",
- "dyn-clone",
  "flame",
  "foreign-types-shared",
  "hex",
- "hmac",
  "indexmap",
  "insta",
  "itertools 0.15.0",
@@ -3589,7 +3610,6 @@ dependencies = [
  "libc",
  "libsqlite3-sys",
  "malachite-bigint",
- "md-5",
  "memchr",
  "mt19937",
  "num-complex",
@@ -3601,7 +3621,6 @@ dependencies = [
  "openssl-sys",
  "parking_lot",
  "paste",
- "pbkdf2",
  "pem-rfc7468",
  "phf 0.14.0",
  "pkcs8",
@@ -3623,10 +3642,7 @@ dependencies = [
  "rustpython-unicode",
  "rustpython-vm",
  "scopeguard",
- "sha1",
  "sha2",
- "sha3",
- "shake",
  "tcl-sys",
  "tk-sys",
  "uuid",
@@ -3661,7 +3677,7 @@ dependencies = [
  "ascii",
  "bitflags 2.13.1",
  "bstr",
- "constant_time_eq",
+ "constant_time_eq 0.5.0",
  "crossbeam-utils",
  "exitcode",
  "flame",
@@ -4192,7 +4208,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
