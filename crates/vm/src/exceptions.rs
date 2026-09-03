@@ -2052,7 +2052,7 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = PyException, ctx = "memory_error", impl, payload = "manual")]
+    #[pyexception(name, base = PyException, ctx = "memory_error", impl, payload = "manual", traverse = "manual")]
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyMemoryError(PyException);
@@ -2060,6 +2060,27 @@ pub(super) mod types {
     impl PyMemoryError {
         pub(crate) fn empty(vm: &VirtualMachine) -> Self {
             Self(PyException(PyBaseException::new(vec![], vm)))
+        }
+    }
+
+    unsafe impl Traverse for PyMemoryError {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.0.0.traverse(tracer_fn);
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            let base = &mut self.0.0;
+            if let Some(traceback) = base.traceback.get_mut().take() {
+                out.push(traceback.into());
+            }
+
+            if let Some(cause) = base.cause.get_mut().take() {
+                out.push(cause.into());
+            }
+
+            if let Some(context) = base.context.get_mut().take() {
+                out.push(context.into());
+            }
         }
     }
 
