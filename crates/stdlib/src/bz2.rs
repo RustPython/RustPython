@@ -25,7 +25,7 @@ mod _bz2 {
             backend::Bz2Error::Sequence => vm.new_runtime_error(
                 "Internal error - Invalid sequence of commands sent to libbzip2",
             ),
-            backend::Bz2Error::Mem => vm.new_memory_error("out of memory"),
+            backend::Bz2Error::Mem => vm.no_memory_error(),
         }
     }
 
