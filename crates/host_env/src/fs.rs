@@ -36,6 +36,18 @@ pub fn metadata(path: impl AsRef<Path>) -> io::Result<Metadata> {
     fs::metadata(path)
 }
 
+pub fn exists(path: impl AsRef<Path>) -> bool {
+    metadata(path).is_ok()
+}
+
+pub fn is_file(path: impl AsRef<Path>) -> bool {
+    metadata(path).is_ok_and(|metadata| metadata.is_file())
+}
+
+pub fn is_dir(path: impl AsRef<Path>) -> bool {
+    metadata(path).is_ok_and(|metadata| metadata.is_dir())
+}
+
 pub fn symlink_metadata(path: impl AsRef<Path>) -> io::Result<Metadata> {
     fs::symlink_metadata(path)
 }
