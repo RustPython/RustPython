@@ -131,7 +131,6 @@ class BaseUnicodeFunctionsTest:
         result = h.hexdigest()
         self.assertEqual(result, self.expectedchecksum)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON; AssertionError: None != 'TANGUT IDEOGRAPH-17000'
     def test_name(self):
         name = self.db.name
         self.assertRaises(ValueError, name, '\0')
@@ -732,7 +731,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
                         'ebfc9dd281c2226998fd435744dd2e9321899beb')
 
     @requires_resource('network')
-    @unittest.expectedFailure   # TODO: RUSTPYTHON; AssertionError: None != 'TANGUT IDEOGRAPH-17000'
     def test_all_names(self):
         TESTDATAFILE = "DerivedName.txt"
         testdata = download_test_data_file(TESTDATAFILE)
@@ -1140,10 +1138,6 @@ class Unicode_3_2_0_FunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_normalization(self):
         return super().test_normalization()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'LATIN SMALL LETTER D WITH CURL' != None
-    def test_name(self):
-        return super().test_name()
 
     @unittest.expectedSuccess  # TODO: RUSTPYTHON
     def test_combining(self):

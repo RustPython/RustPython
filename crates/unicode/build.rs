@@ -194,6 +194,7 @@ fn full_data_parsers_latest() {
     let reader = UnicodeLineReader::from_file_name("UnicodeData.txt", true);
 
     let mut decomp_lines = Vec::new();
+    let mut algo_names = Vec::new();
     for line in reader {
         let decomp_field = line.field(
             NonZeroUsize::new(5).unwrap(),
@@ -205,9 +206,21 @@ fn full_data_parsers_latest() {
         if !decomp_field.is_empty() {
             decomp_lines.push((line.start, decomp_field.to_owned()));
         }
+
+        let name_field = line.field(
+            NonZeroUsize::new(1).unwrap(),
+            Some(&format!(
+                "field 1 (name) missing from UnicodeData.txt: {}",
+                line.line
+            )),
+        );
+        if name_field.ends_with("First>") || name_field.ends_with("Last>") {
+            algo_names.push((line.start, name_field.into()));
+        }
     }
 
     generate_decomp(decomp_lines);
+    generate_algo_names(algo_names);
 }
 
 fn generate_decomp(decomp_lines: Vec<(u32, String)>) {
@@ -285,6 +298,46 @@ fn generate_decomp(decomp_lines: Vec<(u32, String)>) {
         }
     }
     write_slice_pairs(&mut writer, "DECOMP_UPDATES", "(u32, u32)", &mut values);
+}
+
+fn generate_algo_names(names: Vec<(u32, Box<str>)>) {
+    const TANGUT: &str = "<Tangut Ideograph";
+    const TANGUT_SUP: &str = "<Tangut Ideograph Supplement";
+
+    let (names, []) = names.as_chunks::<2>() else {
+        panic!("Uneven algorithmic names: {names:#?}");
+    };
+
+    let mut values = Vec::new();
+    for &[(start, ref raw_start), (end, ref raw_end)] in names {
+        // Surrogate and private use ranges are algorithmic names.
+        if (0xD800..=0xDFFF).contains(&start)
+            || (0xE000..=0xF8FF).contains(&start)
+            || (0xF0000..=0xFFFFD).contains(&start)
+            || (0x100000..=0x10FFFD).contains(&start)
+        {
+            continue;
+        };
+        // Skip existing as there are only a few unimplemented algorithmic names.
+        if unicode_names2::name(char::from_u32(start).unwrap()).is_none() {
+            match (raw_start.split_once(','), raw_end.split_once(',')) {
+                (Some((TANGUT, _)), Some((TANGUT, _)))
+                | (Some((TANGUT_SUP, _)), Some((TANGUT_SUP, _))) => {
+                    values.push((start, end, "AlgorithmicName::TangutIdeograph"));
+                }
+                (None, None) => panic!("Unexpected name parsed:\n{raw_start}\n{raw_end}"),
+                _ => panic!("Unhandled algorithmic name:\n{raw_start}\n{raw_end}"),
+            }
+        }
+    }
+
+    let mut writer = open_writer("algo_names.rs");
+    write_slice_display(
+        &mut writer,
+        "ALGO_NAMES",
+        "(u32, u32, AlgorithmicName)",
+        &mut values,
+    );
 }
 
 /// Drive parsers that require the full 3.2.0 data.
