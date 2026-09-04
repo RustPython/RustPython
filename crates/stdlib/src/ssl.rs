@@ -19,6 +19,9 @@ mod oid;
 // Certificate operations module (parsing, validation, conversion)
 mod cert;
 
+/// OpenSSL cipher string parsing for `set_ciphers`
+mod cipher;
+
 // OpenSSL compatibility layer (abstracts rustls operations)
 mod compat;
 
@@ -94,13 +97,14 @@ mod _ssl {
     use super::cert;
 
     // Import OID module
+    use super::cipher;
     use super::oid;
 
     // Import compat module (OpenSSL compatibility layer)
     use super::compat::{
         ClientConfigOptions, MultiCertResolver, ProtocolSettings, ServerConfigOptions, SslError,
-        create_client_config, create_server_config, curve_name_to_kx_group, extract_cipher_info,
-        get_cipher_encryption_desc, is_blocking_io_error, normalize_cipher_name, ssl_do_handshake,
+        create_client_config, create_server_config, curve_name_to_kx_group, is_blocking_io_error,
+        ssl_do_handshake,
     };
 
     use super::providers::CryptoExt;
@@ -332,10 +336,10 @@ mod _ssl {
     #[pyattr]
     const _OPENSSL_API_VERSION: (i32, i32, i32, i32, i32) = (3, 3, 0, 0, 15);
 
-    // Default cipher list for rustls - using modern secure ciphers
-    #[pyattr]
-    const _DEFAULT_CIPHERS: &str =
-        "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256";
+    #[pyattr(once)]
+    fn _DEFAULT_CIPHERS(_vm: &VirtualMachine) -> String {
+        cipher::default_cipher_string()
+    }
 
     // Has features
     #[pyattr]
@@ -659,114 +663,6 @@ mod _ssl {
         Ok(alpn_list)
     }
 
-    /// Parse OpenSSL cipher string to rustls SupportedCipherSuite list
-    ///
-    /// Supports patterns like:
-    /// - "AES128" → filters for AES_128
-    /// - "AES256" → filters for AES_256
-    /// - "AES128:AES256" → both
-    /// - "ECDHE+AESGCM" → ECDHE AND AESGCM (both conditions must match)
-    /// - "ALL" or "DEFAULT" → all available
-    /// - "!MD5" → exclusion (ignored, rustls doesn't support weak ciphers anyway)
-    fn parse_cipher_string(cipher_str: &str) -> Result<Vec<rustls::SupportedCipherSuite>, String> {
-        if cipher_str.is_empty() {
-            return Err("No cipher can be selected".to_string());
-        }
-
-        let all_suites = CryptoExt::get_ext().all_ciphers_or_default();
-        let mut selected = Vec::new();
-
-        for part in cipher_str.split(':') {
-            let part = part.trim();
-
-            // Skip exclusions (rustls doesn't support these)
-            if part.starts_with('!') {
-                continue;
-            }
-
-            // Skip priority markers starting with +
-            if part.starts_with('+') {
-                continue;
-            }
-
-            // Match pattern
-            match part {
-                "ALL" | "DEFAULT" | "HIGH" => {
-                    // Add all available cipher suites
-                    selected.extend_from_slice(all_suites);
-                }
-                _ => {
-                    // Check if this is a compound pattern with + (AND condition)
-                    // e.g., "ECDHE+AESGCM" means ECDHE AND AESGCM
-                    let patterns: Vec<&str> = part.split('+').collect();
-
-                    let mut found_any = false;
-                    for suite in all_suites {
-                        let name = format!("{:?}", suite.suite());
-
-                        // Check if all patterns match (AND condition)
-                        let matches = patterns.iter().all(|&pattern| {
-                            // Handle common OpenSSL pattern variations
-                            if pattern.contains("AES128") {
-                                name.contains("AES_128")
-                            } else if pattern.contains("AES256") {
-                                name.contains("AES_256")
-                            } else if pattern == "AESGCM" {
-                                // AESGCM: AES with GCM mode
-                                name.contains("AES") && name.contains("GCM")
-                            } else if pattern == "AESCCM" {
-                                // AESCCM: AES with CCM mode
-                                name.contains("AES") && name.contains("CCM")
-                            } else if pattern == "CHACHA20" {
-                                name.contains("CHACHA20")
-                            } else if pattern == "ECDHE" {
-                                name.contains("ECDHE")
-                            } else if pattern == "DHE" {
-                                // DHE but not ECDHE
-                                name.contains("DHE") && !name.contains("ECDHE")
-                            } else if pattern == "ECDH" {
-                                // ECDH but not ECDHE
-                                name.contains("ECDH") && !name.contains("ECDHE")
-                            } else if pattern == "DH" {
-                                // DH but not DHE or ECDH
-                                name.contains("DH")
-                                    && !name.contains("DHE")
-                                    && !name.contains("ECDH")
-                            } else if pattern == "RSA" {
-                                name.contains("RSA")
-                            } else if pattern == "AES" {
-                                name.contains("AES")
-                            } else if pattern == "ECDSA" {
-                                name.contains("ECDSA")
-                            } else {
-                                // Direct substring match for other patterns
-                                name.contains(pattern)
-                            }
-                        });
-
-                        if matches {
-                            selected.push(*suite);
-                            found_any = true;
-                        }
-                    }
-
-                    if !found_any {
-                        // No matching cipher suite found - warn but continue
-                    }
-                }
-            }
-        }
-
-        // Remove duplicates
-        selected.dedup_by_key(|s| s.suite());
-
-        if selected.is_empty() {
-            Err("No cipher can be selected".to_string())
-        } else {
-            Ok(selected)
-        }
-    }
-
     // SSLContext - manages TLS configuration
     #[pyattr]
     #[pyclass(name = "_SSLContext", module = "ssl", traverse)]
@@ -851,6 +747,9 @@ mod _ssl {
         /// Selected cipher suites (None = use all rustls defaults)
         #[pytraverse(skip)]
         selected_ciphers: PyRwLock<Option<Vec<rustls::SupportedCipherSuite>>>,
+        /// Key exchange groups a SUITEB* cipher string pinned (RFC 6460)
+        #[pytraverse(skip)]
+        suite_b_kx_groups: PyRwLock<Option<Vec<&'static dyn SupportedKxGroup>>>,
     }
 
     #[derive(FromArgs)]
@@ -1393,41 +1292,46 @@ mod _ssl {
 
         /// Helper: Try to load certificates from Python's os.environ variables
         ///
-        /// Returns true if certificates were successfully loaded.
+        /// Returns true if certificates were successfully loaded from
+        /// `SSL_CERT_FILE`. `SSL_CERT_DIR` is an independent source and its
+        /// certificates remain hidden from store statistics until used.
         ///
         /// We use Python's os.environ instead of Rust's std::env
         /// because Python code can modify os.environ at runtime (e.g.,
-        /// `os.environ['SSL_CERT_FILE'] = '/path'`), but rustls-native-certs uses
-        /// std::env which only sees the process environment at startup.
+        /// `os.environ['SSL_CERT_FILE'] = '/path'`), but the native certificate
+        /// loader uses std::env which only sees the process environment.
         fn try_load_from_python_environ(
             &self,
-            loader: &mut cert::CertLoader<'_>,
+            store: &mut rustls::RootCertStore,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            use std::path::Path;
-
             let os_module = vm.import("os", 0)?;
             let environ = os_module.get_attr("environ", vm)?;
 
-            // Try SSL_CERT_FILE first
+            let mut loaded_certs = Vec::new();
+            let mut loaded_file = false;
+
             if let Ok(cert_file) = Self::get_env_path(&environ, "SSL_CERT_FILE", vm)
-                && Path::new(&cert_file).exists()
-                && let Ok(stats) = loader.load_from_file(&cert_file)
+                && rustpython_host_env::fs::exists(&cert_file)
             {
-                self.update_cert_stats(stats);
-                return Ok(true);
+                let mut loader = cert::CertLoader::new(store, &mut loaded_certs);
+                if let Ok(stats) = loader.load_from_file(&cert_file) {
+                    self.update_cert_stats(stats);
+                    loaded_file = true;
+                }
             }
 
-            // Try SSL_CERT_DIR (only if SSL_CERT_FILE didn't work)
+            let file_cert_count = loaded_certs.len();
             if let Ok(cert_dir) = Self::get_env_path(&environ, "SSL_CERT_DIR", vm)
-                && Path::new(&cert_dir).is_dir()
-                && let Ok(stats) = loader.load_from_dir(&cert_dir)
+                && rustpython_host_env::fs::is_dir(&cert_dir)
             {
-                self.update_cert_stats(stats);
-                return Ok(true);
+                let mut loader = cert::CertLoader::new(store, &mut loaded_certs);
+                if loader.load_from_dir(&cert_dir).is_ok() {
+                    *self.capath_certs_der.write() = loaded_certs.split_off(file_cert_count);
+                }
             }
 
-            Ok(false)
+            Ok(loaded_file)
         }
 
         /// Helper: Load system certificates using rustls-native-certs
@@ -1468,12 +1372,12 @@ mod _ssl {
 
             #[cfg(not(windows))]
             {
-                let result = rustls_native_certs::load_native_certs();
+                let result = rustpython_host_env::native_certs::load();
 
                 // Load successfully found certificates
                 for cert in result.certs {
-                    let is_ca = cert::is_ca_certificate(cert.as_ref());
-                    if store.add(cert).is_ok() {
+                    let is_ca = cert::is_ca_certificate(&cert);
+                    if store.add(cert.into()).is_ok() {
                         *self.x509_cert_count.write() += 1;
                         if is_ca {
                             *self.ca_cert_count.write() += 1;
@@ -1508,18 +1412,14 @@ mod _ssl {
                 // see: test_load_default_certs_env_windows
                 let _ = self.load_system_certificates(&mut store, vm);
 
-                let mut lazy_ca_certs = Vec::new();
-                let mut loader = cert::CertLoader::new(&mut store, &mut lazy_ca_certs);
-                let _ = self.try_load_from_python_environ(&mut loader, vm)?;
+                let _ = self.try_load_from_python_environ(&mut store, vm)?;
             }
 
             #[cfg(not(windows))]
             {
                 // Non-Windows: Try env vars first; only fallback to system certs if not set
                 // see: test_load_default_certs_env
-                let mut lazy_ca_certs = Vec::new();
-                let mut loader = cert::CertLoader::new(&mut store, &mut lazy_ca_certs);
-                let loaded = self.try_load_from_python_environ(&mut loader, vm)?;
+                let loaded = self.try_load_from_python_environ(&mut store, vm)?;
 
                 if !loaded {
                     let _ = self.load_system_certificates(&mut store, vm);
@@ -1564,76 +1464,63 @@ mod _ssl {
 
         #[pymethod]
         fn set_ciphers(&self, ciphers: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
-            let cipher_str = ciphers.as_str();
+            // `SSL_CTX_set_cipher_list` reports one failure for a string it
+            // cannot read and for a readable one that selects nothing, and the
+            // TLS 1.3 suites are not among what it can select -- they have
+            // their own setter -- so a string naming only those selects
+            // nothing either.
+            let (mut selected_ciphers, suite_b_kx_groups) =
+                cipher::CipherList::parse_to_rustls(ciphers.as_str())
+                    .ok()
+                    .filter(|(suites, _)| suites.iter().any(|s| s.tls13().is_none()))
+                    .ok_or_else(|| {
+                        vm.new_os_subtype_error(
+                            PySSLError::class(&vm.ctx).to_owned(),
+                            None,
+                            "No cipher can be selected.".to_owned(),
+                        )
+                        .upcast()
+                    })?;
 
-            // Parse cipher string and store selected ciphers
-            let selected_ciphers = parse_cipher_string(cipher_str).map_err(|e| {
-                vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), None, e)
-                    .upcast()
-            })?;
+            // TLS 1.3 has a separate OpenSSL setter. Discard whatever this
+            // cipher string happened to match there, then restore exactly the
+            // provider defaults in their preference order.
+            selected_ciphers = cipher::restore_default_tls13(
+                selected_ciphers,
+                CryptoExt::get_ext().default_ciphers_or_provider(),
+            );
 
-            // Store in context
             *self.selected_ciphers.write() = Some(selected_ciphers);
+            *self.suite_b_kx_groups.write() = suite_b_kx_groups;
+            *self.server_config.write() = None;
 
             Ok(())
         }
 
         #[pymethod]
         fn get_ciphers(&self, vm: &VirtualMachine) -> PyListRef {
-            // Dynamically generate cipher list from rustls ALL_CIPHER_SUITES
-            // This automatically includes all cipher suites supported by the current rustls version
+            // What the last `set_ciphers` selected, or the provider defaults
+            // when no cipher string was given.
+            let selected = self.selected_ciphers.read().clone();
+            let suites = selected
+                .unwrap_or_else(|| CryptoExt::get_ext().default_ciphers_or_provider().to_vec());
 
-            let cipher_list = CryptoExt::get_ext()
-                .all_ciphers_or_default()
+            let cipher_list = suites
                 .iter()
                 .map(|suite| {
-                    // Extract cipher information using unified helper
-                    let cipher_info = extract_cipher_info(suite);
-
-                    // Convert to OpenSSL-style name
-                    // e.g., "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256" -> "ECDHE-RSA-AES128-GCM-SHA256"
-                    let openssl_name = normalize_cipher_name(&cipher_info.name);
-
-                    // Determine key exchange and auth methods
-                    let (kx, auth) = if cipher_info.protocol == "TLSv1.3" {
-                        // TLS 1.3 doesn't distinguish - all use modern algos
-                        ("any", "any")
-                    } else if cipher_info.name.contains("ECDHE") {
-                        // TLS 1.2 with ECDHE
-                        let auth = if cipher_info.name.contains("ECDSA") {
-                            "ECDSA"
-                        } else if cipher_info.name.contains("RSA") {
-                            "RSA"
-                        } else {
-                            "any"
-                        };
-                        ("ECDH", auth)
-                    } else {
-                        ("any", "any")
-                    };
-
-                    // Build description string
-                    // Format: "{name} {protocol} Kx={kx} Au={auth} Enc={enc} Mac={mac}"
-                    let enc = get_cipher_encryption_desc(&openssl_name);
-
-                    let description = format!(
-                        "{} {} Kx={} Au={} Enc={} Mac=AEAD",
-                        openssl_name, cipher_info.protocol, kx, auth, enc
-                    );
-
-                    // Create cipher dict
+                    let cipher = cipher::describe(suite);
                     let dict = vm.ctx.new_dict();
-                    dict.set_item("name", vm.ctx.new_str(openssl_name).into(), vm)
-                        .unwrap();
-                    dict.set_item("protocol", vm.ctx.new_str(cipher_info.protocol).into(), vm)
-                        .unwrap();
-                    dict.set_item("id", vm.ctx.new_int(0).into(), vm).unwrap(); // Placeholder ID
-                    dict.set_item("strength_bits", vm.ctx.new_int(cipher_info.bits).into(), vm)
-                        .unwrap();
-                    dict.set_item("alg_bits", vm.ctx.new_int(cipher_info.bits).into(), vm)
-                        .unwrap();
-                    dict.set_item("description", vm.ctx.new_str(description).into(), vm)
-                        .unwrap();
+                    let items: [(&str, PyObjectRef); 6] = [
+                        ("id", vm.ctx.new_int(cipher.id).into()),
+                        ("name", vm.ctx.new_str(cipher.name).into()),
+                        ("protocol", vm.ctx.new_str(cipher.protocol).into()),
+                        ("strength_bits", vm.ctx.new_int(cipher.bits).into()),
+                        ("alg_bits", vm.ctx.new_int(cipher.bits).into()),
+                        ("description", vm.ctx.new_str(cipher.description).into()),
+                    ];
+                    for (key, value) in items {
+                        dict.set_item(key, value, vm).unwrap();
+                    }
                     dict.into()
                 })
                 .collect::<Vec<_>>();
@@ -1814,7 +1701,7 @@ mod _ssl {
             };
 
             // Check if file exists
-            if !std::path::Path::new(&path_str).exists() {
+            if !rustpython_host_env::fs::exists(&path_str) {
                 // Create FileNotFoundError with errno=ENOENT (2)
                 let exc = vm.new_os_subtype_error(
                     vm.ctx.exceptions.file_not_found_error.to_owned(),
@@ -1869,23 +1756,7 @@ mod _ssl {
                 return Err(vm.new_type_error("ECDH curve name must be str or bytes"));
             };
 
-            // Validate curve name (common curves for compatibility)
-            // rustls supports: X25519, secp256r1 (prime256v1), secp384r1
-            let valid_curves = [
-                "prime256v1",
-                "secp256r1",
-                "prime384v1",
-                "secp384r1",
-                "prime521v1",
-                "secp521r1",
-                "X25519",
-                "x25519",
-                "x448", // For future compatibility
-            ];
-
-            if !valid_curves.contains(&curve_name.as_str()) {
-                return Err(vm.new_value_error(format!("unknown curve name '{curve_name}'")));
-            }
+            curve_name_to_kx_group(&curve_name).map_err(|error| vm.new_value_error(error))?;
 
             // Store the curve name to be used during handshake
             // This will limit the key exchange groups offered/accepted
@@ -2030,7 +1901,10 @@ mod _ssl {
                 sock_send_method: vm.ctx.none(),
                 sock_recv_method: vm.ctx.none(),
 
-                tls_record_header_buf: vm.ctx.none(),
+                tls_record_header_buf: vm
+                    .ctx
+                    .new_bytearray(Vec::with_capacity(TLS_RECORD_HEADER_SIZE))
+                    .into(),
                 context: PyRwLock::new(zelf),
                 server_side,
                 server_hostname: PyRwLock::new(hostname),
@@ -2382,6 +2256,7 @@ mod _ssl {
                 accept_count: AtomicUsize::new(0),
                 session_hits: AtomicUsize::new(0),
                 selected_ciphers: PyRwLock::new(None),
+                suite_b_kx_groups: PyRwLock::new(None),
             })
         }
     }
@@ -3270,6 +3145,7 @@ mod _ssl {
         ) -> PyResult<Option<Vec<&'static dyn SupportedKxGroup>>> {
             let ctx = self.context.read();
             let ecdh_curve = ctx.ecdh_curve.read().clone();
+            let suite_b_kx_groups = ctx.suite_b_kx_groups.read().clone();
             drop(ctx);
 
             if let Some(ref curve_name) = ecdh_curve {
@@ -3278,7 +3154,9 @@ mod _ssl {
                     Err(e) => Err(vm.new_value_error(format!("Failed to set ECDH curve: {e}"))),
                 }
             } else {
-                Ok(None)
+                // A SUITEB* cipher string pins its own groups, and nothing
+                // else asked for a curve.
+                Ok(suite_b_kx_groups)
             }
         }
 
@@ -4011,14 +3889,14 @@ mod _ssl {
             };
 
             // Extract cipher information outside the lock
-            let cipher_info = extract_cipher_info(&suite);
+            let cipher = cipher::describe(&suite);
 
             // Note: returns a 3-tuple (name, protocol_version, bits)
             // The 'description' field is part of get_ciphers() output, not cipher()
             Some((
-                cipher_info.name,
-                cipher_info.protocol.to_string(),
-                cipher_info.bits,
+                cipher.name.to_owned(),
+                cipher.protocol.to_owned(),
+                cipher.bits.into(),
             ))
         }
 
@@ -4509,11 +4387,11 @@ mod _ssl {
                 return Ok(self.try_read_close_notify_socket(conn, vm));
             }
 
-            // BIO mode: read from incoming BIO
-            match self.sock_recv(SSL3_RT_MAX_PACKET_SIZE, vm) {
-                Ok(bytes_obj) => {
-                    let bytes = ArgBytesLike::try_from_object(vm, bytes_obj)?;
-                    let data = bytes.borrow_buf();
+            // BIO mode: stop at the TLS record boundary so cleartext queued
+            // after close_notify remains available to the BIO's owner.
+            match self.sock_recv_at_most_one_tls_record(vm) {
+                Ok(bytes) => {
+                    let data = bytes.as_bytes();
 
                     if data.is_empty() {
                         if let Some(ref bio) = self.incoming_bio {
@@ -4528,7 +4406,7 @@ mod _ssl {
                         return Ok(true);
                     }
 
-                    let data_slice: &[u8] = data.as_ref();
+                    let data_slice: &[u8] = data;
                     let mut cursor = std::io::Cursor::new(data_slice);
                     let _ = conn.read_tls(&mut cursor);
                     let _ = conn.process_new_packets();
@@ -4600,14 +4478,13 @@ mod _ssl {
 
             let suite = conn.negotiated_cipher_suite()?;
 
-            // Extract cipher information using unified helper
-            let cipher_info = extract_cipher_info(&suite);
+            let cipher = cipher::describe(&suite);
 
             // Return as list with single tuple (name, version, bits)
             let tuple = vm.ctx.new_tuple(vec![
-                vm.ctx.new_str(cipher_info.name).into(),
-                vm.ctx.new_str(cipher_info.protocol).into(),
-                vm.ctx.new_int(cipher_info.bits).into(),
+                vm.ctx.new_str(cipher.name).into(),
+                vm.ctx.new_str(cipher.protocol).into(),
+                vm.ctx.new_int(cipher.bits).into(),
             ]);
             Some(vm.ctx.new_list(vec![tuple.into()]))
         }
@@ -4959,7 +4836,11 @@ mod _ssl {
                 vm.ctx.new_int(entry.nid),
                 vm.ctx.new_str(entry.short_name),
                 vm.ctx.new_str(entry.long_name),
-                vm.ctx.new_str(entry.oid_string()),
+                // OpenSSL names some objects without giving them an OID, and
+                // `nid2obj` reports the fourth field as None for those.
+                entry
+                    .oid_string()
+                    .map_or_else(|| vm.ctx.none(), |oid| vm.ctx.new_str(oid).into()),
             ))
             .into())
     }
@@ -4975,7 +4856,11 @@ mod _ssl {
                 vm.ctx.new_int(entry.nid),
                 vm.ctx.new_str(entry.short_name),
                 vm.ctx.new_str(entry.long_name),
-                vm.ctx.new_str(entry.oid_string()),
+                // OpenSSL names some objects without giving them an OID, and
+                // `nid2obj` reports the fourth field as None for those.
+                entry
+                    .oid_string()
+                    .map_or_else(|| vm.ctx.none(), |oid| vm.ctx.new_str(oid).into()),
             ))
             .into())
     }

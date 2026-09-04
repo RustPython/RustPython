@@ -668,7 +668,7 @@ impl<'a> CertLoader<'a> {
 
             // Skip directories and process all files
             // OpenSSL capath uses hash-based naming like "4e1295a3.0"
-            if path.is_file()
+            if rustpython_host_env::fs::is_file(&path)
                 && let Ok(contents) = rustpython_host_env::fs::read(&path)
             {
                 // Ignore errors for individual files (some may not be certs)

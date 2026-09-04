@@ -30,6 +30,8 @@ pub mod fileutils;
 pub mod fs;
 #[cfg(any(unix, windows))]
 pub mod locale;
+#[cfg(all(feature = "native-certs", not(target_arch = "wasm32")))]
+pub mod native_certs;
 pub mod readline;
 
 #[cfg(windows)]
