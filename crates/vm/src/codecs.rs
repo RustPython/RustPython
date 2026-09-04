@@ -18,8 +18,8 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyUtf8Str,
-        PyUtf8StrRef,
+        PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef,
+        PyUtf8Str, PyUtf8StrRef,
     },
     convert::ToPyObject,
     function::{ArgBytesLike, PyMethodDef},
@@ -340,6 +340,29 @@ impl CodecsRegistry {
                     obj.class().name(),
                 ))
             })
+    }
+
+    /// The text an encoded object holds. An object holding nothing decodes to
+    /// the empty string without the encoding ever being looked up.
+    /// = PyUnicode_FromEncodedObject
+    pub fn decode_text_object(
+        &self,
+        obj: PyObjectRef,
+        encoding: &str,
+        errors: Option<PyUtf8StrRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
+        let empty = if let Some(bytes) = obj.downcast_ref::<PyBytes>() {
+            bytes.as_bytes().is_empty()
+        } else if let Some(bytes) = obj.downcast_ref::<PyByteArray>() {
+            bytes.borrow_buf().is_empty()
+        } else {
+            false
+        };
+        if empty {
+            return Ok(vm.ctx.empty_str.to_owned());
+        }
+        self.decode_text(obj, encoding, errors, vm)
     }
 
     pub fn decode_text(
