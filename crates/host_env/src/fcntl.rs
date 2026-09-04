@@ -23,6 +23,7 @@ pub use libc::{F_DUP2FD, F_DUP2FD_CLOEXEC};
 pub use libc::{F_OFD_GETLK, F_OFD_SETLK, F_OFD_SETLKW};
 
 /// `FASYNC` is what `fcntl.h` calls the flag `O_ASYNC` stands for.
+#[cfg(not(target_os = "wasi"))]
 pub const FASYNC: libc::c_int = libc::O_ASYNC;
 
 #[cfg(target_vendor = "apple")]

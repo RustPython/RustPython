@@ -49,6 +49,7 @@ mod fcntl {
     #[pyattr]
     use host_fcntl::{F_OFD_GETLK, F_OFD_SETLK, F_OFD_SETLKW};
 
+    #[cfg(not(target_os = "wasi"))]
     #[pyattr]
     use host_fcntl::FASYNC;
 
