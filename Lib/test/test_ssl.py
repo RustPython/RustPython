@@ -762,7 +762,6 @@ class BasicSocketTests(unittest.TestCase):
             support.gc_collect()
         self.assertIn(r, str(cm.warning.args[0]))
 
-    @unittest.expectedFailureIf(sys.platform == "android", "TODO: RUSTPYTHON; TypeError: path should be string, bytes, os.PathLike or integer, not NoneType")
     def test_get_default_verify_paths(self):
         paths = ssl.get_default_verify_paths()
         self.assertEqual(len(paths), 6)
