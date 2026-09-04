@@ -45,8 +45,8 @@ pub(super) struct OidTable {
     nid_to_idx: HashMap<i32, usize>,
     /// Short name -> index mapping
     short_name_to_idx: HashMap<&'static str, usize>,
-    /// Long name -> index mapping (case-insensitive)
-    long_name_to_idx: HashMap<String, usize>,
+    /// Long name -> index mapping
+    long_name_to_idx: HashMap<&'static str, usize>,
     /// OID string -> index mapping
     oid_str_to_idx: HashMap<String, usize>,
 }
@@ -64,9 +64,7 @@ impl OidTable {
         for (idx, entry) in entries.iter().enumerate() {
             nid_to_idx.entry(entry.nid).or_insert(idx);
             short_name_to_idx.entry(entry.short_name).or_insert(idx);
-            long_name_to_idx
-                .entry(entry.long_name.to_lowercase())
-                .or_insert(idx);
+            long_name_to_idx.entry(entry.long_name).or_insert(idx);
             if let Some(oid) = entry.oid_string() {
                 oid_str_to_idx.entry(oid.to_owned()).or_insert(idx);
             }
@@ -87,20 +85,43 @@ impl OidTable {
 
     pub(super) fn find_by_oid_string(&self, oid_str: &str) -> Option<&OidEntry> {
         self.oid_str_to_idx
-            .get(oid_str)
+            .get(canonical_oid(oid_str)?.as_str())
             .map(|&idx| &self.entries[idx])
     }
 
     pub(super) fn find_by_name(&self, name: &str) -> Option<&OidEntry> {
-        // Try short name first (exact match)
+        // OpenSSL object names are case-sensitive. Try the short name first,
+        // as OBJ_txt2obj does when a short and long name collide.
         self.short_name_to_idx
             .get(name)
-            .or_else(|| {
-                // Try long name (case-insensitive)
-                self.long_name_to_idx.get(&name.to_lowercase())
-            })
+            .or_else(|| self.long_name_to_idx.get(name))
             .map(|&idx| &self.entries[idx])
     }
+}
+
+/// Parse the numeric form accepted by OpenSSL and render it canonically for
+/// lookup. The first arc may not have leading zeroes, while later arcs may.
+fn canonical_oid(oid: &str) -> Option<String> {
+    let oid = oid.trim_end_matches(' ');
+    let oid = oid.strip_suffix('.').unwrap_or(oid);
+    let mut parts = oid.split('.');
+    let first = parts.next()?;
+    if !matches!(first, "0" | "1" | "2") {
+        return None;
+    }
+
+    let mut canonical = first.to_owned();
+    let mut count = 1;
+    for part in parts {
+        if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        let part = part.trim_start_matches('0');
+        canonical.push('.');
+        canonical.push_str(if part.is_empty() { "0" } else { part });
+        count += 1;
+    }
+    (count >= 2).then_some(canonical)
 }
 
 /// Global OID table
@@ -296,9 +317,16 @@ mod tests {
     }
 
     #[test]
-    fn find_by_name_case_insensitive() {
-        let entry = find_by_name("COMMONNAME").unwrap();
+    fn find_by_name_is_case_sensitive() {
+        assert!(find_by_name("commonName").is_some());
+        assert!(find_by_name("COMMONNAME").is_none());
+    }
+
+    #[test]
+    fn find_by_oid_string_normalizes_arcs() {
+        let entry = find_by_oid_string("2.005.004.003.").unwrap();
         assert_eq!(entry.nid, 13);
+        assert_eq!(entry.oid_string(), Some("2.5.4.3"));
     }
 
     #[test]
