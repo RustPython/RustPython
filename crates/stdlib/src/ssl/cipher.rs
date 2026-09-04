@@ -285,7 +285,6 @@ impl<'a> CipherFilterSubOpList<'a> {
     fn parse(s: &'a str) -> Result<Self, &'static str> {
         let sub_ops: Vec<_> = s
             .split('+')
-            .filter(|s| !s.is_empty())
             .map(CipherFilterSubOp::parse)
             .collect::<Result<_, _>>()?;
         if sub_ops.is_empty() {
@@ -1037,5 +1036,7 @@ mod tests {
         assert!(CipherList::parse_to_rustls("PROFILE=SYSTEM").is_err());
         assert!(CipherList::parse_to_rustls(";").is_err());
         assert!(CipherList::parse_to_rustls("").is_err());
+        assert!(CipherList::parse_to_rustls("AES+").is_err());
+        assert!(CipherList::parse_to_rustls("ALL++AES").is_err());
     }
 }
