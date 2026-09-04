@@ -241,10 +241,12 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     {
         if let Some(ext) = obj_ref.0.ext_ref() {
             if let Some(dict) = &ext.dict {
-                *dict.d.write() = None;
+                let old = dict.d.write().take();
+                drop(old);
             }
             for slot in &ext.slots {
-                *slot.write() = None;
+                let old = slot.write().take();
+                drop(old);
             }
         }
         unsafe { T::freelist_push(obj) }

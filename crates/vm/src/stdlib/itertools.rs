@@ -1157,7 +1157,7 @@ mod decl {
             let mut pools: Vec<Vec<PyObjectRef>> = Vec::new();
             pools
                 .try_reserve_exact(npools)
-                .map_err(|_| vm.new_memory_error(""))?;
+                .map_err(|_| vm.no_memory_error())?;
             // Filled by index, the way `product_new()` fills a tuple of
             // `npools`. Repeating the arguments `repeat` times instead walks
             // that many steps even when there are no arguments to repeat, so
@@ -1166,7 +1166,7 @@ mod decl {
 
             let mut idxs = Vec::new();
             idxs.try_reserve_exact(npools)
-                .map_err(|_| vm.new_memory_error(""))?;
+                .map_err(|_| vm.no_memory_error())?;
             idxs.resize(npools, 0);
 
             let l = pools.len();

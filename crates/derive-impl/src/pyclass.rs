@@ -805,7 +805,7 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
         None => quote! {},
     };
 
-    let payload_attr = match class_meta.inner()._optional_str("payload").ok().flatten() {
+    let payload_attr = match class_meta.inner()._optional_str("payload")? {
         Some(value) => quote! { , payload = #value },
         None => quote! {},
     };
