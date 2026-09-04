@@ -52,6 +52,12 @@ mod termios {
     ))]
     #[pyattr]
     use host_termios::TCSASOFT;
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    use host_termios::{
+        _POSIX_VDISABLE, ALTWERASE, B7200, B14400, B28800, B76800, CIGNORE, EXTPROC, IUTF8, MDMBUF,
+        NOKERNINFO, ONOEOT, OXTABS, VDSUSP, VSTATUS,
+    };
     #[pyattr]
     use host_termios::{
         B0, B50, B75, B110, B134, B150, B200, B300, B600, B1200, B1800, B2400, B4800, B9600,

@@ -59,6 +59,26 @@ pub use libc::MAP_STACK;
 #[cfg(target_os = "freebsd")]
 pub use libc::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
 
+#[cfg(target_vendor = "apple")]
+pub use libc::{MAP_HASSEMAPHORE, MAP_JIT, MAP_NOCACHE, MAP_NOEXTEND, MAP_NORESERVE};
+
+/// The mapping flags `sys/mman.h` carries that libc does not name.
+#[cfg(target_vendor = "apple")]
+mod darwin_map {
+    pub const MAP_32BIT: libc::c_int = 0x8000;
+    pub const MAP_RESILIENT_CODESIGN: libc::c_int = 0x2000;
+    pub const MAP_RESILIENT_MEDIA: libc::c_int = 0x4000;
+    pub const MAP_TRANSLATED_ALLOW_EXECUTE: libc::c_int = 0x20000;
+    pub const MAP_UNIX03: libc::c_int = 0x40000;
+    pub const MAP_TPRO: libc::c_int = 0x80000;
+}
+
+#[cfg(target_vendor = "apple")]
+pub use darwin_map::{
+    MAP_32BIT, MAP_RESILIENT_CODESIGN, MAP_RESILIENT_MEDIA, MAP_TPRO, MAP_TRANSLATED_ALLOW_EXECUTE,
+    MAP_UNIX03,
+};
+
 pub use libc::EOVERFLOW;
 
 #[cfg(windows)]

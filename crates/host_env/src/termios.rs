@@ -50,6 +50,12 @@ pub use libc::{
     TIOCPKT_NOSTOP, TIOCPKT_START, TIOCPKT_STOP,
 };
 
+#[cfg(target_os = "macos")]
+pub use libc::{
+    _POSIX_VDISABLE, ALTWERASE, B7200, B14400, B28800, B76800, CIGNORE, EXTPROC, IUTF8, MDMBUF,
+    NOKERNINFO, ONOEOT, OXTABS, VDSUSP, VSTATUS,
+};
+
 #[cfg(any(
     target_os = "android",
     target_os = "freebsd",

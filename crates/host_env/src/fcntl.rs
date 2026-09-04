@@ -19,8 +19,26 @@ pub use libc::{F_FULLFSYNC, F_NOCACHE};
 #[cfg(target_os = "freebsd")]
 pub use libc::{F_DUP2FD, F_DUP2FD_CLOEXEC};
 
-#[cfg(any(target_os = "android", target_os = "linux"))]
+#[cfg(any(target_os = "android", target_os = "linux", target_vendor = "apple"))]
 pub use libc::{F_OFD_GETLK, F_OFD_SETLK, F_OFD_SETLKW};
+
+/// `FASYNC` is what `fcntl.h` calls the flag `O_ASYNC` stands for.
+pub const FASYNC: libc::c_int = libc::O_ASYNC;
+
+#[cfg(target_vendor = "apple")]
+pub use libc::F_RDAHEAD;
+
+/// The commands `fcntl.h` carries that libc does not name.
+#[cfg(target_vendor = "apple")]
+mod darwin_fcntl {
+    pub const F_SETNOSIGPIPE: libc::c_int = 73;
+    pub const F_GETNOSIGPIPE: libc::c_int = 74;
+    pub const F_SETLEASE: libc::c_int = 106;
+    pub const F_GETLEASE: libc::c_int = 107;
+}
+
+#[cfg(target_vendor = "apple")]
+pub use darwin_fcntl::{F_GETLEASE, F_GETNOSIGPIPE, F_SETLEASE, F_SETNOSIGPIPE};
 
 #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
 pub use libc::{
