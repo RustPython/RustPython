@@ -243,7 +243,7 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
             if let Some(dict) = &ext.dict {
                 *dict.d.write() = None;
             }
-            for slot in ext.slots.iter() {
+            for slot in &ext.slots {
                 *slot.write() = None;
             }
         }

@@ -1,4 +1,5 @@
 use self::types::{PyBaseException, PyBaseExceptionRef, PyException, PyMemoryError};
+pub use super::exception_group::exception_group;
 use crate::common::lock::PyRwLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
@@ -21,9 +22,8 @@ use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 #[cfg(feature = "host_env")]
 use std::io::{BufRead, BufReader};
+use std::sync::Mutex;
 use std::{collections::HashSet, io};
-
-pub use super::exception_group::exception_group;
 
 unsafe impl Traverse for PyBaseException {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
@@ -46,8 +46,8 @@ const MEMORY_ERROR_FREELIST_SIZE: usize = 4;
 struct MemoryErrorHusk(*mut PyObject);
 unsafe impl Send for MemoryErrorHusk {}
 
-static MEMORY_ERROR_FREELIST: std::sync::Mutex<Vec<MemoryErrorHusk>> =
-    std::sync::Mutex::new(Vec::new());
+static MEMORY_ERROR_FREELIST: Mutex<[Option<MemoryErrorHusk>; MEMORY_ERROR_FREELIST_SIZE]> =
+    Mutex::new([const { None }; MEMORY_ERROR_FREELIST_SIZE]);
 
 impl PyPayload for PyBaseException {
     #[inline]
@@ -63,8 +63,8 @@ impl PyPayload for PyMemoryError {
 
     #[inline]
     unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
-        <Self as crate::class::PyClassDef>::BASICSIZE <= obj.class().slots.basicsize
-            && obj.class().fast_issubclass(<Self as StaticType>::static_type())
+        obj.class()
+            .fast_issubclass(<Self as StaticType>::static_type())
     }
 
     fn class(_ctx: &Context) -> &'static Py<PyType> {
@@ -75,16 +75,21 @@ impl PyPayload for PyMemoryError {
         let Ok(mut list) = MEMORY_ERROR_FREELIST.lock() else {
             return false;
         };
-        if list.len() < MEMORY_ERROR_FREELIST_SIZE {
-            list.push(MemoryErrorHusk(obj));
-            true
-        } else {
-            false
+        match list.iter_mut().find(|element| element.is_none()) {
+            Some(element) => {
+                *element = Some(MemoryErrorHusk(obj));
+                true
+            }
+            None => false,
         }
     }
 
     unsafe fn freelist_pop(_payload: &Self) -> Option<core::ptr::NonNull<PyObject>> {
-        let husk = MEMORY_ERROR_FREELIST.lock().ok()?.pop()?;
+        let husk = MEMORY_ERROR_FREELIST
+            .lock()
+            .ok()?
+            .iter_mut()
+            .find_map(|element| element.take())?;
         core::ptr::NonNull::new(husk.0)
     }
 }
