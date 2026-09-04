@@ -429,7 +429,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     ) => {
                         // Shifts throw an exception if we have a negative shift count
                         // Remove all bits except the sign bit, and trap if its 1 (i.e. negative).
-                        let sign = self.builder.ins().ushr_imm(b, 63);
+                        let sign = self.builder.ins().ushr_imm_u(b, 63);
                         self.builder.ins().trapnz(
                             sign,
                             TrapCode::user(CustomTrapCode::NegativeShiftCount as u8).unwrap(),
@@ -800,7 +800,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     JitValue::Bool(val) => val,
                     _ => return Err(JitCompileError::BadBytecode),
                 };
-                let not_boolean = self.builder.ins().bxor_imm(boolean, 1);
+                let not_boolean = self.builder.ins().bxor_imm_u(boolean, 1);
                 self.stack.push(JitValue::Bool(not_boolean));
                 Ok(())
             }
@@ -1041,10 +1041,13 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let need_nan = self.builder.ins().bor(cmp_le, cmp_nan);
 
         // (B) Reinterpret the bits of x as an integer.
-        let bits = self.builder.ins().bitcast(types::I64, MemFlags::new(), x);
+        let bits = self
+            .builder
+            .ins()
+            .bitcast(types::I64, MemFlagsData::new(), x);
 
         // (C) Extract the exponent (top 11 bits) from the bit representation.
-        let shift_52 = self.builder.ins().ushr_imm(bits, 52);
+        let shift_52 = self.builder.ins().ushr_imm_u(bits, 52);
         let exponent_mask = self.builder.ins().iconst(types::I64, 0x7FF);
         let exponent = self.builder.ins().band(shift_52, exponent_mask);
 
@@ -1058,7 +1061,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
         // (E) For normal numbers (exponent ≠ 0), add the implicit leading 1.
         let implicit_one = self.builder.ins().iconst(types::I64, 1 << 52);
-        let zero_exp = self.builder.ins().icmp_imm(IntCC::Equal, exponent, 0);
+        let zero_exp = self.builder.ins().icmp_imm_u(IntCC::Equal, exponent, 0);
         let frac_one_bor = self.builder.ins().bor(fraction_part, implicit_one);
         let fraction_with_leading_one = self.builder.ins().select(
             zero_exp,
@@ -1072,7 +1075,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let m = self
             .builder
             .ins()
-            .bitcast(types::F64, MemFlags::new(), fraction_bits);
+            .bitcast(types::F64, MemFlagsData::new(), fraction_bits);
 
         // (G) Compute ln(m) using the series ln(1+f) with f = m - 1.
         let one_f64 = self.builder.ins().f64const(1.0);
@@ -1161,7 +1164,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let two_to_k = self
             .builder
             .ins()
-            .bitcast(types::F64, MemFlags::new(), shifted);
+            .bitcast(types::F64, MemFlagsData::new(), shifted);
         let result = self.dd_scale(sum, two_to_k);
 
         // (C) If overflow was detected, return infinity; otherwise, return the computed value.
@@ -1478,14 +1481,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let base_phi = params[2];
 
         // If exponent is odd, multiply result by base
-        let is_odd = self.builder.ins().band_imm(exp_phi, 1);
-        let is_odd = self.builder.ins().icmp_imm(IntCC::Equal, is_odd, 1);
+        let is_odd = self.builder.ins().band_imm_u(exp_phi, 1);
+        let is_odd = self.builder.ins().icmp_imm_u(IntCC::Equal, is_odd, 1);
         let mul_result = self.builder.ins().imul(result_phi, base_phi);
         let new_result = self.builder.ins().select(is_odd, mul_result, result_phi);
 
         // Square the base and divide exponent by 2
         let squared_base = self.builder.ins().imul(base_phi, base_phi);
-        let new_exp = self.builder.ins().sshr_imm(exp_phi, 1);
+        let new_exp = self.builder.ins().sshr_imm_u(exp_phi, 1);
         self.builder.ins().jump(
             loop_block,
             &[new_exp.into(), new_result.into(), squared_base.into()],
