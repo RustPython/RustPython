@@ -114,6 +114,14 @@ mod _ssl {
 
     /// Certificate and private key pair used in SSL contexts
     type CertKeyPair = (Arc<CertifiedKey>, PrivateKeyDer<'static>);
+    type CapathStamp = (String, Option<SystemTime>);
+    type CapathCache = (Vec<CapathStamp>, Arc<Vec<Vec<u8>>>);
+
+    #[derive(Debug, Default)]
+    struct CapathState {
+        directories: Vec<String>,
+        cache: Option<CapathCache>,
+    }
 
     // Constants matching Python ssl module
 
@@ -688,10 +696,10 @@ mod _ssl {
         // RootCertStore only keeps TrustAnchors, not full certificates
         #[pytraverse(skip)]
         ca_certs_der: PyRwLock<Vec<Vec<u8>>>,
-        // Store CA certificates from capath for lazy loading simulation
-        // (CPython only returns these in get_ca_certs() after they're used in handshake)
+        // OpenSSL-style hashed CA directories, materialized when a connection
+        // needs an immutable rustls configuration.
         #[pytraverse(skip)]
-        capath_certs_der: PyRwLock<Vec<Vec<u8>>>,
+        capath_state: PyRwLock<CapathState>,
         // Certificate Revocation Lists for CRL checking
         #[pytraverse(skip)]
         crls: PyRwLock<Vec<CertificateRevocationListDer<'static>>>,
@@ -827,6 +835,69 @@ mod _ssl {
         // Helper method to convert DER certificate bytes to Python dict
         fn cert_der_to_dict(&self, vm: &VirtualMachine, cert_der: &[u8]) -> PyResult<PyObjectRef> {
             cert::cert_der_to_dict_helper(vm, cert_der)
+        }
+
+        fn add_verify_dir(&self, directory: String) {
+            let mut capath_state = self.capath_state.write();
+            if capath_state
+                .directories
+                .iter()
+                .any(|known| known == &directory)
+            {
+                return;
+            }
+            capath_state.directories.push(directory);
+            capath_state.cache = None;
+            drop(capath_state);
+            *self.server_config.write() = None;
+        }
+
+        fn capath_certificates(&self) -> Arc<Vec<Vec<u8>>> {
+            let directories = self.capath_state.read().directories.clone();
+            if directories.is_empty() {
+                return Arc::new(Vec::new());
+            }
+
+            let stamps = directories
+                .iter()
+                .map(|directory| {
+                    let modified = rustpython_host_env::fs::metadata(directory)
+                        .and_then(|metadata| metadata.modified())
+                        .ok();
+                    (directory.clone(), modified)
+                })
+                .collect::<Vec<_>>();
+            if let Some((cached_stamps, certificates)) = self.capath_state.read().cache.as_ref()
+                && cached_stamps == &stamps
+            {
+                return certificates.clone();
+            }
+
+            let mut store = RootCertStore::empty();
+            let mut certificates = Vec::new();
+            let mut loader = cert::CertLoader::new(&mut store, &mut certificates);
+            for directory in &directories {
+                let _ = loader.load_from_dir(directory);
+            }
+            let certificates = Arc::new(certificates);
+
+            let mut capath_state = self.capath_state.write();
+            if capath_state.directories == directories {
+                capath_state.cache = Some((stamps, certificates.clone()));
+            }
+            certificates
+        }
+
+        fn verification_roots(&self) -> (RootCertStore, Vec<Vec<u8>>) {
+            let mut root_store = self.root_certs.read().clone();
+            let mut ca_certs_der = self.ca_certs_der.read().clone();
+            for certificate in self.capath_certificates().iter() {
+                let _ = root_store.add(certificate.clone().into());
+                if !ca_certs_der.iter().any(|known| known == certificate) {
+                    ca_certs_der.push(certificate.clone());
+                }
+            }
+            (root_store, ca_certs_der)
         }
 
         #[pygetset]
@@ -1259,12 +1330,6 @@ mod _ssl {
                 self.update_cert_stats(stats);
             }
 
-            // Load from directory (don't add to ca_certs_der)
-            if let Some(ref dir_path) = capath_dir {
-                let stats = self.load_certs_from_dir_helper(&mut root_store, dir_path, vm)?;
-                self.update_cert_stats(stats);
-            }
-
             // Load from bytes or str
             if let Some((ref data_vec, is_string)) = cadata_parsed {
                 let stats = self.load_certs_from_bytes_helper(
@@ -1276,6 +1341,13 @@ mod _ssl {
                 )?;
                 self.update_cert_stats(stats);
             }
+
+            drop(root_store);
+            drop(ca_certs_der);
+            if let Some(dir_path) = capath_dir {
+                self.add_verify_dir(dir_path);
+            }
+            *self.server_config.write() = None;
 
             Ok(())
         }
@@ -1321,14 +1393,10 @@ mod _ssl {
                 }
             }
 
-            let file_cert_count = loaded_certs.len();
             if let Ok(cert_dir) = Self::get_env_path(&environ, "SSL_CERT_DIR", vm)
                 && rustpython_host_env::fs::is_dir(&cert_dir)
             {
-                let mut loader = cert::CertLoader::new(store, &mut loaded_certs);
-                if loader.load_from_dir(&cert_dir).is_ok() {
-                    *self.capath_certs_der.write() = loaded_certs.split_off(file_cert_count);
-                }
+                self.add_verify_dir(cert_dir);
             }
 
             Ok(loaded_file)
@@ -1440,6 +1508,8 @@ mod _ssl {
                 *self.ca_cert_count.write() += webpki_count;
             }
 
+            drop(store);
+            *self.server_config.write() = None;
             Ok(())
         }
 
@@ -2022,27 +2092,6 @@ mod _ssl {
             })
         }
 
-        /// Helper: Load certificates from directory into existing store
-        fn load_certs_from_dir_helper(
-            &self,
-            root_store: &mut RootCertStore,
-            path: &str,
-            vm: &VirtualMachine,
-        ) -> PyResult<cert::CertStats> {
-            // Load certs and store them in capath_certs_der for lazy loading simulation
-            // (CPython only returns these in get_ca_certs() after they're used in handshake)
-            let mut capath_certs = Vec::new();
-            let mut loader = cert::CertLoader::new(root_store, &mut capath_certs);
-            let stats = loader
-                .load_from_dir(path)
-                .map_err(|e| e.into_pyexception(vm))?;
-
-            // Store loaded certs for potential tracking after handshake
-            *self.capath_certs_der.write() = capath_certs;
-
-            Ok(stats)
-        }
-
         /// Helper: Load certificates from bytes into existing store
         fn load_certs_from_bytes_helper(
             &self,
@@ -2232,7 +2281,7 @@ mod _ssl {
                 server_config: PyRwLock::new(None),
                 root_certs: PyRwLock::new(RootCertStore::empty()),
                 ca_certs_der: PyRwLock::new(Vec::new()),
-                capath_certs_der: PyRwLock::new(Vec::new()),
+                capath_state: PyRwLock::new(CapathState::default()),
                 crls: PyRwLock::new(Vec::new()),
                 cert_keys: PyRwLock::new(Vec::new()),
                 options: PyRwLock::new(default_options),
@@ -2499,11 +2548,11 @@ mod _ssl {
             // Extract capath_certs, releasing context lock quickly
             let capath_certs = {
                 let context = self.context.read();
-                let certs = context.capath_certs_der.read();
+                let certs = context.capath_certificates();
                 if certs.is_empty() {
                     return Ok(());
                 }
-                certs.clone()
+                certs
             };
 
             // Extract peer certificates, releasing connection lock quickly
@@ -2541,6 +2590,8 @@ mod _ssl {
                 let mut ca_certs_der = context.ca_certs_der.write();
                 if !ca_certs_der.iter().any(|c| c == &ca_der) {
                     ca_certs_der.push(ca_der);
+                    *context.x509_cert_count.write() += 1;
+                    *context.ca_cert_count.write() += 1;
                 }
             }
 
@@ -3214,7 +3265,7 @@ mod _ssl {
 
             // Check if client certificate verification is required
             let verify_mode = *ctx.verify_mode.read();
-            let root_store = ctx.root_certs.read();
+            let (root_store, _) = ctx.verification_roots();
             let pha_enabled = *ctx.post_handshake_auth.read();
 
             // Check if TLS 1.3 is being used
@@ -3309,7 +3360,7 @@ mod _ssl {
                 cert_chain: certs_clone,
                 private_key: key_clone,
                 root_store: if request_initial_cert {
-                    Some(root_store.clone())
+                    Some(root_store)
                 } else {
                     None
                 },
@@ -3325,31 +3376,28 @@ mod _ssl {
                 ticketer: Some(server_ticketer),
             };
 
-            drop(root_store);
-
-            // Check if we have a cached ServerConfig
-            let cached_config_arc = ctx.server_config.read().clone();
+            // A capath may gain hashed entries between connections, so only
+            // cache configurations whose trust store is context-owned.
+            let cache_server_config =
+                !use_sni_resolver && ctx.capath_state.read().directories.is_empty();
+            let cached_config_arc = if cache_server_config {
+                ctx.server_config.read().clone()
+            } else {
+                None
+            };
             drop(ctx);
 
             let config_arc = if let Some(cached) = cached_config_arc {
-                // Don't use cache when SNI is enabled, because each connection needs
-                // a fresh SniCertResolver with the correct Arc references
-                if use_sni_resolver {
-                    let config =
-                        create_server_config(config_options).map_err(|e| vm.new_value_error(e))?;
-                    Arc::new(config)
-                } else {
-                    cached
-                }
+                cached
             } else {
                 let config =
                     create_server_config(config_options).map_err(|e| vm.new_value_error(e))?;
                 let config_arc = Arc::new(config);
 
-                // Cache the ServerConfig for future connections
-                let ctx = self.context.read();
-                *ctx.server_config.write() = Some(config_arc.clone());
-                drop(ctx);
+                if cache_server_config {
+                    let ctx = self.context.read();
+                    *ctx.server_config.write() = Some(config_arc.clone());
+                }
 
                 config_arc
             };
@@ -3411,8 +3459,7 @@ mod _ssl {
 
                     // Clone values we need before building config
                     let verify_mode = *ctx.verify_mode.read();
-                    let root_store_clone = ctx.root_certs.read().clone();
-                    let ca_certs_der_clone = ctx.ca_certs_der.read().clone();
+                    let (root_store_clone, ca_certs_der_clone) = ctx.verification_roots();
 
                     // For client mTLS: extract cert_chain and private_key from first cert_key (if any)
                     // Now we store both CertifiedKey and PrivateKeyDer as tuple

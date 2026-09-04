@@ -634,6 +634,42 @@ pub(super) struct CertLoader<'a> {
     seen_certs: HashSet<Vec<u8>>,
 }
 
+fn is_capath_hash_name(name: &std::ffi::OsStr) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    let Some((hash, suffix)) = name.split_once('.') else {
+        return false;
+    };
+    hash.len() == 8
+        && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && !suffix.is_empty()
+        && suffix.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_capath_hash_name;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn capath_hash_names_follow_openssl_shape() {
+        for valid in ["4e1295a3.0", "ABCDEF01.12"] {
+            assert!(is_capath_hash_name(OsStr::new(valid)), "{valid}");
+        }
+        for invalid in [
+            "4e1295a.0",
+            "4e1295a30.0",
+            "4e1295ag.0",
+            "4e1295a3",
+            "4e1295a3.",
+            "4e1295a3.pem",
+        ] {
+            assert!(!is_capath_hash_name(OsStr::new(invalid)), "{invalid}");
+        }
+    }
+}
+
 impl<'a> CertLoader<'a> {
     /// Create a new CertLoader with references to the store and DER cache
     pub(super) fn new(store: &'a mut RootCertStore, ca_certs_der: &'a mut Vec<Vec<u8>>) -> Self {
@@ -656,26 +692,29 @@ impl<'a> CertLoader<'a> {
 
     /// Load certificates from a directory
     ///
-    /// Reads all files in the directory and attempts to parse them as certificates.
-    /// Invalid files are silently skipped (matches OpenSSL capath behavior).
+    /// Reads OpenSSL-style hashed entries and attempts to parse them as certificates.
+    /// Invalid entries are silently skipped (matches OpenSSL capath behavior).
     pub(super) fn load_from_dir(&mut self, dir_path: &str) -> Result<CertStats, std::io::Error> {
         let entries = rustpython_host_env::fs::read_dir(dir_path)?;
         let mut stats = CertStats::default();
+        let mut paths = Vec::new();
 
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
+            if is_capath_hash_name(&entry.file_name()) && rustpython_host_env::fs::is_file(&path) {
+                paths.push(path);
+            }
+        }
+        paths.sort();
 
-            // Skip directories and process all files
-            // OpenSSL capath uses hash-based naming like "4e1295a3.0"
-            if rustpython_host_env::fs::is_file(&path)
-                && let Ok(contents) = rustpython_host_env::fs::read(&path)
-            {
-                // Ignore errors for individual files (some may not be certs)
-                if let Ok(file_stats) = self.load_from_bytes(&contents) {
-                    stats.total_certs += file_stats.total_certs;
-                    stats.ca_certs += file_stats.ca_certs;
-                }
+        for path in paths {
+            let Ok(contents) = rustpython_host_env::fs::read(path) else {
+                continue;
+            };
+            if let Ok(file_stats) = self.load_from_bytes(&contents) {
+                stats.total_certs += file_stats.total_certs;
+                stats.ca_certs += file_stats.ca_certs;
             }
         }
 
