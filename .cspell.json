@@ -102,6 +102,7 @@
     "kwonly",
     "lossily",
     "mcache",
+    "MLKEM",
     "oparg",
     "opargs",
     "pointee",

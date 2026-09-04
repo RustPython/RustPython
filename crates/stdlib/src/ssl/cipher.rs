@@ -117,6 +117,36 @@ enum SuiteBType {
     Use192Only,
 }
 
+impl SuiteBType {
+    fn parameters(
+        &self,
+    ) -> (
+        &'static [CipherSuite],
+        &'static [(rustls::NamedGroup, &'static str)],
+    ) {
+        match self {
+            Self::Use128Permit192 => (
+                &[
+                    CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+                    CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+                ],
+                &[
+                    (rustls::NamedGroup::secp256r1, "secp256r1"),
+                    (rustls::NamedGroup::secp384r1, "secp384r1"),
+                ],
+            ),
+            Self::Use128Only => (
+                &[CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256],
+                &[(rustls::NamedGroup::secp256r1, "secp256r1")],
+            ),
+            Self::Use192Only => (
+                &[CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384],
+                &[(rustls::NamedGroup::secp384r1, "secp384r1")],
+            ),
+        }
+    }
+}
+
 impl<'a> CipherList<'a> {
     pub(super) fn parse_to_rustls(
         s: &'a str,
@@ -273,21 +303,28 @@ impl<'a> CipherFilterSubOpList<'a> {
 
     fn to_rustls_ids(&self) -> Result<WithOptionSuiteB<Vec<u16>>, &'static str> {
         let mut ids = Vec::new();
+        let mut first = true;
         for sub_op in &self.sub_ops {
             match sub_op {
                 CipherFilterSubOp::Default => {
-                    Self::extend_or_intersect(&mut ids, &CIPHER_MAPPINGS.default)
+                    Self::extend_or_intersect(&mut first, &mut ids, &CIPHER_MAPPINGS.default)
                 }
 
-                CipherFilterSubOp::ComplementOfDefault => {
-                    Self::extend_or_intersect(&mut ids, &CIPHER_MAPPINGS.complement_of_default)
+                CipherFilterSubOp::ComplementOfDefault => Self::extend_or_intersect(
+                    &mut first,
+                    &mut ids,
+                    &CIPHER_MAPPINGS.complement_of_default,
+                ),
+
+                CipherFilterSubOp::All => {
+                    Self::extend_or_intersect(&mut first, &mut ids, &CIPHER_MAPPINGS.all)
                 }
 
-                CipherFilterSubOp::All => Self::extend_or_intersect(&mut ids, &CIPHER_MAPPINGS.all),
-
-                CipherFilterSubOp::ComplementOfAll => {
-                    Self::extend_or_intersect(&mut ids, &CIPHER_MAPPINGS.complement_of_all)
-                }
+                CipherFilterSubOp::ComplementOfAll => Self::extend_or_intersect(
+                    &mut first,
+                    &mut ids,
+                    &CIPHER_MAPPINGS.complement_of_all,
+                ),
 
                 CipherFilterSubOp::ProfileSystem => {
                     return Err(
@@ -299,49 +336,29 @@ impl<'a> CipherFilterSubOpList<'a> {
                 // which is what "high" asks for, and so nothing is left for
                 // the two weaker grades to name.
                 CipherFilterSubOp::High => {
-                    Self::extend_or_intersect(&mut ids, &CIPHER_MAPPINGS.all)
+                    Self::extend_or_intersect(&mut first, &mut ids, &CIPHER_MAPPINGS.all)
                 }
 
                 // Nor is there a suite older than TLS 1.2 to name.
                 CipherFilterSubOp::Medium
                 | CipherFilterSubOp::Low
                 | CipherFilterSubOp::TlsV10
-                | CipherFilterSubOp::SslV3 => Self::extend_or_intersect(&mut ids, &[]),
+                | CipherFilterSubOp::SslV3 => Self::extend_or_intersect(&mut first, &mut ids, &[]),
 
                 CipherFilterSubOp::TlsV12 => {
-                    Self::extend_or_intersect(&mut ids, &CIPHER_MAPPINGS.tls_1_2)
+                    Self::extend_or_intersect(&mut first, &mut ids, &CIPHER_MAPPINGS.tls_1_2)
                 }
 
                 // RFC 6460
-                CipherFilterSubOp::SuiteB(SuiteBType::Use128Permit192) => {
-                    return Ok((
-                        vec![
-                            CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256.into(),
-                            CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384.into(),
-                        ],
-                        Some(vec![
-                            kx_group_by_name(rustls::NamedGroup::secp256r1, "secp256r1")?,
-                            kx_group_by_name(rustls::NamedGroup::secp384r1, "secp384r1")?,
-                        ]),
-                    ));
-                }
-                CipherFilterSubOp::SuiteB(SuiteBType::Use128Only) => {
-                    return Ok((
-                        vec![CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256.into()],
-                        Some(vec![kx_group_by_name(
-                            rustls::NamedGroup::secp256r1,
-                            "secp256r1",
-                        )?]),
-                    ));
-                }
-                CipherFilterSubOp::SuiteB(SuiteBType::Use192Only) => {
-                    return Ok((
-                        vec![CipherSuite::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384.into()],
-                        Some(vec![kx_group_by_name(
-                            rustls::NamedGroup::secp384r1,
-                            "secp384r1",
-                        )?]),
-                    ));
+                CipherFilterSubOp::SuiteB(suite_b) => {
+                    let (suites, groups) = suite_b.parameters();
+                    let ids: Vec<_> = suites.iter().map(|suite| (*suite).into()).collect();
+                    CIPHER_MAPPINGS.validate_suite_b(&ids)?;
+                    let groups = groups
+                        .iter()
+                        .map(|(group, name)| kx_group_by_name(*group, name))
+                        .collect::<Result<_, _>>()?;
+                    return Ok((ids, Some(groups)));
                 }
 
                 CipherFilterSubOp::Cbc => {
@@ -349,7 +366,7 @@ impl<'a> CipherFilterSubOpList<'a> {
                     let rhs = CIPHER_MAPPINGS
                         .select(|entry| entry.iana.split('_').any(|part| part == "CBC"));
 
-                    Self::extend_or_intersect(&mut ids, &rhs)
+                    Self::extend_or_intersect(&mut first, &mut ids, &rhs)
                 }
 
                 CipherFilterSubOp::AesGcm => {
@@ -359,7 +376,7 @@ impl<'a> CipherFilterSubOpList<'a> {
                             && parts().any(|part| part == "GCM")
                     });
 
-                    Self::extend_or_intersect(&mut ids, &rhs)
+                    Self::extend_or_intersect(&mut first, &mut ids, &rhs)
                 }
 
                 CipherFilterSubOp::Auth(auth) => {
@@ -374,31 +391,30 @@ impl<'a> CipherFilterSubOpList<'a> {
                         SupportedCipherSuite::Tls13(_) => true,
                     });
 
-                    Self::extend_or_intersect(&mut ids, &rhs)
+                    Self::extend_or_intersect(&mut first, &mut ids, &rhs)
                 }
 
                 CipherFilterSubOp::KeyEx(key_ex) => {
                     let rhs = CIPHER_MAPPINGS.select(|entry| entry.key_ex == *key_ex);
-                    Self::extend_or_intersect(&mut ids, &rhs)
+                    Self::extend_or_intersect(&mut first, &mut ids, &rhs)
                 }
 
                 CipherFilterSubOp::Part(part) => {
                     let rhs = CIPHER_MAPPINGS.select(|entry| name_has_part(entry.openssl, part));
-                    Self::extend_or_intersect(&mut ids, &rhs)
+                    Self::extend_or_intersect(&mut first, &mut ids, &rhs)
                 }
 
                 CipherFilterSubOp::Full(full) => {
-                    if let Some(id) = CIPHER_MAPPINGS.by_name(full) {
-                        Self::extend_or_intersect(&mut ids, &[id])
-                    }
+                    let rhs: Vec<_> = CIPHER_MAPPINGS.by_name(full).into_iter().collect();
+                    Self::extend_or_intersect(&mut first, &mut ids, &rhs)
                 }
             }
         }
         Ok((ids, None))
     }
 
-    fn extend_or_intersect(lhs: &mut Vec<u16>, rhs: &[u16]) {
-        if lhs.is_empty() {
+    fn extend_or_intersect(first: &mut bool, lhs: &mut Vec<u16>, rhs: &[u16]) {
+        if core::mem::take(first) {
             lhs.extend_from_slice(rhs)
         } else {
             lhs.retain(|id| rhs.contains(id))
@@ -406,7 +422,7 @@ impl<'a> CipherFilterSubOpList<'a> {
     }
 }
 
-fn kx_group_by_name(
+pub(super) fn kx_group_by_name(
     name: rustls::NamedGroup,
     error_name: &'static str,
 ) -> Result<&'static dyn SupportedKxGroup, &'static str> {
@@ -418,22 +434,47 @@ fn kx_group_by_name(
         .ok_or(error_name)
 }
 
+pub(super) fn kx_group_by_openssl_name(name: &str) -> Option<&'static dyn SupportedKxGroup> {
+    CryptoExt::get_ext()
+        .all_kx_or_default()
+        .iter()
+        .find(|group| kx_group_openssl_names(group.name()).contains(&name))
+        .copied()
+}
+
+fn kx_group_openssl_names(name: rustls::NamedGroup) -> &'static [&'static str] {
+    match name {
+        rustls::NamedGroup::secp256r1 => &["prime256v1", "secp256r1"],
+        rustls::NamedGroup::secp384r1 => &["secp384r1", "prime384v1"],
+        rustls::NamedGroup::secp521r1 => &["secp521r1", "prime521v1"],
+        rustls::NamedGroup::X25519 => &["X25519", "x25519"],
+        rustls::NamedGroup::X448 => &["X448", "x448"],
+        rustls::NamedGroup::MLKEM768 => &["MLKEM768"],
+        rustls::NamedGroup::MLKEM1024 => &["MLKEM1024"],
+        rustls::NamedGroup::secp256r1MLKEM768 => &["SecP256r1MLKEM768", "secp256r1MLKEM768"],
+        rustls::NamedGroup::X25519MLKEM768 => &["X25519MLKEM768"],
+        _ => &[],
+    }
+}
+
 type WithOptionSuiteB<T> = (T, Option<Vec<&'static dyn SupportedKxGroup>>);
 
 impl<'a> CipherFilterSubOp<'a> {
     fn parse(mut s: &'a str) -> Result<Self, &'static str> {
-        Ok(match s {
-            "DEFAULT" => return Err("DEFAULT specified at wrong position in the cipher string"),
-            "SUITEB128" => {
-                return Err("SUITEB128 specified at wrong position in the cipher string");
-            }
+        let wrong_position = match s {
+            "DEFAULT" => Some("DEFAULT specified at wrong position in the cipher string"),
+            "SUITEB128" => Some("SUITEB128 specified at wrong position in the cipher string"),
             "SUITEB128ONLY" => {
-                return Err("SUITEB128ONLY specified at wrong position in the cipher string");
+                Some("SUITEB128ONLY specified at wrong position in the cipher string")
             }
-            "SUITEB192" => {
-                return Err("SUITEB192 specified at wrong position in the cipher string");
-            }
+            "SUITEB192" => Some("SUITEB192 specified at wrong position in the cipher string"),
+            _ => None,
+        };
+        if let Some(error) = wrong_position {
+            return Err(error);
+        }
 
+        Ok(match s {
             "COMPLEMENTOFDEFAULT" => Self::ComplementOfDefault,
             "ALL" => Self::All,
             "COMPLEMENTOFALL" => Self::ComplementOfAll,
@@ -489,6 +530,38 @@ impl<'a> CipherFilterSubOp<'a> {
     }
 }
 
+/// What `SSLContext.get_ciphers()` reports about one suite, laid out the way
+/// `SSL_CIPHER_description` lays it out, padding included.
+pub(super) struct CipherDescription {
+    pub id: u32,
+    pub name: &'static str,
+    pub protocol: &'static str,
+    pub bits: u16,
+    pub description: String,
+}
+
+pub(super) fn describe(suite: &SupportedCipherSuite) -> CipherDescription {
+    let entry = CIPHER_MAPPINGS.entry(suite.suite().into());
+    let tls13 = suite.tls13().is_some();
+    let protocol = if tls13 { "TLSv1.3" } else { "TLSv1.2" };
+    // A TLS 1.3 suite names neither the key agreement nor the authentication;
+    // the handshake settles both apart from the suite.
+    let key_ex = if tls13 { "any" } else { entry.key_ex };
+
+    CipherDescription {
+        // A cipher is numbered with the protocol it belongs to in the high
+        // half, and every TLS suite belongs to 0x0300.
+        id: 0x0300_0000 | u32::from(entry.id),
+        name: entry.openssl,
+        protocol,
+        bits: entry.bits,
+        description: format!(
+            "{:<30} {protocol} Kx={key_ex:<8} Au={:<5} Enc={:<22} Mac=AEAD",
+            entry.openssl, entry.auth, entry.encryption
+        ),
+    }
+}
+
 /// How the table spells the key agreement every suite in it uses.
 const EPHEMERAL_ECDH: &str = "ECDH";
 
@@ -521,6 +594,8 @@ struct CipherEntry {
     openssl: &'static str,
     iana: &'static str,
     key_ex: &'static str,
+    auth: &'static str,
+    encryption: &'static str,
     bits: u16,
     suite: &'static SupportedCipherSuite,
 }
@@ -537,11 +612,21 @@ struct CipherMappings {
 }
 
 impl CipherMappings {
+    fn find(&self, id: u16) -> Option<&CipherEntry> {
+        self.entries.iter().find(|entry| entry.id == id)
+    }
+
     fn entry(&self, id: u16) -> &CipherEntry {
-        self.entries
-            .iter()
-            .find(|entry| entry.id == id)
+        self.find(id)
             .expect("BUG: cipher id is not one of the table's")
+    }
+
+    fn validate_suite_b(&self, ids: &[u16]) -> Result<(), &'static str> {
+        if ids.iter().all(|id| self.find(*id).is_some()) {
+            Ok(())
+        } else {
+            Err("Suite B cipher is not supported by crypto provider")
+        }
     }
 
     fn select(&self, matches: impl Fn(&CipherEntry) -> bool) -> Vec<u16> {
@@ -559,6 +644,14 @@ impl CipherMappings {
             .map(|entry| entry.id)
     }
 
+    fn default_cipher_string(&self) -> String {
+        self.default
+            .iter()
+            .map(|id| self.entry(*id).openssl)
+            .collect::<Vec<_>>()
+            .join(":")
+    }
+
     fn new() -> Self {
         let all_cipher_suites = CryptoExt::get_ext().all_ciphers_or_default();
         let default_cipher_suites = CryptoExt::get_ext().default_ciphers_or_provider();
@@ -569,11 +662,13 @@ impl CipherMappings {
 
         for cipher in all_cipher_suites {
             // See https://www.ssl.org/cipher-suite-mapping
-            let (openssl, iana, key_ex, bits, min_tls_ver) = match cipher.suite() {
+            let (openssl, iana, key_ex, auth, enc, bits, min_tls_ver) = match cipher.suite() {
                 CipherSuite::TLS13_AES_256_GCM_SHA384 => (
                     "TLS_AES_256_GCM_SHA384",
                     "TLS_AES_256_GCM_SHA384",
                     "ECDH",
+                    "any",
+                    "AESGCM(256)",
                     256,
                     13,
                 ),
@@ -582,6 +677,8 @@ impl CipherMappings {
                     "TLS_AES_128_GCM_SHA256",
                     "TLS_AES_128_GCM_SHA256",
                     "ECDH",
+                    "any",
+                    "AESGCM(128)",
                     128,
                     13,
                 ),
@@ -590,6 +687,8 @@ impl CipherMappings {
                     "TLS_CHACHA20_POLY1305_SHA256",
                     "TLS_CHACHA20_POLY1305_SHA256",
                     "ECDH",
+                    "any",
+                    "CHACHA20/POLY1305(256)",
                     256,
                     13,
                 ),
@@ -598,6 +697,8 @@ impl CipherMappings {
                     "ECDHE-ECDSA-AES256-GCM-SHA384",
                     "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
                     "ECDH",
+                    "ECDSA",
+                    "AESGCM(256)",
                     256,
                     12,
                 ),
@@ -606,6 +707,8 @@ impl CipherMappings {
                     "ECDHE-ECDSA-AES128-GCM-SHA256",
                     "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
                     "ECDH",
+                    "ECDSA",
+                    "AESGCM(128)",
                     128,
                     12,
                 ),
@@ -614,6 +717,8 @@ impl CipherMappings {
                     "ECDHE-ECDSA-CHACHA20-POLY1305",
                     "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
                     "ECDH",
+                    "ECDSA",
+                    "CHACHA20/POLY1305(256)",
                     256,
                     12,
                 ),
@@ -622,6 +727,8 @@ impl CipherMappings {
                     "ECDHE-RSA-AES256-GCM-SHA384",
                     "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
                     "ECDH",
+                    "RSA",
+                    "AESGCM(256)",
                     256,
                     12,
                 ),
@@ -630,6 +737,8 @@ impl CipherMappings {
                     "ECDHE-RSA-AES128-GCM-SHA256",
                     "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
                     "ECDH",
+                    "RSA",
+                    "AESGCM(128)",
                     128,
                     12,
                 ),
@@ -638,6 +747,8 @@ impl CipherMappings {
                     "ECDHE-RSA-CHACHA20-POLY1305",
                     "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
                     "ECDH",
+                    "RSA",
+                    "CHACHA20/POLY1305(256)",
                     256,
                     12,
                 ),
@@ -660,6 +771,8 @@ impl CipherMappings {
                 openssl,
                 iana,
                 key_ex,
+                auth,
+                encryption: enc,
                 bits,
                 suite: cipher,
             });
@@ -688,6 +801,23 @@ impl CipherMappings {
             tls_1_2,
         }
     }
+}
+
+pub(super) fn default_cipher_string() -> String {
+    CIPHER_MAPPINGS.default_cipher_string()
+}
+
+pub(super) fn restore_default_tls13(
+    mut selected: Vec<SupportedCipherSuite>,
+    defaults: &[SupportedCipherSuite],
+) -> Vec<SupportedCipherSuite> {
+    selected.retain(|suite| suite.tls13().is_none());
+    let tls13 = defaults
+        .iter()
+        .filter(|suite| suite.tls13().is_some())
+        .copied();
+    selected.splice(..0, tls13);
+    selected
 }
 
 #[cfg(test)]
@@ -729,7 +859,16 @@ mod tests {
     #[test]
     fn every_rustls_cipher_is_known() {
         install_test_crypto_provider();
-        let _ = black_box(&*CIPHER_MAPPINGS);
+        for suite in CryptoExt::get_ext().all_ciphers_or_default() {
+            let _ = black_box(describe(suite));
+        }
+
+        assert!(
+            CryptoExt::get_ext()
+                .all_kx_or_default()
+                .iter()
+                .all(|group| !kx_group_openssl_names(group.name()).is_empty())
+        );
     }
 
     #[test]
@@ -748,6 +887,7 @@ mod tests {
             suites.iter().map(|suite| suite.suite()).collect::<Vec<_>>(),
             default
         );
+        assert_eq!(default_cipher_string(), cipher_names("DEFAULT").join(":"));
         // Either spelling names the same suite, and a term is a conjunction.
         assert_eq!(
             cipher_names("TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, ECDHE-ECDSA-AES128-GCM-SHA256"),
@@ -759,6 +899,24 @@ mod tests {
         assert_eq!(
             cipher_names("AES128+aECDSA"),
             ["ECDHE-ECDSA-AES128-GCM-SHA256"]
+        );
+
+        let (selected, _) = CipherList::parse_to_rustls("ALL").unwrap();
+        let defaults = &[
+            rustls::crypto::aws_lc_rs::cipher_suite::TLS13_AES_256_GCM_SHA384,
+            rustls::crypto::aws_lc_rs::cipher_suite::TLS13_AES_128_GCM_SHA256,
+        ];
+        let selected = restore_default_tls13(selected, defaults);
+        assert_eq!(
+            selected
+                .iter()
+                .filter(|suite| suite.tls13().is_some())
+                .map(|suite| suite.suite())
+                .collect::<Vec<_>>(),
+            [
+                CipherSuite::TLS13_AES_256_GCM_SHA384,
+                CipherSuite::TLS13_AES_128_GCM_SHA256,
+            ]
         );
     }
 
@@ -799,6 +957,12 @@ mod tests {
         // Nothing here is of a weaker grade, older than TLS 1.2, or carries a
         // MAC of its own.
         for nothing in ["MEDIUM", "LOW", "TLSv1.0", "SSLv3", "SHA256", "CBC"] {
+            assert_eq!(cipher_names(nothing), Vec::<&str>::new(), "{nothing}");
+        }
+
+        // An empty first half of a conjunction stays empty rather than making
+        // its second half act like a fresh selection.
+        for nothing in ["MEDIUM+AES", "TLSv1.0+AES", "NO-SUCH-CIPHER+AES"] {
             assert_eq!(cipher_names(nothing), Vec::<&str>::new(), "{nothing}");
         }
     }
@@ -858,6 +1022,10 @@ mod tests {
         );
         assert!(suite_b.is_some());
         assert!(CipherList::parse_to_rustls("ALL:SUITEB128").is_err());
+
+        // A provider that omits one of the hardcoded Suite B suites must get
+        // an error rather than reaching the invariant-enforcing lookup.
+        assert!(CIPHER_MAPPINGS.validate_suite_b(&[u16::MAX]).is_err());
     }
 
     #[test]

@@ -103,8 +103,8 @@ mod _ssl {
     // Import compat module (OpenSSL compatibility layer)
     use super::compat::{
         ClientConfigOptions, MultiCertResolver, ProtocolSettings, ServerConfigOptions, SslError,
-        create_client_config, create_server_config, curve_name_to_kx_group, extract_cipher_info,
-        get_cipher_encryption_desc, is_blocking_io_error, normalize_cipher_name, ssl_do_handshake,
+        create_client_config, create_server_config, curve_name_to_kx_group, is_blocking_io_error,
+        ssl_do_handshake,
     };
 
     use super::providers::CryptoExt;
@@ -336,10 +336,10 @@ mod _ssl {
     #[pyattr]
     const _OPENSSL_API_VERSION: (i32, i32, i32, i32, i32) = (3, 3, 0, 0, 15);
 
-    // Default cipher list for rustls - using modern secure ciphers
-    #[pyattr]
-    const _DEFAULT_CIPHERS: &str =
-        "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256";
+    #[pyattr(once)]
+    fn _DEFAULT_CIPHERS(_vm: &VirtualMachine) -> String {
+        cipher::default_cipher_string()
+    }
 
     // Has features
     #[pyattr]
@@ -1481,15 +1481,13 @@ mod _ssl {
                         .upcast()
                     })?;
 
-            // Those suites stay selected whatever the string said about them,
-            // in front of it and in the order the provider offers them.
-            let tls13: Vec<_> = CryptoExt::get_ext()
-                .default_ciphers_or_provider()
-                .iter()
-                .filter(|suite| suite.tls13().is_some() && !selected_ciphers.contains(suite))
-                .copied()
-                .collect();
-            let _ = selected_ciphers.splice(..0, tls13);
+            // TLS 1.3 has a separate OpenSSL setter. Discard whatever this
+            // cipher string happened to match there, then restore exactly the
+            // provider defaults in their preference order.
+            selected_ciphers = cipher::restore_default_tls13(
+                selected_ciphers,
+                CryptoExt::get_ext().default_ciphers_or_provider(),
+            );
 
             *self.selected_ciphers.write() = Some(selected_ciphers);
             *self.suite_b_kx_groups.write() = suite_b_kx_groups;
@@ -1499,60 +1497,28 @@ mod _ssl {
 
         #[pymethod]
         fn get_ciphers(&self, vm: &VirtualMachine) -> PyListRef {
-            // Dynamically generate cipher list from rustls ALL_CIPHER_SUITES
-            // This automatically includes all cipher suites supported by the current rustls version
+            // What the last `set_ciphers` selected, or the provider defaults
+            // when no cipher string was given.
+            let selected = self.selected_ciphers.read().clone();
+            let suites = selected
+                .unwrap_or_else(|| CryptoExt::get_ext().default_ciphers_or_provider().to_vec());
 
-            let cipher_list = CryptoExt::get_ext()
-                .all_ciphers_or_default()
+            let cipher_list = suites
                 .iter()
                 .map(|suite| {
-                    // Extract cipher information using unified helper
-                    let cipher_info = extract_cipher_info(suite);
-
-                    // Convert to OpenSSL-style name
-                    // e.g., "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256" -> "ECDHE-RSA-AES128-GCM-SHA256"
-                    let openssl_name = normalize_cipher_name(&cipher_info.name);
-
-                    // Determine key exchange and auth methods
-                    let (kx, auth) = if cipher_info.protocol == "TLSv1.3" {
-                        // TLS 1.3 doesn't distinguish - all use modern algos
-                        ("any", "any")
-                    } else if cipher_info.name.contains("ECDHE") {
-                        // TLS 1.2 with ECDHE
-                        let auth = if cipher_info.name.contains("ECDSA") {
-                            "ECDSA"
-                        } else if cipher_info.name.contains("RSA") {
-                            "RSA"
-                        } else {
-                            "any"
-                        };
-                        ("ECDH", auth)
-                    } else {
-                        ("any", "any")
-                    };
-
-                    // Build description string
-                    // Format: "{name} {protocol} Kx={kx} Au={auth} Enc={enc} Mac={mac}"
-                    let enc = get_cipher_encryption_desc(&openssl_name);
-
-                    let description = format!(
-                        "{} {} Kx={} Au={} Enc={} Mac=AEAD",
-                        openssl_name, cipher_info.protocol, kx, auth, enc
-                    );
-
-                    // Create cipher dict
+                    let cipher = cipher::describe(suite);
                     let dict = vm.ctx.new_dict();
-                    dict.set_item("name", vm.ctx.new_str(openssl_name).into(), vm)
-                        .unwrap();
-                    dict.set_item("protocol", vm.ctx.new_str(cipher_info.protocol).into(), vm)
-                        .unwrap();
-                    dict.set_item("id", vm.ctx.new_int(0).into(), vm).unwrap(); // Placeholder ID
-                    dict.set_item("strength_bits", vm.ctx.new_int(cipher_info.bits).into(), vm)
-                        .unwrap();
-                    dict.set_item("alg_bits", vm.ctx.new_int(cipher_info.bits).into(), vm)
-                        .unwrap();
-                    dict.set_item("description", vm.ctx.new_str(description).into(), vm)
-                        .unwrap();
+                    let items: [(&str, PyObjectRef); 6] = [
+                        ("id", vm.ctx.new_int(cipher.id).into()),
+                        ("name", vm.ctx.new_str(cipher.name).into()),
+                        ("protocol", vm.ctx.new_str(cipher.protocol).into()),
+                        ("strength_bits", vm.ctx.new_int(cipher.bits).into()),
+                        ("alg_bits", vm.ctx.new_int(cipher.bits).into()),
+                        ("description", vm.ctx.new_str(cipher.description).into()),
+                    ];
+                    for (key, value) in items {
+                        dict.set_item(key, value, vm).unwrap();
+                    }
                     dict.into()
                 })
                 .collect::<Vec<_>>();
@@ -1788,23 +1754,7 @@ mod _ssl {
                 return Err(vm.new_type_error("ECDH curve name must be str or bytes"));
             };
 
-            // Validate curve name (common curves for compatibility)
-            // rustls supports: X25519, secp256r1 (prime256v1), secp384r1
-            let valid_curves = [
-                "prime256v1",
-                "secp256r1",
-                "prime384v1",
-                "secp384r1",
-                "prime521v1",
-                "secp521r1",
-                "X25519",
-                "x25519",
-                "x448", // For future compatibility
-            ];
-
-            if !valid_curves.contains(&curve_name.as_str()) {
-                return Err(vm.new_value_error(format!("unknown curve name '{curve_name}'")));
-            }
+            curve_name_to_kx_group(&curve_name).map_err(|error| vm.new_value_error(error))?;
 
             // Store the curve name to be used during handshake
             // This will limit the key exchange groups offered/accepted
@@ -3934,14 +3884,14 @@ mod _ssl {
             };
 
             // Extract cipher information outside the lock
-            let cipher_info = extract_cipher_info(&suite);
+            let cipher = cipher::describe(&suite);
 
             // Note: returns a 3-tuple (name, protocol_version, bits)
             // The 'description' field is part of get_ciphers() output, not cipher()
             Some((
-                cipher_info.name,
-                cipher_info.protocol.to_string(),
-                cipher_info.bits,
+                cipher.name.to_owned(),
+                cipher.protocol.to_owned(),
+                cipher.bits.into(),
             ))
         }
 
@@ -4523,14 +4473,13 @@ mod _ssl {
 
             let suite = conn.negotiated_cipher_suite()?;
 
-            // Extract cipher information using unified helper
-            let cipher_info = extract_cipher_info(&suite);
+            let cipher = cipher::describe(&suite);
 
             // Return as list with single tuple (name, version, bits)
             let tuple = vm.ctx.new_tuple(vec![
-                vm.ctx.new_str(cipher_info.name).into(),
-                vm.ctx.new_str(cipher_info.protocol).into(),
-                vm.ctx.new_int(cipher_info.bits).into(),
+                vm.ctx.new_str(cipher.name).into(),
+                vm.ctx.new_str(cipher.protocol).into(),
+                vm.ctx.new_int(cipher.bits).into(),
             ]);
             Some(vm.ctx.new_list(vec![tuple.into()]))
         }
