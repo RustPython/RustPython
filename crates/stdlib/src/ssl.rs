@@ -19,6 +19,9 @@ mod oid;
 // Certificate operations module (parsing, validation, conversion)
 mod cert;
 
+/// OpenSSL cipher string parsing for `set_ciphers`
+mod cipher;
+
 // OpenSSL compatibility layer (abstracts rustls operations)
 mod compat;
 
@@ -94,6 +97,7 @@ mod _ssl {
     use super::cert;
 
     // Import OID module
+    use super::cipher;
     use super::oid;
 
     // Import compat module (OpenSSL compatibility layer)
@@ -659,114 +663,6 @@ mod _ssl {
         Ok(alpn_list)
     }
 
-    /// Parse OpenSSL cipher string to rustls SupportedCipherSuite list
-    ///
-    /// Supports patterns like:
-    /// - "AES128" → filters for AES_128
-    /// - "AES256" → filters for AES_256
-    /// - "AES128:AES256" → both
-    /// - "ECDHE+AESGCM" → ECDHE AND AESGCM (both conditions must match)
-    /// - "ALL" or "DEFAULT" → all available
-    /// - "!MD5" → exclusion (ignored, rustls doesn't support weak ciphers anyway)
-    fn parse_cipher_string(cipher_str: &str) -> Result<Vec<rustls::SupportedCipherSuite>, String> {
-        if cipher_str.is_empty() {
-            return Err("No cipher can be selected".to_string());
-        }
-
-        let all_suites = CryptoExt::get_ext().all_ciphers_or_default();
-        let mut selected = Vec::new();
-
-        for part in cipher_str.split(':') {
-            let part = part.trim();
-
-            // Skip exclusions (rustls doesn't support these)
-            if part.starts_with('!') {
-                continue;
-            }
-
-            // Skip priority markers starting with +
-            if part.starts_with('+') {
-                continue;
-            }
-
-            // Match pattern
-            match part {
-                "ALL" | "DEFAULT" | "HIGH" => {
-                    // Add all available cipher suites
-                    selected.extend_from_slice(all_suites);
-                }
-                _ => {
-                    // Check if this is a compound pattern with + (AND condition)
-                    // e.g., "ECDHE+AESGCM" means ECDHE AND AESGCM
-                    let patterns: Vec<&str> = part.split('+').collect();
-
-                    let mut found_any = false;
-                    for suite in all_suites {
-                        let name = format!("{:?}", suite.suite());
-
-                        // Check if all patterns match (AND condition)
-                        let matches = patterns.iter().all(|&pattern| {
-                            // Handle common OpenSSL pattern variations
-                            if pattern.contains("AES128") {
-                                name.contains("AES_128")
-                            } else if pattern.contains("AES256") {
-                                name.contains("AES_256")
-                            } else if pattern == "AESGCM" {
-                                // AESGCM: AES with GCM mode
-                                name.contains("AES") && name.contains("GCM")
-                            } else if pattern == "AESCCM" {
-                                // AESCCM: AES with CCM mode
-                                name.contains("AES") && name.contains("CCM")
-                            } else if pattern == "CHACHA20" {
-                                name.contains("CHACHA20")
-                            } else if pattern == "ECDHE" {
-                                name.contains("ECDHE")
-                            } else if pattern == "DHE" {
-                                // DHE but not ECDHE
-                                name.contains("DHE") && !name.contains("ECDHE")
-                            } else if pattern == "ECDH" {
-                                // ECDH but not ECDHE
-                                name.contains("ECDH") && !name.contains("ECDHE")
-                            } else if pattern == "DH" {
-                                // DH but not DHE or ECDH
-                                name.contains("DH")
-                                    && !name.contains("DHE")
-                                    && !name.contains("ECDH")
-                            } else if pattern == "RSA" {
-                                name.contains("RSA")
-                            } else if pattern == "AES" {
-                                name.contains("AES")
-                            } else if pattern == "ECDSA" {
-                                name.contains("ECDSA")
-                            } else {
-                                // Direct substring match for other patterns
-                                name.contains(pattern)
-                            }
-                        });
-
-                        if matches {
-                            selected.push(*suite);
-                            found_any = true;
-                        }
-                    }
-
-                    if !found_any {
-                        // No matching cipher suite found - warn but continue
-                    }
-                }
-            }
-        }
-
-        // Remove duplicates
-        selected.dedup_by_key(|s| s.suite());
-
-        if selected.is_empty() {
-            Err("No cipher can be selected".to_string())
-        } else {
-            Ok(selected)
-        }
-    }
-
     // SSLContext - manages TLS configuration
     #[pyattr]
     #[pyclass(name = "_SSLContext", module = "ssl", traverse)]
@@ -851,6 +747,9 @@ mod _ssl {
         /// Selected cipher suites (None = use all rustls defaults)
         #[pytraverse(skip)]
         selected_ciphers: PyRwLock<Option<Vec<rustls::SupportedCipherSuite>>>,
+        /// Key exchange groups a SUITEB* cipher string pinned (RFC 6460)
+        #[pytraverse(skip)]
+        suite_b_kx_groups: PyRwLock<Option<Vec<&'static dyn SupportedKxGroup>>>,
     }
 
     #[derive(FromArgs)]
@@ -1564,16 +1463,36 @@ mod _ssl {
 
         #[pymethod]
         fn set_ciphers(&self, ciphers: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
-            let cipher_str = ciphers.as_str();
+            // `SSL_CTX_set_cipher_list` reports one failure for a string it
+            // cannot read and for a readable one that selects nothing, and the
+            // TLS 1.3 suites are not among what it can select -- they have
+            // their own setter -- so a string naming only those selects
+            // nothing either.
+            let (mut selected_ciphers, suite_b_kx_groups) =
+                cipher::CipherList::parse_to_rustls(ciphers.as_str())
+                    .ok()
+                    .filter(|(suites, _)| suites.iter().any(|s| s.tls13().is_none()))
+                    .ok_or_else(|| {
+                        vm.new_os_subtype_error(
+                            PySSLError::class(&vm.ctx).to_owned(),
+                            None,
+                            "No cipher can be selected.".to_owned(),
+                        )
+                        .upcast()
+                    })?;
 
-            // Parse cipher string and store selected ciphers
-            let selected_ciphers = parse_cipher_string(cipher_str).map_err(|e| {
-                vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), None, e)
-                    .upcast()
-            })?;
+            // Those suites stay selected whatever the string said about them,
+            // in front of it and in the order the provider offers them.
+            let tls13: Vec<_> = CryptoExt::get_ext()
+                .default_ciphers_or_provider()
+                .iter()
+                .filter(|suite| suite.tls13().is_some() && !selected_ciphers.contains(suite))
+                .copied()
+                .collect();
+            let _ = selected_ciphers.splice(..0, tls13);
 
-            // Store in context
             *self.selected_ciphers.write() = Some(selected_ciphers);
+            *self.suite_b_kx_groups.write() = suite_b_kx_groups;
 
             Ok(())
         }
@@ -2382,6 +2301,7 @@ mod _ssl {
                 accept_count: AtomicUsize::new(0),
                 session_hits: AtomicUsize::new(0),
                 selected_ciphers: PyRwLock::new(None),
+                suite_b_kx_groups: PyRwLock::new(None),
             })
         }
     }
@@ -3270,6 +3190,7 @@ mod _ssl {
         ) -> PyResult<Option<Vec<&'static dyn SupportedKxGroup>>> {
             let ctx = self.context.read();
             let ecdh_curve = ctx.ecdh_curve.read().clone();
+            let suite_b_kx_groups = ctx.suite_b_kx_groups.read().clone();
             drop(ctx);
 
             if let Some(ref curve_name) = ecdh_curve {
@@ -3278,7 +3199,9 @@ mod _ssl {
                     Err(e) => Err(vm.new_value_error(format!("Failed to set ECDH curve: {e}"))),
                 }
             } else {
-                Ok(None)
+                // A SUITEB* cipher string pins its own groups, and nothing
+                // else asked for a curve.
+                Ok(suite_b_kx_groups)
             }
         }
 
