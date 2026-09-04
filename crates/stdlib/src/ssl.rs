@@ -1292,39 +1292,46 @@ mod _ssl {
 
         /// Helper: Try to load certificates from Python's os.environ variables
         ///
-        /// Returns true if certificates were successfully loaded.
+        /// Returns true if certificates were successfully loaded from
+        /// `SSL_CERT_FILE`. `SSL_CERT_DIR` is an independent source and its
+        /// certificates remain hidden from store statistics until used.
         ///
         /// We use Python's os.environ instead of Rust's std::env
         /// because Python code can modify os.environ at runtime (e.g.,
-        /// `os.environ['SSL_CERT_FILE'] = '/path'`), but rustls-native-certs uses
-        /// std::env which only sees the process environment at startup.
+        /// `os.environ['SSL_CERT_FILE'] = '/path'`), but the native certificate
+        /// loader uses std::env which only sees the process environment.
         fn try_load_from_python_environ(
             &self,
-            loader: &mut cert::CertLoader<'_>,
+            store: &mut rustls::RootCertStore,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
             let os_module = vm.import("os", 0)?;
             let environ = os_module.get_attr("environ", vm)?;
 
-            // Try SSL_CERT_FILE first
+            let mut loaded_certs = Vec::new();
+            let mut loaded_file = false;
+
             if let Ok(cert_file) = Self::get_env_path(&environ, "SSL_CERT_FILE", vm)
                 && rustpython_host_env::fs::exists(&cert_file)
-                && let Ok(stats) = loader.load_from_file(&cert_file)
             {
-                self.update_cert_stats(stats);
-                return Ok(true);
+                let mut loader = cert::CertLoader::new(store, &mut loaded_certs);
+                if let Ok(stats) = loader.load_from_file(&cert_file) {
+                    self.update_cert_stats(stats);
+                    loaded_file = true;
+                }
             }
 
-            // Try SSL_CERT_DIR (only if SSL_CERT_FILE didn't work)
+            let file_cert_count = loaded_certs.len();
             if let Ok(cert_dir) = Self::get_env_path(&environ, "SSL_CERT_DIR", vm)
                 && rustpython_host_env::fs::is_dir(&cert_dir)
-                && let Ok(stats) = loader.load_from_dir(&cert_dir)
             {
-                self.update_cert_stats(stats);
-                return Ok(true);
+                let mut loader = cert::CertLoader::new(store, &mut loaded_certs);
+                if loader.load_from_dir(&cert_dir).is_ok() {
+                    *self.capath_certs_der.write() = loaded_certs.split_off(file_cert_count);
+                }
             }
 
-            Ok(false)
+            Ok(loaded_file)
         }
 
         /// Helper: Load system certificates using rustls-native-certs
@@ -1405,18 +1412,14 @@ mod _ssl {
                 // see: test_load_default_certs_env_windows
                 let _ = self.load_system_certificates(&mut store, vm);
 
-                let mut lazy_ca_certs = Vec::new();
-                let mut loader = cert::CertLoader::new(&mut store, &mut lazy_ca_certs);
-                let _ = self.try_load_from_python_environ(&mut loader, vm)?;
+                let _ = self.try_load_from_python_environ(&mut store, vm)?;
             }
 
             #[cfg(not(windows))]
             {
                 // Non-Windows: Try env vars first; only fallback to system certs if not set
                 // see: test_load_default_certs_env
-                let mut lazy_ca_certs = Vec::new();
-                let mut loader = cert::CertLoader::new(&mut store, &mut lazy_ca_certs);
-                let loaded = self.try_load_from_python_environ(&mut loader, vm)?;
+                let loaded = self.try_load_from_python_environ(&mut store, vm)?;
 
                 if !loaded {
                     let _ = self.load_system_certificates(&mut store, vm);
