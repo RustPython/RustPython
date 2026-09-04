@@ -1899,7 +1899,10 @@ mod _ssl {
                 sock_send_method: vm.ctx.none(),
                 sock_recv_method: vm.ctx.none(),
 
-                tls_record_header_buf: vm.ctx.none(),
+                tls_record_header_buf: vm
+                    .ctx
+                    .new_bytearray(Vec::with_capacity(TLS_RECORD_HEADER_SIZE))
+                    .into(),
                 context: PyRwLock::new(zelf),
                 server_side,
                 server_hostname: PyRwLock::new(hostname),
@@ -4382,11 +4385,11 @@ mod _ssl {
                 return Ok(self.try_read_close_notify_socket(conn, vm));
             }
 
-            // BIO mode: read from incoming BIO
-            match self.sock_recv(SSL3_RT_MAX_PACKET_SIZE, vm) {
-                Ok(bytes_obj) => {
-                    let bytes = ArgBytesLike::try_from_object(vm, bytes_obj)?;
-                    let data = bytes.borrow_buf();
+            // BIO mode: stop at the TLS record boundary so cleartext queued
+            // after close_notify remains available to the BIO's owner.
+            match self.sock_recv_at_most_one_tls_record(vm) {
+                Ok(bytes) => {
+                    let data = bytes.as_bytes();
 
                     if data.is_empty() {
                         if let Some(ref bio) = self.incoming_bio {
@@ -4401,7 +4404,7 @@ mod _ssl {
                         return Ok(true);
                     }
 
-                    let data_slice: &[u8] = data.as_ref();
+                    let data_slice: &[u8] = data;
                     let mut cursor = std::io::Cursor::new(data_slice);
                     let _ = conn.read_tls(&mut cursor);
                     let _ = conn.process_new_packets();
