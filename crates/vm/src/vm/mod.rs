@@ -34,7 +34,7 @@ use crate::{
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
     convert::ToPyObject,
-    exceptions::types::PyBaseException,
+    exceptions::types::{PyBaseException, PyMemoryError},
     frame::{ExecutionResult, FrameObject, FrameObjectRef},
     frozen::FrozenModule,
     function::{ArgMapping, FuncArgs, PySetterValue},
@@ -1220,7 +1220,9 @@ impl VirtualMachine {
             stdlib::_thread::init_main_thread_ident(self);
         }
 
-        let prewarmed_memory_errors: Vec<_> = (0..4).map(|_| self.no_memory_error()).collect();
+        let prewarmed_memory_errors: Vec<_> = (0..PyMemoryError::MAX_FREELIST)
+            .map(|_| self.no_memory_error())
+            .collect();
         drop(prewarmed_memory_errors);
 
         stdlib::builtins::init_module(self, &self.builtins);

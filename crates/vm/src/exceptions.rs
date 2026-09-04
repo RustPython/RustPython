@@ -41,7 +41,7 @@ impl core::fmt::Debug for PyBaseException {
     }
 }
 
-const MEMORY_ERROR_FREELIST_SIZE: usize = 4;
+const MEMORY_ERROR_FREELIST_SIZE: usize = 16;
 
 struct MemoryErrorHusk(*mut PyObject);
 unsafe impl Send for MemoryErrorHusk {}
