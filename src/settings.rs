@@ -262,6 +262,21 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
     }
 
+    if let Some(val) = get_env("PYTHON_CPU_COUNT") {
+        settings.cpu_count = match parse_cpu_count(val.to_str()) {
+            Some(cpu_count) => cpu_count,
+            None => {
+                error!(
+                    "Fatal Python error: config_init_cpu_count: \
+                     -X cpu_count=n option: n is missing or an invalid number, \
+                     n must be greater than 0\n\
+                     Python runtime state: preinitialized"
+                );
+                std::process::exit(1);
+            }
+        };
+    }
+
     settings.check_hash_pycs_mode = args.check_hash_based_pycs;
 
     if let Some(val) = get_env("PYTHONUTF8")
@@ -308,6 +323,20 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
             }
             "no_sig_int" => settings.install_signal_handlers = false,
             "no_debug_ranges" => settings.code_debug_ranges = false,
+            "cpu_count" => {
+                settings.cpu_count = match parse_cpu_count(value) {
+                    Some(cpu_count) => cpu_count,
+                    None => {
+                        error!(
+                            "Fatal Python error: config_init_cpu_count: \
+                             -X cpu_count=n option: n is missing or an invalid \
+                             number, n must be greater than 0\n\
+                             Python runtime state: preinitialized"
+                        );
+                        std::process::exit(1);
+                    }
+                };
+            }
             "int_max_str_digits" => {
                 settings.int_max_str_digits = match value.unwrap().parse() {
                     Ok(digits) if digits == 0 || digits >= 640 => digits,
@@ -441,6 +470,16 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 }
 
 /// Helper function to retrieve a sequence of paths from an environment variable.
+/// The count `-X cpu_count` and `PYTHON_CPU_COUNT` name, which is a number
+/// above zero or the word that leaves the count to the host.
+/// = config_init_cpu_count
+fn parse_cpu_count(value: Option<&str>) -> Option<i32> {
+    match value? {
+        "default" => Some(-1),
+        number => number.parse().ok().filter(|&count| count > 0),
+    }
+}
+
 fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
     env::var_os(env_variable_name)
         .filter(|v| !v.is_empty())

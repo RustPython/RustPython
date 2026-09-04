@@ -138,6 +138,9 @@ pub struct Settings {
     /// -X int_max_str_digits
     pub int_max_str_digits: i64,
 
+    /// -X cpu_count, which is -1 when the count is left to the host
+    pub cpu_count: i32,
+
     // /* --- Path configuration inputs ------------ */
     // int pathconfig_warnings;
     // wchar_t *program_name;
@@ -217,6 +220,7 @@ impl Default for Settings {
             stdio_errors: None,
             utf8_mode: -1,
             int_max_str_digits: 4300,
+            cpu_count: -1,
             #[cfg(feature = "flame-it")]
             profile_output: None,
             #[cfg(feature = "flame-it")]
