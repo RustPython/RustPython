@@ -1489,6 +1489,7 @@ mod _ssl {
 
             *self.selected_ciphers.write() = Some(selected_ciphers);
             *self.suite_b_kx_groups.write() = suite_b_kx_groups;
+            *self.server_config.write() = None;
 
             Ok(())
         }
