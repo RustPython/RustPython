@@ -351,7 +351,7 @@ impl<'a> CipherFilterSubOpList<'a> {
                 // RFC 6460
                 CipherFilterSubOp::SuiteB(suite_b) => {
                     let (suites, groups) = suite_b.parameters();
-                    let ids: Vec<_> = suites.iter().map(|suite| (*suite).into()).collect();
+                    let ids: Vec<u16> = suites.iter().map(|suite| u16::from(*suite)).collect();
                     CIPHER_MAPPINGS.validate_suite_b(&ids)?;
                     let groups = groups
                         .iter()
