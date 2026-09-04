@@ -8,6 +8,9 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[features]
+native-certs = ["dep:rustls-native-certs"]
+
 [dependencies]
 rustpython-wtf8 = { workspace = true }
 
@@ -35,6 +38,7 @@ mac_address = { workspace = true }
 dns-lookup = { workspace = true }
 gethostname = { workspace = true }
 rustyline = { workspace = true }
+rustls-native-certs = { workspace = true, optional = true }
 socket2 = { workspace = true, features = ["all"] }
 which = { workspace = true }
 

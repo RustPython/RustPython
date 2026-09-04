@@ -1303,14 +1303,12 @@ mod _ssl {
             loader: &mut cert::CertLoader<'_>,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            use std::path::Path;
-
             let os_module = vm.import("os", 0)?;
             let environ = os_module.get_attr("environ", vm)?;
 
             // Try SSL_CERT_FILE first
             if let Ok(cert_file) = Self::get_env_path(&environ, "SSL_CERT_FILE", vm)
-                && Path::new(&cert_file).exists()
+                && rustpython_host_env::fs::exists(&cert_file)
                 && let Ok(stats) = loader.load_from_file(&cert_file)
             {
                 self.update_cert_stats(stats);
@@ -1319,7 +1317,7 @@ mod _ssl {
 
             // Try SSL_CERT_DIR (only if SSL_CERT_FILE didn't work)
             if let Ok(cert_dir) = Self::get_env_path(&environ, "SSL_CERT_DIR", vm)
-                && Path::new(&cert_dir).is_dir()
+                && rustpython_host_env::fs::is_dir(&cert_dir)
                 && let Ok(stats) = loader.load_from_dir(&cert_dir)
             {
                 self.update_cert_stats(stats);
@@ -1367,12 +1365,12 @@ mod _ssl {
 
             #[cfg(not(windows))]
             {
-                let result = rustls_native_certs::load_native_certs();
+                let result = rustpython_host_env::native_certs::load();
 
                 // Load successfully found certificates
                 for cert in result.certs {
-                    let is_ca = cert::is_ca_certificate(cert.as_ref());
-                    if store.add(cert).is_ok() {
+                    let is_ca = cert::is_ca_certificate(&cert);
+                    if store.add(cert.into()).is_ok() {
                         *self.x509_cert_count.write() += 1;
                         if is_ca {
                             *self.ca_cert_count.write() += 1;
@@ -1699,7 +1697,7 @@ mod _ssl {
             };
 
             // Check if file exists
-            if !std::path::Path::new(&path_str).exists() {
+            if !rustpython_host_env::fs::exists(&path_str) {
                 // Create FileNotFoundError with errno=ENOENT (2)
                 let exc = vm.new_os_subtype_error(
                     vm.ctx.exceptions.file_not_found_error.to_owned(),
