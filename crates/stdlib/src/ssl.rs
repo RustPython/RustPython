@@ -4914,34 +4914,15 @@ mod _ssl {
 
     #[pyfunction]
     fn get_default_verify_paths(vm: &VirtualMachine) -> PyObjectRef {
-        // Return default certificate paths as a tuple
         // Lib/ssl.py expects: (openssl_cafile_env, openssl_cafile, openssl_capath_env, openssl_capath)
-        // parts[0] = environment variable name for cafile
-        // parts[1] = default cafile path
-        // parts[2] = environment variable name for capath
-        // parts[3] = default capath path
-
-        // Common default paths for different platforms
-        // These match the first candidates that rustls-native-certs/openssl-probe checks
-        let (default_cafile, default_capath): (Option<&str>, Option<&str>) = cfg_select! {
-            // macOS primarily uses Keychain API, but provides fallback paths
-            // for compatibility and when Keychain access fails
-            target_os = "macos" => (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs")),
-            // Linux: matches openssl-probe's first candidate (/etc/ssl/cert.pem)
-            // openssl-probe checks multiple locations at runtime, but we return
-            // OpenSSL's compile-time default
-            target_os = "linux" => (Some("/etc/ssl/cert.pem"), Some("/etc/ssl/certs")),
-            // Windows uses certificate store, not file paths
-            // Return empty strings to avoid None being passed to os.path.isfile()
-            windows => (Some(""), Some("")),
-            _ => (None, None),
-        };
+        let (default_cafile, default_capath) =
+            rustpython_host_env::native_certs::default_verify_paths();
 
         let tuple = vm.ctx.new_tuple(vec![
             vm.ctx.new_str("SSL_CERT_FILE").into(), // openssl_cafile_env
-            default_cafile.map_or_else(|| vm.ctx.none(), |s| vm.ctx.new_str(s).into()), // openssl_cafile
-            vm.ctx.new_str("SSL_CERT_DIR").into(), // openssl_capath_env
-            default_capath.map_or_else(|| vm.ctx.none(), |s| vm.ctx.new_str(s).into()), // openssl_capath
+            vm.ctx.new_str(default_cafile).into(),  // openssl_cafile
+            vm.ctx.new_str("SSL_CERT_DIR").into(),  // openssl_capath_env
+            vm.ctx.new_str(default_capath).into(),  // openssl_capath
         ]);
 
         tuple.into()
