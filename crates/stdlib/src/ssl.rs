@@ -30,6 +30,7 @@ mod compat;
 // SSL exception types (shared with openssl backend)
 mod error;
 
+mod handshake;
 mod keylog;
 
 // Utilities for setting a Rustls cryptography provider.
@@ -88,11 +89,11 @@ mod _ssl {
     use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
     use pem_rfc7468::{LineEnding, encode_string};
     use rustls::{
-        ClientConnection, Connection, HandshakeKind, RootCertStore, ServerConnection,
+        ClientConnection, Connection, HandshakeKind, RootCertStore,
         client::{ClientSessionMemoryCache, ClientSessionStore},
         crypto::SupportedKxGroup,
         pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName},
-        server::{ClientHello, ResolvesServerCert},
+        server::{Accepted, ResolvesServerCert},
         sign::CertifiedKey,
         version::{TLS12, TLS13},
     };
@@ -113,10 +114,11 @@ mod _ssl {
         ssl_do_handshake,
     };
 
+    use super::handshake::HandshakeState;
     use super::providers::CryptoExt;
 
     // Type aliases for better readability
-    // Additional type alias for certificate/key pairs (SessionCache and SniCertName defined below)
+    // Additional type alias for certificate/key pairs (SessionCache defined below)
 
     /// Certificate and private key pair used in SSL contexts
     type CertKeyPair = (Arc<CertifiedKey>, PrivateKeyDer<'static>);
@@ -425,30 +427,6 @@ mod _ssl {
         Ok(())
     }
 
-    // SNI certificate resolver that uses shared mutable state
-    // The Python SNI callback updates this state, and resolve() reads from it
-    #[derive(Debug)]
-    struct SniCertResolver {
-        // SNI state: (certificate, server_name)
-        sni_state: Arc<ParkingMutex<SniCertName>>,
-    }
-
-    impl ResolvesServerCert for SniCertResolver {
-        fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
-            let mut state = self.sni_state.lock();
-
-            // Extract and store SNI from client hello for later use
-            if let Some(sni) = client_hello.server_name() {
-                state.1 = Some(sni.to_string());
-            } else {
-                state.1 = None;
-            }
-
-            // Return the current certificate (may have been updated by Python callback)
-            Some(state.0.clone())
-        }
-    }
-
     // Session data structure for tracking TLS sessions
     #[derive(Debug, Clone)]
     struct SessionData {
@@ -485,9 +463,6 @@ mod _ssl {
 
     // Type alias to simplify complex session cache type
     type SessionCache = Arc<ParkingRwLock<HashMap<Vec<u8>, Arc<ParkingMutex<SessionData>>>>>;
-
-    // Type alias for SNI state
-    type SniCertName = (Arc<CertifiedKey>, Option<String>);
 
     // SESSION EMULATION IMPLEMENTATION
     //
@@ -1933,7 +1908,7 @@ mod _ssl {
                 server_side: args.server_side,
                 server_hostname: PyRwLock::new(hostname),
                 connection: PyMutex::new(None),
-                handshake_done: PyMutex::new(false),
+                handshake_state: PyMutex::new(HandshakeState::new(args.server_side)),
                 session_was_reused: PyMutex::new(false),
                 owner: PyRwLock::new(
                     args.owner
@@ -1948,10 +1923,6 @@ mod _ssl {
                 client_session_store: PyRwLock::new(None),
                 incoming_bio: None,
                 outgoing_bio: None,
-                sni_state: PyRwLock::new(None),
-                pending_context: PyRwLock::new(None),
-                client_hello_buffer: PyMutex::new(None),
-                sni_callback_processed: PyMutex::new(false),
                 shutdown_state: PyMutex::new(ShutdownState::NotStarted),
                 pending_tls_output: PyMutex::new(Vec::new()),
                 write_buffered_len: PyMutex::new(0),
@@ -2028,7 +1999,7 @@ mod _ssl {
                 server_side,
                 server_hostname: PyRwLock::new(hostname),
                 connection: PyMutex::new(None),
-                handshake_done: PyMutex::new(false),
+                handshake_state: PyMutex::new(HandshakeState::new(server_side)),
                 session_was_reused: PyMutex::new(false),
                 owner: PyRwLock::new(
                     args.owner
@@ -2043,10 +2014,6 @@ mod _ssl {
                 client_session_store: PyRwLock::new(None),
                 incoming_bio: Some(args.incoming),
                 outgoing_bio: Some(args.outgoing),
-                sni_state: PyRwLock::new(None),
-                pending_context: PyRwLock::new(None),
-                client_hello_buffer: PyMutex::new(None),
-                sni_callback_processed: PyMutex::new(false),
                 shutdown_state: PyMutex::new(ShutdownState::NotStarted),
                 pending_tls_output: PyMutex::new(Vec::new()),
                 write_buffered_len: PyMutex::new(0),
@@ -2392,9 +2359,8 @@ mod _ssl {
         // TLS connection state
         #[pytraverse(skip)]
         connection: PyMutex<Option<Connection>>,
-        // Handshake completed flag
-        #[pytraverse(skip)]
-        handshake_done: PyMutex<bool>,
+        // Includes the saved exception while a rejected handshake sends its alert.
+        handshake_state: PyMutex<HandshakeState>,
         // Session was reused (for session resumption tracking)
         #[pytraverse(skip)]
         session_was_reused: PyMutex<bool>,
@@ -2416,17 +2382,6 @@ mod _ssl {
         // MemoryBIO mode (optional)
         incoming_bio: Option<PyRef<PyMemoryBIO>>,
         outgoing_bio: Option<PyRef<PyMemoryBIO>>,
-        // SNI certificate resolver state (for server-side only)
-        #[pytraverse(skip)]
-        sni_state: PyRwLock<Option<Arc<ParkingMutex<SniCertName>>>>,
-        // Pending context change (for SNI callback deferred handling)
-        pending_context: PyRwLock<Option<PyRef<PySSLContext>>>,
-        // Buffer to store ClientHello for connection recreation
-        #[pytraverse(skip)]
-        client_hello_buffer: PyMutex<Option<Vec<u8>>>,
-        // Whether the Python SNI callback has already been run for this handshake
-        #[pytraverse(skip)]
-        sni_callback_processed: PyMutex<bool>,
         // Shutdown state for tracking close-notify exchange
         #[pytraverse(skip)]
         shutdown_state: PyMutex<ShutdownState>,
@@ -2646,7 +2601,7 @@ mod _ssl {
         }
 
         fn complete_handshake(&self, vm: &VirtualMachine) {
-            *self.handshake_done.lock() = true;
+            *self.handshake_state.lock() = HandshakeState::Connected;
 
             // Check if session was resumed - get value and release lock immediately
             let was_resumed = self
@@ -2731,146 +2686,199 @@ mod _ssl {
             sock_wait(&socket, wait_kind, timeout, vm).map_err(|e| e.into_pyexception(vm))
         }
 
-        // SNI (Server Name Indication) Helper Methods:
-        // These methods support the server-side handshake SNI callback mechanism
-
-        /// Check if this is the first read during handshake (for SNI callback)
-        /// Returns true until the SNI callback has been processed.
-        pub(crate) fn is_first_sni_read(&self) -> bool {
-            !*self.sni_callback_processed.lock()
+        fn handshake_completed(&self) -> bool {
+            matches!(*self.handshake_state.lock(), HandshakeState::Connected)
         }
 
-        /// Check if SNI callback is configured
-        pub(crate) fn has_sni_callback(&self) -> bool {
-            // Nested read locks are safe
-            self.context.read().sni_callback.read().is_some()
+        fn reject_handshake(&self, error: PyBaseExceptionRef, bytes: Vec<u8>) {
+            *self.handshake_state.lock() = HandshakeState::SendingAlert {
+                error,
+                bytes,
+                sent: 0,
+            };
         }
 
-        /// Save ClientHello data for potential connection recreation.
-        pub(crate) fn save_client_hello_from_bytes(&self, bytes_data: &[u8]) {
-            let mut buffer = self.client_hello_buffer.lock();
-            match buffer.as_mut() {
-                Some(existing) => existing.extend_from_slice(bytes_data),
-                None => *buffer = Some(bytes_data.to_vec()),
+        /// Receive ClientHello and select the context before rustls can generate
+        /// ServerHello. Keep protocol progress across non-blocking retries.
+        fn accept_client_hello(&self, vm: &VirtualMachine) -> PyResult<Option<Accepted>> {
+            loop {
+                // Never hold the state lock across Python callbacks or I/O.
+                // Reentrant handshake calls see an in-progress operation.
+                let state = core::mem::replace(
+                    &mut *self.handshake_state.lock(),
+                    HandshakeState::CallingSni,
+                );
+                match state {
+                    HandshakeState::WaitingForClientHello(mut acceptor) => {
+                        match acceptor.accept() {
+                            Ok(Some(accepted)) => {
+                                let name = accepted.client_hello().server_name().map(str::to_owned);
+                                if let Err((description, error)) =
+                                    self.invoke_sni_callback(name.as_deref(), vm)
+                                {
+                                    self.reject_handshake(
+                                        error,
+                                        super::handshake::sni_alert(description),
+                                    );
+                                    continue;
+                                }
+                                return Ok(Some(accepted));
+                            }
+                            Err((error, mut alert)) => {
+                                let mut bytes = Vec::new();
+                                // Vec writes cannot fail.
+                                let _ = alert.write_all(&mut bytes);
+                                let error = if matches!(error, rustls::Error::InvalidMessage(_)) {
+                                    SslError::PreauthData
+                                } else {
+                                    SslError::from_rustls(error)
+                                };
+                                self.reject_handshake(error.into_py_err(vm), bytes);
+                                continue;
+                            }
+                            Ok(None) => {}
+                        }
+                        let read = (|| {
+                            if self.sock_wait_for_io_impl(SockWaitKind::Read, vm)? {
+                                return Err(timeout_error_msg(
+                                    vm,
+                                    "The handshake operation timed out".to_owned(),
+                                )
+                                .upcast());
+                            }
+                            let bytes = self.sock_recv_at_most_one_tls_record(vm).map_err(|e| {
+                                if is_blocking_io_error(&e, vm) {
+                                    create_ssl_want_read_error(vm).upcast()
+                                } else {
+                                    e
+                                }
+                            })?;
+                            if bytes.is_empty() {
+                                return Err(
+                                    if self.is_bio_mode()
+                                        && !self.incoming_bio.as_ref().is_some_and(|bio| bio.eof())
+                                    {
+                                        create_ssl_want_read_error(vm).upcast()
+                                    } else {
+                                        SslError::Eof.into_py_err(vm)
+                                    },
+                                );
+                            }
+                            super::handshake::feed_acceptor(&mut acceptor, bytes.as_bytes())
+                                .map_err(|e| e.into_pyexception(vm))?;
+                            Ok(())
+                        })();
+                        *self.handshake_state.lock() =
+                            HandshakeState::WaitingForClientHello(acceptor);
+                        read?;
+                    }
+                    HandshakeState::SendingAlert {
+                        error,
+                        bytes,
+                        mut sent,
+                    } => {
+                        let write = (|| {
+                            if sent == bytes.len() {
+                                return Ok(());
+                            }
+                            if self.sock_wait_for_io_impl(SockWaitKind::Write, vm)? {
+                                return Err(timeout_error_msg(
+                                    vm,
+                                    "The handshake operation timed out".to_owned(),
+                                )
+                                .upcast());
+                            }
+                            let result = self.sock_send(&bytes[sent..], vm).map_err(|e| {
+                                if is_blocking_io_error(&e, vm) {
+                                    create_ssl_want_write_error(vm).upcast()
+                                } else {
+                                    e
+                                }
+                            })?;
+                            let count = result.try_to_value::<usize>(vm)?;
+                            if count == 0 {
+                                return Err(create_ssl_want_write_error(vm).upcast());
+                            }
+                            sent += count;
+                            Ok(())
+                        })();
+                        let done = sent == bytes.len();
+                        *self.handshake_state.lock() = HandshakeState::SendingAlert {
+                            error: error.clone(),
+                            bytes,
+                            sent,
+                        };
+                        write?;
+                        if done {
+                            return Err(error);
+                        }
+                    }
+                    state @ (HandshakeState::Handshaking | HandshakeState::Connected) => {
+                        *self.handshake_state.lock() = state;
+                        return Ok(None);
+                    }
+                    HandshakeState::CallingSni => {
+                        return Err(vm.new_value_error("handshake already in progress"));
+                    }
+                }
             }
         }
 
-        /// Get the extracted SNI name from resolver
-        pub(crate) fn get_extracted_sni_name(&self) -> Option<String> {
-            // Clone the Arc option to avoid nested lock (sni_state.read -> arc.lock)
-            let sni_state_opt = self.sni_state.read().clone();
-            sni_state_opt.as_ref().and_then(|arc| arc.lock().1.clone())
-        }
-
-        /// Invoke the Python SNI callback
-        pub(crate) fn invoke_sni_callback(
+        /// Invoke SNI without any connection or state locks held. The alert is
+        /// returned separately from the local exception so the peer gets the
+        /// correct wire error before this operation reports failure.
+        fn invoke_sni_callback(
             &self,
             sni_name: Option<&str>,
             vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            // The callback may have been cleared (sni_callback = None) between the
-            // handshake deciding to invoke it and this point. A concurrent removal
-            // is not an error: there is simply nothing to run.
+        ) -> Result<(), (u8, PyBaseExceptionRef)> {
             let callback = self.context.read().sni_callback.read().clone();
             let Some(callback) = callback else {
                 return Ok(());
             };
-
+            let failed = || {
+                SslError::create_ssl_error_with_reason(
+                    vm,
+                    Some("SSL"),
+                    "CALLBACK_FAILED",
+                    "[SSL: CALLBACK_FAILED] callback failed",
+                )
+            };
             let ssl_sock = self
                 .owner
                 .read()
                 .as_ref()
                 .and_then(|owner| owner.upgrade())
                 .ok_or_else(|| {
-                    super::compat::SslError::create_ssl_error_with_reason(
-                        vm,
-                        Some("SSL"),
-                        "PARSE_TLSEXT",
-                        "[SSL: PARSE_TLSEXT] SNI callback owner is no longer available",
+                    (
+                        80,
+                        SslError::create_ssl_error_with_reason(
+                            vm,
+                            Some("SSL"),
+                            "PARSE_TLSEXT",
+                            "[SSL: PARSE_TLSEXT] SNI callback owner is no longer available",
+                        ),
                     )
                 })?;
-            let server_name_py: PyObjectRef = match sni_name {
-                Some(name) => vm.ctx.new_str(name.to_string()).into(),
-                None => vm.ctx.none(),
-            };
-            let initial_context: PyObjectRef = self.context.read().clone().into();
-
-            // catches exceptions from the callback and reports them as unraisable
-            let result = match callback.call((ssl_sock, server_name_py, initial_context), vm) {
-                Ok(result) => result,
+            let server_name: PyObjectRef =
+                sni_name.map_or_else(|| vm.ctx.none(), |name| vm.ctx.new_str(name).into());
+            let context: PyObjectRef = self.context.read().clone().into();
+            let result = callback
+                .call((ssl_sock, server_name, context), vm)
+                .map_err(|exc| {
+                    vm.run_unraisable(exc, Some("in ssl servername callback".to_owned()), callback);
+                    (40, failed())
+                })?;
+            if vm.is_none(&result) {
+                return Ok(());
+            }
+            match result.try_to_value::<i32>(vm) {
+                Ok(alert) => Err((alert as u8, failed())),
                 Err(exc) => {
-                    vm.run_unraisable(
-                        exc,
-                        Some("in ssl servername callback".to_owned()),
-                        callback.clone(),
-                    );
-                    // Return SSL error like SSL_TLSEXT_ERR_ALERT_FATAL
-                    let ssl_exc: PyBaseExceptionRef = vm
-                        .new_os_subtype_error(
-                            PySSLError::class(&vm.ctx).to_owned(),
-                            None,
-                            "SNI callback raised exception",
-                        )
-                        .upcast();
-                    let _ = ssl_exc.as_object().set_attr(
-                        "reason",
-                        vm.ctx.new_str("TLSV1_ALERT_INTERNAL_ERROR"),
-                        vm,
-                    );
-                    return Err(ssl_exc);
-                }
-            };
-
-            // Check return value type (must be None or integer)
-            if !vm.is_none(&result) {
-                // Try to convert to integer
-                if result.try_to_value::<i32>(vm).is_err() {
-                    // Type conversion failed - raise TypeError as unraisable
-                    let type_error = vm.new_type_error(format!(
-                        "servername callback must return None or an integer, not '{}'",
-                        result.class().name()
-                    ));
-                    vm.run_unraisable(type_error, None, result);
-
-                    // Return SSL error with reason set to TLSV1_ALERT_INTERNAL_ERROR
-                    //
-                    // RUSTLS API LIMITATION:
-                    // We cannot send a TLS InternalError alert to the client here because:
-                    // 1. Rustls does not provide a public API like send_fatal_alert()
-                    // 2. This method is called AFTER dropping the connection lock (to prevent deadlock)
-                    // 3. By the time we detect the error, the connection is no longer available
-                    //
-                    // CPython/OpenSSL behavior:
-                    // - SNI callback runs inside SSL_do_handshake with connection active
-                    // - Sets *al = SSL_AD_INTERNAL_ERROR
-                    // - OpenSSL automatically sends alert before returning
-                    //
-                    // RustPython/Rustls behavior:
-                    // - SNI callback runs after dropping connection lock (deadlock prevention)
-                    // - Exception has _reason='TLSV1_ALERT_INTERNAL_ERROR' for error reporting
-                    // - TCP connection closes without sending TLS alert to client
-                    //
-                    // If rustls adds send_fatal_alert() API in the future, we should:
-                    // - Re-acquire connection lock after callback
-                    // - Call: connection.send_fatal_alert(AlertDescription::InternalError)
-                    // - Then close connection
-                    let exc: PyBaseExceptionRef = vm
-                        .new_os_subtype_error(
-                            PySSLError::class(&vm.ctx).to_owned(),
-                            None,
-                            "SNI callback returned invalid type",
-                        )
-                        .upcast();
-                    let _ = exc.as_object().set_attr(
-                        "reason",
-                        vm.ctx.new_str("TLSV1_ALERT_INTERNAL_ERROR"),
-                        vm,
-                    );
-                    return Err(exc);
+                    vm.run_unraisable(exc, None, result);
+                    Err((80, failed()))
                 }
             }
-
-            Ok(())
         }
 
         // Helper to call socket methods, bypassing any SSL wrapper
@@ -2905,62 +2913,48 @@ mod _ssl {
                 .expect("BUG: tls_record_header_buf is not PyByteArray");
 
             let buf_len = tls_record_header_buf.borrow_buf().len();
-
-            let (mut with_header, mut remaining_record_body_len) =
-                if buf_len < TLS_RECORD_HEADER_SIZE {
-                    // We do not have a full TLS record header, start receiving one.
-                    let bytes_obj = self.sock_recv(TLS_RECORD_HEADER_SIZE - buf_len, vm)?;
-                    let bytes = obj_to_bytes(bytes_obj)?;
-
-                    let mut buf = tls_record_header_buf.borrow_buf_mut();
-                    buf.extend_from_slice(bytes.as_bytes());
-
-                    if buf.len() < TLS_RECORD_HEADER_SIZE {
-                        return Ok(bytes);
-                    }
-
-                    // Parse the remaining length.
-                    let record_body_len = u16::from_be_bytes([buf[3], buf[4]]);
-                    // Validity of length value will be checked by rustls.
-
-                    // Zero-length TLS record.
-                    if record_body_len == 0 {
-                        buf.clear();
-                        return Ok(bytes);
-                    }
-
-                    let mut bytes_vec = bytes.as_bytes().to_vec();
-                    bytes_vec.reserve(record_body_len as usize);
-                    (Some(bytes_vec), record_body_len)
-                } else {
-                    let buf = tls_record_header_buf.borrow_buf();
-                    let remaining_record_body_len = u16::from_be_bytes([buf[3], buf[4]]);
-                    (None, remaining_record_body_len)
-                };
-
-            // We have full record header and are in a process of receiving a record.
-            let bytes_obj = self.sock_recv(remaining_record_body_len as usize, vm)?;
-            let bytes = obj_to_bytes(bytes_obj)?;
-
-            if let Some(with_header) = with_header.as_mut() {
-                with_header.extend_from_slice(bytes.as_bytes());
-            }
-
-            let mut buf = tls_record_header_buf.borrow_buf_mut();
-            remaining_record_body_len -= bytes.len() as u16;
-            if remaining_record_body_len == 0 {
-                // Record received completely, need to start a new one beginning with its header.
-                buf.clear();
+            let (mut collected, remaining) = if buf_len < TLS_RECORD_HEADER_SIZE {
+                let bytes = obj_to_bytes(self.sock_recv(TLS_RECORD_HEADER_SIZE - buf_len, vm)?)?;
+                let mut header = tls_record_header_buf.borrow_buf_mut();
+                header.extend_from_slice(bytes.as_bytes());
+                if header.len() < TLS_RECORD_HEADER_SIZE {
+                    return Ok(bytes);
+                }
+                let remaining = u16::from_be_bytes([header[3], header[4]]);
+                if remaining == 0 {
+                    header.clear();
+                    return Ok(bytes);
+                }
+                (Some(bytes.as_bytes().to_vec()), remaining)
             } else {
-                // Update remaining length in the header.
-                buf.as_mut_slice()[3..5].copy_from_slice(&remaining_record_body_len.to_be_bytes());
-            }
-
-            if let Some(with_header) = with_header {
-                Ok(vm.ctx.new_bytes(with_header))
+                let header = tls_record_header_buf.borrow_buf();
+                (None, u16::from_be_bytes([header[3], header[4]]))
+            };
+            let bytes = match self.sock_recv(remaining as usize, vm) {
+                Ok(bytes) => obj_to_bytes(bytes)?,
+                Err(error) => {
+                    // Header bytes already consumed must reach the TLS parser,
+                    // even if the body is not yet available on a nonblocking socket.
+                    if (is_blocking_io_error(&error, vm)
+                        || error.fast_isinstance(vm.ctx.exceptions.timeout_error))
+                        && let Some(header) = collected
+                    {
+                        return Ok(vm.ctx.new_bytes(header));
+                    }
+                    return Err(error);
+                }
+            };
+            let mut header = tls_record_header_buf.borrow_buf_mut();
+            let remaining = remaining - bytes.len() as u16;
+            if remaining == 0 {
+                header.clear();
             } else {
-                Ok(bytes)
+                header[3..5].copy_from_slice(&remaining.to_be_bytes());
             }
+            if let Some(collected) = collected.as_mut() {
+                collected.extend_from_slice(bytes.as_bytes());
+            }
+            Ok(collected.map_or(bytes, |bytes| vm.ctx.new_bytes(bytes)))
         }
 
         /// Socket send - just sends data, caller must handle pending flush
@@ -3278,10 +3272,11 @@ mod _ssl {
         /// - ALPN protocol negotiation
         /// - Session resumption configuration
         ///
-        /// Returns the configured ServerConnection.
+        /// Continue the accepted ClientHello using the context selected by SNI.
         fn initialize_server_connection(
             &self,
             conn_guard: &mut Option<Connection>,
+            accepted: Accepted,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let ctx = self.context.read();
@@ -3332,55 +3327,11 @@ mod _ssl {
                 false
             };
 
-            // Check if SNI callback is set
-            let sni_callback = ctx.sni_callback.read().clone();
-            let use_sni_resolver = sni_callback.is_some();
-
-            // Create SNI state if needed (to be stored in PySSLSocket later)
-            // For SNI, use the first cert_key pair as the initial certificate
-            let sni_state: Option<Arc<ParkingMutex<SniCertName>>> = if use_sni_resolver {
-                // Use first cert_key as initial certificate for SNI
-                // Extract CertifiedKey from tuple
-                let (first_cert_key, _) = &cert_keys_clone[0];
-                let first_cert_key = first_cert_key.clone();
-
-                // Check if we already have existing SNI state (from previous connection)
-                let existing_sni_state = self.sni_state.read().clone();
-
-                if let Some(sni_state_arc) = existing_sni_state {
-                    // Reuse existing Arc and update its contents
-                    // This is crucial: rustls SniCertResolver holds references to this Arc
-                    let mut state = sni_state_arc.lock();
-                    state.0 = first_cert_key;
-                    state.1 = None; // Reset SNI name for new connection
-                    drop(state);
-
-                    // Return the existing Arc (not a new one!)
-                    Some(sni_state_arc)
-                } else {
-                    // First connection: create new SNI state
-                    Some(Arc::new(ParkingMutex::new((first_cert_key, None))))
-                }
-            } else {
-                None
-            };
-
-            // Determine which cert resolver to use
-            // Priority: SNI > Multi-cert/Single-cert via MultiCertResolver
-            let cert_resolver: Option<Arc<dyn ResolvesServerCert>> = if use_sni_resolver {
-                // SNI takes precedence - use first cert_key for initial setup
-                sni_state.as_ref().map(|sni_state_arc| {
-                    Arc::new(SniCertResolver {
-                        sni_state: sni_state_arc.clone(),
-                    }) as Arc<dyn ResolvesServerCert>
-                })
-            } else {
-                // Use MultiCertResolver for all cases (single or multiple certs)
-                // Extract CertifiedKey from tuples for MultiCertResolver
-                let cert_keys_only: Vec<Arc<CertifiedKey>> =
-                    cert_keys_clone.iter().map(|(ck, _)| ck.clone()).collect();
-                Some(Arc::new(MultiCertResolver::new(cert_keys_only)))
-            };
+            // Certificate selection uses the actual ClientHello after SNI has
+            // selected the context, including multi-certificate configurations.
+            let cert_keys_only = cert_keys_clone.iter().map(|(ck, _)| ck.clone()).collect();
+            let cert_resolver: Option<Arc<dyn ResolvesServerCert>> =
+                Some(Arc::new(MultiCertResolver::new(cert_keys_only)));
 
             // Extract cert_chain and private_key from first cert_key
             //
@@ -3421,8 +3372,10 @@ mod _ssl {
 
             // A capath may gain hashed entries between connections, so only
             // cache configurations whose trust store is context-owned.
+            // A deferred verifier owns this connection's error slot, so it
+            // must never be reused by another connection.
             let cache_server_config =
-                !use_sni_resolver && ctx.capath_state.read().directories.is_empty();
+                !use_deferred_validation && ctx.capath_state.read().directories.is_empty();
             let cached_config_arc = if cache_server_config {
                 ctx.server_config.read().clone()
             } else {
@@ -3445,36 +3398,22 @@ mod _ssl {
             };
             *self.chain_builder.write() = Some(chain_builder);
 
-            // The first SNI connection only extracts ClientHello and is
-            // discarded after the callback. Log only the real handshake.
-            // Keep connection-specific routing out of the cached config.
-            if !use_sni_resolver || !self.is_first_sni_read() {
-                Arc::make_mut(&mut config_arc).key_log = self.key_log.clone();
-            }
-
-            let conn = ServerConnection::new(config_arc).map_err(|e| {
-                vm.new_value_error(format!("Failed to create server connection: {e}"))
-            })?;
-
-            *conn_guard = Some(Connection::Server(conn));
-
-            // If ClientHello buffer exists (from SNI callback), re-inject it
-            if let Some(ref hello_data) = *self.client_hello_buffer.lock()
-                && let Some(Connection::Server(ref mut server)) = *conn_guard
-            {
-                let mut cursor = std::io::Cursor::new(hello_data.as_slice());
-                let _ = server.read_tls(&mut cursor);
-
-                // Process the re-injected ClientHello
-                let _ = server.process_new_packets();
-
-                // DON'T clear buffer - keep it to prevent callback from being invoked again
-                // The buffer being non-empty signals that SNI callback was already processed
-            }
-
-            // Store SNI state if we're using SNI resolver
-            if let Some(sni_state_arc) = sni_state {
-                *self.sni_state.write() = Some(sni_state_arc);
+            // The cache contains only context-owned configuration, never a
+            // particular connection's mutable keylog routing.
+            Arc::make_mut(&mut config_arc).key_log = self.key_log.clone();
+            match accepted.into_connection(config_arc) {
+                Ok(conn) => {
+                    *conn_guard = Some(Connection::Server(conn));
+                    *self.handshake_state.lock() = HandshakeState::Handshaking;
+                }
+                Err((error, mut alert)) => {
+                    let mut bytes = Vec::new();
+                    alert
+                        .write_all(&mut bytes)
+                        .map_err(|e| e.into_pyexception(vm))?;
+                    self.reject_handshake(SslError::from_rustls(error).into_py_err(vm), bytes);
+                    self.accept_client_hello(vm)?;
+                }
             }
 
             Ok(())
@@ -3483,24 +3422,36 @@ mod _ssl {
         #[pymethod]
         fn do_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
             // Check if handshake already done
-            if *self.handshake_done.lock() {
+            if self.handshake_completed() {
                 return Ok(());
             }
 
+            let accepted = if self.server_side {
+                self.accept_client_hello(vm)?
+            } else {
+                None
+            };
             let mut conn_guard = self.connection.lock();
 
             // Initialize connection if not already done
             if conn_guard.is_none() {
-                // Check for pending context change (from SNI callback)
-                let pending_context = self.pending_context.write().take();
-                if let Some(new_ctx) = pending_context {
-                    self.key_log.set_sink(new_ctx.key_log.clone());
-                    *self.context.write() = new_ctx;
-                }
-
                 if self.server_side {
-                    // Server-side connection - delegate to helper method
-                    self.initialize_server_connection(&mut conn_guard, vm)?;
+                    if let Err(error) = self.initialize_server_connection(
+                        &mut conn_guard,
+                        accepted
+                            .ok_or_else(|| vm.new_value_error("TLS connection is not available"))?,
+                        vm,
+                    ) {
+                        drop(conn_guard);
+                        if matches!(
+                            *self.handshake_state.lock(),
+                            HandshakeState::SendingAlert { .. }
+                        ) {
+                            return Err(error);
+                        }
+                        self.reject_handshake(error, super::handshake::sni_alert(40));
+                        return self.accept_client_hello(vm).map(|_| ());
+                    }
                 } else {
                     // Client-side connection
                     let ctx = self.context.read();
@@ -3612,46 +3563,11 @@ mod _ssl {
             // Perform the actual handshake by exchanging data with the socket/BIO
 
             let conn = conn_guard.as_mut().expect("unreachable");
-            let is_client = matches!(conn, Connection::Client(_));
             let handshake_result = ssl_do_handshake(conn, self, vm);
             drop(conn_guard);
-
-            if is_client {
-                // CLIENT is simple - no SNI callback handling needed
-                handshake_result.map_err(|e| e.into_py_err(vm))?;
-                self.complete_handshake(vm);
-                Ok(())
-            } else {
-                // Use OpenSSL-compatible handshake for server
-                // Handle SNI callback restart
-                match handshake_result {
-                    Ok(()) => {
-                        // Handshake completed successfully
-                        self.complete_handshake(vm);
-                        Ok(())
-                    }
-                    Err(SslError::SniCallbackRestart) => {
-                        // SNI detected - need to call callback and recreate connection
-
-                        // Get the SNI name that was extracted (may be None if client didn't send SNI)
-                        let sni_name = self.get_extracted_sni_name();
-
-                        // Now safe to call Python callback (no locks held)
-                        self.invoke_sni_callback(sni_name.as_deref(), vm)?;
-                        *self.sni_callback_processed.lock() = true;
-
-                        // Clear connection to trigger recreation
-                        *self.connection.lock() = None;
-
-                        // Recursively call do_handshake to recreate with new context
-                        self.do_handshake(vm)
-                    }
-                    Err(e) => {
-                        // Other errors - convert to Python exception
-                        Err(e.into_py_err(vm))
-                    }
-                }
-            }
+            handshake_result.map_err(|e| e.into_py_err(vm))?;
+            self.complete_handshake(vm);
+            Ok(())
         }
 
         #[pymethod]
@@ -3696,7 +3612,7 @@ mod _ssl {
 
             // Ensure handshake is done - if not, complete it first
             // This matches OpenSSL behavior where SSL_read() auto-completes handshake
-            if !*self.handshake_done.lock() {
+            if !self.handshake_completed() {
                 self.do_handshake(vm)?;
             }
 
@@ -3880,7 +3796,7 @@ mod _ssl {
             }
 
             // Ensure handshake is done (SSL_write auto-completes handshake)
-            if !*self.handshake_done.lock() {
+            if !self.handshake_completed() {
                 self.do_handshake(vm)?;
             }
 
@@ -3933,7 +3849,7 @@ mod _ssl {
             let binary = args.binary_form.unwrap_or(false);
 
             // Check if handshake is complete
-            if !*self.handshake_done.lock() {
+            if !self.handshake_completed() {
                 return Err(vm.new_value_error("handshake not done yet"));
             }
 
@@ -4064,9 +3980,6 @@ mod _ssl {
             // SSL_set_SSL_CTX allows context changes at any time,
             // even after handshake completion
             *self.context.write() = value;
-
-            // Clear pending context as we've applied the change
-            *self.pending_context.write() = None;
         }
 
         #[pygetset]
@@ -4081,7 +3994,7 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             // Check if handshake is already done
-            if *self.handshake_done.lock() {
+            if self.handshake_completed() {
                 return Err(
                     vm.new_value_error("Cannot set server_hostname on socket after handshake")
                 );
@@ -4125,7 +4038,7 @@ mod _ssl {
             }
 
             // Check if handshake is already done
-            if *self.handshake_done.lock() {
+            if self.handshake_completed() {
                 return Err(vm.new_value_error("Cannot set session after handshake."));
             }
 
@@ -4192,6 +4105,14 @@ mod _ssl {
 
         #[pymethod]
         fn shutdown(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            if !self.handshake_completed() {
+                return Err(SslError::create_ssl_error_with_reason(
+                    vm,
+                    Some("SSL"),
+                    "SHUTDOWN_WHILE_IN_INIT",
+                    "[SSL: SHUTDOWN_WHILE_IN_INIT] shutdown while in init",
+                ));
+            }
             // Check current shutdown state
             let current_state = *self.shutdown_state.lock();
 
@@ -4552,7 +4473,7 @@ mod _ssl {
             }
 
             // Check if handshake completed
-            if !*self.handshake_done.lock() {
+            if !self.handshake_completed() {
                 return None;
             }
 
@@ -4586,7 +4507,7 @@ mod _ssl {
             }
 
             // Check if handshake has been completed
-            if !*self.handshake_done.lock() {
+            if !self.handshake_completed() {
                 return Err(vm.new_value_error(
                     "Handshake must be completed before post-handshake authentication",
                 ));

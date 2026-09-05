@@ -198,8 +198,6 @@ pub(super) enum SslError {
     Io(std::io::Error),
     /// Timeout error (socket.timeout)
     Timeout(String),
-    /// SNI callback triggered - need to restart handshake
-    SniCallbackRestart,
     /// Python exception (pass through directly)
     Py(PyBaseExceptionRef),
     /// TLS alert received with OpenSSL-compatible error code
@@ -387,10 +385,7 @@ impl SslError {
                 )
                 .upcast(),
             Self::Io(err) => err.into_pyexception(vm),
-            Self::SniCallbackRestart => {
-                // This should be handled at PySSLSocket level
-                unreachable!("SniCallbackRestart should not reach Python layer")
-            }
+
             Self::Py(exc) => exc,
             Self::AlertReceived { lib, reason } => {
                 Self::create_ssl_error_from_codes(vm, lib, reason)
@@ -1066,17 +1061,11 @@ fn handshake_read_data(
     conn: &mut Connection,
     socket: &PySSLSocket,
     is_bio: bool,
-    is_server: bool,
     vm: &VirtualMachine,
-) -> SslResult<(bool, bool)> {
+) -> SslResult<bool> {
     if !conn.wants_read() {
-        return Ok((false, false));
+        return Ok(false);
     }
-
-    // SERVER-SPECIFIC: Check if this is before the SNI callback.
-    // sock_recv() may return only part of a TLS record, so keep capturing
-    // ClientHello fragments until process_new_packets() has produced a response.
-    let is_first_sni_read = is_server && socket.has_sni_callback() && socket.is_first_sni_read();
 
     // Wait for data in socket mode
     if !is_bio {
@@ -1106,26 +1095,17 @@ fn handshake_read_data(
                     return Err(SslError::WantRead);
                 }
                 if !conn.wants_write() && e.fast_isinstance(vm.ctx.exceptions.timeout_error) {
-                    return Ok((false, false));
+                    return Ok(false);
                 }
                 return Err(SslError::Py(e));
             }
         }
     };
 
-    // SERVER-SPECIFIC: Save ClientHello fragments for potential connection recreation.
-    if is_first_sni_read {
-        // Extract bytes from PyObjectRef
-        use rustpython_vm::builtins::PyBytes;
-        if let Some(bytes_obj) = data_obj.downcast_ref::<PyBytes>() {
-            socket.save_client_hello_from_bytes(bytes_obj.as_bytes());
-        }
-    }
-
     // Feed data to rustls
     ssl_read_tls_records(conn, data_obj, is_bio, vm)?;
 
-    Ok((true, is_first_sni_read))
+    Ok(true)
 }
 
 /// Handle handshake completion for server-side TLS 1.3
@@ -1261,8 +1241,7 @@ pub(super) fn ssl_do_handshake(
         made_progress |= write_progress;
 
         // Read TLS handshake data from socket/BIO
-        let (read_progress, is_first_sni_read) =
-            handshake_read_data(conn, socket, is_bio, is_server, vm)?;
+        let read_progress = handshake_read_data(conn, socket, is_bio, vm)?;
         made_progress |= read_progress;
 
         // Process TLS packets (state machine)
@@ -1290,19 +1269,6 @@ pub(super) fn ssl_do_handshake(
             // Certificate verification errors are already handled by from_rustls
 
             return Err(SslError::from_rustls(e));
-        }
-
-        // SERVER-SPECIFIC: Check SNI callback after processing packets.
-        // A partial TLS record can be read without producing any handshake
-        // response.  Wait until rustls has processed a complete ClientHello.
-        if is_server && is_first_sni_read && socket.has_sni_callback() && conn.wants_write() {
-            // IMPORTANT: Do NOT call the callback here!
-            // The connection lock is still held, which would cause deadlock.
-            // Return SniCallbackRestart to signal do_handshake to:
-            // 1. Drop conn_guard
-            // 2. Call the callback (with Some(name) or None)
-            // 3. Restart handshake
-            return Err(SslError::SniCallbackRestart);
         }
 
         // Check if handshake is complete and handle post-handshake processing
