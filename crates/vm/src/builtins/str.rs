@@ -653,10 +653,17 @@ impl PyStr {
                 Self::new_str_unchecked(bytes.into(), kind)
             }
             .to_pyobject(vm))
-        } else if let Some(radd) = vm.get_method(other.clone(), identifier!(vm, __radd__)) {
-            // hack to get around not distinguishing number add from seq concat
-            radd?.call((zelf,), vm)
         } else {
+            // hack to get around not distinguishing number add from seq concat
+            if let Some(radd) = vm.get_method(other.clone(), identifier!(vm, __radd__)) {
+                let result = radd?.call((zelf,), vm)?;
+                // CPython reaches `str`'s sq_concat once the reflected call declines, so a
+                // `__radd__` returning NotImplemented must still report the concat error
+                // rather than the generic binary-op one.
+                if !result.is(&vm.ctx.not_implemented) {
+                    return Ok(result);
+                }
+            }
             Err(vm.new_type_error(format!(
                 r#"can only concatenate str (not "{}") to str"#,
                 other.class().slot_name()
