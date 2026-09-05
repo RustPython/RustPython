@@ -7,9 +7,83 @@ use std::io;
 
 #[cfg(unix)]
 pub use libc::{
-    MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MAP_ANON,
-    MAP_ANONYMOUS, MAP_PRIVATE, MAP_SHARED, PROT_EXEC, PROT_READ, PROT_WRITE,
+    MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, PROT_EXEC, PROT_READ,
+    PROT_WRITE,
 };
+
+#[cfg(unix)]
+bitflags::bitflags! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub struct MapFlags: libc::c_int {
+        const MAP_SHARED = libc::MAP_SHARED;
+        const MAP_PRIVATE = libc::MAP_PRIVATE;
+        const MAP_ANON = libc::MAP_ANON;
+        const MAP_ANONYMOUS = libc::MAP_ANONYMOUS;
+
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+        const MAP_DENYWRITE = libc::MAP_DENYWRITE;
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+        const MAP_EXECUTABLE = libc::MAP_EXECUTABLE;
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+        const MAP_POPULATE = libc::MAP_POPULATE;
+
+        #[cfg(any(target_os = "linux", target_os = "openbsd", target_os = "netbsd"))]
+        const MAP_STACK = libc::MAP_STACK;
+
+        #[cfg(target_vendor = "apple")]
+        const MAP_NORESERVE = libc::MAP_NORESERVE;
+        #[cfg(target_vendor = "apple")]
+        const MAP_NOEXTEND = libc::MAP_NOEXTEND;
+        #[cfg(target_vendor = "apple")]
+        const MAP_HASSEMAPHORE = libc::MAP_HASSEMAPHORE;
+        #[cfg(target_vendor = "apple")]
+        const MAP_NOCACHE = libc::MAP_NOCACHE;
+        #[cfg(target_vendor = "apple")]
+        const MAP_JIT = libc::MAP_JIT;
+        // libc does not name these `sys/mman.h` flags.
+        #[cfg(target_vendor = "apple")]
+        const MAP_RESILIENT_CODESIGN = 0x2000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_RESILIENT_MEDIA = 0x4000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_32BIT = 0x8000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_TRANSLATED_ALLOW_EXECUTE = 0x20000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_UNIX03 = 0x40000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_TPRO = 0x80000;
+    }
+}
+
+#[cfg(unix)]
+macro_rules! map_flag_consts {
+    ($($name:ident),+ $(,)?) => {
+        $(pub const $name: libc::c_int = MapFlags::$name.bits();)+
+    };
+}
+
+#[cfg(unix)]
+map_flag_consts! {
+    MAP_SHARED, MAP_PRIVATE, MAP_ANON, MAP_ANONYMOUS,
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+map_flag_consts! {
+    MAP_DENYWRITE, MAP_EXECUTABLE, MAP_POPULATE,
+}
+
+#[cfg(any(target_os = "linux", target_os = "openbsd", target_os = "netbsd"))]
+map_flag_consts! {
+    MAP_STACK,
+}
+
+#[cfg(target_vendor = "apple")]
+map_flag_consts! {
+    MAP_HASSEMAPHORE, MAP_JIT, MAP_NOCACHE, MAP_NOEXTEND, MAP_NORESERVE,
+    MAP_RESILIENT_CODESIGN, MAP_RESILIENT_MEDIA, MAP_32BIT,
+    MAP_TRANSLATED_ALLOW_EXECUTE, MAP_UNIX03, MAP_TPRO,
+}
 
 #[cfg(target_os = "macos")]
 pub use libc::{MADV_FREE_REUSABLE, MADV_FREE_REUSE};
@@ -50,34 +124,8 @@ pub use libc::{
 ))]
 pub use libc::MADV_SOFT_OFFLINE;
 
-#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
-pub use libc::{MAP_DENYWRITE, MAP_EXECUTABLE, MAP_POPULATE};
-
-#[cfg(any(target_os = "linux", target_os = "openbsd", target_os = "netbsd"))]
-pub use libc::MAP_STACK;
-
 #[cfg(target_os = "freebsd")]
 pub use libc::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
-
-#[cfg(target_vendor = "apple")]
-pub use libc::{MAP_HASSEMAPHORE, MAP_JIT, MAP_NOCACHE, MAP_NOEXTEND, MAP_NORESERVE};
-
-/// The mapping flags `sys/mman.h` carries that libc does not name.
-#[cfg(target_vendor = "apple")]
-mod darwin_map {
-    pub const MAP_32BIT: libc::c_int = 0x8000;
-    pub const MAP_RESILIENT_CODESIGN: libc::c_int = 0x2000;
-    pub const MAP_RESILIENT_MEDIA: libc::c_int = 0x4000;
-    pub const MAP_TRANSLATED_ALLOW_EXECUTE: libc::c_int = 0x20000;
-    pub const MAP_UNIX03: libc::c_int = 0x40000;
-    pub const MAP_TPRO: libc::c_int = 0x80000;
-}
-
-#[cfg(target_vendor = "apple")]
-pub use darwin_map::{
-    MAP_32BIT, MAP_RESILIENT_CODESIGN, MAP_RESILIENT_MEDIA, MAP_TPRO, MAP_TRANSLATED_ALLOW_EXECUTE,
-    MAP_UNIX03,
-};
 
 pub use libc::EOVERFLOW;
 

@@ -1225,7 +1225,7 @@ pub mod sys {
     /// Private function for getting PyConfig.cpu_count
     #[pyfunction]
     fn _get_cpu_count_config(vm: &VirtualMachine) -> i32 {
-        vm.state.config.settings.cpu_count
+        vm.state.config.settings.cpu_count.map_or(-1, |n| n.get())
     }
 
     #[pyfunction]

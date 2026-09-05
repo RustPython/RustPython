@@ -1,6 +1,7 @@
 use lexopt::Arg::*;
 use lexopt::ValueExt;
 use rustpython_vm::{Settings, vm::CheckHashPycsMode};
+use std::num::NonZeroI32;
 use std::str::FromStr;
 use std::{cmp, env};
 
@@ -264,8 +265,8 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 
     if let Some(val) = get_env("PYTHON_CPU_COUNT") {
         settings.cpu_count = match parse_cpu_count(val.to_str()) {
-            Some(cpu_count) => cpu_count,
-            None => {
+            Ok(cpu_count) => cpu_count,
+            Err(()) => {
                 error!(
                     "Fatal Python error: config_init_cpu_count: \
                      -X cpu_count=n option: n is missing or an invalid number, \
@@ -325,8 +326,8 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
             "no_debug_ranges" => settings.code_debug_ranges = false,
             "cpu_count" => {
                 settings.cpu_count = match parse_cpu_count(value) {
-                    Some(cpu_count) => cpu_count,
-                    None => {
+                    Ok(cpu_count) => cpu_count,
+                    Err(()) => {
                         error!(
                             "Fatal Python error: config_init_cpu_count: \
                              -X cpu_count=n option: n is missing or an invalid \
@@ -469,14 +470,20 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     Ok((settings, mode))
 }
 
-/// Helper function to retrieve a sequence of paths from an environment variable.
-/// The count `-X cpu_count` and `PYTHON_CPU_COUNT` name, which is a number
-/// above zero or the word that leaves the count to the host.
+/// `-X cpu_count` / `PYTHON_CPU_COUNT`: a count above zero, or `"default"`.
+/// `Ok(None)` leaves the count to the host. Zero, negatives, and values above
+/// `i32::MAX` are rejected.
 /// = config_init_cpu_count
-fn parse_cpu_count(value: Option<&str>) -> Option<i32> {
-    match value? {
-        "default" => Some(-1),
-        number => number.parse().ok().filter(|&count| count > 0),
+fn parse_cpu_count(value: Option<&str>) -> Result<Option<NonZeroI32>, ()> {
+    match value {
+        None => Err(()),
+        Some("default") => Ok(None),
+        Some(number) => number
+            .parse()
+            .ok()
+            .filter(|count: &NonZeroI32| count.get() > 0)
+            .map(Some)
+            .ok_or(()),
     }
 }
 

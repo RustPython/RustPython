@@ -29,9 +29,6 @@ mod _sre {
     #[pyattr]
     pub(super) use rustpython_sre_engine::{CODESIZE, MAXGROUPS, MAXREPEAT, SRE_MAGIC as MAGIC};
 
-    #[pyattr(name = "copyright")]
-    const COPYRIGHT: &str = " SRE 2.2.2 Copyright (c) 1997-2002 by Secret Labs AB ";
-
     #[pyfunction]
     const fn getcodesize() -> usize {
         CODESIZE
