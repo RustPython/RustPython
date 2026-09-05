@@ -4,6 +4,7 @@ use super::{
 };
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
+use crate::stdlib::PyOrderedDictItems;
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, atomic_func,
@@ -213,7 +214,7 @@ impl PyDict {
         Ok((key.clone(), value.clone()))
     }
 
-    fn update_sequence_pair(
+    pub(crate) fn update_sequence_pair(
         element: PyObjectRef,
         index: usize,
         vm: &VirtualMachine,
@@ -496,8 +497,9 @@ impl PyDict {
     }
 
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let other_dict: Result<PyDictRef, _> = other.downcast();
-        if let Ok(other) = other_dict {
+        // Accept dict subclasses that inherit this implementation. Subclasses with
+        // their own reflected slot, such as OrderedDict, take precedence in dispatch.
+        if let Ok(other) = other.downcast::<Self>() {
             let self_cp = self.copy();
             self_cp.merge_dict(other, true, vm)?;
             return Ok(self_cp.into_pyobject(vm));
@@ -542,7 +544,7 @@ impl PyDict {
 
 #[pyclass]
 impl Py<PyDict> {
-    fn inner_cmp(
+    pub(crate) fn inner_cmp(
         &self,
         other: &Self,
         op: PyComparisonOp,
@@ -1656,7 +1658,7 @@ impl AsNumber for PyDictItems {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             subtract: Some(set_inner_number_subtract),
             and: Some(set_inner_number_and),
-            xor: Some(set_inner_number_xor),
+            xor: Some(dict_item_view_number_xor),
             or: Some(set_inner_number_or),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -1697,19 +1699,77 @@ where
     Ok(PySet { inner: f(a, b)? }.into_pyobject(vm))
 }
 
-fn set_inner_number_subtract(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn set_inner_number_subtract(
+    a: &PyObject,
+    b: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult {
     set_inner_number_op(a, b, |a, b| a.difference(b, vm), vm)
 }
 
-fn set_inner_number_and(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-    set_inner_number_op(a, b, |a, b| a.intersection(b, vm), vm)
+pub(crate) fn set_inner_number_and(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let a_is_view =
+        a.downcast_ref::<PyDictKeys>().is_some() || a.downcast_ref::<PyDictItems>().is_some();
+    let (view, other) = if a_is_view { (a, b) } else { (b, a) };
+    set_view_number_and(view, other, vm)
 }
 
-fn set_inner_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn set_view_number_and(
+    view: &PyObject,
+    other: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let other = ArgIterable::<PyObjectRef>::try_from_object(vm, other.to_owned())?;
+    let result = PySet::default();
+    for item in other.iter(vm)? {
+        let item = item?;
+        if view.sequence_unchecked().contains(&item, vm)? {
+            result.add(item, vm)?;
+        }
+    }
+    Ok(result.into_pyobject(vm))
+}
+
+pub(crate) fn set_inner_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
     set_inner_number_op(a, b, |a, b| a.symmetric_difference(b, vm), vm)
 }
 
-fn set_inner_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn set_item_view_number_xor(
+    a: &PyObject,
+    b: &PyObject,
+    both_are_item_views: bool,
+    vm: &VirtualMachine,
+) -> PyResult {
+    if !both_are_item_views {
+        return set_inner_number_xor(a, b, vm);
+    }
+    let result = PySet::default();
+    let a_iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, a.to_owned())?;
+    for item in a_iterable.iter(vm)? {
+        let item = item?;
+        if !b.sequence_unchecked().contains(&item, vm)? {
+            result.add(item, vm)?;
+        }
+    }
+    let b_iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, b.to_owned())?;
+    for item in b_iterable.iter(vm)? {
+        let item = item?;
+        if !a.sequence_unchecked().contains(&item, vm)? {
+            result.add(item, vm)?;
+        }
+    }
+    Ok(result.into_pyobject(vm))
+}
+
+fn dict_item_view_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let is_native_item_view = |obj: &PyObject| {
+        obj.downcast_ref::<PyDictItems>().is_some()
+            || obj.downcast_ref::<PyOrderedDictItems>().is_some()
+    };
+    set_item_view_number_xor(a, b, is_native_item_view(a) && is_native_item_view(b), vm)
+}
+
+pub(crate) fn set_inner_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
     set_inner_number_op(a, b, |a, b| a.union(b, vm), vm)
 }
 
