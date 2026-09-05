@@ -979,3 +979,39 @@ def test_expandtabs_zero_tabsize():
 
 
 test_expandtabs_zero_tabsize()
+
+
+def test_concat_error_message():
+    # CPython falls back to str's sequence concatenation once a reflected
+    # __radd__ declines, so the message names the concatenation, not the
+    # generic binary operation. Types that define __radd__ (every number)
+    # used to take the generic path here.
+    def message(other):
+        try:
+            "a" + other
+        except TypeError as err:
+            return str(err)
+        raise AssertionError("TypeError was not raised")
+
+    assert message(1) == 'can only concatenate str (not "int") to str'
+    assert message(1.5) == 'can only concatenate str (not "float") to str'
+    assert message(True) == 'can only concatenate str (not "bool") to str'
+    assert message([]) == 'can only concatenate str (not "list") to str'
+    assert message(None) == 'can only concatenate str (not "NoneType") to str'
+    assert message(b"b") == 'can only concatenate str (not "bytes") to str'
+
+    class Declines:
+        def __radd__(self, other):
+            return NotImplemented
+
+    assert message(Declines()) == 'can only concatenate str (not "Declines") to str'
+
+    # A __radd__ that returns a value still wins.
+    class Accepts:
+        def __radd__(self, other):
+            return "from-radd"
+
+    assert "a" + Accepts() == "from-radd"
+
+
+test_concat_error_message()
