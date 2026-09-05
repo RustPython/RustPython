@@ -82,6 +82,15 @@ pub enum PosixSpawnFileAction {
     },
 }
 
+#[cfg(all(
+    any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+    not(target_env = "musl")
+))]
+pub struct PosixSpawnScheduler {
+    pub policy: Option<i32>,
+    pub param: libc::sched_param,
+}
+
 #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
 pub struct PosixSpawnConfig<'a> {
     pub path: &'a CStr,
@@ -94,6 +103,11 @@ pub struct PosixSpawnConfig<'a> {
     pub setsid: bool,
     pub setsigmask: Option<&'a [i32]>,
     pub spawnp: bool,
+    #[cfg(all(
+        any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+        not(target_env = "musl")
+    ))]
+    pub scheduler: Option<PosixSpawnScheduler>,
 }
 
 pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> std::io::Result<()> {
@@ -1426,6 +1440,32 @@ fn build_posix_spawn_attrs(
         let set = build_sigset(sigs);
         attrp.set_sigmask(&set).map_err(std::io::Error::from)?;
         flags.insert(nix::spawn::PosixSpawnFlags::POSIX_SPAWN_SETSIGMASK);
+    }
+
+    #[cfg(all(
+        any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+        not(target_env = "musl")
+    ))]
+    if let Some(scheduler) = &config.scheduler {
+        // nix does not wrap these yet; the attr type is transparent over
+        // posix_spawnattr_t.
+        let attr_ptr = (&raw mut attrp).cast::<libc::posix_spawnattr_t>();
+        if let Some(policy) = scheduler.policy {
+            let err = unsafe { libc::posix_spawnattr_setschedpolicy(attr_ptr, policy) };
+            if err != 0 {
+                return Err(std::io::Error::from_raw_os_error(err));
+            }
+            flags.insert(nix::spawn::PosixSpawnFlags::from_bits_retain(
+                libc::POSIX_SPAWN_SETSCHEDULER,
+            ));
+        }
+        let err = unsafe { libc::posix_spawnattr_setschedparam(attr_ptr, &scheduler.param) };
+        if err != 0 {
+            return Err(std::io::Error::from_raw_os_error(err));
+        }
+        flags.insert(nix::spawn::PosixSpawnFlags::from_bits_retain(
+            libc::POSIX_SPAWN_SETSCHEDPARAM,
+        ));
     }
 
     if !flags.is_empty() {

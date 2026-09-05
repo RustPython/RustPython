@@ -806,7 +806,6 @@ class CmdLineTest(unittest.TestCase):
         self.assertIn(": can't open file ", err)
         self.assertNotEqual(proc.returncode, 0)
 
-    @unittest.skipIf(sys.platform.startswith("darwin"), "TODO: RUSTPYTHON; Problems with Mac os descriptor")
     @unittest.skipUnless(os.path.exists('/dev/fd/0'), 'requires /dev/fd platform')
     @unittest.skipIf(sys.platform.startswith("freebsd") and
                      os.stat("/dev").st_dev == os.stat("/dev/fd").st_dev,

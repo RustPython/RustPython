@@ -361,6 +361,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         RunMode::Repl => Ok(()),
     };
     let result = if is_repl || vm.state.config.settings.inspect {
+        warn_if_pyrepl_unavailable(vm);
         shell::run_shell(vm, scope)
     } else {
         res
@@ -375,6 +376,23 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     }
 
     result
+}
+
+/// When the fancy REPL cannot start (for example `TERM=dumb`), print the same
+/// warning `_pyrepl.main` would have printed, then keep the rustyline shell.
+fn warn_if_pyrepl_unavailable(vm: &VirtualMachine) {
+    let _ = vm.run_simple_string(
+        r"
+import os, sys
+if not os.getenv('PYTHON_BASIC_REPL'):
+    try:
+        from _pyrepl.main import CAN_USE_PYREPL, FAIL_REASON
+        if not CAN_USE_PYREPL and FAIL_REASON:
+            print(FAIL_REASON, file=sys.stderr)
+    except Exception:
+        pass
+",
+    );
 }
 
 #[cfg(feature = "flame-it")]
