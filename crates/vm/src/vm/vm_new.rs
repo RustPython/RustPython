@@ -346,6 +346,7 @@ impl VirtualMachine {
             main_module.into(),
             self,
         )?;
+        self.set_main_builtin_importer(&scope.globals)?;
 
         Ok(scope)
     }
@@ -361,6 +362,7 @@ impl VirtualMachine {
         let dict = self.ctx.new_dict();
         let main_module = self.new_module("__main__", dict, None);
         sys_modules.set_item("__main__", main_module.clone().into(), self)?;
+        self.set_main_builtin_importer(&main_module.dict())?;
         Ok(main_module)
     }
 
