@@ -712,7 +712,9 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
 
     // Generate PyPayload impl based on whether base exists
     #[allow(clippy::collapsible_else_if)]
-    let impl_payload = if let Some(base_type) = &base {
+    let impl_payload = if class_meta.manual_payload()? {
+        quote! {}
+    } else if let Some(base_type) = &base {
         let class_fn = if let Some(ctx_type_name) = class_meta.ctx_name()? {
             let ctx_type_ident = Ident::new(&ctx_type_name, ident.span());
             quote! { ctx.types.#ctx_type_ident }
@@ -803,8 +805,13 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
         None => quote! {},
     };
 
+    let payload_attr = match class_meta.inner()._optional_str("payload")? {
+        Some(value) => quote! { , payload = #value },
+        None => quote! {},
+    };
+
     let ret = quote! {
-        #[pyclass(module = false, name = #class_name, base = #base_class_name #traverse_attr)]
+        #[pyclass(module = false, name = #class_name, base = #base_class_name #traverse_attr #payload_attr)]
         #item
         #impl_pyclass
     };

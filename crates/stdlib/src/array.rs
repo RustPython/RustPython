@@ -417,7 +417,7 @@ pub mod array {
                         $(ArrayContentType::$n(v) => {
                             // MemoryError instead Overflow Error, hard to says it is right
                             // but it is how cpython doing right now
-                            let elements = v.mul(vm, value).map_err(|_| vm.new_memory_error("".to_owned()))?;
+                            let elements = v.mul(vm, value).map_err(|_| vm.no_memory_error())?;
                             Ok(ArrayContentType::$n(elements))
                         })*
                     }
@@ -428,7 +428,7 @@ pub mod array {
                         $(ArrayContentType::$n(v) => {
                             // MemoryError instead Overflow Error, hard to says it is right
                             // but it is how cpython doing right now
-                            v.imul(vm, value).map_err(|_| vm.new_memory_error("".to_owned()))
+                            v.imul(vm, value).map_err(|_| vm.no_memory_error())
                         })*
                     }
                 }

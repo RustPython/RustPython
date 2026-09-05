@@ -362,6 +362,7 @@ impl ItemMeta for ClassItemMeta {
         "impl",
         "traverse",
         "clear", // tp_clear
+        "payload",
     ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
@@ -401,6 +402,10 @@ impl ClassItemMeta {
 
     pub(crate) fn ctx_name(&self) -> Result<Option<String>> {
         self.inner()._optional_str("ctx")
+    }
+
+    pub(crate) fn manual_payload(&self) -> Result<bool> {
+        Ok(self.inner()._optional_str("payload")?.as_deref() == Some("manual"))
     }
 
     pub(crate) fn base(&self) -> Result<Option<syn::Path>> {
@@ -473,6 +478,7 @@ impl ItemMeta for ExceptionItemMeta {
         "ctx",
         "impl",
         "traverse",
+        "payload",
     ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
