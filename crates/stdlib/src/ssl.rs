@@ -30,6 +30,7 @@ mod compat;
 // SSL exception types (shared with openssl backend)
 mod error;
 
+mod handshake;
 mod keylog;
 
 // Utilities for setting a Rustls cryptography provider.
@@ -66,8 +67,8 @@ mod _ssl {
 
     // Import error types used in this module (others are exposed via pymodule(with(...)))
     use super::error::{
-        PySSLError, create_ssl_eof_error, create_ssl_want_read_error, create_ssl_want_write_error,
-        create_ssl_zero_return_error,
+        PySSLError, PySSLWantReadError, PySSLWantWriteError, create_ssl_eof_error,
+        create_ssl_want_read_error, create_ssl_want_write_error, create_ssl_zero_return_error,
     };
     use alloc::sync::Arc;
     use core::{
@@ -88,11 +89,11 @@ mod _ssl {
     use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
     use pem_rfc7468::{LineEnding, encode_string};
     use rustls::{
-        ClientConnection, Connection, HandshakeKind, RootCertStore, ServerConnection,
+        ClientConnection, Connection, HandshakeKind, RootCertStore,
         client::{ClientSessionMemoryCache, ClientSessionStore},
         crypto::SupportedKxGroup,
         pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName},
-        server::{ClientHello, ResolvesServerCert},
+        server::{Accepted, ResolvesServerCert},
         sign::CertifiedKey,
         version::{TLS12, TLS13},
     };
@@ -113,10 +114,11 @@ mod _ssl {
         ssl_do_handshake,
     };
 
+    use super::handshake::TlsState;
     use super::providers::CryptoExt;
 
     // Type aliases for better readability
-    // Additional type alias for certificate/key pairs (SessionCache and SniCertName defined below)
+    // Additional type alias for certificate/key pairs (SessionCache defined below)
 
     /// Certificate and private key pair used in SSL contexts
     type CertKeyPair = (Arc<CertifiedKey>, PrivateKeyDer<'static>);
@@ -425,30 +427,6 @@ mod _ssl {
         Ok(())
     }
 
-    // SNI certificate resolver that uses shared mutable state
-    // The Python SNI callback updates this state, and resolve() reads from it
-    #[derive(Debug)]
-    struct SniCertResolver {
-        // SNI state: (certificate, server_name)
-        sni_state: Arc<ParkingMutex<SniCertName>>,
-    }
-
-    impl ResolvesServerCert for SniCertResolver {
-        fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
-            let mut state = self.sni_state.lock();
-
-            // Extract and store SNI from client hello for later use
-            if let Some(sni) = client_hello.server_name() {
-                state.1 = Some(sni.to_string());
-            } else {
-                state.1 = None;
-            }
-
-            // Return the current certificate (may have been updated by Python callback)
-            Some(state.0.clone())
-        }
-    }
-
     // Session data structure for tracking TLS sessions
     #[derive(Debug, Clone)]
     struct SessionData {
@@ -485,9 +463,6 @@ mod _ssl {
 
     // Type alias to simplify complex session cache type
     type SessionCache = Arc<ParkingRwLock<HashMap<Vec<u8>, Arc<ParkingMutex<SessionData>>>>>;
-
-    // Type alias for SNI state
-    type SniCertName = (Arc<CertifiedKey>, Option<String>);
 
     // SESSION EMULATION IMPLEMENTATION
     //
@@ -1921,9 +1896,11 @@ mod _ssl {
 
             // Create _SSLSocket instance
             let ssl_socket = PySSLSocket {
-                sock: args.sock.clone(),
-                sock_send_method: socket_class.get_attr("send", vm)?,
-                sock_recv_method: socket_class.get_attr("recv", vm)?,
+                io: SocketOrBio::Socket {
+                    sock: args.sock.clone(),
+                    send: socket_class.get_attr("send", vm)?,
+                    recv: socket_class.get_attr("recv", vm)?,
+                },
                 tls_record_header_buf: vm
                     .ctx
                     .new_bytearray(Vec::with_capacity(TLS_RECORD_HEADER_SIZE))
@@ -1933,7 +1910,7 @@ mod _ssl {
                 server_side: args.server_side,
                 server_hostname: PyRwLock::new(hostname),
                 connection: PyMutex::new(None),
-                handshake_done: PyMutex::new(false),
+                state: PyMutex::new(TlsState::new(args.server_side)),
                 session_was_reused: PyMutex::new(false),
                 owner: PyRwLock::new(
                     args.owner
@@ -1946,13 +1923,6 @@ mod _ssl {
                 chain_builder: PyRwLock::new(None),
                 verified_chain: PyRwLock::new(None),
                 client_session_store: PyRwLock::new(None),
-                incoming_bio: None,
-                outgoing_bio: None,
-                sni_state: PyRwLock::new(None),
-                pending_context: PyRwLock::new(None),
-                client_hello_buffer: PyMutex::new(None),
-                sni_callback_processed: PyMutex::new(false),
-                shutdown_state: PyMutex::new(ShutdownState::NotStarted),
                 pending_tls_output: PyMutex::new(Vec::new()),
                 write_buffered_len: PyMutex::new(0),
                 deferred_cert_error: Arc::new(ParkingRwLock::new(None)),
@@ -2014,10 +1984,10 @@ mod _ssl {
 
             // Create _SSLSocket instance with BIO mode
             let ssl_socket = PySSLSocket {
-                // No socket in BIO mode
-                sock: vm.ctx.none(),
-                sock_send_method: vm.ctx.none(),
-                sock_recv_method: vm.ctx.none(),
+                io: SocketOrBio::Bio {
+                    incoming: args.incoming,
+                    outgoing: args.outgoing,
+                },
 
                 tls_record_header_buf: vm
                     .ctx
@@ -2028,7 +1998,7 @@ mod _ssl {
                 server_side,
                 server_hostname: PyRwLock::new(hostname),
                 connection: PyMutex::new(None),
-                handshake_done: PyMutex::new(false),
+                state: PyMutex::new(TlsState::new(server_side)),
                 session_was_reused: PyMutex::new(false),
                 owner: PyRwLock::new(
                     args.owner
@@ -2041,13 +2011,6 @@ mod _ssl {
                 chain_builder: PyRwLock::new(None),
                 verified_chain: PyRwLock::new(None),
                 client_session_store: PyRwLock::new(None),
-                incoming_bio: Some(args.incoming),
-                outgoing_bio: Some(args.outgoing),
-                sni_state: PyRwLock::new(None),
-                pending_context: PyRwLock::new(None),
-                client_hello_buffer: PyMutex::new(None),
-                sni_callback_processed: PyMutex::new(false),
-                shutdown_state: PyMutex::new(ShutdownState::NotStarted),
                 pending_tls_output: PyMutex::new(Vec::new()),
                 write_buffered_len: PyMutex::new(0),
                 deferred_cert_error: Arc::new(ParkingRwLock::new(None)),
@@ -2363,19 +2326,74 @@ mod _ssl {
         }
     }
 
+    #[derive(Debug)]
+    enum SocketOrBio {
+        Socket {
+            sock: PyObjectRef,
+            send: PyObjectRef,
+            recv: PyObjectRef,
+        },
+        Bio {
+            incoming: PyRef<PyMemoryBIO>,
+            outgoing: PyRef<PyMemoryBIO>,
+        },
+    }
+
+    unsafe impl crate::vm::object::Traverse for SocketOrBio {
+        fn traverse(&self, tracer: &mut crate::vm::object::TraverseFn<'_>) {
+            match self {
+                Self::Socket { sock, send, recv } => {
+                    sock.traverse(tracer);
+                    send.traverse(tracer);
+                    recv.traverse(tracer);
+                }
+                Self::Bio { incoming, outgoing } => {
+                    incoming.traverse(tracer);
+                    outgoing.traverse(tracer);
+                }
+            }
+        }
+    }
+
+    impl SocketOrBio {
+        fn socket_object(&self, vm: &VirtualMachine) -> PyObjectRef {
+            match self {
+                Self::Socket { sock, .. } => sock.clone(),
+                Self::Bio { .. } => vm.ctx.none(),
+            }
+        }
+        fn incoming(&self) -> Option<PyRef<PyMemoryBIO>> {
+            match self {
+                Self::Bio { incoming, .. } => Some(incoming.clone()),
+                _ => None,
+            }
+        }
+        fn recv(&self, size: usize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            match self {
+                Self::Socket { sock, recv, .. } => recv.call((sock.clone(), size), vm),
+                Self::Bio { incoming, .. } => {
+                    incoming.as_object().get_attr("read", vm)?.call((size,), vm)
+                }
+            }
+        }
+        fn send(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let bytes = vm.ctx.new_bytes(data.to_vec());
+            match self {
+                Self::Socket { sock, send, .. } => send.call((sock.clone(), bytes), vm),
+                Self::Bio { outgoing, .. } => outgoing
+                    .as_object()
+                    .get_attr("write", vm)?
+                    .call((bytes,), vm),
+            }
+        }
+    }
+
     // SSLSocket - represents a TLS-wrapped socket
     #[pyattr]
     #[pyclass(name = "_SSLSocket", module = "ssl", traverse)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct PySSLSocket {
-        // Underlying socket
-        sock: PyObjectRef,
-        // Cached socket.socket.send
-        #[pytraverse(skip)]
-        sock_send_method: PyObjectRef,
-        // Cached socket.socket.recv
-        #[pytraverse(skip)]
-        sock_recv_method: PyObjectRef,
+        io: SocketOrBio,
         // Header of currently read TLS record.
         #[pytraverse(skip)]
         tls_record_header_buf: PyObjectRef,
@@ -2392,9 +2410,8 @@ mod _ssl {
         // TLS connection state
         #[pytraverse(skip)]
         connection: PyMutex<Option<Connection>>,
-        // Handshake completed flag
-        #[pytraverse(skip)]
-        handshake_done: PyMutex<bool>,
+        // Includes the saved exception while a rejected handshake sends its alert.
+        state: PyMutex<TlsState>,
         // Session was reused (for session resumption tracking)
         #[pytraverse(skip)]
         session_was_reused: PyMutex<bool>,
@@ -2413,23 +2430,6 @@ mod _ssl {
         // Per-connection store containing the session selected by this connection.
         #[pytraverse(skip)]
         client_session_store: PyRwLock<Option<Arc<PythonClientSessionStore>>>,
-        // MemoryBIO mode (optional)
-        incoming_bio: Option<PyRef<PyMemoryBIO>>,
-        outgoing_bio: Option<PyRef<PyMemoryBIO>>,
-        // SNI certificate resolver state (for server-side only)
-        #[pytraverse(skip)]
-        sni_state: PyRwLock<Option<Arc<ParkingMutex<SniCertName>>>>,
-        // Pending context change (for SNI callback deferred handling)
-        pending_context: PyRwLock<Option<PyRef<PySSLContext>>>,
-        // Buffer to store ClientHello for connection recreation
-        #[pytraverse(skip)]
-        client_hello_buffer: PyMutex<Option<Vec<u8>>>,
-        // Whether the Python SNI callback has already been run for this handshake
-        #[pytraverse(skip)]
-        sni_callback_processed: PyMutex<bool>,
-        // Shutdown state for tracking close-notify exchange
-        #[pytraverse(skip)]
-        shutdown_state: PyMutex<ShutdownState>,
         // Pending TLS output buffer for non-blocking sockets
         // Stores unsent TLS bytes when sock_send() would block
         // This prevents data loss when write_tls() drains rustls' internal buffer
@@ -2448,14 +2448,6 @@ mod _ssl {
         deferred_cert_error: Arc<ParkingRwLock<Option<String>>>,
     }
 
-    // Shutdown state for tracking close-notify exchange
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    enum ShutdownState {
-        NotStarted,      // unwrap() not called yet
-        SentCloseNotify, // close-notify sent, waiting for peer's response
-        Completed,       // unwrap() completed successfully
-    }
-
     /// TLS record header size (content_type + version + length).
     const TLS_RECORD_HEADER_SIZE: usize = 5;
 
@@ -2463,12 +2455,16 @@ mod _ssl {
     impl PySSLSocket {
         // Check if this is BIO mode
         pub(crate) fn is_bio_mode(&self) -> bool {
-            self.incoming_bio.is_some() && self.outgoing_bio.is_some()
+            matches!(self.io, SocketOrBio::Bio { .. })
         }
 
         // Get incoming BIO reference (for EOF checking)
         pub(crate) fn incoming_bio(&self) -> Option<PyObjectRef> {
-            self.incoming_bio.as_ref().map(|bio| bio.clone().into())
+            self.io.incoming().map(|bio| bio.into())
+        }
+
+        pub(crate) fn transport_eof(&self) -> bool {
+            self.io.incoming().is_none_or(|bio| bio.eof())
         }
 
         // Check for deferred certificate verification errors (TLS 1.3)
@@ -2491,7 +2487,11 @@ mod _ssl {
             }
 
             // Get timeout from socket
-            let timeout_obj = self.sock.get_attr("gettimeout", vm)?.call((), vm)?;
+            let timeout_obj = self
+                .io
+                .socket_object(vm)
+                .get_attr("gettimeout", vm)?
+                .call((), vm)?;
 
             // timeout can be None (blocking), 0.0 (non-blocking), or positive float
             if vm.is_none(&timeout_obj) {
@@ -2646,7 +2646,7 @@ mod _ssl {
         }
 
         fn complete_handshake(&self, vm: &VirtualMachine) {
-            *self.handshake_done.lock() = true;
+            *self.state.lock() = TlsState::Connected;
 
             // Check if session was resumed - get value and release lock immediately
             let was_resumed = self
@@ -2696,7 +2696,7 @@ mod _ssl {
             }
 
             // Use select with the effective timeout
-            let py_socket: PyRef<PySocket> = self.sock.clone().try_into_value(vm)?;
+            let py_socket: PyRef<PySocket> = self.io.socket_object(vm).try_into_value(vm)?;
             let socket = py_socket
                 .sock()
                 .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
@@ -2723,7 +2723,7 @@ mod _ssl {
                 return Ok(false);
             }
 
-            let py_socket: PyRef<PySocket> = self.sock.clone().try_into_value(vm)?;
+            let py_socket: PyRef<PySocket> = self.io.socket_object(vm).try_into_value(vm)?;
             let socket = py_socket
                 .sock()
                 .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
@@ -2731,159 +2731,171 @@ mod _ssl {
             sock_wait(&socket, wait_kind, timeout, vm).map_err(|e| e.into_pyexception(vm))
         }
 
-        // SNI (Server Name Indication) Helper Methods:
-        // These methods support the server-side handshake SNI callback mechanism
-
-        /// Check if this is the first read during handshake (for SNI callback)
-        /// Returns true until the SNI callback has been processed.
-        pub(crate) fn is_first_sni_read(&self) -> bool {
-            !*self.sni_callback_processed.lock()
+        fn handshake_completed(&self) -> bool {
+            matches!(
+                *self.state.lock(),
+                TlsState::Connected | TlsState::ShuttingDown | TlsState::ShutDown
+            )
         }
 
-        /// Check if SNI callback is configured
-        pub(crate) fn has_sni_callback(&self) -> bool {
-            // Nested read locks are safe
-            self.context.read().sni_callback.read().is_some()
+        fn reject_connection(&self, error: PyBaseExceptionRef, bytes: Vec<u8>) {
+            self.pending_tls_output.lock().extend_from_slice(&bytes);
+            *self.state.lock() = TlsState::SendingAlert { error };
         }
 
-        /// Save ClientHello data for potential connection recreation.
-        pub(crate) fn save_client_hello_from_bytes(&self, bytes_data: &[u8]) {
-            let mut buffer = self.client_hello_buffer.lock();
-            match buffer.as_mut() {
-                Some(existing) => existing.extend_from_slice(bytes_data),
-                None => *buffer = Some(bytes_data.to_vec()),
+        /// Receive ClientHello and select the context before rustls can generate
+        /// ServerHello. Keep protocol progress across non-blocking retries.
+        fn accept_client_hello(&self, vm: &VirtualMachine) -> PyResult<Option<Accepted>> {
+            loop {
+                // Never hold the state lock across Python callbacks or I/O.
+                // Reentrant handshake calls see an in-progress operation.
+                let state = core::mem::replace(&mut *self.state.lock(), TlsState::InProgress);
+                match state {
+                    TlsState::WaitingForClientHello(mut acceptor) => {
+                        match acceptor.accept() {
+                            Ok(Some(accepted)) => {
+                                let name = accepted.client_hello().server_name().map(str::to_owned);
+                                if let Err((description, error)) =
+                                    self.invoke_sni_callback(name.as_deref(), vm)
+                                {
+                                    self.reject_connection(
+                                        error,
+                                        super::handshake::sni_alert(description),
+                                    );
+                                    continue;
+                                }
+                                return Ok(Some(accepted));
+                            }
+                            Err((error, mut alert)) => {
+                                let mut bytes = Vec::new();
+                                // Vec writes cannot fail.
+                                let _ = alert.write_all(&mut bytes);
+                                let error = if matches!(error, rustls::Error::InvalidMessage(_)) {
+                                    SslError::PreauthData
+                                } else {
+                                    SslError::from_rustls(error)
+                                };
+                                self.reject_connection(error.into_py_err(vm), bytes);
+                                continue;
+                            }
+                            Ok(None) => {}
+                        }
+                        let read = (|| {
+                            if self.sock_wait_for_io_impl(SockWaitKind::Read, vm)? {
+                                return Err(timeout_error_msg(
+                                    vm,
+                                    "The handshake operation timed out".to_owned(),
+                                )
+                                .upcast());
+                            }
+                            let bytes = self.sock_recv_at_most_one_tls_record(vm).map_err(|e| {
+                                if is_blocking_io_error(&e, vm) {
+                                    create_ssl_want_read_error(vm).upcast()
+                                } else {
+                                    e
+                                }
+                            })?;
+                            if bytes.is_empty() {
+                                return Err(
+                                    if self.is_bio_mode()
+                                        && !self.io.incoming().as_ref().is_some_and(|bio| bio.eof())
+                                    {
+                                        create_ssl_want_read_error(vm).upcast()
+                                    } else {
+                                        SslError::Eof.into_py_err(vm)
+                                    },
+                                );
+                            }
+                            super::handshake::feed_acceptor(&mut acceptor, bytes.as_bytes())
+                                .map_err(|e| e.into_pyexception(vm))?;
+                            Ok(())
+                        })();
+                        *self.state.lock() = TlsState::WaitingForClientHello(acceptor);
+                        read?;
+                    }
+                    TlsState::SendingAlert { error } => {
+                        let result = self.flush_pending_tls_output(vm, None);
+                        *self.state.lock() = TlsState::SendingAlert {
+                            error: error.clone(),
+                        };
+                        result?;
+                        return Err(error);
+                    }
+                    state @ (TlsState::Handshaking
+                    | TlsState::Connected
+                    | TlsState::ShuttingDown
+                    | TlsState::ShutDown) => {
+                        *self.state.lock() = state;
+                        return Ok(None);
+                    }
+                    TlsState::InProgress => {
+                        return Err(vm.new_value_error("handshake already in progress"));
+                    }
+                }
             }
         }
 
-        /// Get the extracted SNI name from resolver
-        pub(crate) fn get_extracted_sni_name(&self) -> Option<String> {
-            // Clone the Arc option to avoid nested lock (sni_state.read -> arc.lock)
-            let sni_state_opt = self.sni_state.read().clone();
-            sni_state_opt.as_ref().and_then(|arc| arc.lock().1.clone())
-        }
-
-        /// Invoke the Python SNI callback
-        pub(crate) fn invoke_sni_callback(
+        /// Invoke SNI without any connection or state locks held. The alert is
+        /// returned separately from the local exception so the peer gets the
+        /// correct wire error before this operation reports failure.
+        fn invoke_sni_callback(
             &self,
             sni_name: Option<&str>,
             vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            // The callback may have been cleared (sni_callback = None) between the
-            // handshake deciding to invoke it and this point. A concurrent removal
-            // is not an error: there is simply nothing to run.
+        ) -> Result<(), (u8, PyBaseExceptionRef)> {
             let callback = self.context.read().sni_callback.read().clone();
             let Some(callback) = callback else {
                 return Ok(());
             };
-
+            let failed = || {
+                SslError::create_ssl_error_with_reason(
+                    vm,
+                    Some("SSL"),
+                    "CALLBACK_FAILED",
+                    "[SSL: CALLBACK_FAILED] callback failed",
+                )
+            };
             let ssl_sock = self
                 .owner
                 .read()
                 .as_ref()
                 .and_then(|owner| owner.upgrade())
                 .ok_or_else(|| {
-                    super::compat::SslError::create_ssl_error_with_reason(
-                        vm,
-                        Some("SSL"),
-                        "PARSE_TLSEXT",
-                        "[SSL: PARSE_TLSEXT] SNI callback owner is no longer available",
+                    (
+                        80,
+                        SslError::create_ssl_error_with_reason(
+                            vm,
+                            Some("SSL"),
+                            "PARSE_TLSEXT",
+                            "[SSL: PARSE_TLSEXT] SNI callback owner is no longer available",
+                        ),
                     )
                 })?;
-            let server_name_py: PyObjectRef = match sni_name {
-                Some(name) => vm.ctx.new_str(name.to_string()).into(),
-                None => vm.ctx.none(),
-            };
-            let initial_context: PyObjectRef = self.context.read().clone().into();
-
-            // catches exceptions from the callback and reports them as unraisable
-            let result = match callback.call((ssl_sock, server_name_py, initial_context), vm) {
-                Ok(result) => result,
+            let server_name: PyObjectRef =
+                sni_name.map_or_else(|| vm.ctx.none(), |name| vm.ctx.new_str(name).into());
+            let context: PyObjectRef = self.context.read().clone().into();
+            let result = callback
+                .call((ssl_sock, server_name, context), vm)
+                .map_err(|exc| {
+                    vm.run_unraisable(exc, Some("in ssl servername callback".to_owned()), callback);
+                    (40, failed())
+                })?;
+            if vm.is_none(&result) {
+                return Ok(());
+            }
+            match result.try_to_value::<i32>(vm) {
+                Ok(alert) => Err((alert as u8, failed())),
                 Err(exc) => {
-                    vm.run_unraisable(
-                        exc,
-                        Some("in ssl servername callback".to_owned()),
-                        callback.clone(),
-                    );
-                    // Return SSL error like SSL_TLSEXT_ERR_ALERT_FATAL
-                    let ssl_exc: PyBaseExceptionRef = vm
-                        .new_os_subtype_error(
-                            PySSLError::class(&vm.ctx).to_owned(),
-                            None,
-                            "SNI callback raised exception",
-                        )
-                        .upcast();
-                    let _ = ssl_exc.as_object().set_attr(
-                        "reason",
-                        vm.ctx.new_str("TLSV1_ALERT_INTERNAL_ERROR"),
-                        vm,
-                    );
-                    return Err(ssl_exc);
-                }
-            };
-
-            // Check return value type (must be None or integer)
-            if !vm.is_none(&result) {
-                // Try to convert to integer
-                if result.try_to_value::<i32>(vm).is_err() {
-                    // Type conversion failed - raise TypeError as unraisable
-                    let type_error = vm.new_type_error(format!(
-                        "servername callback must return None or an integer, not '{}'",
-                        result.class().name()
-                    ));
-                    vm.run_unraisable(type_error, None, result);
-
-                    // Return SSL error with reason set to TLSV1_ALERT_INTERNAL_ERROR
-                    //
-                    // RUSTLS API LIMITATION:
-                    // We cannot send a TLS InternalError alert to the client here because:
-                    // 1. Rustls does not provide a public API like send_fatal_alert()
-                    // 2. This method is called AFTER dropping the connection lock (to prevent deadlock)
-                    // 3. By the time we detect the error, the connection is no longer available
-                    //
-                    // CPython/OpenSSL behavior:
-                    // - SNI callback runs inside SSL_do_handshake with connection active
-                    // - Sets *al = SSL_AD_INTERNAL_ERROR
-                    // - OpenSSL automatically sends alert before returning
-                    //
-                    // RustPython/Rustls behavior:
-                    // - SNI callback runs after dropping connection lock (deadlock prevention)
-                    // - Exception has _reason='TLSV1_ALERT_INTERNAL_ERROR' for error reporting
-                    // - TCP connection closes without sending TLS alert to client
-                    //
-                    // If rustls adds send_fatal_alert() API in the future, we should:
-                    // - Re-acquire connection lock after callback
-                    // - Call: connection.send_fatal_alert(AlertDescription::InternalError)
-                    // - Then close connection
-                    let exc: PyBaseExceptionRef = vm
-                        .new_os_subtype_error(
-                            PySSLError::class(&vm.ctx).to_owned(),
-                            None,
-                            "SNI callback returned invalid type",
-                        )
-                        .upcast();
-                    let _ = exc.as_object().set_attr(
-                        "reason",
-                        vm.ctx.new_str("TLSV1_ALERT_INTERNAL_ERROR"),
-                        vm,
-                    );
-                    return Err(exc);
+                    vm.run_unraisable(exc, None, result);
+                    Err((80, failed()))
                 }
             }
-
-            Ok(())
         }
 
-        // Helper to call socket methods, bypassing any SSL wrapper
+        // Transport dispatch is shared by handshake, application data, alerts
+        // and shutdown, bypassing SSLSocket overrides that would reenter TLS.
         pub(crate) fn sock_recv(&self, size: usize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            // In BIO mode, read from incoming BIO (flags not supported)
-            if let Some(ref bio) = self.incoming_bio {
-                let bio_obj: PyObjectRef = bio.clone().into();
-                let read_method = bio_obj.get_attr("read", vm)?;
-                return read_method.call((vm.ctx.new_int(size),), vm);
-            }
-
-            self.sock_recv_method
-                .call((self.sock.clone(), vm.ctx.new_int(size)), vm)
+            self.io.recv(size, vm)
         }
 
         // Helper to receive data for at most one TLS record.
@@ -2905,275 +2917,93 @@ mod _ssl {
                 .expect("BUG: tls_record_header_buf is not PyByteArray");
 
             let buf_len = tls_record_header_buf.borrow_buf().len();
-
-            let (mut with_header, mut remaining_record_body_len) =
-                if buf_len < TLS_RECORD_HEADER_SIZE {
-                    // We do not have a full TLS record header, start receiving one.
-                    let bytes_obj = self.sock_recv(TLS_RECORD_HEADER_SIZE - buf_len, vm)?;
-                    let bytes = obj_to_bytes(bytes_obj)?;
-
-                    let mut buf = tls_record_header_buf.borrow_buf_mut();
-                    buf.extend_from_slice(bytes.as_bytes());
-
-                    if buf.len() < TLS_RECORD_HEADER_SIZE {
-                        return Ok(bytes);
-                    }
-
-                    // Parse the remaining length.
-                    let record_body_len = u16::from_be_bytes([buf[3], buf[4]]);
-                    // Validity of length value will be checked by rustls.
-
-                    // Zero-length TLS record.
-                    if record_body_len == 0 {
-                        buf.clear();
-                        return Ok(bytes);
-                    }
-
-                    let mut bytes_vec = bytes.as_bytes().to_vec();
-                    bytes_vec.reserve(record_body_len as usize);
-                    (Some(bytes_vec), record_body_len)
-                } else {
-                    let buf = tls_record_header_buf.borrow_buf();
-                    let remaining_record_body_len = u16::from_be_bytes([buf[3], buf[4]]);
-                    (None, remaining_record_body_len)
-                };
-
-            // We have full record header and are in a process of receiving a record.
-            let bytes_obj = self.sock_recv(remaining_record_body_len as usize, vm)?;
-            let bytes = obj_to_bytes(bytes_obj)?;
-
-            if let Some(with_header) = with_header.as_mut() {
-                with_header.extend_from_slice(bytes.as_bytes());
-            }
-
-            let mut buf = tls_record_header_buf.borrow_buf_mut();
-            remaining_record_body_len -= bytes.len() as u16;
-            if remaining_record_body_len == 0 {
-                // Record received completely, need to start a new one beginning with its header.
-                buf.clear();
+            let (mut collected, remaining) = if buf_len < TLS_RECORD_HEADER_SIZE {
+                let bytes = obj_to_bytes(self.sock_recv(TLS_RECORD_HEADER_SIZE - buf_len, vm)?)?;
+                let mut header = tls_record_header_buf.borrow_buf_mut();
+                header.extend_from_slice(bytes.as_bytes());
+                if header.len() < TLS_RECORD_HEADER_SIZE {
+                    return Ok(bytes);
+                }
+                let remaining = u16::from_be_bytes([header[3], header[4]]);
+                if remaining == 0 {
+                    header.clear();
+                    return Ok(bytes);
+                }
+                (Some(bytes.as_bytes().to_vec()), remaining)
             } else {
-                // Update remaining length in the header.
-                buf.as_mut_slice()[3..5].copy_from_slice(&remaining_record_body_len.to_be_bytes());
-            }
-
-            if let Some(with_header) = with_header {
-                Ok(vm.ctx.new_bytes(with_header))
+                let header = tls_record_header_buf.borrow_buf();
+                (None, u16::from_be_bytes([header[3], header[4]]))
+            };
+            let bytes = match self.sock_recv(remaining as usize, vm) {
+                Ok(bytes) => obj_to_bytes(bytes)?,
+                Err(error) => {
+                    // Header bytes already consumed must reach the TLS parser,
+                    // even if the body is not yet available on a nonblocking socket.
+                    if (is_blocking_io_error(&error, vm)
+                        || error.fast_isinstance(vm.ctx.exceptions.timeout_error))
+                        && let Some(header) = collected
+                    {
+                        return Ok(vm.ctx.new_bytes(header));
+                    }
+                    return Err(error);
+                }
+            };
+            let mut header = tls_record_header_buf.borrow_buf_mut();
+            let remaining = remaining - bytes.len() as u16;
+            if remaining == 0 {
+                header.clear();
             } else {
-                Ok(bytes)
+                header[3..5].copy_from_slice(&remaining.to_be_bytes());
             }
+            if let Some(collected) = collected.as_mut() {
+                collected.extend_from_slice(bytes.as_bytes());
+            }
+            Ok(collected.map_or(bytes, |bytes| vm.ctx.new_bytes(bytes)))
         }
 
-        /// Socket send - just sends data, caller must handle pending flush
-        /// Use flush_pending_tls_output before this if ordering is important
         pub(crate) fn sock_send(&self, data: &[u8], vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            // In BIO mode, write to outgoing BIO
-            if let Some(ref bio) = self.outgoing_bio {
-                let bio_obj: PyObjectRef = bio.clone().into();
-                let write_method = bio_obj.get_attr("write", vm)?;
-                return write_method.call((vm.ctx.new_bytes(data.to_vec()),), vm);
-            }
-
-            self.sock_send_method
-                .call((self.sock.clone(), vm.ctx.new_bytes(data.to_vec())), vm)
+            self.io.send(data, vm)
         }
 
-        /// Flush any pending TLS output data to the socket
-        /// Optional deadline parameter allows respecting a read deadline during flush
+        /// Resume pending output identically for socket and MemoryBIO transports.
         pub(crate) fn flush_pending_tls_output(
             &self,
             vm: &VirtualMachine,
             deadline: Option<std::time::Instant>,
         ) -> PyResult<()> {
             let mut pending = self.pending_tls_output.lock();
-            if pending.is_empty() {
-                return Ok(());
-            }
-
-            let socket_timeout = self.get_socket_timeout(vm)?;
-            let is_non_blocking = socket_timeout.is_some_and(|t| t.is_zero());
-
-            let mut sent_total = 0;
-
-            while sent_total < pending.len() {
-                // Calculate timeout: use deadline if provided, otherwise use socket timeout
-                let timeout_to_use = if let Some(dl) = deadline {
-                    let now = std::time::Instant::now();
-                    if now >= dl {
-                        // Deadline already passed
-                        *pending = pending[sent_total..].to_vec();
-                        return Err(
-                            timeout_error_msg(vm, "The operation timed out".to_string()).upcast()
-                        );
-                    }
-                    Some(dl - now)
+            while !pending.is_empty() {
+                let timeout = if let Some(deadline) = deadline {
+                    Some(
+                        deadline
+                            .checked_duration_since(std::time::Instant::now())
+                            .ok_or_else(|| {
+                                timeout_error_msg(vm, "The write operation timed out".to_owned())
+                                    .upcast()
+                            })?,
+                    )
                 } else {
-                    socket_timeout
+                    self.get_socket_timeout(vm)?
                 };
-
-                // Use sock_wait directly with calculated timeout
-                let py_socket: PyRef<PySocket> = self.sock.clone().try_into_value(vm)?;
-                let socket = py_socket
-                    .sock()
-                    .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
-                let timed_out = sock_wait(&socket, SockWaitKind::Write, timeout_to_use, vm)?;
-
-                if timed_out {
-                    // Keep unsent data in pending buffer
-                    *pending = pending[sent_total..].to_vec();
-                    if is_non_blocking {
-                        return Err(create_ssl_want_write_error(vm).upcast());
-                    }
+                if self.sock_wait_for_io_with_timeout(SockWaitKind::Write, timeout, vm)? {
                     return Err(
-                        timeout_error_msg(vm, "The write operation timed out".to_string()).upcast(),
+                        timeout_error_msg(vm, "The write operation timed out".to_owned()).upcast(),
                     );
                 }
-
-                match self.sock_send(&pending[sent_total..], vm) {
-                    Ok(result) => {
-                        let sent: usize = result.try_to_value::<isize>(vm)?.try_into().unwrap_or(0);
-                        if sent == 0 {
-                            if is_non_blocking {
-                                // Keep unsent data in pending buffer
-                                *pending = pending[sent_total..].to_vec();
-                                return Err(create_ssl_want_write_error(vm).upcast());
-                            }
-                            // Socket said ready but sent 0 bytes - retry
-                            continue;
-                        }
-                        sent_total += sent;
+                let result = self.sock_send(&pending, vm).map_err(|e| {
+                    if is_blocking_io_error(&e, vm) {
+                        create_ssl_want_write_error(vm).upcast()
+                    } else {
+                        e
                     }
-                    Err(e) => {
-                        if is_blocking_io_error(&e, vm) {
-                            if is_non_blocking {
-                                // Keep unsent data in pending buffer
-                                *pending = pending[sent_total..].to_vec();
-                                return Err(create_ssl_want_write_error(vm).upcast());
-                            }
-                            continue;
-                        }
-                        // Keep unsent data in pending buffer for other errors too
-                        *pending = pending[sent_total..].to_vec();
-                        return Err(e);
-                    }
+                })?;
+                let count = result.try_to_value::<usize>(vm)?;
+                if count == 0 {
+                    return Err(create_ssl_want_write_error(vm).upcast());
                 }
+                pending.drain(..count);
             }
-
-            // All data sent successfully
-            pending.clear();
             Ok(())
-        }
-
-        /// Send TLS output data to socket, saving unsent bytes to pending buffer
-        /// This prevents data loss when rustls' write_tls() drains its internal buffer
-        /// but the socket cannot accept all the data immediately
-        fn send_tls_output(&self, buf: Vec<u8>, vm: &VirtualMachine) -> PyResult<()> {
-            if buf.is_empty() {
-                return Ok(());
-            }
-
-            let timeout = self.get_socket_timeout(vm)?;
-            let is_non_blocking = timeout.is_some_and(|t| t.is_zero());
-
-            let mut sent_total = 0;
-            while sent_total < buf.len() {
-                let timed_out = self.sock_wait_for_io_impl(SockWaitKind::Write, vm)?;
-                if timed_out {
-                    // Save unsent data to pending buffer
-                    self.pending_tls_output
-                        .lock()
-                        .extend_from_slice(&buf[sent_total..]);
-                    return Err(
-                        timeout_error_msg(vm, "The write operation timed out".to_string()).upcast(),
-                    );
-                }
-
-                match self.sock_send(&buf[sent_total..], vm) {
-                    Ok(result) => {
-                        let sent: usize = result.try_to_value::<isize>(vm)?.try_into().unwrap_or(0);
-                        if sent == 0 {
-                            if is_non_blocking {
-                                // Save unsent data to pending buffer
-                                self.pending_tls_output
-                                    .lock()
-                                    .extend_from_slice(&buf[sent_total..]);
-                                return Err(create_ssl_want_write_error(vm).upcast());
-                            }
-                            continue;
-                        }
-                        sent_total += sent;
-                    }
-                    Err(e) => {
-                        if is_blocking_io_error(&e, vm) {
-                            if is_non_blocking {
-                                // Save unsent data to pending buffer
-                                self.pending_tls_output
-                                    .lock()
-                                    .extend_from_slice(&buf[sent_total..]);
-                                return Err(create_ssl_want_write_error(vm).upcast());
-                            }
-                            continue;
-                        }
-                        // Save unsent data for other errors too
-                        self.pending_tls_output
-                            .lock()
-                            .extend_from_slice(&buf[sent_total..]);
-                        return Err(e);
-                    }
-                }
-            }
-
-            Ok(())
-        }
-
-        /// Flush all pending TLS output data, respecting socket timeout
-        /// Used during handshake completion and shutdown() to ensure all data is sent
-        pub(crate) fn blocking_flush_all_pending(&self, vm: &VirtualMachine) -> PyResult<()> {
-            // Get socket timeout to respect during flush
-            let timeout = self.get_socket_timeout(vm)?;
-            if timeout.is_some_and(|t| t.is_zero()) {
-                return self.flush_pending_tls_output(vm, None);
-            }
-
-            loop {
-                let pending_data = {
-                    let pending = self.pending_tls_output.lock();
-                    if pending.is_empty() {
-                        return Ok(());
-                    }
-                    pending.clone()
-                };
-
-                // Wait for socket to be writable, respecting socket timeout
-                let py_socket: PyRef<PySocket> = self.sock.clone().try_into_value(vm)?;
-                let socket = py_socket
-                    .sock()
-                    .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
-                let timed_out = sock_wait(&socket, SockWaitKind::Write, timeout, vm)?;
-
-                if timed_out {
-                    return Err(
-                        timeout_error_msg(vm, "The write operation timed out".to_string()).upcast(),
-                    );
-                }
-
-                // Try to send pending data (use raw to avoid recursion)
-                match self.sock_send(&pending_data, vm) {
-                    Ok(result) => {
-                        let sent: usize = result.try_to_value::<isize>(vm)?.try_into().unwrap_or(0);
-                        if sent > 0 {
-                            let mut pending = self.pending_tls_output.lock();
-                            pending.drain(..sent);
-                        }
-                        // If sent == 0, loop will retry with sock_wait
-                    }
-                    Err(e) => {
-                        if is_blocking_io_error(&e, vm) {
-                            continue;
-                        }
-                        return Err(e);
-                    }
-                }
-            }
         }
 
         // Helper function to convert Python PROTO_* constants to rustls versions
@@ -3278,10 +3108,11 @@ mod _ssl {
         /// - ALPN protocol negotiation
         /// - Session resumption configuration
         ///
-        /// Returns the configured ServerConnection.
+        /// Continue the accepted ClientHello using the context selected by SNI.
         fn initialize_server_connection(
             &self,
             conn_guard: &mut Option<Connection>,
+            accepted: Accepted,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let ctx = self.context.read();
@@ -3332,55 +3163,11 @@ mod _ssl {
                 false
             };
 
-            // Check if SNI callback is set
-            let sni_callback = ctx.sni_callback.read().clone();
-            let use_sni_resolver = sni_callback.is_some();
-
-            // Create SNI state if needed (to be stored in PySSLSocket later)
-            // For SNI, use the first cert_key pair as the initial certificate
-            let sni_state: Option<Arc<ParkingMutex<SniCertName>>> = if use_sni_resolver {
-                // Use first cert_key as initial certificate for SNI
-                // Extract CertifiedKey from tuple
-                let (first_cert_key, _) = &cert_keys_clone[0];
-                let first_cert_key = first_cert_key.clone();
-
-                // Check if we already have existing SNI state (from previous connection)
-                let existing_sni_state = self.sni_state.read().clone();
-
-                if let Some(sni_state_arc) = existing_sni_state {
-                    // Reuse existing Arc and update its contents
-                    // This is crucial: rustls SniCertResolver holds references to this Arc
-                    let mut state = sni_state_arc.lock();
-                    state.0 = first_cert_key;
-                    state.1 = None; // Reset SNI name for new connection
-                    drop(state);
-
-                    // Return the existing Arc (not a new one!)
-                    Some(sni_state_arc)
-                } else {
-                    // First connection: create new SNI state
-                    Some(Arc::new(ParkingMutex::new((first_cert_key, None))))
-                }
-            } else {
-                None
-            };
-
-            // Determine which cert resolver to use
-            // Priority: SNI > Multi-cert/Single-cert via MultiCertResolver
-            let cert_resolver: Option<Arc<dyn ResolvesServerCert>> = if use_sni_resolver {
-                // SNI takes precedence - use first cert_key for initial setup
-                sni_state.as_ref().map(|sni_state_arc| {
-                    Arc::new(SniCertResolver {
-                        sni_state: sni_state_arc.clone(),
-                    }) as Arc<dyn ResolvesServerCert>
-                })
-            } else {
-                // Use MultiCertResolver for all cases (single or multiple certs)
-                // Extract CertifiedKey from tuples for MultiCertResolver
-                let cert_keys_only: Vec<Arc<CertifiedKey>> =
-                    cert_keys_clone.iter().map(|(ck, _)| ck.clone()).collect();
-                Some(Arc::new(MultiCertResolver::new(cert_keys_only)))
-            };
+            // Certificate selection uses the actual ClientHello after SNI has
+            // selected the context, including multi-certificate configurations.
+            let cert_keys_only = cert_keys_clone.iter().map(|(ck, _)| ck.clone()).collect();
+            let cert_resolver: Option<Arc<dyn ResolvesServerCert>> =
+                Some(Arc::new(MultiCertResolver::new(cert_keys_only)));
 
             // Extract cert_chain and private_key from first cert_key
             //
@@ -3421,8 +3208,10 @@ mod _ssl {
 
             // A capath may gain hashed entries between connections, so only
             // cache configurations whose trust store is context-owned.
+            // A deferred verifier owns this connection's error slot, so it
+            // must never be reused by another connection.
             let cache_server_config =
-                !use_sni_resolver && ctx.capath_state.read().directories.is_empty();
+                !use_deferred_validation && ctx.capath_state.read().directories.is_empty();
             let cached_config_arc = if cache_server_config {
                 ctx.server_config.read().clone()
             } else {
@@ -3445,36 +3234,22 @@ mod _ssl {
             };
             *self.chain_builder.write() = Some(chain_builder);
 
-            // The first SNI connection only extracts ClientHello and is
-            // discarded after the callback. Log only the real handshake.
-            // Keep connection-specific routing out of the cached config.
-            if !use_sni_resolver || !self.is_first_sni_read() {
-                Arc::make_mut(&mut config_arc).key_log = self.key_log.clone();
-            }
-
-            let conn = ServerConnection::new(config_arc).map_err(|e| {
-                vm.new_value_error(format!("Failed to create server connection: {e}"))
-            })?;
-
-            *conn_guard = Some(Connection::Server(conn));
-
-            // If ClientHello buffer exists (from SNI callback), re-inject it
-            if let Some(ref hello_data) = *self.client_hello_buffer.lock()
-                && let Some(Connection::Server(ref mut server)) = *conn_guard
-            {
-                let mut cursor = std::io::Cursor::new(hello_data.as_slice());
-                let _ = server.read_tls(&mut cursor);
-
-                // Process the re-injected ClientHello
-                let _ = server.process_new_packets();
-
-                // DON'T clear buffer - keep it to prevent callback from being invoked again
-                // The buffer being non-empty signals that SNI callback was already processed
-            }
-
-            // Store SNI state if we're using SNI resolver
-            if let Some(sni_state_arc) = sni_state {
-                *self.sni_state.write() = Some(sni_state_arc);
+            // The cache contains only context-owned configuration, never a
+            // particular connection's mutable keylog routing.
+            Arc::make_mut(&mut config_arc).key_log = self.key_log.clone();
+            match accepted.into_connection(config_arc) {
+                Ok(conn) => {
+                    *conn_guard = Some(Connection::Server(conn));
+                    *self.state.lock() = TlsState::Handshaking;
+                }
+                Err((error, mut alert)) => {
+                    let mut bytes = Vec::new();
+                    alert
+                        .write_all(&mut bytes)
+                        .map_err(|e| e.into_pyexception(vm))?;
+                    self.reject_connection(SslError::from_rustls(error).into_py_err(vm), bytes);
+                    self.accept_client_hello(vm)?;
+                }
             }
 
             Ok(())
@@ -3483,24 +3258,29 @@ mod _ssl {
         #[pymethod]
         fn do_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
             // Check if handshake already done
-            if *self.handshake_done.lock() {
+            if self.handshake_completed() {
                 return Ok(());
             }
 
+            let accepted = self.accept_client_hello(vm)?;
             let mut conn_guard = self.connection.lock();
 
             // Initialize connection if not already done
             if conn_guard.is_none() {
-                // Check for pending context change (from SNI callback)
-                let pending_context = self.pending_context.write().take();
-                if let Some(new_ctx) = pending_context {
-                    self.key_log.set_sink(new_ctx.key_log.clone());
-                    *self.context.write() = new_ctx;
-                }
-
                 if self.server_side {
-                    // Server-side connection - delegate to helper method
-                    self.initialize_server_connection(&mut conn_guard, vm)?;
+                    if let Err(error) = self.initialize_server_connection(
+                        &mut conn_guard,
+                        accepted
+                            .ok_or_else(|| vm.new_value_error("TLS connection is not available"))?,
+                        vm,
+                    ) {
+                        drop(conn_guard);
+                        if matches!(*self.state.lock(), TlsState::SendingAlert { .. }) {
+                            return Err(error);
+                        }
+                        self.reject_connection(error, super::handshake::sni_alert(40));
+                        return self.accept_client_hello(vm).map(|_| ());
+                    }
                 } else {
                     // Client-side connection
                     let ctx = self.context.read();
@@ -3611,47 +3391,23 @@ mod _ssl {
 
             // Perform the actual handshake by exchanging data with the socket/BIO
 
-            let conn = conn_guard.as_mut().expect("unreachable");
-            let is_client = matches!(conn, Connection::Client(_));
+            let conn = conn_guard
+                .as_mut()
+                .ok_or_else(|| vm.new_value_error("TLS connection is not available"))?;
             let handshake_result = ssl_do_handshake(conn, self, vm);
-            drop(conn_guard);
-
-            if is_client {
-                // CLIENT is simple - no SNI callback handling needed
-                handshake_result.map_err(|e| e.into_py_err(vm))?;
-                self.complete_handshake(vm);
-                Ok(())
-            } else {
-                // Use OpenSSL-compatible handshake for server
-                // Handle SNI callback restart
-                match handshake_result {
-                    Ok(()) => {
-                        // Handshake completed successfully
-                        self.complete_handshake(vm);
-                        Ok(())
-                    }
-                    Err(SslError::SniCallbackRestart) => {
-                        // SNI detected - need to call callback and recreate connection
-
-                        // Get the SNI name that was extracted (may be None if client didn't send SNI)
-                        let sni_name = self.get_extracted_sni_name();
-
-                        // Now safe to call Python callback (no locks held)
-                        self.invoke_sni_callback(sni_name.as_deref(), vm)?;
-                        *self.sni_callback_processed.lock() = true;
-
-                        // Clear connection to trigger recreation
-                        *self.connection.lock() = None;
-
-                        // Recursively call do_handshake to recreate with new context
-                        self.do_handshake(vm)
-                    }
-                    Err(e) => {
-                        // Other errors - convert to Python exception
-                        Err(e.into_py_err(vm))
-                    }
-                }
+            if let Err(error @ (SslError::Rustls(_) | SslError::PreauthData)) = handshake_result {
+                // rustls queued the fatal alert while processing the failing
+                // record. Retain it and the original error across output retries.
+                let mut bytes = Vec::new();
+                let _ = conn.write_tls(&mut bytes);
+                drop(conn_guard);
+                self.reject_connection(error.into_py_err(vm), bytes);
+                return self.accept_client_hello(vm).map(|_| ());
             }
+            drop(conn_guard);
+            handshake_result.map_err(|e| e.into_py_err(vm))?;
+            self.complete_handshake(vm);
+            Ok(())
         }
 
         #[pymethod]
@@ -3696,14 +3452,13 @@ mod _ssl {
 
             // Ensure handshake is done - if not, complete it first
             // This matches OpenSSL behavior where SSL_read() auto-completes handshake
-            if !*self.handshake_done.lock() {
+            if !self.handshake_completed() {
                 self.do_handshake(vm)?;
             }
 
             // Check if connection has been shut down
             // Only block after shutdown is COMPLETED, not during shutdown process
-            let shutdown_state = *self.shutdown_state.lock();
-            if shutdown_state == ShutdownState::Completed {
+            if matches!(*self.state.lock(), TlsState::ShutDown) {
                 return Err(vm
                     .new_os_subtype_error(
                         PySSLError::class(&vm.ctx).to_owned(),
@@ -3755,7 +3510,7 @@ mod _ssl {
                     buf.truncate(n);
                     return_data(buf, &buffer, vm)
                 }
-                Err(crate::ssl::compat::SslError::Eof) => {
+                Err(error) if error.is_eof() => {
                     // If plaintext is still buffered, return it before EOF.
                     let pending = {
                         let mut conn_guard = self.connection.lock();
@@ -3784,7 +3539,7 @@ mod _ssl {
                     // EOF occurred in violation of protocol (unexpected closure)
                     Err(create_ssl_eof_error(vm).upcast())
                 }
-                Err(crate::ssl::compat::SslError::ZeroReturn) => {
+                Err(error) if error.is_zero_return() => {
                     // If plaintext is still buffered, return it before clean EOF.
                     let pending = {
                         let mut conn_guard = self.connection.lock();
@@ -3815,10 +3570,10 @@ mod _ssl {
                     // raise SSLZeroReturnError (bidirectional shutdown).
                     // Otherwise return empty bytes, which callers (asyncore,
                     // asyncio sslproto) interpret as EOF.
-                    let our_shutdown_state = *self.shutdown_state.lock();
-                    if our_shutdown_state == ShutdownState::SentCloseNotify
-                        || our_shutdown_state == ShutdownState::Completed
-                    {
+                    if matches!(
+                        *self.state.lock(),
+                        TlsState::ShuttingDown | TlsState::ShutDown
+                    ) {
                         Err(create_ssl_zero_return_error(vm).upcast())
                     } else {
                         return_data(vec![], &buffer, vm)
@@ -3880,13 +3635,15 @@ mod _ssl {
             }
 
             // Ensure handshake is done (SSL_write auto-completes handshake)
-            if !*self.handshake_done.lock() {
+            if !self.handshake_completed() {
                 self.do_handshake(vm)?;
             }
 
-            // Check shutdown state
-            // Only block after shutdown is COMPLETED, not during shutdown process
-            if *self.shutdown_state.lock() == ShutdownState::Completed {
+            // Application data cannot follow our close_notify.
+            if matches!(
+                *self.state.lock(),
+                TlsState::ShuttingDown | TlsState::ShutDown
+            ) {
                 return Err(vm
                     .new_os_subtype_error(
                         PySSLError::class(&vm.ctx).to_owned(),
@@ -3933,7 +3690,7 @@ mod _ssl {
             let binary = args.binary_form.unwrap_or(false);
 
             // Check if handshake is complete
-            if !*self.handshake_done.lock() {
+            if !self.handshake_completed() {
                 return Err(vm.new_value_error("handshake not done yet"));
             }
 
@@ -3966,11 +3723,7 @@ mod _ssl {
                 return Ok(Some(vm.ctx.new_dict().into()));
             }
 
-            // Parse DER certificate and convert to dict (outside lock)
-            let (_, cert) = x509_parser::parse_x509_certificate(&der_bytes)
-                .map_err(|e| vm.new_value_error(format!("Failed to parse certificate: {e}")))?;
-
-            cert::cert_to_dict(vm, &cert).map(Some)
+            cert::cert_der_to_dict_helper(vm, &der_bytes).map(Some)
         }
 
         #[pymethod]
@@ -4064,9 +3817,6 @@ mod _ssl {
             // SSL_set_SSL_CTX allows context changes at any time,
             // even after handshake completion
             *self.context.write() = value;
-
-            // Clear pending context as we've applied the change
-            *self.pending_context.write() = None;
         }
 
         #[pygetset]
@@ -4081,7 +3831,7 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             // Check if handshake is already done
-            if *self.handshake_done.lock() {
+            if self.handshake_completed() {
                 return Err(
                     vm.new_value_error("Cannot set server_hostname on socket after handshake")
                 );
@@ -4125,7 +3875,7 @@ mod _ssl {
             }
 
             // Check if handshake is already done
-            if *self.handshake_done.lock() {
+            if self.handshake_completed() {
                 return Err(vm.new_value_error("Cannot set session after handshake."));
             }
 
@@ -4192,356 +3942,106 @@ mod _ssl {
 
         #[pymethod]
         fn shutdown(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            // Check current shutdown state
-            let current_state = *self.shutdown_state.lock();
-
-            // If already completed, return immediately
-            if current_state == ShutdownState::Completed {
-                if self.is_bio_mode() {
-                    return Ok(vm.ctx.none());
-                }
-                return Ok(self.sock.clone());
+            // A failed shutdown may still owe the peer a fatal alert. Resume
+            // that output on unwrap retries before reporting the saved error.
+            if matches!(*self.state.lock(), TlsState::SendingAlert { .. })
+                && !self.pending_tls_output.lock().is_empty()
+            {
+                return self
+                    .accept_client_hello(vm)
+                    .map(|_| self.io.socket_object(vm));
+            }
+            if !self.handshake_completed() {
+                return Err(SslError::create_ssl_error_with_reason(
+                    vm,
+                    Some("SSL"),
+                    "SHUTDOWN_WHILE_IN_INIT",
+                    "[SSL: SHUTDOWN_WHILE_IN_INIT] shutdown while in init",
+                ));
+            }
+            if matches!(*self.state.lock(), TlsState::ShutDown) {
+                return Ok(self.io.socket_object(vm));
             }
 
-            // Get connection
+            let timeout = self.get_socket_timeout(vm)?;
+            let deadline = timeout
+                .filter(|timeout| !timeout.is_zero())
+                .map(|timeout| std::time::Instant::now() + timeout);
             let mut conn_guard = self.connection.lock();
             let conn = conn_guard
                 .as_mut()
                 .ok_or_else(|| vm.new_value_error("Connection not established"))?;
 
-            let is_bio = self.is_bio_mode();
-
-            // Step 1: Send our close_notify if not already sent
-            if current_state == ShutdownState::NotStarted {
-                // First, flush ALL pending TLS data BEFORE sending close_notify
-                // This is CRITICAL - close_notify must come AFTER all application data
-                // Otherwise data loss occurs when peer receives close_notify first
-
-                // Step 1a: Flush any pending TLS records from rustls internal buffer
-                // This ensures all application data is converted to TLS records
-                while conn.wants_write() {
-                    let mut buf = Vec::new();
-                    conn.write_tls(&mut buf)
-                        .map_err(|e| vm.new_os_error(format!("TLS write failed: {e}")))?;
-                    if !buf.is_empty() {
-                        self.send_tls_output(buf, vm)?;
-                    }
-                }
-
-                // Step 1b: Flush pending_tls_output buffer to socket
-                if !is_bio {
-                    // Socket mode: blocking flush to ensure data order
-                    // Must complete before sending close_notify
-                    self.blocking_flush_all_pending(vm)?;
-                } else {
-                    // BIO mode: non-blocking flush (caller handles pending data)
-                    let _ = self.flush_pending_tls_output(vm, None);
-                }
-
+            if matches!(*self.state.lock(), TlsState::Connected) {
+                // rustls queues close_notify after previously buffered data.
+                // Record this before any fallible write so retries never queue
+                // another alert, even if the transport cannot accept output.
                 conn.send_close_notify();
-
-                // Write close_notify to outgoing buffer/BIO
-                self.write_pending_tls(conn, vm)?;
-                // Ensure close_notify and any pending TLS data are flushed
-                if !is_bio {
-                    self.flush_pending_tls_output(vm, None)?;
-                }
-
-                // Update state
-                *self.shutdown_state.lock() = ShutdownState::SentCloseNotify;
+                *self.state.lock() = TlsState::ShuttingDown;
             }
 
-            // Step 2: Try to read and process peer's close_notify
+            let result = (|| loop {
+                let mut bytes = Vec::new();
+                conn.write_tls(&mut bytes)
+                    .map_err(|e| e.into_pyexception(vm))?;
+                super::compat::send_all_bytes(self, bytes, vm, deadline)
+                    .map_err(|e| e.into_py_err(vm))?;
 
-            // First check if we already have peer's close_notify
-            // This can happen if it was received during a previous read() call
-            let mut peer_closed = self.check_peer_closed(conn, vm)?;
+                let io_state = conn
+                    .process_new_packets()
+                    .map_err(|e| SslError::from_rustls(e).into_py_err(vm))?;
+                if io_state.plaintext_bytes_to_read() != 0 {
+                    return Err(SslError::create_ssl_error_with_reason(
+                        vm,
+                        Some("SSL"),
+                        "APPLICATION_DATA_AFTER_CLOSE_NOTIFY",
+                        "[SSL: APPLICATION_DATA_AFTER_CLOSE_NOTIFY] application data after close notify",
+                    ));
+                }
+                if io_state.peer_has_closed() {
+                    *self.state.lock() = TlsState::ShutDown;
+                    return Ok(self.io.socket_object(vm));
+                }
 
-            // If peer hasn't closed yet, try to read from socket
-            if !peer_closed {
-                // Check socket timeout mode
-                let timeout_mode = if !is_bio {
-                    // Get socket timeout
-                    match self.sock.get_attr("gettimeout", vm) {
-                        Ok(method) => match method.call((), vm) {
-                            Ok(timeout) => {
-                                if vm.is_none(&timeout) {
-                                    // timeout=None means blocking
-                                    Some(None)
-                                } else if let Ok(t) = timeout.try_float(vm).map(|f| f.to_f64()) {
-                                    if t == 0.0 {
-                                        // timeout=0 means non-blocking
-                                        Some(Some(0.0))
-                                    } else {
-                                        // timeout>0 means timeout mode
-                                        Some(Some(t))
-                                    }
-                                } else {
-                                    None
-                                }
-                            }
-                            Err(_) => None,
-                        },
-                        Err(_) => None,
-                    }
-                } else {
-                    None // BIO mode
+                let remaining = match deadline {
+                    Some(deadline) => Some(
+                        deadline
+                            .checked_duration_since(std::time::Instant::now())
+                            .ok_or_else(|| {
+                                timeout_error_msg(vm, "The read operation timed out".to_owned())
+                                    .upcast()
+                            })?,
+                    ),
+                    None => timeout,
                 };
-
-                if is_bio {
-                    // In BIO mode: non-blocking read attempt
-                    if self.try_read_close_notify(conn, vm)? {
-                        peer_closed = true;
-                    }
-                } else if let Some(timeout) = timeout_mode {
-                    match timeout {
-                        Some(0.0) => {
-                            // Non-blocking: return immediately after sending close_notify.
-                            // Don't wait for peer's close_notify to avoid blocking.
-                            drop(conn_guard);
-                            // Best-effort flush; WouldBlock is expected in non-blocking mode.
-                            // Other errors indicate close_notify may not have been sent,
-                            // but we still complete shutdown to avoid inconsistent state.
-                            let _ = self.flush_pending_tls_output(vm, None);
-                            *self.shutdown_state.lock() = ShutdownState::Completed;
-                            *self.connection.lock() = None;
-                            return Ok(self.sock.clone());
-                        }
-                        _ => {
-                            // Blocking or timeout mode: wait for peer's close_notify.
-                            // This is proper TLS shutdown - we should receive peer's
-                            // close_notify before closing the connection.
-                            drop(conn_guard);
-
-                            // Flush our close_notify first
-                            if timeout.is_none() {
-                                self.blocking_flush_all_pending(vm)?;
-                            } else {
-                                self.flush_pending_tls_output(vm, None)?;
-                            }
-
-                            // Calculate deadline for timeout mode
-                            let deadline = timeout.map(|t| {
-                                std::time::Instant::now() + core::time::Duration::from_secs_f64(t)
-                            });
-
-                            // Wait for peer's close_notify
-                            loop {
-                                // Re-acquire connection lock for each iteration
-                                let mut conn_guard = self.connection.lock();
-                                let conn = match conn_guard.as_mut() {
-                                    Some(c) => c,
-                                    None => break, // Connection already closed
-                                };
-
-                                // Check if peer already sent close_notify
-                                if self.check_peer_closed(conn, vm)? {
-                                    break;
-                                }
-
-                                drop(conn_guard);
-
-                                // Check timeout
-                                let remaining_timeout = if let Some(dl) = deadline {
-                                    let now = std::time::Instant::now();
-                                    if now >= dl {
-                                        // Timeout reached - raise TimeoutError
-                                        return Err(timeout_error_msg(
-                                            vm,
-                                            "The read operation timed out".to_string(),
-                                        )
-                                        .upcast());
-                                    }
-                                    Some(dl - now)
-                                } else {
-                                    None // Blocking mode: no timeout
-                                };
-
-                                // Wait for socket to be readable
-                                let timed_out = self.sock_wait_for_io_with_timeout(
-                                    SockWaitKind::Read,
-                                    remaining_timeout,
-                                    vm,
-                                )?;
-
-                                if timed_out {
-                                    // Timeout waiting for peer's close_notify
-                                    return Err(timeout_error_msg(
-                                        vm,
-                                        "The read operation timed out".to_string(),
-                                    )
-                                    .upcast());
-                                }
-
-                                // Try to read data from socket
-                                let mut conn_guard = self.connection.lock();
-                                let conn = match conn_guard.as_mut() {
-                                    Some(c) => c,
-                                    None => break,
-                                };
-
-                                // Read and process any incoming TLS data
-                                match self.try_read_close_notify(conn, vm) {
-                                    Ok(closed) => {
-                                        if closed {
-                                            break;
-                                        }
-                                        // Check again after processing
-                                        if self.check_peer_closed(conn, vm)? {
-                                            break;
-                                        }
-                                    }
-                                    Err(_) => {
-                                        // Socket error - peer likely closed connection
-                                        break;
-                                    }
-                                }
-                            }
-
-                            // Shutdown complete
-                            *self.shutdown_state.lock() = ShutdownState::Completed;
-                            *self.connection.lock() = None;
-                            return Ok(self.sock.clone());
-                        }
-                    }
+                if self.sock_wait_for_io_with_timeout(SockWaitKind::Read, remaining, vm)? {
+                    return Err(
+                        timeout_error_msg(vm, "The read operation timed out".to_owned()).upcast(),
+                    );
                 }
-
-                // Step 3: Check again if peer has sent close_notify (non-blocking/BIO mode only)
-                if !peer_closed {
-                    peer_closed = self.check_peer_closed(conn, vm)?;
-                }
+                // Stop at each TLS record boundary, leaving an unencrypted
+                // trailer after close_notify in the socket or incoming BIO.
+                let data = super::compat::recv_at_most_one_tls_record(self, vm)
+                    .map_err(|e| e.into_py_err(vm))?;
+                super::compat::ssl_read_tls_records(conn, data, self.is_bio_mode(), vm)
+                    .map_err(|e| e.into_py_err(vm))?;
+            })();
+            if let Err(error) = &result
+                && error.fast_isinstance(PySSLError::class(&vm.ctx))
+                && !error.fast_isinstance(PySSLWantReadError::class(&vm.ctx))
+                && !error.fast_isinstance(PySSLWantWriteError::class(&vm.ctx))
+            {
+                // A protocol failure cannot resume as a normal shutdown. Keep
+                // any fatal alert rustls queued and preserve the original error.
+                let mut bytes = Vec::new();
+                let _ = conn.write_tls(&mut bytes);
+                drop(conn_guard);
+                self.reject_connection(error.clone(), bytes);
+                return self
+                    .accept_client_hello(vm)
+                    .map(|_| self.io.socket_object(vm));
             }
-
-            drop(conn_guard); // Release lock before returning
-
-            if !peer_closed {
-                // Still waiting for peer's close-notify
-                // Raise SSLWantReadError to signal app needs to transfer data
-                // This is correct for non-blocking sockets and BIO mode
-                return Err(create_ssl_want_read_error(vm).upcast());
-            }
-            // Both close-notify exchanged, shutdown complete
-            *self.shutdown_state.lock() = ShutdownState::Completed;
-
-            if is_bio {
-                return Ok(vm.ctx.none());
-            }
-            Ok(self.sock.clone())
-        }
-
-        // Helper: Write all pending TLS data (including close_notify) to outgoing buffer/BIO
-        fn write_pending_tls(&self, conn: &mut Connection, vm: &VirtualMachine) -> PyResult<()> {
-            // First, flush any previously pending TLS output
-            // Must succeed before sending new data to maintain order
-            self.flush_pending_tls_output(vm, None)?;
-
-            loop {
-                if !conn.wants_write() {
-                    break;
-                }
-
-                let mut buf = vec![0u8; SSL3_RT_MAX_PACKET_SIZE];
-                let written = conn
-                    .write_tls(&mut buf.as_mut_slice())
-                    .map_err(|e| vm.new_os_error(format!("TLS write failed: {e}")))?;
-
-                if written == 0 {
-                    break;
-                }
-
-                // Send TLS data, saving unsent bytes to pending buffer if needed
-                self.send_tls_output(buf[..written].to_vec(), vm)?;
-            }
-
-            Ok(())
-        }
-
-        // Helper: Try to read incoming data from socket/BIO
-        // Returns true if peer closed connection (with or without close_notify)
-        fn try_read_close_notify(
-            &self,
-            conn: &mut Connection,
-            vm: &VirtualMachine,
-        ) -> PyResult<bool> {
-            // In socket mode, peek first to avoid consuming post-TLS cleartext
-            // data. During STARTTLS, after close_notify exchange, the socket
-            // transitions to cleartext. Without peeking, sock_recv may consume
-            // cleartext data meant for the application after unwrap().
-            if self.incoming_bio.is_none() {
-                return Ok(self.try_read_close_notify_socket(conn, vm));
-            }
-
-            // BIO mode: stop at the TLS record boundary so cleartext queued
-            // after close_notify remains available to the BIO's owner.
-            match self.sock_recv_at_most_one_tls_record(vm) {
-                Ok(bytes) => {
-                    let data = bytes.as_bytes();
-
-                    if data.is_empty() {
-                        if let Some(ref bio) = self.incoming_bio {
-                            // BIO mode: check if EOF was signaled via write_eof()
-                            let bio_obj: PyObjectRef = bio.clone().into();
-                            let eof_attr = bio_obj.get_attr("eof", vm)?;
-                            let is_eof = eof_attr.try_to_bool(vm)?;
-                            if !is_eof {
-                                return Ok(false);
-                            }
-                        }
-                        return Ok(true);
-                    }
-
-                    let data_slice: &[u8] = data;
-                    let mut cursor = std::io::Cursor::new(data_slice);
-                    let _ = conn.read_tls(&mut cursor);
-                    let _ = conn.process_new_packets();
-                    Ok(false)
-                }
-                Err(e) => {
-                    if is_blocking_io_error(&e, vm) {
-                        return Ok(false);
-                    }
-                    Ok(true)
-                }
-            }
-        }
-
-        /// Socket-mode close_notify reader that respects TLS record boundaries.
-        /// Uses MSG_PEEK to inspect data before consuming, preventing accidental
-        /// consumption of post-TLS cleartext data during STARTTLS transitions.
-        ///
-        /// Equivalent to OpenSSL's `SSL_set_read_ahead(ssl, 0)` — rustls has no
-        /// such knob, so we enforce record-level reads manually via peek.
-        fn try_read_close_notify_socket(&self, conn: &mut Connection, vm: &VirtualMachine) -> bool {
-            // Consume at most one TLS record from the socket
-            match self.sock_recv_at_most_one_tls_record(vm) {
-                Ok(data) => {
-                    if data.is_empty() {
-                        return true;
-                    }
-
-                    let data_slice: &[u8] = data.as_ref();
-                    let mut cursor = std::io::Cursor::new(data_slice);
-                    let _ = conn.read_tls(&mut cursor);
-                    let _ = conn.process_new_packets();
-                    false
-                }
-                Err(e) => {
-                    if is_blocking_io_error(&e, vm) {
-                        return false;
-                    }
-                    true
-                }
-            }
-        }
-
-        // Helper: Check if peer has sent close_notify
-        fn check_peer_closed(&self, conn: &mut Connection, vm: &VirtualMachine) -> PyResult<bool> {
-            // Process any remaining packets and check peer_has_closed
-            let io_state = conn
-                .process_new_packets()
-                .map_err(|e| vm.new_os_error(format!("Failed to process packets: {e}")))?;
-
-            Ok(io_state.peer_has_closed())
+            result
         }
 
         #[pymethod]
@@ -4552,7 +4052,7 @@ mod _ssl {
             }
 
             // Check if handshake completed
-            if !*self.handshake_done.lock() {
+            if !self.handshake_completed() {
                 return None;
             }
 
@@ -4586,7 +4086,7 @@ mod _ssl {
             }
 
             // Check if handshake has been completed
-            if !*self.handshake_done.lock() {
+            if !self.handshake_completed() {
                 return Err(vm.new_value_error(
                     "Handshake must be completed before post-handshake authentication",
                 ));
@@ -5139,7 +4639,6 @@ mod _ssl {
     }
 
     impl PySSLCertificate {
-        // Parse the certificate lazily
         fn parse(&self) -> Result<x509_parser::certificate::X509Certificate<'_>, String> {
             match x509_parser::parse_x509_certificate(&self.der_bytes) {
                 Ok((_, cert)) => Ok(cert),
@@ -5178,8 +4677,7 @@ mod _ssl {
 
         #[pymethod]
         fn get_info(&self, vm: &VirtualMachine) -> PyResult {
-            let cert = self.parse().map_err(|e| vm.new_value_error(e))?;
-            cert::cert_to_dict(vm, &cert)
+            cert::cert_der_to_dict_helper(vm, &self.der_bytes)
         }
     }
 
