@@ -1602,7 +1602,7 @@ mod _socket {
             let mut buffer = Vec::new();
             buffer
                 .try_reserve_exact(bufsize)
-                .map_err(|_| vm.new_memory_error(""))?;
+                .map_err(|_| vm.no_memory_error())?;
             let sock = self.sock()?;
             let n = self.sock_op(vm, SockWaitKind::Read, || {
                 sock.recv_with_flags(buffer.spare_capacity_mut(), flags)
@@ -1655,7 +1655,7 @@ mod _socket {
             let mut buffer = Vec::new();
             buffer
                 .try_reserve_exact(bufsize)
-                .map_err(|_| vm.new_memory_error(""))?;
+                .map_err(|_| vm.no_memory_error())?;
             let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
                 self.sock()?
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
@@ -2412,7 +2412,7 @@ mod _socket {
         let mut scratch = Vec::new();
         scratch
             .try_reserve_exact(len)
-            .map_err(|_| vm.new_memory_error(""))?;
+            .map_err(|_| vm.no_memory_error())?;
         Ok(scratch)
     }
 

@@ -1,8 +1,10 @@
-use self::types::{PyBaseException, PyBaseExceptionRef};
+use self::types::{PyBaseException, PyBaseExceptionRef, PyException, PyMemoryError};
+pub use super::exception_group::exception_group;
 use crate::common::lock::PyRwLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
     builtins::{
         PyList, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         traceback::{PyTraceback, PyTracebackRef},
@@ -20,9 +22,8 @@ use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 #[cfg(feature = "host_env")]
 use std::io::{BufRead, BufReader};
+use std::sync::Mutex;
 use std::{collections::HashSet, io};
-
-pub use super::exception_group::exception_group;
 
 unsafe impl Traverse for PyBaseException {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
@@ -40,10 +41,56 @@ impl core::fmt::Debug for PyBaseException {
     }
 }
 
+const MEMORY_ERROR_FREELIST_SIZE: usize = 16;
+
+struct MemoryErrorHusk(*mut PyObject);
+unsafe impl Send for MemoryErrorHusk {}
+
+static MEMORY_ERROR_FREELIST: Mutex<[Option<MemoryErrorHusk>; MEMORY_ERROR_FREELIST_SIZE]> =
+    Mutex::new([const { None }; MEMORY_ERROR_FREELIST_SIZE]);
+
 impl PyPayload for PyBaseException {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.exceptions.base_exception_type
+    }
+}
+
+impl PyPayload for PyMemoryError {
+    const PAYLOAD_TYPE_ID: core::any::TypeId = <PyException as PyPayload>::PAYLOAD_TYPE_ID;
+    const HAS_FREELIST: bool = true;
+    const MAX_FREELIST: usize = MEMORY_ERROR_FREELIST_SIZE;
+
+    #[inline]
+    unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
+        obj.class()
+            .fast_issubclass(<Self as StaticType>::static_type())
+    }
+
+    fn class(_ctx: &Context) -> &'static Py<PyType> {
+        <Self as StaticType>::static_type()
+    }
+
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        let Ok(mut list) = MEMORY_ERROR_FREELIST.lock() else {
+            return false;
+        };
+        match list.iter_mut().find(|element| element.is_none()) {
+            Some(element) => {
+                *element = Some(MemoryErrorHusk(obj));
+                true
+            }
+            None => false,
+        }
+    }
+
+    unsafe fn freelist_pop(_payload: &Self) -> Option<core::ptr::NonNull<PyObject>> {
+        let husk = MEMORY_ERROR_FREELIST
+            .lock()
+            .ok()?
+            .iter_mut()
+            .find_map(|element| element.take())?;
+        core::ptr::NonNull::new(husk.0)
     }
 }
 
@@ -2013,10 +2060,37 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = PyException, ctx = "memory_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "memory_error", impl, payload = "manual", traverse = "manual")]
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyMemoryError(PyException);
+
+    impl PyMemoryError {
+        pub(crate) fn empty(vm: &VirtualMachine) -> Self {
+            Self(PyException(PyBaseException::new(vec![], vm)))
+        }
+    }
+
+    unsafe impl Traverse for PyMemoryError {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.0.0.traverse(tracer_fn);
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            let base = &mut self.0.0;
+            if let Some(traceback) = base.traceback.get_mut().take() {
+                out.push(traceback.into());
+            }
+
+            if let Some(cause) = base.cause.get_mut().take() {
+                out.push(cause.into());
+            }
+
+            if let Some(context) = base.context.get_mut().take() {
+                out.push(context.into());
+            }
+        }
+    }
 
     #[pyexception(name, base = PyException, ctx = "name_error")]
     #[derive(Debug)]

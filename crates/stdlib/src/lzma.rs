@@ -90,7 +90,7 @@ mod _lzma {
 
     fn map_backend_error(error: backend::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match error {
-            backend::Error::Memory => vm.new_memory_error(""),
+            backend::Error::Memory => vm.no_memory_error(),
             backend::Error::Value(message) => vm.new_value_error(message),
             backend::Error::Lzma(message) => new_lzma_error(message, vm),
             backend::Error::Eof => vm.new_eof_error("End of stream already reached"),

@@ -941,7 +941,7 @@ fn extract_arg_types(argtypes: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<P
     let mut types = Vec::new();
     types
         .try_reserve(length)
-        .map_err(|_| vm.new_memory_error(""))?;
+        .map_err(|_| vm.no_memory_error())?;
 
     for index in 0..length {
         let item = sequence.get_item(index as isize, vm).map_err(|_| error())?;

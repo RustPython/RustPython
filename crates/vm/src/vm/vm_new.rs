@@ -14,8 +14,8 @@ use rustpython_compiler::{CompileError, ParseError};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError,
-        PyStopIteration, PyStrRef, PySystemExit, PyType, PyTypeRef,
+        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyMemoryError, PyModule,
+        PyOSError, PyStopIteration, PyStrRef, PySystemExit, PyType, PyTypeRef,
         builtin_func::PyNativeFunction,
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
@@ -1090,6 +1090,20 @@ impl VirtualMachine {
             class,
             obj.as_object(),
         )
+    }
+
+    /// Create a `MemoryError` with no arguments, for reporting a failed allocation.
+    ///
+    /// Served from the MemoryError freelist when a husk is available, so the
+    /// raise itself does not allocate; falls back to a fresh allocation when
+    /// the freelist is empty (#8536).
+    pub fn no_memory_error(&self) -> PyBaseExceptionRef {
+        let exc: PyObjectRef = PyMemoryError::empty(self)
+            .into_ref_with_type_lazy_dict(self, self.ctx.exceptions.memory_error.to_owned())
+            .expect("MemoryError is a static type whose payload size matches PyMemoryError")
+            .into();
+        exc.downcast()
+            .expect("PyMemoryError payload downcasts to PyBaseException")
     }
 
     define_exception_fn!(fn new_lookup_error, lookup_error, LookupError);

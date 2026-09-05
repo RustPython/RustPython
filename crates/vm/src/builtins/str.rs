@@ -1336,7 +1336,7 @@ impl PyStr {
         let filled = self
             .as_wtf8()
             .py_zfill(width)
-            .ok_or_else(|| vm.new_memory_error(""))?;
+            .ok_or_else(|| vm.no_memory_error())?;
         // SAFETY: this is safe-guaranteed because the original self.as_wtf8() is valid wtf8
         Ok(unsafe { Wtf8Buf::from_bytes_unchecked(filled) })
     }
@@ -1358,7 +1358,7 @@ impl PyStr {
             return Ok(self.as_wtf8().to_owned());
         }
         pad(self.as_wtf8(), width as usize, fillchar, self.len())
-            .ok_or_else(|| vm.new_memory_error(""))
+            .ok_or_else(|| vm.no_memory_error())
     }
 
     #[pymethod]
