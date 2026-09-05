@@ -1259,22 +1259,7 @@ impl<T: Clone> Dict<T> {
         Ok(ControlFlow::Break(removed))
     }
 
-    /// Retrieve and delete a key.
-    ///
-    /// Callers within the crate thread a known hash (see
-    /// [`Self::pop_known_hash`]); this hashing wrapper is kept for API symmetry
-    /// with the other operations.
-    #[allow(dead_code)]
-    pub(crate) fn pop<K: DictKey + ?Sized>(
-        &self,
-        vm: &VirtualMachine,
-        key: &K,
-    ) -> PyResult<Option<T>> {
-        let hash_value = key.key_hash(vm)?;
-        self.pop_known_hash(vm, key, hash_value)
-    }
-
-    /// [`Self::pop`] with a known hash. Same contract as
+    /// Retrieve and delete a key, given a known hash. Same contract as
     /// [`Self::insert_known_hash`].
     pub(crate) fn pop_known_hash<K: DictKey + ?Sized>(
         &self,
