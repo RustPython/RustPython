@@ -32,6 +32,7 @@ use rustpython_vm::function::ArgBytesLike;
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject};
 use std::io::Read;
 
+use super::chain::{self, Purpose, VerifiedChainBuilder};
 use super::providers::CryptoExt;
 
 // Import PySSLSocket from parent module
@@ -423,6 +424,7 @@ pub(super) struct ServerConfigOptions {
     pub private_key: PrivateKeyDer<'static>,
     /// Root certificates for client verification (if required)
     pub root_store: Option<RootCertStore>,
+    pub ca_certs_der: Vec<Vec<u8>>,
     /// Whether to request client certificate
     pub request_client_cert: bool,
     /// Whether to use deferred client certificate validation (TLS 1.3)
@@ -485,21 +487,44 @@ fn create_custom_crypto_provider(
 ///
 /// This abstracts the complex rustls ServerConfig building logic,
 /// matching SSL_CTX initialization for server sockets.
-pub(super) fn create_server_config(options: ServerConfigOptions) -> Result<ServerConfig, String> {
+pub(super) fn create_server_config(
+    options: ServerConfigOptions,
+) -> Result<chain::ServerConfig, String> {
     // Create custom crypto provider using helper function
     let custom_provider = create_custom_crypto_provider(
         options.protocol_settings.cipher_suites.clone(),
         options.protocol_settings.kx_groups.clone(),
     );
 
+    let chain_builder = Arc::new(VerifiedChainBuilder {
+        purpose: if options.request_client_cert {
+            Purpose::ClientAuth
+        } else {
+            Purpose::Unverified
+        },
+        roots: options
+            .root_store
+            .clone()
+            .unwrap_or_else(RootCertStore::empty),
+        root_der: options.ca_certs_der,
+        crls: Vec::new(),
+        only_end_entity_revocation: false,
+        supported: custom_provider.signature_verification_algorithms,
+        allow_trusted_leaf: false,
+        verify_flags: 0,
+    });
+
     // Step 1: Build the appropriate client cert verifier based on settings
     let client_cert_verifier: Option<Arc<dyn rustls::server::danger::ClientCertVerifier>> =
         if let Some(root_store) = options.root_store {
             if options.request_client_cert {
                 // Client certificate verification required
-                let base_verifier = WebPkiClientVerifier::builder(Arc::new(root_store))
-                    .build()
-                    .map_err(|e| format!("Failed to create client verifier: {e}"))?;
+                let base_verifier = WebPkiClientVerifier::builder_with_provider(
+                    Arc::new(root_store),
+                    custom_provider.clone(),
+                )
+                .build()
+                .map_err(|e| format!("Failed to create client verifier: {e}"))?;
 
                 if options.use_deferred_validation {
                     // TLS 1.3: Use deferred validation
@@ -563,7 +588,7 @@ pub(super) fn create_server_config(options: ServerConfigOptions) -> Result<Serve
         config.ticketer = ticketer.clone();
     }
 
-    Ok(config)
+    Ok((Arc::new(config), chain_builder))
 }
 
 /// Build WebPki verifier with CRL support
@@ -662,12 +687,33 @@ fn apply_alpn_with_fallback(config_alpn: &mut Vec<Vec<u8>>, alpn_protocols: &[Ve
 ///
 /// This abstracts the complex rustls ClientConfig building logic,
 /// matching SSL_CTX initialization for client sockets.
-pub(super) fn create_client_config(options: ClientConfigOptions) -> Result<ClientConfig, String> {
+pub(super) fn create_client_config(
+    options: ClientConfigOptions,
+) -> Result<chain::ClientConfig, String> {
     // Create custom crypto provider using helper function
     let custom_provider = create_custom_crypto_provider(
         options.protocol_settings.cipher_suites.clone(),
         options.protocol_settings.kx_groups.clone(),
     );
+
+    let chain_builder = Arc::new(VerifiedChainBuilder {
+        purpose: if options.verify_server_cert {
+            Purpose::ServerAuth
+        } else {
+            Purpose::Unverified
+        },
+        roots: options
+            .root_store
+            .clone()
+            .unwrap_or_else(RootCertStore::empty),
+        root_der: options.ca_certs_der.clone(),
+        crls: options.crls.clone(),
+        only_end_entity_revocation: options.verify_flags & X509_V_FLAG_CRL_CHECK != 0,
+        supported: custom_provider.signature_verification_algorithms,
+        allow_trusted_leaf: options.check_hostname
+            || options.verify_flags & VERIFY_X509_PARTIAL_CHAIN != 0,
+        verify_flags: options.verify_flags,
+    });
 
     // Step 1: Build the appropriate verifier based on verification settings
     let verifier: Arc<dyn rustls::client::danger::ServerCertVerifier> = if options
@@ -792,7 +838,7 @@ pub(super) fn create_client_config(options: ClientConfigOptions) -> Result<Clien
         config.resumption = Resumption::store(session_store);
     }
 
-    Ok(config)
+    Ok((Arc::new(config), chain_builder))
 }
 
 /// Helper function - check if error is BlockingIOError

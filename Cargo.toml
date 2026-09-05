@@ -280,6 +280,7 @@ rustls-graviola = "0.4"
 rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
 rustls-platform-verifier = "0.7"
+rustls-webpki = { version = "0.103", default-features = false, features = ["std"] }
 rustyline = "18"
 serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
 schannel = "0.1.29"

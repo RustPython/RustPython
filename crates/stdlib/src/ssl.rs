@@ -19,6 +19,8 @@ mod oid;
 // Certificate operations module (parsing, validation, conversion)
 mod cert;
 
+mod chain;
+
 /// OpenSSL cipher string parsing for `set_ciphers`
 mod cipher;
 
@@ -83,7 +85,7 @@ mod _ssl {
     use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
     use pem_rfc7468::{LineEnding, encode_string};
     use rustls::{
-        ClientConnection, Connection, HandshakeKind, RootCertStore, ServerConfig, ServerConnection,
+        ClientConnection, Connection, HandshakeKind, RootCertStore, ServerConnection,
         client::{ClientSessionMemoryCache, ClientSessionStore},
         crypto::SupportedKxGroup,
         pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName},
@@ -95,6 +97,7 @@ mod _ssl {
 
     // Import certificate operations module
     use super::cert;
+    use super::chain::{self, VerifiedChainBuilder};
 
     // Import OID module
     use super::cipher;
@@ -688,7 +691,7 @@ mod _ssl {
         verify_flags: PyRwLock<i32>,
         // Rustls configuration (built lazily)
         #[pytraverse(skip)]
-        server_config: PyRwLock<Option<Arc<ServerConfig>>>,
+        server_config: PyRwLock<Option<chain::ServerConfig>>,
         // Certificate store
         #[pytraverse(skip)]
         root_certs: PyRwLock<RootCertStore>,
@@ -1897,6 +1900,8 @@ mod _ssl {
                 ),
                 session: PyRwLock::new(None),
                 client_config: PyRwLock::new(None),
+                chain_builder: PyRwLock::new(None),
+                verified_chain: PyRwLock::new(None),
                 client_session_store: PyRwLock::new(None),
                 incoming_bio: None,
                 outgoing_bio: None,
@@ -1989,6 +1994,8 @@ mod _ssl {
                 ),
                 session: PyRwLock::new(None),
                 client_config: PyRwLock::new(None),
+                chain_builder: PyRwLock::new(None),
+                verified_chain: PyRwLock::new(None),
                 client_session_store: PyRwLock::new(None),
                 incoming_bio: Some(args.incoming),
                 outgoing_bio: Some(args.outgoing),
@@ -2351,6 +2358,10 @@ mod _ssl {
         // SSLSession can reuse the same verifier and client credentials.
         #[pytraverse(skip)]
         client_config: PyRwLock<Option<Arc<rustls::ClientConfig>>>,
+        #[pytraverse(skip)]
+        chain_builder: PyRwLock<Option<Arc<VerifiedChainBuilder>>>,
+        #[pytraverse(skip)]
+        verified_chain: PyRwLock<Option<Vec<Vec<u8>>>>,
         // Per-connection store containing the session selected by this connection.
         #[pytraverse(skip)]
         client_session_store: PyRwLock<Option<Arc<PythonClientSessionStore>>>,
@@ -2525,6 +2536,11 @@ mod _ssl {
             let session = PySSLSession {
                 context_identity,
                 client_config,
+                chain_builder: self
+                    .chain_builder
+                    .read()
+                    .clone()
+                    .expect("connection configured"),
                 session_store,
                 server_name: rustls_server_name,
                 kind: session_kind,
@@ -2539,63 +2555,46 @@ mod _ssl {
             *self.session.write() = Some(py_session);
         }
 
-        // Complete handshake and create session
-        /// Track which CA certificate from capath was used to verify peer
-        ///
-        /// This simulates lazy loading behavior: capath certificates
-        /// are only added to get_ca_certs() after they're actually used in a handshake.
-        fn track_used_ca_from_capath(&self) -> Result<(), String> {
-            // Extract capath_certs, releasing context lock quickly
-            let capath_certs = {
-                let context = self.context.read();
-                let certs = context.capath_certificates();
-                if certs.is_empty() {
-                    return Ok(());
-                }
-                certs
+        /// Retain the verified path and publish its selected capath anchor.
+        fn record_verified_chain(&self, was_resumed: bool) {
+            let Some(builder) = self.chain_builder.read().clone() else {
+                return;
             };
-
-            // Extract peer certificates, releasing connection lock quickly
-            let top_cert_der = {
-                let conn_guard = self.connection.lock();
-                let conn = conn_guard.as_ref().ok_or("No connection")?;
-                let peer_certs = conn.peer_certificates().ok_or("No peer certificates")?;
-                if peer_certs.is_empty() {
-                    return Ok(());
-                }
-                peer_certs
-                    .iter()
-                    .map(|c| c.as_ref().to_vec())
-                    .next_back()
-                    .expect("is_empty checked above")
-            };
-
-            // Get the top certificate in the chain (closest to root)
-            // Note: Server usually doesn't send the root CA, so we check the last cert's issuer
-            let (_, top_cert) = x509_parser::parse_x509_certificate(&top_cert_der)
-                .map_err(|e| format!("Failed to parse top cert: {e}"))?;
-
-            let top_issuer = top_cert.issuer();
-
-            // Find matching CA in capath certs (skip unparseable certificates)
-            let matching_ca = capath_certs.iter().find_map(|ca_der| {
-                let (_, ca) = x509_parser::parse_x509_certificate(ca_der).ok()?;
-                // Check if this CA is self-signed (root CA) and matches the issuer
-                (ca.subject() == ca.issuer() && ca.subject() == top_issuer).then(|| ca_der.clone())
+            // Like SSL_get0_verified_chain, resumption has no newly verified
+            // path. The peer certificate remains available separately. If the
+            // peer declined resumption, build the full handshake's path below.
+            if was_resumed {
+                *self.verified_chain.write() = None;
+                return;
+            }
+            let chain = self.connection.lock().as_ref().and_then(|conn| {
+                builder.build(
+                    conn.peer_certificates()?,
+                    rustls::pki_types::UnixTime::now(),
+                )
             });
-
-            // Update ca_certs_der if we found a match
-            if let Some(ca_der) = matching_ca {
-                let context = self.context.read();
-                let mut ca_certs_der = context.ca_certs_der.write();
-                if !ca_certs_der.iter().any(|c| c == &ca_der) {
-                    ca_certs_der.push(ca_der);
-                    *context.x509_cert_count.write() += 1;
+            *self.verified_chain.write() = chain;
+            let Some(anchor) = self
+                .verified_chain
+                .read()
+                .as_ref()
+                .and_then(|chain| chain.last())
+                .cloned()
+            else {
+                return;
+            };
+            let context = self.context.read();
+            let mut root_certs = context.root_certs.write();
+            let mut ca_certs_der = context.ca_certs_der.write();
+            if !ca_certs_der.contains(&anchor) && builder.root_der.contains(&anchor) {
+                let is_ca = cert::is_ca_certificate(&anchor);
+                ca_certs_der.push(anchor.clone());
+                let _ = root_certs.add(anchor.into());
+                *context.x509_cert_count.write() += 1;
+                if is_ca {
                     *context.ca_cert_count.write() += 1;
                 }
             }
-
-            Ok(())
         }
 
         fn complete_handshake(&self, vm: &VirtualMachine) {
@@ -2621,12 +2620,7 @@ mod _ssl {
                 }
             }
 
-            // Track CA certificate used during handshake (client-side only)
-            // This simulates lazy loading behavior for capath certificates
-            if !self.server_side {
-                // Don't fail handshake if tracking fails
-                let _ = self.track_used_ca_from_capath();
-            }
+            self.record_verified_chain(was_resumed);
 
             self.create_session_after_handshake(was_resumed, vm);
         }
@@ -3265,7 +3259,7 @@ mod _ssl {
 
             // Check if client certificate verification is required
             let verify_mode = *ctx.verify_mode.read();
-            let (root_store, _) = ctx.verification_roots();
+            let (root_store, ca_certs_der) = ctx.verification_roots();
             let pha_enabled = *ctx.post_handshake_auth.read();
 
             // Check if TLS 1.3 is being used
@@ -3357,6 +3351,7 @@ mod _ssl {
             // Build server config using compat helper
             let config_options = ServerConfigOptions {
                 protocol_settings,
+                ca_certs_der,
                 cert_chain: certs_clone,
                 private_key: key_clone,
                 root_store: if request_initial_cert {
@@ -3387,20 +3382,20 @@ mod _ssl {
             };
             drop(ctx);
 
-            let config_arc = if let Some(cached) = cached_config_arc {
+            let (config_arc, chain_builder) = if let Some(cached) = cached_config_arc {
                 cached
             } else {
                 let config =
                     create_server_config(config_options).map_err(|e| vm.new_value_error(e))?;
-                let config_arc = Arc::new(config);
 
                 if cache_server_config {
                     let ctx = self.context.read();
-                    *ctx.server_config.write() = Some(config_arc.clone());
+                    *ctx.server_config.write() = Some(config.clone());
                 }
 
-                config_arc
+                config
             };
+            *self.chain_builder.write() = Some(chain_builder);
 
             let conn = ServerConnection::new(config_arc).map_err(|e| {
                 vm.new_value_error(format!("Failed to create server connection: {e}"))
@@ -3505,7 +3500,7 @@ mod _ssl {
 
                     let explicit_session = self.session.read().clone();
                     let session_store = Arc::new(PythonClientSessionStore::new(session_cache));
-                    let config = if let Some(session) = explicit_session {
+                    let (config, chain_builder) = if let Some(session) = explicit_session {
                         let session = session
                             .downcast_ref::<PySSLSession>()
                             .ok_or_else(|| vm.new_type_error("Value is not a SSLSession."))?;
@@ -3524,15 +3519,11 @@ mod _ssl {
                         let mut config = (*session.client_config).clone();
                         config.resumption =
                             rustls::client::Resumption::store(session_store.clone());
-                        Arc::new(config)
+                        (Arc::new(config), session.chain_builder.clone())
                     } else {
                         let config_options = ClientConfigOptions {
                             protocol_settings,
-                            root_store: if verify_mode != CERT_NONE {
-                                Some(root_store_clone)
-                            } else {
-                                None
-                            },
+                            root_store: Some(root_store_clone),
                             ca_certs_der: ca_certs_der_clone,
                             cert_chain: if !cert_chain_clone.is_empty() {
                                 Some(cert_chain_clone)
@@ -3546,12 +3537,10 @@ mod _ssl {
                             session_store: Some(session_store.clone()),
                             crls: crls_clone,
                         };
-                        Arc::new(
-                            create_client_config(config_options)
-                                .map_err(|e| vm.new_value_error(e))?,
-                        )
+                        create_client_config(config_options).map_err(|e| vm.new_value_error(e))?
                     };
 
+                    *self.chain_builder.write() = Some(chain_builder);
                     *self.client_config.write() = Some(config.clone());
                     *self.client_session_store.write() = Some(session_store);
 
@@ -4132,17 +4121,7 @@ mod _ssl {
 
         #[pymethod]
         fn get_verified_chain(&self, vm: &VirtualMachine) -> Option<PyListRef> {
-            // Get peer certificates (what peer sent during handshake)
-            let conn_guard = self.connection.lock();
-            let conn = (*conn_guard).as_ref()?;
-            let peer_certs = conn.peer_certificates();
-            let peer_certs_slice = peer_certs?;
-
-            // Build the verified chain using cert module
-            let ctx_guard = self.context.read();
-            let ca_certs_der = ctx_guard.ca_certs_der.read();
-
-            let chain_der = cert::build_verified_chain(peer_certs_slice, &ca_certs_der);
+            let chain_der = self.verified_chain.read().clone()?;
 
             // Convert DER chain to Python list of Certificate objects
             let cert_list: Vec<PyObjectRef> = chain_der
@@ -4776,6 +4755,7 @@ mod _ssl {
     struct PySSLSession {
         context_identity: Arc<()>,
         client_config: Arc<rustls::ClientConfig>,
+        chain_builder: Arc<VerifiedChainBuilder>,
         session_store: Arc<PythonClientSessionStore>,
         server_name: Option<ServerName<'static>>,
         kind: ClientSessionKind,
