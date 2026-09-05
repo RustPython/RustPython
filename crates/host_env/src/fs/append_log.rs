@@ -48,10 +48,8 @@ impl AppendLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        path::PathBuf,
-        sync::atomic::{AtomicUsize, Ordering},
-    };
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    use std::path::PathBuf;
 
     struct TestDir(PathBuf);
 
