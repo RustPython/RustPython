@@ -175,7 +175,7 @@ mod resource {
     }
 
     fn py2rlim_limit(obj: &PyObject, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
-        let int = obj.try_to_ref::<crate::vm::builtins::PyInt>(vm)?;
+        let int = obj.try_index(vm)?;
         if int.as_bigint().is_negative() {
             return Err(vm.new_value_error("Cannot convert negative int"));
         }
