@@ -117,6 +117,18 @@ mod resource {
         }
     }
 
+    /// The exception the module reports its failures through, which is the one
+    /// every other call raises.
+    #[pyattr(name = "error", once)]
+    fn error(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.exceptions.os_error.to_owned().into()
+    }
+
+    #[pyfunction]
+    fn getpagesize() -> usize {
+        rustpython_host_env::os::page_size()
+    }
+
     #[pyfunction]
     fn getrusage(who: i32, vm: &VirtualMachine) -> PyResult<RUsageData> {
         let res = host_resource::getrusage(who);

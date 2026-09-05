@@ -953,7 +953,7 @@ pub mod sys {
 
     #[derive(FromArgs)]
     struct GetsizeofArgs {
-        obj: PyObjectRef,
+        object: PyObjectRef,
         #[pyarg(any, optional)]
         default: Option<PyObjectRef>,
     }
@@ -961,7 +961,7 @@ pub mod sys {
     #[pyfunction]
     fn getsizeof(args: GetsizeofArgs, vm: &VirtualMachine) -> PyResult {
         let sizeof = || -> PyResult<usize> {
-            let res = vm.call_special_method(&args.obj, identifier!(vm, __sizeof__), ())?;
+            let res = vm.call_special_method(&args.object, identifier!(vm, __sizeof__), ())?;
             let res = res.try_index(vm)?.try_to_primitive::<usize>(vm)?;
             Ok(res + core::mem::size_of::<PyObject>())
         };
@@ -1220,6 +1220,12 @@ pub mod sys {
     #[pyattr]
     fn int_info(vm: &VirtualMachine) -> PyTupleRef {
         PyIntInfo::from_data(IntInfoData::INFO, vm)
+    }
+
+    /// Private function for getting PyConfig.cpu_count
+    #[pyfunction]
+    fn _get_cpu_count_config(vm: &VirtualMachine) -> i32 {
+        vm.state.config.settings.cpu_count.map_or(-1, |n| n.get())
     }
 
     #[pyfunction]

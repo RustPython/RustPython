@@ -1687,6 +1687,39 @@ def charmapencode_output(c, mapping):
         raise TypeError("character mapping must return integer, None or str")
 
 
+def charmap_encoding_error(p, size, inpos, mapping, errors, res):
+    # /* find all unencodable characters */
+    collendpos = inpos + 1
+    while collendpos < size:
+        try:
+            charmapencode_output(ord(p[collendpos]), mapping)
+        except KeyError:
+            collendpos += 1
+        else:
+            break
+
+    replacement, newpos = unicode_call_errorhandler(
+        errors,
+        "charmap",
+        "character maps to <undefined>",
+        p,
+        inpos,
+        collendpos,
+        False,
+    )
+    if isinstance(replacement, bytes):
+        res += list(replacement)
+    else:
+        for y in replacement:
+            try:
+                res += charmapencode_output(ord(y), mapping)
+            except KeyError:
+                raise UnicodeEncodeError(
+                    "charmap", p, inpos, collendpos, "character maps to <undefined>"
+                )
+    return newpos
+
+
 def PyUnicode_EncodeCharmap(p, size, mapping="latin-1", errors="strict"):
     ##    /* the following variable is used for caching string comparisons
     ##     * -1=not initialized, 0=unknown, 1=strict, 2=replace,
@@ -1703,29 +1736,11 @@ def PyUnicode_EncodeCharmap(p, size, mapping="latin-1", errors="strict"):
         # /* try to encode it */
         try:
             x = charmapencode_output(ord(p[inpos]), mapping)
-            res += x
         except KeyError:
-            x = unicode_call_errorhandler(
-                errors,
-                "charmap",
-                "character maps to <undefined>",
-                p,
-                inpos,
-                inpos + 1,
-                False,
-            )
-            replacement = x[0]
-            if isinstance(replacement, bytes):
-                res += list(replacement)
-            else:
-                try:
-                    for y in replacement:
-                        res += charmapencode_output(ord(y), mapping)
-                except KeyError:
-                    raise UnicodeEncodeError(
-                        "charmap", p, inpos, inpos + 1, "character maps to <undefined>"
-                    )
-        inpos += 1
+            inpos = charmap_encoding_error(p, size, inpos, mapping, errors, res)
+        else:
+            res += x
+            inpos += 1
     return res
 
 

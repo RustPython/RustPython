@@ -1192,7 +1192,6 @@ class CmdLineTest(unittest.TestCase):
         code = template.replace('-', '\t').replace('+', ' ')
         assert_python_failure('-c', code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cpu_count(self):
         code = "import os; print(os.cpu_count(), os.process_cpu_count())"
         res = assert_python_ok('-X', 'cpu_count=4321', '-c', code)

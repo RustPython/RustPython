@@ -122,6 +122,15 @@ mod mmap {
     #[pyattr]
     use host_mmap::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
 
+    // Darwin-specific mapping flags
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use host_mmap::{
+        MAP_32BIT, MAP_HASSEMAPHORE, MAP_JIT, MAP_NOCACHE, MAP_NOEXTEND, MAP_NORESERVE,
+        MAP_RESILIENT_CODESIGN, MAP_RESILIENT_MEDIA, MAP_TPRO, MAP_TRANSLATED_ALLOW_EXECUTE,
+        MAP_UNIX03,
+    };
+
     #[pyattr]
     const ACCESS_DEFAULT: u32 = AccessMode::Default as u32;
     #[pyattr]

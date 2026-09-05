@@ -603,11 +603,13 @@ impl PyPayload for PyType {
     }
 }
 
+/// The name a class is built under, which the namespace it is built from may
+/// carry and which is faulted for not being a string. = type_new_set_attrs
 fn downcast_qualname(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
     match value.downcast::<PyStr>() {
         Ok(value) => Ok(value),
         Err(value) => Err(vm.new_type_error(format!(
-            "can only assign string to __qualname__, not '{}'",
+            "type __qualname__ must be a str, not {}",
             value.class().name()
         ))),
     }
@@ -3160,10 +3162,6 @@ fn subtype_set_dict(obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine)
         }
     } else {
         // _PyObject_SetDict
-        let value = match value {
-            PySetterValue::Assign(obj) => PySetterValue::Assign(obj.try_into_value(vm)?),
-            PySetterValue::Delete => PySetterValue::Delete,
-        };
         object::object_set_dict(obj, value, vm)?;
         Ok(())
     }

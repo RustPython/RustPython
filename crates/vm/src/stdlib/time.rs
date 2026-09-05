@@ -938,6 +938,9 @@ mod platform {
     #[cfg(target_os = "solaris")]
     #[pyattr]
     use libc::CLOCK_HIGHRES;
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    #[pyattr]
+    use libc::CLOCK_MONOTONIC_RAW;
     #[cfg(not(any(
         target_os = "illumos",
         target_os = "netbsd",
@@ -958,9 +961,12 @@ mod platform {
     use libc::CLOCK_THREAD_CPUTIME_ID;
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use libc::{CLOCK_BOOTTIME, CLOCK_MONOTONIC_RAW, CLOCK_TAI};
+    use libc::{CLOCK_BOOTTIME, CLOCK_TAI};
     #[pyattr]
     use libc::{CLOCK_MONOTONIC, CLOCK_REALTIME};
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use libc::{CLOCK_MONOTONIC_RAW_APPROX, CLOCK_UPTIME_RAW, CLOCK_UPTIME_RAW_APPROX};
     #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "dragonfly"))]
     #[pyattr]
     use libc::{CLOCK_PROF, CLOCK_UPTIME};

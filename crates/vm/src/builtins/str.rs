@@ -466,7 +466,7 @@ impl Constructor for PyStr {
                     let s = vm
                         .state
                         .codec_registry
-                        .decode_text(input, enc_str, errors, vm)?;
+                        .decode_text_object(input, enc_str, errors, vm)?;
                     Ok(Self::from(s.as_wtf8().to_owned()))
                 } else {
                     let s = input.str(vm)?;
