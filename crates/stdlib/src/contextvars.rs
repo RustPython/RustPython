@@ -335,20 +335,23 @@ mod _contextvars {
             Ok(())
         }
 
-        // contextvar_set in CPython
+        // contextvar_set
         fn set_inner(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) {
             let ctx = PyContext::current(vm);
 
             let replaced = ctx.borrow_vars_mut().insert(zelf.to_owned(), value.clone());
             drop(replaced);
 
-            zelf.cached_id.store(ctx.get_id(), Ordering::SeqCst);
-
+            // cached and cached_id are one snapshot: another thread's get()
+            // must not observe a new id with an old value, or the reverse.
             let cache = ContextVarCache {
                 object: value,
                 idx: ctx.inner.idx.load(Ordering::Relaxed),
             };
-            let replaced = zelf.cached.lock().replace(cache);
+            let mut cached = zelf.cached.lock();
+            zelf.cached_id.store(ctx.get_id(), Ordering::SeqCst);
+            let replaced = cached.replace(cache);
+            drop(cached);
             drop(replaced);
         }
 

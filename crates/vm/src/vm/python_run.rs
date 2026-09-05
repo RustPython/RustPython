@@ -175,8 +175,12 @@ mod file_run {
         let mut file = crate::host_env::fs::open(path)?;
         let mut buf = [0u8; 2];
 
-        use std::io::Read;
-        if file.read(&mut buf)? != 2 {
+        use std::io::{Read, Seek, SeekFrom};
+        let n = file.read(&mut buf)?;
+        // /dev/fd/N shares the file offset across every open of that path.
+        // Restore it so a later read of the same script still starts at 0.
+        let _ = file.seek(SeekFrom::Start(0));
+        if n != 2 {
             return Ok(false);
         }
 

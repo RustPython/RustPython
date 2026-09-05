@@ -18,7 +18,7 @@ pub use rustpython_host_env::posix::set_inheritable;
 pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyTupleRef, PyUtf8Str},
+        builtins::{PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
         function::{ArgMapping, Either, KwArgs, OptionalArg},
@@ -1464,7 +1464,7 @@ pub mod module {
         #[pyarg(named, default)]
         setsigmask: Option<crate::function::ArgIterable<i32>>,
         #[pyarg(named, default)]
-        scheduler: Option<PyTupleRef>,
+        scheduler: Option<PyObjectRef>,
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1474,6 +1474,58 @@ pub mod module {
         Open,
         Close,
         Dup2,
+    }
+
+    #[cfg(all(
+        any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+        not(target_env = "musl")
+    ))]
+    fn parse_posix_spawn_scheduler(
+        scheduler: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<rustpython_host_env::posix::PosixSpawnScheduler>> {
+        let Some(obj) = scheduler else {
+            return Ok(None);
+        };
+        if obj.is(&vm.ctx.none()) {
+            return Ok(None);
+        }
+        let Some(tuple) = obj.downcast_ref::<PyTuple>() else {
+            return Err(vm.new_type_error("scheduler must be a tuple or None"));
+        };
+        if tuple.len() != 2 {
+            return Err(vm.new_type_error("A scheduler tuple must have two elements"));
+        }
+        let policy = if tuple[0].is(&vm.ctx.none()) {
+            None
+        } else {
+            Some(i32::try_from_object(vm, tuple[0].clone())?)
+        };
+        let param = super::posix_sched::convert_sched_param(&tuple[1], vm)?;
+        Ok(Some(rustpython_host_env::posix::PosixSpawnScheduler {
+            policy,
+            param,
+        }))
+    }
+
+    #[cfg(any(target_os = "macos", target_env = "musl"))]
+    fn parse_posix_spawn_scheduler(
+        scheduler: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let Some(obj) = scheduler else {
+            return Ok(());
+        };
+        if obj.is(&vm.ctx.none()) {
+            return Ok(());
+        }
+        let Some(tuple) = obj.downcast_ref::<PyTuple>() else {
+            return Err(vm.new_type_error("scheduler must be a tuple or None"));
+        };
+        if tuple.len() != 2 {
+            return Err(vm.new_type_error("A scheduler tuple must have two elements"));
+        }
+        Err(vm.new_not_implemented_error("The scheduler option is not supported in this system."))
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1555,13 +1607,13 @@ pub mod module {
 
             let setsigdef = self.setsigdef.map(&collect_signals).transpose()?;
 
-            if let Some(_scheduler) = self.scheduler {
-                // TODO: Implement scheduler parameter handling
-                // This requires platform-specific sched_param struct handling
-                return Err(
-                    vm.new_not_implemented_error("scheduler parameter is not yet implemented")
-                );
-            }
+            #[cfg(all(
+                any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+                not(target_env = "musl")
+            ))]
+            let scheduler = parse_posix_spawn_scheduler(self.scheduler, vm)?;
+            #[cfg(any(target_os = "macos", target_env = "musl"))]
+            parse_posix_spawn_scheduler(self.scheduler, vm)?;
 
             if self.setsid && !rustpython_host_env::posix::supports_posix_spawn_setsid() {
                 return Err(vm.new_not_implemented_error(
@@ -1603,6 +1655,11 @@ pub mod module {
                 setsid: self.setsid,
                 setsigmask: setsigmask.as_deref(),
                 spawnp,
+                #[cfg(all(
+                    any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+                    not(target_env = "musl")
+                ))]
+                scheduler,
             })
             .map_err(|err| OSErrorBuilder::with_filename(&err, self.path, vm))
         }
@@ -2460,7 +2517,10 @@ mod posix_sched {
     }
 
     #[cfg(not(target_env = "musl"))]
-    fn convert_sched_param(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<libc::sched_param> {
+    pub(super) fn convert_sched_param(
+        obj: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<libc::sched_param> {
         use crate::{
             builtins::{PyInt, PyTuple},
             class::StaticType,

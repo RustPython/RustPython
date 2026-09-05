@@ -10,6 +10,7 @@ mod resource {
         convert::{ToPyException, ToPyObject},
         types::PyStructSequence,
     };
+    use num_traits::Signed;
     use rustpython_host_env::resource as host_resource;
     use std::io;
 
@@ -145,11 +146,11 @@ mod resource {
 
     impl<'a> TryFromBorrowedObject<'a> for Limits {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-            let seq: Vec<host_resource::rlim_t> = obj.try_to_value(vm)?;
-            match *seq {
+            let seq: Vec<PyObjectRef> = obj.try_to_value(vm)?;
+            match seq.as_slice() {
                 [cur, max] => Ok(Self(host_resource::rlimit {
-                    rlim_cur: cur & RLIM_INFINITY,
-                    rlim_max: max & RLIM_INFINITY,
+                    rlim_cur: py2rlim_limit(cur, vm)?,
+                    rlim_max: py2rlim_limit(max, vm)?,
                 })),
                 _ => Err(vm.new_value_error("expected a tuple of 2 integers")),
             }
@@ -169,6 +170,18 @@ mod resource {
             return Err(vm.new_value_error("Cannot convert negative int"));
         }
 
+        host_resource::rlim_t::try_from(value)
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))
+    }
+
+    fn py2rlim_limit(obj: &PyObject, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
+        let int = obj.try_to_ref::<crate::vm::builtins::PyInt>(vm)?;
+        if int.as_bigint().is_negative() {
+            return Err(vm.new_value_error("Cannot convert negative int"));
+        }
+        let value = int
+            .try_to_primitive::<u64>(vm)
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))?;
         host_resource::rlim_t::try_from(value)
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))
     }

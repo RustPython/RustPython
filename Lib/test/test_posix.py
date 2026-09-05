@@ -2044,7 +2044,6 @@ class _PosixSpawnMixin:
         pid = self.spawn_func(path, args, os.environ, scheduler=None)
         support.wait_process(pid, exitcode=0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     @support.subTests("scheduler", [object(), 1, [1, 2]])
     def test_scheduler_wrong_type(self, scheduler):
         path, args = self.NOOP_PROGRAM[0], self.NOOP_PROGRAM
@@ -2054,7 +2053,6 @@ class _PosixSpawnMixin:
         ):
             self.spawn_func(path, args, os.environ, scheduler=scheduler)
 
-    @unittest.expectedFailureIf(sys.platform in ("darwin", "linux"), "TODO: RUSTPYTHON; NotImplementedError: scheduler parameter is not yet implemented")
     @requires_sched
     @unittest.skipIf(sys.platform.startswith(('freebsd', 'netbsd')),
                      "bpo-34685: test can fail on BSD")
@@ -2075,7 +2073,6 @@ class _PosixSpawnMixin:
         )
         support.wait_process(pid, exitcode=0)
 
-    @unittest.expectedFailureIf(sys.platform in ("darwin", "linux"), "TODO: RUSTPYTHON; NotImplementedError: scheduler parameter is not yet implemented")
     @requires_sched
     @unittest.skipIf(sys.platform.startswith(('freebsd', 'netbsd')),
                      "bpo-34685: test can fail on BSD")
