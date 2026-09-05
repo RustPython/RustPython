@@ -24,7 +24,7 @@ use malachite_bigint::BigInt;
 use num_complex::Complex;
 use num_traits::{Num, ToPrimitive, Zero};
 use ruff_python_ast::{self as ast, name::Name};
-use ruff_text_size::{Ranged, TextRange, TextSize};
+use ruff_text_size::{Ranged, TextRange, TextSize, TextSlice};
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
@@ -9129,7 +9129,12 @@ impl<'warnings> Compiler<'warnings> {
                 range,
                 ..
             }) => {
-                let key = key.as_ref();
+                let Some(key) = key.as_deref() else {
+                    self.set_source_range(*range);
+                    return Err(self.error(CodegenErrorType::SyntaxError(
+                        "dict unpacking cannot be used in dict comprehension".to_owned(),
+                    )));
+                };
                 self.compile_comprehension(
                     "<dictcomp>",
                     Some(
@@ -9644,7 +9649,11 @@ impl<'warnings> Compiler<'warnings> {
                 continue;
             };
             for other in &keywords[i + 1..] {
-                if other.arg.as_ref() == Some(arg) {
+                if other
+                    .arg
+                    .as_ref()
+                    .is_some_and(|other| other.as_str() == arg.as_str())
+                {
                     return Err(self.error_ranged(
                         CodegenErrorType::SyntaxError(format!("keyword argument repeated: {arg}")),
                         other.range,
@@ -10067,7 +10076,11 @@ impl<'warnings> Compiler<'warnings> {
                             self.visit_expr(&first.iter);
                         }
                         if self.consume_inlined_comprehension_scope() {
-                            self.visit_comprehension_tail(key, Some(value), generators);
+                            if let Some(key) = key.as_deref() {
+                                self.visit_comprehension_tail(key, Some(value), generators);
+                            } else {
+                                self.visit_comprehension_tail(value, None, generators);
+                            }
                         } else {
                             self.consume_scope();
                         }
@@ -13249,9 +13262,10 @@ impl<'warnings> Compiler<'warnings> {
             {
                 let after_brace = interp.range.start() + TextSize::new(1);
                 self.source_file
+                    .source_text()
                     .slice(TextRange::new(after_brace, expr_range.end()))
             } else {
-                self.source_file.slice(expr_range)
+                self.source_file.source_text().slice(expr_range)
             }
             .to_string();
             self.set_source_range(interp.range);
@@ -13843,7 +13857,7 @@ mod tests {
     fn frozenset_call_expr() -> ast::Expr {
         ast::Expr::Call(ast::ExprCall {
             node_index: ast::AtomicNodeIndex::NONE,
-            range: TextRange::default(),
+            range_start: TextSize::default(),
             func: Box::new(ast::Expr::Name(ast::ExprName {
                 node_index: ast::AtomicNodeIndex::NONE,
                 range: TextRange::default(),
@@ -13996,7 +14010,7 @@ mod tests {
         );
         let message = first_ast_constant_warning(ast::Expr::Call(ast::ExprCall {
             node_index: ast::AtomicNodeIndex::NONE,
-            range: TextRange::default(),
+            range_start: TextSize::default(),
             func: Box::new(func),
             arguments: ast::Arguments {
                 node_index: ast::AtomicNodeIndex::NONE,

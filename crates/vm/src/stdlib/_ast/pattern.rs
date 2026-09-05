@@ -384,8 +384,8 @@ fn pattern_match_mapping_from_object_with_range(
         .then(|| patterns.clone());
     Ok(ast::PatternMatchMapping {
         node_index: Default::default(),
-        keys: lower_nullable_exprs(&keys, range),
-        patterns: lower_nullable_patterns(&patterns, range),
+        keys: lower_nullable_exprs(&keys, range).into(),
+        patterns: lower_nullable_patterns(&patterns, range).into(),
         rest: get_node_field_opt(vm, &object, "rest")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
@@ -473,7 +473,7 @@ fn pattern_match_class_from_object_with_range(
         arguments: ast::PatternArguments {
             node_index: Default::default(),
             range: Default::default(),
-            patterns,
+            patterns: patterns.into(),
             keywords,
         },
         runtime_patterns,
@@ -744,7 +744,7 @@ fn split_pattern_match_class(
     PatternMatchClassKeywordAttributes,
     PatternMatchClassKeywordPatterns,
 ) {
-    let patterns = PatternMatchClassPatterns(arguments.patterns);
+    let patterns = PatternMatchClassPatterns(arguments.patterns.into_iter().collect());
     let kwd_attrs = PatternMatchClassKeywordAttributes(
         arguments.keywords.iter().map(|k| k.attr.clone()).collect(),
     );

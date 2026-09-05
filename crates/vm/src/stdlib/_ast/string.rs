@@ -801,13 +801,13 @@ fn push_ruff_tstring_element(
                     expression.range(),
                 )));
                 conversion = debug_conversion(conversion, format_spec.is_some());
-                let expr_source = source_file.slice(expr_range);
+                let expr_source = source_file.source_text().slice(expr_range);
                 let mut expr_with_debug = String::with_capacity(
-                    debug_text.leading.len() + expr_source.len() + debug_text.trailing.len(),
+                    debug_text.leading().len() + expr_source.len() + debug_text.trailing().len(),
                 );
-                expr_with_debug.push_str(&debug_text.leading);
+                expr_with_debug.push_str(debug_text.leading());
                 expr_with_debug.push_str(expr_source);
-                expr_with_debug.push_str(&debug_text.trailing);
+                expr_with_debug.push_str(debug_text.trailing());
                 strip_interpolation_expr(&expr_with_debug)
             } else {
                 tstring_interpolation_expr_str(source_file, range, expr_range)
@@ -849,7 +849,9 @@ fn tstring_interpolation_expr_str(
     } else {
         start
     };
-    let expr_source = source_file.slice(TextRange::new(start, expr_range.end()));
+    let expr_source = source_file
+        .source_text()
+        .slice(TextRange::new(start, expr_range.end()));
     strip_interpolation_expr(expr_source)
 }
 
@@ -858,7 +860,7 @@ fn extend_expr_range_with_wrapping_parens(
     interpolation_range: TextRange,
     expr_range: TextRange,
 ) -> Option<TextRange> {
-    let left_slice = source_file.slice(TextRange::new(
+    let left_slice = source_file.source_text().slice(TextRange::new(
         interpolation_range.start(),
         expr_range.start(),
     ));
@@ -879,8 +881,9 @@ fn extend_expr_range_with_wrapping_parens(
         return None;
     }
 
-    let right_slice =
-        source_file.slice(TextRange::new(expr_range.end(), interpolation_range.end()));
+    let right_slice = source_file
+        .source_text()
+        .slice(TextRange::new(expr_range.end(), interpolation_range.end()));
     let mut right_char: Option<(usize, char)> = None;
     for (idx, ch) in right_slice.char_indices() {
         if !ch.is_whitespace() {

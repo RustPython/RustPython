@@ -2,7 +2,7 @@ use crate::strip_python_comments;
 use alloc::fmt;
 use core::fmt::Display as _;
 use ruff_python_ast as ast;
-use ruff_text_size::{Ranged, TextSize};
+use ruff_text_size::{Ranged, TextSize, TextSlice};
 use rustpython_compiler_core::SourceFile;
 use rustpython_literal::escape::{AsciiEscape, UnicodeEscape};
 
@@ -322,8 +322,12 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 ..
             }) => {
                 self.p("{")?;
-                self.unparse_expr(key, precedence::TEST)?;
-                self.p(": ")?;
+                if let Some(key) = key {
+                    self.unparse_expr(key, precedence::TEST)?;
+                    self.p(": ")?;
+                } else {
+                    self.p("**")?;
+                }
                 self.unparse_expr(value, precedence::TEST)?;
                 self.unparse_comp(generators)?;
                 self.p("}")?;
@@ -399,7 +403,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 func,
                 arguments: ast::Arguments { args, keywords, .. },
                 node_index: _,
-                range: _range,
+                range_start: _range_start,
                 ..
             }) => {
                 self.unparse_expr(func, precedence::ATOM)?;
@@ -618,10 +622,10 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             fmt::from_fn(|f| Unparser::new(f, self.source).unparse_expr(val, precedence::TEST + 1))
                 .to_string();
         if let Some(debug_text) = debug_text {
-            let leading = debug_text.leading.as_str();
-            let trailing = debug_text.trailing.as_str();
+            let leading = debug_text.leading();
+            let trailing = debug_text.trailing();
             self.p(leading)?;
-            self.p(self.source.slice(val.range()))?;
+            self.p(self.source.source_text().slice(val.range()))?;
             self.p(trailing)?;
             if conversion == ast::ConversionFlag::None && spec.is_none() {
                 conversion = ast::ConversionFlag::Repr;
@@ -744,9 +748,13 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         let mut conversion = source_conversion;
         let debug_parts = interpolation.debug_text.as_ref().map(|debug_text| {
             (
-                strip_python_comments(debug_text.leading.as_str()),
-                strip_python_comments(self.source.slice(interpolation.expression.range())),
-                strip_python_comments(debug_text.trailing.as_str()),
+                strip_python_comments(debug_text.leading()),
+                strip_python_comments(
+                    self.source
+                        .source_text()
+                        .slice(interpolation.expression.range()),
+                ),
+                strip_python_comments(debug_text.trailing()),
             )
         });
         if let Some((leading, source, trailing)) = &debug_parts {
@@ -784,6 +792,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             {
                 strip_python_comments(
                     self.source
+                        .source_text()
                         .slice(ruff_text_size::TextRange::new(after_brace, expression_end)),
                 )
                 .trim_end()

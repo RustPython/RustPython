@@ -152,10 +152,6 @@ impl SyntaxErrorInfo {
 
             ParseErrorType::EmptyImportNames => "Expected one or more names after 'import'".into(),
 
-            ParseErrorType::DuplicateKeywordArgumentError(arg_name) => {
-                format!("keyword argument repeated: {arg_name}")
-            }
-
             ParseErrorType::UnparenthesizedGeneratorExpression => {
                 "Generator expression must be parenthesized".into()
             }
