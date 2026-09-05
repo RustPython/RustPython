@@ -361,7 +361,9 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         RunMode::Repl => Ok(()),
     };
     let result = if is_repl || vm.state.config.settings.inspect {
-        warn_if_pyrepl_unavailable(vm);
+        if std::io::stdin().is_terminal() {
+            warn_if_pyrepl_unavailable(vm);
+        }
         shell::run_shell(vm, scope)
     } else {
         res
