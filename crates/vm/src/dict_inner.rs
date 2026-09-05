@@ -573,6 +573,17 @@ impl<T: Clone> Dict<T> {
         self._get_inner(vm, key, hash)
     }
 
+    /// [`Self::get`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
+    pub(crate) fn get_known_hash<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<Option<T>> {
+        self._get_inner(vm, key, hash)
+    }
+
     /// Return a stable entry hint for `key` if present.
     ///
     /// The hint is the internal entry index and can be used with
@@ -872,12 +883,32 @@ impl<T: Clone> Dict<T> {
         Ok(())
     }
 
+    /// Callers within the crate thread a known hash (see
+    /// [`Self::setdefault_known_hash`]); this hashing wrapper is kept for API
+    /// symmetry with the other operations.
+    #[allow(dead_code)]
     pub(crate) fn setdefault<K, F>(&self, vm: &VirtualMachine, key: &K, default: F) -> PyResult<T>
     where
         K: DictKey + ?Sized,
         F: FnOnce() -> T,
     {
         let hash = key.key_hash(vm)?;
+        self.setdefault_known_hash(vm, key, hash, default)
+    }
+
+    /// [`Self::setdefault`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
+    pub(crate) fn setdefault_known_hash<K, F>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+        default: F,
+    ) -> PyResult<T>
+    where
+        K: DictKey + ?Sized,
+        F: FnOnce() -> T,
+    {
         let mut default = Some(default);
         loop {
             let (index_entry, index_index) = self.lookup(vm, key, hash, None)?;
@@ -1228,13 +1259,14 @@ impl<T: Clone> Dict<T> {
         Ok(ControlFlow::Break(removed))
     }
 
-    /// Retrieve and delete a key
-    pub(crate) fn pop<K: DictKey + ?Sized>(
+    /// Retrieve and delete a key, given a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
+    pub(crate) fn pop_known_hash<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
         key: &K,
+        hash_value: HashValue,
     ) -> PyResult<Option<T>> {
-        let hash_value = key.key_hash(vm)?;
         let removed = loop {
             let lookup = self.lookup(vm, key, hash_value, None)?;
             match self.pop_inner(lookup) {

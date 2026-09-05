@@ -153,11 +153,12 @@ impl PyDict {
             Ok(keys_method) => {
                 let keys = keys_method.call((), vm)?.get_iter(vm)?;
                 while let PyIterReturn::Return(key) = keys.next(vm)? {
-                    if !override_existing && dict.contains(vm, &*key)? {
+                    let hash = Self::hash_or_unhashable(&*key, vm)?;
+                    if !override_existing && dict.contains_known_hash(vm, &*key, hash)? {
                         continue;
                     }
                     let val = other.get_item(&*key, vm)?;
-                    dict.insert(vm, &*key, val)?;
+                    dict.insert_known_hash(vm, &*key, hash, val)?;
                 }
                 true
             }
@@ -261,10 +262,11 @@ impl PyDict {
         for (index, element) in iter.iter::<PyObjectRef>(vm)?.enumerate() {
             let (key, value) = Self::update_sequence_pair(element?, index, vm)?;
 
-            if !override_existing && dict.contains(vm, &*key)? {
+            let hash = Self::hash_or_unhashable(&*key, vm)?;
+            if !override_existing && dict.contains_known_hash(vm, &*key, hash)? {
                 continue;
             }
-            dict.insert(vm, &*key, value)?;
+            dict.insert_known_hash(vm, &*key, hash, value)?;
         }
         Ok(())
     }
@@ -293,6 +295,37 @@ impl PyDict {
         self.entries.len() == 0
     }
 
+    /// Hash `key`, turning a hashing failure into the dict-specific
+    /// "cannot use 'X' as a dict key (...)" wording used by CPython.
+    ///
+    /// The returned hash is threaded into the `*_known_hash` operations, so the
+    /// key is hashed exactly once. This is why the message is produced here
+    /// rather than around the operation: a `TypeError` from key *comparison*
+    /// (e.g. a colliding key's `__eq__`) is raised by the operation itself and
+    /// must propagate unchanged, and hashing up front also means a `__hash__`
+    /// that fails only intermittently is still reported (the old approach
+    /// re-hashed on the error path, so a hash that succeeded the second time
+    /// escaped unwrapped).
+    fn hash_or_unhashable<K: DictKey + ?Sized>(key: &K, vm: &VirtualMachine) -> PyResult<PyHash> {
+        match key.key_hash(vm) {
+            Ok(hash) => Ok(hash),
+            // Exact `TypeError` only: a `__hash__` raising a *subclass* of
+            // `TypeError` (e.g. a user `MyTypeError`) must propagate unchanged,
+            // matching CPython's exact-type check.
+            Err(cause) if cause.class().is(vm.ctx.exceptions.type_error) => {
+                let message = cause.as_object().str(vm)?;
+                let key = key.to_pyobject(vm);
+                let err = vm.new_type_error(format!(
+                    "cannot use '{}' as a dict key ({message})",
+                    key.class().fully_qualified_name(vm)
+                ));
+                err.set___cause__(Some(cause));
+                Err(err)
+            }
+            Err(other) => Err(other),
+        }
+    }
+
     /// Set item variant which can be called with multiple
     /// key types, such as str to name a notable one.
     pub fn inner_setitem<K: DictKey + ?Sized>(
@@ -301,7 +334,8 @@ impl PyDict {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.entries.insert(vm, key, value)
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.insert_known_hash(vm, key, hash, value)
     }
 
     pub(crate) fn inner_delitem<K: DictKey + ?Sized>(
@@ -309,7 +343,12 @@ impl PyDict {
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.entries.delete(vm, key)
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        if self.entries.delete_if_exists_known_hash(vm, key, hash)? {
+            Ok(())
+        } else {
+            Err(vm.new_key_error(key.to_pyobject(vm)))
+        }
     }
 
     pub fn get_or_insert(
@@ -318,7 +357,8 @@ impl PyDict {
         key: PyObjectRef,
         default: impl FnOnce() -> PyObjectRef,
     ) -> PyResult {
-        self.entries.setdefault(vm, &*key, default)
+        let hash = Self::hash_or_unhashable(&*key, vm)?;
+        self.entries.setdefault_known_hash(vm, &*key, hash, default)
     }
 
     pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
@@ -426,7 +466,8 @@ impl PyDict {
     }
 
     fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.entries.contains(vm, &*key)
+        let hash = Self::hash_or_unhashable(&*key, vm)?;
+        self.entries.contains_known_hash(vm, &*key, hash)
     }
 
     fn __delitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -454,10 +495,9 @@ impl PyDict {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        Ok(self
-            .entries
-            .get(vm, &*key)?
-            .unwrap_or_else(|| default.unwrap_or_none(vm)))
+        let hash = Self::hash_or_unhashable(&*key, vm)?;
+        let found = self.entries.get_known_hash(vm, &*key, hash)?;
+        Ok(found.unwrap_or_else(|| default.unwrap_or_none(vm)))
     }
 
     #[pymethod]
@@ -467,8 +507,9 @@ impl PyDict {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let hash = Self::hash_or_unhashable(&*key, vm)?;
         self.entries
-            .setdefault(vm, &*key, || default.unwrap_or_none(vm))
+            .setdefault_known_hash(vm, &*key, hash, || default.unwrap_or_none(vm))
     }
 
     #[pymethod]
@@ -512,7 +553,8 @@ impl PyDict {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match self.entries.pop(vm, &*key)? {
+        let hash = Self::hash_or_unhashable(&*key, vm)?;
+        match self.entries.pop_known_hash(vm, &*key, hash)? {
             Some(value) => Ok(value),
             None => default.ok_or_else(|| vm.new_key_error(key)),
         }
@@ -660,9 +702,12 @@ impl AsMapping for PyDict {
 impl AsSequence for PyDict {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            contains: atomic_func!(|seq, target, vm| PyDict::sequence_downcast(seq)
-                .entries
-                .contains(vm, target)),
+            contains: atomic_func!(|seq, target, vm| {
+                let hash = PyDict::hash_or_unhashable(target, vm)?;
+                PyDict::sequence_downcast(seq)
+                    .entries
+                    .contains_known_hash(vm, target, hash)
+            }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE
@@ -765,7 +810,9 @@ impl Py<PyDict> {
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        if let Some(value) = self.entries.get(vm, key)? {
+        let hash = PyDict::hash_or_unhashable(key, vm)?;
+        let found = self.entries.get_known_hash(vm, key, hash)?;
+        if let Some(value) = found {
             Ok(value)
         } else if let Some(value) = self.missing_opt(key, vm)? {
             Ok(value)
