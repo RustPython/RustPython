@@ -236,17 +236,30 @@ fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<()> {
     }
 
     cfg_select! {
-        feature = "host_env" => vm.run_any_file(scope, path),
+        feature = "host_env" => {
+            match rustpython_vm::host_env::fs::metadata(path) {
+                Ok(_) => vm.run_any_file(scope, path),
+                Err(err) => cant_open_file(vm, path, &err),
+            }
+        }
         _ => {
             // In sandbox mode, the binary reads the file and feeds source to the VM.
             // The VM itself has no filesystem access.
             let path = if path.is_empty() { "???" } else { path };
             match std::fs::read_to_string(path) {
                 Ok(source) => vm.run_string(scope, &source, path).map(drop),
-                Err(err) => Err(vm.new_os_error(err.to_string())),
+                Err(err) => cant_open_file(vm, path, &err),
             }
         }
     }
+}
+
+fn cant_open_file(vm: &VirtualMachine, path: &str, err: &std::io::Error) -> PyResult<()> {
+    let program = &vm.state.config.paths.executable;
+    let filename_repr = vm.ctx.new_str(path).as_object().repr(vm)?;
+    let errno = err.raw_os_error().unwrap_or(2);
+    eprintln!("{program}: can't open file {filename_repr}: [Errno {errno}] {err}");
+    Err(vm.new_system_exit(vec![vm.ctx.new_int(2).into()].into()))
 }
 
 fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {

@@ -44,6 +44,25 @@ impl VirtualMachine {
         self.run_string(scope, source, source_path)
     }
 
+    /// Set `__main__.__loader__` to BuiltinImporter when it is missing or None.
+    pub fn set_main_builtin_importer(
+        &self,
+        module_dict: &crate::Py<crate::builtins::PyDict>,
+    ) -> PyResult<()> {
+        if let Ok(loader) = module_dict.get_item("__loader__", self)
+            && !self.is_none(&loader)
+        {
+            return Ok(());
+        }
+        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        let Ok(importlib) = sys_modules.get_item("_frozen_importlib", self) else {
+            return Ok(());
+        };
+        let loader = importlib.get_attr("BuiltinImporter", self)?;
+        module_dict.set_item("__loader__", loader, self)?;
+        Ok(())
+    }
+
     pub fn run_block_expr(&self, scope: Scope, source: &str) -> PyResult {
         let code_obj = self
             .compile(source, compiler::Mode::BlockExpr, "<embedded>")
