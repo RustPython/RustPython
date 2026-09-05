@@ -3723,11 +3723,7 @@ mod _ssl {
                 return Ok(Some(vm.ctx.new_dict().into()));
             }
 
-            // Parse DER certificate and convert to dict (outside lock)
-            let (_, cert) = x509_parser::parse_x509_certificate(&der_bytes)
-                .map_err(|e| vm.new_value_error(format!("Failed to parse certificate: {e}")))?;
-
-            cert::cert_to_dict(vm, &cert).map(Some)
+            cert::cert_der_to_dict_helper(vm, &der_bytes).map(Some)
         }
 
         #[pymethod]
@@ -4643,7 +4639,6 @@ mod _ssl {
     }
 
     impl PySSLCertificate {
-        // Parse the certificate lazily
         fn parse(&self) -> Result<x509_parser::certificate::X509Certificate<'_>, String> {
             match x509_parser::parse_x509_certificate(&self.der_bytes) {
                 Ok((_, cert)) => Ok(cert),
@@ -4682,8 +4677,7 @@ mod _ssl {
 
         #[pymethod]
         fn get_info(&self, vm: &VirtualMachine) -> PyResult {
-            let cert = self.parse().map_err(|e| vm.new_value_error(e))?;
-            cert::cert_to_dict(vm, &cert)
+            cert::cert_der_to_dict_helper(vm, &self.der_bytes)
         }
     }
 
