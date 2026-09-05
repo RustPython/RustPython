@@ -948,6 +948,20 @@ pub fn kill(pid: i32, sig: i32) -> std::io::Result<()> {
     }
 }
 
+/// `killpg(2)`: signal every process in a process group.
+///
+/// Not `kill(-pgid, sig)`: that spelling reads a negative pid, and `kill`
+/// takes its argument from Python where a caller can already pass one, so the
+/// two are not interchangeable at this layer.
+pub fn killpg(pgid: i32, sig: i32) -> std::io::Result<()> {
+    let ret = unsafe { libc::killpg(pgid, sig) };
+    if ret == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(not(any(target_os = "wasi", target_os = "android")))]
 pub fn setuid(uid: u32) -> std::io::Result<()> {
     nix::unistd::setuid(uid_from_raw(uid)).map_err(std::io::Error::from)

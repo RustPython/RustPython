@@ -2274,7 +2274,6 @@ class TestGetcallargsFunctions(unittest.TestCase):
                                  '(4,[5,6])]), q=0, **collections.UserDict('
                                  'y=9, z=10)')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + <lambda>() got an unexpected keyword argument 'x'
     def test_errors(self):
         f0 = self.makeCallable('')
         f1 = self.makeCallable('a, b')

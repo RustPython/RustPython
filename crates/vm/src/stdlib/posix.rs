@@ -1699,6 +1699,11 @@ pub mod module {
     }
 
     #[pyfunction]
+    fn killpg(pgid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::killpg(pgid, sig as i32).map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[pyfunction]
     fn get_terminal_size(
         fd: OptionalArg<i32>,
         vm: &VirtualMachine,

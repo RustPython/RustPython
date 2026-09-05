@@ -1548,6 +1548,11 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn cpu_count(vm: &VirtualMachine) -> PyObjectRef {
+        // A count the configuration names is answered with, over the one the
+        // host reports. = os_cpu_count_impl
+        if let Some(configured) = vm.state.config.settings.cpu_count {
+            return vm.ctx.new_int(configured.get()).into();
+        }
         let cpu_count = crate::host_env::os::cpu_count();
         vm.ctx.new_int(cpu_count).into()
     }

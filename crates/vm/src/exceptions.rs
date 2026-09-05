@@ -1285,6 +1285,9 @@ pub(crate) fn errno_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<&'sta
         errors::EINTR => Some(excs.interrupted_error),
         errors::EACCES => Some(excs.permission_error),
         errors::EPERM => Some(excs.permission_error),
+        // A process without the capability to reach a resource.
+        #[cfg(target_vendor = "apple")]
+        errors::ENOTCAPABLE => Some(excs.permission_error),
         errors::ESRCH => Some(excs.process_lookup_error),
         errors::ETIMEDOUT => Some(excs.timeout_error),
         _ => None,
@@ -2222,8 +2225,10 @@ pub(super) mod types {
                     {
                         exc.written.store(n);
                         set_filename = false;
-                        // Clear filename that was set in py_new
+                        // The count leaves neither filename taken, so both are
+                        // put back the way `py_new` found them.
                         let _ = unsafe { exc.filename.swap(None) };
+                        let _ = unsafe { exc.filename2.swap(None) };
                     }
                     if set_filename {
                         let _ = unsafe { exc.filename.swap(Some(third_arg.clone())) };
@@ -2247,19 +2252,21 @@ pub(super) mod types {
                         new_args.args[0] = errno_obj;
                     }
                 }
-                if len == 5 {
-                    let _ = unsafe { exc.filename2.swap(new_args.args.get(4).cloned()) };
-                }
             }
 
-            // args are truncated to 2 for compatibility (only when 2-5 args and filename is not None)
-            // truncation happens inside "if (filename && filename != Py_None)" block
+            // A second filename, and the two arguments the rest are cut back
+            // to, both follow the filename itself having been taken.
             let has_filename = exc
                 .filename
                 .to_owned()
                 .as_ref()
                 .is_some_and(|f| !vm.is_none(f));
             if (3..=5).contains(&len) && has_filename {
+                if let Some(filename2) = new_args.args.get(4)
+                    && !vm.is_none(filename2)
+                {
+                    let _ = unsafe { exc.filename2.swap(Some(filename2.clone())) };
+                }
                 new_args.args.truncate(2);
             }
             PyBaseException::slot_init(zelf, new_args, vm)
@@ -2708,15 +2715,20 @@ pub(super) mod types {
                 let location_tup_len = location_tuple.len();
 
                 match location_tup_len {
-                    4 | 6 => {}
+                    4 | 6 | 7 => {}
                     5 => {
                         return Err(vm.new_type_error(
                             "end_offset must be provided when end_lineno is provided",
                         ));
                     }
-                    _ => {
+                    given if given < 4 => {
                         return Err(vm.new_type_error(format!(
-                            "function takes exactly 4 or 6 arguments ({location_tup_len} given)"
+                            "function takes at least 4 arguments ({given} given)"
+                        )));
+                    }
+                    given => {
+                        return Err(vm.new_type_error(format!(
+                            "function takes at most 7 arguments ({given} given)"
                         )));
                     }
                 }
@@ -2784,6 +2796,18 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyValueError(PyException);
 
+    /// Check the fixed arity expected by the tuple parser before converting
+    /// any of the values it was given.
+    fn parse_tuple_arity(args: &FuncArgs, count: usize, vm: &VirtualMachine) -> PyResult<()> {
+        let given = args.args.len();
+        if given == count {
+            return Ok(());
+        }
+        Err(vm.new_type_error(format!(
+            "function takes exactly {count} arguments ({given} given)"
+        )))
+    }
+
     #[pyexception(name, base = PyValueError, ctx = "unicode_error", impl)]
     #[derive(Debug)]
     #[repr(transparent)]
@@ -2830,6 +2854,7 @@ pub(super) mod types {
         type Args = FuncArgs;
 
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            parse_tuple_arity(&args, 5, vm)?;
             type Args = (PyStrRef, ArgBytesLike, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
             set_attrs!(zelf, vm,
@@ -2889,6 +2914,7 @@ pub(super) mod types {
         type Args = FuncArgs;
 
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            parse_tuple_arity(&args, 5, vm)?;
             type Args = (PyStrRef, PyStrRef, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
             set_attrs!(zelf, vm,
@@ -2946,6 +2972,7 @@ pub(super) mod types {
         type Args = FuncArgs;
 
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            parse_tuple_arity(&args, 4, vm)?;
             type Args = (PyStrRef, isize, isize, PyStrRef);
             let (object, start, end, reason): Args = args.bind(vm)?;
             set_attrs!(zelf, vm,

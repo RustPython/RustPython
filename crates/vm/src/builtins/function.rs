@@ -268,59 +268,28 @@ impl PyFunction {
 
         let mut vararg_offset = total_args;
         // Pack other positional arguments in to *args:
-        if code.flags.contains(bytecode::CodeFlags::VARARGS) {
+        let too_many_positional = if code.flags.contains(bytecode::CodeFlags::VARARGS) {
             let vararg_value = vm.ctx.new_tuple(args_iter.collect());
             fastlocals[vararg_offset] = Some(vararg_value.into());
             vararg_offset += 1;
+            false
         } else {
-            // Check the number of positional arguments
-            if nargs > n_expected_args {
-                let n_defaults = self
-                    .defaults_and_kwdefaults
-                    .lock()
-                    .0
-                    .as_ref()
-                    .map_or(0, |d| d.len());
-                let n_required = n_expected_args - n_defaults;
-                let takes_msg = if n_defaults > 0 {
-                    format!("from {n_required} to {n_expected_args}")
-                } else {
-                    n_expected_args.to_string()
-                };
+            nargs > n_expected_args
+        };
 
-                // Count keyword-only arguments that were actually provided
-                let kw_only_given = if code.kwonlyarg_count > 0 {
-                    let start = code.arg_count as usize;
-                    let end = start + code.kwonlyarg_count as usize;
-                    code.varnames[start..end]
-                        .iter()
-                        .filter(|name| func_args.kwargs.contains_key(name.as_str()))
-                        .count()
-                } else {
-                    0
-                };
-
-                let given_msg = if kw_only_given > 0 {
-                    format!(
-                        "{} positional argument{} (and {} keyword-only argument{}) were",
-                        nargs,
-                        if nargs == 1 { "" } else { "s" },
-                        kw_only_given,
-                        if kw_only_given == 1 { "" } else { "s" },
-                    )
-                } else {
-                    format!("{} {}", nargs, if nargs == 1 { "was" } else { "were" })
-                };
-
-                return Err(vm.new_type_error(format!(
-                    "{}() takes {} positional argument{} but {} given",
-                    self.__qualname__(),
-                    takes_msg,
-                    if n_expected_args == 1 { "" } else { "s" },
-                    given_msg,
-                )));
-            }
-        }
+        // The keyword-only parameters the call brought are counted alongside
+        // the positional ones it brought too many of, before the keywords
+        // themselves are taken out of the call.
+        let kw_only_given = if too_many_positional && code.kwonlyarg_count > 0 {
+            let start = code.arg_count as usize;
+            let end = start + code.kwonlyarg_count as usize;
+            code.varnames[start..end]
+                .iter()
+                .filter(|name| func_args.kwargs.contains_key(name.as_str()))
+                .count()
+        } else {
+            0
+        };
 
         // Do we support `**kwargs` ?
         let kwargs = if code.flags.contains(bytecode::CodeFlags::VARKEYWORDS) {
@@ -341,9 +310,9 @@ impl PyFunction {
                 .map(|(p, _)| p)
         };
 
-        let mut posonly_passed_as_kwarg = Vec::new();
         // Handle keyword arguments
-        for (name, value) in func_args.kwargs {
+        let mut kwargs_iter = func_args.kwargs.into_iter();
+        while let Some((name, value)) = kwargs_iter.next() {
             // Parameter names are plain identifiers, so a non-UTF-8 (surrogate) key
             // can never match one and just falls through to **kwargs / the error path.
             let name_str = name.as_str().ok();
@@ -362,11 +331,26 @@ impl PyFunction {
                 *slot = Some(value);
             } else if let Some(kwargs) = kwargs.as_ref() {
                 kwargs.set_item(&name, value, vm)?;
-            } else if name_str
-                .is_some_and(|s| arg_pos(0..code.posonlyarg_count as usize, s).is_some())
-            {
-                posonly_passed_as_kwarg.push(name);
             } else {
+                // A name the call cannot place is faulted over the whole of
+                // what it named that only position can give, whether that
+                // came before this name or after it.
+                let is_posonly = |name: &Wtf8Buf| {
+                    name.as_str()
+                        .is_ok_and(|s| arg_pos(0..code.posonlyarg_count as usize, s).is_some())
+                };
+                let mut posonly: Vec<_> = is_posonly(&name)
+                    .then(|| name.clone())
+                    .into_iter()
+                    .collect();
+                posonly.extend(kwargs_iter.map(|(name, _)| name).filter(is_posonly));
+                if !posonly.is_empty() {
+                    return Err(vm.new_type_error(format!(
+                        "{}() got some positional-only arguments passed as keyword arguments: '{}'",
+                        self.__qualname__(),
+                        posonly.into_iter().format(", "),
+                    )));
+                }
                 return Err(vm.new_type_error(format!(
                     "{}() got an unexpected keyword argument '{}'",
                     self.__qualname__(),
@@ -374,11 +358,40 @@ impl PyFunction {
                 )));
             }
         }
-        if !posonly_passed_as_kwarg.is_empty() {
+        // The count of positional arguments is faulted once the keywords have
+        // all been placed.
+        if too_many_positional {
+            let n_defaults = self
+                .defaults_and_kwdefaults
+                .lock()
+                .0
+                .as_ref()
+                .map_or(0, |d| d.len());
+            let n_required = n_expected_args - n_defaults;
+            let (takes_msg, plural) = if n_defaults > 0 {
+                (format!("from {n_required} to {n_expected_args}"), true)
+            } else {
+                (n_expected_args.to_string(), n_expected_args != 1)
+            };
+
+            let given_msg = if kw_only_given > 0 {
+                format!(
+                    "{} positional argument{} (and {} keyword-only argument{}) were",
+                    nargs,
+                    if nargs == 1 { "" } else { "s" },
+                    kw_only_given,
+                    if kw_only_given == 1 { "" } else { "s" },
+                )
+            } else {
+                format!("{} {}", nargs, if nargs == 1 { "was" } else { "were" })
+            };
+
             return Err(vm.new_type_error(format!(
-                "{}() got some positional-only arguments passed as keyword arguments: '{}'",
+                "{}() takes {} positional argument{} but {} given",
                 self.__qualname__(),
-                posonly_passed_as_kwarg.into_iter().format(", "),
+                takes_msg,
+                if plural { "s" } else { "" },
+                given_msg,
             )));
         }
 

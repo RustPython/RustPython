@@ -39,18 +39,6 @@ pub enum FormatConversion {
     Ascii = b'b',
 }
 
-impl FormatParse for FormatConversion {
-    fn parse(text: &Wtf8) -> (Option<Self>, &Wtf8) {
-        let Some(conversion) = Self::from_string(text) else {
-            return (None, text);
-        };
-        let mut chars = text.code_points();
-        chars.next(); // Consume the bang
-        chars.next(); // Consume one r,s,a char
-        (Some(conversion), chars.as_wtf8())
-    }
-}
-
 impl FormatConversion {
     #[must_use]
     pub fn from_char(c: CodePoint) -> Option<Self> {
@@ -60,15 +48,6 @@ impl FormatConversion {
             'a' => Some(Self::Ascii),
             _ => None,
         }
-    }
-
-    fn from_string(text: &Wtf8) -> Option<Self> {
-        let mut chars = text.code_points();
-        if chars.next()? != '!' {
-            return None;
-        }
-
-        Self::from_char(chars.next()?)
     }
 }
 
@@ -222,7 +201,6 @@ impl FormatParse for FormatType {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FormatSpec {
-    conversion: Option<FormatConversion>,
     fill: Option<CodePoint>,
     align: Option<FormatAlign>,
     align_specified: bool,
@@ -351,8 +329,6 @@ impl FormatSpec {
     }
 
     fn _parse(text: &Wtf8) -> Result<Self, FormatSpecError> {
-        // get_integer in CPython
-        let (conversion, text) = FormatConversion::parse(text);
         let (mut fill, mut align, text) = parse_fill_and_align(text);
         let align_specified = align.is_some();
         let (sign, text) = FormatSign::parse(text);
@@ -381,7 +357,6 @@ impl FormatSpec {
         }
 
         Ok(Self {
-            conversion,
             fill,
             align,
             align_specified,
@@ -835,7 +810,6 @@ impl FormatSpec {
     /// parses to. Written as a destructure so a new field cannot be forgotten here.
     fn is_empty(&self) -> bool {
         let Self {
-            conversion,
             fill,
             align,
             align_specified,
@@ -848,8 +822,7 @@ impl FormatSpec {
             frac_grouping_option,
             format_type,
         } = self;
-        conversion.is_none()
-            && fill.is_none()
+        fill.is_none()
             && align.is_none()
             && !align_specified
             && sign.is_none()
@@ -1717,7 +1690,6 @@ mod tests {
     #[test]
     fn width_only() {
         let expected = Ok(FormatSpec {
-            conversion: None,
             fill: None,
             align: None,
             align_specified: false,
@@ -1736,7 +1708,6 @@ mod tests {
     #[test]
     fn fill_and_width() {
         let expected = Ok(FormatSpec {
-            conversion: None,
             fill: Some('<'.into()),
             align: Some(FormatAlign::Right),
             align_specified: true,
@@ -1755,7 +1726,6 @@ mod tests {
     #[test]
     fn all() {
         let expected = Ok(FormatSpec {
-            conversion: None,
             fill: Some('<'.into()),
             align: Some(FormatAlign::Right),
             align_specified: true,

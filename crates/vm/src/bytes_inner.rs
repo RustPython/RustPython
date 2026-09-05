@@ -1224,7 +1224,7 @@ pub(crate) fn bytes_decode(
     };
     vm.state
         .codec_registry
-        .decode_text(zelf, encoding, errors, vm)
+        .decode_text_object(zelf, encoding, errors, vm)
 }
 
 #[derive(FromArgs)]

@@ -197,7 +197,6 @@ class ResourceTest(unittest.TestCase):
 
         resource.setrlimit(resource.RLIMIT_CPU, BadSequence())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; module 'resource' has no attribute 'getpagesize'
     def test_pagesize(self):
         pagesize = resource.getpagesize()
         self.assertIsInstance(pagesize, int)

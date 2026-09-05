@@ -126,6 +126,14 @@ mod _socket {
     #[pyattr]
     use c::SO_SETFIB;
 
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use c::{
+        IP_ADD_SOURCE_MEMBERSHIP, IP_BLOCK_SOURCE, IP_DROP_SOURCE_MEMBERSHIP, IP_PKTINFO,
+        IP_RECVTTL, IP_UNBLOCK_SOURCE, IPPROTO_MAX, IPPROTO_SCTP, MSG_NOSIGNAL,
+        TCP_CONNECTION_INFO,
+    };
+
     #[cfg(target_os = "linux")]
     #[pyattr]
     use c::{

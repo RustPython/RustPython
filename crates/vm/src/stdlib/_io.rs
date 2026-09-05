@@ -5173,10 +5173,16 @@ mod _io {
         )
     }
 
+    #[derive(FromArgs)]
+    struct OpenCodeArgs {
+        #[pyarg(any)]
+        path: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn open_code(file: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn open_code(args: OpenCodeArgs, vm: &VirtualMachine) -> PyResult {
         // TODO: lifecycle hooks or something?
-        io_open(file, Some("rb"), OpenArgs::default(), vm)
+        io_open(args.path, Some("rb"), OpenArgs::default(), vm)
     }
 
     #[derive(FromArgs)]

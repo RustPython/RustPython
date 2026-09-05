@@ -293,3 +293,4 @@ XSETREF
 xibufferview
 xstat
 XXPRIME
+ENOTCAPABLE

@@ -1217,7 +1217,7 @@ mod builtins {
     #[derive(FromArgs)]
     struct ImportArgs {
         #[pyarg(any)]
-        name: PyStrRef,
+        name: PyObjectRef,
         #[pyarg(any, default)]
         globals: Option<PyObjectRef>,
         #[allow(dead_code)]
@@ -1231,7 +1231,13 @@ mod builtins {
 
     #[pyfunction]
     fn __import__(args: ImportArgs, vm: &VirtualMachine) -> PyResult {
-        crate::import::import_module_level(&args.name, args.globals, args.fromlist, args.level, vm)
+        // The name is faulted for not being a string by the import itself,
+        // ahead of the level beside it. = PyImport_ImportModuleLevelObject
+        let name = args
+            .name
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| vm.new_type_error("module name must be a string"))?;
+        crate::import::import_module_level(name, args.globals, args.fromlist, args.level, vm)
     }
 
     #[pyfunction]

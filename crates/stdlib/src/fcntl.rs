@@ -45,9 +45,17 @@ mod fcntl {
     #[pyattr]
     use host_fcntl::{F_DUP2FD, F_DUP2FD_CLOEXEC};
 
-    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[cfg(any(target_os = "android", target_os = "linux", target_vendor = "apple"))]
     #[pyattr]
     use host_fcntl::{F_OFD_GETLK, F_OFD_SETLK, F_OFD_SETLKW};
+
+    #[cfg(not(target_os = "wasi"))]
+    #[pyattr]
+    use host_fcntl::FASYNC;
+
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use host_fcntl::{F_GETLEASE, F_GETNOSIGPIPE, F_RDAHEAD, F_SETLEASE, F_SETNOSIGPIPE};
 
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]

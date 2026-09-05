@@ -1,6 +1,7 @@
 use lexopt::Arg::*;
 use lexopt::ValueExt;
 use rustpython_vm::{Settings, vm::CheckHashPycsMode};
+use std::num::NonZeroI32;
 use std::str::FromStr;
 use std::{cmp, env};
 
@@ -262,6 +263,21 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
     }
 
+    if let Some(val) = get_env("PYTHON_CPU_COUNT") {
+        settings.cpu_count = match parse_cpu_count(val.to_str()) {
+            Ok(cpu_count) => cpu_count,
+            Err(()) => {
+                error!(
+                    "Fatal Python error: config_init_cpu_count: \
+                     -X cpu_count=n option: n is missing or an invalid number, \
+                     n must be greater than 0\n\
+                     Python runtime state: preinitialized"
+                );
+                std::process::exit(1);
+            }
+        };
+    }
+
     settings.check_hash_pycs_mode = args.check_hash_based_pycs;
 
     if let Some(val) = get_env("PYTHONUTF8")
@@ -308,6 +324,20 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
             }
             "no_sig_int" => settings.install_signal_handlers = false,
             "no_debug_ranges" => settings.code_debug_ranges = false,
+            "cpu_count" => {
+                settings.cpu_count = match parse_cpu_count(value) {
+                    Ok(cpu_count) => cpu_count,
+                    Err(()) => {
+                        error!(
+                            "Fatal Python error: config_init_cpu_count: \
+                             -X cpu_count=n option: n is missing or an invalid \
+                             number, n must be greater than 0\n\
+                             Python runtime state: preinitialized"
+                        );
+                        std::process::exit(1);
+                    }
+                };
+            }
             "int_max_str_digits" => {
                 settings.int_max_str_digits = match value.unwrap().parse() {
                     Ok(digits) if digits == 0 || digits >= 640 => digits,
@@ -440,7 +470,23 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     Ok((settings, mode))
 }
 
-/// Helper function to retrieve a sequence of paths from an environment variable.
+/// `-X cpu_count` / `PYTHON_CPU_COUNT`: a count above zero, or `"default"`.
+/// `Ok(None)` leaves the count to the host. Zero, negatives, and values above
+/// `i32::MAX` are rejected.
+/// = config_init_cpu_count
+fn parse_cpu_count(value: Option<&str>) -> Result<Option<NonZeroI32>, ()> {
+    match value {
+        None => Err(()),
+        Some("default") => Ok(None),
+        Some(number) => number
+            .parse()
+            .ok()
+            .filter(|count: &NonZeroI32| count.get() > 0)
+            .map(Some)
+            .ok_or(()),
+    }
+}
+
 fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
     env::var_os(env_variable_name)
         .filter(|v| !v.is_empty())

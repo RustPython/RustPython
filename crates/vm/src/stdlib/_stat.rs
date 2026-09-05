@@ -7,6 +7,11 @@ mod _stat {
     #[cfg(windows)]
     use rustpython_host_env::nt as host_nt;
 
+    use malachite_bigint::Sign;
+    use num_traits::ToPrimitive;
+
+    use crate::{PyObjectRef, PyResult, VirtualMachine, convert::TryFromObject};
+
     // Use libc::mode_t for Mode to match the system's definition
     #[cfg(unix)]
     type Mode = libc::mode_t;
@@ -326,7 +331,16 @@ mod _stat {
     };
 
     #[pyattr]
+    pub const UF_SETTABLE: u32 = 0x0000ffff;
+
+    #[pyattr]
     pub const UF_NOUNLINK: u32 = 0x00000010;
+
+    #[pyattr]
+    pub const UF_TRACKED: u32 = 0x00000040;
+
+    #[pyattr]
+    pub const UF_DATAVAULT: u32 = 0x00000080;
 
     #[pyattr]
     pub const SF_NOUNLINK: u32 = 0x00100000;
@@ -382,88 +396,111 @@ mod _stat {
     #[pyattr]
     pub const ST_CTIME: u32 = 9;
 
+    /// The mode an argument stands for, which is read as an unsigned long and
+    /// then measured against the range a mode has. = mode_converter
+    #[derive(Copy, Clone)]
+    struct ModeArg(Mode);
+
+    impl TryFromObject for ModeArg {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let index = obj.try_index(vm)?;
+            let value = index.as_bigint();
+            // = PyLong_AsUnsignedLong
+            if value.sign() == Sign::Minus {
+                return Err(vm.new_overflow_error("can't convert negative value to unsigned int"));
+            }
+            let value = value.to_u64().ok_or_else(|| {
+                vm.new_overflow_error("Python int too large to convert to C unsigned long")
+            })?;
+            Mode::try_from(value)
+                .map(Self)
+                .map_err(|_| vm.new_overflow_error("mode out of range"))
+        }
+    }
+
     const S_IFMT: Mode = 0o170000;
 
     const S_IMODE: Mode = 0o7777;
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISDIR(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFDIR
+    const fn S_ISDIR(mode: ModeArg) -> bool {
+        (mode.0 & S_IFMT) == S_IFDIR
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISCHR(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFCHR
+    const fn S_ISCHR(mode: ModeArg) -> bool {
+        (mode.0 & S_IFMT) == S_IFCHR
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISREG(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFREG
+    const fn S_ISREG(mode: ModeArg) -> bool {
+        (mode.0 & S_IFMT) == S_IFREG
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISBLK(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFBLK
+    const fn S_ISBLK(mode: ModeArg) -> bool {
+        (mode.0 & S_IFMT) == S_IFBLK
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISFIFO(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFIFO
+    const fn S_ISFIFO(mode: ModeArg) -> bool {
+        (mode.0 & S_IFMT) == S_IFIFO
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISLNK(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFLNK
+    const fn S_ISLNK(mode: ModeArg) -> bool {
+        (mode.0 & S_IFMT) == S_IFLNK
     }
 
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISSOCK(mode: Mode) -> bool {
-        (mode & S_IFMT) == S_IFSOCK
+    const fn S_ISSOCK(mode: ModeArg) -> bool {
+        (mode.0 & S_IFMT) == S_IFSOCK
     }
 
     // TODO: RUSTPYTHON Support Solaris
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISDOOR(_mode: Mode) -> bool {
+    const fn S_ISDOOR(_mode: ModeArg) -> bool {
         false
     }
 
     // TODO: RUSTPYTHON Support Solaris
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISPORT(_mode: Mode) -> bool {
+    const fn S_ISPORT(_mode: ModeArg) -> bool {
         false
     }
 
     // TODO: RUSTPYTHON Support BSD
     #[pyfunction]
     #[allow(non_snake_case)]
-    const fn S_ISWHT(_mode: Mode) -> bool {
+    const fn S_ISWHT(_mode: ModeArg) -> bool {
         false
     }
 
     #[pyfunction(name = "S_IMODE")]
     #[allow(non_snake_case)]
-    const fn S_IMODE_method(mode: Mode) -> Mode {
-        mode & S_IMODE
+    const fn S_IMODE_method(mode: ModeArg) -> Mode {
+        mode.0 & S_IMODE
     }
 
     #[pyfunction(name = "S_IFMT")]
     #[allow(non_snake_case)]
-    const fn S_IFMT_method(mode: Mode) -> Mode {
+    const fn S_IFMT_method(mode: ModeArg) -> Mode {
         // 0o170000 is from the S_IFMT definition in CPython include/fileutils.h
-        mode & S_IFMT
+        mode.0 & S_IFMT
     }
 
-    #[pyfunction]
-    const fn filetype(mode: Mode) -> char {
+    /// The one character a mode's file type is written as, which the module
+    /// keeps to itself.
+    const fn filetype(mode: ModeArg) -> char {
         if S_ISREG(mode) {
             '-'
         } else if S_ISDIR(mode) {
@@ -491,37 +528,37 @@ mod _stat {
 
     // Convert file mode to string representation
     #[pyfunction]
-    fn filemode(mode: Mode) -> String {
+    fn filemode(mode: ModeArg) -> String {
         let mut result = String::with_capacity(10);
 
         // File type
         result.push(filetype(mode));
 
         // User permissions
-        result.push(if mode & S_IRUSR != 0 { 'r' } else { '-' });
-        result.push(if mode & S_IWUSR != 0 { 'w' } else { '-' });
-        if mode & S_ISUID != 0 {
-            result.push(if mode & S_IXUSR != 0 { 's' } else { 'S' });
+        result.push(if mode.0 & S_IRUSR != 0 { 'r' } else { '-' });
+        result.push(if mode.0 & S_IWUSR != 0 { 'w' } else { '-' });
+        if mode.0 & S_ISUID != 0 {
+            result.push(if mode.0 & S_IXUSR != 0 { 's' } else { 'S' });
         } else {
-            result.push(if mode & S_IXUSR != 0 { 'x' } else { '-' });
+            result.push(if mode.0 & S_IXUSR != 0 { 'x' } else { '-' });
         }
 
         // Group permissions
-        result.push(if mode & S_IRGRP != 0 { 'r' } else { '-' });
-        result.push(if mode & S_IWGRP != 0 { 'w' } else { '-' });
-        if mode & S_ISGID != 0 {
-            result.push(if mode & S_IXGRP != 0 { 's' } else { 'S' });
+        result.push(if mode.0 & S_IRGRP != 0 { 'r' } else { '-' });
+        result.push(if mode.0 & S_IWGRP != 0 { 'w' } else { '-' });
+        if mode.0 & S_ISGID != 0 {
+            result.push(if mode.0 & S_IXGRP != 0 { 's' } else { 'S' });
         } else {
-            result.push(if mode & S_IXGRP != 0 { 'x' } else { '-' });
+            result.push(if mode.0 & S_IXGRP != 0 { 'x' } else { '-' });
         }
 
         // Other permissions
-        result.push(if mode & S_IROTH != 0 { 'r' } else { '-' });
-        result.push(if mode & S_IWOTH != 0 { 'w' } else { '-' });
-        if mode & S_ISVTX != 0 {
-            result.push(if mode & S_IXOTH != 0 { 't' } else { 'T' });
+        result.push(if mode.0 & S_IROTH != 0 { 'r' } else { '-' });
+        result.push(if mode.0 & S_IWOTH != 0 { 'w' } else { '-' });
+        if mode.0 & S_ISVTX != 0 {
+            result.push(if mode.0 & S_IXOTH != 0 { 't' } else { 'T' });
         } else {
-            result.push(if mode & S_IXOTH != 0 { 'x' } else { '-' });
+            result.push(if mode.0 & S_IXOTH != 0 { 'x' } else { '-' });
         }
 
         result
