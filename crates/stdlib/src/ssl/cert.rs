@@ -228,45 +228,6 @@ fn normalize_wildcard_hostname(hostname: &str) -> &str {
     hostname.strip_prefix("*.").unwrap_or(hostname)
 }
 
-/// Process Subject Alternative Name (SAN) general names into Python tuples
-///
-/// Converts X.509 GeneralName entries into Python tuple format.
-/// Returns a vector of PyObjectRef tuples in the format: (type, value)
-fn process_san_general_names(
-    vm: &VirtualMachine,
-    general_names: &[GeneralName<'_>],
-) -> Vec<PyObjectRef> {
-    general_names
-        .iter()
-        .filter_map(|name| match name {
-            GeneralName::DNSName(dns) => Some(vm.new_tuple(("DNS", *dns)).into()),
-            GeneralName::IPAddress(ip) => {
-                let ip_str = format_ip_address(ip);
-                Some(vm.new_tuple(("IP Address", ip_str)).into())
-            }
-            GeneralName::RFC822Name(email) => Some(vm.new_tuple(("email", *email)).into()),
-            GeneralName::URI(uri) => Some(vm.new_tuple(("URI", *uri)).into()),
-            GeneralName::DirectoryName(dn) => {
-                let dn_str = format!("{dn}");
-                Some(vm.new_tuple(("DirName", dn_str)).into())
-            }
-            GeneralName::RegisteredID(oid) => {
-                let oid_str = oid.to_string();
-                Some(vm.new_tuple(("Registered ID", oid_str)).into())
-            }
-            GeneralName::OtherName(oid, value) => {
-                let oid_str = oid.to_string();
-                let value_str = format!("{value:?}");
-                Some(
-                    vm.new_tuple(("othername", format!("{oid_str}:{value_str}")))
-                        .into(),
-                )
-            }
-            _ => None,
-        })
-        .collect()
-}
-
 // Certificate Validation and Parsing
 
 /// Check if a certificate is a CA certificate by examining the Basic Constraints extension
@@ -294,87 +255,10 @@ pub(super) fn is_ca_certificate(cert_der: &[u8]) -> bool {
     cert.version().0 == 0 && cert.subject() == cert.issuer()
 }
 
-/// Convert an X509Name to Python nested tuple format for SSL certificate dicts
+/// Convert DER-encoded certificate to Python dict.
 ///
-/// Format: ((('CN', 'example.com'),), (('O', 'Example Org'),), ...)
-fn name_to_py(vm: &VirtualMachine, name: &x509_parser::x509::X509Name<'_>) -> PyObjectRef {
-    let list = name
-        .iter()
-        .flat_map(|rdn| {
-            // Each RDN can have multiple attributes
-            rdn.iter()
-                .map(|attr| {
-                    let oid_str = attr.attr_type().to_id_string();
-                    let value_str = attr.attr_value().as_str().unwrap_or("").to_string();
-                    let key = oid_to_attribute_name(&oid_str);
-
-                    vm.new_tuple((vm.new_tuple((vm.ctx.new_str(key), vm.ctx.new_str(value_str))),))
-                        .into()
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<PyObjectRef>>();
-
-    vm.ctx.new_tuple(list).into()
-}
-
-/// Convert DER-encoded certificate to Python dict (for getpeercert with binary_form=False)
-///
-/// Returns a dict with fields: subject, issuer, version, serialNumber,
-/// notBefore, notAfter, subjectAltName (if present)
-pub(super) fn cert_to_dict(
-    vm: &VirtualMachine,
-    cert: &x509_parser::certificate::X509Certificate<'_>,
-) -> PyResult {
-    let dict = vm.ctx.new_dict();
-
-    // Subject and Issuer
-    dict.set_item("subject", name_to_py(vm, cert.subject()), vm)?;
-    dict.set_item("issuer", name_to_py(vm, cert.issuer()), vm)?;
-
-    // Version (X.509 v3 = version 2 in the cert, but Python uses 3)
-    dict.set_item(
-        "version",
-        vm.ctx.new_int(cert.version().0 as i32 + 1).into(),
-        vm,
-    )?;
-
-    // Serial number - hex format with even length
-    let serial = format_serial_number(&cert.serial);
-    dict.set_item("serialNumber", vm.ctx.new_str(serial).into(), vm)?;
-
-    // Validity dates - format with GMT using jiff
-    dict.set_item(
-        "notBefore",
-        vm.ctx
-            .new_str(format_asn1_time(&cert.validity().not_before))
-            .into(),
-        vm,
-    )?;
-    dict.set_item(
-        "notAfter",
-        vm.ctx
-            .new_str(format_asn1_time(&cert.validity().not_after))
-            .into(),
-        vm,
-    )?;
-
-    // Subject Alternative Names (if present)
-    if let Ok(Some(san_ext)) = cert.subject_alternative_name() {
-        let san_list = process_san_general_names(vm, &san_ext.value.general_names);
-
-        if !san_list.is_empty() {
-            dict.set_item("subjectAltName", vm.ctx.new_tuple(san_list).into(), vm)?;
-        }
-    }
-
-    Ok(dict.into())
-}
-
-/// Convert DER-encoded certificate to Python dict (for get_ca_certs)
-///
-/// Similar to cert_to_dict but includes additional fields like crlDistributionPoints
-/// and uses CPython's specific ordering: issuer, notAfter, notBefore, serialNumber, subject, version
+/// Includes OCSP, caIssuers, and crlDistributionPoints when present, and uses
+/// the field order: issuer, notAfter, notBefore, serialNumber, subject, version
 pub(super) fn cert_der_to_dict_helper(
     vm: &VirtualMachine,
     cert_der: &[u8],

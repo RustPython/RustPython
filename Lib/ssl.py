@@ -268,6 +268,9 @@ import warnings
 socket_error = OSError  # keep that public name in module namespace
 
 CHANNEL_BINDING_TYPES = ['tls-unique']
+# TODO: RUSTPYTHON; rustls does not expose TLS Finished messages
+if "rustls" in OPENSSL_VERSION:
+    CHANNEL_BINDING_TYPES = []
 
 HAS_NEVER_CHECK_COMMON_NAME = hasattr(_ssl, 'HOSTFLAG_NEVER_CHECK_SUBJECT')
 
