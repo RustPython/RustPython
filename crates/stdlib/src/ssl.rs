@@ -30,6 +30,8 @@ mod compat;
 // SSL exception types (shared with openssl backend)
 mod error;
 
+mod keylog;
+
 // Utilities for setting a Rustls cryptography provider.
 pub mod providers;
 
@@ -54,7 +56,8 @@ mod _ssl {
             },
             convert::IntoPyException,
             function::{
-                ArgBytesLike, ArgMemoryBuffer, Either, FuncArgs, OptionalArg, PyComparisonValue,
+                ArgBytesLike, ArgMemoryBuffer, Either, FsPath, FuncArgs, OptionalArg,
+                PyComparisonValue, PySetterValue,
             },
             stdlib::_warnings,
             types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -732,6 +735,9 @@ mod _ssl {
         sni_callback: PyRwLock<Option<PyObjectRef>>,
         // Message callback for debugging (contains PyObjectRef - needs GC tracking)
         msg_callback: PyRwLock<Option<PyObjectRef>>,
+        keylog_filename: PyRwLock<Option<PyObjectRef>>,
+        #[pytraverse(skip)]
+        key_log: Arc<super::keylog::KeyLog>,
         // ECDH curve name for key exchange
         #[pytraverse(skip)]
         ecdh_curve: PyRwLock<Option<String>>,
@@ -1697,6 +1703,42 @@ mod _ssl {
             self.msg_callback.read().clone()
         }
 
+        #[pygetset]
+        fn keylog_filename(&self) -> Option<PyObjectRef> {
+            self.keylog_filename.read().clone()
+        }
+
+        #[pygetset(setter)]
+        fn set_keylog_filename(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_attribute_error("attribute 'keylog_filename' cannot be deleted"));
+            };
+            // CPython disables the old destination even if path conversion or
+            // opening the replacement fails. Retain the original Python object
+            // (including PathLike and str subclasses) for the getter and GC.
+            let old_filename = self.keylog_filename.write().take();
+            self.key_log
+                .0
+                .set_path(None, super::keylog::HEADER)
+                .map_err(|e| e.into_pyexception(vm))?;
+            drop(old_filename);
+            if vm.is_none(&value) {
+                return Ok(());
+            }
+            let path = FsPath::try_from_object(vm, value.clone())?.to_path_buf(vm)?;
+            self.key_log
+                .0
+                .set_path(Some(&path), super::keylog::HEADER)
+                .map_err(|e| {
+                    let exc = e.into_pyexception(vm);
+                    let _ = exc.as_object().set_attr("filename", value.clone(), vm);
+                    exc
+                })?;
+            let old_filename = self.keylog_filename.write().replace(value);
+            drop(old_filename);
+            Ok(())
+        }
+
         #[pygetset(setter)]
         fn set__msg_callback(
             &self,
@@ -1886,6 +1928,7 @@ mod _ssl {
                     .ctx
                     .new_bytearray(Vec::with_capacity(TLS_RECORD_HEADER_SIZE))
                     .into(),
+                key_log: Arc::new(super::keylog::ConnectionKeyLog::new(zelf.key_log.clone())),
                 context: PyRwLock::new(zelf),
                 server_side: args.server_side,
                 server_hostname: PyRwLock::new(hostname),
@@ -1980,6 +2023,7 @@ mod _ssl {
                     .ctx
                     .new_bytearray(Vec::with_capacity(TLS_RECORD_HEADER_SIZE))
                     .into(),
+                key_log: Arc::new(super::keylog::ConnectionKeyLog::new(zelf.key_log.clone())),
                 context: PyRwLock::new(zelf),
                 server_side,
                 server_hostname: PyRwLock::new(hostname),
@@ -2299,6 +2343,8 @@ mod _ssl {
                 maximum_version: PyRwLock::new(max_version),
                 sni_callback: PyRwLock::new(None),
                 msg_callback: PyRwLock::new(None),
+                keylog_filename: PyRwLock::new(None),
+                key_log: Arc::new(super::keylog::KeyLog::default()),
                 ecdh_curve: PyRwLock::new(None),
                 ca_cert_count: PyRwLock::new(0),
                 x509_cert_count: PyRwLock::new(0),
@@ -2335,6 +2381,8 @@ mod _ssl {
         tls_record_header_buf: PyObjectRef,
         // SSL context
         context: PyRwLock<PyRef<PySSLContext>>,
+        #[pytraverse(skip)]
+        key_log: Arc<super::keylog::ConnectionKeyLog>,
         // Server-side or client-side
         #[pytraverse(skip)]
         server_side: bool,
@@ -3382,7 +3430,7 @@ mod _ssl {
             };
             drop(ctx);
 
-            let (config_arc, chain_builder) = if let Some(cached) = cached_config_arc {
+            let (mut config_arc, chain_builder) = if let Some(cached) = cached_config_arc {
                 cached
             } else {
                 let config =
@@ -3396,6 +3444,13 @@ mod _ssl {
                 config
             };
             *self.chain_builder.write() = Some(chain_builder);
+
+            // The first SNI connection only extracts ClientHello and is
+            // discarded after the callback. Log only the real handshake.
+            // Keep connection-specific routing out of the cached config.
+            if !use_sni_resolver || !self.is_first_sni_read() {
+                Arc::make_mut(&mut config_arc).key_log = self.key_log.clone();
+            }
 
             let conn = ServerConnection::new(config_arc).map_err(|e| {
                 vm.new_value_error(format!("Failed to create server connection: {e}"))
@@ -3439,6 +3494,7 @@ mod _ssl {
                 // Check for pending context change (from SNI callback)
                 let pending_context = self.pending_context.write().take();
                 if let Some(new_ctx) = pending_context {
+                    self.key_log.set_sink(new_ctx.key_log.clone());
                     *self.context.write() = new_ctx;
                 }
 
@@ -3500,7 +3556,7 @@ mod _ssl {
 
                     let explicit_session = self.session.read().clone();
                     let session_store = Arc::new(PythonClientSessionStore::new(session_cache));
-                    let (config, chain_builder) = if let Some(session) = explicit_session {
+                    let (mut config, chain_builder) = if let Some(session) = explicit_session {
                         let session = session
                             .downcast_ref::<PySSLSession>()
                             .ok_or_else(|| vm.new_type_error("Value is not a SSLSession."))?;
@@ -3539,6 +3595,7 @@ mod _ssl {
                         };
                         create_client_config(config_options).map_err(|e| vm.new_value_error(e))?
                     };
+                    Arc::make_mut(&mut config).key_log = self.key_log.clone();
 
                     *self.chain_builder.write() = Some(chain_builder);
                     *self.client_config.write() = Some(config.clone());
@@ -4002,6 +4059,7 @@ mod _ssl {
 
         #[pygetset(setter)]
         fn set_context(&self, value: PyRef<PySSLContext>, _vm: &VirtualMachine) {
+            self.key_log.set_sink(value.key_log.clone());
             // Update context reference immediately
             // SSL_set_SSL_CTX allows context changes at any time,
             // even after handshake completion
