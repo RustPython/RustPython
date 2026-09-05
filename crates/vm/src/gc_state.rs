@@ -361,7 +361,7 @@ impl GcState {
     /// stays correct, rather than aliasing a live interpreter.
     fn alloc_owner(&self) -> GcOwner {
         self.next_owner
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
                 next.checked_add(1)
             })
             .unwrap_or(GC_NO_OWNER)
@@ -1172,7 +1172,7 @@ impl GcState {
                 unsafe { ptr.as_ref().set_gc_generation(2) };
                 count += 1;
             }
-            let _ = self.permanent_count.fetch_update(
+            let _ = self.permanent_count.try_update(
                 Ordering::Relaxed,
                 Ordering::Relaxed,
                 |permanent| Some(permanent.saturating_sub(count)),
