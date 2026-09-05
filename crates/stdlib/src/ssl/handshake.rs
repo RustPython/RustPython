@@ -6,44 +6,45 @@ use rustpython_vm::{
 };
 
 /// Server configuration is selected only after receiving ClientHello and
-/// invoking SNI. A rejected handshake stays terminal while its alert drains.
-pub(super) enum HandshakeState {
-    WaitingForClientHello(Acceptor),
-    CallingSni,
+/// invoking SNI. A failed connection stays terminal while its alert drains.
+/// ShuttingDown means our close_notify is queued and must not be sent twice.
+pub(super) enum TlsState {
+    WaitingForClientHello(Box<Acceptor>),
+    InProgress,
     Handshaking,
     Connected,
-    SendingAlert {
-        error: PyBaseExceptionRef,
-        bytes: Vec<u8>,
-        sent: usize,
-    },
+    ShuttingDown,
+    ShutDown,
+    SendingAlert { error: PyBaseExceptionRef },
 }
 
-impl HandshakeState {
+impl TlsState {
     pub(super) fn new(server_side: bool) -> Self {
         if server_side {
-            Self::WaitingForClientHello(Acceptor::default())
+            Self::WaitingForClientHello(Box::default())
         } else {
             Self::Handshaking
         }
     }
 }
 
-impl fmt::Debug for HandshakeState {
+impl fmt::Debug for TlsState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::WaitingForClientHello(_) => "WaitingForClientHello",
-            Self::CallingSni => "CallingSni",
+            Self::InProgress => "InProgress",
             Self::Handshaking => "Handshaking",
             Self::Connected => "Connected",
+            Self::ShuttingDown => "ShuttingDown",
+            Self::ShutDown => "ShutDown",
             Self::SendingAlert { .. } => "SendingAlert",
         })
     }
 }
 
-// Only the saved Python exception can contain GC references. Acceptor and the
-// encoded TLS alert contain Rust-owned protocol data.
-unsafe impl Traverse for HandshakeState {
+// Only the saved Python exception can contain GC references. Acceptor contains
+// Rust-owned protocol data; encoded alerts use the shared pending output queue.
+unsafe impl Traverse for TlsState {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         if let Self::SendingAlert { error, .. } = self {
             error.traverse(tracer_fn);

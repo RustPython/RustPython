@@ -201,6 +201,8 @@ pub(super) enum SslError {
     Timeout(String),
     /// Python exception (pass through directly)
     Py(PyBaseExceptionRef),
+    /// Preserve the TLS error until the Python exception boundary.
+    Rustls(rustls::Error),
     /// TLS alert received with OpenSSL-compatible error code
     AlertReceived { lib: i32, reason: i32 },
     /// NO_SHARED_CIPHER error (OpenSSL SSL_R_NO_SHARED_CIPHER)
@@ -217,6 +219,28 @@ impl SslError {
 
     /// Convert rustls error to SslError
     pub(super) fn from_rustls(err: rustls::Error) -> Self {
+        Self::Rustls(err)
+    }
+
+    pub(super) fn is_eof(&self) -> bool {
+        match self {
+            Self::Rustls(error) => matches!(Self::map_rustls(error.clone()), Self::Eof),
+            Self::Eof => true,
+            _ => false,
+        }
+    }
+
+    pub(super) fn is_zero_return(&self) -> bool {
+        matches!(
+            self,
+            Self::ZeroReturn
+                | Self::Rustls(rustls::Error::AlertReceived(
+                    rustls::AlertDescription::CloseNotify
+                ))
+        )
+    }
+
+    fn map_rustls(err: rustls::Error) -> Self {
         match err {
             rustls::Error::InvalidCertificate(cert_err) => Self::CertVerification(cert_err),
             rustls::Error::AlertReceived(alert_desc) => {
@@ -346,6 +370,7 @@ impl SslError {
     /// Convert to Python exception
     pub(super) fn into_py_err(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
+            Self::Rustls(error) => Self::map_rustls(error).into_py_err(vm),
             Self::WantRead => create_ssl_want_read_error(vm).upcast(),
             Self::WantWrite => create_ssl_want_write_error(vm).upcast(),
             Self::Timeout(msg) => timeout_error_msg(vm, msg).upcast(),
@@ -931,7 +956,7 @@ fn handshake_write_loop(
 /// Fix: peek at the TCP buffer to find the first complete TLS record boundary
 /// and recv() only that many bytes.  Any remaining data stays in the kernel
 /// buffer and remains visible to select().
-fn recv_at_most_one_tls_record(
+pub(super) fn recv_at_most_one_tls_record(
     socket: &PySSLSocket,
     vm: &VirtualMachine,
 ) -> SslResult<PyObjectRef> {
@@ -1047,13 +1072,6 @@ pub(super) fn ssl_do_handshake(
         }
         handshake_read_data(conn, socket, vm)?;
         if let Err(error) = conn.process_new_packets() {
-            // Preserve the existing socket error path until the caller owns
-            // fatal-alert draining as a lifecycle state.
-            if !socket.is_bio_mode() {
-                if let Ok(bytes) = ssl_write_tls_records(conn) {
-                    let _ = send_all_bytes(socket, bytes, vm, None);
-                }
-            }
             return Err(if matches!(error, rustls::Error::InvalidMessage(_)) {
                 SslError::PreauthData
             } else {
@@ -1454,7 +1472,7 @@ fn ssl_write_tls_records(conn: &mut Connection) -> SslResult<Vec<u8>> {
 }
 
 /// Read TLS records from socket to rustls
-fn ssl_read_tls_records(
+pub(super) fn ssl_read_tls_records(
     conn: &mut Connection,
     data: PyObjectRef,
     is_bio: bool,

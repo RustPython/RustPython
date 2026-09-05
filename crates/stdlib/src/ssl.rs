@@ -67,8 +67,8 @@ mod _ssl {
 
     // Import error types used in this module (others are exposed via pymodule(with(...)))
     use super::error::{
-        PySSLError, create_ssl_eof_error, create_ssl_want_read_error, create_ssl_want_write_error,
-        create_ssl_zero_return_error,
+        PySSLError, PySSLWantReadError, PySSLWantWriteError, create_ssl_eof_error,
+        create_ssl_want_read_error, create_ssl_want_write_error, create_ssl_zero_return_error,
     };
     use alloc::sync::Arc;
     use core::{
@@ -114,7 +114,7 @@ mod _ssl {
         ssl_do_handshake,
     };
 
-    use super::handshake::HandshakeState;
+    use super::handshake::TlsState;
     use super::providers::CryptoExt;
 
     // Type aliases for better readability
@@ -1910,7 +1910,7 @@ mod _ssl {
                 server_side: args.server_side,
                 server_hostname: PyRwLock::new(hostname),
                 connection: PyMutex::new(None),
-                handshake_state: PyMutex::new(HandshakeState::new(args.server_side)),
+                state: PyMutex::new(TlsState::new(args.server_side)),
                 session_was_reused: PyMutex::new(false),
                 owner: PyRwLock::new(
                     args.owner
@@ -1923,7 +1923,6 @@ mod _ssl {
                 chain_builder: PyRwLock::new(None),
                 verified_chain: PyRwLock::new(None),
                 client_session_store: PyRwLock::new(None),
-                shutdown_state: PyMutex::new(ShutdownState::NotStarted),
                 pending_tls_output: PyMutex::new(Vec::new()),
                 write_buffered_len: PyMutex::new(0),
                 deferred_cert_error: Arc::new(ParkingRwLock::new(None)),
@@ -1999,7 +1998,7 @@ mod _ssl {
                 server_side,
                 server_hostname: PyRwLock::new(hostname),
                 connection: PyMutex::new(None),
-                handshake_state: PyMutex::new(HandshakeState::new(server_side)),
+                state: PyMutex::new(TlsState::new(server_side)),
                 session_was_reused: PyMutex::new(false),
                 owner: PyRwLock::new(
                     args.owner
@@ -2012,7 +2011,6 @@ mod _ssl {
                 chain_builder: PyRwLock::new(None),
                 verified_chain: PyRwLock::new(None),
                 client_session_store: PyRwLock::new(None),
-                shutdown_state: PyMutex::new(ShutdownState::NotStarted),
                 pending_tls_output: PyMutex::new(Vec::new()),
                 write_buffered_len: PyMutex::new(0),
                 deferred_cert_error: Arc::new(ParkingRwLock::new(None)),
@@ -2413,7 +2411,7 @@ mod _ssl {
         #[pytraverse(skip)]
         connection: PyMutex<Option<Connection>>,
         // Includes the saved exception while a rejected handshake sends its alert.
-        handshake_state: PyMutex<HandshakeState>,
+        state: PyMutex<TlsState>,
         // Session was reused (for session resumption tracking)
         #[pytraverse(skip)]
         session_was_reused: PyMutex<bool>,
@@ -2432,9 +2430,6 @@ mod _ssl {
         // Per-connection store containing the session selected by this connection.
         #[pytraverse(skip)]
         client_session_store: PyRwLock<Option<Arc<PythonClientSessionStore>>>,
-        // Shutdown state for tracking close-notify exchange
-        #[pytraverse(skip)]
-        shutdown_state: PyMutex<ShutdownState>,
         // Pending TLS output buffer for non-blocking sockets
         // Stores unsent TLS bytes when sock_send() would block
         // This prevents data loss when write_tls() drains rustls' internal buffer
@@ -2451,14 +2446,6 @@ mod _ssl {
         // Using Arc to share with the certificate verifier
         #[pytraverse(skip)]
         deferred_cert_error: Arc<ParkingRwLock<Option<String>>>,
-    }
-
-    // Shutdown state for tracking close-notify exchange
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    enum ShutdownState {
-        NotStarted,      // unwrap() not called yet
-        SentCloseNotify, // close-notify sent, waiting for peer's response
-        Completed,       // unwrap() completed successfully
     }
 
     /// TLS record header size (content_type + version + length).
@@ -2659,7 +2646,7 @@ mod _ssl {
         }
 
         fn complete_handshake(&self, vm: &VirtualMachine) {
-            *self.handshake_state.lock() = HandshakeState::Connected;
+            *self.state.lock() = TlsState::Connected;
 
             // Check if session was resumed - get value and release lock immediately
             let was_resumed = self
@@ -2745,15 +2732,15 @@ mod _ssl {
         }
 
         fn handshake_completed(&self) -> bool {
-            matches!(*self.handshake_state.lock(), HandshakeState::Connected)
+            matches!(
+                *self.state.lock(),
+                TlsState::Connected | TlsState::ShuttingDown | TlsState::ShutDown
+            )
         }
 
-        fn reject_handshake(&self, error: PyBaseExceptionRef, bytes: Vec<u8>) {
-            *self.handshake_state.lock() = HandshakeState::SendingAlert {
-                error,
-                bytes,
-                sent: 0,
-            };
+        fn reject_connection(&self, error: PyBaseExceptionRef, bytes: Vec<u8>) {
+            self.pending_tls_output.lock().extend_from_slice(&bytes);
+            *self.state.lock() = TlsState::SendingAlert { error };
         }
 
         /// Receive ClientHello and select the context before rustls can generate
@@ -2762,19 +2749,16 @@ mod _ssl {
             loop {
                 // Never hold the state lock across Python callbacks or I/O.
                 // Reentrant handshake calls see an in-progress operation.
-                let state = core::mem::replace(
-                    &mut *self.handshake_state.lock(),
-                    HandshakeState::CallingSni,
-                );
+                let state = core::mem::replace(&mut *self.state.lock(), TlsState::InProgress);
                 match state {
-                    HandshakeState::WaitingForClientHello(mut acceptor) => {
+                    TlsState::WaitingForClientHello(mut acceptor) => {
                         match acceptor.accept() {
                             Ok(Some(accepted)) => {
                                 let name = accepted.client_hello().server_name().map(str::to_owned);
                                 if let Err((description, error)) =
                                     self.invoke_sni_callback(name.as_deref(), vm)
                                 {
-                                    self.reject_handshake(
+                                    self.reject_connection(
                                         error,
                                         super::handshake::sni_alert(description),
                                     );
@@ -2791,7 +2775,7 @@ mod _ssl {
                                 } else {
                                     SslError::from_rustls(error)
                                 };
-                                self.reject_handshake(error.into_py_err(vm), bytes);
+                                self.reject_connection(error.into_py_err(vm), bytes);
                                 continue;
                             }
                             Ok(None) => {}
@@ -2826,56 +2810,25 @@ mod _ssl {
                                 .map_err(|e| e.into_pyexception(vm))?;
                             Ok(())
                         })();
-                        *self.handshake_state.lock() =
-                            HandshakeState::WaitingForClientHello(acceptor);
+                        *self.state.lock() = TlsState::WaitingForClientHello(acceptor);
                         read?;
                     }
-                    HandshakeState::SendingAlert {
-                        error,
-                        bytes,
-                        mut sent,
-                    } => {
-                        let write = (|| {
-                            if sent == bytes.len() {
-                                return Ok(());
-                            }
-                            if self.sock_wait_for_io_impl(SockWaitKind::Write, vm)? {
-                                return Err(timeout_error_msg(
-                                    vm,
-                                    "The handshake operation timed out".to_owned(),
-                                )
-                                .upcast());
-                            }
-                            let result = self.sock_send(&bytes[sent..], vm).map_err(|e| {
-                                if is_blocking_io_error(&e, vm) {
-                                    create_ssl_want_write_error(vm).upcast()
-                                } else {
-                                    e
-                                }
-                            })?;
-                            let count = result.try_to_value::<usize>(vm)?;
-                            if count == 0 {
-                                return Err(create_ssl_want_write_error(vm).upcast());
-                            }
-                            sent += count;
-                            Ok(())
-                        })();
-                        let done = sent == bytes.len();
-                        *self.handshake_state.lock() = HandshakeState::SendingAlert {
+                    TlsState::SendingAlert { error } => {
+                        let result = self.flush_pending_tls_output(vm, None);
+                        *self.state.lock() = TlsState::SendingAlert {
                             error: error.clone(),
-                            bytes,
-                            sent,
                         };
-                        write?;
-                        if done {
-                            return Err(error);
-                        }
+                        result?;
+                        return Err(error);
                     }
-                    state @ (HandshakeState::Handshaking | HandshakeState::Connected) => {
-                        *self.handshake_state.lock() = state;
+                    state @ (TlsState::Handshaking
+                    | TlsState::Connected
+                    | TlsState::ShuttingDown
+                    | TlsState::ShutDown) => {
+                        *self.state.lock() = state;
                         return Ok(None);
                     }
-                    HandshakeState::CallingSni => {
+                    TlsState::InProgress => {
                         return Err(vm.new_value_error("handshake already in progress"));
                     }
                 }
@@ -3051,15 +3004,6 @@ mod _ssl {
                 pending.drain(..count);
             }
             Ok(())
-        }
-
-        /// Queue TLS output through the same partial-write path used by data I/O.
-        fn send_tls_output(&self, buf: Vec<u8>, vm: &VirtualMachine) -> PyResult<()> {
-            super::compat::send_all_bytes(self, buf, vm, None).map_err(|e| e.into_py_err(vm))
-        }
-
-        pub(crate) fn blocking_flush_all_pending(&self, vm: &VirtualMachine) -> PyResult<()> {
-            self.flush_pending_tls_output(vm, None)
         }
 
         // Helper function to convert Python PROTO_* constants to rustls versions
@@ -3296,14 +3240,14 @@ mod _ssl {
             match accepted.into_connection(config_arc) {
                 Ok(conn) => {
                     *conn_guard = Some(Connection::Server(conn));
-                    *self.handshake_state.lock() = HandshakeState::Handshaking;
+                    *self.state.lock() = TlsState::Handshaking;
                 }
                 Err((error, mut alert)) => {
                     let mut bytes = Vec::new();
                     alert
                         .write_all(&mut bytes)
                         .map_err(|e| e.into_pyexception(vm))?;
-                    self.reject_handshake(SslError::from_rustls(error).into_py_err(vm), bytes);
+                    self.reject_connection(SslError::from_rustls(error).into_py_err(vm), bytes);
                     self.accept_client_hello(vm)?;
                 }
             }
@@ -3318,11 +3262,7 @@ mod _ssl {
                 return Ok(());
             }
 
-            let accepted = if self.server_side {
-                self.accept_client_hello(vm)?
-            } else {
-                None
-            };
+            let accepted = self.accept_client_hello(vm)?;
             let mut conn_guard = self.connection.lock();
 
             // Initialize connection if not already done
@@ -3335,13 +3275,10 @@ mod _ssl {
                         vm,
                     ) {
                         drop(conn_guard);
-                        if matches!(
-                            *self.handshake_state.lock(),
-                            HandshakeState::SendingAlert { .. }
-                        ) {
+                        if matches!(*self.state.lock(), TlsState::SendingAlert { .. }) {
                             return Err(error);
                         }
-                        self.reject_handshake(error, super::handshake::sni_alert(40));
+                        self.reject_connection(error, super::handshake::sni_alert(40));
                         return self.accept_client_hello(vm).map(|_| ());
                     }
                 } else {
@@ -3454,8 +3391,19 @@ mod _ssl {
 
             // Perform the actual handshake by exchanging data with the socket/BIO
 
-            let conn = conn_guard.as_mut().expect("unreachable");
+            let conn = conn_guard
+                .as_mut()
+                .ok_or_else(|| vm.new_value_error("TLS connection is not available"))?;
             let handshake_result = ssl_do_handshake(conn, self, vm);
+            if let Err(error @ (SslError::Rustls(_) | SslError::PreauthData)) = handshake_result {
+                // rustls queued the fatal alert while processing the failing
+                // record. Retain it and the original error across output retries.
+                let mut bytes = Vec::new();
+                let _ = conn.write_tls(&mut bytes);
+                drop(conn_guard);
+                self.reject_connection(error.into_py_err(vm), bytes);
+                return self.accept_client_hello(vm).map(|_| ());
+            }
             drop(conn_guard);
             handshake_result.map_err(|e| e.into_py_err(vm))?;
             self.complete_handshake(vm);
@@ -3510,8 +3458,7 @@ mod _ssl {
 
             // Check if connection has been shut down
             // Only block after shutdown is COMPLETED, not during shutdown process
-            let shutdown_state = *self.shutdown_state.lock();
-            if shutdown_state == ShutdownState::Completed {
+            if matches!(*self.state.lock(), TlsState::ShutDown) {
                 return Err(vm
                     .new_os_subtype_error(
                         PySSLError::class(&vm.ctx).to_owned(),
@@ -3563,7 +3510,7 @@ mod _ssl {
                     buf.truncate(n);
                     return_data(buf, &buffer, vm)
                 }
-                Err(crate::ssl::compat::SslError::Eof) => {
+                Err(error) if error.is_eof() => {
                     // If plaintext is still buffered, return it before EOF.
                     let pending = {
                         let mut conn_guard = self.connection.lock();
@@ -3592,7 +3539,7 @@ mod _ssl {
                     // EOF occurred in violation of protocol (unexpected closure)
                     Err(create_ssl_eof_error(vm).upcast())
                 }
-                Err(crate::ssl::compat::SslError::ZeroReturn) => {
+                Err(error) if error.is_zero_return() => {
                     // If plaintext is still buffered, return it before clean EOF.
                     let pending = {
                         let mut conn_guard = self.connection.lock();
@@ -3623,10 +3570,10 @@ mod _ssl {
                     // raise SSLZeroReturnError (bidirectional shutdown).
                     // Otherwise return empty bytes, which callers (asyncore,
                     // asyncio sslproto) interpret as EOF.
-                    let our_shutdown_state = *self.shutdown_state.lock();
-                    if our_shutdown_state == ShutdownState::SentCloseNotify
-                        || our_shutdown_state == ShutdownState::Completed
-                    {
+                    if matches!(
+                        *self.state.lock(),
+                        TlsState::ShuttingDown | TlsState::ShutDown
+                    ) {
                         Err(create_ssl_zero_return_error(vm).upcast())
                     } else {
                         return_data(vec![], &buffer, vm)
@@ -3692,9 +3639,11 @@ mod _ssl {
                 self.do_handshake(vm)?;
             }
 
-            // Check shutdown state
-            // Only block after shutdown is COMPLETED, not during shutdown process
-            if *self.shutdown_state.lock() == ShutdownState::Completed {
+            // Application data cannot follow our close_notify.
+            if matches!(
+                *self.state.lock(),
+                TlsState::ShuttingDown | TlsState::ShutDown
+            ) {
                 return Err(vm
                     .new_os_subtype_error(
                         PySSLError::class(&vm.ctx).to_owned(),
@@ -3997,6 +3946,15 @@ mod _ssl {
 
         #[pymethod]
         fn shutdown(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            // A failed shutdown may still owe the peer a fatal alert. Resume
+            // that output on unwrap retries before reporting the saved error.
+            if matches!(*self.state.lock(), TlsState::SendingAlert { .. })
+                && !self.pending_tls_output.lock().is_empty()
+            {
+                return self
+                    .accept_client_hello(vm)
+                    .map(|_| self.io.socket_object(vm));
+            }
             if !self.handshake_completed() {
                 return Err(SslError::create_ssl_error_with_reason(
                     vm,
@@ -4005,356 +3963,89 @@ mod _ssl {
                     "[SSL: SHUTDOWN_WHILE_IN_INIT] shutdown while in init",
                 ));
             }
-            // Check current shutdown state
-            let current_state = *self.shutdown_state.lock();
-
-            // If already completed, return immediately
-            if current_state == ShutdownState::Completed {
-                if self.is_bio_mode() {
-                    return Ok(vm.ctx.none());
-                }
+            if matches!(*self.state.lock(), TlsState::ShutDown) {
                 return Ok(self.io.socket_object(vm));
             }
 
-            // Get connection
+            let timeout = self.get_socket_timeout(vm)?;
+            let deadline = timeout
+                .filter(|timeout| !timeout.is_zero())
+                .map(|timeout| std::time::Instant::now() + timeout);
             let mut conn_guard = self.connection.lock();
             let conn = conn_guard
                 .as_mut()
                 .ok_or_else(|| vm.new_value_error("Connection not established"))?;
 
-            let is_bio = self.is_bio_mode();
-
-            // Step 1: Send our close_notify if not already sent
-            if current_state == ShutdownState::NotStarted {
-                // First, flush ALL pending TLS data BEFORE sending close_notify
-                // This is CRITICAL - close_notify must come AFTER all application data
-                // Otherwise data loss occurs when peer receives close_notify first
-
-                // Step 1a: Flush any pending TLS records from rustls internal buffer
-                // This ensures all application data is converted to TLS records
-                while conn.wants_write() {
-                    let mut buf = Vec::new();
-                    conn.write_tls(&mut buf)
-                        .map_err(|e| vm.new_os_error(format!("TLS write failed: {e}")))?;
-                    if !buf.is_empty() {
-                        self.send_tls_output(buf, vm)?;
-                    }
-                }
-
-                // Step 1b: Flush pending_tls_output buffer to socket
-                if !is_bio {
-                    // Socket mode: blocking flush to ensure data order
-                    // Must complete before sending close_notify
-                    self.blocking_flush_all_pending(vm)?;
-                } else {
-                    // BIO mode: non-blocking flush (caller handles pending data)
-                    let _ = self.flush_pending_tls_output(vm, None);
-                }
-
+            if matches!(*self.state.lock(), TlsState::Connected) {
+                // rustls queues close_notify after previously buffered data.
+                // Record this before any fallible write so retries never queue
+                // another alert, even if the transport cannot accept output.
                 conn.send_close_notify();
-
-                // Write close_notify to outgoing buffer/BIO
-                self.write_pending_tls(conn, vm)?;
-                // Ensure close_notify and any pending TLS data are flushed
-                if !is_bio {
-                    self.flush_pending_tls_output(vm, None)?;
-                }
-
-                // Update state
-                *self.shutdown_state.lock() = ShutdownState::SentCloseNotify;
+                *self.state.lock() = TlsState::ShuttingDown;
             }
 
-            // Step 2: Try to read and process peer's close_notify
+            let result = (|| loop {
+                let mut bytes = Vec::new();
+                conn.write_tls(&mut bytes)
+                    .map_err(|e| e.into_pyexception(vm))?;
+                super::compat::send_all_bytes(self, bytes, vm, deadline)
+                    .map_err(|e| e.into_py_err(vm))?;
 
-            // First check if we already have peer's close_notify
-            // This can happen if it was received during a previous read() call
-            let mut peer_closed = self.check_peer_closed(conn, vm)?;
+                let io_state = conn
+                    .process_new_packets()
+                    .map_err(|e| SslError::from_rustls(e).into_py_err(vm))?;
+                if io_state.plaintext_bytes_to_read() != 0 {
+                    return Err(SslError::create_ssl_error_with_reason(
+                        vm,
+                        Some("SSL"),
+                        "APPLICATION_DATA_AFTER_CLOSE_NOTIFY",
+                        "[SSL: APPLICATION_DATA_AFTER_CLOSE_NOTIFY] application data after close notify",
+                    ));
+                }
+                if io_state.peer_has_closed() {
+                    *self.state.lock() = TlsState::ShutDown;
+                    return Ok(self.io.socket_object(vm));
+                }
 
-            // If peer hasn't closed yet, try to read from socket
-            if !peer_closed {
-                // Check socket timeout mode
-                let timeout_mode = if !is_bio {
-                    // Get socket timeout
-                    match self.io.socket_object(vm).get_attr("gettimeout", vm) {
-                        Ok(method) => match method.call((), vm) {
-                            Ok(timeout) => {
-                                if vm.is_none(&timeout) {
-                                    // timeout=None means blocking
-                                    Some(None)
-                                } else if let Ok(t) = timeout.try_float(vm).map(|f| f.to_f64()) {
-                                    if t == 0.0 {
-                                        // timeout=0 means non-blocking
-                                        Some(Some(0.0))
-                                    } else {
-                                        // timeout>0 means timeout mode
-                                        Some(Some(t))
-                                    }
-                                } else {
-                                    None
-                                }
-                            }
-                            Err(_) => None,
-                        },
-                        Err(_) => None,
-                    }
-                } else {
-                    None // BIO mode
+                let remaining = match deadline {
+                    Some(deadline) => Some(
+                        deadline
+                            .checked_duration_since(std::time::Instant::now())
+                            .ok_or_else(|| {
+                                timeout_error_msg(vm, "The read operation timed out".to_owned())
+                                    .upcast()
+                            })?,
+                    ),
+                    None => timeout,
                 };
-
-                if is_bio {
-                    // In BIO mode: non-blocking read attempt
-                    if self.try_read_close_notify(conn, vm)? {
-                        peer_closed = true;
-                    }
-                } else if let Some(timeout) = timeout_mode {
-                    match timeout {
-                        Some(0.0) => {
-                            // Non-blocking: return immediately after sending close_notify.
-                            // Don't wait for peer's close_notify to avoid blocking.
-                            drop(conn_guard);
-                            // Best-effort flush; WouldBlock is expected in non-blocking mode.
-                            // Other errors indicate close_notify may not have been sent,
-                            // but we still complete shutdown to avoid inconsistent state.
-                            let _ = self.flush_pending_tls_output(vm, None);
-                            *self.shutdown_state.lock() = ShutdownState::Completed;
-                            *self.connection.lock() = None;
-                            return Ok(self.io.socket_object(vm));
-                        }
-                        _ => {
-                            // Blocking or timeout mode: wait for peer's close_notify.
-                            // This is proper TLS shutdown - we should receive peer's
-                            // close_notify before closing the connection.
-                            drop(conn_guard);
-
-                            // Flush our close_notify first
-                            if timeout.is_none() {
-                                self.blocking_flush_all_pending(vm)?;
-                            } else {
-                                self.flush_pending_tls_output(vm, None)?;
-                            }
-
-                            // Calculate deadline for timeout mode
-                            let deadline = timeout.map(|t| {
-                                std::time::Instant::now() + core::time::Duration::from_secs_f64(t)
-                            });
-
-                            // Wait for peer's close_notify
-                            loop {
-                                // Re-acquire connection lock for each iteration
-                                let mut conn_guard = self.connection.lock();
-                                let conn = match conn_guard.as_mut() {
-                                    Some(c) => c,
-                                    None => break, // Connection already closed
-                                };
-
-                                // Check if peer already sent close_notify
-                                if self.check_peer_closed(conn, vm)? {
-                                    break;
-                                }
-
-                                drop(conn_guard);
-
-                                // Check timeout
-                                let remaining_timeout = if let Some(dl) = deadline {
-                                    let now = std::time::Instant::now();
-                                    if now >= dl {
-                                        // Timeout reached - raise TimeoutError
-                                        return Err(timeout_error_msg(
-                                            vm,
-                                            "The read operation timed out".to_string(),
-                                        )
-                                        .upcast());
-                                    }
-                                    Some(dl - now)
-                                } else {
-                                    None // Blocking mode: no timeout
-                                };
-
-                                // Wait for socket to be readable
-                                let timed_out = self.sock_wait_for_io_with_timeout(
-                                    SockWaitKind::Read,
-                                    remaining_timeout,
-                                    vm,
-                                )?;
-
-                                if timed_out {
-                                    // Timeout waiting for peer's close_notify
-                                    return Err(timeout_error_msg(
-                                        vm,
-                                        "The read operation timed out".to_string(),
-                                    )
-                                    .upcast());
-                                }
-
-                                // Try to read data from socket
-                                let mut conn_guard = self.connection.lock();
-                                let conn = match conn_guard.as_mut() {
-                                    Some(c) => c,
-                                    None => break,
-                                };
-
-                                // Read and process any incoming TLS data
-                                match self.try_read_close_notify(conn, vm) {
-                                    Ok(closed) => {
-                                        if closed {
-                                            break;
-                                        }
-                                        // Check again after processing
-                                        if self.check_peer_closed(conn, vm)? {
-                                            break;
-                                        }
-                                    }
-                                    Err(_) => {
-                                        // Socket error - peer likely closed connection
-                                        break;
-                                    }
-                                }
-                            }
-
-                            // Shutdown complete
-                            *self.shutdown_state.lock() = ShutdownState::Completed;
-                            *self.connection.lock() = None;
-                            return Ok(self.io.socket_object(vm));
-                        }
-                    }
+                if self.sock_wait_for_io_with_timeout(SockWaitKind::Read, remaining, vm)? {
+                    return Err(
+                        timeout_error_msg(vm, "The read operation timed out".to_owned()).upcast(),
+                    );
                 }
-
-                // Step 3: Check again if peer has sent close_notify (non-blocking/BIO mode only)
-                if !peer_closed {
-                    peer_closed = self.check_peer_closed(conn, vm)?;
-                }
+                // Stop at each TLS record boundary, leaving an unencrypted
+                // trailer after close_notify in the socket or incoming BIO.
+                let data = super::compat::recv_at_most_one_tls_record(self, vm)
+                    .map_err(|e| e.into_py_err(vm))?;
+                super::compat::ssl_read_tls_records(conn, data, self.is_bio_mode(), vm)
+                    .map_err(|e| e.into_py_err(vm))?;
+            })();
+            if let Err(error) = &result
+                && error.fast_isinstance(PySSLError::class(&vm.ctx))
+                && !error.fast_isinstance(PySSLWantReadError::class(&vm.ctx))
+                && !error.fast_isinstance(PySSLWantWriteError::class(&vm.ctx))
+            {
+                // A protocol failure cannot resume as a normal shutdown. Keep
+                // any fatal alert rustls queued and preserve the original error.
+                let mut bytes = Vec::new();
+                let _ = conn.write_tls(&mut bytes);
+                drop(conn_guard);
+                self.reject_connection(error.clone(), bytes);
+                return self
+                    .accept_client_hello(vm)
+                    .map(|_| self.io.socket_object(vm));
             }
-
-            drop(conn_guard); // Release lock before returning
-
-            if !peer_closed {
-                // Still waiting for peer's close-notify
-                // Raise SSLWantReadError to signal app needs to transfer data
-                // This is correct for non-blocking sockets and BIO mode
-                return Err(create_ssl_want_read_error(vm).upcast());
-            }
-            // Both close-notify exchanged, shutdown complete
-            *self.shutdown_state.lock() = ShutdownState::Completed;
-
-            if is_bio {
-                return Ok(vm.ctx.none());
-            }
-            Ok(self.io.socket_object(vm))
-        }
-
-        // Helper: Write all pending TLS data (including close_notify) to outgoing buffer/BIO
-        fn write_pending_tls(&self, conn: &mut Connection, vm: &VirtualMachine) -> PyResult<()> {
-            // First, flush any previously pending TLS output
-            // Must succeed before sending new data to maintain order
-            self.flush_pending_tls_output(vm, None)?;
-
-            loop {
-                if !conn.wants_write() {
-                    break;
-                }
-
-                let mut buf = vec![0u8; SSL3_RT_MAX_PACKET_SIZE];
-                let written = conn
-                    .write_tls(&mut buf.as_mut_slice())
-                    .map_err(|e| vm.new_os_error(format!("TLS write failed: {e}")))?;
-
-                if written == 0 {
-                    break;
-                }
-
-                // Send TLS data, saving unsent bytes to pending buffer if needed
-                self.send_tls_output(buf[..written].to_vec(), vm)?;
-            }
-
-            Ok(())
-        }
-
-        // Helper: Try to read incoming data from socket/BIO
-        // Returns true if peer closed connection (with or without close_notify)
-        fn try_read_close_notify(
-            &self,
-            conn: &mut Connection,
-            vm: &VirtualMachine,
-        ) -> PyResult<bool> {
-            // In socket mode, peek first to avoid consuming post-TLS cleartext
-            // data. During STARTTLS, after close_notify exchange, the socket
-            // transitions to cleartext. Without peeking, sock_recv may consume
-            // cleartext data meant for the application after unwrap().
-            if self.io.incoming().is_none() {
-                return Ok(self.try_read_close_notify_socket(conn, vm));
-            }
-
-            // BIO mode: stop at the TLS record boundary so cleartext queued
-            // after close_notify remains available to the BIO's owner.
-            match self.sock_recv_at_most_one_tls_record(vm) {
-                Ok(bytes) => {
-                    let data = bytes.as_bytes();
-
-                    if data.is_empty() {
-                        if let Some(ref bio) = self.io.incoming() {
-                            // BIO mode: check if EOF was signaled via write_eof()
-                            let bio_obj: PyObjectRef = bio.clone().into();
-                            let eof_attr = bio_obj.get_attr("eof", vm)?;
-                            let is_eof = eof_attr.try_to_bool(vm)?;
-                            if !is_eof {
-                                return Ok(false);
-                            }
-                        }
-                        return Ok(true);
-                    }
-
-                    let data_slice: &[u8] = data;
-                    let mut cursor = std::io::Cursor::new(data_slice);
-                    let _ = conn.read_tls(&mut cursor);
-                    let _ = conn.process_new_packets();
-                    Ok(false)
-                }
-                Err(e) => {
-                    if is_blocking_io_error(&e, vm) {
-                        return Ok(false);
-                    }
-                    Ok(true)
-                }
-            }
-        }
-
-        /// Socket-mode close_notify reader that respects TLS record boundaries.
-        /// Uses MSG_PEEK to inspect data before consuming, preventing accidental
-        /// consumption of post-TLS cleartext data during STARTTLS transitions.
-        ///
-        /// Equivalent to OpenSSL's `SSL_set_read_ahead(ssl, 0)` — rustls has no
-        /// such knob, so we enforce record-level reads manually via peek.
-        fn try_read_close_notify_socket(&self, conn: &mut Connection, vm: &VirtualMachine) -> bool {
-            // Consume at most one TLS record from the socket
-            match self.sock_recv_at_most_one_tls_record(vm) {
-                Ok(data) => {
-                    if data.is_empty() {
-                        return true;
-                    }
-
-                    let data_slice: &[u8] = data.as_ref();
-                    let mut cursor = std::io::Cursor::new(data_slice);
-                    let _ = conn.read_tls(&mut cursor);
-                    let _ = conn.process_new_packets();
-                    false
-                }
-                Err(e) => {
-                    if is_blocking_io_error(&e, vm) {
-                        return false;
-                    }
-                    true
-                }
-            }
-        }
-
-        // Helper: Check if peer has sent close_notify
-        fn check_peer_closed(&self, conn: &mut Connection, vm: &VirtualMachine) -> PyResult<bool> {
-            // Process any remaining packets and check peer_has_closed
-            let io_state = conn
-                .process_new_packets()
-                .map_err(|e| vm.new_os_error(format!("Failed to process packets: {e}")))?;
-
-            Ok(io_state.peer_has_closed())
+            result
         }
 
         #[pymethod]
