@@ -4,6 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod append_log;
+pub use append_log::AppendLog;
+
 pub fn open(path: impl AsRef<Path>) -> io::Result<File> {
     File::open(path)
 }
