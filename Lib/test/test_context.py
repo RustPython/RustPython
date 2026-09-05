@@ -380,7 +380,6 @@ class ContextTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(callable(getattr(ctx, name)))
 
-    @unittest.skipIf(sys.platform == "darwin", "TODO: RUSTPYTHON; Flaky on Mac, self.assertEqual(cvar.get(), num + i) AssertionError: 8 != 12")
     @isolated_context
     @threading_helper.requires_working_threading()
     def test_context_threads_1(self):

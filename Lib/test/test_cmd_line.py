@@ -985,7 +985,6 @@ class CmdLineTest(unittest.TestCase):
                 contents = file.read()
                 self.assertIn('Remaining objects', contents)
 
-    @unittest.expectedFailureIf(sys.platform == "darwin", "TODO: RUSTPYTHON")
     @unittest.skipUnless(sys.platform == 'darwin', 'PYTHONEXECUTABLE only works on macOS')
     def test_python_executable(self):
         code = 'import sys; print(sys.executable)'
