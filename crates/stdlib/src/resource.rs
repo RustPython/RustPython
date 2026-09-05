@@ -179,9 +179,11 @@ mod resource {
         if int.as_bigint().is_negative() {
             return Err(vm.new_value_error("Cannot convert negative int"));
         }
-        int.try_to_primitive::<u64>(vm)
+        let value = int
+            .try_to_primitive::<u64>(vm)
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))?;
+        host_resource::rlim_t::try_from(value)
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))
-            .map(|value| value as host_resource::rlim_t)
     }
 
     #[pyfunction]
