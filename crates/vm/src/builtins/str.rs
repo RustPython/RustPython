@@ -517,11 +517,11 @@ impl PyStr {
     }
 
     #[inline]
-    pub const fn as_wtf8(&self) -> &Wtf8 {
+    pub fn as_wtf8(&self) -> &Wtf8 {
         self.data.as_wtf8()
     }
 
-    pub const fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         self.data.as_wtf8().as_bytes()
     }
 
@@ -570,7 +570,7 @@ impl PyStr {
             .map_or_else(|| self.as_wtf8().to_string_lossy(), Cow::Borrowed)
     }
 
-    pub const fn kind(&self) -> StrKind {
+    pub fn kind(&self) -> StrKind {
         self.data.kind()
     }
 
@@ -579,7 +579,7 @@ impl PyStr {
         self.data.as_str_kind()
     }
 
-    pub const fn is_utf8(&self) -> bool {
+    pub fn is_utf8(&self) -> bool {
         self.kind().is_utf8()
     }
 
@@ -747,7 +747,7 @@ impl PyStr {
 
     #[pymethod]
     #[inline(always)]
-    pub const fn isascii(&self) -> bool {
+    pub fn isascii(&self) -> bool {
         matches!(self.kind(), StrKind::Ascii)
     }
 
@@ -1560,20 +1560,20 @@ impl PyRef<PyStr> {
         if other.is_empty() {
             return;
         }
-        let mut s = Wtf8Buf::with_capacity(self.byte_len() + other.len());
-        s.push_wtf8(self.as_ref());
-        s.push_wtf8(other);
         if self.as_object().strong_count() == 1 {
             // SAFETY: strong_count()==1 guarantees unique ownership of this PyStr.
             // Mutating payload in place preserves semantics while avoiding PyObject reallocation.
             unsafe {
                 let payload = self.payload() as *const PyStr as *mut PyStr;
-                (*payload).data = PyStr::from(s).data;
+                (*payload).data.append(other);
                 (*payload)
                     .hash
                     .store(hash::SENTINEL, atomic::Ordering::Relaxed);
             }
         } else {
+            let mut s = Wtf8Buf::with_capacity(self.byte_len() + other.len());
+            s.push_wtf8(self.as_ref());
+            s.push_wtf8(other);
             *self = PyStr::from(s).into_ref(&vm.ctx);
         }
     }
