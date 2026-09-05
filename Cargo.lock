@@ -3626,6 +3626,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "rustls-platform-verifier",
+ "rustls-webpki",
  "rustpython-common",
  "rustpython-derive",
  "rustpython-host_env",
