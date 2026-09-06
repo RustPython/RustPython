@@ -73,8 +73,14 @@ def _cargo_metadata():
 
 
 def _bench_binaries(metadata):
-    """Yield (package, bench_target_name, path) for every built simulation binary."""
-    target_dir = Path(metadata["target_directory"]) / "codspeed" / "simulation"
+    """Yield (package, bench_target_name, path) for every built simulation binary.
+
+    `cargo-codspeed` names this directory after its internal `BuildMode`, not
+    the `--measurement-mode` flag: `simulation` (and `memory`) both build in
+    `BuildMode::Analysis`, which it puts under `target/codspeed/analysis/`,
+    not `target/codspeed/simulation/`.
+    """
+    target_dir = Path(metadata["target_directory"]) / "codspeed" / "analysis"
     packages_by_name = {p["name"]: p for p in metadata["packages"]}
     for package_name in PACKAGES:
         package = packages_by_name.get(package_name)
