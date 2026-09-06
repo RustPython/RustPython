@@ -166,12 +166,17 @@ def measure(out_dir, bench_filter=None):
             raise SystemExit(f"No callgrind output produced for {target_key}")
         total_ir = sum(_parse_callgrind_ir(p) for p in dumps)
         if total_ir == 0:
+            preview = Path(dumps[0]).read_text(encoding="utf-8", errors="replace")
+            print(f"--- head of {dumps[0]} ---", file=sys.stderr)
+            print("\n".join(preview.splitlines()[:40]), file=sys.stderr)
+            print("--- tail ---", file=sys.stderr)
+            print("\n".join(preview.splitlines()[-20:]), file=sys.stderr)
             raise SystemExit(
                 f"{target_key}: parsed an instruction count of 0 across "
                 f"{len(dumps)} file(s) ({dumps}); this almost always means "
                 "the parser didn't find an `Ir` column rather than the "
-                "program genuinely executing zero instructions -- inspect "
-                "one of those files directly."
+                "program genuinely executing zero instructions -- see the "
+                "file preview printed above."
             )
         results[target_key] = total_ir
 
