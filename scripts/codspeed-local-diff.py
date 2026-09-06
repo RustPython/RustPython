@@ -97,8 +97,18 @@ def _parse_callgrind_ir(path):
     this dump pattern. `callgrind_annotate` (shipped with Valgrind) computes
     the total the same way any other consumer of this format would: by
     summing the actual per-line cost records, and prints it as a
-    `PROGRAM TOTALS` row whose columns are in the same order as the file's
-    `events:` header.
+    `PROGRAM TOTALS (calculated)` row whose columns are in the same order as
+    the file's `events:` header.
+
+    The apt-packaged `callgrind_annotate` used here is a version behind the
+    patched Valgrind (`callgrind-3.26.0.codspeed7`) that wrote the file, so
+    it logs "line N malformed, ignoring" for a few record kinds it doesn't
+    recognize (also confirmed on moreal/RustPython#25) and, having skipped
+    those, can occasionally emit a second, degenerate `PROGRAM TOTALS` row
+    with an unparseable placeholder instead of a number. Taking the largest
+    of every parseable candidate survives that: a real total for a whole
+    Python benchmark suite run under Callgrind is far larger than any
+    garbage row a partial parse could produce.
     """
     out = subprocess.run(
         ["callgrind_annotate", "--threshold=0", str(path)],
@@ -106,14 +116,19 @@ def _parse_callgrind_ir(path):
         text=True,
         check=True,
     )
+    totals = []
     for line in out.stdout.splitlines():
-        if "PROGRAM TOTALS" in line:
-            first_column = line.split()[0]
-            return int(first_column.replace(",", ""))
-    raise ValueError(
-        f"callgrind_annotate produced no PROGRAM TOTALS line for {path}; "
-        f"stdout was:\n{out.stdout}\nstderr was:\n{out.stderr}"
-    )
+        if "PROGRAM TOTALS" not in line:
+            continue
+        match = re.match(r"\s*([\d,]+)", line)
+        if match:
+            totals.append(int(match.group(1).replace(",", "")))
+    if not totals:
+        raise ValueError(
+            f"callgrind_annotate produced no parseable PROGRAM TOTALS line "
+            f"for {path}; stdout was:\n{out.stdout}\nstderr was:\n{out.stderr}"
+        )
+    return max(totals)
 
 
 def measure(out_dir, bench_filter=None):
