@@ -100,15 +100,24 @@ def _parse_callgrind_ir(path):
     `PROGRAM TOTALS (calculated)` row whose columns are in the same order as
     the file's `events:` header.
 
-    The apt-packaged `callgrind_annotate` used here is a version behind the
-    patched Valgrind (`callgrind-3.26.0.codspeed7`) that wrote the file, so
-    it logs "line N malformed, ignoring" for a few record kinds it doesn't
-    recognize (also confirmed on moreal/RustPython#25) and, having skipped
-    those, can occasionally emit a second, degenerate `PROGRAM TOTALS` row
-    with an unparseable placeholder instead of a number. Taking the largest
-    of every parseable candidate survives that: a real total for a whole
-    Python benchmark suite run under Callgrind is far larger than any
-    garbage row a partial parse could produce.
+    `codspeed run` executes the bench binary through a tiny bash wrapper
+    script under `--trace-children=yes` (to relay its exit code), so a
+    target's directory holds one trivial .out file for that wrapper process
+    alongside the real one for the binary itself. The wrapper collects no
+    cost records at all, and callgrind_annotate renders its `PROGRAM TOTALS`
+    row as literal `.` placeholders in every column rather than zeros
+    (confirmed on moreal/RustPython#25) -- that's an expected empty file,
+    not a parse failure, so it contributes 0 here.
+
+    Separately, the apt-packaged `callgrind_annotate` used here is a version
+    behind the patched Valgrind (`callgrind-3.26.0.codspeed7`) that wrote
+    the file, so it logs "line N malformed, ignoring" for a few record kinds
+    it doesn't recognize (also confirmed on moreal/RustPython#25) and,
+    having skipped those, can occasionally emit a second row alongside a
+    real one. Taking the largest of every parseable candidate survives
+    that: a real total for a whole Python benchmark suite run under
+    Callgrind is far larger than any garbage row a partial parse could
+    produce.
     """
     out = subprocess.run(
         ["callgrind_annotate", "--threshold=0", str(path)],
@@ -116,19 +125,21 @@ def _parse_callgrind_ir(path):
         text=True,
         check=True,
     )
+    found_totals_row = False
     totals = []
     for line in out.stdout.splitlines():
         if "PROGRAM TOTALS" not in line:
             continue
+        found_totals_row = True
         match = re.match(r"\s*([\d,]+)", line)
         if match:
             totals.append(int(match.group(1).replace(",", "")))
-    if not totals:
+    if not found_totals_row:
         raise ValueError(
-            f"callgrind_annotate produced no parseable PROGRAM TOTALS line "
-            f"for {path}; stdout was:\n{out.stdout}\nstderr was:\n{out.stderr}"
+            f"callgrind_annotate produced no PROGRAM TOTALS line at all for "
+            f"{path}; stdout was:\n{out.stdout}\nstderr was:\n{out.stderr}"
         )
-    return max(totals)
+    return max(totals, default=0)
 
 
 def measure(out_dir, bench_filter=None):
