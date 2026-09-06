@@ -15,13 +15,17 @@ machine.
 
 This script removes the cross-run part of that: it is run twice within one
 job, once against the base commit's bench binaries and once against head's,
-so both measurements execute under the identical kernel, glibc and CPU. The
-absolute counts this produces are not comparable to CodSpeed's own dashboard
-(this wraps a stock Valgrind directly rather than CodSpeed's runner, and
-counts a whole `[[bench]]` target rather than each individual benchmark
-inside it -- see the design discussion this was built from), but the
-base-vs-head ratio computed here does not carry the cross-machine noise a
-SaaS comparison would.
+so both measurements execute under the identical kernel, glibc and CPU. It
+shells out to CodSpeedHQ's own `codspeed run` CLI with `--skip-upload` for
+the actual measurement -- the bench binaries `cargo codspeed build` produces
+only report real instruction counts when driven by that CLI's runner
+protocol (a FIFO handshake the `instrument-hooks` library baked into the
+binary expects; a bare `valgrind --tool=callgrind` around the binary
+produces a well-formed but permanently-empty `summary: 0`, confirmed while
+building this). Nothing is uploaded anywhere. Counts are per `[[bench]]`
+target, not per individual benchmark, and are not comparable to CodSpeed's
+own dashboard numbers, but the base-vs-head ratio computed here does not
+carry the cross-machine noise a SaaS comparison would.
 
     codspeed-local-diff.py measure --out results/head
     codspeed-local-diff.py measure --out results/base
@@ -46,22 +50,6 @@ PACKAGES = ("rustpython", "rustpython-sre_engine")
 # environment-dependent allocation addresses feeding into hash iteration
 # order. Anything below this is noise, not signal.
 NOISE_FLOOR_PCT = 0.5
-
-VALGRIND_ARGS = [
-    "-q",
-    "--tool=callgrind",
-    "--trace-children=yes",
-    "--cache-sim=yes",
-    "--collect-systime=nsec",
-    # Instrumentation is toggled on/off around each benchmark by the
-    # `instrument-hooks` native library baked into the binary by `cargo
-    # codspeed build`, once it's told it's running under a runner via the
-    # CODSPEED_ENV/CODSPEED_RUNNER_MODE env vars set below -- without this
-    # flag Valgrind would also count process startup and harness bookkeeping
-    # outside those windows.
-    "--instr-atstart=no",
-    "--separate-threads=no",
-]
 
 
 def _cargo_metadata():
@@ -134,9 +122,10 @@ def measure(out_dir, bench_filter=None):
             "`cargo codspeed build --measurement-mode simulation` first."
         )
 
-    # Each bench binary runs with its package's manifest directory as cwd (to
-    # match how `cargo codspeed run` invokes it), so a relative --out here
-    # would land under a different directory for every package.
+    # Each bench binary runs with its package's manifest directory as cwd
+    # (via --working-directory, to match how `cargo codspeed run` invokes
+    # it), so a relative --out here would land under a different directory
+    # for every package.
     out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     results = {}
@@ -145,49 +134,53 @@ def measure(out_dir, bench_filter=None):
     for package_name, bench_name, bench_path, manifest_dir in binaries:
         target_key = f"{package_name}/{bench_name}"
         safe_key = re.sub(r"[^A-Za-z0-9_.-]", "_", target_key)
-        out_file_prefix = out_dir / f"{safe_key}.%p.out"
+        # A fresh subdirectory per target: `codspeed run` names its own
+        # per-process callgrind files, and this keeps two targets' files
+        # from colliding without us having to guess that naming.
+        target_out_dir = out_dir / safe_key
+        target_out_dir.mkdir(parents=True, exist_ok=True)
         env = dict(os.environ)
         env["CODSPEED_CARGO_WORKSPACE_ROOT"] = str(workspace_root)
         env["PYTHONMALLOC"] = "malloc"
-        env["PYTHONHASHSEED"] = "0"
-        # The `instrument-hooks` native library linked into the binary by
-        # `cargo codspeed build` only issues the CALLGRIND_START/STOP client
-        # requests around each benchmark once it sees these -- without them
-        # every dump comes back `summary: 0` even though Valgrind genuinely
-        # ran the whole benchmark suite (confirmed on moreal/RustPython#25;
-        # see CodSpeedHQ/codspeed's `get_base_injected_env`).
-        env["CODSPEED_ENV"] = "runner"
-        env["CODSPEED_RUNNER_MODE"] = "instrumentation"
-        env["CODSPEED_PROFILE_FOLDER"] = str(out_dir)
 
         command = [
-            "setarch",
-            os.uname().machine,
-            "--addr-no-randomize",
-            "valgrind",
-            *VALGRIND_ARGS,
-            f"--callgrind-out-file={out_file_prefix}",
+            "codspeed",
+            "run",
+            "--mode=simulation",
+            "--skip-upload",
+            f"--profile-folder={target_out_dir}",
+            f"--working-directory={manifest_dir}",
+            "--",
             str(bench_path),
         ]
         print(f"Measuring {target_key} ...", file=sys.stderr)
-        subprocess.run(command, cwd=manifest_dir, env=env, check=True)
+        subprocess.run(command, env=env, check=True)
 
-        dumps = glob.glob(str(out_dir / f"{safe_key}.*.out"))
+        dumps = glob.glob(str(target_out_dir / "**" / "*.out"), recursive=True)
         if not dumps:
             raise SystemExit(f"No callgrind output produced for {target_key}")
         total_ir = sum(_parse_callgrind_ir(p) for p in dumps)
         if total_ir == 0:
-            preview = Path(dumps[0]).read_text(encoding="utf-8", errors="replace")
-            print(f"--- head of {dumps[0]} ---", file=sys.stderr)
-            print("\n".join(preview.splitlines()[:40]), file=sys.stderr)
-            print("--- tail ---", file=sys.stderr)
-            print("\n".join(preview.splitlines()[-20:]), file=sys.stderr)
+            for dump in dumps:
+                summaries = [
+                    line.rstrip("\n")
+                    for line in Path(dump)
+                    .read_text(encoding="utf-8", errors="replace")
+                    .splitlines()
+                    if line.startswith("summary:") or line.startswith("events:")
+                ]
+                size = Path(dump).stat().st_size
+                print(
+                    f"--- {dump} ({size} bytes, {len(summaries)} events:/summary: lines) ---",
+                    file=sys.stderr,
+                )
+                print("\n".join(summaries), file=sys.stderr)
             raise SystemExit(
                 f"{target_key}: parsed an instruction count of 0 across "
-                f"{len(dumps)} file(s) ({dumps}); this almost always means "
-                "the parser didn't find an `Ir` column rather than the "
-                "program genuinely executing zero instructions -- see the "
-                "file preview printed above."
+                f"{len(dumps)} file(s); this almost always means the parser "
+                "didn't find an `Ir` column rather than the program "
+                "genuinely executing zero instructions -- see the lines "
+                "printed above."
             )
         results[target_key] = total_ir
 
@@ -225,12 +218,13 @@ def diff(base_dir, head_dir, md_path, json_path):
         "<!-- codspeed-local-diff -->",
         "### CodSpeed local diff (base vs. head, same runner)",
         "",
-        "Measured with a stock Valgrind/Callgrind directly in this job, so "
-        "base and head share the exact same CPU, glibc and kernel -- unlike "
-        "a comparison against CodSpeed's own history, this diff cannot pick "
-        "up a false regression from the two commits having drawn different "
-        "runners. Counts are per `[[bench]]` target, not per individual "
-        "benchmark, and are not comparable to CodSpeed's dashboard numbers.",
+        "Measured with `codspeed run --skip-upload` (no upload) directly in "
+        "this job, so base and head share the exact same CPU, glibc and "
+        "kernel -- unlike a comparison against CodSpeed's own history, this "
+        "diff cannot pick up a false regression from the two commits having "
+        "drawn different runners. Counts are per `[[bench]]` target, not "
+        "per individual benchmark, and are not comparable to CodSpeed's "
+        "dashboard numbers.",
         "",
         "| Target | Base (Ir) | Head (Ir) | Change |",
         "| --- | ---: | ---: | ---: |",

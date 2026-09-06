@@ -145,8 +145,13 @@ jobs:
       # The benchmarks are linked against libpython through the pyo3 dev-dependency.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
-      - name: Install valgrind
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
+      # The bench binaries `cargo codspeed build` produces only report real
+      # instruction counts when driven by the `codspeed` CLI's runner
+      # protocol (see scripts/codspeed-local-diff.py) -- installed the same
+      # way CodSpeedHQ/action does, pinned to the version that action uses
+      # below.
+      - name: Install the codspeed CLI
+        run: curl -fsSL https://codspeed.io/v5.2.1/install.sh | bash -s -- --quiet
 
       - name: Restore cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
