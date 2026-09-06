@@ -50,3 +50,37 @@ runs.
 
 See `python3 scripts/pyperformance/run_all.py --help` for all options
 (`--timeout`, `--rigorous` instead of `--fast`, `--cache-dir`, ...).
+
+## Comparing against real CPython
+
+`run_all.py` can target any Python executable, not just RustPython, via
+`--python` + `--label`. For a real CPython you don't need (and don't want)
+the psutil stub -- pass `--no-psutil-stub` so it installs and uses the
+genuine `psutil`:
+
+```shell
+python3 scripts/pyperformance/run_all.py \
+    --python "$(command -v python3.13)" --label cpython3.13 --no-psutil-stub
+
+python3 scripts/pyperformance/run_all.py \
+    --python target/release/rustpython --label rustpython
+```
+
+Each `--label` gets its own subdirectory under `results/` (its own
+`catalog.json`, `CATALOG.md`, `raw/`), so multiple targets' catalogs coexist.
+
+Then compare two catalogs:
+
+```shell
+python3 scripts/pyperformance/compare.py --baseline cpython3.13 --candidate rustpython
+```
+
+This writes `results/COMPARE-rustpython-vs-cpython3.13.md`: a per-benchmark
+table with both targets' status/mean and the candidate/baseline time ratio,
+plus the median slowdown across benchmarks both targets passed.
+
+Note: pass an actual interpreter binary to `--python`, not a version-manager
+shim (e.g. an `asdf`/`mise`/`pyenv` shim) -- pyperformance runs a helper
+script through it directly, which some shims don't support. If unsure what a
+`python3` on your PATH really resolves to, use
+`python3 -c "import sys; print(sys.executable)"` and pass that path.
