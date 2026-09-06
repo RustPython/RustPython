@@ -897,6 +897,7 @@ pub(super) fn send_all_bytes(
     deadline: Option<std::time::Instant>,
 ) -> SslResult<()> {
     // Retain newly drained records before a fallible flush of earlier output.
+    socket.observe_tls(true, &buf, vm);
     socket.pending_tls_output.lock().extend_from_slice(&buf);
     socket
         .flush_pending_tls_output(vm, deadline)
@@ -969,6 +970,7 @@ pub(super) fn recv_at_most_one_tls_record(
             SslError::Py(e)
         }
     })?;
+    socket.observe_tls(false, bytes.as_bytes(), vm);
     if bytes.is_empty() {
         Err(if socket.is_bio_mode() && !socket.transport_eof() {
             SslError::WantRead
@@ -1687,6 +1689,12 @@ fn ssl_ensure_data_available(socket: &PySSLSocket, vm: &VirtualMachine) -> SslRe
         // If BIO EOF is set and no data available, treat as connection EOF
         if is_eof && bytes_read == 0 {
             return Err(SslError::Eof);
+        }
+
+        if is_bio {
+            let bytes = ArgBytesLike::try_from_object(vm, data.clone())
+                .map_err(|_| SslError::Syscall("Expected bytes-like object".to_string()))?;
+            socket.observe_tls(false, bytes.borrow_buf().as_ref(), vm);
         }
 
         // Feed data to rustls and process packets

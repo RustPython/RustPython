@@ -32,6 +32,7 @@ mod error;
 
 mod handshake;
 mod keylog;
+mod msg;
 
 // Utilities for setting a Rustls cryptography provider.
 pub mod providers;
@@ -1929,6 +1930,8 @@ mod _ssl {
                 client_session_store: PyRwLock::new(None),
                 pending_tls_output: PyMutex::new(Vec::new()),
                 write_buffered_len: PyMutex::new(0),
+                msg_state: PyMutex::new(super::msg::MsgState::default()),
+                pending_msg_exc: PyMutex::new(None),
                 deferred_cert_error: Arc::new(ParkingRwLock::new(None)),
             };
 
@@ -2017,6 +2020,8 @@ mod _ssl {
                 client_session_store: PyRwLock::new(None),
                 pending_tls_output: PyMutex::new(Vec::new()),
                 write_buffered_len: PyMutex::new(0),
+                msg_state: PyMutex::new(super::msg::MsgState::default()),
+                pending_msg_exc: PyMutex::new(None),
                 deferred_cert_error: Arc::new(ParkingRwLock::new(None)),
             };
 
@@ -2444,6 +2449,9 @@ mod _ssl {
         // Prevents duplicate writes when retrying after WantWrite/WantRead
         #[pytraverse(skip)]
         pub(crate) write_buffered_len: PyMutex<usize>,
+        #[pytraverse(skip)]
+        msg_state: PyMutex<super::msg::MsgState>,
+        pending_msg_exc: PyMutex<Option<PyBaseExceptionRef>>,
         // Deferred client certificate verification error (for TLS 1.3)
         // Stores error message if client cert verification failed during handshake
         // Error is raised on first I/O operation after handshake
@@ -2475,6 +2483,49 @@ mod _ssl {
         /// across socket or MemoryBIO I/O.
         pub(crate) fn connection(&self) -> &PyMutex<Option<Connection>> {
             &self.connection
+        }
+
+        pub(crate) fn observe_tls(&self, write: bool, bytes: &[u8], vm: &VirtualMachine) {
+            if bytes.is_empty() {
+                return;
+            }
+            let events = self.msg_state.lock().observe(write, bytes);
+            if events.is_empty() {
+                return;
+            }
+            let callback = self.context.read().msg_callback.read().clone();
+            let Some(callback) = callback else {
+                return;
+            };
+            let conn = self
+                .owner
+                .read()
+                .as_ref()
+                .and_then(|owner| owner.upgrade())
+                .unwrap_or_else(|| vm.ctx.none());
+            for event in events {
+                let result = callback.call(
+                    (
+                        conn.clone(),
+                        vm.ctx.new_str(if write { "write" } else { "read" }),
+                        vm.ctx.new_int(event.version),
+                        vm.ctx.new_int(event.content_type),
+                        vm.ctx.new_int(event.msg_type),
+                        vm.ctx.new_bytes(event.data),
+                    ),
+                    vm,
+                );
+                if let Err(exc) = result {
+                    let mut pending = self.pending_msg_exc.lock();
+                    if pending.is_none() {
+                        *pending = Some(exc);
+                    }
+                }
+            }
+        }
+
+        pub(crate) fn take_msg_exc(&self) -> Option<PyBaseExceptionRef> {
+            self.pending_msg_exc.lock().take()
         }
 
         // Check for deferred certificate verification errors (TLS 1.3)
@@ -2748,7 +2799,13 @@ mod _ssl {
             )
         }
 
-        fn reject_connection(&self, error: PyBaseExceptionRef, bytes: Vec<u8>) {
+        fn reject_connection(
+            &self,
+            error: PyBaseExceptionRef,
+            bytes: Vec<u8>,
+            vm: &VirtualMachine,
+        ) {
+            self.observe_tls(true, &bytes, vm);
             self.pending_tls_output.lock().extend_from_slice(&bytes);
             *self.state.lock() = TlsState::SendingAlert { error };
         }
@@ -2771,6 +2828,7 @@ mod _ssl {
                                     self.reject_connection(
                                         error,
                                         super::handshake::sni_alert(description),
+                                        vm,
                                     );
                                     continue;
                                 }
@@ -2785,7 +2843,7 @@ mod _ssl {
                                 } else {
                                     SslError::from_rustls(error)
                                 };
-                                self.reject_connection(error.into_py_err(vm), bytes);
+                                self.reject_connection(error.into_py_err(vm), bytes, vm);
                                 continue;
                             }
                             Ok(None) => {}
@@ -2816,6 +2874,7 @@ mod _ssl {
                                     },
                                 );
                             }
+                            self.observe_tls(false, bytes.as_bytes(), vm);
                             super::handshake::feed_acceptor(&mut acceptor, bytes.as_bytes())
                                 .map_err(|e| e.into_pyexception(vm))?;
                             Ok(())
@@ -3258,7 +3317,7 @@ mod _ssl {
                     alert
                         .write_all(&mut bytes)
                         .map_err(|e| e.into_pyexception(vm))?;
-                    self.reject_connection(SslError::from_rustls(error).into_py_err(vm), bytes);
+                    self.reject_connection(SslError::from_rustls(error).into_py_err(vm), bytes, vm);
                     self.accept_client_hello(vm)?;
                 }
             }
@@ -3289,7 +3348,7 @@ mod _ssl {
                         if matches!(*self.state.lock(), TlsState::SendingAlert { .. }) {
                             return Err(error);
                         }
-                        self.reject_connection(error, super::handshake::sni_alert(40));
+                        self.reject_connection(error, super::handshake::sni_alert(40), vm);
                         return self.accept_client_hello(vm).map(|_| ());
                     }
                 } else {
@@ -3411,10 +3470,13 @@ mod _ssl {
                 if let Some(conn) = self.connection.lock().as_mut() {
                     let _ = conn.write_tls(&mut bytes);
                 }
-                self.reject_connection(error.into_py_err(vm), bytes);
+                self.reject_connection(error.into_py_err(vm), bytes, vm);
                 return self.accept_client_hello(vm).map(|_| ());
             }
             handshake_result.map_err(|e| e.into_py_err(vm))?;
+            if let Some(exc) = self.take_msg_exc() {
+                return Err(exc);
+            }
             self.complete_handshake(vm);
             Ok(())
         }
@@ -3510,6 +3572,9 @@ mod _ssl {
                     // Check for deferred certificate verification errors (TLS 1.3)
                     // Must be checked AFTER ssl_read, as the error is set during I/O
                     self.check_deferred_cert_error(vm)?;
+                    if let Some(exc) = self.take_msg_exc() {
+                        return Err(exc);
+                    }
                     buf.truncate(n);
                     return_data(buf, &buffer, vm)
                 }
@@ -3650,6 +3715,9 @@ mod _ssl {
             match result {
                 Ok(n) => {
                     self.check_deferred_cert_error(vm)?;
+                    if let Some(exc) = self.take_msg_exc() {
+                        return Err(exc);
+                    }
                     Ok(n)
                 }
                 Err(crate::ssl::compat::SslError::WantRead) => {
@@ -4038,7 +4106,7 @@ mod _ssl {
                 if let Some(conn) = self.connection.lock().as_mut() {
                     let _ = conn.write_tls(&mut bytes);
                 }
-                self.reject_connection(error.clone(), bytes);
+                self.reject_connection(error.clone(), bytes, vm);
                 return self
                     .accept_client_hello(vm)
                     .map(|_| self.io.socket_object(vm));
@@ -4150,25 +4218,35 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyBytesRef>> {
             let cb_type_str = cb_type.as_ref().map_or("tls-unique", |s| s.as_str());
-
-            // rustls doesn't support channel binding (tls-unique, tls-server-end-point, etc.)
-            // This is because:
-            // 1. tls-unique requires access to TLS Finished messages, which rustls doesn't expose
-            // 2. tls-server-end-point requires the server certificate, which we don't track here
-            // 3. TLS 1.3 deprecated tls-unique anyway
-            //
-            // For compatibility, we'll return None (no channel binding available)
-            // rather than raising an error
-
             if cb_type_str != "tls-unique" {
-                return Err(vm.new_value_error(format!(
-                    "Unsupported channel binding type '{cb_type_str}'",
-                )));
+                return Err(super::msg::unknown_binding_type_error(cb_type_str, vm));
             }
-
-            // Return None to indicate channel binding is not available
-            // This matches the behavior when the handshake hasn't completed yet
-            Ok(None)
+            if !self.handshake_completed() {
+                return Ok(None);
+            }
+            let master_secret = self.key_log.master_secret();
+            let transcript = self.msg_state.lock().transcript().to_vec();
+            let session_reused = *self.session_was_reused.lock();
+            let suite = {
+                let conn_guard = self.connection.lock();
+                conn_guard
+                    .as_ref()
+                    .and_then(|conn| conn.negotiated_cipher_suite())
+            };
+            let Some(master_secret) = master_secret else {
+                return Ok(None);
+            };
+            let Some(suite) = suite else {
+                return Ok(None);
+            };
+            Ok(super::msg::tls12_unique(
+                suite,
+                &master_secret,
+                &transcript,
+                self.server_side,
+                session_reused,
+            )
+            .map(|bytes| vm.ctx.new_bytes(bytes)))
         }
     }
 
