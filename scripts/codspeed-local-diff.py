@@ -53,14 +53,15 @@ VALGRIND_ARGS = [
     "--trace-children=yes",
     "--cache-sim=yes",
     "--collect-systime=nsec",
+    # Instrumentation is toggled on/off around each benchmark by the
+    # `instrument-hooks` native library baked into the binary by `cargo
+    # codspeed build`, once it's told it's running under a runner via the
+    # CODSPEED_ENV/CODSPEED_RUNNER_MODE env vars set below -- without this
+    # flag Valgrind would also count process startup and harness bookkeeping
+    # outside those windows.
+    "--instr-atstart=no",
+    "--separate-threads=no",
 ]
-# `--instr-atstart=no` (what CodSpeed's own runner uses, see measure.rs) relies
-# on the `instrument-hooks` native library making CALLGRIND_START/STOP client
-# requests around each benchmark. That library only does so once CodSpeed's
-# runner has set it up with env vars this script does not replicate, so with
-# `--instr-atstart=no` here instrumentation never turns on and every count
-# comes back 0 (confirmed on moreal/RustPython#25). Instrumenting from
-# process start instead (the Valgrind default) does not depend on that.
 
 
 def _cargo_metadata():
@@ -148,6 +149,16 @@ def measure(out_dir, bench_filter=None):
         env = dict(os.environ)
         env["CODSPEED_CARGO_WORKSPACE_ROOT"] = str(workspace_root)
         env["PYTHONMALLOC"] = "malloc"
+        env["PYTHONHASHSEED"] = "0"
+        # The `instrument-hooks` native library linked into the binary by
+        # `cargo codspeed build` only issues the CALLGRIND_START/STOP client
+        # requests around each benchmark once it sees these -- without them
+        # every dump comes back `summary: 0` even though Valgrind genuinely
+        # ran the whole benchmark suite (confirmed on moreal/RustPython#25;
+        # see CodSpeedHQ/codspeed's `get_base_injected_env`).
+        env["CODSPEED_ENV"] = "runner"
+        env["CODSPEED_RUNNER_MODE"] = "instrumentation"
+        env["CODSPEED_PROFILE_FOLDER"] = str(out_dir)
 
         command = [
             "setarch",
