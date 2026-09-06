@@ -97,6 +97,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Use a short Cargo home on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CARGO_HOME=$env:RUNNER_TEMP\c" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
+
       - name: Restore cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -105,6 +112,9 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ${{ runner.temp }}/c/registry/index/
+            ${{ runner.temp }}/c/registry/cache/
+            ${{ runner.temp }}/c/git/db/
             target/
           key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
           restore-keys: |
@@ -338,6 +348,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Use a short Cargo home on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CARGO_HOME=$env:RUNNER_TEMP\c" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
+
       - name: Restore cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -346,6 +363,9 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ${{ runner.temp }}/c/registry/index/
+            ${{ runner.temp }}/c/registry/cache/
+            ${{ runner.temp }}/c/git/db/
             target/
           key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
           restore-keys: |
@@ -499,6 +519,13 @@ jobs:
         with:
           components: clippy
 
+      - name: Use a short Cargo home on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CARGO_HOME=$env:RUNNER_TEMP\c" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
+
       - name: Restore cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -507,6 +534,9 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ${{ runner.temp }}/c/registry/index/
+            ${{ runner.temp }}/c/registry/cache/
+            ${{ runner.temp }}/c/git/db/
             target/
           key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
           restore-keys: |

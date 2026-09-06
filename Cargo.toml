@@ -184,10 +184,10 @@ rustpython-wtf8 = { path = "crates/wtf8", version = "0.5.0" }
 rustpython-doc = { path = "crates/doc", version = "0.5.0" }
 
 # Use the RustPython Ruff fork for RustPython public `_ast` metadata.
-ruff_python_parser = { package = "rustpython-ruff_python_parser", git = "https://github.com/RustPython/ruff.git", tag = "0.15.19-rustpython" }
-ruff_python_ast = { package = "rustpython-ruff_python_ast", git = "https://github.com/RustPython/ruff.git", tag = "0.15.19-rustpython" }
-ruff_text_size = { package = "rustpython-ruff_text_size", git = "https://github.com/RustPython/ruff.git", tag = "0.15.19-rustpython" }
-ruff_source_file = { package = "rustpython-ruff_source_file", git = "https://github.com/RustPython/ruff.git", tag = "0.15.19-rustpython" }
+ruff_python_parser = { package = "rustpython-ruff_python_parser", git = "https://github.com/RustPython/ruff.git", tag = "0.16.5-rustpython" }
+ruff_python_ast = { package = "rustpython-ruff_python_ast", git = "https://github.com/RustPython/ruff.git", tag = "0.16.5-rustpython" }
+ruff_text_size = { package = "rustpython-ruff_text_size", git = "https://github.com/RustPython/ruff.git", tag = "0.16.5-rustpython" }
+ruff_source_file = { package = "rustpython-ruff_source_file", git = "https://github.com/RustPython/ruff.git", tag = "0.16.5-rustpython" }
 
 der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
 phf = { version = "0.14.0", default-features = false, features = ["macros"]}

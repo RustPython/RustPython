@@ -14,10 +14,13 @@ impl Node for ast::Parameters {
             range: _,
             runtime_defaults,
         } = self;
-        let (posonlyargs, args, mut defaults) =
-            extract_positional_parameter_defaults(posonlyargs, args);
+        let (posonlyargs, args, mut defaults) = extract_positional_parameter_defaults(
+            posonlyargs.into_iter().collect(),
+            args.into_iter().collect(),
+        );
         defaults.runtime_defaults = runtime_defaults;
-        let (kwonlyargs, kw_defaults) = extract_keyword_parameter_defaults(kwonlyargs);
+        let (kwonlyargs, kw_defaults) =
+            extract_keyword_parameter_defaults(kwonlyargs.into_iter().collect());
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeArguments::static_type().to_owned())
             .unwrap();
@@ -108,10 +111,10 @@ impl Node for ast::Parameters {
 
         Ok(Self {
             node_index: Default::default(),
-            posonlyargs,
-            args,
+            posonlyargs: posonlyargs.into(),
+            args: args.into(),
             vararg,
-            kwonlyargs,
+            kwonlyargs: kwonlyargs.into(),
             kwarg,
             range: Default::default(),
             runtime_defaults,

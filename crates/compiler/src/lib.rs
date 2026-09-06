@@ -6520,11 +6520,11 @@ mod tests {
             ),
             (
                 "t\"x\" b\"y\"",
-                "cannot mix t-string literals with string or bytes literals",
+                "Cannot mix t-string literals with string or bytes literals",
             ),
             (
                 "b\"x\" t\"y\"",
-                "cannot mix t-string literals with string or bytes literals",
+                "Cannot mix t-string literals with string or bytes literals",
             ),
             // The literals ahead of the first t-string already mix, so CPython's first pass
             // raises from `_PyPegen_concatenate_strings` before the t-string rule is reached.

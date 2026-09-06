@@ -21,7 +21,7 @@ use crate::{
 };
 use node::Node;
 use ruff_python_ast as ast;
-use ruff_text_size::{Ranged, TextRange, TextSize};
+use ruff_text_size::{Ranged, TextRange, TextSize, TextSlice};
 use rustpython_compiler_core::{
     LineIndex, OneIndexed, PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation,
 };

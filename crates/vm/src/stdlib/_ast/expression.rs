@@ -855,7 +855,13 @@ fn expr_dict_comp_from_object_with_range(
 ) -> PyResult<ast::ExprDictComp> {
     Ok(ast::ExprDictComp {
         node_index: Default::default(),
-        key: get_required_node_field(vm, source_file, &object, "key", "DictComp")?,
+        key: Some(get_required_node_field(
+            vm,
+            source_file,
+            &object,
+            "key",
+            "DictComp",
+        )?),
         value: get_required_node_field(vm, source_file, &object, "value", "DictComp")?,
         generators: get_node_list_field(vm, source_file, &object, "generators", "DictComp")?,
         range,
@@ -1130,24 +1136,27 @@ fn expr_call_from_object_with_range(
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::ExprCall> {
+    let mut arguments = merge_function_call_arguments(
+        PositionalArguments::ast_from_field(vm, source_file, &object, "args", "Call")?,
+        KeywordArguments::ast_from_field(vm, source_file, &object, "keywords", "Call")?,
+    );
+    arguments.range = range;
     Ok(ast::ExprCall {
         node_index: Default::default(),
         func: get_required_node_field(vm, source_file, &object, "func", "Call")?,
-        arguments: merge_function_call_arguments(
-            PositionalArguments::ast_from_field(vm, source_file, &object, "args", "Call")?,
-            KeywordArguments::ast_from_field(vm, source_file, &object, "keywords", "Call")?,
-        ),
-        range,
+        arguments,
+        range_start: range.start(),
     })
 }
 
 impl Node for ast::ExprCall {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let range = self.range();
         let Self {
             node_index: _,
             func,
             arguments,
-            range,
+            range_start: _,
         } = self;
         let (positional_arguments, keyword_arguments) = split_function_call_arguments(arguments);
         let node = NodeAst

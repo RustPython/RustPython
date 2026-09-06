@@ -60,6 +60,13 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
+      - name: Use a short Cargo home on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CARGO_HOME=$env:RUNNER_TEMP\c" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
+
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
         with:
