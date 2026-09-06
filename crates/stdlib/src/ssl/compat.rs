@@ -869,6 +869,21 @@ pub(super) fn is_blocking_io_error(err: &Py<PyBaseException>, vm: &VirtualMachin
 
 // Socket I/O Helper Functions
 
+/// Run `f` on the rustls connection. Do not perform socket or MemoryBIO I/O
+/// inside `f`; rustls is sans-I/O and another thread may need this lock to
+/// encrypt or decrypt while we wait on the transport.
+fn with_conn_mut<R>(
+    socket: &PySSLSocket,
+    vm: &VirtualMachine,
+    f: impl FnOnce(&mut Connection) -> SslResult<R>,
+) -> SslResult<R> {
+    let mut guard = socket.connection().lock();
+    let conn = guard
+        .as_mut()
+        .ok_or_else(|| SslError::Py(vm.new_value_error("Connection not established")))?;
+    f(conn)
+}
+
 /// Send all bytes to socket, handling partial sends with blocking wait
 ///
 /// Loops until all bytes are sent. For blocking sockets, this will wait
@@ -902,11 +917,7 @@ pub(super) fn send_all_bytes(
 ///
 /// Drains all pending TLS data from rustls and sends it to the peer.
 /// Returns whether any progress was made.
-fn handshake_write_loop(
-    conn: &mut Connection,
-    socket: &PySSLSocket,
-    vm: &VirtualMachine,
-) -> SslResult<bool> {
+fn handshake_write_loop(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<bool> {
     let mut made_progress = false;
 
     // Flush any previously pending TLS data before generating new output
@@ -915,26 +926,17 @@ fn handshake_write_loop(
         .flush_pending_tls_output(vm, None)
         .map_err(SslError::Py)?;
 
-    while conn.wants_write() {
-        let mut buf = Vec::new();
-        let written = conn
-            .write_tls(&mut buf as &mut dyn std::io::Write)
-            .map_err(SslError::Io)?;
-
-        if written > 0 && !buf.is_empty() {
-            // Send all bytes to socket, handling partial sends
-            send_all_bytes(socket, buf, vm, None)?;
-            made_progress = true;
-        } else if written == 0 {
-            // No data written but wants_write is true - should not happen normally
-            // Break to avoid infinite loop
+    loop {
+        let wants_write = with_conn_mut(socket, vm, |conn| Ok(conn.wants_write()))?;
+        if !wants_write {
             break;
         }
-
-        // Check if there's more to write
-        if !conn.wants_write() {
+        let buf = with_conn_mut(socket, vm, ssl_write_tls_records)?;
+        if buf.is_empty() {
             break;
         }
+        send_all_bytes(socket, buf, vm, None)?;
+        made_progress = true;
     }
 
     Ok(made_progress)
@@ -981,22 +983,23 @@ pub(super) fn recv_at_most_one_tls_record(
 /// Read up to a single TLS record for post-handshake I/O while preserving the
 /// SSL-vs-socket error precedence from the old sock_recv() path.
 fn recv_at_most_one_tls_record_for_data(
-    conn: &mut Connection,
     socket: &PySSLSocket,
     vm: &VirtualMachine,
 ) -> SslResult<PyObjectRef> {
     match recv_at_most_one_tls_record(socket, vm) {
         Ok(data) => Ok(data),
         Err(SslError::Eof) => {
-            if let Err(rustls_err) = conn.process_new_packets() {
-                return Err(SslError::from_rustls(rustls_err));
-            }
+            with_conn_mut(socket, vm, |conn| {
+                conn.process_new_packets().map_err(SslError::from_rustls)?;
+                Ok(())
+            })?;
             Ok(vm.ctx.new_bytes(vec![]).into())
         }
         Err(SslError::Py(e)) => {
-            if let Err(rustls_err) = conn.process_new_packets() {
-                return Err(SslError::from_rustls(rustls_err));
-            }
+            with_conn_mut(socket, vm, |conn| {
+                conn.process_new_packets().map_err(SslError::from_rustls)?;
+                Ok(())
+            })?;
             if is_connection_closed_error(&e, vm) {
                 return Err(SslError::Eof);
             }
@@ -1006,11 +1009,7 @@ fn recv_at_most_one_tls_record_for_data(
     }
 }
 
-fn handshake_read_data(
-    conn: &mut Connection,
-    socket: &PySSLSocket,
-    vm: &VirtualMachine,
-) -> SslResult<()> {
+fn handshake_read_data(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<()> {
     if socket
         .sock_wait_for_io_impl(SockWaitKind::Read, vm)
         .map_err(SslError::Py)?
@@ -1020,7 +1019,9 @@ fn handshake_read_data(
         ));
     }
     let data = recv_at_most_one_tls_record(socket, vm)?;
-    ssl_read_tls_records(conn, data, socket.is_bio_mode(), vm)
+    with_conn_mut(socket, vm, |conn| {
+        ssl_read_tls_records(conn, data, socket.is_bio_mode(), vm)
+    })
 }
 
 /// Try to read plaintext data from TLS connection buffer
@@ -1055,29 +1056,34 @@ fn try_read_plaintext(conn: &mut Connection, buf: &mut [u8]) -> SslResult<Option
 /// This abstracts away the low-level rustls read_tls/write_tls loop.
 ///
 /// = SSL_do_handshake()
-pub(super) fn ssl_do_handshake(
-    conn: &mut Connection,
-    socket: &PySSLSocket,
-    vm: &VirtualMachine,
-) -> SslResult<()> {
+pub(super) fn ssl_do_handshake(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<()> {
     loop {
         // Both transports drain writes first and feed complete/partial records
         // through the same path. An empty BIO naturally returns WantRead.
-        handshake_write_loop(conn, socket, vm)?;
-        if !conn.is_handshaking() {
+        handshake_write_loop(socket, vm)?;
+        let keep_going = with_conn_mut(socket, vm, |conn| {
+            if !conn.is_handshaking() {
+                return Ok(false);
+            }
+            if !conn.wants_read() {
+                return Err(SslError::WantRead);
+            }
+            Ok(true)
+        })?;
+        if !keep_going {
             return Ok(());
         }
-        if !conn.wants_read() {
-            return Err(SslError::WantRead);
-        }
-        handshake_read_data(conn, socket, vm)?;
-        if let Err(error) = conn.process_new_packets() {
-            return Err(if matches!(error, rustls::Error::InvalidMessage(_)) {
-                SslError::PreauthData
-            } else {
-                SslError::from_rustls(error)
-            });
-        }
+        handshake_read_data(socket, vm)?;
+        with_conn_mut(socket, vm, |conn| {
+            if let Err(error) = conn.process_new_packets() {
+                return Err(if matches!(error, rustls::Error::InvalidMessage(_)) {
+                    SslError::PreauthData
+                } else {
+                    SslError::from_rustls(error)
+                });
+            }
+            Ok(())
+        })?;
     }
 }
 
@@ -1088,9 +1094,8 @@ pub(super) fn ssl_do_handshake(
 ///
 /// = SSL_read_ex()
 pub(super) fn ssl_read(
-    conn: &mut Connection,
-    buf: &mut [u8],
     socket: &PySSLSocket,
+    buf: &mut [u8],
     vm: &VirtualMachine,
 ) -> SslResult<usize> {
     let is_bio = socket.is_bio_mode();
@@ -1136,10 +1141,11 @@ pub(super) fn ssl_read(
         }
         // Check if we need to read more TLS records BEFORE trying plaintext read
         // This ensures we don't miss data that's already been processed
-        let needs_more_tls = conn.wants_read();
+        let (needs_more_tls, plaintext) = with_conn_mut(socket, vm, |conn| {
+            Ok((conn.wants_read(), try_read_plaintext(conn, buf)?))
+        })?;
 
-        // Try to read plaintext from rustls buffer
-        if let Some(n) = try_read_plaintext(conn, buf)? {
+        if let Some(n) = plaintext {
             if n == 0 {
                 // EOF from TLS - close_notify received
                 // Return ZeroReturn so Python raises SSLZeroReturnError
@@ -1152,7 +1158,8 @@ pub(super) fn ssl_read(
         if !needs_more_tls {
             // Check if connection needs to write data first (e.g., TLS key update, renegotiation)
             // This mirrors the handshake logic which checks both wants_read() and wants_write()
-            if conn.wants_write() && !is_bio {
+            let wants_write = with_conn_mut(socket, vm, |conn| Ok(conn.wants_write()))?;
+            if wants_write && !is_bio {
                 // Check deadline BEFORE attempting flush
                 if let Some(deadline) = deadline
                     && std::time::Instant::now() >= deadline
@@ -1164,7 +1171,7 @@ pub(super) fn ssl_read(
 
                 // Flush pending TLS data before continuing
                 // CRITICAL: Pass deadline so flush respects read timeout
-                let tls_data = ssl_write_tls_records(conn)?;
+                let tls_data = with_conn_mut(socket, vm, ssl_write_tls_records)?;
                 if !tls_data.is_empty() {
                     // Use best-effort send - don't fail READ just because WRITE couldn't complete
                     match send_all_bytes(socket, tls_data, vm, deadline) {
@@ -1216,8 +1223,12 @@ pub(super) fn ssl_read(
                     // If close_notify was received, we should return ZeroReturn (EOF), not WantRead
                     // This is critical for asyncore-based applications that rely on recv() returning
                     // 0 or raising SSL_ERROR_ZERO_RETURN to detect connection close.
-                    let io_state = conn.process_new_packets().map_err(SslError::from_rustls)?;
-                    if io_state.peer_has_closed() {
+                    let peer_closed = with_conn_mut(socket, vm, |conn| {
+                        conn.process_new_packets()
+                            .map(|io_state| io_state.peer_has_closed())
+                            .map_err(SslError::from_rustls)
+                    })?;
+                    if peer_closed {
                         return Err(SslError::ZeroReturn);
                     }
                     // Non-blocking socket: return immediately
@@ -1226,7 +1237,7 @@ pub(super) fn ssl_read(
                 // Blocking socket or socket with timeout: try to read more data from socket.
                 // Even though rustls says it doesn't want to read, more TLS records may arrive.
                 // Use single-record reading to avoid consuming close_notify alongside data.
-                let data = recv_at_most_one_tls_record_for_data(conn, socket, vm)?;
+                let data = recv_at_most_one_tls_record_for_data(socket, vm)?;
 
                 let bytes_read = data
                     .clone()
@@ -1237,16 +1248,23 @@ pub(super) fn ssl_read(
                     // No more data available - check if this is clean shutdown or unexpected EOF
                     // If close_notify was already received, return ZeroReturn (clean closure)
                     // Otherwise, return Eof (unexpected EOF)
-                    let io_state = conn.process_new_packets().map_err(SslError::from_rustls)?;
-                    if io_state.peer_has_closed() {
+                    let peer_closed = with_conn_mut(socket, vm, |conn| {
+                        conn.process_new_packets()
+                            .map(|io_state| io_state.peer_has_closed())
+                            .map_err(SslError::from_rustls)
+                    })?;
+                    if peer_closed {
                         return Err(SslError::ZeroReturn);
                     }
                     return Err(SslError::Eof);
                 }
 
                 // Feed data to rustls and process
-                ssl_read_tls_records(conn, data, false, vm)?;
-                conn.process_new_packets().map_err(SslError::from_rustls)?;
+                with_conn_mut(socket, vm, |conn| {
+                    ssl_read_tls_records(conn, data, false, vm)?;
+                    conn.process_new_packets().map_err(SslError::from_rustls)?;
+                    Ok(())
+                })?;
 
                 // Continue loop to try reading plaintext
                 continue;
@@ -1256,14 +1274,14 @@ pub(super) fn ssl_read(
         }
 
         // Read and process TLS records
-        match ssl_ensure_data_available(conn, socket, vm) {
+        match ssl_ensure_data_available(socket, vm) {
             Ok(_bytes_read) => {
                 // Successfully read and processed TLS data
                 // Continue loop to try reading plaintext
             }
             Err(e) => {
                 // Other errors - check for buffered plaintext before propagating
-                match try_read_plaintext(conn, buf)? {
+                match with_conn_mut(socket, vm, |conn| try_read_plaintext(conn, buf))? {
                     Some(n) if n > 0 => {
                         // Have buffered plaintext - return it successfully
                         return Ok(n);
@@ -1285,9 +1303,8 @@ pub(super) fn ssl_read(
 ///
 /// = SSL_write_ex()
 pub(super) fn ssl_write(
-    conn: &mut Connection,
-    data: &[u8],
     socket: &PySSLSocket,
+    data: &[u8],
     vm: &VirtualMachine,
 ) -> SslResult<usize> {
     if data.is_empty() {
@@ -1323,7 +1340,7 @@ pub(super) fn ssl_write(
 
     if already_buffered == 0 {
         // Write plaintext to rustls (= SSL_write_ex internal buffer write)
-        bytes_written_to_rustls = {
+        bytes_written_to_rustls = with_conn_mut(socket, vm, |conn| {
             let mut writer = conn.writer();
             use std::io::Write;
             // Use write() instead of write_all() to support partial writes.
@@ -1338,18 +1355,18 @@ pub(super) fn ssl_write(
                     if is_bio {
                         return Err(SslError::WantWrite);
                     }
-                    return Err(SslError::Syscall("Write failed: buffer full".to_string()));
+                    Err(SslError::Syscall("Write failed: buffer full".to_string()))
                 }
-                Ok(n) => n,
+                Ok(n) => Ok(n),
                 Err(e) => {
                     if is_bio {
                         // In BIO mode, treat write errors as WantWrite
                         return Err(SslError::WantWrite);
                     }
-                    return Err(SslError::Syscall(format!("Write failed: {e}")));
+                    Err(SslError::Syscall(format!("Write failed: {e}")))
                 }
             }
-        };
+        })?;
         // Mark data as buffered (only the portion we actually wrote)
         *socket.write_buffered_len.lock() = bytes_written_to_rustls;
     } else if already_buffered != data.len() {
@@ -1373,13 +1390,14 @@ pub(super) fn ssl_write(
         }
 
         // Check if rustls has TLS data to send
-        if !conn.wants_write() {
+        let wants_write = with_conn_mut(socket, vm, |conn| Ok(conn.wants_write()))?;
+        if !wants_write {
             // All TLS data sent successfully
             break;
         }
 
         // Get TLS records from rustls
-        let tls_data = ssl_write_tls_records(conn)?;
+        let tls_data = with_conn_mut(socket, vm, ssl_write_tls_records)?;
         if tls_data.is_empty() {
             break;
         }
@@ -1412,9 +1430,12 @@ pub(super) fn ssl_write(
                     return Err(SslError::WantRead);
                 }
                 // For socket mode, try to read TLS data
-                let recv_result = recv_at_most_one_tls_record_for_data(conn, socket, vm)?;
-                ssl_read_tls_records(conn, recv_result, false, vm)?;
-                conn.process_new_packets().map_err(SslError::from_rustls)?;
+                let recv_result = recv_at_most_one_tls_record_for_data(socket, vm)?;
+                with_conn_mut(socket, vm, |conn| {
+                    ssl_read_tls_records(conn, recv_result, false, vm)?;
+                    conn.process_new_packets().map_err(SslError::from_rustls)?;
+                    Ok(())
+                })?;
                 // Continue loop
             }
             Err(e @ SslError::Timeout(_)) => {
@@ -1586,13 +1607,9 @@ fn is_connection_closed_error(exc: &Py<PyBaseException>, vm: &VirtualMachine) ->
 
 /// Ensure TLS data is available for reading
 /// Returns the number of bytes read from the socket
-fn ssl_ensure_data_available(
-    conn: &mut Connection,
-    socket: &PySSLSocket,
-    vm: &VirtualMachine,
-) -> SslResult<usize> {
+fn ssl_ensure_data_available(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<usize> {
     // Unlike OpenSSL's SSL_read, rustls requires explicit I/O
-    if conn.wants_read() {
+    if with_conn_mut(socket, vm, |conn| Ok(conn.wants_read()))? {
         let is_bio = socket.is_bio_mode();
 
         // For non-BIO mode (regular sockets), check if socket is ready first
@@ -1626,7 +1643,7 @@ fn ssl_ensure_data_available(
         // consuming a close_notify that arrives alongside application data,
         // keeping it in the kernel buffer where select() can detect it.
         let data = if !is_bio {
-            recv_at_most_one_tls_record_for_data(conn, socket, vm)?
+            recv_at_most_one_tls_record_for_data(socket, vm)?
         } else {
             match socket.sock_recv(SSL3_RT_MAX_PACKET_SIZE, vm) {
                 Ok(data) => data,
@@ -1634,9 +1651,10 @@ fn ssl_ensure_data_available(
                     if is_blocking_io_error(&e, vm) {
                         return Err(SslError::WantRead);
                     }
-                    if let Err(rustls_err) = conn.process_new_packets() {
-                        return Err(SslError::from_rustls(rustls_err));
-                    }
+                    with_conn_mut(socket, vm, |conn| {
+                        conn.process_new_packets().map_err(SslError::from_rustls)?;
+                        Ok(())
+                    })?;
                     if is_connection_closed_error(&e, vm) {
                         return Err(SslError::Eof);
                     }
@@ -1672,10 +1690,11 @@ fn ssl_ensure_data_available(
         }
 
         // Feed data to rustls and process packets
-        ssl_read_tls_records(conn, data, is_bio, vm)?;
-
-        // Process any packets we successfully read
-        conn.process_new_packets().map_err(SslError::from_rustls)?;
+        with_conn_mut(socket, vm, |conn| {
+            ssl_read_tls_records(conn, data, is_bio, vm)?;
+            conn.process_new_packets().map_err(SslError::from_rustls)?;
+            Ok(())
+        })?;
 
         Ok(bytes_read)
     } else {

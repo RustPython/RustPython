@@ -2471,6 +2471,12 @@ mod _ssl {
             self.io.incoming().is_none_or(|bio| bio.eof())
         }
 
+        /// rustls connection lock. Hold only around rustls operations, never
+        /// across socket or MemoryBIO I/O.
+        pub(crate) fn connection(&self) -> &PyMutex<Option<Connection>> {
+            &self.connection
+        }
+
         // Check for deferred certificate verification errors (TLS 1.3)
         // If an error exists, raise it and clear it from storage
         fn check_deferred_cert_error(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -3394,23 +3400,20 @@ mod _ssl {
                     *conn_guard = Some(Connection::Client(conn));
                 }
             }
+            drop(conn_guard);
 
             // Perform the actual handshake by exchanging data with the socket/BIO
-
-            let conn = conn_guard
-                .as_mut()
-                .ok_or_else(|| vm.new_value_error("TLS connection is not available"))?;
-            let handshake_result = ssl_do_handshake(conn, self, vm);
+            let handshake_result = ssl_do_handshake(self, vm);
             if let Err(error @ (SslError::Rustls(_) | SslError::PreauthData)) = handshake_result {
                 // rustls queued the fatal alert while processing the failing
                 // record. Retain it and the original error across output retries.
                 let mut bytes = Vec::new();
-                let _ = conn.write_tls(&mut bytes);
-                drop(conn_guard);
+                if let Some(conn) = self.connection.lock().as_mut() {
+                    let _ = conn.write_tls(&mut bytes);
+                }
                 self.reject_connection(error.into_py_err(vm), bytes);
                 return self.accept_client_hello(vm).map(|_| ());
             }
-            drop(conn_guard);
             handshake_result.map_err(|e| e.into_py_err(vm))?;
             self.complete_handshake(vm);
             Ok(())
@@ -3501,13 +3504,7 @@ mod _ssl {
             // Use compat layer for unified read logic with proper EOF handling
             // This matches SSL_read_ex() approach
             let mut buf = vm.new_zeroed_bytes(len)?;
-            let read_result = {
-                let mut conn_guard = self.connection.lock();
-                let conn = conn_guard
-                    .as_mut()
-                    .ok_or_else(|| vm.new_value_error("Connection not established"))?;
-                crate::ssl::compat::ssl_read(conn, &mut buf, self, vm)
-            };
+            let read_result = crate::ssl::compat::ssl_read(self, &mut buf, vm);
             match read_result {
                 Ok(n) => {
                     // Check for deferred certificate verification errors (TLS 1.3)
@@ -3530,13 +3527,7 @@ mod _ssl {
                     };
                     if pending > 0 {
                         let mut buf = vec![0u8; pending.min(len)];
-                        let read_retry = {
-                            let mut conn_guard = self.connection.lock();
-                            let conn = conn_guard
-                                .as_mut()
-                                .ok_or_else(|| vm.new_value_error("Connection not established"))?;
-                            crate::ssl::compat::ssl_read(conn, &mut buf, self, vm)
-                        };
+                        let read_retry = crate::ssl::compat::ssl_read(self, &mut buf, vm);
                         if let Ok(n) = read_retry {
                             buf.truncate(n);
                             return return_data(buf, &buffer, vm);
@@ -3559,13 +3550,7 @@ mod _ssl {
                     };
                     if pending > 0 {
                         let mut buf = vec![0u8; pending.min(len)];
-                        let read_retry = {
-                            let mut conn_guard = self.connection.lock();
-                            let conn = conn_guard
-                                .as_mut()
-                                .ok_or_else(|| vm.new_value_error("Connection not established"))?;
-                            crate::ssl::compat::ssl_read(conn, &mut buf, self, vm)
-                        };
+                        let read_retry = crate::ssl::compat::ssl_read(self, &mut buf, vm);
                         if let Ok(n) = read_retry {
                             buf.truncate(n);
                             return return_data(buf, &buffer, vm);
@@ -3660,14 +3645,7 @@ mod _ssl {
             }
 
             // Call ssl_write (matches CPython's SSL_write_ex loop)
-            let result = {
-                let mut conn_guard = self.connection.lock();
-                let conn = conn_guard
-                    .as_mut()
-                    .ok_or_else(|| vm.new_value_error("Connection not established"))?;
-
-                crate::ssl::compat::ssl_write(conn, data_bytes.as_ref(), self, vm)
-            };
+            let result = crate::ssl::compat::ssl_write(self, data_bytes.as_ref(), vm);
 
             match result {
                 Ok(n) => {
@@ -3973,29 +3951,42 @@ mod _ssl {
             let deadline = timeout
                 .filter(|timeout| !timeout.is_zero())
                 .map(|timeout| std::time::Instant::now() + timeout);
-            let mut conn_guard = self.connection.lock();
-            let conn = conn_guard
-                .as_mut()
-                .ok_or_else(|| vm.new_value_error("Connection not established"))?;
+            {
+                let mut conn_guard = self.connection.lock();
+                let conn = conn_guard
+                    .as_mut()
+                    .ok_or_else(|| vm.new_value_error("Connection not established"))?;
 
-            if matches!(*self.state.lock(), TlsState::Connected) {
-                // rustls queues close_notify after previously buffered data.
-                // Record this before any fallible write so retries never queue
-                // another alert, even if the transport cannot accept output.
-                conn.send_close_notify();
-                *self.state.lock() = TlsState::ShuttingDown;
+                if matches!(*self.state.lock(), TlsState::Connected) {
+                    // rustls queues close_notify after previously buffered data.
+                    // Record this before any fallible write so retries never queue
+                    // another alert, even if the transport cannot accept output.
+                    conn.send_close_notify();
+                    *self.state.lock() = TlsState::ShuttingDown;
+                }
             }
 
             let result = (|| loop {
                 let mut bytes = Vec::new();
-                conn.write_tls(&mut bytes)
-                    .map_err(|e| e.into_pyexception(vm))?;
+                {
+                    let mut conn_guard = self.connection.lock();
+                    let conn = conn_guard
+                        .as_mut()
+                        .ok_or_else(|| vm.new_value_error("Connection not established"))?;
+                    conn.write_tls(&mut bytes)
+                        .map_err(|e| e.into_pyexception(vm))?;
+                }
                 super::compat::send_all_bytes(self, bytes, vm, deadline)
                     .map_err(|e| e.into_py_err(vm))?;
 
-                let io_state = conn
-                    .process_new_packets()
-                    .map_err(|e| SslError::from_rustls(e).into_py_err(vm))?;
+                let io_state = {
+                    let mut conn_guard = self.connection.lock();
+                    let conn = conn_guard
+                        .as_mut()
+                        .ok_or_else(|| vm.new_value_error("Connection not established"))?;
+                    conn.process_new_packets()
+                        .map_err(|e| SslError::from_rustls(e).into_py_err(vm))?
+                };
                 if io_state.plaintext_bytes_to_read() != 0 {
                     return Err(SslError::create_ssl_error_with_reason(
                         vm,
@@ -4029,6 +4020,10 @@ mod _ssl {
                 // trailer after close_notify in the socket or incoming BIO.
                 let data = super::compat::recv_at_most_one_tls_record(self, vm)
                     .map_err(|e| e.into_py_err(vm))?;
+                let mut conn_guard = self.connection.lock();
+                let conn = conn_guard
+                    .as_mut()
+                    .ok_or_else(|| vm.new_value_error("Connection not established"))?;
                 super::compat::ssl_read_tls_records(conn, data, self.is_bio_mode(), vm)
                     .map_err(|e| e.into_py_err(vm))?;
             })();
@@ -4040,8 +4035,9 @@ mod _ssl {
                 // A protocol failure cannot resume as a normal shutdown. Keep
                 // any fatal alert rustls queued and preserve the original error.
                 let mut bytes = Vec::new();
-                let _ = conn.write_tls(&mut bytes);
-                drop(conn_guard);
+                if let Some(conn) = self.connection.lock().as_mut() {
+                    let _ = conn.write_tls(&mut bytes);
+                }
                 self.reject_connection(error.clone(), bytes);
                 return self
                     .accept_client_hello(vm)
