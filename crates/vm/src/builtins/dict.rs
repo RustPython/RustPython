@@ -648,7 +648,7 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult {
         let hash = PyDict::hash_or_unhashable(&*key, vm)?;
-        match self.entries.pop_known_hash(vm, &*key, hash)? {
+        match self.entries.pop(vm, &*key, hash)? {
             Some(value) => Ok(value),
             None => default.ok_or_else(|| vm.new_key_error(key)),
         }
