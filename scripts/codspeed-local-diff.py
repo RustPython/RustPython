@@ -107,7 +107,7 @@ def _parse_callgrind_ir(path):
         check=True,
     )
     for line in out.stdout.splitlines():
-        if line.rstrip().endswith("PROGRAM TOTALS"):
+        if "PROGRAM TOTALS" in line:
             first_column = line.split()[0]
             return int(first_column.replace(",", ""))
     raise ValueError(
