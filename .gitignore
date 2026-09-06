@@ -32,3 +32,7 @@ Lib/test/data/*
 cpython/
 .claude/
 docs/superpowers/
+
+scripts/pyperformance/results/
+scripts/pyperformance/stub_psutil/build/
+scripts/pyperformance/stub_psutil/src/psutil.egg-info/
