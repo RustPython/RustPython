@@ -110,7 +110,10 @@ def _parse_callgrind_ir(path):
         if line.rstrip().endswith("PROGRAM TOTALS"):
             first_column = line.split()[0]
             return int(first_column.replace(",", ""))
-    raise ValueError(f"callgrind_annotate produced no PROGRAM TOTALS line for {path}")
+    raise ValueError(
+        f"callgrind_annotate produced no PROGRAM TOTALS line for {path}; "
+        f"stdout was:\n{out.stdout}\nstderr was:\n{out.stderr}"
+    )
 
 
 def measure(out_dir, bench_filter=None):
