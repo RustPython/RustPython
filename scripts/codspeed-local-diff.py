@@ -86,29 +86,31 @@ def _bench_binaries(metadata):
 
 
 def _parse_callgrind_ir(path):
-    """Sum the Ir (instructions retired) column across every dump in a callgrind file.
+    """Get the file's total Ir (instructions retired) via `callgrind_annotate`.
 
-    A callgrind output file carries one `events:` header naming the counter
-    columns and one `summary:` line per dump with a count in each column, in
-    the same order. `instrument-hooks` dumps once per benchmark inside the
-    binary (via CALLGRIND_DUMP_STATS), so a file commonly holds several
-    dumps; summing them gives the file's total regardless of how many there
-    are, as long as each dump's counters were zeroed at its start -- which is
-    how CALLGRIND_DUMP_STATS behaves.
+    A callgrind output file's own per-dump `summary:` lines are not reliable
+    here: with `instrument-hooks` dumping once per benchmark (via
+    CALLGRIND_DUMP_STATS) a file holds many dumps, and every one of them
+    reads `summary: 0` even on a multi-hundred-megabyte file that plainly
+    holds real per-line cost records (confirmed on moreal/RustPython#25) --
+    apparently the per-dump summary annotation just isn't trustworthy under
+    this dump pattern. `callgrind_annotate` (shipped with Valgrind) computes
+    the total the same way any other consumer of this format would: by
+    summing the actual per-line cost records, and prints it as a
+    `PROGRAM TOTALS` row whose columns are in the same order as the file's
+    `events:` header.
     """
-    ir_index = None
-    total = 0
-    with open(path, encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            if line.startswith("events:"):
-                columns = line.split()[1:]
-                if "Ir" not in columns:
-                    continue
-                ir_index = columns.index("Ir")
-            elif line.startswith("summary:") and ir_index is not None:
-                values = line.split()[1:]
-                total += int(values[ir_index])
-    return total
+    out = subprocess.run(
+        ["callgrind_annotate", "--threshold=0", str(path)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    for line in out.stdout.splitlines():
+        if line.rstrip().endswith("PROGRAM TOTALS"):
+            first_column = line.split()[0]
+            return int(first_column.replace(",", ""))
+    raise ValueError(f"callgrind_annotate produced no PROGRAM TOTALS line for {path}")
 
 
 def measure(out_dir, bench_filter=None):
@@ -159,28 +161,23 @@ def measure(out_dir, bench_filter=None):
         dumps = glob.glob(str(target_out_dir / "**" / "*.out"), recursive=True)
         if not dumps:
             raise SystemExit(f"No callgrind output produced for {target_key}")
-        total_ir = sum(_parse_callgrind_ir(p) for p in dumps)
+        total_ir = 0
+        for dump in dumps:
+            try:
+                total_ir += _parse_callgrind_ir(dump)
+            except (subprocess.CalledProcessError, ValueError) as e:
+                print(f"callgrind_annotate failed on {dump}: {e}", file=sys.stderr)
+                if isinstance(e, subprocess.CalledProcessError):
+                    print(e.stdout, file=sys.stderr)
+                    print(e.stderr, file=sys.stderr)
+                raise SystemExit(
+                    f"{target_key}: could not get an instruction count from {dump}"
+                ) from e
         if total_ir == 0:
-            for dump in dumps:
-                summaries = [
-                    line.rstrip("\n")
-                    for line in Path(dump)
-                    .read_text(encoding="utf-8", errors="replace")
-                    .splitlines()
-                    if line.startswith("summary:") or line.startswith("events:")
-                ]
-                size = Path(dump).stat().st_size
-                print(
-                    f"--- {dump} ({size} bytes, {len(summaries)} events:/summary: lines) ---",
-                    file=sys.stderr,
-                )
-                print("\n".join(summaries), file=sys.stderr)
             raise SystemExit(
                 f"{target_key}: parsed an instruction count of 0 across "
-                f"{len(dumps)} file(s); this almost always means the parser "
-                "didn't find an `Ir` column rather than the program "
-                "genuinely executing zero instructions -- see the lines "
-                "printed above."
+                f"{len(dumps)} file(s) ({dumps}); a benchmark suite this "
+                "size genuinely executing zero instructions is implausible."
             )
         results[target_key] = total_ir
 

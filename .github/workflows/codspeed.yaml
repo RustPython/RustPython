@@ -153,6 +153,12 @@ jobs:
       - name: Install the codspeed CLI
         run: curl -fsSL https://codspeed.io/v5.2.1/install.sh | bash -s -- --quiet
 
+      # For `callgrind_annotate` only, to total up a run's instruction count
+      # (see scripts/codspeed-local-diff.py) -- the codspeed CLI installs
+      # its own patched Valgrind for the measurement itself.
+      - name: Install valgrind (for callgrind_annotate)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
+
       - name: Restore cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
