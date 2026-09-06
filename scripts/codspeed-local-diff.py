@@ -53,13 +53,14 @@ VALGRIND_ARGS = [
     "--trace-children=yes",
     "--cache-sim=yes",
     "--collect-systime=nsec",
-    # Instrumentation is toggled on/off around each benchmark by the
-    # `codspeed`/`instrument-hooks` client requests baked into the binary by
-    # `cargo codspeed build`; without this flag Valgrind would also count
-    # process startup and harness bookkeeping outside those windows.
-    "--instr-atstart=no",
-    "--separate-threads=no",
 ]
+# `--instr-atstart=no` (what CodSpeed's own runner uses, see measure.rs) relies
+# on the `instrument-hooks` native library making CALLGRIND_START/STOP client
+# requests around each benchmark. That library only does so once CodSpeed's
+# runner has set it up with env vars this script does not replicate, so with
+# `--instr-atstart=no` here instrumentation never turns on and every count
+# comes back 0 (confirmed on moreal/RustPython#25). Instrumenting from
+# process start instead (the Valgrind default) does not depend on that.
 
 
 def _cargo_metadata():
@@ -163,7 +164,16 @@ def measure(out_dir, bench_filter=None):
         dumps = glob.glob(str(out_dir / f"{safe_key}.*.out"))
         if not dumps:
             raise SystemExit(f"No callgrind output produced for {target_key}")
-        results[target_key] = sum(_parse_callgrind_ir(p) for p in dumps)
+        total_ir = sum(_parse_callgrind_ir(p) for p in dumps)
+        if total_ir == 0:
+            raise SystemExit(
+                f"{target_key}: parsed an instruction count of 0 across "
+                f"{len(dumps)} file(s) ({dumps}); this almost always means "
+                "the parser didn't find an `Ir` column rather than the "
+                "program genuinely executing zero instructions -- inspect "
+                "one of those files directly."
+            )
+        results[target_key] = total_ir
 
     results_path = out_dir / "results.json"
     with open(results_path, "w", encoding="utf-8") as handle:
