@@ -113,10 +113,10 @@ impl ToPyException for FormatParseError {
             Self::MissingStartBracket => {
                 vm.new_value_error("Single '}' encountered in format string")
             }
-            // The variant means a bracket in literal text that was not doubled. A
-            // trailing lone `{` reaches UnmatchedBracket instead, so I could not
-            // construct an input that lands here; the message is what CPython uses
-            // for that condition.
+            // A brace in literal text that was not doubled, i.e. a stray `{` with
+            // nothing after it. `parse_spec` reports this rather than
+            // UnmatchedBracket so that "{" and "a{" are separated from "{0" and
+            // "a{b", which are fields left open.
             Self::UnescapedStartBracketInLiteral => {
                 vm.new_value_error("Single '{' encountered in format string")
             }

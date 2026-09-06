@@ -369,5 +369,12 @@ def test_format_parse_error_messages():
 
     assert message("{:{{}}", 1) == "unmatched '{' in format spec"
 
+    # A brace with nothing after it is a stray brace; one holding an unclosed
+    # field is not.
+    assert message("{") == "Single '{' encountered in format string"
+    assert message("a{") == "Single '{' encountered in format string"
+    assert message("{s") == "expected '}' before end of string"
+    assert message("a{b") == "expected '}' before end of string"
+
 
 test_format_parse_error_messages()
