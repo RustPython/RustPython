@@ -1421,6 +1421,9 @@ pub(super) mod _os {
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult {
+        if matches!(file, OsPathOrFd::Fd(_)) && !follow_symlinks.0 {
+            return Err(vm.new_value_error("stat: cannot use fd and follow_symlinks together"));
+        }
         let stat = stat_inner(file.clone(), dir_fd, follow_symlinks)
             .map_err(|err| OSErrorBuilder::with_filename(&err, file, vm))?
             .ok_or_else(|| crate::exceptions::nul_char_error(vm))?;

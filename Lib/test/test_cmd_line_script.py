@@ -153,13 +153,11 @@ class CmdLineTest(unittest.TestCase):
             print('Expected output: %r' % expected_msg)
         self.assertIn(expected_msg.encode('utf-8'), err)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dash_c_loader(self):
         rc, out, err = assert_python_ok("-c", "print(__loader__)")
         expected = repr(importlib.machinery.BuiltinImporter).encode("utf-8")
         self.assertIn(expected, out)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_stdin_loader(self):
         # Unfortunately, there's no way to automatically test the fully
         # interactive REPL, since that code path only gets executed when
@@ -790,7 +788,6 @@ class CmdLineTest(unittest.TestCase):
             traceback_lines = stderr.decode().splitlines()
             self.assertIn("No module named script_pkg", traceback_lines[-1])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_nonexisting_script(self):
         # bpo-34783: "./python script.py" must not crash
         # if the script file doesn't exist.

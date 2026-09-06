@@ -342,6 +342,7 @@ impl VirtualMachine {
             main_module.into(),
             self,
         )?;
+        self.set_main_builtin_importer(&scope.globals)?;
 
         Ok(scope)
     }
@@ -349,15 +350,37 @@ impl VirtualMachine {
     /// Create `__main__` if it is missing and return it.
     pub fn ensure_main_module(&self) -> PyResult<PyRef<PyModule>> {
         let sys_modules = self.sys_module.get_attr("modules", self)?;
-        if let Ok(existing) = sys_modules.get_item("__main__", self)
+        let module = if let Ok(existing) = sys_modules.get_item("__main__", self)
             && let Ok(module) = existing.downcast::<PyModule>()
         {
-            return Ok(module);
+            module
+        } else {
+            let dict = self.ctx.new_dict();
+            let main_module = self.new_module("__main__", dict, None);
+            sys_modules.set_item("__main__", main_module.clone().into(), self)?;
+            main_module
+        };
+        self.set_main_builtin_importer(&module.dict())?;
+        Ok(module)
+    }
+
+    /// Set `__main__.__loader__` to BuiltinImporter when it is missing or None.
+    pub fn set_main_builtin_importer(
+        &self,
+        module_dict: &Py<crate::builtins::PyDict>,
+    ) -> PyResult<()> {
+        if let Ok(loader) = module_dict.get_item("__loader__", self)
+            && !self.is_none(&loader)
+        {
+            return Ok(());
         }
-        let dict = self.ctx.new_dict();
-        let main_module = self.new_module("__main__", dict, None);
-        sys_modules.set_item("__main__", main_module.clone().into(), self)?;
-        Ok(main_module)
+        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        let Ok(importlib) = sys_modules.get_item("_frozen_importlib", self) else {
+            return Ok(());
+        };
+        let loader = importlib.get_attr("BuiltinImporter", self)?;
+        module_dict.set_item("__loader__", loader, self)?;
+        Ok(())
     }
 
     /// `__dict__` of this interpreter's `__main__` module.

@@ -13,15 +13,14 @@ thread_local! {
 mod _contextvars {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-        builtins::{PyGenericAlias, PyList, PyStrRef, PyType, PyTypeRef},
-        class::PyClassDef,
+        builtins::{PyGenericAlias, PyList, PyStr, PyType, PyTypeRef},
         class::StaticType,
         common::{
             hash::PyHash,
             lock::{LazyLock, PyMutex},
             wtf8::Wtf8Buf,
         },
-        function::{ArgCallable, FuncArgs, OptionalArg},
+        function::{FuncArgs, OptionalArg},
         protocol::{PyMappingMethods, PySequenceMethods},
         types::{AsMapping, AsSequence, Constructor, Hashable, Iterable, Representable},
     };
@@ -154,17 +153,33 @@ mod _contextvars {
         }
     }
 
+    fn context_check_key_type<'a>(
+        key: &'a crate::vm::PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a Py<ContextVar>> {
+        match key.downcast_ref::<ContextVar>() {
+            Some(var) => Ok(var),
+            None => Err(vm.new_type_error(format!(
+                "a ContextVar key was expected, got {}",
+                key.repr(vm)?
+            ))),
+        }
+    }
+
     #[pyclass(with(Constructor, AsMapping, AsSequence, Iterable))]
     impl PyContext {
         #[pymethod]
-        fn run(
-            zelf: &Py<Self>,
-            callable: ArgCallable,
-            args: FuncArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult {
+        fn run(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let (callable, rest) = args
+                .args
+                .split_first()
+                .ok_or_else(|| vm.new_type_error("run() missing 1 required positional argument"))?;
+            let rest = FuncArgs {
+                args: rest.to_vec(),
+                kwargs: args.kwargs,
+            };
             Self::enter(zelf, vm)?;
-            let result = callable.invoke(args, vm);
+            let result = callable.call(rest, vm);
             Self::exit(zelf, vm)?;
             result
         }
@@ -200,14 +215,16 @@ mod _contextvars {
         #[pymethod]
         fn get(
             &self,
-            key: PyRef<ContextVar>,
+            key: PyObjectRef,
             default: OptionalArg<PyObjectRef>,
-        ) -> Option<PyObjectRef> {
-            let found = self.get_inner(&key);
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<PyObjectRef>> {
+            let key = context_check_key_type(&key, vm)?;
+            let found = self.get_inner(key);
             if found.is_some() {
-                found
+                Ok(found)
             } else {
-                default.into_option()
+                Ok(default.into_option())
             }
         }
 
@@ -236,9 +253,17 @@ mod _contextvars {
     }
 
     impl Constructor for PyContext {
-        type Args = ();
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            Ok(Self::empty(vm))
+        type Args = FuncArgs;
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            if !args.args.is_empty() || !args.kwargs.is_empty() {
+                return Err(vm.new_type_error("Context() does not accept any arguments"));
+            }
+            Self::empty(vm).into_ref_with_type(vm, cls).map(Into::into)
+        }
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            unreachable!("use slot_new")
         }
     }
 
@@ -249,7 +274,7 @@ mod _contextvars {
                     PyContext::mapping_downcast(mapping).__len__()
                 )),
                 subscript: atomic_func!(|mapping, needle, vm| {
-                    let needle = needle.try_to_value(vm)?;
+                    let needle = context_check_key_type(needle, vm)?;
                     PyContext::mapping_downcast(mapping)
                         .get_inner(needle)
                         .ok_or_else(|| vm.new_key_error(needle.to_owned().into()))
@@ -264,7 +289,7 @@ mod _contextvars {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
                 contains: atomic_func!(|seq, target, vm| {
-                    let target = target.try_to_value(vm)?;
+                    let target = context_check_key_type(target, vm)?;
                     Ok(PyContext::sequence_downcast(seq).contains(target))
                 }),
                 ..PySequenceMethods::NOT_IMPLEMENTED
@@ -355,10 +380,10 @@ mod _contextvars {
             drop(replaced);
         }
 
-        fn generate_hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyHash {
-            let name_hash = vm.state.hash_secret.hash_str(&zelf.name);
+        fn generate_hash(zelf: &Py<Self>, name_hash: PyHash) -> PyHash {
             let pointer_hash = crate::common::hash::hash_pointer(zelf.as_object().get_id());
-            pointer_hash ^ name_hash
+            let hash = pointer_hash ^ name_hash;
+            if hash == -1 { -2 } else { hash }
         }
     }
 
@@ -476,35 +501,46 @@ mod _contextvars {
         }
     }
 
-    #[derive(FromArgs)]
-    struct ContextVarOptions {
-        #[pyarg(positional)]
-        name: PyStrRef,
-        #[pyarg(any, optional)]
-        default: OptionalArg<PyObjectRef>,
-    }
-
     impl Constructor for ContextVar {
-        type Args = ContextVarOptions;
+        type Args = FuncArgs;
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let args: Self::Args = args.bind_for(vm, Self::NAME)?;
+            let mut args = args;
+            if args.args.len() != 1 {
+                return Err(vm.new_type_error(format!(
+                    "ContextVar() takes exactly 1 argument ({} given)",
+                    args.args.len()
+                )));
+            }
+            let default = args.take_keyword("default");
+            if let Some((name, _)) = args.kwargs.first() {
+                return Err(vm.new_type_error(format!(
+                    "ContextVar() got an unexpected keyword argument '{name}'"
+                )));
+            }
+
+            let name = args.args.swap_remove(0);
+            let name = name
+                .downcast::<PyStr>()
+                .map_err(|_| vm.new_type_error("context variable name must be a str"))?;
+            let name_hash = name.as_object().hash(vm)?;
+            let name = name.to_string();
+
             let var = Self {
-                name: args.name.to_string(),
-                default: args.default.into_option(),
+                name,
+                default,
                 cached_id: 0.into(),
                 cached: PyMutex::new(None),
                 hash: AtomicI64::new(0),
             };
             let py_var = var.into_ref_with_type(vm, cls)?;
-
-            let hash = Self::generate_hash(&py_var, vm);
+            let hash = Self::generate_hash(&py_var, name_hash);
             py_var.hash.store(hash, Ordering::Relaxed);
             Ok(py_var.into())
         }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            unimplemented!("use slot_new")
+            unreachable!("use slot_new")
         }
     }
 
