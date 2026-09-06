@@ -1261,7 +1261,7 @@ impl<T: Clone> Dict<T> {
 
     /// Retrieve and delete a key, given a known hash. Same contract as
     /// [`Self::insert_known_hash`].
-    pub(crate) fn pop_known_hash<K: DictKey + ?Sized>(
+    pub(crate) fn pop<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
         key: &K,
