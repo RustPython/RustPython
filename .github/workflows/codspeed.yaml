@@ -159,11 +159,17 @@ jobs:
       - name: Install cargo-codspeed
         run: cargo install cargo-codspeed --locked --version ^5
 
+      # The base commit predates this script's own addition to the repo, so
+      # `git checkout <base sha>` below would delete it from disk; run it
+      # from a copy outside the worktree instead.
+      - name: Copy the diff script out of the checkout
+        run: cp scripts/codspeed-local-diff.py "${RUNNER_TEMP}/codspeed-local-diff.py"
+
       - name: Build head benchmark targets
         run: cargo codspeed build --locked --measurement-mode simulation -p rustpython -p rustpython-sre_engine
 
       - name: Measure head
-        run: python3 scripts/codspeed-local-diff.py measure --out results/head
+        run: python3 "${RUNNER_TEMP}/codspeed-local-diff.py" measure --out results/head
 
       - name: Check out base commit
         # Reuses the same `target/` build cache, so only what changed since
@@ -174,7 +180,7 @@ jobs:
         run: cargo codspeed build --locked --measurement-mode simulation -p rustpython -p rustpython-sre_engine
 
       - name: Measure base
-        run: python3 scripts/codspeed-local-diff.py measure --out results/base
+        run: python3 "${RUNNER_TEMP}/codspeed-local-diff.py" measure --out results/base
 
       - name: Restore head commit
         if: always()
@@ -182,7 +188,7 @@ jobs:
 
       - name: Compute diff
         run: |
-          python3 scripts/codspeed-local-diff.py diff \
+          python3 "${RUNNER_TEMP}/codspeed-local-diff.py" diff \
             --base results/base --head results/head \
             --md diff.md --json diff.json
           echo "${{ github.event.pull_request.number }}" > pr_number.txt
