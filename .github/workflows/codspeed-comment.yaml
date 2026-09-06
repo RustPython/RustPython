@@ -1,0 +1,65 @@
+on:
+  workflow_run:
+    workflows: [CodSpeed]
+    types: [completed]
+
+name: CodSpeed local diff comment
+
+# `pull_request` from a fork carries a read-only token no matter what is
+# granted here, so the diff itself is computed in that read-only job and
+# handed off as an artifact; this workflow runs in the base repo's context
+# (`workflow_run` always does, regardless of which fork triggered it) and is
+# the one trusted with a token that can write the comment.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  comment:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the diff produced by the CodSpeed workflow
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codspeed-local-diff
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+        continue-on-error: true # the artifact is absent on push/merge_group runs
+
+      - name: Post or update the PR comment
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('diff.md') || !fs.existsSync('pr_number.txt')) {
+              core.info('No diff.md/pr_number.txt in this run; nothing to comment.');
+              return;
+            }
+
+            const prNumber = parseInt(fs.readFileSync('pr_number.txt', 'utf8').trim(), 10);
+            const body = fs.readFileSync('diff.md', 'utf8');
+            const marker = '<!-- codspeed-local-diff -->';
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
