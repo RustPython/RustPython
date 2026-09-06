@@ -2376,7 +2376,12 @@ impl SymbolTableBuilder {
                         self.in_iter_def_exp = true;
                     }
                     // Dict comprehension - is_generator = false (can be inlined)
-                    let key = key.as_ref();
+                    let Some(key) = key.as_deref() else {
+                        return Err(self.error_ranged(
+                            "dict unpacking cannot be used in dict comprehension".to_owned(),
+                            *range,
+                        ));
+                    };
                     self.scan_comprehension(
                         &"<dictcomp>".into(),
                         key,

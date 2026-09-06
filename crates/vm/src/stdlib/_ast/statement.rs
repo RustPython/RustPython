@@ -365,7 +365,7 @@ fn stmt_function_def_from_object_with_range(
         name,
         parameters,
         body,
-        decorator_list,
+        decorator_list: decorator_list.into(),
         returns,
         type_params,
         range,
@@ -491,7 +491,7 @@ fn stmt_class_def_from_object_with_range(
         name,
         arguments: merge_class_def_args(Some(bases), Some(keywords)),
         body,
-        decorator_list,
+        decorator_list: decorator_list.into(),
         type_params,
         range,
         runtime_decorator_list,
@@ -1342,7 +1342,7 @@ fn except_handler_list_from_field(
                 range,
                 type_: None,
                 name: None,
-                body: Vec::new(),
+                body: Vec::new().into(),
                 runtime_body: None,
             })
         });

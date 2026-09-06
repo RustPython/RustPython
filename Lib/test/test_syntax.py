@@ -1468,7 +1468,7 @@ Ensure that early = are not matched by the parser as invalid comparisons
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
-   >>> dict(x=34, x=1, y=2); x $ y  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> dict(x=34, x=1, y=2); x $ y
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
