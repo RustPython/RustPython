@@ -99,6 +99,10 @@ mod _ssl {
     };
     use sha2::{Digest, Sha256};
 
+    /// Caps unsent TLS so BIO writes stay inside asyncio's 64 KiB
+    /// socket-transport high-water mark when SO_SNDBUF is small.
+    const TLS_IO_BUFFER_LIMIT: Option<usize> = Some(4 * 1024);
+
     // Import certificate operations module
     use super::cert;
     use super::chain::{self, VerifiedChainBuilder};
@@ -3238,7 +3242,8 @@ mod _ssl {
             // particular connection's mutable keylog routing.
             Arc::make_mut(&mut config_arc).key_log = self.key_log.clone();
             match accepted.into_connection(config_arc) {
-                Ok(conn) => {
+                Ok(mut conn) => {
+                    conn.set_buffer_limit(TLS_IO_BUFFER_LIMIT);
                     *conn_guard = Some(Connection::Server(conn));
                     *self.state.lock() = TlsState::Handshaking;
                 }
@@ -3381,9 +3386,10 @@ mod _ssl {
                     *self.client_config.write() = Some(config.clone());
                     *self.client_session_store.write() = Some(session_store);
 
-                    let conn = ClientConnection::new(config, server_name).map_err(|e| {
+                    let mut conn = ClientConnection::new(config, server_name).map_err(|e| {
                         vm.new_value_error(format!("Failed to create client connection: {e}"))
                     })?;
+                    conn.set_buffer_limit(TLS_IO_BUFFER_LIMIT);
 
                     *conn_guard = Some(Connection::Client(conn));
                 }
