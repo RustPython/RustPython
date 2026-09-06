@@ -132,7 +132,10 @@ def measure(out_dir, bench_filter=None):
             "`cargo codspeed build --measurement-mode simulation` first."
         )
 
-    out_dir = Path(out_dir)
+    # Each bench binary runs with its package's manifest directory as cwd (to
+    # match how `cargo codspeed run` invokes it), so a relative --out here
+    # would land under a different directory for every package.
+    out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     results = {}
 
