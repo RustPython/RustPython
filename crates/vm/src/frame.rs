@@ -11544,7 +11544,7 @@ impl ExecutingFrame<'_> {
 
     // Block stack functions removed - exception table handles all exception/cleanup
 
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn push_stackref_opt(&mut self, obj: Option<PyStackRef>) {
         match self.localsplus.stack_try_push(obj) {
@@ -11553,13 +11553,13 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[track_caller] // not a real track_caller but push_value is less useful for debugging
     fn push_value_opt(&mut self, obj: Option<PyObjectRef>) {
         self.push_stackref_opt(obj.map(PyStackRef::new_owned));
     }
 
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn push_value(&mut self, obj: PyObjectRef) {
         self.push_stackref_opt(Some(PyStackRef::new_owned(obj)));
@@ -11577,13 +11577,13 @@ impl ExecutingFrame<'_> {
         self.push_stackref_opt(Some(unsafe { PyStackRef::new_borrowed(obj) }));
     }
 
-    #[inline]
+    #[inline(always)]
     fn push_null(&mut self) {
         self.push_stackref_opt(None);
     }
 
     /// Pop a raw stackref from the stack, returning None if the stack slot is NULL.
-    #[inline]
+    #[inline(always)]
     fn pop_stackref_opt(&mut self) -> Option<PyStackRef> {
         if self.localsplus.stack_is_empty() {
             self.fatal("tried to pop from empty stack");
@@ -11592,7 +11592,7 @@ impl ExecutingFrame<'_> {
     }
 
     /// Pop a raw stackref from the stack. Panics if NULL.
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn pop_stackref(&mut self) -> PyStackRef {
         expect_unchecked(
@@ -11603,12 +11603,12 @@ impl ExecutingFrame<'_> {
 
     /// Pop a value from the stack, returning None if the stack slot is NULL.
     /// Automatically promotes borrowed refs to owned.
-    #[inline]
+    #[inline(always)]
     fn pop_value_opt(&mut self) -> Option<PyObjectRef> {
         self.pop_stackref_opt().map(|sr| sr.to_pyobj())
     }
 
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn pop_value(&mut self) -> PyObjectRef {
         self.pop_stackref().to_pyobj()
@@ -11846,7 +11846,7 @@ impl ExecutingFrame<'_> {
         slot.map(|sr| sr.to_pyobj())
     }
 
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn top_value(&self) -> &PyObject {
         match self.localsplus.stack_last() {
@@ -11856,7 +11856,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn nth_value(&self, depth: u32) -> &PyObject {
         let idx = self.localsplus.stack_len() - depth as usize - 1;
