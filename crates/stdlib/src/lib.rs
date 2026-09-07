@@ -23,7 +23,6 @@ mod compression; // internal module
 mod contextvars;
 mod csv;
 
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 mod lzma;
 
 mod zlib;
@@ -206,7 +205,6 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             not(any(target_os = "ios", target_arch = "wasm32"))
         ))]
         locale::module_def(ctx),
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         lzma::module_def(ctx),
         math::module_def(ctx),
         md5::module_def(ctx),

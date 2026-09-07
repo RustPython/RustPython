@@ -66,10 +66,6 @@ zlib-rs = { workspace = true, optional = true }
 lock_api = { workspace = true }
 siphasher = { workspace = true }
 num-complex = { workspace = true }
-
-[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
-# RustPython does not expose `_lzma` on these targets; keep the native engine's
-# dependency boundary with its common-module owner rather than in stdlib.
 xz = { workspace = true, optional = true }
 xz-sys = { workspace = true, optional = true }
 

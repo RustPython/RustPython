@@ -2,9 +2,8 @@
 
 //! VM-independent liblzma stream engine.
 //!
-//! `_lzma` is not built on Android or WebAssembly in RustPython, so the xz
-//! dependency and this module have the same target boundary.  Python object
-//! conversion and exception construction remain in `rustpython-stdlib`.
+//! Python object conversion and exception construction remain in
+//! `rustpython-stdlib`.
 
 use xz::stream::{
     Action, Check, Error as XzError, Filters, LzmaOptions, MatchFinder, Mode, Status, Stream,
