@@ -1,7 +1,7 @@
+pub(crate) use _contextvars::PyContext;
 pub(crate) use _contextvars::module_def;
 
 use crate::vm::PyRef;
-use _contextvars::PyContext;
 use core::cell::RefCell;
 
 thread_local! {
@@ -82,7 +82,7 @@ mod _contextvars {
             self.inner.vars.hamt.lock()
         }
 
-        fn enter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        pub(crate) fn enter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // A context is entered by one thread at a time, so the check and the
             // claim have to be a single step.
             if zelf
@@ -105,7 +105,7 @@ mod _contextvars {
             Ok(())
         }
 
-        fn exit(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        pub(crate) fn exit(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             if !zelf.inner.entered.load(Ordering::Acquire) {
                 return Err(vm.new_runtime_error(format!(
                     "cannot exit context: {} is not entered",

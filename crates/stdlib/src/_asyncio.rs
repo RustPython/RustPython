@@ -7,6 +7,7 @@ pub(crate) use _asyncio::module_def;
 #[pymodule]
 pub(crate) mod _asyncio {
     use crate::common::wtf8::{Wtf8Buf, wtf8_concat};
+    use crate::contextvars::PyContext;
     use crate::{
         common::lock::PyRwLock,
         vm::{
@@ -1998,28 +1999,40 @@ pub(crate) mod _asyncio {
         let coro = zelf.task_coro.read().clone();
         let context = zelf.task_context.read().clone();
 
-        // Run the first step with context (using context.run(callable, *args))
-        let step_result = if let Some(ctx) = context {
-            // Call context.run(coro.send, None)
-            let coro_ref = match coro {
-                Some(c) => c,
-                None => {
-                    let _ = _swap_current_task(loop_obj, prev_task, vm);
-                    _unregister_eager_task(task_obj, vm)?;
-                    return Ok(());
+        // Run the first step with context. Rather than going through the
+        // generic `context.run(coro.send, None)` dispatch (which builds a
+        // bound-method object for `send` and then re-enters the generic
+        // callable/FuncArgs machinery just to invoke it), enter/exit the
+        // native `PyContext` directly and call `coro.send(None)` through a
+        // single `call_method`. This is eager-start specific: it runs once
+        // per task (not per step), so it only shaves the extra dispatch
+        // layer off the synchronous-completion fast path.
+        let step_result = match coro {
+            Some(c) => {
+                if let Some(ctx) = context {
+                    match ctx.downcast::<PyContext>() {
+                        Ok(ctx) => {
+                            // Only exit a context that was actually entered.
+                            PyContext::enter(&ctx, vm)?;
+                            let result = vm.call_method(&c, "send", (vm.ctx.none(),));
+                            PyContext::exit(&ctx, vm)?;
+                            result
+                        }
+                        Err(ctx) => {
+                            // Non-native context object (e.g. user-subclassed):
+                            // fall back to the generic `context.run` dispatch.
+                            let send_method = c.get_attr(vm.ctx.intern_str("send"), vm)?;
+                            vm.call_method(&ctx, "run", (send_method, vm.ctx.none()))
+                        }
+                    }
+                } else {
+                    vm.call_method(&c, "send", (vm.ctx.none(),))
                 }
-            };
-            let send_method = coro_ref.get_attr(vm.ctx.intern_str("send"), vm)?;
-            vm.call_method(&ctx, "run", (send_method, vm.ctx.none()))
-        } else {
-            // Run without context
-            match coro {
-                Some(c) => vm.call_method(&c, "send", (vm.ctx.none(),)),
-                None => {
-                    let _ = _swap_current_task(loop_obj, prev_task, vm);
-                    _unregister_eager_task(task_obj, vm)?;
-                    return Ok(());
-                }
+            }
+            None => {
+                let _ = _swap_current_task(loop_obj, prev_task, vm);
+                _unregister_eager_task(task_obj, vm)?;
+                return Ok(());
             }
         };
 
