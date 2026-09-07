@@ -3324,15 +3324,28 @@ impl ExecutingFrame<'_> {
             obj_name = self.code.obj_name
         ));
         // Execute until return or exception:
+        //
+        // `lasti_cell` and `instructions` are plain shared references with the
+        // frame's own lifetime, so copying them into locals is free; read back
+        // through `self` inside the loop they would be re-loaded after every
+        // handler (which writes through `&mut self`), adding three dependent
+        // loads in front of the code-unit fetch.
+        //
+        // `idx` is likewise carried in a local: the next instruction's index
+        // is known from `lasti_before` and the cache count unless the handler
+        // jumped, so re-reading the frame's `lasti` at the top of the loop
+        // only added a store-to-load round trip to the fetch chain.
+        let lasti_cell = self.lasti;
+        let instructions = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
+        let mut idx = lasti_cell.load(Relaxed) as usize;
         loop {
-            let idx = self.lasti() as usize;
             // Advance lasti past the current instruction BEFORE firing the
             // line event.  This ensures that f_lineno (which reads
             // locations[lasti - 1]) returns the line of the instruction
             // being traced, not the previous one. Stored from `idx` rather
             // than read-modify-written, which would re-load what was just read.
-            self.lasti.store(idx as u32 + 1, Relaxed);
+            lasti_cell.store(idx as u32 + 1, Relaxed);
 
             // Read once and reuse for both the line-trace check below and
             // the opcode-trace check after the instruction is decoded,
@@ -3364,7 +3377,7 @@ impl ExecutingFrame<'_> {
                 tracing = vm.use_tracing.get();
                 // Trace callback may have changed lasti via set_f_lineno.
                 // Re-read and restart the loop from the new position.
-                if self.lasti() != (idx as u32 + 1) {
+                if lasti_cell.load(Relaxed) != (idx as u32 + 1) {
                     // set_f_lineno defers stack unwinding because we hold
                     // the state mutex.  Perform it now.
                     let pops = self.pending_stack_pops();
@@ -3374,13 +3387,14 @@ impl ExecutingFrame<'_> {
                         self.set_pending_stack_pops(0);
                     }
                     arg_state.reset();
+                    idx = lasti_cell.load(Relaxed) as usize;
                     continue;
                 }
             }
             // One aligned acquire load fetches opcode and arg together; two
             // separate atomic reads would force the instruction array pointer
             // to be re-loaded across the acquire barrier.
-            let unit = self.code.instructions.read_unit(idx);
+            let unit = instructions.read_unit(idx);
             let op = unit.op;
             let arg = arg_state.extend(unit.arg);
             let mut do_extend_arg = false;
@@ -3425,44 +3439,45 @@ impl ExecutingFrame<'_> {
                 vm.run_scheduled_gc();
                 Ok(())
             }
-            if vm.eval_breaker_tripped() {
-                if let Err(exception) = eval_breaker_work(vm) {
-                    #[cold]
-                    fn handle_signal_exception(
-                        frame: &mut ExecutingFrame<'_>,
-                        exception: PyBaseExceptionRef,
-                        idx: usize,
-                        vm: &VirtualMachine,
-                    ) -> FrameResult {
-                        if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
-                            let next = exception.__traceback__();
-                            let new_traceback = PyTraceback::new(
-                                next,
-                                frame.frame_object(vm),
-                                idx as u32 * 2,
-                                loc.line,
-                            );
-                            exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
-                        }
-                        vm.contextualize_exception(&exception);
-                        frame.unwind_blocks(vm, UnwindReason::Raising { exception })
+            if vm.eval_breaker_tripped()
+                && let Err(exception) = eval_breaker_work(vm)
+            {
+                #[cold]
+                fn handle_signal_exception(
+                    frame: &mut ExecutingFrame<'_>,
+                    exception: PyBaseExceptionRef,
+                    idx: usize,
+                    vm: &VirtualMachine,
+                ) -> FrameResult {
+                    if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
+                        let next = exception.__traceback__();
+                        let new_traceback = PyTraceback::new(
+                            next,
+                            frame.frame_object(vm),
+                            idx as u32 * 2,
+                            loc.line,
+                        );
+                        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
                     }
-                    match handle_signal_exception(self, exception, idx, vm) {
-                        Ok(None) => {}
-                        Ok(Some(value)) => {
-                            break Ok(value);
-                        }
-                        Err(exception) => {
-                            break Err(exception);
-                        }
-                    }
-                    // The handler this unwound to starts a fresh instruction,
-                    // so drop any EXTENDED_ARG prefix collected for the one
-                    // the signal interrupted — the loop's own reset at the
-                    // bottom is skipped by this `continue`.
-                    arg_state.reset();
-                    continue;
+                    vm.contextualize_exception(&exception);
+                    frame.unwind_blocks(vm, UnwindReason::Raising { exception })
                 }
+                match handle_signal_exception(self, exception, idx, vm) {
+                    Ok(None) => {}
+                    Ok(Some(value)) => {
+                        break Ok(value);
+                    }
+                    Err(exception) => {
+                        break Err(exception);
+                    }
+                }
+                // The handler this unwound to starts a fresh instruction,
+                // so drop any EXTENDED_ARG prefix collected for the one
+                // the signal interrupted — the loop's own reset at the
+                // bottom is skipped by this `continue`.
+                arg_state.reset();
+                idx = lasti_cell.load(Relaxed) as usize;
+                continue;
             }
             // lasti was just stored as `idx + 1` above and nothing between
             // there and here writes it, so the pre-dispatch value is known
@@ -3475,8 +3490,10 @@ impl ExecutingFrame<'_> {
             // across the whole handler and cost a spill and a reload of it on
             // every instruction.
             let caches = op.cache_entries();
-            if caches > 0 && self.lasti() == lasti_before {
-                self.update_lasti(|i| *i += caches as u32);
+            let mut next_idx = lasti_cell.load(Relaxed);
+            if caches > 0 && next_idx == lasti_before {
+                next_idx = lasti_before + caches as u32;
+                lasti_cell.store(next_idx, Relaxed);
             }
             match result {
                 Ok(None) => {}
@@ -3604,7 +3621,9 @@ impl ExecutingFrame<'_> {
                     }
 
                     match handle_exception(self, exception, idx, is_reraise, is_new_raise, vm) {
-                        Ok(None) => {}
+                        // The handler unwound to a new position, so the next
+                        // index is whatever it left in the frame.
+                        Ok(None) => next_idx = lasti_cell.load(Relaxed),
                         Ok(Some(result)) => break Ok(result),
                         Err(exception) => {
                             // Fire PY_UNWIND: exception escapes this frame
@@ -3642,6 +3661,7 @@ impl ExecutingFrame<'_> {
             if !do_extend_arg {
                 arg_state.reset()
             }
+            idx = next_idx as usize;
         }
     }
 
