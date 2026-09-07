@@ -3,10 +3,11 @@ use crate::{
     builtins::PyStrRef,
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
-    frame::{ExecutionResult, FrameObject, FrameObjectRef, FrameOwner},
+    frame::{ExecutionResult, FrameObject, FrameObjectRef, FrameOwner, InterpreterFrame},
     function::OptionalArg,
     object::{PyAtomicRef, Traverse, TraverseFn},
     protocol::PyIterReturn,
+    vm::GenFrameLink,
 };
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -23,7 +24,9 @@ impl ExecutionResult {
                 };
                 PyIterReturn::StopIteration(arg)
             }
-            Self::TailCall => unreachable!("TailCall in generator/coroutine"),
+            Self::TailCall | Self::GenResume => {
+                unreachable!("unfinished frame result in generator/coroutine")
+            }
         }
     }
 }
@@ -64,6 +67,144 @@ impl Drop for RunningGuard<'_> {
     fn drop(&mut self) {
         self.0.running.store(false);
     }
+}
+
+/// The `Coro` inside a builtin generator or coroutine object, if it is one.
+#[inline]
+pub(crate) fn as_builtin_coro(obj: &PyObject) -> Option<&Coro> {
+    use crate::builtins::{PyCoroutine, PyGenerator};
+    crate::match_class!(match obj {
+        ref g @ PyGenerator => Some(g.as_coro()),
+        ref c @ PyCoroutine => Some(c.as_coro()),
+        _ => None,
+    })
+}
+
+/// A generator or coroutine being resumed by the call trampoline instead of
+/// by a nested `Coro::send`: its frame runs in the delegating frame's own
+/// eval loop, so the work `send` does around a resume is split in two, with
+/// the frame's whole run in between.
+///
+/// The halves must stay in step with `Coro::send` / `Coro::send_none`, which
+/// do the same things around a recursive resume, in this order:
+///
+/// 1. take the running claim, then re-read `closed` under it;
+/// 2. decide what to push as the value the `yield` produces;
+/// 3. take `gi_exc_state` out of the generator;
+/// 4. link the frame onto the thread's frame chain (`gen_frame_link`);
+/// 5. **run the frame**;
+/// 6. store the handled exception back into `gi_exc_state`;
+/// 7. unlink the frame (`gen_frame_unlink`);
+/// 8. retire the generator if the frame came to an end;
+/// 9. release the claim and map the outcome (PEP 479).
+///
+/// Steps 1-4 are `flat_resume_enter`, steps 6-9 are `flat_resume_exit`.
+pub(crate) struct FlatResume {
+    /// The generator or coroutine being run: owner of the frame below, of
+    /// the claim released on the way out, and of `gi_exc_state`.
+    jen: PyObjectRef,
+    /// The frame `jen` runs. Borrowed from `jen`, which outlives this record.
+    frame: *const Py<FrameObject>,
+    link: GenFrameLink,
+}
+
+/// Outcome of `flat_resume_enter`.
+pub(crate) enum FlatEnter {
+    /// The frame is linked and its claim held. Push `value` as the result of
+    /// the `yield` it stopped at (or forward it down a `yield from` chain),
+    /// run the frame, then hand `state` back to `flat_resume_exit`.
+    Entered {
+        state: FlatResume,
+        /// `None` only for a generator that had not started, which has no
+        /// `yield` to give a value to.
+        value: Option<PyObjectRef>,
+    },
+    /// The generator was already exhausted; nothing was claimed or linked,
+    /// and the resume yields `StopIteration(None)`.
+    Exhausted,
+}
+
+impl FlatResume {
+    /// The frame to run. Valid until `flat_resume_exit` consumes this record.
+    pub(crate) fn iframe_ptr(&self) -> *mut InterpreterFrame {
+        // SAFETY: `jen` holds the frame alive, and the claim taken in
+        // `flat_resume_enter` makes this thread its only executor.
+        unsafe { (*self.frame).iframe_mut() as *mut InterpreterFrame }
+    }
+}
+
+/// Start a flattened resume of `jen` with `value` as the result of the
+/// `yield` it is suspended at (`None` for a generator that has not started).
+///
+/// `jen` must be an exact builtin generator or coroutine that is neither
+/// running nor closed — what `SEND`/`FOR_ITER` check before parking it.
+#[inline]
+pub(crate) fn flat_resume_enter(
+    jen: PyObjectRef,
+    value: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<FlatEnter> {
+    let coro = as_builtin_coro(&jen).expect("flat resume of a non-generator");
+    if coro.closed.load() {
+        return Ok(FlatEnter::Exhausted);
+    }
+    let _claim = coro.claim(&jen, vm)?;
+    // The generator can have run to its end in the meantime.
+    if coro.closed.load() {
+        return Ok(FlatEnter::Exhausted);
+    }
+    let value = if coro.frame.lasti() > 0 {
+        Some(value)
+    } else if !vm.is_none(&value) {
+        return Err(vm.new_type_error(format!(
+            "can't send non-None value to a just-started {}",
+            gen_name(&jen, vm),
+        )));
+    } else {
+        None
+    };
+    // SAFETY: exclusive access guaranteed by the claim
+    let gen_exc = unsafe { coro.exception.swap(None) };
+    let frame: *const Py<FrameObject> = &*coro.frame;
+    let link = match vm.gen_frame_link(&coro.frame, gen_exc) {
+        Ok(link) => link,
+        Err(exc) => {
+            // A resume that fails before the frame runs retires the
+            // generator, the same as one whose frame raises: `Coro::send`
+            // reaches `maybe_close` with the `Err` that `resume_gen_frame`
+            // returned for exactly these two checks.
+            coro.retire(&_claim);
+            return Err(exc);
+        }
+    };
+    // The claim outlives this scope; `flat_resume_exit` drops it.
+    core::mem::forget(_claim);
+    Ok(FlatEnter::Entered {
+        state: FlatResume { jen, frame, link },
+        value,
+    })
+}
+
+/// Finish a flattened resume with what the frame produced, giving back what
+/// `Coro::send` would have returned for the same run.
+#[inline]
+pub(crate) fn flat_resume_exit(
+    state: FlatResume,
+    result: PyResult<ExecutionResult>,
+    vm: &VirtualMachine,
+) -> PyResult<PyIterReturn> {
+    let FlatResume { jen, frame, link } = state;
+    let coro = as_builtin_coro(&jen).expect("flat resume of a non-generator");
+    // SAFETY: exclusive access guaranteed by the claim taken on the way in.
+    let _old = unsafe { coro.exception.swap(vm.current_exception()) };
+    // SAFETY: `jen` still holds the frame alive.
+    vm.gen_frame_unlink(unsafe { &*frame }, link);
+    // Re-take the guard the enter half leaked, so the claim is released
+    // here whatever the outcome.
+    let claim = RunningGuard(coro);
+    coro.maybe_close(&result, &claim);
+    drop(claim);
+    coro.finalize_send_result(result, &jen, vm)
 }
 
 fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
@@ -120,8 +261,22 @@ impl Coro {
                 self.clear_frame_locals_on_close();
             }
             Ok(ExecutionResult::Yield(_)) => {}
-            Ok(ExecutionResult::TailCall) => unreachable!("TailCall in generator/coroutine"),
+            Ok(ExecutionResult::TailCall | ExecutionResult::GenResume) => {
+                unreachable!("unfinished frame result in generator/coroutine")
+            }
         }
+    }
+
+    /// Retire the generator without having run its frame: the resume failed
+    /// before the frame started, which `Coro::send` treats the same as a
+    /// frame that raised.
+    fn retire(&self, _claim: &RunningGuard<'_>) {
+        self.closed.store(true);
+        self.frame.iframe().owner.store(
+            FrameOwner::FrameObject as i8,
+            core::sync::atomic::Ordering::Release,
+        );
+        self.clear_frame_locals_on_close();
     }
 
     /// Take the frame for this thread, or report that another thread holds it.
@@ -309,6 +464,12 @@ impl Coro {
         }
     }
 
+    /// Whether the frame has run at all, i.e. is stopped at a `yield` rather
+    /// than at its start.
+    pub(crate) fn started(&self) -> bool {
+        self.frame.lasti() > 0
+    }
+
     pub fn suspended(&self) -> bool {
         !self.closed.load() && !self.running.load() && self.frame.lasti() > 0
     }
@@ -319,6 +480,12 @@ impl Coro {
 
     pub fn closed(&self) -> bool {
         self.closed.load()
+    }
+
+    /// The frame this generator runs, without the reference count a clone of
+    /// it would cost.
+    pub(crate) fn frame_ref(&self) -> &Py<FrameObject> {
+        &self.frame
     }
 
     pub fn frame(&self) -> FrameObjectRef {

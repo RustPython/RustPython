@@ -1644,6 +1644,60 @@ pub enum ExecutionResult {
     /// already been prepared on the datastack. The trampoline reads the
     /// pending frame pointer from `vm.pending_tailcall_frame`.
     TailCall,
+    /// The bytecode loop wants a generator or coroutine resumed in this same
+    /// eval loop rather than through a nested `Coro::send`. The trampoline
+    /// reads which one, the value to send it, and the continuation below
+    /// from `vm.pending_gen_resume`.
+    GenResume,
+}
+
+/// What the frame that issued a [`ExecutionResult::GenResume`] does with the
+/// resumed generator's outcome.
+///
+/// The trampoline only ever parks a frame at a `SEND` in the canonical
+/// `yield from` / `await` shape, where the instruction right after the `SEND`
+/// is the `YIELD_VALUE` that re-yields whatever the sub-generator produced:
+///
+/// ```text
+///   send_idx: SEND exit
+///             CACHE              <- the parked frame's lasti is here + 1
+///             YIELD_VALUE 1
+/// resumed_at: RESUME
+///             JUMP_BACKWARD_NO_INTERRUPT -> send_idx
+///       exit: END_SEND
+/// ```
+///
+/// A value the sub-generator yields is re-yielded by the trampoline itself —
+/// park `lasti` at `resumed_at`, hand the value to the next frame out — so a
+/// level of delegation runs none of its own instructions. Once the
+/// sub-generator is done instead, its `StopIteration` value is pushed and the
+/// frame carries on at `exit`, which is what `SEND` itself would have done.
+///
+/// Any other `SEND`, and every `FOR_ITER`, keeps the recursive path: the
+/// frame would have to be re-entered on every value, and re-entering the eval
+/// loop costs more than the nested `Coro::send` it would save.
+#[derive(Clone, Copy)]
+pub(crate) struct GenCont {
+    pub(crate) exit: u32,
+    /// Where the skipped `YIELD_VALUE` leaves `lasti`. Zero where a
+    /// suspended frame has no continuation at all, i.e. it is waiting on an
+    /// ordinary call rather than on a generator — no frame parked at a `SEND`
+    /// can have `lasti` 0, so the two never collide.
+    pub(crate) resumed_at: u32,
+}
+
+impl GenCont {
+    /// The placeholder a frame waiting on an ordinary call carries.
+    pub(crate) const NONE: Self = Self {
+        exit: 0,
+        resumed_at: 0,
+    };
+
+    /// Whether this is a real `yield from` continuation.
+    #[inline]
+    pub(crate) const fn is_some(self) -> bool {
+        self.resumed_at != 0
+    }
 }
 
 /// A valid execution result, or an exception
@@ -2362,7 +2416,7 @@ impl Py<FrameObject> {
             func_obj,
             prev_line: &iframe.prev_line,
             monitoring_mask: 0,
-            tailcall_enabled: false,
+            flatten: Flatten::Nothing,
         };
         f(exec)
     }
@@ -2387,6 +2441,16 @@ impl Py<FrameObject> {
         // given frame, enforced by the owner field and the running claim.
         let iframe = unsafe { self.iframe_mut() };
         if let Some(value) = value {
+            // Parked at a `yield from` of its own: hand the value to the
+            // delegate and let the trampoline re-yield for this frame, so a
+            // chain costs no instruction at any level, this one included.
+            if let Some((delegate, cont)) = yield_from_delegate(iframe, vm)
+                && crate::coroutine::as_builtin_coro(&delegate).is_some_and(is_delegating)
+                && gen_collapse_allowed(vm)
+            {
+                park_at_send(iframe, cont);
+                return vm.run_gen_frame_delegating(iframe, delegate, value, cont);
+            }
             iframe.localsplus.push_stack(value);
         }
         vm.run_gen_frame(iframe)
@@ -2432,7 +2496,7 @@ impl Py<FrameObject> {
             func_obj,
             prev_line: &iframe.prev_line,
             monitoring_mask: 0,
-            tailcall_enabled: false,
+            flatten: Flatten::Nothing,
         };
         exec.yield_from_target().map(PyObject::to_owned)
     }
@@ -2507,36 +2571,7 @@ pub(crate) fn trampoline_handle_exception(
     exception: &PyBaseExceptionRef,
     vm: &VirtualMachine,
 ) -> FrameResult {
-    let code: &Py<PyCode> = unsafe { &*iframe.code };
-    let globals: &Py<PyDict> = unsafe { &*iframe.globals };
-    let builtins: &PyObject = unsafe { &*iframe.builtins };
-    let func_obj: Option<&PyObject> = if iframe.func_obj.is_null() {
-        None
-    } else {
-        Some(unsafe { &*iframe.func_obj })
-    };
-    let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
-        builtins
-            .downcast_ref_if_exact::<PyDict>(vm)
-            .map(|d| unsafe { PyExact::ref_unchecked(d) })
-    } else {
-        None
-    };
-    let iframe_ptr = iframe as *const InterpreterFrame;
-    let mut exec = ExecutingFrame {
-        code,
-        localsplus: &mut iframe.localsplus,
-        locals: &iframe.locals,
-        globals,
-        builtins,
-        builtins_dict,
-        lasti: &iframe.lasti,
-        iframe: iframe_ptr,
-        func_obj,
-        prev_line: &mut iframe.prev_line,
-        monitoring_mask: 0,
-        tailcall_enabled: false,
-    };
+    let mut exec = exec_iframe(iframe, Flatten::Nothing, vm);
 
     // lasti points past the CallPyExactArgs instruction (+ cache entries).
     // The exception occurred at the previous instruction (the call site).
@@ -2557,16 +2592,17 @@ pub(crate) fn trampoline_handle_exception(
     )
 }
 
-/// Execute an InterpreterFrame's bytecode directly, without a FrameObject.
+/// Borrow an `InterpreterFrame` as an `ExecutingFrame`.
 ///
 /// # Safety
 /// The InterpreterFrame's raw pointers (code, globals, builtins, func_obj)
-/// must be valid for the duration of this call.
+/// must be valid for the lifetime of the returned borrow.
 #[inline(always)]
-pub(crate) fn run_iframe(
-    iframe: &mut InterpreterFrame,
+fn exec_iframe<'a>(
+    iframe: &'a mut InterpreterFrame,
+    flatten: Flatten,
     vm: &VirtualMachine,
-) -> PyResult<ExecutionResult> {
+) -> ExecutingFrame<'a> {
     let code: &Py<PyCode> = unsafe { &*iframe.code };
     let globals: &Py<PyDict> = unsafe { &*iframe.globals };
     let builtins: &PyObject = unsafe { &*iframe.builtins };
@@ -2583,7 +2619,7 @@ pub(crate) fn run_iframe(
         None
     };
     let iframe_ptr = iframe as *const InterpreterFrame;
-    let mut exec = ExecutingFrame {
+    ExecutingFrame {
         code,
         localsplus: &mut iframe.localsplus,
         locals: &iframe.locals,
@@ -2593,11 +2629,172 @@ pub(crate) fn run_iframe(
         lasti: &iframe.lasti,
         iframe: iframe_ptr,
         func_obj,
-        prev_line: &mut iframe.prev_line,
+        prev_line: &iframe.prev_line,
         monitoring_mask: 0,
-        tailcall_enabled: true,
+        flatten,
+    }
+}
+
+/// Execute an InterpreterFrame's bytecode directly, without a FrameObject.
+///
+/// # Safety
+/// The InterpreterFrame's raw pointers (code, globals, builtins, func_obj)
+/// must be valid for the duration of this call.
+#[inline(always)]
+pub(crate) fn run_iframe(
+    iframe: &mut InterpreterFrame,
+    flatten: Flatten,
+    vm: &VirtualMachine,
+) -> PyResult<ExecutionResult> {
+    exec_iframe(iframe, flatten, vm).run(vm)
+}
+
+/// Whether the trampoline may skip a delegating frame's own instructions.
+///
+/// It may not while anything is watching them run: `sys.settrace` fires line
+/// and opcode events per instruction, and `sys.monitoring` both fires events
+/// and rewrites the very opcodes the `yield from` shape is recognized by.
+#[inline]
+pub(crate) fn gen_collapse_allowed(vm: &VirtualMachine) -> bool {
+    !vm.use_tracing.get() && vm.state.monitoring_events.load() == 0
+}
+
+/// The sub-generator a frame suspended in a `yield from` / `await` is
+/// delegating to, if the trampoline can resume it in this frame's place.
+///
+/// Recognizes the shape documented on [`GenCont`] — `lasti` at the `RESUME`
+/// that follows the delegating `YIELD_VALUE`, with the delegate on top of the
+/// stack — and requires the `SEND` to have already specialized to `SendGen`,
+/// so that a `Send` still collecting specialization feedback keeps running
+/// normally. The frame is left untouched; `park_at_send` commits to it.
+pub(crate) fn yield_from_delegate(
+    iframe: &InterpreterFrame,
+    vm: &VirtualMachine,
+) -> Option<(PyObjectRef, GenCont)> {
+    let code: &Py<PyCode> = unsafe { &*iframe.code };
+    let send_caches = Instruction::from(Opcode::Send).cache_entries();
+    let resumed_at = iframe.lasti.load(Relaxed) as usize;
+    // The SEND, its cache and the YIELD_VALUE sit below `resumed_at`.
+    let send_idx = resumed_at.checked_sub(2 + send_caches)?;
+    if !matches!(
+        code.instructions.get(resumed_at)?.op,
+        Instruction::Resume { .. }
+    ) {
+        return None;
+    }
+    let yield_unit = code.instructions.get(resumed_at - 1)?;
+    if !matches!(yield_unit.op, Instruction::YieldValue { .. }) || u8::from(yield_unit.arg) < 1 {
+        return None;
+    }
+    let send_unit = code.instructions.get(send_idx)?;
+    if !matches!(send_unit.op, Instruction::SendGen) {
+        return None;
+    }
+    // An EXTENDED_ARG prefix would make the raw oparg below the wrong exit.
+    if send_idx > 0
+        && matches!(
+            code.instructions.get(send_idx - 1)?.op,
+            Instruction::ExtendedArg
+        )
+    {
+        return None;
+    }
+    let delegate = match iframe.localsplus.stack_last() {
+        Some(Some(top)) => top.as_object(),
+        _ => return None,
     };
-    exec.run(vm)
+    // The same guards `SendGen` applies before resuming a generator itself.
+    if delegate.downcast_ref_if_exact::<PyGenerator>(vm).is_none()
+        && delegate.downcast_ref_if_exact::<PyCoroutine>(vm).is_none()
+    {
+        return None;
+    }
+    let coro = crate::coroutine::as_builtin_coro(delegate)?;
+    if coro.running() || coro.closed() {
+        return None;
+    }
+    // `SEND`'s jump is relative to the code unit after the instruction and
+    // its caches, exactly as the handler computes it from its own `lasti`.
+    let exit = (send_idx + 1 + send_caches) as u32 + u32::from(u8::from(send_unit.arg));
+    Some((
+        delegate.to_owned(),
+        GenCont {
+            exit,
+            resumed_at: resumed_at as u32,
+        },
+    ))
+}
+
+/// Park a frame the trampoline is about to run a delegate for, exactly where
+/// the frame's own `SEND` would have left it — one code unit before the
+/// `RESUME` the skipped `YIELD_VALUE` leads to, which is that `YIELD_VALUE`
+/// itself, so simply running the frame from there stays correct.
+#[inline]
+pub(crate) fn park_at_send(iframe: &mut InterpreterFrame, cont: GenCont) {
+    iframe.lasti.store(cont.resumed_at - 1, Relaxed);
+}
+
+/// Whether a generator or coroutine is itself suspended at a `yield from`, so
+/// that the chain below it goes at least one level deeper.
+///
+/// This is what makes handing a chain to the trampoline worth its setup: one
+/// lone level is cheaper to send into from the eval loop the caller is
+/// already in — an `await` of a future's `__await__`, which yields once and
+/// then returns, is the shape that would otherwise pay and never collect.
+pub(crate) fn is_delegating(coro: &Coro) -> bool {
+    let iframe = coro.frame_ref().iframe();
+    let code = iframe.code();
+    let resumed_at = iframe.lasti.load(Relaxed) as usize;
+    if resumed_at == 0 {
+        return false;
+    }
+    matches!(
+        code.instructions.get(resumed_at).map(|u| u.op),
+        Some(Instruction::Resume { .. })
+    ) && code
+        .instructions
+        .get(resumed_at - 1)
+        .is_some_and(|u| matches!(u.op, Instruction::YieldValue { .. }) && u8::from(u.arg) >= 1)
+}
+
+/// Finish a `yield from` level the trampoline ran in place of the frame:
+/// leave `lasti` where the skipped `YIELD_VALUE` would have left it.
+#[inline]
+pub(crate) fn park_after_yield_from(iframe: &mut InterpreterFrame, resumed_at: u32) {
+    debug_assert!(
+        iframe
+            .localsplus
+            .stack_as_slice()
+            .iter()
+            .flatten()
+            .all(|sr| !sr.is_borrowed()),
+        "borrowed refs on stack at yield point"
+    );
+    iframe.lasti.store(resumed_at, Relaxed);
+}
+
+/// Apply the continuation of a flattened `SEND` whose generator finished:
+/// the tail of the `SendGen` handler, which the trampoline runs on the parked
+/// frame's behalf once the generator's frame is unlinked.
+pub(crate) fn trampoline_gen_stop(
+    iframe: &mut InterpreterFrame,
+    value: Option<PyObjectRef>,
+    cont: GenCont,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    if vm.use_tracing.get() {
+        // Tracing can be switched on while the sub-generator runs, so the
+        // `StopIteration` event the recursive path fires is checked for here
+        // rather than where the frame was parked.
+        let exec = exec_iframe(iframe, Flatten::Nothing, vm);
+        if exec.trace_is_set(vm) {
+            let stop_exc = vm.new_stop_iteration(value.clone());
+            exec.fire_exception_trace(&stop_exc, vm)?;
+        }
+    }
+    iframe.localsplus.push_stack(vm.unwrap_or_none(value));
+    iframe.lasti.store(cont.exit, Relaxed);
+    Ok(())
 }
 
 /// An executing frame; borrows mutable frame-internal data for the duration
@@ -2625,9 +2822,25 @@ pub(crate) struct ExecutingFrame<'a> {
     prev_line: &'a core::cell::Cell<u32>,
     /// Cached monitoring events mask. Reloaded at Resume instruction only,
     monitoring_mask: u32,
-    /// Whether TailCall is allowed. True when running under the trampoline
-    /// (`run_frame_fast`), false for FrameObject-based execution.
-    tailcall_enabled: bool,
+    /// What this frame may hand back to the trampoline, if it is running
+    /// under one at all.
+    flatten: Flatten,
+}
+
+/// How much of what a frame does the trampoline can take over.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Flatten {
+    /// Nothing: the frame is not running under the trampoline
+    /// (FrameObject-based execution), so it must not return `TailCall` or
+    /// `GenResume`.
+    Nothing,
+    /// A generator or coroutine body: it may park a generator, but makes its
+    /// plain calls itself. Tail-calling them would mean re-entering the
+    /// trampoline on every resume, which for a body that yields often costs
+    /// more than the nested call it saves.
+    GenResume,
+    /// An ordinary frame under the trampoline: both.
+    CallAndGenResume,
 }
 
 #[inline]
@@ -5262,16 +5475,29 @@ impl ExecutingFrame<'_> {
                 let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 // Stack: [receiver, val] — peek receiver before popping
                 let receiver = self.nth_value(1);
+                let mut started = false;
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
                     && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
                         || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some())
-                    && self
-                        .builtin_coro(receiver)
-                        .is_some_and(|coro| !coro.running() && !coro.closed());
+                    && self.builtin_coro(receiver).is_some_and(|coro| {
+                        started = coro.started();
+                        !coro.running() && !coro.closed()
+                    });
                 let val = self.pop_value();
 
                 if can_fast_send {
                     let receiver = self.top_value();
+                    // Hand an already-suspended generator to the trampoline,
+                    // which runs its frame in this same eval loop and re-yields
+                    // for this frame — no Rust frame and no instruction per
+                    // level of a `yield from` / `await` chain.
+                    if self.flatten != Flatten::Nothing
+                        && started
+                        && let Some(cont) = self.send_yield_from_cont(receiver, exit_label)
+                    {
+                        vm.set_pending_gen_resume(receiver.to_owned(), val, cont);
+                        return Ok(Some(ExecutionResult::GenResume));
+                    }
                     let coro = self.builtin_coro(receiver).unwrap();
                     let ret = if vm.is_none(&val) {
                         coro.send_none(receiver, vm)?
@@ -6014,7 +6240,7 @@ impl ExecutingFrame<'_> {
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    if self.tailcall_enabled && !func.is_generator_like() {
+                    if self.flatten == Flatten::CallAndGenResume && !func.is_generator_like() {
                         self.tailcall_prepare_frame(nargs, self_or_null_is_some, vm);
                         return Ok(Some(ExecutionResult::TailCall));
                     }
@@ -6078,7 +6304,7 @@ impl ExecutingFrame<'_> {
                         if self.specialization_call_recursion_guard(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
-                        if self.tailcall_enabled && !func.is_generator_like() {
+                        if self.flatten == Flatten::CallAndGenResume && !func.is_generator_like() {
                             self.tailcall_prepare_bound_method_frame(
                                 nargs,
                                 bound_function,
@@ -8433,6 +8659,30 @@ impl ExecutingFrame<'_> {
             exception.set___cause__(cause);
         }
         Err(exception)
+    }
+
+    /// The continuation for parking this frame at the `SEND` it is executing,
+    /// if handing `receiver` to the trampoline is worth it: see `GenCont` for
+    /// the shape this needs, and `is_delegating` for why one lone level of
+    /// delegation keeps the recursive path.
+    #[inline(never)]
+    fn send_yield_from_cont(
+        &self,
+        receiver: &PyObject,
+        exit_label: bytecode::Label,
+    ) -> Option<GenCont> {
+        let next_idx = self.lasti() as usize + 1;
+        let unit = self.code.instructions.get(next_idx)?;
+        if !matches!(unit.op, Instruction::YieldValue { .. }) || u8::from(unit.arg) < 1 {
+            return None;
+        }
+        if !self.builtin_coro(receiver).is_some_and(is_delegating) {
+            return None;
+        }
+        Some(GenCont {
+            exit: exit_label.as_u32(),
+            resumed_at: next_idx as u32 + 1,
+        })
     }
 
     fn builtin_coro<'a>(&self, coro: &'a PyObject) -> Option<&'a Coro> {
