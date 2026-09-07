@@ -508,7 +508,10 @@ impl CodeFlags {
         .union(Self::FUTURE_ANNOTATIONS);
 }
 
-#[repr(C)]
+/// `align(2)` so that the whole unit can be read with one aligned
+/// `AtomicU16` access (see `CodeUnits::read_unit`) without relying on the
+/// allocator to happen to align the instruction array.
+#[repr(C, align(2))]
 #[derive(Copy, Clone, Debug)]
 pub struct CodeUnit {
     pub op: Instruction,
@@ -516,6 +519,7 @@ pub struct CodeUnit {
 }
 
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
+const _: () = assert!(mem::align_of::<CodeUnit>() == 2);
 
 /// Adaptive specialization: number of executions before attempting specialization.
 ///
@@ -752,6 +756,29 @@ impl CodeUnits {
         let byte = unsafe { &*ptr }.load(Ordering::Acquire);
         // SAFETY: Only valid Instruction values are stored via replace_op/compare_exchange_op.
         unsafe { mem::transmute::<u8, Instruction>(byte) }
+    }
+
+    /// Atomically read the opcode and its arg byte at `index` as a single
+    /// Acquire-ordered 16-bit load.
+    ///
+    /// Equivalent to `read_op` followed by `read_arg`, but the one access
+    /// keeps the eval loop from re-loading the instruction array pointer
+    /// across the acquire barrier, and it is what the dispatch loop uses.
+    /// Acquire pairs with `replace_op` (Release) exactly as `read_op` does.
+    #[inline(always)]
+    pub fn read_unit(&self, index: usize) -> CodeUnit {
+        let units = unsafe { &*self.units.get() };
+        let ptr = units.as_ptr().wrapping_add(index) as *const AtomicU16;
+        // `to_ne_bytes` yields the bytes in memory order, so `[0]` is the
+        // `op` field and `[1]` the `arg` field of the `repr(C)` unit on
+        // either endianness.
+        let [op, arg] = unsafe { &*ptr }.load(Ordering::Acquire).to_ne_bytes();
+        // SAFETY: only valid Instruction values are ever stored into the
+        // instruction array (see `read_op`).
+        CodeUnit {
+            op: unsafe { mem::transmute::<u8, Instruction>(op) },
+            arg: OpArgByte::from(arg),
+        }
     }
 
     /// Atomically read the arg byte at `index` with Relaxed ordering.
