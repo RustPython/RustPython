@@ -1370,6 +1370,44 @@ impl InterpreterFrame {
         }
     }
 
+    /// Synchronize `prev_line` to the line of the instruction currently
+    /// in flight (derived from `lasti`, same as `PyFrame::f_lineno`).
+    ///
+    /// `prev_line` is normally only updated on the cold 'line'-trace-event
+    /// path (see the dispatch loop in `ExecutingFrame::run`), so it can go
+    /// stale while a frame runs untraced. Call this whenever a trace
+    /// function is newly installed on an already-executing frame — e.g.
+    /// `frame.f_trace = ...` from inside a running frame, or a per-frame
+    /// trace being installed at a 'call' event — so the very next
+    /// instruction doesn't fire a spurious 'line' event for a line that
+    /// was already current before tracing started.
+    pub(crate) fn sync_prev_line_from_lasti(&self) {
+        let lasti = self.lasti.load(Relaxed);
+        if lasti == 0 {
+            // Execution hasn't started yet (or is at the def line for a
+            // fresh generator/coroutine, already reflected in prev_line).
+            return;
+        }
+        let idx = lasti as usize - 1;
+        // `lasti` points past the in-flight instruction even while RESUME
+        // (the very first instruction of a fresh frame) is executing -- a
+        // 'call'/PY_START trace-install can observe `lasti == 1` before the
+        // frame has produced any user-visible line at all. Don't treat that
+        // as "already executing a real line": doing so would set
+        // `prev_line` to RESUME's own line (typically the same as the
+        // frame's first statement), suppressing the legitimate first 'line'
+        // event once the dispatch loop reaches it.
+        if matches!(
+            self.code().instructions.read_op(idx),
+            Instruction::Resume { .. } | Instruction::InstrumentedResume
+        ) {
+            return;
+        }
+        if let Some((loc, _)) = self.code().locations.get(idx) {
+            self.prev_line.set(loc.line.get() as u32);
+        }
+    }
+
     /// Access the lazily-allocated cold data, allocating on first use.
     #[inline]
     pub(crate) fn cold(&self) -> &FrameColdData {
@@ -3076,11 +3114,20 @@ impl ExecutingFrame<'_> {
             // than read-modify-written, which would re-load what was just read.
             self.lasti.store(idx as u32 + 1, Relaxed);
 
+            // Read once and reuse for both the line-trace check below and
+            // the opcode-trace check after the instruction is decoded,
+            // instead of re-reading the Cell twice per instruction. This is
+            // safe even though the intervening trace_event call could in
+            // principle toggle it, because we refresh `tracing` below right
+            // after that call returns (that cold path is only taken when
+            // tracing was already on, so it costs nothing on the hot path).
+            let mut tracing = vm.use_tracing.get();
+
             // Fire 'line' trace event when line number changes.
             // Only fire if this frame has a per-frame trace function set
             // (frames entered before sys.settrace() have trace=None).
             // Skip RESUME – it should not generate user-visible line events.
-            if vm.use_tracing.get()
+            if tracing
                 && self.trace_is_set(vm)
                 && !matches!(
                     self.code.instructions.read_op(idx),
@@ -3091,6 +3138,10 @@ impl ExecutingFrame<'_> {
             {
                 self.prev_line.set(loc.line.get() as u32);
                 vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
+                // The trace callback may have toggled tracing (e.g. via
+                // sys.settrace(None)); refresh before the opcode-trace check
+                // below reuses this flag.
+                tracing = vm.use_tracing.get();
                 // Trace callback may have changed lasti via set_f_lineno.
                 // Re-read and restart the loop from the new position.
                 if self.lasti() != (idx as u32 + 1) {
@@ -3111,25 +3162,17 @@ impl ExecutingFrame<'_> {
             let mut do_extend_arg = false;
             let caches = op.cache_entries();
 
-            // Always update prev_line so f_lineno returns the correct line
-            // even when the frame is observed mid-call (e.g. sys._getframe,
-            // warnings.warn). The lookup is a simple array index, so the
-            // cost is negligible.
-            // Update prev_line for f_lineno. Skip RESUME, ExtendedArg,
-            // and InstrumentedLine (it manages prev_line in its own handler;
-            // updating here first would defeat LINE de-duplication).
-            // Other instrumented opcodes update prev_line via
-            // execute_instrumented.
-            if !matches!(
-                op.into(),
-                Opcode::Resume | Opcode::ExtendedArg | Opcode::InstrumentedLine
-            ) && !op.is_instrumented()
-                && let Some((loc, _)) = self.code.locations.get(idx)
-            {
-                self.prev_line.set(loc.line.get() as u32);
-            }
+            // f_lineno for a live (currently executing) frame is derived
+            // lazily from lasti/locations (see `PyFrame::f_lineno`) rather
+            // than maintained here on every instruction. lasti already
+            // points past the instruction currently executing (see the
+            // `self.lasti.store` above), so `locations[lasti - 1]` gives
+            // exactly the line of the in-flight instruction — the same
+            // value this unconditional prev_line write used to compute.
+            // prev_line itself is now only touched on the (cold) tracing
+            // path, where it deduplicates consecutive 'line' events.
 
-            if vm.use_tracing.get() {
+            if tracing {
                 // Fire 'opcode' trace event for sys.settrace when f_trace_opcodes
                 // is set. Skip RESUME and ExtendedArg
                 // (_Py_call_instrumentation_instruction).
@@ -3184,7 +3227,10 @@ impl ExecutingFrame<'_> {
                 #[cfg(feature = "threading")]
                 vm.run_scheduled_gc();
             }
-            let lasti_before = self.lasti();
+            // lasti was just stored as `idx + 1` above and nothing between
+            // there and here writes it, so the pre-dispatch value is known
+            // without an extra atomic load.
+            let lasti_before = idx as u32 + 1;
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
             // Skip inline cache entries if instruction fell through (no jump).
             if caches > 0 && self.lasti() == lasti_before {
@@ -7297,11 +7343,15 @@ impl ExecutingFrame<'_> {
             instruction.is_instrumented(),
             "execute_instrumented called with non-instrumented opcode {instruction:?}"
         );
-        // Update prev_line for f_lineno. The main bytecode loop skips
-        // instrumented opcodes to avoid interfering with LINE event
-        // de-duplication in InstrumentedLine. Update here instead, except
-        // for RESUME (prev_line must stay 0 for the first LINE event) and
-        // InstrumentedLine (manages prev_line in its own handler).
+        // Update prev_line so InstrumentedLine's own change-detection (see
+        // below) stays in sync. `prev_line` is no longer read for
+        // `f_lineno` -- that's now derived lazily from `lasti` -- this
+        // write only exists to dedup LINE events. The main bytecode loop
+        // skips instrumented opcodes to avoid interfering with that
+        // de-duplication in InstrumentedLine, so it's updated here instead,
+        // except for RESUME (prev_line must stay 0 for the first LINE
+        // event) and InstrumentedLine (manages prev_line in its own
+        // handler).
         if !matches!(
             instruction,
             Instruction::InstrumentedResume | Instruction::InstrumentedLine
@@ -7625,11 +7675,13 @@ impl ExecutingFrame<'_> {
                     monitoring::fire_instruction(vm, self.code, offset)?;
                 }
 
-                // Update prev_line for f_lineno since the bytecode loop's
-                // update skips all instrumented opcodes.
-                if let Some((loc, _)) = self.code.locations.get(idx) {
-                    self.prev_line.set(loc.line.get() as u32);
-                }
+                // NOTE: prev_line is already up to date here -- the
+                // dedup check above (`if line != self.prev_line.get() ...`)
+                // reads the same `idx`/`loc` and, when the line changed,
+                // already set `prev_line` to that same value; no further
+                // write is needed (a prior unconditional re-write here was
+                // a dead duplicate of that one, and also isn't needed for
+                // `f_lineno`, which is derived lazily from `lasti`).
 
                 // Re-dispatch to the real original opcode
                 let original_op = Instruction::try_from(real_op_byte)
