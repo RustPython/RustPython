@@ -71,10 +71,7 @@ impl<'a> Chunker<'a> {
 
 #[cfg(feature = "bz2")]
 pub mod bz2;
-#[cfg(all(
-    feature = "lzma",
-    not(any(target_os = "android", target_arch = "wasm32"))
-))]
+#[cfg(feature = "lzma")]
 pub mod lzma;
 #[cfg(feature = "zlib")]
 pub mod zlib;
