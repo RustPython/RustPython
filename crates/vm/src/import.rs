@@ -158,6 +158,21 @@ pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> P
     import_code_obj(vm, module_name, code, false)
 }
 
+/// Check whether `module.__spec__._initializing` is true, i.e. the module
+/// is currently in the middle of being executed for the first time and is
+/// not yet safe to hand out as a finished result (used both by the slow
+/// import path below and by [`crate::VirtualMachine::import`]'s
+/// `sys.modules`-cache fast path).
+pub(crate) fn is_module_initializing(module: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    match vm.get_attribute_opt(module.clone(), vm.ctx.intern_str("__spec__"))? {
+        Some(spec) => match vm.get_attribute_opt(spec, vm.ctx.intern_str("_initializing"))? {
+            Some(v) => v.try_to_bool(vm),
+            None => Ok(false),
+        },
+        None => Ok(false),
+    }
+}
+
 /// If `__spec__._initializing` is true, wait for the module to finish
 /// initializing by calling `_lock_unlock_module`.
 fn import_ensure_initialized(
@@ -165,14 +180,7 @@ fn import_ensure_initialized(
     name: &str,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let initializing = match vm.get_attribute_opt(module.clone(), vm.ctx.intern_str("__spec__"))? {
-        Some(spec) => match vm.get_attribute_opt(spec, vm.ctx.intern_str("_initializing"))? {
-            Some(v) => v.try_to_bool(vm)?,
-            None => false,
-        },
-        None => false,
-    };
-    if initializing {
+    if is_module_initializing(module, vm)? {
         let lock_unlock = vm.importlib.get_attr("_lock_unlock_module", vm)?;
         lock_unlock.call((vm.ctx.new_utf8_str(name),), vm)?;
     }
