@@ -3377,8 +3377,12 @@ impl ExecutingFrame<'_> {
                     continue;
                 }
             }
-            let op = self.code.instructions.read_op(idx);
-            let arg = arg_state.extend(self.code.instructions.read_arg(idx));
+            // One aligned acquire load fetches opcode and arg together; two
+            // separate atomic reads would force the instruction array pointer
+            // to be re-loaded across the acquire barrier.
+            let unit = self.code.instructions.read_unit(idx);
+            let op = unit.op;
+            let arg = arg_state.extend(unit.arg);
             let mut do_extend_arg = false;
             let caches = op.cache_entries();
 
