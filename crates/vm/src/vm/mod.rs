@@ -3071,13 +3071,28 @@ impl VirtualMachine {
     }
 
     /// Push a new exc_info slot (for generator/coroutine resume).
+    ///
+    /// `topmost_exception()` skips `None` slots when searching for the
+    /// visible exception, so pushing `None` can never change what it
+    /// returns -- the thread-local mirror update (TLS lookup + atomic ref
+    /// swap) is safe to skip in that common case (e.g. resuming a
+    /// generator with no saved exception state).
     pub(crate) fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
+        #[cfg(feature = "threading")]
+        let may_change_top = exc.is_some();
         self.exceptions.borrow_mut().stack.push(exc);
         #[cfg(feature = "threading")]
-        thread::update_thread_exception(self.topmost_exception());
+        if may_change_top {
+            thread::update_thread_exception(self.topmost_exception());
+        }
     }
 
     /// Pop the topmost exc_info slot (generator/coroutine yield/return).
+    ///
+    /// Symmetric with `push_exception`: popping a `None` slot cannot change
+    /// what `topmost_exception()` reports (it was already skipped while
+    /// searching down the stack), so the thread-local mirror update is
+    /// skipped in that case.
     pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
         let exc = self
             .exceptions
@@ -3086,7 +3101,9 @@ impl VirtualMachine {
             .pop()
             .expect("pop_exception() without nested exc stack");
         #[cfg(feature = "threading")]
-        thread::update_thread_exception(self.topmost_exception());
+        if exc.is_some() {
+            thread::update_thread_exception(self.topmost_exception());
+        }
         exc
     }
 
