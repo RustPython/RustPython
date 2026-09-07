@@ -1418,6 +1418,7 @@ impl VirtualMachine {
             audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(None),
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
+            pending_gen_resume: core::cell::UnsafeCell::new(None),
             trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
         };
         ThreadedVirtualMachine { vm }
