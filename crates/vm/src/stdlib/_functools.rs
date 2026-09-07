@@ -15,7 +15,15 @@ mod _functools {
         recursion::ReprGuard,
         types::{Callable, Constructor, GetDescriptor, Representable},
     };
+    use core::sync::atomic::{AtomicU64, Ordering};
+    use parking_lot::lock_api::RawReentrantMutex as GenericRawReentrantMutex;
     use rustpython_common::wtf8::Wtf8Buf;
+
+    /// Reentrant raw mutex used to guard the LRU cache's lookup/insert critical
+    /// sections. Defined locally (rather than reusing `stdlib::_thread::RawRMutex`)
+    /// because that type is only available when the `threading` feature is enabled,
+    /// while `parking_lot` itself is always a dependency.
+    type RawRMutex = GenericRawReentrantMutex<parking_lot::RawMutex, parking_lot::RawThreadId>;
 
     #[derive(FromArgs)]
     struct ReduceArgs {
@@ -525,6 +533,265 @@ mod _functools {
             } else {
                 Ok(Wtf8Buf::from("..."))
             }
+        }
+    }
+
+    /// RAII guard that releases a [`RawRMutex`] acquired with `lock()`, even on early
+    /// return through `?`. The mutex is reentrant, so a nested call from the same
+    /// thread (e.g. via a custom `__hash__`/`__eq__` invoked while probing the cache)
+    /// re-enters instead of deadlocking.
+    struct RMutexGuard<'a>(&'a RawRMutex);
+
+    impl<'a> RMutexGuard<'a> {
+        fn acquire(mu: &'a RawRMutex) -> Self {
+            mu.lock();
+            Self(mu)
+        }
+    }
+
+    impl Drop for RMutexGuard<'_> {
+        fn drop(&mut self) {
+            // SAFETY: this guard is only constructed right after a matching `lock()`
+            // call on the same mutex, so the current thread holds (at least one level
+            // of) the lock.
+            unsafe { self.0.unlock() };
+        }
+    }
+
+    /// Native implementation of `functools._lru_cache_wrapper`, mirroring CPython's
+    /// `_functools` accelerator so `functools.lru_cache` doesn't fall back to the much
+    /// slower pure-Python implementation in `Lib/functools.py`.
+    #[pyattr]
+    #[pyclass(name = "_lru_cache_wrapper", module = "functools")]
+    #[derive(PyPayload)]
+    pub(super) struct PyLruCacheWrapper {
+        /// The wrapped user function.
+        func: PyObjectRef,
+        /// `None` means unbounded; `Some(0)` means "never cache".
+        maxsize: Option<usize>,
+        typed: bool,
+        /// Sentinel marking the boundary between positional and keyword arguments
+        /// within a cache key tuple. Fixed for the lifetime of the wrapper, matching
+        /// `_make_key`'s `kwd_mark` default argument in `Lib/functools.py`.
+        keyword_marker: PyObjectRef,
+        /// The namedtuple type used to build `cache_info()` results.
+        cache_info_type: PyObjectRef,
+        hits: AtomicU64,
+        misses: AtomicU64,
+        /// Entries are kept in least-to-most-recently-used order: a hit moves its
+        /// entry to the end by removing and reinserting it, so the front of the dict
+        /// is always the next eviction candidate. Ordering is only maintained (at the
+        /// cost of the extra reinsert on a hit) when `maxsize` is `Some`.
+        cache: PyRwLock<PyDictRef>,
+        /// Coarse-grained reentrant lock guarding the cache lookup/insert critical
+        /// sections (not held while calling the user function), matching CPython.
+        lock: RawRMutex,
+    }
+
+    impl core::fmt::Debug for PyLruCacheWrapper {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.pad("lru_cache_wrapper")
+        }
+    }
+
+    #[derive(FromArgs)]
+    pub(super) struct LruCacheWrapperArgs {
+        #[pyarg(positional)]
+        function: PyObjectRef,
+        #[pyarg(positional)]
+        maxsize: Option<isize>,
+        #[pyarg(positional)]
+        typed: bool,
+        #[pyarg(positional)]
+        cache_info_type: PyObjectRef,
+    }
+
+    impl Constructor for PyLruCacheWrapper {
+        type Args = LruCacheWrapperArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            if !args.function.is_callable() {
+                return Err(vm.new_type_error("the first argument must be callable"));
+            }
+            // Negative maxsize is normalized to 0 by `functools.lru_cache` before
+            // reaching here, but clamp defensively to match that behavior exactly.
+            let maxsize = args.maxsize.map(|n| n.max(0) as usize);
+            Ok(Self {
+                func: args.function,
+                maxsize,
+                typed: args.typed,
+                keyword_marker: vm
+                    .ctx
+                    .new_base_object(vm.ctx.types.object_type.to_owned(), None),
+                cache_info_type: args.cache_info_type,
+                hits: AtomicU64::new(0),
+                misses: AtomicU64::new(0),
+                cache: PyRwLock::new(vm.ctx.new_dict()),
+                lock: RawRMutex::INIT,
+            })
+        }
+    }
+
+    #[pyclass(
+        with(Constructor, Callable, GetDescriptor),
+        flags(HAS_DICT, HAS_WEAKREF)
+    )]
+    impl PyLruCacheWrapper {
+        /// Build the cache key for a call, following `functools._make_key`.
+        fn make_key(&self, args: &FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+            let mut elements: Vec<PyObjectRef> = args.args.clone();
+            if !args.kwargs.is_empty() {
+                elements.push(self.keyword_marker.clone());
+                for (name, value) in &args.kwargs {
+                    elements.push(vm.ctx.new_str(name.clone()).into());
+                    elements.push(value.clone());
+                }
+            }
+            if self.typed {
+                elements.extend(args.args.iter().map(|a| a.class().to_owned().into()));
+                if !args.kwargs.is_empty() {
+                    elements.extend(
+                        (&args.kwargs)
+                            .into_iter()
+                            .map(|(_, v)| v.class().to_owned().into()),
+                    );
+                }
+            }
+            vm.ctx.new_tuple(elements).into()
+        }
+
+        /// Refresh `key`'s recency by moving it to the end of `cache`'s insertion
+        /// order (removing then reinserting it). `cache` itself provides the
+        /// hashing/equality, so this needs no separate key-comparison machinery.
+        fn touch_key(
+            key: &PyObjectRef,
+            value: &PyObjectRef,
+            cache: &PyDictRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            cache.del_item(key.as_object(), vm)?;
+            cache.set_item(key.as_object(), value.clone(), vm)?;
+            Ok(())
+        }
+
+        /// Evict the least-recently-used entry (the first item in `cache`'s
+        /// insertion order) if `cache` grew past `maxsize`.
+        fn evict_if_full(maxsize: usize, cache: &PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+            if cache.__len__() <= maxsize {
+                return Ok(());
+            }
+            let oldest = cache.into_iter().next();
+            if let Some((oldest_key, _)) = oldest {
+                cache.del_item(oldest_key.as_object(), vm)?;
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn cache_info(&self, vm: &VirtualMachine) -> PyResult {
+            let hits = self.hits.load(Ordering::Relaxed);
+            let misses = self.misses.load(Ordering::Relaxed);
+            let currsize = self.cache.read().__len__();
+            let maxsize: PyObjectRef = match self.maxsize {
+                Some(n) => vm.ctx.new_int(n).into(),
+                None => vm.ctx.none(),
+            };
+            self.cache_info_type
+                .call((hits, misses, maxsize, currsize), vm)
+        }
+
+        #[pymethod]
+        fn cache_clear(&self, vm: &VirtualMachine) {
+            let _guard = RMutexGuard::acquire(&self.lock);
+            *self.cache.write() = vm.ctx.new_dict();
+            self.hits.store(0, Ordering::Relaxed);
+            self.misses.store(0, Ordering::Relaxed);
+        }
+
+        #[pymethod]
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            zelf.as_object().get_attr("__qualname__", vm)
+        }
+
+        #[pymethod]
+        fn __copy__(zelf: PyObjectRef) -> PyObjectRef {
+            zelf
+        }
+
+        #[pymethod]
+        fn __deepcopy__(zelf: PyObjectRef, _memo: PyObjectRef) -> PyObjectRef {
+            zelf
+        }
+
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyGenericAlias> {
+            PyGenericAlias::from_args(cls, args, vm)
+        }
+    }
+
+    impl Callable for PyLruCacheWrapper {
+        type Args = FuncArgs;
+
+        fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            if zelf.maxsize == Some(0) {
+                zelf.misses.fetch_add(1, Ordering::Relaxed);
+                return zelf.func.call(args, vm);
+            }
+
+            let key = zelf.make_key(&args, vm);
+
+            {
+                let _guard = RMutexGuard::acquire(&zelf.lock);
+                let cache = zelf.cache.read().clone();
+                if let Some(value) = cache.get_item_opt(key.as_object(), vm)? {
+                    zelf.hits.fetch_add(1, Ordering::Relaxed);
+                    if zelf.maxsize.is_some() {
+                        Self::touch_key(&key, &value, &cache, vm)?;
+                    }
+                    return Ok(value);
+                }
+                zelf.misses.fetch_add(1, Ordering::Relaxed);
+                // Lock released here (guard dropped) before calling into user code, so
+                // other threads may compute the same miss concurrently.
+            }
+
+            let result = zelf.func.call(args, vm)?;
+
+            {
+                let _guard = RMutexGuard::acquire(&zelf.lock);
+                let cache = zelf.cache.read().clone();
+                // A reentrant or concurrent call may have already inserted this key
+                // (e.g. recursive lookups, or another thread finishing first); in that
+                // case keep the existing entry instead of creating orphan eviction
+                // links (see CPython issue gh-35780).
+                if !cache.contains_key(key.as_object(), vm) {
+                    cache.set_item(key.as_object(), result.clone(), vm)?;
+                    if let Some(maxsize) = zelf.maxsize {
+                        Self::evict_if_full(maxsize, &cache, vm)?;
+                    }
+                }
+            }
+
+            Ok(result)
+        }
+    }
+
+    impl GetDescriptor for PyLruCacheWrapper {
+        fn descr_get(
+            zelf: PyObjectRef,
+            obj: Option<PyObjectRef>,
+            _cls: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let obj = match obj {
+                Some(obj) if !vm.is_none(&obj) => obj,
+                _ => return Ok(zelf),
+            };
+            Ok(PyBoundMethod::new(obj, zelf).into_ref(&vm.ctx).into())
         }
     }
 }
