@@ -741,7 +741,7 @@ impl PyRef<PyBaseException> {
     }
 
     #[pymethod]
-    fn add_note(self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn add_note(self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let dict = crate::builtins::object::object_get_dict(self.as_object().to_owned(), vm)
             .map_err(|_| vm.new_attribute_error("Exception object has no __dict__"))?;
 
