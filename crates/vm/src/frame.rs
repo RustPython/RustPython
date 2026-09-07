@@ -3358,7 +3358,6 @@ impl ExecutingFrame<'_> {
             let op = unit.op;
             let arg = arg_state.extend(unit.arg);
             let mut do_extend_arg = false;
-            let caches = op.cache_entries();
 
             // f_lineno for a live (currently executing) frame is derived
             // lazily from lasti/locations (see `PyFrame::f_lineno`) rather
@@ -3436,6 +3435,11 @@ impl ExecutingFrame<'_> {
             let lasti_before = idx as u32 + 1;
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
             // Skip inline cache entries if instruction fell through (no jump).
+            // `cache_entries()` is a table lookup, so it is done here rather
+            // than before dispatch: computing it up front kept the count live
+            // across the whole handler and cost a spill and a reload of it on
+            // every instruction.
+            let caches = op.cache_entries();
             if caches > 0 && self.lasti() == lasti_before {
                 self.update_lasti(|i| *i += caches as u32);
             }
