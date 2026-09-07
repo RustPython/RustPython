@@ -6,20 +6,39 @@ use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
-    convert::ToPyObject,
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
     raise_if_stop,
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
 use malachite_bigint::BigInt;
-use num_traits::Zero;
+use num_traits::ToPrimitive;
+
+/// Fast-path counter for `enumerate`. Most enumerations never exceed
+/// `usize::MAX` iterations, so we keep the counter as a machine integer and
+/// only fall back to arbitrary-precision arithmetic (matching CPython's
+/// unbounded `count()`-style semantics) once it would overflow, or when the
+/// caller supplied a `start` that doesn't fit in a `usize` to begin with.
+#[derive(Debug, Clone)]
+enum Counter {
+    Small(usize),
+    Big(BigInt),
+}
+
+impl Counter {
+    fn to_bigint(&self) -> BigInt {
+        match self {
+            Self::Small(n) => BigInt::from(*n),
+            Self::Big(b) => b.clone(),
+        }
+    }
+}
 
 #[pyclass(module = false, name = "enumerate", traverse)]
 #[derive(Debug)]
 pub struct PyEnumerate {
     #[pytraverse(skip)]
-    counter: PyRwLock<BigInt>,
+    counter: PyRwLock<Counter>,
     iterable: PyIter,
 }
 
@@ -46,7 +65,13 @@ impl Constructor for PyEnumerate {
         Self::Args { iterable, start }: Self::Args,
         _vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let counter = start.map_or_else(BigInt::zero, |start| start.as_bigint().clone());
+        let counter = match start {
+            OptionalArg::Present(start) => match start.as_bigint().to_usize() {
+                Some(n) => Counter::Small(n),
+                None => Counter::Big(start.as_bigint().clone()),
+            },
+            OptionalArg::Missing => Counter::Small(0),
+        };
         Ok(Self {
             counter: PyRwLock::new(counter),
             iterable,
@@ -72,7 +97,7 @@ impl Py<PyEnumerate> {
     fn __reduce__(&self) -> (PyTypeRef, (PyIter, BigInt)) {
         (
             self.class().to_owned(),
-            (self.iterable.clone(), self.counter.read().clone()),
+            (self.iterable.clone(), self.counter.read().to_bigint()),
         )
     }
 }
@@ -83,9 +108,33 @@ impl IterNext for PyEnumerate {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let next_obj = raise_if_stop!(zelf.iterable.next(vm)?);
         let mut counter = zelf.counter.write();
-        let position = counter.clone();
-        *counter += 1;
-        Ok(PyIterReturn::Return((position, next_obj).to_pyobject(vm)))
+        let position = match &mut *counter {
+            Counter::Small(n) => {
+                let cur = *n;
+                match cur.checked_add(1) {
+                    Some(next_n) => {
+                        *n = next_n;
+                        vm.ctx.new_int(cur)
+                    }
+                    None => {
+                        // Overflowed usize::MAX: promote to arbitrary precision,
+                        // matching CPython's unbounded enumerate() semantics.
+                        let cur_int = vm.ctx.new_int(cur);
+                        *counter = Counter::Big(BigInt::from(cur) + 1);
+                        cur_int
+                    }
+                }
+            }
+            Counter::Big(b) => {
+                let position = b.clone();
+                *b += 1;
+                vm.ctx.new_bigint(&position)
+            }
+        };
+        drop(counter);
+        Ok(PyIterReturn::Return(
+            vm.new_tuple((position, next_obj)).into(),
+        ))
     }
 }
 
