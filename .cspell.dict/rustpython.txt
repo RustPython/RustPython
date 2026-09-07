@@ -1,6 +1,7 @@
 atfork
 cfgs
 genshi
+mimalloc
 miri
 py
 pyarg
