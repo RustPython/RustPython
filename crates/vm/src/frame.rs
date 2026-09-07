@@ -2372,17 +2372,24 @@ impl Py<FrameObject> {
         self.with_exec(vm, |mut exec| exec.run(vm))
     }
 
+    /// Resume a suspended generator or coroutine body, pushing `value` as the
+    /// result of the `yield` it stopped at.
+    ///
+    /// The body runs under the same trampoline that flattens ordinary
+    /// Python-to-Python calls, so the plain calls it makes cost no Rust stack.
+    /// The caller (`resume_gen_frame`) owns the frame's chain bookkeeping.
     pub(crate) fn resume(
         &self,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<ExecutionResult> {
-        self.with_exec(vm, |mut exec| {
-            if let Some(value) = value {
-                exec.push_value(value)
-            }
-            exec.run(vm)
-        })
+        // SAFETY: same as `with_exec` — only one thread at a time executes a
+        // given frame, enforced by the owner field and the running claim.
+        let iframe = unsafe { self.iframe_mut() };
+        if let Some(value) = value {
+            iframe.localsplus.push_stack(value);
+        }
+        vm.run_gen_frame(iframe)
     }
 
     pub(crate) fn gen_throw(

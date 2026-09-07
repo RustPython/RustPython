@@ -130,6 +130,14 @@ pub struct VirtualMachine {
     /// `SuspendedFrame`. Uses UnsafeCell because the VM is per-thread and this
     /// field is only accessed on the owning thread.
     pending_tailcall_owner: core::cell::UnsafeCell<Option<PyObjectRef>>,
+    /// Reusable backing store for the trampoline's suspended-frame stack.
+    /// Trampoline invocations nest strictly LIFO, so each one owns the region
+    /// above the length it found on entry and truncates back to it on the way
+    /// out; reusing one allocation keeps a trampoline entry free of malloc,
+    /// which matters because a generator body enters one per resume.
+    /// UnsafeCell because the VM is per-thread and no reference into the Vec
+    /// is held across anything that could push to it.
+    trampoline_stack: core::cell::UnsafeCell<Vec<SuspendedFrame>>,
 }
 
 /// Non-owning frame pointer for the non-unix threading frames stack.
@@ -925,21 +933,66 @@ pub(crate) struct IframeEntryState {
     pub(crate) save_exc: bool,
 }
 
+/// Where a frame running under the trampoline came from, and therefore what
+/// the trampoline owes it when it finishes.
+///
+/// The trampoline is entered with one frame already running — `Entry` or
+/// `GenEntry` — and pushes one record per frame it enters itself.
+enum FrameKind {
+    /// The frame `run_frame_fast` was called with. Its caller allocated the
+    /// data stack storage and releases it, but the `enter_iframe`
+    /// bookkeeping is the trampoline's to undo.
+    Entry(IframeEntryState),
+    /// The body of a generator or coroutine, entered from `run_gen_frame`.
+    /// `resume_gen_frame` already linked it into the frame chain and will
+    /// unlink it, so the trampoline touches neither the bookkeeping nor the
+    /// storage; a `Yield` out of it is the trampoline's own result.
+    GenEntry,
+    /// A data stack frame the trampoline itself entered for a `TailCall`.
+    Callee(IframeEntryState),
+}
+
 /// Caller frame suspended by a TailCall in the trampoline.
 struct SuspendedFrame {
     iframe: *mut crate::frame::InterpreterFrame,
-    entry_state: IframeEntryState,
+    kind: FrameKind,
     /// Function that owns the callee's raw pointers (code, globals, builtins,
     /// closure, and func_obj). Moved from `vm.pending_tailcall_owner` when the
     /// callee's TailCall is consumed.
     /// Dropped as soon as this SuspendedFrame is popped — the callee has
     /// returned or raised and its frame is already released by then.
-    callee_owner: PyObjectRef,
-    /// True for the initial frame passed into the trampoline by the caller.
-    /// The caller owns the datastack allocation for the entry frame, so the
-    /// trampoline must NOT release it — only callee-allocated frames are
-    /// released here.
-    is_entry: bool,
+    callee_owner: Option<PyObjectRef>,
+}
+
+// SAFETY: the VM is per-thread, and a suspended-frame record is pushed, read
+// and popped only on the thread that created it. The pointers it holds address
+// that thread's data stack or objects it keeps alive, and the shared stack is
+// empty whenever no trampoline is running on the thread — so a VM handed to
+// another thread carries no frame pointers with it.
+unsafe impl Send for SuspendedFrame {}
+// SAFETY: as above; no two threads ever reach the same record.
+unsafe impl Sync for SuspendedFrame {}
+
+/// What a finished frame hands back to the frame that entered it.
+enum Outcome {
+    /// A returned value, to push onto the caller's stack.
+    Value(PyObjectRef),
+    /// An exception, to feed into the caller's exception table.
+    Raise(PyBaseExceptionRef),
+}
+
+/// The trampoline's loop state: one frame is always either just finished with
+/// a result, or gone with an outcome owed to its caller.
+enum Step {
+    /// The frame in `iframe` produced `result`.
+    Finished {
+        iframe: *mut crate::frame::InterpreterFrame,
+        kind: FrameKind,
+        result: PyResult<crate::frame::ExecutionResult>,
+    },
+    /// The frame that was running is finished and unlinked; deliver this to
+    /// the frame on top of the trampoline's stack.
+    Deliver(Outcome),
 }
 
 /// Whether a sequence being built asks the iterable it was handed how much room
@@ -1097,6 +1150,7 @@ impl VirtualMachine {
             audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(None),
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
+            trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -1571,6 +1625,34 @@ impl VirtualMachine {
             .expect("TailCall without pending owner")
     }
 
+    /// Suspend a frame on the trampoline's shared stack.
+    #[inline]
+    fn trampoline_push(&self, frame: SuspendedFrame) {
+        // SAFETY: per-thread VM; no reference into the Vec outlives this call.
+        unsafe { (*self.trampoline_stack.get()).push(frame) }
+    }
+
+    /// Take back the innermost frame this trampoline invocation suspended, or
+    /// `None` once it has taken back all of them.
+    #[inline]
+    fn trampoline_pop(&self, base: usize) -> Option<SuspendedFrame> {
+        // SAFETY: per-thread VM; no reference into the Vec outlives this call.
+        let stack = unsafe { &mut *self.trampoline_stack.get() };
+        if stack.len() > base {
+            stack.pop()
+        } else {
+            None
+        }
+    }
+
+    /// How many frames the trampoline's shared stack holds; the base a nested
+    /// invocation must not pop below.
+    #[inline]
+    fn trampoline_depth(&self) -> usize {
+        // SAFETY: per-thread VM; no reference into the Vec outlives this call.
+        unsafe { (*self.trampoline_stack.get()).len() }
+    }
+
     /// Take the pending tailcall frame pointer, resetting the side channel.
     #[inline(always)]
     fn take_pending_tailcall(&self) -> *mut crate::frame::InterpreterFrame {
@@ -1581,11 +1663,11 @@ impl VirtualMachine {
             .as_ptr()
     }
 
-    #[inline(always)]
     /// Run a stack-allocated InterpreterFrame without heap allocation.
     /// Uses a trampoline loop to flatten Python-to-Python calls: when the
     /// bytecode loop returns `TailCall`, the trampoline swaps to the new
     /// frame without adding a Rust stack frame.
+    #[inline(always)]
     pub fn run_frame_fast(&self, iframe: &mut crate::frame::InterpreterFrame) -> PyResult {
         use crate::frame::ExecutionResult;
 
@@ -1597,7 +1679,12 @@ impl VirtualMachine {
                 self.exit_iframe(entry_state);
                 Ok(value)
             }
-            Ok(ExecutionResult::TailCall) => self.run_frame_fast_trampoline(iframe, entry_state),
+            Ok(first @ ExecutionResult::TailCall) => {
+                match self.run_trampoline(iframe, FrameKind::Entry(entry_state), Ok(first))? {
+                    ExecutionResult::Return(value) => Ok(value),
+                    _ => panic!("non-return result from a plain call frame"),
+                }
+            }
             Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
             Err(exc) => {
                 self.exit_iframe(entry_state);
@@ -1606,250 +1693,177 @@ impl VirtualMachine {
         }
     }
 
+    /// Run the body of a generator or coroutine whose frame is already linked
+    /// into the frame chain (see `resume_gen_frame`), flattening the ordinary
+    /// Python calls it makes through the same trampoline `run_frame_fast`
+    /// uses.
+    ///
+    /// The frame is heap-resident and its resume bookkeeping belongs to the
+    /// caller, so the trampoline neither enters nor exits it and hands back
+    /// its `Yield` unchanged.
+    #[inline(always)]
+    pub(crate) fn run_gen_frame(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+    ) -> PyResult<ExecutionResult> {
+        match crate::frame::run_iframe(iframe, self) {
+            Ok(first @ ExecutionResult::TailCall) => {
+                self.run_trampoline(iframe, FrameKind::GenEntry, Ok(first))
+            }
+            result => result,
+        }
+    }
+
+    /// Free a callee frame's data stack storage, if it still owns any.
+    #[inline]
+    fn release_trampoline_callee(&self, iframe: *mut crate::frame::InterpreterFrame) {
+        // SAFETY: the callee has finished; its storage is the top of this
+        // thread's data stack because frames are released in LIFO order.
+        unsafe {
+            if let Some((base, size)) = (*iframe).release_datastack_frame() {
+                self.datastack_pop_frame(base, size);
+            }
+        }
+    }
+
     /// Cold path: at least one TailCall was issued. Run the trampoline.
     /// All frame dispatch happens in this single loop — no mutual recursion
     /// between helper functions, so C stack depth is bounded.
+    ///
+    /// `first` is the result the frame in `iframe` produced; the loop is
+    /// entered with that frame current and `stack` empty.
     #[cold]
     #[inline(never)]
-    fn run_frame_fast_trampoline(
+    fn run_trampoline(
         &self,
-        iframe: &mut crate::frame::InterpreterFrame,
-        entry_state: IframeEntryState,
-    ) -> PyResult {
+        iframe: *mut crate::frame::InterpreterFrame,
+        kind: FrameKind,
+        first: PyResult<ExecutionResult>,
+    ) -> PyResult<ExecutionResult> {
         use crate::frame::ExecutionResult;
 
-        let mut frame_stack: Vec<SuspendedFrame> = Vec::with_capacity(8);
-
-        // What we need to do next.
-        enum Action {
-            /// Enter and run a new callee frame (pointer from pending_tailcall_frame).
-            EnterCallee(*mut crate::frame::InterpreterFrame),
-            /// Push a return value onto the next caller and re-enter it.
-            ReturnValue(PyObjectRef),
-            /// Propagate an exception through suspended callers.
-            Unwind(PyBaseExceptionRef),
-        }
-
-        let initial_ptr = self.take_pending_tailcall();
-        let initial_owner = self.take_pending_tailcall_owner();
-        frame_stack.push(SuspendedFrame {
-            iframe: iframe as *mut crate::frame::InterpreterFrame,
-            entry_state,
-            callee_owner: initial_owner,
-            is_entry: true,
-        });
-        let mut action = Action::EnterCallee(initial_ptr);
+        // Frames this invocation suspends live above `base` on the VM's
+        // shared trampoline stack; every exit below has already popped them.
+        let base = self.trampoline_depth();
+        let mut step = Step::Finished {
+            iframe,
+            kind,
+            result: first,
+        };
 
         loop {
-            match action {
-                Action::EnterCallee(callee_ptr) => {
-                    let callee = unsafe { &mut *callee_ptr };
-                    let callee_entry = match self.enter_iframe_unchecked(callee) {
-                        Ok(state) => state,
-                        Err(exc) => {
-                            unsafe {
-                                if let Some((base, size)) = callee.release_datastack_frame() {
-                                    self.datastack_pop_frame(base, size);
-                                }
-                            }
-                            action = Action::Unwind(exc);
-                            continue;
-                        }
-                    };
-
-                    let result = crate::frame::run_iframe(callee, self);
-                    match result {
-                        Ok(ExecutionResult::TailCall) => {
-                            let callee_owner = self.take_pending_tailcall_owner();
-                            frame_stack.push(SuspendedFrame {
+            step = match step {
+                Step::Finished {
+                    iframe,
+                    kind,
+                    result,
+                } => match result {
+                    Ok(ExecutionResult::TailCall) => {
+                        let callee_owner = self.take_pending_tailcall_owner();
+                        let callee_ptr = self.take_pending_tailcall();
+                        self.trampoline_push(SuspendedFrame {
+                            iframe,
+                            kind,
+                            callee_owner: Some(callee_owner),
+                        });
+                        // SAFETY: the callee frame was just allocated on this
+                        // thread's data stack and nothing has popped it.
+                        let callee = unsafe { &mut *callee_ptr };
+                        match self.enter_iframe_unchecked(callee) {
+                            Ok(state) => Step::Finished {
                                 iframe: callee_ptr,
-                                entry_state: callee_entry,
-                                callee_owner,
-                                is_entry: false,
-                            });
-                            action = Action::EnterCallee(self.take_pending_tailcall());
-                        }
-                        Ok(ExecutionResult::Return(value)) => {
-                            self.exit_iframe(callee_entry);
-                            unsafe {
-                                if let Some((base, size)) = callee.release_datastack_frame() {
-                                    self.datastack_pop_frame(base, size);
-                                }
+                                kind: FrameKind::Callee(state),
+                                result: crate::frame::run_iframe(callee, self),
+                            },
+                            Err(exc) => {
+                                self.release_trampoline_callee(callee_ptr);
+                                Step::Deliver(Outcome::Raise(exc))
                             }
-                            action = Action::ReturnValue(value);
-                        }
-                        Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
-                        Err(exc) => {
-                            self.exit_iframe(callee_entry);
-                            unsafe {
-                                if let Some((base, size)) = callee.release_datastack_frame() {
-                                    self.datastack_pop_frame(base, size);
-                                }
-                            }
-                            action = Action::Unwind(exc);
                         }
                     }
-                }
+                    Ok(ExecutionResult::Return(value)) => match kind {
+                        FrameKind::GenEntry => {
+                            debug_assert_eq!(self.trampoline_depth(), base);
+                            return Ok(ExecutionResult::Return(value));
+                        }
+                        FrameKind::Entry(state) => {
+                            debug_assert_eq!(self.trampoline_depth(), base);
+                            self.exit_iframe(state);
+                            return Ok(ExecutionResult::Return(value));
+                        }
+                        FrameKind::Callee(state) => {
+                            self.exit_iframe(state);
+                            self.release_trampoline_callee(iframe);
+                            Step::Deliver(Outcome::Value(value))
+                        }
+                    },
+                    Ok(ExecutionResult::Yield(value)) => match kind {
+                        FrameKind::GenEntry => {
+                            debug_assert_eq!(self.trampoline_depth(), base);
+                            return Ok(ExecutionResult::Yield(value));
+                        }
+                        _ => panic!("Yield in non-generator frame"),
+                    },
+                    Err(exc) => match kind {
+                        FrameKind::GenEntry => {
+                            debug_assert_eq!(self.trampoline_depth(), base);
+                            return Err(exc);
+                        }
+                        FrameKind::Entry(state) => {
+                            debug_assert_eq!(self.trampoline_depth(), base);
+                            self.exit_iframe(state);
+                            return Err(exc);
+                        }
+                        FrameKind::Callee(state) => {
+                            self.exit_iframe(state);
+                            self.release_trampoline_callee(iframe);
+                            Step::Deliver(Outcome::Raise(exc))
+                        }
+                    },
+                },
 
-                Action::ReturnValue(value) => {
-                    let Some(caller) = frame_stack.pop() else {
-                        // All frames consumed — this is the final return.
-                        return Ok(value);
-                    };
+                Step::Deliver(outcome) => {
+                    // Every frame the trampoline enters is entered from a
+                    // frame it has already suspended, so an outcome always
+                    // has a caller waiting for it.
                     let SuspendedFrame {
-                        iframe: caller_iframe_ptr,
-                        entry_state: caller_entry,
+                        iframe,
+                        kind,
                         callee_owner,
-                        is_entry: caller_is_entry,
-                    } = caller;
-                    // The callee's frame was released before this action was
+                    } = self
+                        .trampoline_pop(base)
+                        .expect("trampoline outcome with no frame to deliver it to");
+                    // The callee's frame was released before this outcome was
                     // formed, and a materialized frame object holds its own
                     // references, so nothing borrows the callee's function any
-                    // more. Release it here, at the callee's return, rather than
-                    // holding it across the caller's next stretch of bytecode.
+                    // more. Release it here, at the callee's return, rather
+                    // than holding it across the caller's next stretch of
+                    // bytecode.
                     drop(callee_owner);
-                    let caller_iframe = unsafe { &mut *caller_iframe_ptr };
-                    caller_iframe.localsplus.push_stack(value);
-
-                    let result = crate::frame::run_iframe(caller_iframe, self);
-                    match result {
-                        Ok(ExecutionResult::TailCall) => {
-                            let next_callee_owner = self.take_pending_tailcall_owner();
-                            frame_stack.push(SuspendedFrame {
-                                iframe: caller_iframe_ptr,
-                                entry_state: caller_entry,
-                                callee_owner: next_callee_owner,
-                                is_entry: caller_is_entry,
-                            });
-                            action = Action::EnterCallee(self.take_pending_tailcall());
+                    // SAFETY: a suspended caller's frame stays alive and
+                    // unmoved until it is resumed here.
+                    let frame = unsafe { &mut *iframe };
+                    let result = match outcome {
+                        Outcome::Value(value) => {
+                            frame.localsplus.push_stack(value);
+                            crate::frame::run_iframe(frame, self)
                         }
-                        Ok(ExecutionResult::Return(value)) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
+                        Outcome::Raise(exc) => {
+                            match crate::frame::trampoline_handle_exception(frame, &exc, self) {
+                                // Handler found — resume the caller's dispatch loop.
+                                Ok(None) => crate::frame::run_iframe(frame, self),
+                                Ok(Some(result)) => Ok(result),
+                                Err(exc) => Err(exc),
                             }
-                            action = Action::ReturnValue(value);
                         }
-                        Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
-                        Err(exc) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
-                            }
-                            action = Action::Unwind(exc);
-                        }
-                    }
-                }
-
-                Action::Unwind(exc) => {
-                    let Some(caller) = frame_stack.pop() else {
-                        return Err(exc);
                     };
-                    let SuspendedFrame {
-                        iframe: caller_iframe_ptr,
-                        entry_state: caller_entry,
-                        callee_owner,
-                        is_entry: caller_is_entry,
-                    } = caller;
-                    // Released at the callee's return, for the same reason as
-                    // in `ReturnValue`: the exception carries owned references
-                    // through its traceback, not borrows into the callee frame.
-                    drop(callee_owner);
-                    let caller_iframe = unsafe { &mut *caller_iframe_ptr };
-
-                    let handled =
-                        crate::frame::trampoline_handle_exception(caller_iframe, &exc, self);
-
-                    match handled {
-                        Ok(None) => {
-                            // Handler found — resume the caller's dispatch loop.
-                            let result = crate::frame::run_iframe(caller_iframe, self);
-                            match result {
-                                Ok(ExecutionResult::TailCall) => {
-                                    let next_callee_owner = self.take_pending_tailcall_owner();
-                                    frame_stack.push(SuspendedFrame {
-                                        iframe: caller_iframe_ptr,
-                                        entry_state: caller_entry,
-                                        callee_owner: next_callee_owner,
-                                        is_entry: caller_is_entry,
-                                    });
-                                    action = Action::EnterCallee(self.take_pending_tailcall());
-                                }
-                                Ok(ExecutionResult::Return(value)) => {
-                                    self.exit_iframe(caller_entry);
-                                    if !caller_is_entry {
-                                        unsafe {
-                                            if let Some((base, size)) =
-                                                caller_iframe.release_datastack_frame()
-                                            {
-                                                self.datastack_pop_frame(base, size);
-                                            }
-                                        }
-                                    }
-                                    action = Action::ReturnValue(value);
-                                }
-                                Ok(ExecutionResult::Yield(_)) => {
-                                    panic!("Yield in non-generator frame")
-                                }
-                                Err(new_exc) => {
-                                    self.exit_iframe(caller_entry);
-                                    if !caller_is_entry {
-                                        unsafe {
-                                            if let Some((base, size)) =
-                                                caller_iframe.release_datastack_frame()
-                                            {
-                                                self.datastack_pop_frame(base, size);
-                                            }
-                                        }
-                                    }
-                                    action = Action::Unwind(new_exc);
-                                }
-                            }
-                        }
-                        Ok(Some(ExecutionResult::Return(value))) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
-                            }
-                            action = Action::ReturnValue(value);
-                        }
-                        Ok(Some(_)) => {
-                            panic!("Unexpected execution result in trampoline unwind")
-                        }
-                        Err(new_exc) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
-                            }
-                            action = Action::Unwind(new_exc);
-                        }
+                    Step::Finished {
+                        iframe,
+                        kind,
+                        result,
                     }
                 }
-            }
+            };
         }
     }
 
