@@ -1997,8 +1997,20 @@ impl PyObject {
         if let Some(slot_del) = del
             && !self.gc_finalized()
         {
-            self.set_gc_finalized();
-            call_slot_del(self, slot_del)?;
+            // Skip the (comparatively expensive) VM attach in `call_slot_del`
+            // when the type says its `del` is a documented no-op for this
+            // object right now — e.g. a generator/coroutine that already
+            // ran to completion. See `PyTypeSlots::del_needed`.
+            let needs_del = self
+                .class()
+                .slots
+                .del_needed
+                .load()
+                .is_none_or(|check| check(self));
+            if needs_del {
+                self.set_gc_finalized();
+                call_slot_del(self, slot_del)?;
+            }
         }
 
         // Clear weak refs AFTER __del__.
@@ -2060,6 +2072,12 @@ impl PyObject {
         let del = self.class().slots.del.load();
         if let Some(slot_del) = del
             && !self.gc_finalized()
+            && self
+                .class()
+                .slots
+                .del_needed
+                .load()
+                .is_none_or(|check| check(self))
         {
             // Mark as finalized BEFORE calling __del__ to prevent double-call
             // This ensures drop_slow_inner() won't call __del__ again

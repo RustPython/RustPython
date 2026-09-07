@@ -191,6 +191,16 @@ pub struct PyTypeSlots {
     // tp_weaklist
     pub del: AtomicCell<Option<DelFunc>>,
 
+    /// Optional fast, VM-free predicate checked before `del` is invoked via
+    /// `drop_slow_inner`/`try_call_finalizer`. Those call sites otherwise pay
+    /// for attaching to a VM (`with_vm`) unconditionally whenever a type has
+    /// a `del` slot at all, even when the type's own `del` is a documented
+    /// no-op for the object's current state (e.g. an already-exhausted
+    /// generator or coroutine). Returning `false` skips the `del` call
+    /// entirely, avoiding that VM lookup; `None` (the default) preserves the
+    /// prior behavior of always calling `del`.
+    pub del_needed: AtomicCell<Option<fn(&PyObject) -> bool>>,
+
     // The count of tp_members.
     pub member_count: usize,
 }
