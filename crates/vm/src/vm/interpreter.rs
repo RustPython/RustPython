@@ -693,6 +693,8 @@ impl Interpreter {
             // Now suppress unraisable exceptions from daemon threads and __del__
             // methods during the rest of shutdown.
             vm.state.finalizing.store(true, Ordering::Release);
+            #[cfg(feature = "threading")]
+            crate::signal::set_finalizing_bit();
 
             // GC pass - collect cycles before module cleanup
             vm.state.gc.collect_force(2);

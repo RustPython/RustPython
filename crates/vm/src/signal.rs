@@ -28,6 +28,27 @@ const QSBR_BIT: u8 = 1 << 1;
 /// allocation that tripped the threshold.
 #[cfg(feature = "threading")]
 const GC_BIT: u8 = 1 << 2;
+/// At least one thread's `stop_requested` flag may be set (stop-the-world in
+/// progress). This bit is shared by every thread rather than being
+/// per-thread: the fast (common) path checked once per bytecode instruction
+/// becomes a single relaxed load of this word instead of a thread-local
+/// lookup plus atomic load of that thread's own flag. Once set, the bit is
+/// sticky until `start_the_world`/`reset_after_fork` clears it (both run
+/// under the single stop-the-world exclusion, so clearing cannot race a new
+/// requester) — every thread takes the slow path for the (short) duration of
+/// a stop-the-world request, which only affects programs with more than one
+/// live thread; single-threaded programs never set this bit at all, since
+/// `stop_the_world` never sets any per-thread `stop_requested` flag when
+/// there are no other threads to stop.
+#[cfg(feature = "threading")]
+const STOP_BIT: u8 = 1 << 3;
+/// The interpreter has begun finalizing (see `Interpreter::finalize`). Set
+/// once, near process/interpreter shutdown, and never cleared — from that
+/// point on every thread takes the slow path once per instruction, which is
+/// fine because finalization is a one-time, short-lived, non-performance-
+/// sensitive window.
+#[cfg(feature = "threading")]
+const FINALIZING_BIT: u8 = 1 << 4;
 
 #[expect(
     clippy::declare_interior_mutable_const,
@@ -145,6 +166,27 @@ pub(crate) fn clear_qsbr_bit() {
 #[cfg(feature = "threading")]
 pub(crate) fn qsbr_bit_set() -> bool {
     EVAL_BREAKER.load(Ordering::Relaxed) & QSBR_BIT != 0
+}
+
+/// Record that some thread's `stop_requested` flag was (or may have been)
+/// set. See `STOP_BIT`.
+#[cfg(feature = "threading")]
+pub(crate) fn set_stop_bit() {
+    EVAL_BREAKER.fetch_or(STOP_BIT, Ordering::Release);
+}
+
+/// Clear the shared stop-the-world bit. Only safe to call from
+/// `start_the_world`/`reset_after_fork`, which run under the single
+/// stop-the-world exclusion (see `STOP_BIT`).
+#[cfg(feature = "threading")]
+pub(crate) fn clear_stop_bit() {
+    EVAL_BREAKER.fetch_and(!STOP_BIT, Ordering::Release);
+}
+
+/// Record that finalization has begun. See `FINALIZING_BIT`.
+#[cfg(feature = "threading")]
+pub(crate) fn set_finalizing_bit() {
+    EVAL_BREAKER.fetch_or(FINALIZING_BIT, Ordering::Release);
 }
 
 /// Schedule an automatic collection to run at the next bytecode safepoint.
