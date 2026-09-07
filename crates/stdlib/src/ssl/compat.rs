@@ -32,8 +32,10 @@ use rustpython_vm::function::ArgBytesLike;
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject};
 use std::io::Read;
 
-use super::chain::{self, Purpose, VerifiedChainBuilder};
-use super::providers::CryptoExt;
+use rustpython_host_env::ssl::{
+    chain::{self, Purpose, VerifiedChainBuilder},
+    providers::CryptoExt,
+};
 
 // Import PySSLSocket from parent module
 use super::_ssl::{
@@ -897,6 +899,7 @@ pub(super) fn send_all_bytes(
     deadline: Option<std::time::Instant>,
 ) -> SslResult<()> {
     // Retain newly drained records before a fallible flush of earlier output.
+    socket.observe_tls(true, &buf, vm);
     socket.pending_tls_output.lock().extend_from_slice(&buf);
     socket
         .flush_pending_tls_output(vm, deadline)
@@ -969,6 +972,7 @@ pub(super) fn recv_at_most_one_tls_record(
             SslError::Py(e)
         }
     })?;
+    socket.observe_tls(false, bytes.as_bytes(), vm);
     if bytes.is_empty() {
         Err(if socket.is_bio_mode() && !socket.transport_eof() {
             SslError::WantRead
@@ -1689,6 +1693,12 @@ fn ssl_ensure_data_available(socket: &PySSLSocket, vm: &VirtualMachine) -> SslRe
             return Err(SslError::Eof);
         }
 
+        if is_bio {
+            let bytes = ArgBytesLike::try_from_object(vm, data.clone())
+                .map_err(|_| SslError::Syscall("Expected bytes-like object".to_string()))?;
+            socket.observe_tls(false, bytes.borrow_buf().as_ref(), vm);
+        }
+
         // Feed data to rustls and process packets
         with_conn_mut(socket, vm, |conn| {
             ssl_read_tls_records(conn, data, is_bio, vm)?;
@@ -1754,7 +1764,7 @@ impl ResolvesServerCert for MultiCertResolver {
 pub(super) fn curve_name_to_kx_group(
     curve: &str,
 ) -> Result<Vec<&'static dyn SupportedKxGroup>, String> {
-    super::cipher::kx_group_by_openssl_name(curve)
+    rustpython_host_env::ssl::cipher::kx_group_by_openssl_name(curve)
         .map(|group| vec![group])
         .ok_or_else(|| format!("unknown curve name '{curve}'"))
 }

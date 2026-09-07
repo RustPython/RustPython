@@ -3059,7 +3059,6 @@ class ThreadedTests(unittest.TestCase):
                 'Cannot create a client socket with a PROTOCOL_TLS_SERVER context',
                 str(e.exception))
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @unittest.skipUnless(support.Py_GIL_DISABLED, "test is only useful if the GIL is disabled")
     def test_ssl_in_multiple_threads(self):
         # See GH-124984: OpenSSL is not thread safe.
@@ -5221,7 +5220,6 @@ class TestSSLDebug(unittest.TestCase):
         with self.assertRaises(TypeError):
             client_context._msg_callback = object()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ('read', <TLSVersion.TLSv1_2: 771>, <_TLSContentType.HANDSHAKE: 22>, <_TLSMessageType.SERVER_KEY_EXCHANGE: 12>) not found in []
     def test_msg_callback_tls12(self):
         client_context, server_context, hostname = testing_context()
         client_context.maximum_version = ssl.TLSVersion.TLSv1_2

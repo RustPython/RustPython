@@ -13,16 +13,8 @@
 //!
 //! Warning: This library contains AI-generated code and comments. Do not trust any code or comment without verification. Please have a qualified expert review the code and remove this notice after review.
 
-// OID (Object Identifier) management module
-mod oid;
-
 // Certificate operations module (parsing, validation, conversion)
 mod cert;
-
-mod chain;
-
-/// OpenSSL cipher string parsing for `set_ciphers`
-mod cipher;
 
 // OpenSSL compatibility layer (abstracts rustls operations)
 mod compat;
@@ -32,9 +24,9 @@ mod error;
 
 mod handshake;
 mod keylog;
+mod msg;
 
-// Utilities for setting a Rustls cryptography provider.
-pub mod providers;
+pub use rustpython_host_env::ssl::{chain, cipher, oid, providers};
 
 pub(crate) use _ssl::module_def;
 
@@ -105,11 +97,11 @@ mod _ssl {
 
     // Import certificate operations module
     use super::cert;
-    use super::chain::{self, VerifiedChainBuilder};
-
-    // Import OID module
-    use super::cipher;
-    use super::oid;
+    use rustpython_host_env::ssl::{
+        chain::{self, VerifiedChainBuilder},
+        cipher, oid,
+        providers::CryptoExt,
+    };
 
     // Import compat module (OpenSSL compatibility layer)
     use super::compat::{
@@ -119,7 +111,6 @@ mod _ssl {
     };
 
     use super::handshake::TlsState;
-    use super::providers::CryptoExt;
 
     // Type aliases for better readability
     // Additional type alias for certificate/key pairs (SessionCache defined below)
@@ -139,24 +130,24 @@ mod _ssl {
 
     // SSL/TLS Protocol versions
     #[pyattr]
-    const PROTOCOL_TLS: i32 = 2; // Auto-negotiate best version
+    const PROTOCOL_TLS: i32 = rustpython_host_env::ssl::PROTOCOL_TLS; // Auto-negotiate best version
     #[pyattr]
     const PROTOCOL_SSLv23: i32 = PROTOCOL_TLS; // Alias for PROTOCOL_TLS
     #[pyattr]
-    const PROTOCOL_TLS_CLIENT: i32 = 16;
+    const PROTOCOL_TLS_CLIENT: i32 = rustpython_host_env::ssl::PROTOCOL_TLS_CLIENT;
     #[pyattr]
-    const PROTOCOL_TLS_SERVER: i32 = 17;
+    const PROTOCOL_TLS_SERVER: i32 = rustpython_host_env::ssl::PROTOCOL_TLS_SERVER;
 
     // Note: rustls doesn't support TLS 1.0/1.1 for security reasons
     // These are defined for API compatibility but will raise errors if used
     #[pyattr]
-    const PROTOCOL_TLSv1: i32 = 3;
+    const PROTOCOL_TLSv1: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1;
     #[pyattr]
-    const PROTOCOL_TLSv1_1: i32 = 4;
+    const PROTOCOL_TLSv1_1: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1_1;
     #[pyattr]
-    const PROTOCOL_TLSv1_2: i32 = 5;
+    const PROTOCOL_TLSv1_2: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1_2;
     #[pyattr]
-    const PROTOCOL_TLSv1_3: i32 = 6;
+    const PROTOCOL_TLSv1_3: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1_3;
 
     static NEXT_SSL_SESSION_NONCE: AtomicUsize = AtomicUsize::new(1);
 
@@ -213,32 +204,33 @@ mod _ssl {
 
     // Certificate verification modes
     #[pyattr]
-    const CERT_NONE: i32 = 0;
+    const CERT_NONE: i32 = rustpython_host_env::ssl::CERT_NONE;
     #[pyattr]
-    const CERT_OPTIONAL: i32 = 1;
+    const CERT_OPTIONAL: i32 = rustpython_host_env::ssl::CERT_OPTIONAL;
     #[pyattr]
-    const CERT_REQUIRED: i32 = 2;
+    const CERT_REQUIRED: i32 = rustpython_host_env::ssl::CERT_REQUIRED;
 
     // SSL Verification Flags / Certificate requirements
     #[pyattr]
-    const VERIFY_DEFAULT: i32 = 0;
+    const VERIFY_DEFAULT: i32 = rustpython_host_env::ssl::VERIFY_DEFAULT;
     #[pyattr]
-    const VERIFY_CRL_CHECK_LEAF: i32 = 4;
+    const VERIFY_CRL_CHECK_LEAF: i32 = rustpython_host_env::ssl::VERIFY_CRL_CHECK_LEAF;
     #[pyattr]
-    const VERIFY_CRL_CHECK_CHAIN: i32 = 12;
+    const VERIFY_CRL_CHECK_CHAIN: i32 = rustpython_host_env::ssl::VERIFY_CRL_CHECK_CHAIN;
     /// VERIFY_X509_STRICT flag for RFC 5280 strict compliance
     /// When set, performs additional validation including AKI extension checks
     #[pyattr]
-    pub(crate) const VERIFY_X509_STRICT: i32 = 32;
+    pub(crate) const VERIFY_X509_STRICT: i32 = rustpython_host_env::ssl::VERIFY_X509_STRICT;
     #[pyattr]
-    const VERIFY_ALLOW_PROXY_CERTS: i32 = 64;
+    const VERIFY_ALLOW_PROXY_CERTS: i32 = rustpython_host_env::ssl::VERIFY_ALLOW_PROXY_CERTS;
     #[pyattr]
-    const VERIFY_X509_TRUSTED_FIRST: i32 = 32768;
+    const VERIFY_X509_TRUSTED_FIRST: i32 = rustpython_host_env::ssl::VERIFY_X509_TRUSTED_FIRST;
     /// VERIFY_X509_PARTIAL_CHAIN flag for partial chain validation
     /// When set, accept certificates if any certificate in the chain is in the trust store
     /// (not just root CAs). This matches OpenSSL's X509_V_FLAG_PARTIAL_CHAIN behavior.
     #[pyattr]
-    pub(crate) const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
+    pub(crate) const VERIFY_X509_PARTIAL_CHAIN: i32 =
+        rustpython_host_env::ssl::VERIFY_X509_PARTIAL_CHAIN;
 
     // Options (OpenSSL-compatible flags, mostly no-op in rustls)
     #[pyattr]
@@ -1929,6 +1921,8 @@ mod _ssl {
                 client_session_store: PyRwLock::new(None),
                 pending_tls_output: PyMutex::new(Vec::new()),
                 write_buffered_len: PyMutex::new(0),
+                msg_state: PyMutex::new(super::msg::MsgState::default()),
+                pending_msg_exc: PyMutex::new(None),
                 deferred_cert_error: Arc::new(ParkingRwLock::new(None)),
             };
 
@@ -2017,6 +2011,8 @@ mod _ssl {
                 client_session_store: PyRwLock::new(None),
                 pending_tls_output: PyMutex::new(Vec::new()),
                 write_buffered_len: PyMutex::new(0),
+                msg_state: PyMutex::new(super::msg::MsgState::default()),
+                pending_msg_exc: PyMutex::new(None),
                 deferred_cert_error: Arc::new(ParkingRwLock::new(None)),
             };
 
@@ -2444,6 +2440,9 @@ mod _ssl {
         // Prevents duplicate writes when retrying after WantWrite/WantRead
         #[pytraverse(skip)]
         pub(crate) write_buffered_len: PyMutex<usize>,
+        #[pytraverse(skip)]
+        msg_state: PyMutex<super::msg::MsgState>,
+        pending_msg_exc: PyMutex<Option<PyBaseExceptionRef>>,
         // Deferred client certificate verification error (for TLS 1.3)
         // Stores error message if client cert verification failed during handshake
         // Error is raised on first I/O operation after handshake
@@ -2475,6 +2474,49 @@ mod _ssl {
         /// across socket or MemoryBIO I/O.
         pub(crate) fn connection(&self) -> &PyMutex<Option<Connection>> {
             &self.connection
+        }
+
+        pub(crate) fn observe_tls(&self, write: bool, bytes: &[u8], vm: &VirtualMachine) {
+            if bytes.is_empty() {
+                return;
+            }
+            let events = self.msg_state.lock().observe(write, bytes);
+            if events.is_empty() {
+                return;
+            }
+            let callback = self.context.read().msg_callback.read().clone();
+            let Some(callback) = callback else {
+                return;
+            };
+            let conn = self
+                .owner
+                .read()
+                .as_ref()
+                .and_then(|owner| owner.upgrade())
+                .unwrap_or_else(|| vm.ctx.none());
+            for event in events {
+                let result = callback.call(
+                    (
+                        conn.clone(),
+                        vm.ctx.new_str(if write { "write" } else { "read" }),
+                        vm.ctx.new_int(event.version),
+                        vm.ctx.new_int(event.content_type),
+                        vm.ctx.new_int(event.msg_type),
+                        vm.ctx.new_bytes(event.data),
+                    ),
+                    vm,
+                );
+                if let Err(exc) = result {
+                    let mut pending = self.pending_msg_exc.lock();
+                    if pending.is_none() {
+                        *pending = Some(exc);
+                    }
+                }
+            }
+        }
+
+        pub(crate) fn take_msg_exc(&self) -> Option<PyBaseExceptionRef> {
+            self.pending_msg_exc.lock().take()
         }
 
         // Check for deferred certificate verification errors (TLS 1.3)
@@ -2748,7 +2790,13 @@ mod _ssl {
             )
         }
 
-        fn reject_connection(&self, error: PyBaseExceptionRef, bytes: Vec<u8>) {
+        fn reject_connection(
+            &self,
+            error: PyBaseExceptionRef,
+            bytes: Vec<u8>,
+            vm: &VirtualMachine,
+        ) {
+            self.observe_tls(true, &bytes, vm);
             self.pending_tls_output.lock().extend_from_slice(&bytes);
             *self.state.lock() = TlsState::SendingAlert { error };
         }
@@ -2771,6 +2819,7 @@ mod _ssl {
                                     self.reject_connection(
                                         error,
                                         super::handshake::sni_alert(description),
+                                        vm,
                                     );
                                     continue;
                                 }
@@ -2785,7 +2834,7 @@ mod _ssl {
                                 } else {
                                     SslError::from_rustls(error)
                                 };
-                                self.reject_connection(error.into_py_err(vm), bytes);
+                                self.reject_connection(error.into_py_err(vm), bytes, vm);
                                 continue;
                             }
                             Ok(None) => {}
@@ -2816,6 +2865,7 @@ mod _ssl {
                                     },
                                 );
                             }
+                            self.observe_tls(false, bytes.as_bytes(), vm);
                             super::handshake::feed_acceptor(&mut acceptor, bytes.as_bytes())
                                 .map_err(|e| e.into_pyexception(vm))?;
                             Ok(())
@@ -3258,7 +3308,7 @@ mod _ssl {
                     alert
                         .write_all(&mut bytes)
                         .map_err(|e| e.into_pyexception(vm))?;
-                    self.reject_connection(SslError::from_rustls(error).into_py_err(vm), bytes);
+                    self.reject_connection(SslError::from_rustls(error).into_py_err(vm), bytes, vm);
                     self.accept_client_hello(vm)?;
                 }
             }
@@ -3289,7 +3339,7 @@ mod _ssl {
                         if matches!(*self.state.lock(), TlsState::SendingAlert { .. }) {
                             return Err(error);
                         }
-                        self.reject_connection(error, super::handshake::sni_alert(40));
+                        self.reject_connection(error, super::handshake::sni_alert(40), vm);
                         return self.accept_client_hello(vm).map(|_| ());
                     }
                 } else {
@@ -3411,10 +3461,13 @@ mod _ssl {
                 if let Some(conn) = self.connection.lock().as_mut() {
                     let _ = conn.write_tls(&mut bytes);
                 }
-                self.reject_connection(error.into_py_err(vm), bytes);
+                self.reject_connection(error.into_py_err(vm), bytes, vm);
                 return self.accept_client_hello(vm).map(|_| ());
             }
             handshake_result.map_err(|e| e.into_py_err(vm))?;
+            if let Some(exc) = self.take_msg_exc() {
+                return Err(exc);
+            }
             self.complete_handshake(vm);
             Ok(())
         }
@@ -3510,6 +3563,9 @@ mod _ssl {
                     // Check for deferred certificate verification errors (TLS 1.3)
                     // Must be checked AFTER ssl_read, as the error is set during I/O
                     self.check_deferred_cert_error(vm)?;
+                    if let Some(exc) = self.take_msg_exc() {
+                        return Err(exc);
+                    }
                     buf.truncate(n);
                     return_data(buf, &buffer, vm)
                 }
@@ -3650,6 +3706,9 @@ mod _ssl {
             match result {
                 Ok(n) => {
                     self.check_deferred_cert_error(vm)?;
+                    if let Some(exc) = self.take_msg_exc() {
+                        return Err(exc);
+                    }
                     Ok(n)
                 }
                 Err(crate::ssl::compat::SslError::WantRead) => {
@@ -4038,7 +4097,7 @@ mod _ssl {
                 if let Some(conn) = self.connection.lock().as_mut() {
                     let _ = conn.write_tls(&mut bytes);
                 }
-                self.reject_connection(error.clone(), bytes);
+                self.reject_connection(error.clone(), bytes, vm);
                 return self
                     .accept_client_hello(vm)
                     .map(|_| self.io.socket_object(vm));
@@ -4150,25 +4209,35 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyBytesRef>> {
             let cb_type_str = cb_type.as_ref().map_or("tls-unique", |s| s.as_str());
-
-            // rustls doesn't support channel binding (tls-unique, tls-server-end-point, etc.)
-            // This is because:
-            // 1. tls-unique requires access to TLS Finished messages, which rustls doesn't expose
-            // 2. tls-server-end-point requires the server certificate, which we don't track here
-            // 3. TLS 1.3 deprecated tls-unique anyway
-            //
-            // For compatibility, we'll return None (no channel binding available)
-            // rather than raising an error
-
             if cb_type_str != "tls-unique" {
-                return Err(vm.new_value_error(format!(
-                    "Unsupported channel binding type '{cb_type_str}'",
-                )));
+                return Err(super::msg::unknown_binding_type_error(cb_type_str, vm));
             }
-
-            // Return None to indicate channel binding is not available
-            // This matches the behavior when the handshake hasn't completed yet
-            Ok(None)
+            if !self.handshake_completed() {
+                return Ok(None);
+            }
+            let master_secret = self.key_log.master_secret();
+            let transcript = self.msg_state.lock().transcript().to_vec();
+            let session_reused = *self.session_was_reused.lock();
+            let suite = {
+                let conn_guard = self.connection.lock();
+                conn_guard
+                    .as_ref()
+                    .and_then(|conn| conn.negotiated_cipher_suite())
+            };
+            let Some(master_secret) = master_secret else {
+                return Ok(None);
+            };
+            let Some(suite) = suite else {
+                return Ok(None);
+            };
+            Ok(super::msg::tls12_unique(
+                suite,
+                &master_secret,
+                &transcript,
+                self.server_side,
+                session_reused,
+            )
+            .map(|bytes| vm.ctx.new_bytes(bytes)))
         }
     }
 
@@ -4212,35 +4281,24 @@ mod _ssl {
     #[pyclass(name = "MemoryBIO", module = "ssl")]
     #[derive(Debug, PyPayload)]
     struct PyMemoryBIO {
-        // Internal buffer
-        buffer: PyMutex<Vec<u8>>,
-        // EOF flag
-        eof: PyRwLock<bool>,
+        inner: PyMutex<rustpython_host_env::ssl::MemoryBio>,
     }
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PyMemoryBIO {
         #[pymethod]
         fn read(&self, len: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            let mut buffer = self.buffer.lock();
-
-            if buffer.is_empty() && *self.eof.read() {
-                // Return empty bytes at EOF
-                return Ok(vm.ctx.new_bytes(vec![]));
-            }
+            let mut bio = self.inner.lock();
 
             let read_len = match len {
                 OptionalArg::Present(n) if n >= 0 => n as usize,
                 OptionalArg::Present(n) => {
                     return Err(vm.new_value_error(format!("negative read length: {n}")));
                 }
-                OptionalArg::Missing => buffer.len(), // Read all available
+                OptionalArg::Missing => bio.pending(),
             };
 
-            let actual_len = read_len.min(buffer.len());
-            let data = buffer.drain(..actual_len).collect::<Vec<u8>>();
-
-            Ok(vm.ctx.new_bytes(data))
+            Ok(vm.ctx.new_bytes(bio.read(read_len)))
         }
 
         #[pymethod]
@@ -4257,29 +4315,29 @@ mod _ssl {
             // Convert to bytes-like object
             let bytes_like = ArgBytesLike::try_from_object(vm, buf)?;
             let data = bytes_like.borrow_buf();
-            let len = data.len();
-
-            let mut buffer = self.buffer.lock();
-            buffer.extend_from_slice(&data);
-
-            Ok(len)
+            self.inner.lock().write(&data).map_err(|err| {
+                vm.new_os_subtype_error(
+                    PySSLError::class(&vm.ctx).to_owned(),
+                    None,
+                    err.to_string(),
+                )
+                .upcast()
+            })
         }
 
         #[pymethod]
         fn write_eof(&self, _vm: &VirtualMachine) {
-            *self.eof.write() = true;
+            self.inner.lock().write_eof();
         }
 
         #[pygetset]
         fn pending(&self) -> i32 {
-            self.buffer.lock().len() as i32
+            self.inner.lock().pending() as i32
         }
 
         #[pygetset]
         fn eof(&self) -> bool {
-            // EOF is true only when buffer is empty AND write_eof has been called
-            let pending = self.buffer.lock().len();
-            pending == 0 && *self.eof.read()
+            self.inner.lock().eof()
         }
     }
 
@@ -4295,8 +4353,7 @@ mod _ssl {
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
-                buffer: PyMutex::new(Vec::new()),
-                eof: PyRwLock::new(false),
+                inner: PyMutex::new(rustpython_host_env::ssl::MemoryBio::new()),
             })
         }
     }

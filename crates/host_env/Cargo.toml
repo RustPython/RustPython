@@ -10,6 +10,7 @@ license.workspace = true
 
 [features]
 native-certs = ["dep:rustls-native-certs"]
+ssl = ["dep:rustls", "dep:rustls-pemfile", "dep:rustls-webpki", "dep:x509-parser"]
 
 [dependencies]
 rustpython-wtf8 = { workspace = true }
@@ -21,6 +22,10 @@ num-traits = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 widestring = { workspace = true }
+rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+rustls-webpki = { workspace = true, optional = true }
+x509-parser = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
@@ -88,6 +93,9 @@ windows-sys = { workspace = true, features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rustls = { workspace = true, features = ["aws_lc_rs"] }
 
 [build-dependencies]
 cc = "1"
