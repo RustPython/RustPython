@@ -2498,6 +2498,15 @@ impl VirtualMachine {
             return Err(self.new_recursion_error(String::new()));
         }
         self.recursion_depth.update(|d| d + 1);
+        // Guard only the recursion-depth decrement against a panic unwinding
+        // through Python code (matches `with_frame`); the state restored
+        // below (owner/previous/exc slot/current-frame) is not similarly
+        // guarded there either, since a panic in this codebase is a bug, not
+        // a control-flow path any Python-level construct can observe or
+        // resume from.
+        let _depth_guard = scopeguard::guard((), |()| {
+            self.recursion_depth.update(|d| d.saturating_sub(1))
+        });
 
         // SAFETY: frame (&FrameObjectRef) stays alive for the duration, so NonNull is valid until pop.
         #[cfg(all(not(unix), feature = "threading"))]
@@ -2519,26 +2528,34 @@ impl VirtualMachine {
             core::sync::atomic::Ordering::AcqRel,
         );
 
-        // Ensure cleanup on panic: restore owner, pop exc_info slot, frame chain,
-        // frames Vec, and recursion depth.
-        scopeguard::defer! {
-            frame.iframe().owner.store(old_owner, core::sync::atomic::Ordering::Release);
-            self.pop_exception();
-            // Clear previous before popping — it may point to a stack-allocated
-            // iframe that will be freed when the caller releases its frame.
-            {
-                #[allow(unused_imports)]
-                use rustpython_common::atomic::Radium;
-                frame.iframe().previous.store(0, core::sync::atomic::Ordering::Relaxed);
-            }
-            let _ = crate::vm::thread::set_current_frame(old_chain);
-            #[cfg(all(not(unix), feature = "threading"))]
-            crate::vm::thread::pop_thread_frame();
+        let result = self.dispatch_traced_frame(frame, |frame| f(frame));
 
-            self.recursion_depth.update(|d| d - 1);
+        // Restore owner, pop exc_info slot, frame chain and frames Vec on
+        // every normal exit (Ok or Err) — captured above rather than
+        // propagated with `?`, so this always runs.
+        frame
+            .iframe()
+            .owner
+            .store(old_owner, core::sync::atomic::Ordering::Release);
+        self.pop_exception();
+        // Clear previous before popping — it may point to a stack-allocated
+        // iframe that will be freed when the caller releases its frame.
+        {
+            #[allow(unused_imports)]
+            use rustpython_common::atomic::Radium;
+            frame
+                .iframe()
+                .previous
+                .store(0, core::sync::atomic::Ordering::Relaxed);
         }
+        let _ = crate::vm::thread::set_current_frame(old_chain);
+        #[cfg(all(not(unix), feature = "threading"))]
+        crate::vm::thread::pop_thread_frame();
 
-        self.dispatch_traced_frame(frame, |frame| f(frame))
+        scopeguard::ScopeGuard::into_inner(_depth_guard);
+        self.recursion_depth.update(|d| d - 1);
+
+        result
     }
 
     /// Fire trace/profile 'call' and 'return' events around a frame body.
