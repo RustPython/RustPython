@@ -1132,6 +1132,30 @@ pub fn purge_other_interpreter_slots_after_fork(keep_id: i64) {
     });
 }
 
+/// Whether the interpreter on top of `VM_STACK` is currently ATTACHED on this
+/// thread. Without the `threading` feature there is no attach state to check.
+#[cfg(feature = "threading")]
+fn top_slot_is_attached() -> bool {
+    current_slot_is_attached()
+}
+#[cfg(not(feature = "threading"))]
+fn top_slot_is_attached() -> bool {
+    true
+}
+
+/// Which VM `with_vm` found for `obj`, and whether this thread is already
+/// attached to it (see the fast path below).
+enum WithVmTarget {
+    /// `interp` is on top of `VM_STACK`, so this thread is already ATTACHED
+    /// to it (see [`begin_interpreter_section`]'s invariant): no section
+    /// switch is needed.
+    AlreadyCurrent(NonNull<VirtualMachine>),
+    /// `interp` owns `obj` but is not the top of `VM_STACK` (a nested,
+    /// currently-detached interpreter), so a real attach/detach section is
+    /// required.
+    NeedsSwitch(NonNull<VirtualMachine>),
+}
+
 pub fn with_vm<F, R>(obj: &PyObject, f: F) -> Option<R>
 where
     F: Fn(&VirtualMachine) -> R,
@@ -1141,22 +1165,65 @@ where
         let vm = unsafe { interp.as_ref() };
         obj.fast_isinstance(vm.ctx.types.object_type)
     };
-    VM_STACK.with(|vms| {
-        let interp = {
-            let vms = vms.borrow();
-            match vms.iter().copied().exactly_one() {
-                Ok(x) => {
-                    debug_assert!(vm_owns_obj(x));
-                    x
-                }
-                Err(mut others) => others.find(|x| vm_owns_obj(*x))?,
+    // `with_vm` runs on every teardown of an object with a `__del__` slot or a
+    // weakref callback (drop_slow_inner / try_call_finalizer / gc_state), which
+    // for `__del__` objects and weakrefs collected during a GC pass means it
+    // runs on essentially every such drop. The overwhelming majority of those
+    // drops happen from within Python bytecode executing on this very thread,
+    // i.e. `obj`'s owning interpreter is already the one on top of `VM_STACK`.
+    // `begin_interpreter_section` (via `set_current_vm`) only ever needs to run
+    // for the rare case where the object belongs to a *different* interpreter
+    // than the one currently attached (a nested subinterpreter scenario) or no
+    // interpreter is attached at all (object dropped on a thread outside any
+    // VM, e.g. during shutdown or from a plain Rust thread) — in the fast case
+    // we can skip it entirely and call `f` directly.
+    let target = VM_STACK.with(|vms| {
+        let vms = vms.borrow();
+        // Fast path: at most one interpreter is ever ATTACHED per OS thread,
+        // and it is always the one on top of `VM_STACK` — every push onto
+        // VM_STACK (set_current_vm, VmBootstrapGuard) is paired with an attach
+        // *before* the push, and every pop is paired with a detach (or a
+        // re-attach of the newly-exposed top) in `end_interpreter_section`.
+        // So if `obj`'s owning interpreter is the current top, this thread is
+        // already attached to it and there is nothing for
+        // `begin_interpreter_section` to do: no INTERP_THREAD_SLOTS lookup, no
+        // Arc clone, no atomic state transition.
+        // The top may still be DETACHED while the thread sits inside an
+        // `allow_threads` section (a blocking call that dropped an object
+        // with `__del__`); running `f` there would execute Python on a thread
+        // a stop-the-world requester counts as parked, so that case takes the
+        // full attach path below.
+        if let Some(top) = vms.last().copied()
+            && vm_owns_obj(top)
+            && top_slot_is_attached()
+        {
+            return Some(WithVmTarget::AlreadyCurrent(top));
+        }
+        let interp = match vms.iter().copied().exactly_one() {
+            Ok(x) => {
+                debug_assert!(vm_owns_obj(x));
+                x
             }
+            Err(mut others) => others.find(|x| vm_owns_obj(*x))?,
         };
-        // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
-        // at least until this function returns and the stack unwinds to an enter_vm() call
-        let vm = unsafe { interp.as_ref() };
-        Some(set_current_vm(vm, || f(vm)))
-    })
+        Some(WithVmTarget::NeedsSwitch(interp))
+    })?;
+    match target {
+        WithVmTarget::AlreadyCurrent(interp) => {
+            // SAFETY: `interp` is (or was, at the point it was read above) the
+            // top of VM_STACK for this thread, so it is valid for at least the
+            // dynamic scope of the enclosing set_current_vm()/enter_vm() call,
+            // which contains this whole function call.
+            let vm = unsafe { interp.as_ref() };
+            Some(f(vm))
+        }
+        WithVmTarget::NeedsSwitch(interp) => {
+            // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
+            // at least until this function returns and the stack unwinds to an enter_vm() call
+            let vm = unsafe { interp.as_ref() };
+            Some(set_current_vm(vm, || f(vm)))
+        }
+    }
 }
 
 #[must_use = "ThreadedVirtualMachine does nothing unless you move it to another thread and call .run()"]
