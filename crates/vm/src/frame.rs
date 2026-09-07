@@ -3410,9 +3410,23 @@ impl ExecutingFrame<'_> {
                 }
             }
 
-            #[cfg_attr(not(feature = "threading"), allow(clippy::collapsible_if))]
+            // The body is out of line so that the signal/QSBR/GC code it
+            // pulls in does not sit inside the dispatch loop, where it
+            // inflates register pressure (and hence per-instruction spills)
+            // for every opcode.
+            #[cold]
+            #[inline(never)]
+            fn eval_breaker_work(vm: &VirtualMachine) -> PyResult<()> {
+                vm.check_signals()?;
+                // Run a scheduled automatic collection here — a safepoint with
+                // no interpreter locks held — instead of synchronously inside
+                // the allocation that tripped the threshold.
+                #[cfg(feature = "threading")]
+                vm.run_scheduled_gc();
+                Ok(())
+            }
             if vm.eval_breaker_tripped() {
-                if let Err(exception) = vm.check_signals() {
+                if let Err(exception) = eval_breaker_work(vm) {
                     #[cold]
                     fn handle_signal_exception(
                         frame: &mut ExecutingFrame<'_>,
@@ -3449,11 +3463,6 @@ impl ExecutingFrame<'_> {
                     arg_state.reset();
                     continue;
                 }
-                // Run a scheduled automatic collection here — a safepoint with
-                // no interpreter locks held — instead of synchronously inside
-                // the allocation that tripped the threshold.
-                #[cfg(feature = "threading")]
-                vm.run_scheduled_gc();
             }
             // lasti was just stored as `idx + 1` above and nothing between
             // there and here writes it, so the pre-dispatch value is known
