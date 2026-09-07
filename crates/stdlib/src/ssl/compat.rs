@@ -32,8 +32,10 @@ use rustpython_vm::function::ArgBytesLike;
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject};
 use std::io::Read;
 
-use super::chain::{self, Purpose, VerifiedChainBuilder};
-use super::providers::CryptoExt;
+use rustpython_common::ssl::{
+    chain::{self, Purpose, VerifiedChainBuilder},
+    providers::CryptoExt,
+};
 
 // Import PySSLSocket from parent module
 use super::_ssl::{
@@ -1762,7 +1764,7 @@ impl ResolvesServerCert for MultiCertResolver {
 pub(super) fn curve_name_to_kx_group(
     curve: &str,
 ) -> Result<Vec<&'static dyn SupportedKxGroup>, String> {
-    super::cipher::kx_group_by_openssl_name(curve)
+    rustpython_common::ssl::cipher::kx_group_by_openssl_name(curve)
         .map(|group| vec![group])
         .ok_or_else(|| format!("unknown curve name '{curve}'"))
 }

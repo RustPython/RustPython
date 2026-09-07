@@ -13,16 +13,8 @@
 //!
 //! Warning: This library contains AI-generated code and comments. Do not trust any code or comment without verification. Please have a qualified expert review the code and remove this notice after review.
 
-// OID (Object Identifier) management module
-mod oid;
-
 // Certificate operations module (parsing, validation, conversion)
 mod cert;
-
-mod chain;
-
-/// OpenSSL cipher string parsing for `set_ciphers`
-mod cipher;
 
 // OpenSSL compatibility layer (abstracts rustls operations)
 mod compat;
@@ -34,8 +26,7 @@ mod handshake;
 mod keylog;
 mod msg;
 
-// Utilities for setting a Rustls cryptography provider.
-pub mod providers;
+pub use rustpython_common::ssl::{chain, cipher, oid, providers};
 
 pub(crate) use _ssl::module_def;
 
@@ -106,11 +97,11 @@ mod _ssl {
 
     // Import certificate operations module
     use super::cert;
-    use super::chain::{self, VerifiedChainBuilder};
-
-    // Import OID module
-    use super::cipher;
-    use super::oid;
+    use rustpython_common::ssl::{
+        chain::{self, VerifiedChainBuilder},
+        cipher, oid,
+        providers::CryptoExt,
+    };
 
     // Import compat module (OpenSSL compatibility layer)
     use super::compat::{
@@ -120,7 +111,6 @@ mod _ssl {
     };
 
     use super::handshake::TlsState;
-    use super::providers::CryptoExt;
 
     // Type aliases for better readability
     // Additional type alias for certificate/key pairs (SessionCache defined below)
@@ -140,24 +130,24 @@ mod _ssl {
 
     // SSL/TLS Protocol versions
     #[pyattr]
-    const PROTOCOL_TLS: i32 = 2; // Auto-negotiate best version
+    const PROTOCOL_TLS: i32 = rustpython_common::ssl::PROTOCOL_TLS; // Auto-negotiate best version
     #[pyattr]
     const PROTOCOL_SSLv23: i32 = PROTOCOL_TLS; // Alias for PROTOCOL_TLS
     #[pyattr]
-    const PROTOCOL_TLS_CLIENT: i32 = 16;
+    const PROTOCOL_TLS_CLIENT: i32 = rustpython_common::ssl::PROTOCOL_TLS_CLIENT;
     #[pyattr]
-    const PROTOCOL_TLS_SERVER: i32 = 17;
+    const PROTOCOL_TLS_SERVER: i32 = rustpython_common::ssl::PROTOCOL_TLS_SERVER;
 
     // Note: rustls doesn't support TLS 1.0/1.1 for security reasons
     // These are defined for API compatibility but will raise errors if used
     #[pyattr]
-    const PROTOCOL_TLSv1: i32 = 3;
+    const PROTOCOL_TLSv1: i32 = rustpython_common::ssl::PROTOCOL_TLSV1;
     #[pyattr]
-    const PROTOCOL_TLSv1_1: i32 = 4;
+    const PROTOCOL_TLSv1_1: i32 = rustpython_common::ssl::PROTOCOL_TLSV1_1;
     #[pyattr]
-    const PROTOCOL_TLSv1_2: i32 = 5;
+    const PROTOCOL_TLSv1_2: i32 = rustpython_common::ssl::PROTOCOL_TLSV1_2;
     #[pyattr]
-    const PROTOCOL_TLSv1_3: i32 = 6;
+    const PROTOCOL_TLSv1_3: i32 = rustpython_common::ssl::PROTOCOL_TLSV1_3;
 
     static NEXT_SSL_SESSION_NONCE: AtomicUsize = AtomicUsize::new(1);
 
@@ -214,32 +204,33 @@ mod _ssl {
 
     // Certificate verification modes
     #[pyattr]
-    const CERT_NONE: i32 = 0;
+    const CERT_NONE: i32 = rustpython_common::ssl::CERT_NONE;
     #[pyattr]
-    const CERT_OPTIONAL: i32 = 1;
+    const CERT_OPTIONAL: i32 = rustpython_common::ssl::CERT_OPTIONAL;
     #[pyattr]
-    const CERT_REQUIRED: i32 = 2;
+    const CERT_REQUIRED: i32 = rustpython_common::ssl::CERT_REQUIRED;
 
     // SSL Verification Flags / Certificate requirements
     #[pyattr]
-    const VERIFY_DEFAULT: i32 = 0;
+    const VERIFY_DEFAULT: i32 = rustpython_common::ssl::VERIFY_DEFAULT;
     #[pyattr]
-    const VERIFY_CRL_CHECK_LEAF: i32 = 4;
+    const VERIFY_CRL_CHECK_LEAF: i32 = rustpython_common::ssl::VERIFY_CRL_CHECK_LEAF;
     #[pyattr]
-    const VERIFY_CRL_CHECK_CHAIN: i32 = 12;
+    const VERIFY_CRL_CHECK_CHAIN: i32 = rustpython_common::ssl::VERIFY_CRL_CHECK_CHAIN;
     /// VERIFY_X509_STRICT flag for RFC 5280 strict compliance
     /// When set, performs additional validation including AKI extension checks
     #[pyattr]
-    pub(crate) const VERIFY_X509_STRICT: i32 = 32;
+    pub(crate) const VERIFY_X509_STRICT: i32 = rustpython_common::ssl::VERIFY_X509_STRICT;
     #[pyattr]
-    const VERIFY_ALLOW_PROXY_CERTS: i32 = 64;
+    const VERIFY_ALLOW_PROXY_CERTS: i32 = rustpython_common::ssl::VERIFY_ALLOW_PROXY_CERTS;
     #[pyattr]
-    const VERIFY_X509_TRUSTED_FIRST: i32 = 32768;
+    const VERIFY_X509_TRUSTED_FIRST: i32 = rustpython_common::ssl::VERIFY_X509_TRUSTED_FIRST;
     /// VERIFY_X509_PARTIAL_CHAIN flag for partial chain validation
     /// When set, accept certificates if any certificate in the chain is in the trust store
     /// (not just root CAs). This matches OpenSSL's X509_V_FLAG_PARTIAL_CHAIN behavior.
     #[pyattr]
-    pub(crate) const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
+    pub(crate) const VERIFY_X509_PARTIAL_CHAIN: i32 =
+        rustpython_common::ssl::VERIFY_X509_PARTIAL_CHAIN;
 
     // Options (OpenSSL-compatible flags, mostly no-op in rustls)
     #[pyattr]
@@ -4290,35 +4281,24 @@ mod _ssl {
     #[pyclass(name = "MemoryBIO", module = "ssl")]
     #[derive(Debug, PyPayload)]
     struct PyMemoryBIO {
-        // Internal buffer
-        buffer: PyMutex<Vec<u8>>,
-        // EOF flag
-        eof: PyRwLock<bool>,
+        inner: PyMutex<rustpython_common::ssl::MemoryBio>,
     }
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PyMemoryBIO {
         #[pymethod]
         fn read(&self, len: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            let mut buffer = self.buffer.lock();
-
-            if buffer.is_empty() && *self.eof.read() {
-                // Return empty bytes at EOF
-                return Ok(vm.ctx.new_bytes(vec![]));
-            }
+            let mut bio = self.inner.lock();
 
             let read_len = match len {
                 OptionalArg::Present(n) if n >= 0 => n as usize,
                 OptionalArg::Present(n) => {
                     return Err(vm.new_value_error(format!("negative read length: {n}")));
                 }
-                OptionalArg::Missing => buffer.len(), // Read all available
+                OptionalArg::Missing => bio.pending(),
             };
 
-            let actual_len = read_len.min(buffer.len());
-            let data = buffer.drain(..actual_len).collect::<Vec<u8>>();
-
-            Ok(vm.ctx.new_bytes(data))
+            Ok(vm.ctx.new_bytes(bio.read(read_len)))
         }
 
         #[pymethod]
@@ -4335,29 +4315,29 @@ mod _ssl {
             // Convert to bytes-like object
             let bytes_like = ArgBytesLike::try_from_object(vm, buf)?;
             let data = bytes_like.borrow_buf();
-            let len = data.len();
-
-            let mut buffer = self.buffer.lock();
-            buffer.extend_from_slice(&data);
-
-            Ok(len)
+            self.inner.lock().write(&data).map_err(|err| {
+                vm.new_os_subtype_error(
+                    PySSLError::class(&vm.ctx).to_owned(),
+                    None,
+                    err.to_string(),
+                )
+                .upcast()
+            })
         }
 
         #[pymethod]
         fn write_eof(&self, _vm: &VirtualMachine) {
-            *self.eof.write() = true;
+            self.inner.lock().write_eof();
         }
 
         #[pygetset]
         fn pending(&self) -> i32 {
-            self.buffer.lock().len() as i32
+            self.inner.lock().pending() as i32
         }
 
         #[pygetset]
         fn eof(&self) -> bool {
-            // EOF is true only when buffer is empty AND write_eof has been called
-            let pending = self.buffer.lock().len();
-            pending == 0 && *self.eof.read()
+            self.inner.lock().eof()
         }
     }
 
@@ -4373,8 +4353,7 @@ mod _ssl {
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
-                buffer: PyMutex::new(Vec::new()),
-                eof: PyRwLock::new(false),
+                inner: PyMutex::new(rustpython_common::ssl::MemoryBio::new()),
             })
         }
     }

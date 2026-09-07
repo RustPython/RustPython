@@ -28,6 +28,13 @@ hashlib = [
     "dep:blake2s_simd",
     "dep:scrypt",
 ]
+ssl = [
+    "std",
+    "dep:rustls",
+    "dep:rustls-pemfile",
+    "dep:rustls-webpki",
+    "dep:x509-parser",
+]
 std = []
 threading = ["parking_lot", "std"]
 wasm_js = ["getrandom/wasm_js"]
@@ -57,6 +64,10 @@ memchr = { workspace = true, optional = true }
 num-traits = { workspace = true }
 parking_lot = { workspace = true, optional = true }
 radium = { workspace = true }
+rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+rustls-webpki = { workspace = true, optional = true }
+x509-parser = { workspace = true, optional = true }
 scrypt = { workspace = true, optional = true }
 sha1 = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
@@ -68,6 +79,9 @@ siphasher = { workspace = true }
 num-complex = { workspace = true }
 xz = { workspace = true, optional = true }
 xz-sys = { workspace = true, optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rustls = { workspace = true, features = ["aws_lc_rs"] }
 
 [lints]
 workspace = true

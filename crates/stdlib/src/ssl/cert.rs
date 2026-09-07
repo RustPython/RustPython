@@ -10,7 +10,6 @@
 //! - Loading certificates from files, directories, and bytes
 
 use alloc::sync::Arc;
-use jiff::{Timestamp, Zoned, tz::TimeZone};
 use parking_lot::RwLock as ParkingRwLock;
 use rustls::{
     DigitallySignedStruct, RootCertStore, SignatureScheme,
@@ -22,8 +21,9 @@ use rustpython_vm::{PyObjectRef, PyResult, VirtualMachine};
 use std::collections::HashSet;
 use x509_parser::prelude::*;
 
-use super::{
-    _ssl::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT},
+use rustpython_common::ssl::{
+    cert as ssl_cert,
+    constants::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT},
     providers::CryptoExt,
 };
 
@@ -138,87 +138,7 @@ mod cert_error {
     }
 }
 
-// Helper Functions for Certificate Parsing
-
-/// Map X.509 OID to human-readable attribute name
-///
-/// Converts common X.509 Distinguished Name OIDs to their standard names.
-/// Returns the OID string itself if not recognized.
-fn oid_to_attribute_name(oid_str: &str) -> &str {
-    match oid_str {
-        "2.5.4.3" => "commonName",
-        "2.5.4.6" => "countryName",
-        "2.5.4.7" => "localityName",
-        "2.5.4.8" => "stateOrProvinceName",
-        "2.5.4.10" => "organizationName",
-        "2.5.4.11" => "organizationalUnitName",
-        "1.2.840.113549.1.9.1" => "emailAddress",
-        _ => oid_str,
-    }
-}
-
-/// Format IP address (IPv4 or IPv6) to string
-///
-/// Formats raw IP address bytes according to standard notation:
-/// - IPv4: dotted decimal (e.g., "192.0.2.1")
-/// - IPv6: colon-separated hex (e.g., "2001:DB8:0:0:0:0:0:1")
-fn format_ip_address(ip: &[u8]) -> String {
-    if ip.len() == 4 {
-        // IPv4
-        format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])
-    } else if ip.len() == 16 {
-        // IPv6 - format in full form without compression (uppercase)
-        // CPython returns IPv6 in full form: 2001:DB8:0:0:0:0:0:1 (not 2001:db8::1)
-        let segments = [
-            u16::from_be_bytes([ip[0], ip[1]]),
-            u16::from_be_bytes([ip[2], ip[3]]),
-            u16::from_be_bytes([ip[4], ip[5]]),
-            u16::from_be_bytes([ip[6], ip[7]]),
-            u16::from_be_bytes([ip[8], ip[9]]),
-            u16::from_be_bytes([ip[10], ip[11]]),
-            u16::from_be_bytes([ip[12], ip[13]]),
-            u16::from_be_bytes([ip[14], ip[15]]),
-        ];
-        format!(
-            "{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}",
-            segments[0],
-            segments[1],
-            segments[2],
-            segments[3],
-            segments[4],
-            segments[5],
-            segments[6],
-            segments[7]
-        )
-    } else {
-        // Unknown format - return as debug string
-        format!("{ip:?}")
-    }
-}
-
-/// Format ASN.1 time to string
-///
-/// Formats certificate validity dates in the format:
-/// "Mon DD HH:MM:SS YYYY GMT"
-fn format_asn1_time(time: &x509_parser::time::ASN1Time) -> String {
-    let timestamp =
-        Timestamp::from_second(time.timestamp()).expect("ASN1Time must be valid timestamp");
-    Zoned::new(timestamp, TimeZone::UTC)
-        .strftime("%b %e %H:%M:%S %Y GMT")
-        .to_string()
-}
-
-/// Format certificate serial number to hexadecimal string with even padding
-///
-/// Converts a BigUint serial number to uppercase hex string, ensuring
-/// even length by prepending '0' if necessary.
-fn format_serial_number(serial: &num_bigint::BigUint) -> String {
-    let mut serial_str = serial.to_str_radix(16).to_uppercase();
-    if serial_str.len() % 2 == 1 {
-        serial_str.insert(0, '0');
-    }
-    serial_str
-}
+pub(super) use rustpython_common::ssl::cert::is_ca_certificate;
 
 /// Normalize wildcard hostname by stripping "*." prefix
 ///
@@ -226,33 +146,6 @@ fn format_serial_number(serial: &num_bigint::BigUint) -> String {
 /// Used for wildcard certificate matching.
 fn normalize_wildcard_hostname(hostname: &str) -> &str {
     hostname.strip_prefix("*.").unwrap_or(hostname)
-}
-
-// Certificate Validation and Parsing
-
-/// Check if a certificate is a CA certificate by examining the Basic Constraints extension
-///
-/// Returns `true` if the certificate has Basic Constraints with CA=true,
-/// `false` otherwise (including parse errors or missing extension).
-/// This matches OpenSSL's X509_check_ca() behavior.
-pub(super) fn is_ca_certificate(cert_der: &[u8]) -> bool {
-    // Parse the certificate
-    let Ok((_, cert)) = X509Certificate::from_der(cert_der) else {
-        return false;
-    };
-
-    // Check Basic Constraints extension
-    // If extension exists and CA=true, it's a CA certificate
-    // Otherwise (no extension or CA=false), it's NOT a CA certificate
-    if let Ok(Some(ext)) = cert.basic_constraints() {
-        return ext.value.ca;
-    }
-
-    // X509_check_ca() also retains OpenSSL's legacy trust-anchor rule: a
-    // self-issued X.509v1 certificate has no extensions at all, but is still
-    // classified as a CA. CPython's test CA at capath/4e1295a3.0 exercises
-    // precisely this case.
-    cert.version().0 == 0 && cert.subject() == cert.issuer()
 }
 
 /// Convert DER-encoded certificate to Python dict.
@@ -263,173 +156,70 @@ pub(super) fn cert_der_to_dict_helper(
     vm: &VirtualMachine,
     cert_der: &[u8],
 ) -> PyResult<PyObjectRef> {
-    // Parse the certificate using x509-parser
-    let (_, cert) = x509_parser::parse_x509_certificate(cert_der)
-        .map_err(|e| vm.new_value_error(format!("Failed to parse certificate: {e}")))?;
+    let decoded = ssl_cert::decode_certificate(cert_der).map_err(|e| vm.new_value_error(e))?;
 
-    // Helper to convert X509Name to nested tuple format
-    let name_to_tuple = |name: &x509_parser::x509::X509Name<'_>| -> PyResult {
+    let name_to_tuple = |name: &ssl_cert::DistinguishedName| -> PyObjectRef {
         let mut entries = Vec::new();
-        for rdn in name.iter() {
-            for attr in rdn.iter() {
-                let oid_str = attr.attr_type().to_id_string();
-
-                // Get value as bytes and convert to string
-                let value_str = if let Ok(s) = attr.attr_value().as_str() {
-                    s.to_string()
-                } else {
-                    let value_bytes = attr.attr_value().data;
-                    match core::str::from_utf8(value_bytes) {
-                        Ok(s) => s.to_string(),
-                        Err(_) => String::from_utf8_lossy(value_bytes).into_owned(),
-                    }
-                };
-
-                let key = oid_to_attribute_name(&oid_str);
-
+        for rdn in name {
+            for (key, value) in rdn {
                 let entry =
-                    vm.new_tuple((vm.ctx.new_str(key.to_string()), vm.ctx.new_str(value_str)));
+                    vm.new_tuple((vm.ctx.new_str(key.as_str()), vm.ctx.new_str(value.as_str())));
                 entries.push(vm.new_tuple((entry,)).into());
             }
         }
-        Ok(vm.ctx.new_tuple(entries).into())
+        vm.ctx.new_tuple(entries).into()
     };
 
     let dict = vm.ctx.new_dict();
-
-    // CPython ordering: issuer, notAfter, notBefore, serialNumber, subject, version
-    dict.set_item("issuer", name_to_tuple(cert.issuer())?, vm)?;
-
-    // Validity - format with GMT using jiff
+    dict.set_item("issuer", name_to_tuple(&decoded.issuer), vm)?;
+    dict.set_item("notAfter", vm.ctx.new_str(decoded.not_after).into(), vm)?;
+    dict.set_item("notBefore", vm.ctx.new_str(decoded.not_before).into(), vm)?;
     dict.set_item(
-        "notAfter",
-        vm.ctx
-            .new_str(format_asn1_time(&cert.validity().not_after))
-            .into(),
+        "serialNumber",
+        vm.ctx.new_str(decoded.serial_number).into(),
         vm,
     )?;
-    dict.set_item(
-        "notBefore",
-        vm.ctx
-            .new_str(format_asn1_time(&cert.validity().not_before))
-            .into(),
-        vm,
-    )?;
+    dict.set_item("subject", name_to_tuple(&decoded.subject), vm)?;
+    dict.set_item("version", vm.ctx.new_int(decoded.version).into(), vm)?;
 
-    // Serial number - hex format with even length
-    let serial = format_serial_number(&cert.serial);
-    dict.set_item("serialNumber", vm.ctx.new_str(serial).into(), vm)?;
-
-    dict.set_item("subject", name_to_tuple(cert.subject())?, vm)?;
-
-    // Version
-    dict.set_item(
-        "version",
-        vm.ctx.new_int(cert.version().0 as i32 + 1).into(),
-        vm,
-    )?;
-
-    // Authority Information Access (OCSP and caIssuers) - use x509-parser's extensions_map
-    let mut ocsp_urls = Vec::new();
-    let mut ca_issuer_urls = Vec::new();
-    let mut crl_urls = Vec::new();
-
-    if let Ok(ext_map) = cert.tbs_certificate.extensions_map() {
-        use x509_parser::extensions::{GeneralName, ParsedExtension};
-        use x509_parser::oid_registry::{
-            OID_PKIX_AUTHORITY_INFO_ACCESS, OID_X509_EXT_CRL_DISTRIBUTION_POINTS,
-        };
-
-        // Authority Information Access
-        if let Some(ext) = ext_map.get(&OID_PKIX_AUTHORITY_INFO_ACCESS)
-            && let ParsedExtension::AuthorityInfoAccess(aia) = &ext.parsed_extension()
-        {
-            for desc in &aia.accessdescs {
-                if let GeneralName::URI(uri) = &desc.access_location {
-                    let method_str = desc.access_method.to_id_string();
-                    if method_str == "1.3.6.1.5.5.7.48.1" {
-                        // OCSP
-                        ocsp_urls.push(vm.ctx.new_str(uri.to_string()).into());
-                    } else if method_str == "1.3.6.1.5.5.7.48.2" {
-                        // caIssuers
-                        ca_issuer_urls.push(vm.ctx.new_str(uri.to_string()).into());
-                    }
-                }
-            }
-        }
-
-        // CRL Distribution Points
-        if let Some(ext) = ext_map.get(&OID_X509_EXT_CRL_DISTRIBUTION_POINTS)
-            && let ParsedExtension::CRLDistributionPoints(cdp) = &ext.parsed_extension()
-        {
-            for dp in &cdp.points {
-                if let Some(dist_point) = &dp.distribution_point {
-                    use x509_parser::extensions::DistributionPointName;
-                    if let DistributionPointName::FullName(names) = dist_point {
-                        for name in names {
-                            if let GeneralName::URI(uri) = name {
-                                crl_urls.push(vm.ctx.new_str(uri.to_string()).into());
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if !decoded.ocsp.is_empty() {
+        let urls = decoded
+            .ocsp
+            .into_iter()
+            .map(|url| vm.ctx.new_str(url).into())
+            .collect();
+        dict.set_item("OCSP", vm.ctx.new_tuple(urls).into(), vm)?;
+    }
+    if !decoded.ca_issuers.is_empty() {
+        let urls = decoded
+            .ca_issuers
+            .into_iter()
+            .map(|url| vm.ctx.new_str(url).into())
+            .collect();
+        dict.set_item("caIssuers", vm.ctx.new_tuple(urls).into(), vm)?;
+    }
+    if !decoded.crl_distribution_points.is_empty() {
+        let urls = decoded
+            .crl_distribution_points
+            .into_iter()
+            .map(|url| vm.ctx.new_str(url).into())
+            .collect();
+        dict.set_item("crlDistributionPoints", vm.ctx.new_tuple(urls).into(), vm)?;
     }
 
-    if !ocsp_urls.is_empty() {
-        dict.set_item("OCSP", vm.ctx.new_tuple(ocsp_urls).into(), vm)?;
-    }
-    if !ca_issuer_urls.is_empty() {
-        dict.set_item("caIssuers", vm.ctx.new_tuple(ca_issuer_urls).into(), vm)?;
-    }
-    if !crl_urls.is_empty() {
-        dict.set_item(
-            "crlDistributionPoints",
-            vm.ctx.new_tuple(crl_urls).into(),
-            vm,
-        )?;
-    }
-
-    // Subject Alternative Names
-    if let Ok(Some(san_ext)) = cert.subject_alternative_name() {
+    if !decoded.subject_alt_names.is_empty() {
         let mut san_entries = Vec::new();
-        for name in &san_ext.value.general_names {
-            use x509_parser::extensions::GeneralName;
-            match name {
-                GeneralName::DNSName(dns) => {
-                    san_entries.push(vm.new_tuple(("DNS", *dns)).into());
-                }
-                GeneralName::IPAddress(ip) => {
-                    let ip_str = format_ip_address(ip);
-                    san_entries.push(vm.new_tuple(("IP Address", ip_str)).into());
-                }
-                GeneralName::RFC822Name(email) => {
-                    san_entries.push(vm.new_tuple(("email", *email)).into());
-                }
-                GeneralName::URI(uri) => {
-                    san_entries.push(vm.new_tuple(("URI", *uri)).into());
-                }
-                GeneralName::OtherName(_oid, _data) => {
-                    // OtherName is not fully supported, mark as unsupported
-                    san_entries.push(vm.new_tuple(("othername", "<unsupported>")).into());
-                }
-                GeneralName::DirectoryName(name) => {
-                    // Convert X509Name to nested tuple format
-                    let dir_tuple = name_to_tuple(name)?;
-                    san_entries.push(vm.new_tuple(("DirName", dir_tuple)).into());
-                }
-                GeneralName::RegisteredID(oid) => {
-                    // Convert OID to string representation
-                    let oid_str = oid.to_id_string();
-                    san_entries.push(vm.new_tuple(("Registered ID", oid_str)).into());
-                }
-                _ => {}
+        for name in decoded.subject_alt_names {
+            if name.kind == "DirName" {
+                san_entries.push(
+                    vm.new_tuple(("DirName", name_to_tuple(&name.directory_name)))
+                        .into(),
+                );
+            } else {
+                san_entries.push(vm.new_tuple((name.kind, name.value)).into());
             }
         }
-        if !san_entries.is_empty() {
-            dict.set_item("subjectAltName", vm.ctx.new_tuple(san_entries).into(), vm)?;
-        }
+        dict.set_item("subjectAltName", vm.ctx.new_tuple(san_entries).into(), vm)?;
     }
 
     Ok(dict.into())
