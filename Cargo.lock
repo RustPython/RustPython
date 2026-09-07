@@ -3630,7 +3630,6 @@ dependencies = [
  "indexmap",
  "insta",
  "itertools 0.15.0",
- "jiff",
  "libc",
  "libsqlite3-sys",
  "malachite-bigint",
