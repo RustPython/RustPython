@@ -335,6 +335,7 @@ impl StopTheWorldState {
                     Err(THREAD_ATTACHED) => {
                         // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
                         slot.stop_requested.store(true, Ordering::Release);
+                        crate::signal::set_stop_bit();
                         // Raced with a thread re-attaching; it will self-suspend.
                         attached_seen = attached_seen.saturating_add(1);
                     }
@@ -355,6 +356,7 @@ impl StopTheWorldState {
             } else if state == THREAD_ATTACHED {
                 // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
                 slot.stop_requested.store(true, Ordering::Release);
+                crate::signal::set_stop_bit();
                 // Thread is in bytecode — it will see `requested` and self-suspend
                 attached_seen = attached_seen.saturating_add(1);
             }
@@ -538,6 +540,12 @@ impl StopTheWorldState {
         drop(registry);
         self.thread_countdown.store(0, Ordering::Release);
         self.requester.store(0, Ordering::Relaxed);
+        // Every non-requester thread's `stop_requested` was just cleared
+        // above, so the shared fast-path bit can be cleared too. Safe here
+        // (and only here / `reset_after_fork`) because both run under the
+        // single stop-the-world exclusion, released below, so no new
+        // requester can be setting the bit concurrently.
+        crate::signal::clear_stop_bit();
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_detached(state);
         // Release the exclusion last, ending the stop→start span so the next
@@ -553,6 +561,9 @@ impl StopTheWorldState {
         crate::common::lock::set_world_stopped(false);
         self.requester.store(0, Ordering::Relaxed);
         self.thread_countdown.store(0, Ordering::Relaxed);
+        // Only one thread survives fork; any stop-the-world bit inherited
+        // from the parent is stale.
+        crate::signal::clear_stop_bit();
         // The surviving child thread inherited the exclusion taken by the
         // pre-fork `stop_the_world`; release it (no start_the_world runs here).
         self.release_exclusion();
@@ -2996,26 +3007,28 @@ impl VirtualMachine {
         self.get_method(obj, method_name)
     }
 
+    /// Single relaxed load of the shared eval-breaker word, folding in every
+    /// condition that used to require its own check: pending signals, QSBR
+    /// reclamation, scheduled GC, and (under `threading`) finalization and
+    /// stop-the-world. Finalizing sets `FINALIZING_BIT` and any per-thread
+    /// `stop_requested` store also sets `STOP_BIT` (see signal.rs), so this
+    /// no longer needs to read `state.finalizing` or the
+    /// `CURRENT_STOP_REQUESTED` thread-local itself — both are folded into
+    /// the same atomic word `eval_breaker_pending` already loads for
+    /// signals/QSBR/GC. The slow path (`check_signals`) re-derives the exact
+    /// per-thread answer (this thread's own `stop_requested`, `finalizing` +
+    /// `is_main_thread`) once it is taken, so semantics are unchanged; only
+    /// the common (nothing pending) case gets cheaper.
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
-        #[cfg(feature = "threading")]
-        if self.state.finalizing.load(Ordering::Relaxed) && !self.is_main_thread() {
-            return true;
-        }
-
-        #[cfg(feature = "threading")]
-        if thread::stop_requested_for_current_thread() {
-            return true;
-        }
-
-        // Signal and QSBR bits share one word: a single relaxed load per
-        // instruction covers both.
         #[cfg(not(target_arch = "wasm32"))]
-        if crate::signal::eval_breaker_pending() {
-            return true;
+        {
+            crate::signal::eval_breaker_pending()
         }
-
-        false
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
     }
 
     #[inline]
