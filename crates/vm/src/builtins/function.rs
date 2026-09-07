@@ -1637,6 +1637,84 @@ impl Representable for PyCell {
     }
 }
 
+/// Largest keyword count the in-place fast path below handles with a
+/// stack-allocated scratch buffer. Calls with more keywords than this simply
+/// fall back to the slow path (extremely rare in practice).
+const MAX_INLINE_KW: usize = 16;
+
+/// Try to resolve every keyword in `kwnames` to a distinct fastlocals slot in
+/// `posonlyarg_count..arg_count` that isn't already filled by a positional
+/// argument, without allocating an `IndexMap`, a `Vec`, or cloning any
+/// keyword name.
+///
+/// On success, `args` is reordered into positional order in place (ready for
+/// [`PyFunction::prepare_exact_args_frame`]) and returned as `Ok`. On any
+/// mismatch (too many keywords, unknown keyword, positional/keyword overlap,
+/// non-str/non-UTF8 name) `args` is hand back completely untouched as `Err`
+/// so the caller can fall back to the slow path, which reproduces CPython's
+/// exact error messages.
+///
+/// Only called when `nargs + kwnames.len() == code.arg_count`, i.e. every
+/// parameter is exactly filled by the call with no defaults needed. That
+/// invariant means the keyword values, initially at `args[nargs..]`, are
+/// exactly the values for slots `nargs..arg_count` in some order — so the
+/// whole reorder happens by draining that suffix into a small on-stack
+/// buffer and pushing it back in the resolved order. `args`'s original
+/// allocation is reused; no new allocation is needed.
+fn try_reorder_simple_kwargs(
+    code: &Py<PyCode>,
+    mut args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: &[PyObjectRef],
+) -> Result<Vec<PyObjectRef>, Vec<PyObjectRef>> {
+    let arg_count = code.arg_count as usize;
+    let posonly = code.posonlyarg_count as usize;
+    let kw_count = kwnames.len();
+    if kw_count > MAX_INLINE_KW {
+        return Err(args);
+    }
+
+    // Resolve target slots (relative to `nargs`) first, without touching
+    // `args`, so a mismatch can bail out leaving `args` untouched.
+    let mut rel_positions = [0usize; MAX_INLINE_KW];
+    for (i, name_obj) in kwnames.iter().enumerate() {
+        let Some(name_str) = name_obj.downcast_ref::<PyStr>().and_then(|s| s.to_str()) else {
+            return Err(args);
+        };
+        let Some(pos) = code.varnames[posonly..arg_count]
+            .iter()
+            .position(|v| v.as_str() == name_str)
+            .map(|p| p + posonly)
+        else {
+            // Unexpected keyword argument; let the slow path report it.
+            return Err(args);
+        };
+        let rel = match pos.checked_sub(nargs) {
+            // Positional/keyword overlap; let the slow path report the
+            // exact "multiple values for argument" error.
+            None => return Err(args),
+            Some(rel) => rel,
+        };
+        if rel_positions[..i].contains(&rel) {
+            // Duplicate keyword landing on the same slot.
+            return Err(args);
+        }
+        rel_positions[i] = rel;
+    }
+
+    // Every keyword maps to a distinct free slot in nargs..arg_count.
+    // Drain the keyword values into a stack buffer ordered by slot, then
+    // push them back — reusing `args`'s own allocation, no heap Vec needed.
+    let mut buf: [Option<PyObjectRef>; MAX_INLINE_KW] = [const { None }; MAX_INLINE_KW];
+    for (i, value) in args.drain(nargs..nargs + kw_count).enumerate() {
+        buf[rel_positions[i]] = Some(value);
+    }
+    for slot in buf.iter_mut().take(kw_count) {
+        args.push(slot.take().unwrap());
+    }
+    Ok(args)
+}
+
 /// Vectorcall implementation for PyFunction (PEP 590).
 /// Takes owned args to avoid cloning when filling fastlocals.
 pub(crate) fn vectorcall_function(
@@ -1660,8 +1738,7 @@ pub(crate) fn vectorcall_function(
         return zelf.invoke(func_args, vm);
     }
 
-    let is_simple = !has_kwargs
-        && code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
+    let base_simple = code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
         && !code.flags.contains(bytecode::CodeFlags::VARARGS)
         && !code.flags.contains(bytecode::CodeFlags::VARKEYWORDS)
         && code.kwonlyarg_count == 0
@@ -1671,7 +1748,7 @@ pub(crate) fn vectorcall_function(
                 | bytecode::CodeFlags::ASYNC_GENERATOR,
         );
 
-    if is_simple && nargs == code.arg_count as usize {
+    if !has_kwargs && base_simple && nargs == code.arg_count as usize {
         // FAST PATH: simple positional-only call, exact arg count.
         // Move owned args directly into fastlocals — no clone needed.
         args.truncate(nargs);
@@ -1680,6 +1757,28 @@ pub(crate) fn vectorcall_function(
         let result = vm.run_frame(frame.clone());
         crate::frame::release_datastack_frame(&frame, vm);
         return result;
+    }
+
+    if has_kwargs
+        && base_simple
+        && let Some(kwnames) = kwnames
+        && nargs + kwnames.len() == code.arg_count as usize
+    {
+        // FAST PATH: plain function, no *args/**kwargs/kwonly, every
+        // parameter filled exactly by this call. Reorder into positional
+        // order with no IndexMap/Wtf8Buf allocation; any mismatch falls
+        // through to the slow path below with `args` untouched.
+        match try_reorder_simple_kwargs(code, args, nargs, kwnames) {
+            Ok(ordered) => {
+                let frame = zelf.prepare_exact_args_frame(ordered.into_iter(), vm);
+                let result = vm.run_frame(frame.clone());
+                crate::frame::release_datastack_frame(&frame, vm);
+                return result;
+            }
+            Err(restored) => {
+                args = restored;
+            }
+        }
     }
 
     // SLOW PATH: construct FuncArgs from owned Vec and delegate to invoke()
