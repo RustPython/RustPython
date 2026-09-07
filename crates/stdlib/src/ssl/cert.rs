@@ -21,7 +21,7 @@ use rustpython_vm::{PyObjectRef, PyResult, VirtualMachine};
 use std::collections::HashSet;
 use x509_parser::prelude::*;
 
-use rustpython_common::ssl::{
+use rustpython_host_env::ssl::{
     cert as ssl_cert,
     constants::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT},
     providers::CryptoExt,
@@ -138,7 +138,7 @@ mod cert_error {
     }
 }
 
-pub(super) use rustpython_common::ssl::cert::is_ca_certificate;
+pub(super) use rustpython_host_env::ssl::cert::is_ca_certificate;
 
 /// Normalize wildcard hostname by stripping "*." prefix
 ///

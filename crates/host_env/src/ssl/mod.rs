@@ -1,9 +1,9 @@
-//! VM-independent rustls `_ssl` engine.
+//! Host rustls `_ssl` engine.
 //!
-//! The engine owns TLS configuration helpers, certificate decoding, cipher
-//! strings, OID tables, and in-memory BIO state, and reports plain Rust
-//! results so interpreter and embedding layers can provide their own object
-//! and exception adapters.
+//! TLS helpers live here because they share the host trust store, default
+//! verify paths, and certificate files with the rest of `host_env`. The
+//! engine reports plain Rust results so interpreter layers can provide their
+//! own object and exception adapters.
 
 pub mod bio;
 pub mod cert;

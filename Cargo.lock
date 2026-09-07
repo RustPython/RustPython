@@ -3374,9 +3374,6 @@ dependencies = [
  "num-traits",
  "parking_lot",
  "radium",
- "rustls",
- "rustls-pemfile",
- "rustls-webpki",
  "rustpython-literal",
  "rustpython-unicode",
  "rustpython-wtf8",
@@ -3386,7 +3383,6 @@ dependencies = [
  "sha3",
  "shake",
  "siphasher",
- "x509-parser",
  "xz",
  "xz-sys",
  "zlib-rs",
@@ -3480,7 +3476,10 @@ dependencies = [
  "parking_lot",
  "paste",
  "rustix",
+ "rustls",
  "rustls-native-certs",
+ "rustls-pemfile",
+ "rustls-webpki",
  "rustpython-wtf8",
  "rustyline",
  "schannel",
@@ -3490,6 +3489,7 @@ dependencies = [
  "which",
  "widestring",
  "windows-sys 0.61.2",
+ "x509-parser",
 ]
 
 [[package]]

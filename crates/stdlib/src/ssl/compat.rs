@@ -32,7 +32,7 @@ use rustpython_vm::function::ArgBytesLike;
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject};
 use std::io::Read;
 
-use rustpython_common::ssl::{
+use rustpython_host_env::ssl::{
     chain::{self, Purpose, VerifiedChainBuilder},
     providers::CryptoExt,
 };
@@ -1764,7 +1764,7 @@ impl ResolvesServerCert for MultiCertResolver {
 pub(super) fn curve_name_to_kx_group(
     curve: &str,
 ) -> Result<Vec<&'static dyn SupportedKxGroup>, String> {
-    rustpython_common::ssl::cipher::kx_group_by_openssl_name(curve)
+    rustpython_host_env::ssl::cipher::kx_group_by_openssl_name(curve)
         .map(|group| vec![group])
         .ok_or_else(|| format!("unknown curve name '{curve}'"))
 }

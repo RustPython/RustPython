@@ -129,7 +129,7 @@ fn canonical_oid(oid: &str) -> Option<String> {
 }
 
 /// Global OID table
-static OID_TABLE: crate::lock::LazyLock<OidTable> = crate::lock::LazyLock::new(OidTable::build);
+static OID_TABLE: std::sync::LazyLock<OidTable> = std::sync::LazyLock::new(OidTable::build);
 
 /// OpenSSL's NID assignments: one `identifier<whitespace>nid` line per object.
 static OBJ_MAC_NUM: &str = include_str!("data/obj_mac.num");

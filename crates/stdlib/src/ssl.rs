@@ -26,7 +26,7 @@ mod handshake;
 mod keylog;
 mod msg;
 
-pub use rustpython_common::ssl::{chain, cipher, oid, providers};
+pub use rustpython_host_env::ssl::{chain, cipher, oid, providers};
 
 pub(crate) use _ssl::module_def;
 
@@ -97,7 +97,7 @@ mod _ssl {
 
     // Import certificate operations module
     use super::cert;
-    use rustpython_common::ssl::{
+    use rustpython_host_env::ssl::{
         chain::{self, VerifiedChainBuilder},
         cipher, oid,
         providers::CryptoExt,
@@ -130,24 +130,24 @@ mod _ssl {
 
     // SSL/TLS Protocol versions
     #[pyattr]
-    const PROTOCOL_TLS: i32 = rustpython_common::ssl::PROTOCOL_TLS; // Auto-negotiate best version
+    const PROTOCOL_TLS: i32 = rustpython_host_env::ssl::PROTOCOL_TLS; // Auto-negotiate best version
     #[pyattr]
     const PROTOCOL_SSLv23: i32 = PROTOCOL_TLS; // Alias for PROTOCOL_TLS
     #[pyattr]
-    const PROTOCOL_TLS_CLIENT: i32 = rustpython_common::ssl::PROTOCOL_TLS_CLIENT;
+    const PROTOCOL_TLS_CLIENT: i32 = rustpython_host_env::ssl::PROTOCOL_TLS_CLIENT;
     #[pyattr]
-    const PROTOCOL_TLS_SERVER: i32 = rustpython_common::ssl::PROTOCOL_TLS_SERVER;
+    const PROTOCOL_TLS_SERVER: i32 = rustpython_host_env::ssl::PROTOCOL_TLS_SERVER;
 
     // Note: rustls doesn't support TLS 1.0/1.1 for security reasons
     // These are defined for API compatibility but will raise errors if used
     #[pyattr]
-    const PROTOCOL_TLSv1: i32 = rustpython_common::ssl::PROTOCOL_TLSV1;
+    const PROTOCOL_TLSv1: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1;
     #[pyattr]
-    const PROTOCOL_TLSv1_1: i32 = rustpython_common::ssl::PROTOCOL_TLSV1_1;
+    const PROTOCOL_TLSv1_1: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1_1;
     #[pyattr]
-    const PROTOCOL_TLSv1_2: i32 = rustpython_common::ssl::PROTOCOL_TLSV1_2;
+    const PROTOCOL_TLSv1_2: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1_2;
     #[pyattr]
-    const PROTOCOL_TLSv1_3: i32 = rustpython_common::ssl::PROTOCOL_TLSV1_3;
+    const PROTOCOL_TLSv1_3: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1_3;
 
     static NEXT_SSL_SESSION_NONCE: AtomicUsize = AtomicUsize::new(1);
 
@@ -204,33 +204,33 @@ mod _ssl {
 
     // Certificate verification modes
     #[pyattr]
-    const CERT_NONE: i32 = rustpython_common::ssl::CERT_NONE;
+    const CERT_NONE: i32 = rustpython_host_env::ssl::CERT_NONE;
     #[pyattr]
-    const CERT_OPTIONAL: i32 = rustpython_common::ssl::CERT_OPTIONAL;
+    const CERT_OPTIONAL: i32 = rustpython_host_env::ssl::CERT_OPTIONAL;
     #[pyattr]
-    const CERT_REQUIRED: i32 = rustpython_common::ssl::CERT_REQUIRED;
+    const CERT_REQUIRED: i32 = rustpython_host_env::ssl::CERT_REQUIRED;
 
     // SSL Verification Flags / Certificate requirements
     #[pyattr]
-    const VERIFY_DEFAULT: i32 = rustpython_common::ssl::VERIFY_DEFAULT;
+    const VERIFY_DEFAULT: i32 = rustpython_host_env::ssl::VERIFY_DEFAULT;
     #[pyattr]
-    const VERIFY_CRL_CHECK_LEAF: i32 = rustpython_common::ssl::VERIFY_CRL_CHECK_LEAF;
+    const VERIFY_CRL_CHECK_LEAF: i32 = rustpython_host_env::ssl::VERIFY_CRL_CHECK_LEAF;
     #[pyattr]
-    const VERIFY_CRL_CHECK_CHAIN: i32 = rustpython_common::ssl::VERIFY_CRL_CHECK_CHAIN;
+    const VERIFY_CRL_CHECK_CHAIN: i32 = rustpython_host_env::ssl::VERIFY_CRL_CHECK_CHAIN;
     /// VERIFY_X509_STRICT flag for RFC 5280 strict compliance
     /// When set, performs additional validation including AKI extension checks
     #[pyattr]
-    pub(crate) const VERIFY_X509_STRICT: i32 = rustpython_common::ssl::VERIFY_X509_STRICT;
+    pub(crate) const VERIFY_X509_STRICT: i32 = rustpython_host_env::ssl::VERIFY_X509_STRICT;
     #[pyattr]
-    const VERIFY_ALLOW_PROXY_CERTS: i32 = rustpython_common::ssl::VERIFY_ALLOW_PROXY_CERTS;
+    const VERIFY_ALLOW_PROXY_CERTS: i32 = rustpython_host_env::ssl::VERIFY_ALLOW_PROXY_CERTS;
     #[pyattr]
-    const VERIFY_X509_TRUSTED_FIRST: i32 = rustpython_common::ssl::VERIFY_X509_TRUSTED_FIRST;
+    const VERIFY_X509_TRUSTED_FIRST: i32 = rustpython_host_env::ssl::VERIFY_X509_TRUSTED_FIRST;
     /// VERIFY_X509_PARTIAL_CHAIN flag for partial chain validation
     /// When set, accept certificates if any certificate in the chain is in the trust store
     /// (not just root CAs). This matches OpenSSL's X509_V_FLAG_PARTIAL_CHAIN behavior.
     #[pyattr]
     pub(crate) const VERIFY_X509_PARTIAL_CHAIN: i32 =
-        rustpython_common::ssl::VERIFY_X509_PARTIAL_CHAIN;
+        rustpython_host_env::ssl::VERIFY_X509_PARTIAL_CHAIN;
 
     // Options (OpenSSL-compatible flags, mostly no-op in rustls)
     #[pyattr]
@@ -4281,7 +4281,7 @@ mod _ssl {
     #[pyclass(name = "MemoryBIO", module = "ssl")]
     #[derive(Debug, PyPayload)]
     struct PyMemoryBIO {
-        inner: PyMutex<rustpython_common::ssl::MemoryBio>,
+        inner: PyMutex<rustpython_host_env::ssl::MemoryBio>,
     }
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
@@ -4353,7 +4353,7 @@ mod _ssl {
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
-                inner: PyMutex::new(rustpython_common::ssl::MemoryBio::new()),
+                inner: PyMutex::new(rustpython_host_env::ssl::MemoryBio::new()),
             })
         }
     }

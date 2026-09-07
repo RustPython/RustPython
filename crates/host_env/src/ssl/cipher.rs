@@ -13,9 +13,9 @@
 //! authentication, key exchange and cipher part, a bare part, or a full name
 //! in either OpenSSL or IANA spelling.
 
-use crate::lock::LazyLock;
 use core::str::FromStr;
 use rustls::{CipherSuite, SupportedCipherSuite, crypto::SupportedKxGroup};
+use std::sync::LazyLock;
 
 use super::providers::CryptoExt;
 

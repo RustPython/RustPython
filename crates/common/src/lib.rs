@@ -29,8 +29,6 @@ pub mod lock;
 pub mod rand;
 pub mod rc;
 pub mod refcount;
-#[cfg(feature = "ssl")]
-pub mod ssl;
 pub mod static_cell;
 pub mod str;
 pub mod wtf8_index;
