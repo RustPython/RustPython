@@ -2384,6 +2384,27 @@ pub(crate) mod _asyncio {
         static CONTEXTVARS_CACHE: core::cell::RefCell<Option<ContextVarsCache>> = const { core::cell::RefCell::new(None) };
     }
 
+    /// Look up an already-imported module directly in `sys.modules`,
+    /// falling back to a real `vm.import` only on a miss.
+    ///
+    /// `vm.import` always dispatches through the full `__import__` builtin
+    /// (attribute lookup on `builtins`, `FuncArgs` construction, native
+    /// `slot_call`, `ImportArgs::from_args`, then `import_module_level`)
+    /// even when the module is already cached in `sys.modules`. On the
+    /// `with_asyncio_cache`/`with_contextvars_cache` hot paths -- called on
+    /// every single Task/Future registration -- that dispatch overhead
+    /// dwarfs the one dict lookup it's guarding. `_asyncio` and
+    /// `contextvars` are always already loaded by the time any Task or
+    /// Future exists, so this direct `sys.modules` lookup is the
+    /// overwhelmingly common case.
+    fn fast_import_cached(vm: &VirtualMachine, name: &'static str) -> PyResult<PyObjectRef> {
+        let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+        match sys_modules.get_item(name, vm) {
+            Ok(module) if !vm.is_none(&module) => Ok(module),
+            _ => vm.import(name, 0),
+        }
+    }
+
     /// Access the cached `_asyncio` module state, refreshing it first if the
     /// module it was built from is no longer the currently-imported one
     /// (e.g. after a reload). `f` only clones out the one field the caller
@@ -2392,7 +2413,7 @@ pub(crate) mod _asyncio {
         vm: &VirtualMachine,
         f: impl FnOnce(&AsyncioCache) -> R,
     ) -> PyResult<R> {
-        let asyncio_module = vm.import("_asyncio", 0)?;
+        let asyncio_module = fast_import_cached(vm, "_asyncio")?;
 
         let hit =
             ASYNCIO_CACHE.with_borrow(|c| c.as_ref().is_some_and(|c| c.module.is(&asyncio_module)));
@@ -2435,7 +2456,7 @@ pub(crate) mod _asyncio {
         vm: &VirtualMachine,
         f: impl FnOnce(&ContextVarsCache) -> R,
     ) -> PyResult<R> {
-        let contextvars_module = vm.import("contextvars", 0)?;
+        let contextvars_module = fast_import_cached(vm, "contextvars")?;
 
         let hit = CONTEXTVARS_CACHE
             .with_borrow(|c| c.as_ref().is_some_and(|c| c.module.is(&contextvars_module)));
