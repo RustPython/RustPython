@@ -2705,6 +2705,13 @@ impl VirtualMachine {
         from_list: &Py<PyTuple<PyStrRef>>,
         level: usize,
     ) -> PyResult {
+        if level == 0
+            && from_list.as_slice().is_empty()
+            && let Some(cached) = self.try_import_cached(module)?
+        {
+            return Ok(cached);
+        }
+
         let import_func = self
             .builtins
             .get_attr(identifier!(self, __import__), self)
@@ -2725,6 +2732,54 @@ impl VirtualMachine {
         import_func
             .call((module.to_owned(), globals, locals, from_list, level), self)
             .inspect_err(|exc| import::remove_importlib_frames(self, exc))
+    }
+
+    /// Fast path equivalent to CPython's `PyImport_ImportModuleLevelObject`
+    /// cache hit: for a plain absolute import with no from-list, if
+    /// `builtins.__import__` is still the original import function (i.e.
+    /// nobody has monkey-patched it) and the module -- or, for a dotted
+    /// name, its top-level package -- is already present and fully
+    /// initialized in `sys.modules`, hand it back directly instead of going
+    /// through `__import__`'s `FuncArgs`/`ImportArgs::from_args` dispatch
+    /// and `import_module_level`. Returns `Ok(None)` whenever the slow path
+    /// needs to run instead (uncached, initializing, or `__import__`
+    /// overridden), never an error for those cases.
+    fn try_import_cached(&self, module: &Py<PyStr>) -> PyResult<Option<PyObjectRef>> {
+        let current_import = self
+            .builtins
+            .get_attr(identifier!(self, __import__), self)
+            .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
+        if !current_import.is(&self.import_func) {
+            // `builtins.__import__` was replaced by user code; must go
+            // through it so overrides (test_import, test_importlib,
+            // test_builtin) still take effect.
+            return Ok(None);
+        }
+
+        // Surrogate-containing names can't be looked up as a `&str`; let the
+        // slow path (which keys `sys.modules` with the `PyStr` itself) handle it.
+        let Some(name_str) = module.to_str() else {
+            return Ok(None);
+        };
+        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        let Ok(found) = sys_modules.get_item(name_str, self) else {
+            return Ok(None);
+        };
+        if self.is_none(&found) || import::is_module_initializing(&found, self)? {
+            return Ok(None);
+        }
+
+        let Some(dot) = name_str.find('.') else {
+            return Ok(Some(found));
+        };
+        // Dotted name with an empty from-list: like CPython, the top-level
+        // package is what gets returned (and bound by `import a.b.c`), not
+        // the submodule itself.
+        let top_name = &name_str[..dot];
+        match sys_modules.get_item(top_name, self) {
+            Ok(top) if !self.is_none(&top) => Ok(Some(top)),
+            _ => Ok(None),
+        }
     }
 
     pub fn extract_elements_with<T, F>(&self, value: &PyObject, func: F) -> PyResult<Vec<T>>
