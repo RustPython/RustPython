@@ -404,6 +404,30 @@ impl GcState {
         self.counts[0].fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Track a freshly allocated object (add to gen0) as owned by `owner`.
+    ///
+    /// Like [`Self::track_object`], but for the hot allocation path only:
+    /// `obj`'s `gc_bits` must still hold its freshly-initialized value of `0`
+    /// (true right after `PyInner::new` or a freelist pop, both of which zero
+    /// it), so the tracked bit can go in with a plain store instead of the
+    /// `fetch_or` `set_gc_tracked()` needs to be safe for the general case
+    /// (e.g. re-tracking a resurrected object, whose bits are not zero — it
+    /// may carry `FINALIZED`). A plain relaxed store compiles to a single
+    /// store instruction; `fetch_or` is a read-modify-write that, even
+    /// without contention, is measurably pricier on a hot per-allocation path.
+    ///
+    /// # Safety
+    /// obj must be a valid pointer to a PyObject whose `gc_bits` is still `0`.
+    unsafe fn track_object_fresh(&self, obj: NonNull<PyObject>, owner: GcOwner) {
+        let obj_ref = unsafe { obj.as_ref() };
+        obj_ref.init_gc_tracked_bit();
+        obj_ref.set_gc_generation(0);
+        obj_ref.set_gc_owner(owner);
+
+        self.generation_lists[0].write().push_front(obj);
+        self.counts[0].fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Untrack an object (remove from GC lists).
     /// O(1) — intrusive linked list remove by node pointer.
     ///
@@ -1374,12 +1398,12 @@ pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
     let Some(gc) = crate::vm::thread::current_gc_state() else {
         // No interpreter is running: the shared context builds its own objects
         // this way. They are left unowned, so every interpreter collects them.
-        unsafe { state.track_object(obj, GC_NO_OWNER) };
+        unsafe { state.track_object_fresh(obj, GC_NO_OWNER) };
         return;
     };
     // SAFETY: as in `current_owner`.
     let gc = unsafe { gc.as_ref() };
-    unsafe { state.track_object(obj, gc.owner) };
+    unsafe { state.track_object_fresh(obj, gc.owner) };
     state.maybe_collect(gc);
 }
 
