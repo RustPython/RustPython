@@ -11,7 +11,8 @@ license.workspace = true
 
 [features]
 capi = ["dep:rustpython-capi", "threading"]
-default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env"]
+default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env", "mimalloc"]
+mimalloc = ["dep:mimalloc"]
 host_env = ["rustpython-vm/host_env", "rustpython-stdlib?/host_env"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
@@ -55,6 +56,7 @@ libc = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = { workspace = true }
+mimalloc = { version = "0.1", optional = true, default-features = false }
 
 [dev-dependencies]
 criterion = { workspace = true }

@@ -1,4 +1,5 @@
 cfgs
+mimalloc
 miri
 py
 pyarg
