@@ -241,7 +241,7 @@ libz-rs-sys = "0.6"
 zlib-rs = { version = "=0.6.7", default-features = false, features = ["rust-allocator", "__internal-api"] }
 lock_api = "0.4"
 log = "0.4.30"
-lz4_flex = "0.13"
+lz4_flex = "0.14"
 nix = { version = "0.31", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
 mac_address = "1.1.3"
 malachite-bigint = "0.11.0"
