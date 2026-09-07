@@ -497,34 +497,34 @@ impl FrameObject {
 
     #[pygetset]
     pub fn f_lineno(&self) -> usize {
+        // For executing frames (on the TLS chain), read the live iframe's
+        // lasti directly rather than `self.lasti()`, which may reflect a
+        // stale snapshot taken before a nested call. lasti always points
+        // just past the last-fetched instruction (see the bytecode loop in
+        // `ExecutingFrame::run`), so `locations[lasti - 1]` is the source
+        // line of the instruction currently in flight — correct even when
+        // observed mid-CALL (e.g. sys._getframe, warnings.warn).
+        let live = self.find_live_source_iframe();
+        let lasti = if !live.is_null() {
+            unsafe { (*live).lasti.load(Relaxed) }
+        } else {
+            self.lasti()
+        };
         // If lasti is 0, execution hasn't started yet - use first line number
-        if self.lasti() == 0 {
+        if lasti == 0 {
             return self
                 .iframe()
                 .code()
                 .first_line_number
                 .map_or(1, |n| n.get());
         }
-        // For executing frames (on the TLS chain), use prev_line which is
-        // updated at each bytecode instruction *before* the instruction
-        // runs. This gives the correct line even when observed mid-CALL
-        // (where lasti has already advanced past the CALL instruction).
-        let live = self.find_live_source_iframe();
-        if !live.is_null() {
-            // Read live prev_line. Use read_volatile to bypass LLVM noalias
-            // on the &mut InterpreterFrame borrow held by the running frame.
-            let prev = unsafe {
-                let field_ptr = core::ptr::addr_of!((*live).prev_line);
-                core::ptr::read_volatile(field_ptr as *const u32)
-            };
-            if prev > 0 {
-                return prev as usize;
-            }
-        }
-        // For returned frames, use lasti-based location lookup. This is
-        // correct for exception tracebacks where prev_line may have been
-        // updated by cleanup instructions after the exception.
-        self.current_location().line.get()
+        // This lookup also covers returned frames (e.g. exception
+        // tracebacks), where `live` is null and `self.lasti()` reflects the
+        // frame's final position.
+        self.iframe().code().locations[lasti as usize - 1]
+            .0
+            .line
+            .get()
     }
 
     #[pygetset(setter)]
@@ -672,14 +672,39 @@ impl FrameObject {
             }
             PySetterValue::Delete => None,
         };
+        // Whether this assignment turns tracing on for a frame that was
+        // previously untraced (e.g. bdb stepping back into a caller frame
+        // that had no f_trace). If so, `prev_line` may be stale -- it is
+        // only updated on the cold trace-event path -- and must be
+        // synced again to the currently-executing line so the next instruction
+        // doesn't fire a spurious 'line' event. See
+        // `InterpreterFrame::sync_prev_line_from_lasti`.
+        //
+        // Determine the canonical iframe to check/update *before* writing
+        // anything: for a live materialized frame, `self.iframe()` and the
+        // live source iframe found below alias the same underlying storage,
+        // so checking "was it unset" after writing through one of them
+        // would always observe the just-written value through the other.
+        let trace_is_some = trace.is_some();
+        let live = self.find_live_source_iframe();
+        let canonical = if !live.is_null() {
+            unsafe { &*live }
+        } else {
+            self.iframe()
+        };
+        let was_unset = canonical.cold().trace.lock().is_none();
+
         // Set on the materialized FrameObject.
         (*self.iframe().cold().trace.lock()).clone_from(&trace);
         // Also propagate to the live source iframe if this is a
         // materialized copy of a stack-allocated frame, so pdb's
         // f_trace assignment takes effect on the executing frame.
-        let live = self.find_live_source_iframe();
         if !live.is_null() {
             *unsafe { &*live }.cold().trace.lock() = trace;
+        }
+
+        if was_unset && trace_is_some {
+            canonical.sync_prev_line_from_lasti();
         }
     }
 
