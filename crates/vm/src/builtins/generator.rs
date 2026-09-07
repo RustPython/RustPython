@@ -4,7 +4,7 @@
 
 use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     coroutine::{Coro, warn_deprecated_throw_signature},
     frame::FrameObjectRef,
@@ -178,6 +178,24 @@ impl Drop for PyGenerator {
     }
 }
 
+/// Fast, VM-free check mirroring the read-only-state branches of
+/// `<PyGenerator as Destructor>::del`: a generator that's already closed or
+/// currently running needs no `close()`-style cleanup, so its `del` slot is a
+/// documented no-op. Skipping the call avoids attaching to a VM
+/// (`with_vm`) on every generator drop for the common case of a generator
+/// consumed to completion.
+fn generator_del_needed(zelf: &PyObject) -> bool {
+    let zelf: &Py<PyGenerator> = zelf
+        .downcast_ref()
+        .expect("del_needed is only installed on the generator type");
+    !(zelf.inner.closed() || zelf.inner.running())
+}
+
 pub(crate) fn init(ctx: &'static Context) {
     PyGenerator::extend_class(ctx, ctx.types.generator_type);
+    ctx.types
+        .generator_type
+        .slots
+        .del_needed
+        .store(Some(generator_del_needed));
 }
