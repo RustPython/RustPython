@@ -11,25 +11,38 @@ pub(super) struct KeyLog(pub AppendLog);
 /// Each connection follows its current Python context. This routing state must
 /// not be shared through the context's config cache or an explicit SSLSession.
 #[derive(Debug)]
-pub(super) struct ConnectionKeyLog(parking_lot::RwLock<Arc<KeyLog>>);
+pub(super) struct ConnectionKeyLog {
+    sink: parking_lot::RwLock<Arc<KeyLog>>,
+    master_secret: parking_lot::Mutex<Option<Vec<u8>>>,
+}
 
 impl ConnectionKeyLog {
     pub(super) fn new(sink: Arc<KeyLog>) -> Self {
-        Self(parking_lot::RwLock::new(sink))
+        Self {
+            sink: parking_lot::RwLock::new(sink),
+            master_secret: parking_lot::Mutex::new(None),
+        }
     }
 
     pub(super) fn set_sink(&self, sink: Arc<KeyLog>) {
-        *self.0.write() = sink;
+        *self.sink.write() = sink;
+    }
+
+    pub(super) fn master_secret(&self) -> Option<Vec<u8>> {
+        self.master_secret.lock().clone()
     }
 }
 
 impl rustls::KeyLog for ConnectionKeyLog {
     fn log(&self, label: &str, client_random: &[u8], secret: &[u8]) {
-        self.0.read().log(label, client_random, secret);
+        if label == "CLIENT_RANDOM" {
+            *self.master_secret.lock() = Some(secret.to_vec());
+        }
+        self.sink.read().log(label, client_random, secret);
     }
 
     fn will_log(&self, label: &str) -> bool {
-        self.0.read().will_log(label)
+        label == "CLIENT_RANDOM" || self.sink.read().will_log(label)
     }
 }
 

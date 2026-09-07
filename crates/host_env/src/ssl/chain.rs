@@ -9,10 +9,10 @@ use rustls::{
     pki_types::{CertificateDer, CertificateRevocationListDer, UnixTime},
 };
 
-use super::_ssl::VERIFY_X509_PARTIAL_CHAIN;
+use super::constants::VERIFY_X509_PARTIAL_CHAIN;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Purpose {
+pub enum Purpose {
     Unverified,
     ServerAuth,
     ClientAuth,
@@ -22,7 +22,7 @@ pub(super) enum Purpose {
 /// connection. Reading a mutable SSLContext after the handshake can select a
 /// different root, and issuer names alone do not establish a verified path.
 #[derive(Debug)]
-pub(super) struct VerifiedChainBuilder {
+pub struct VerifiedChainBuilder {
     pub purpose: Purpose,
     pub roots: RootCertStore,
     pub root_der: Vec<Vec<u8>>,
@@ -33,15 +33,12 @@ pub(super) struct VerifiedChainBuilder {
     pub verify_flags: i32,
 }
 
-pub(super) type ServerConfig = (Arc<rustls::ServerConfig>, Arc<VerifiedChainBuilder>);
-pub(super) type ClientConfig = (Arc<rustls::ClientConfig>, Arc<VerifiedChainBuilder>);
+pub type ServerConfig = (Arc<rustls::ServerConfig>, Arc<VerifiedChainBuilder>);
+pub type ClientConfig = (Arc<rustls::ClientConfig>, Arc<VerifiedChainBuilder>);
 
 impl VerifiedChainBuilder {
-    pub(super) fn build(
-        &self,
-        peer_chain: &[CertificateDer<'_>],
-        now: UnixTime,
-    ) -> Option<Vec<Vec<u8>>> {
+    #[must_use]
+    pub fn build(&self, peer_chain: &[CertificateDer<'_>], now: UnixTime) -> Option<Vec<Vec<u8>>> {
         self.build_path(peer_chain, now).or_else(|| {
             // OpenSSL still attempts to build a chain under CERT_NONE; a
             // verification failure does not prevent returning the peer chain.

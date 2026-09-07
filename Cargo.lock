@@ -3476,7 +3476,10 @@ dependencies = [
  "parking_lot",
  "paste",
  "rustix",
+ "rustls",
  "rustls-native-certs",
+ "rustls-pemfile",
+ "rustls-webpki",
  "rustpython-wtf8",
  "rustyline",
  "schannel",
@@ -3486,6 +3489,7 @@ dependencies = [
  "which",
  "widestring",
  "windows-sys 0.61.2",
+ "x509-parser",
 ]
 
 [[package]]
@@ -3626,7 +3630,6 @@ dependencies = [
  "indexmap",
  "insta",
  "itertools 0.15.0",
- "jiff",
  "libc",
  "libsqlite3-sys",
  "malachite-bigint",

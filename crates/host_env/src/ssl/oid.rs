@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 /// OID entry with openssl-compatible metadata
 #[derive(Debug, Clone)]
-pub(super) struct OidEntry {
+pub struct OidEntry {
     /// NID (OpenSSL Numerical Identifier) - must match CPython/OpenSSL values
     pub nid: i32,
     /// Short name (e.g., "CN", "serverAuth")
@@ -32,13 +32,14 @@ pub(super) struct OidEntry {
 
 impl OidEntry {
     /// Get OID as string (e.g., "2.5.4.3"), if this object has one
-    pub(super) fn oid_string(&self) -> Option<&str> {
+    #[must_use]
+    pub fn oid_string(&self) -> Option<&str> {
         self.oid.as_deref()
     }
 }
 
 /// OID table with multiple indices for fast lookup
-pub(super) struct OidTable {
+pub struct OidTable {
     /// All entries
     entries: Vec<OidEntry>,
     /// NID -> index mapping
@@ -79,17 +80,20 @@ impl OidTable {
         }
     }
 
-    pub(super) fn find_by_nid(&self, nid: i32) -> Option<&OidEntry> {
+    #[must_use]
+    pub fn find_by_nid(&self, nid: i32) -> Option<&OidEntry> {
         self.nid_to_idx.get(&nid).map(|&idx| &self.entries[idx])
     }
 
-    pub(super) fn find_by_oid_string(&self, oid_str: &str) -> Option<&OidEntry> {
+    #[must_use]
+    pub fn find_by_oid_string(&self, oid_str: &str) -> Option<&OidEntry> {
         self.oid_str_to_idx
             .get(canonical_oid(oid_str)?.as_str())
             .map(|&idx| &self.entries[idx])
     }
 
-    pub(super) fn find_by_name(&self, name: &str) -> Option<&OidEntry> {
+    #[must_use]
+    pub fn find_by_name(&self, name: &str) -> Option<&OidEntry> {
         // OpenSSL object names are case-sensitive. Try the short name first,
         // as OBJ_txt2obj does when a short and long name collide.
         self.short_name_to_idx
@@ -125,16 +129,15 @@ fn canonical_oid(oid: &str) -> Option<String> {
 }
 
 /// Global OID table
-static OID_TABLE: rustpython_common::lock::LazyLock<OidTable> =
-    rustpython_common::lock::LazyLock::new(OidTable::build);
+static OID_TABLE: std::sync::LazyLock<OidTable> = std::sync::LazyLock::new(OidTable::build);
 
 /// OpenSSL's NID assignments: one `identifier<whitespace>nid` line per object.
-static OBJ_MAC_NUM: &str = include_str!("../../rustls-data/obj_mac.num");
+static OBJ_MAC_NUM: &str = include_str!("data/obj_mac.num");
 
 /// OpenSSL's object database: the numeric OID, short name and description of
 /// each object, with `!Alias` / `!Cname` / `!module` / `!global` directives
 /// between them.
-static OBJECTS_TXT: &str = include_str!("../../rustls-data/objects.txt");
+static OBJECTS_TXT: &str = include_str!("data/objects.txt");
 
 /// The name `objects.pl` derives for an object or alias: qualified by the
 /// enclosing `!module`, with `-` spelled `_`.
@@ -269,17 +272,20 @@ fn build_oid_entries() -> Vec<OidEntry> {
 // Public API Functions
 
 /// Find OID entry by NID
-pub(super) fn find_by_nid(nid: i32) -> Option<&'static OidEntry> {
+#[must_use]
+pub fn find_by_nid(nid: i32) -> Option<&'static OidEntry> {
     OID_TABLE.find_by_nid(nid)
 }
 
 /// Find OID entry by OID string (e.g., "2.5.4.3")
-pub(super) fn find_by_oid_string(oid_str: &str) -> Option<&'static OidEntry> {
+#[must_use]
+pub fn find_by_oid_string(oid_str: &str) -> Option<&'static OidEntry> {
     OID_TABLE.find_by_oid_string(oid_str)
 }
 
 /// Find OID entry by name (short or long name)
-pub(super) fn find_by_name(name: &str) -> Option<&'static OidEntry> {
+#[must_use]
+pub fn find_by_name(name: &str) -> Option<&'static OidEntry> {
     OID_TABLE.find_by_name(name)
 }
 

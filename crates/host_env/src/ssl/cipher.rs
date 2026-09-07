@@ -15,14 +15,14 @@
 
 use core::str::FromStr;
 use rustls::{CipherSuite, SupportedCipherSuite, crypto::SupportedKxGroup};
-use rustpython_common::lock::LazyLock;
+use std::sync::LazyLock;
 
 use super::providers::CryptoExt;
 
 // See `man SSL_CTX_set_security_level` for details.
 const SECURITY_LEVEL_TO_MIN_BITS: &[u16] = &[0, 80, 112, 128, 192, 256];
 
-pub(super) struct CipherList<'a> {
+pub struct CipherList<'a> {
     ops: Vec<CipherFilterOp<'a>>,
 }
 
@@ -148,7 +148,7 @@ impl SuiteBType {
 }
 
 impl<'a> CipherList<'a> {
-    pub(super) fn parse_to_rustls(
+    pub fn parse_to_rustls(
         s: &'a str,
     ) -> Result<WithOptionSuiteB<Vec<SupportedCipherSuite>>, &'static str> {
         Self::parse(s)?.to_rustls()
@@ -421,7 +421,7 @@ impl<'a> CipherFilterSubOpList<'a> {
     }
 }
 
-pub(super) fn kx_group_by_name(
+pub fn kx_group_by_name(
     name: rustls::NamedGroup,
     error_name: &'static str,
 ) -> Result<&'static dyn SupportedKxGroup, &'static str> {
@@ -433,7 +433,8 @@ pub(super) fn kx_group_by_name(
         .ok_or(error_name)
 }
 
-pub(super) fn kx_group_by_openssl_name(name: &str) -> Option<&'static dyn SupportedKxGroup> {
+#[must_use]
+pub fn kx_group_by_openssl_name(name: &str) -> Option<&'static dyn SupportedKxGroup> {
     CryptoExt::get_ext()
         .all_kx_or_default()
         .iter()
@@ -531,7 +532,7 @@ impl<'a> CipherFilterSubOp<'a> {
 
 /// What `SSLContext.get_ciphers()` reports about one suite, laid out the way
 /// `SSL_CIPHER_description` lays it out, padding included.
-pub(super) struct CipherDescription {
+pub struct CipherDescription {
     pub id: u32,
     pub name: &'static str,
     pub protocol: &'static str,
@@ -539,7 +540,7 @@ pub(super) struct CipherDescription {
     pub description: String,
 }
 
-pub(super) fn describe(suite: &SupportedCipherSuite) -> CipherDescription {
+pub fn describe(suite: &SupportedCipherSuite) -> CipherDescription {
     let entry = CIPHER_MAPPINGS.entry(suite.suite().into());
     let tls13 = suite.tls13().is_some();
     let protocol = if tls13 { "TLSv1.3" } else { "TLSv1.2" };
@@ -802,11 +803,12 @@ impl CipherMappings {
     }
 }
 
-pub(super) fn default_cipher_string() -> String {
+pub fn default_cipher_string() -> String {
     CIPHER_MAPPINGS.default_cipher_string()
 }
 
-pub(super) fn restore_default_tls13(
+#[must_use]
+pub fn restore_default_tls13(
     mut selected: Vec<SupportedCipherSuite>,
     defaults: &[SupportedCipherSuite],
 ) -> Vec<SupportedCipherSuite> {
