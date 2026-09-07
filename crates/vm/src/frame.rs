@@ -3439,6 +3439,11 @@ impl ExecutingFrame<'_> {
                             break Err(exception);
                         }
                     }
+                    // The handler this unwound to starts a fresh instruction,
+                    // so drop any EXTENDED_ARG prefix collected for the one
+                    // the signal interrupted — the loop's own reset at the
+                    // bottom is skipped by this `continue`.
+                    arg_state.reset();
                     continue;
                 }
                 // Run a scheduled automatic collection here — a safepoint with
