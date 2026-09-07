@@ -1927,6 +1927,27 @@ impl PyObject {
         self.set_gc_bit(GcBits::TRACKED);
     }
 
+    /// Like [`Self::set_gc_tracked`], but for an object whose `gc_bits` is
+    /// still known to be `0` (right after allocation or a freelist pop, both
+    /// of which zero it). Writes the tracked bit with a plain relaxed store
+    /// instead of `set_gc_tracked`'s `fetch_or`: on the per-allocation hot
+    /// path, a read-modify-write is measurably pricier than a store even
+    /// with no contention.
+    ///
+    /// # Safety (debug-checked)
+    /// Caller must ensure `gc_bits` is currently `0`.
+    #[inline]
+    pub(crate) fn init_gc_tracked_bit(&self) {
+        debug_assert_eq!(
+            self.0.gc_bits.load(Ordering::Relaxed),
+            0,
+            "init_gc_tracked_bit called on an object with non-zero gc_bits"
+        );
+        self.0
+            .gc_bits
+            .store(GcBits::TRACKED.bits(), Ordering::Relaxed);
+    }
+
     /// _PyObject_GC_UNTRACK
     #[inline]
     pub(crate) fn clear_gc_tracked(&self) {
