@@ -9,10 +9,15 @@ pub mod bio;
 pub mod cert;
 pub mod chain;
 pub mod cipher;
+pub mod config;
 pub mod constants;
+pub mod handshake;
+pub mod keylog;
 pub mod msg;
 pub mod oid;
 pub mod providers;
+pub mod verify;
+pub mod x509;
 
 pub use bio::{MemoryBio, MemoryBioError};
 pub use cert::{DecodedCertificate, decode_certificate, is_ca_certificate};
