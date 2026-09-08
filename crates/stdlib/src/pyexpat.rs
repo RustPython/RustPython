@@ -63,6 +63,55 @@
 //! - If spawning the background thread fails at runtime (e.g. the platform
 //!   claims thread support but is out of resources), `Backend::new` falls
 //!   back to `Backend::Sync` for that parser instead of panicking.
+//!
+//! ## Fork safety
+//!
+//! `fork()` only ever keeps the calling thread; every other OS thread the
+//! parent had simply vanishes from the child's point of view, without
+//! running its destructors or releasing whatever it held. Two hazards
+//! follow for `Backend::Threaded`, both observed to crash the child (not
+//! just theoretical UB) when exercised (e.g. `platform.mac_ver()`, which
+//! parses a plist through `plistlib`/`pyexpat`, called once before
+//! `os.fork()` and again in the child):
+//! - A `ParserStream` inherited from before the fork (kept alive past the
+//!   fork by a reference cycle, e.g. plistlib's parser/handler cycle, until
+//!   GC runs) may have its background thread gone but its `FeedBuffer`
+//!   mutex/condvar and channel still exist. If that thread was holding one
+//!   of those locks (or blocked in `Condvar::wait`, which reacquires the
+//!   mutex internally) at the instant of `fork()`, the lock looks "held"
+//!   forever in the child, and even *destroying* a POSIX mutex that looks
+//!   held is undefined behavior, not just locking it.
+//! - Spawning a *brand new* parser thread from the child -- the common case,
+//!   e.g. a fresh `ParserCreate()` used for the first time after `fork()`
+//!   -- was empirically found to reliably crash the process during the new
+//!   thread's startup, even with no inherited `ParserStream` involved at
+//!   all (confirmed by bisecting away every other explanation: a plain
+//!   Python-level `threading.Thread` survives the same fork fine, since it
+//!   goes through this VM's own thread bookkeeping, which
+//!   `stop_the_world`/`reinit_after_fork` (see `crates/vm/src/vm/mod.rs`,
+//!   `crates/vm/src/stdlib/posix.rs`) already make fork-safe; a raw
+//!   `std::thread::spawn` bypasses all of that).
+//!
+//! Both are handled the same way: a `pthread_atfork` child hook (registered
+//! once, lazily, the first time a parser thread is spawned) sets a
+//! process-wide, permanently-sticky flag the instant this process is ever
+//! the child of a `fork()`. Once set:
+//! - `ParserStream::try_spawn` refuses to spawn a new thread at all (falls
+//!   back to `Backend::Sync`, exactly as on targets that cannot spawn
+//!   threads in the first place), which is what actually avoids the second
+//!   hazard above -- a *fresh* parser created in the child still works,
+//!   just via the slower backend.
+//! - Feeding an inherited `Backend::Threaded` raises a clear `ExpatError`
+//!   instead of touching its `FeedBuffer`/channel, and dropping it (from
+//!   GC, in `ParserStream::drop`) leaks its `JoinHandle`/buffer/channel
+//!   rather than joining or destroying them -- one abandoned parser thread
+//!   per fork-with-a-parser-mid-flight is a bounded, one-time cost, not a
+//!   live hazard, and is exactly the `mem::forget`-the-handle approach
+//!   `Backend::Sync` never needs because it never owns a thread.
+//!
+//! The parent process is never affected: the `pthread_atfork` *child* hook
+//! only ever runs inside the child, so the flag (and therefore this whole
+//! code path) stays off for the parent's own parsers.
 
 // spell-checker: ignore libexpat
 
@@ -129,6 +178,8 @@ mod _pyexpat {
     #[cfg(not(target_arch = "wasm32"))]
     use alloc::sync::Arc;
     use core::cell::RefCell;
+    #[cfg(not(target_arch = "wasm32"))]
+    use core::mem::ManuallyDrop;
     use core::sync::atomic::{AtomicBool, Ordering};
     use rustpython_common::lock::PyRwLock;
     #[cfg(not(target_arch = "wasm32"))]
@@ -465,14 +516,60 @@ mod _pyexpat {
         Error,
     }
 
+    /// Set, once and permanently, by a `pthread_atfork` child hook the
+    /// instant this process is ever the child of a `fork()`. See the "Fork
+    /// safety" section of the module doc comment for why both a fresh
+    /// thread spawn and touching an inherited `ParserStream` are unsafe
+    /// once this is set, and why the fix is the same for both: never
+    /// spawn/touch a `Backend::Threaded` thread again for the rest of the
+    /// process.
+    #[cfg(not(target_arch = "wasm32"))]
+    static POST_FORK_CHILD: AtomicBool = AtomicBool::new(false);
+
+    /// libc child-side `pthread_atfork` callback. Must be async-fork-safe:
+    /// a single relaxed-ish store is as simple as it gets.
+    #[cfg(all(not(target_arch = "wasm32"), unix))]
+    extern "C" fn mark_post_fork_child() {
+        POST_FORK_CHILD.store(true, Ordering::SeqCst);
+    }
+
+    /// Register `mark_post_fork_child` exactly once. Called from
+    /// `ParserStream::try_spawn`, i.e. lazily, the first time this process
+    /// spawns a parser thread -- so a process that never uses the threaded
+    /// backend never touches `pthread_atfork` either.
+    #[cfg(all(not(target_arch = "wasm32"), unix))]
+    fn ensure_atfork_hook_registered() {
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| unsafe {
+            libc::pthread_atfork(None, None, Some(mark_post_fork_child));
+        });
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(unix)))]
+    fn ensure_atfork_hook_registered() {
+        // No `fork()` (hence no `pthread_atfork`) on non-unix targets that
+        // still support threads (e.g. Windows); `POST_FORK_CHILD` simply
+        // never gets set there, which is correct.
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn post_fork_child() -> bool {
+        POST_FORK_CHILD.load(Ordering::SeqCst)
+    }
+
     /// A live parser thread plus the channel it reports through. Dropping
     /// this stops the thread (via `FeedBuffer::stop`, which makes its
     /// blocked or future `read()` calls return EOF) and joins it, so a
-    /// parser can never leak a thread, whether or not it was ever fully fed.
+    /// parser can never leak a thread, whether or not it was ever fully fed
+    /// -- *unless* `post_fork_child()`, in which case see `Drop`.
     #[cfg(not(target_arch = "wasm32"))]
     struct ParserStream {
-        buf: Arc<FeedBuffer>,
-        rx: Mutex<Receiver<ParserMsg>>,
+        // `ManuallyDrop` so `Drop` can leak these (instead of destroying a
+        // mutex/condvar/channel that may look held by a thread that no
+        // longer exists) when this stream predates a fork. See the module
+        // doc comment.
+        buf: ManuallyDrop<Arc<FeedBuffer>>,
+        rx: ManuallyDrop<Mutex<Receiver<ParserMsg>>>,
         thread: Option<JoinHandle<()>>,
     }
 
@@ -488,8 +585,17 @@ mod _pyexpat {
         /// Try to spawn the background parser thread. Returns `None` (rather
         /// than panicking) if the platform claims thread support but
         /// spawning fails at runtime, so the caller can fall back to
-        /// `Backend::Sync` for that parser instead of crashing.
+        /// `Backend::Sync` for that parser instead of crashing -- and also
+        /// returns `None`, unconditionally, once this process is known to be
+        /// the child of a `fork()` (see the module doc comment): spawning a
+        /// brand new parser thread there has been observed to reliably
+        /// crash the process, so `Backend::new` falls back to `Backend::Sync`
+        /// in that case too, exactly as if threads were unavailable.
         fn try_spawn(config: xml::ParserConfig) -> Option<Self> {
+            ensure_atfork_hook_registered();
+            if post_fork_child() {
+                return None;
+            }
             let buf = Arc::new(FeedBuffer::new());
             let (tx, rx) = mpsc::channel();
             let thread_buf = Arc::clone(&buf);
@@ -498,8 +604,8 @@ mod _pyexpat {
                 .spawn(move || run_parser_thread(config, thread_buf, tx))
                 .ok()?;
             Some(Self {
-                buf,
-                rx: Mutex::new(rx),
+                buf: ManuallyDrop::new(buf),
+                rx: ManuallyDrop::new(Mutex::new(rx)),
                 thread: Some(thread),
             })
         }
@@ -508,9 +614,36 @@ mod _pyexpat {
     #[cfg(not(target_arch = "wasm32"))]
     impl Drop for ParserStream {
         fn drop(&mut self) {
+            if post_fork_child() {
+                // This stream (and the parser thread it names) predates a
+                // fork this process has since undergone. `fork()` only ever
+                // keeps the calling thread, so `self.thread` no longer
+                // refers to a live thread, and `self.buf`/`self.rx`'s
+                // internal mutex/condvar may have been held (or, for the
+                // condvar, be mid-`wait`, which reacquires the mutex
+                // internally) by that vanished thread at the instant of
+                // `fork()`. Locking, notifying, joining, or even just
+                // *destroying* a POSIX mutex/condvar that looks held is
+                // undefined behavior, so touch none of it: forget the
+                // thread handle (skips the implicit detach a `JoinHandle`
+                // would otherwise perform) and leak the buffer/channel
+                // instead of running their destructors. One abandoned
+                // parser thread/buffer per fork-with-a-parser-mid-flight is
+                // a bounded, one-time leak, not a live hazard.
+                if let Some(handle) = self.thread.take() {
+                    core::mem::forget(handle);
+                }
+                return;
+            }
             self.buf.stop();
             if let Some(handle) = self.thread.take() {
                 let _ = handle.join();
+            }
+            // Safety: not reached on the post-fork leak path above, and
+            // `drop` runs at most once, so these are never touched again.
+            unsafe {
+                ManuallyDrop::drop(&mut self.rx);
+                ManuallyDrop::drop(&mut self.buf);
             }
         }
     }
@@ -1140,6 +1273,30 @@ mod _pyexpat {
             {
                 let is_threaded = matches!(*self.backend.read(), Some(Backend::Threaded(_)));
                 if is_threaded {
+                    if post_fork_child() {
+                        // This parser's `Backend::Threaded` was created
+                        // before a fork this process has since undergone
+                        // (a brand new parser created *after* the fork
+                        // would have gone through `Backend::new` ->
+                        // `ParserStream::try_spawn`, which itself refuses
+                        // to spawn once `post_fork_child()` and falls back
+                        // to `Backend::Sync` instead of ever reaching this
+                        // branch). See the module doc comment: its
+                        // `FeedBuffer` mutex/condvar may look held by a
+                        // thread that no longer exists in this process, so
+                        // touching it (even just to push more data) is
+                        // unsafe. Tear it down the same safe way `Drop`
+                        // does (see `ParserStream::drop`) and fail this
+                        // call clearly instead, mirroring how libexpat
+                        // itself has no notion of surviving a fork
+                        // mid-parse.
+                        self.teardown_backend();
+                        self.finished.store(true, Ordering::SeqCst);
+                        return Err(vm.new_exception_msg(
+                            PyExpatError::class(&vm.ctx).to_owned(),
+                            "cannot continue parsing across a fork()".to_owned().into(),
+                        ));
+                    }
                     {
                         let guard = self.backend.read();
                         if let Some(Backend::Threaded(stream)) = guard.as_ref() {
