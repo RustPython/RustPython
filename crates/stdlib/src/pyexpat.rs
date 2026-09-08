@@ -6,17 +6,36 @@
 //! `Parse()`/`ParseFile()` in many small chunks (e.g. 64KB at a time) rather
 //! than all at once, and expect the parser to retain state across those
 //! calls the way libexpat's `XML_Parse` does. `xml-rs`'s `EventReader` has no
-//! API to pause and resume across separate `Read` sources, so instead one
-//! `EventReader` is driven to completion on a dedicated background thread,
-//! fed through a `Read` implementation (`FeedReader`) backed by a shared
-//! byte queue (`FeedBuffer`). This keeps the per-`Parse()` cost proportional
-//! to the size of that call's chunk, rather than to the whole document seen
-//! so far.
+//! API to pause and resume across separate `Read` sources, so two backends
+//! are provided (`Backend::Threaded`/`Backend::Sync`), selected per-parser
+//! the first time it is fed (`PyExpatLikeXmlParser::feed_inner`):
 //!
-//! Protocol, implemented by `ParserStream`/`FeedBuffer`/`run_parser_thread`:
+//! - `Backend::Threaded` (`ParserStream`, used wherever an OS thread can be
+//!   spawned) drives one `EventReader` to completion on a dedicated
+//!   background thread, fed through a `Read` implementation (`FeedReader`)
+//!   backed by a shared byte queue (`FeedBuffer`). This keeps the
+//!   per-`Parse()` cost proportional to the size of that call's chunk,
+//!   rather than to the whole document seen so far. See the protocol notes
+//!   below.
+//! - `Backend::Sync` (`SyncParser`) is used on targets that cannot spawn
+//!   threads (currently `wasm32`), or if spawning fails at runtime. It
+//!   appends every chunk to a persistent buffer and re-parses the buffer
+//!   from scratch on each `Parse()`/`ParseFile()` call, replaying only the
+//!   events at or beyond the count already dispatched by previous calls.
+//!   This is correct across chunk boundaries but costs O(total bytes fed so
+//!   far) per call, so it is only used where the threaded backend is
+//!   unavailable.
+//!
+//! Both backends share `LineTracker` to convert `xml-rs`'s row/column
+//! `TextPosition` into `CurrentLineNumber`/`CurrentColumnNumber`/
+//! `CurrentByteIndex`, so the two backends report identical positions and
+//! identical handler/error semantics.
+//!
+//! `Backend::Threaded` protocol, implemented by
+//! `ParserStream`/`FeedBuffer`/`run_parser_thread`:
 //! - `ParserCreate()` does not spawn a thread; one is spawned lazily by the
-//!   first `Parse()`/`ParseFile()` call (`PyExpatLikeXmlParser::feed_inner`),
-//!   so a parser created and dropped without being fed leaks nothing.
+//!   first `Parse()`/`ParseFile()` call, so a parser created and dropped
+//!   without being fed leaks nothing.
 //! - `Parse(data, isfinal)` pushes `data` into the `FeedBuffer` (closing it
 //!   if `isfinal`), wakes the parser thread via a `Condvar`, then drains
 //!   (`pump`) the message channel the parser thread reports events through,
@@ -36,11 +55,14 @@
 //! - Calling `Parse()`/`ParseFile()` reentrantly (e.g. from within a
 //!   handler) would deadlock waiting on a channel that same call is meant to
 //!   drain, so it is rejected with a `RuntimeError` via a `busy` flag
-//!   instead.
+//!   instead (shared with `Backend::Sync`).
 //! - Dropping the parser (`ParserStream::drop`) always stops (`FeedBuffer`
 //!   is marked stopped, waking any blocked `read()`) and joins the thread,
 //!   so no thread is ever leaked, whether or not the parser was ever fed to
 //!   completion.
+//! - If spawning the background thread fails at runtime (e.g. the platform
+//!   claims thread support but is out of resources), `Backend::new` falls
+//!   back to `Backend::Sync` for that parser instead of panicking.
 
 // spell-checker: ignore libexpat
 
@@ -104,13 +126,19 @@ mod _pyexpat {
     };
     use alloc::collections::VecDeque;
     use alloc::rc::Rc;
+    #[cfg(not(target_arch = "wasm32"))]
     use alloc::sync::Arc;
     use core::cell::RefCell;
     use core::sync::atomic::{AtomicBool, Ordering};
     use rustpython_common::lock::PyRwLock;
-    use std::io::{BufReader, Read};
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::io::BufReader;
+    use std::io::Read;
+    #[cfg(not(target_arch = "wasm32"))]
     use std::sync::mpsc::{self, Receiver, Sender};
+    #[cfg(not(target_arch = "wasm32"))]
     use std::sync::{Condvar, Mutex};
+    #[cfg(not(target_arch = "wasm32"))]
     use std::thread::JoinHandle;
     use xml::common::Position;
     use xml::reader::XmlEvent;
@@ -163,12 +191,13 @@ mod _pyexpat {
         // Incremental-parsing state: Parse()/ParseFile() may be called
         // multiple times with successive chunks of the same document (e.g.
         // xml.etree.ElementTree and genshi both feed input in ~64KB chunks).
-        // See the module-level `//!` doc comment for the full threading
-        // protocol; `stream` is `None` until the first `Parse()`/`ParseFile()`
-        // call, so a parser that is created and dropped without ever being
-        // fed never spawns a thread.
+        // See the module-level `//!` doc comment for the full
+        // threaded/sync-backend protocol; `backend` is `None` until the
+        // first `Parse()`/`ParseFile()` call, so a parser that is created
+        // and dropped without ever being fed never spawns a thread or
+        // allocates a buffer.
         #[pytraverse(skip)]
-        stream: PyRwLock<Option<ParserStream>>,
+        backend: PyRwLock<Option<Backend>>,
         // Guards against Parse()/ParseFile() being invoked reentrantly (e.g.
         // a handler calling Parse() on its own parser), which would
         // otherwise deadlock waiting on a channel this same call is meant to
@@ -322,6 +351,7 @@ mod _pyexpat {
 
     /// Shared feed buffer between the calling (Python) thread and the parser
     /// thread. See the module-level doc comment for the full protocol.
+    #[cfg(not(target_arch = "wasm32"))]
     struct FeedInner {
         data: VecDeque<u8>,
         /// Set once `Parse(..., isfinal=True)` has been fed: no more bytes
@@ -335,11 +365,13 @@ mod _pyexpat {
         stopped: bool,
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     struct FeedBuffer {
         inner: Mutex<FeedInner>,
         cv: Condvar,
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl FeedBuffer {
         fn new() -> Self {
             Self {
@@ -371,12 +403,14 @@ mod _pyexpat {
     /// `std::io::Read` implementation that pulls bytes fed via `FeedBuffer`,
     /// blocking (via condvar) when the buffer is drained and neither closed
     /// nor stopped. Runs entirely on the parser thread.
+    #[cfg(not(target_arch = "wasm32"))]
     struct FeedReader {
         buf: Arc<FeedBuffer>,
         tracker: Rc<RefCell<LineTracker>>,
         events_tx: Sender<ParserMsg>,
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl Read for FeedReader {
         fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
             let mut inner = self.buf.inner.lock().unwrap();
@@ -407,6 +441,7 @@ mod _pyexpat {
     /// One parser event, prepared on the parser thread (position captured
     /// there, since only that thread drives the `EventReader`) and handed to
     /// the calling thread for dispatch.
+    #[cfg(not(target_arch = "wasm32"))]
     struct PreparedEvent {
         event: XmlEvent,
         line: i64,
@@ -414,6 +449,7 @@ mod _pyexpat {
         byte_index: i64,
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     enum ParserMsg {
         /// The parser thread's `Read` call is blocked waiting for more
         /// input: everything fed so far has been turned into events (or
@@ -433,35 +469,43 @@ mod _pyexpat {
     /// this stops the thread (via `FeedBuffer::stop`, which makes its
     /// blocked or future `read()` calls return EOF) and joins it, so a
     /// parser can never leak a thread, whether or not it was ever fully fed.
+    #[cfg(not(target_arch = "wasm32"))]
     struct ParserStream {
         buf: Arc<FeedBuffer>,
         rx: Mutex<Receiver<ParserMsg>>,
         thread: Option<JoinHandle<()>>,
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl core::fmt::Debug for ParserStream {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.debug_struct("ParserStream").finish_non_exhaustive()
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl ParserStream {
-        fn spawn(config: xml::ParserConfig) -> Self {
+        /// Try to spawn the background parser thread. Returns `None` (rather
+        /// than panicking) if the platform claims thread support but
+        /// spawning fails at runtime, so the caller can fall back to
+        /// `Backend::Sync` for that parser instead of crashing.
+        fn try_spawn(config: xml::ParserConfig) -> Option<Self> {
             let buf = Arc::new(FeedBuffer::new());
             let (tx, rx) = mpsc::channel();
             let thread_buf = Arc::clone(&buf);
             let thread = std::thread::Builder::new()
                 .name("pyexpat-parser".into())
                 .spawn(move || run_parser_thread(config, thread_buf, tx))
-                .expect("failed to spawn pyexpat parser thread");
-            Self {
+                .ok()?;
+            Some(Self {
                 buf,
                 rx: Mutex::new(rx),
                 thread: Some(thread),
-            }
+            })
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     impl Drop for ParserStream {
         fn drop(&mut self) {
             self.buf.stop();
@@ -477,6 +521,7 @@ mod _pyexpat {
     /// VM or calls into Python -- handlers are dispatched by the calling
     /// thread from the messages sent here, exactly as the module doc
     /// comment requires.
+    #[cfg(not(target_arch = "wasm32"))]
     fn run_parser_thread(config: xml::ParserConfig, buf: Arc<FeedBuffer>, tx: Sender<ParserMsg>) {
         let tracker = Rc::new(RefCell::new(LineTracker::new()));
         let reader = FeedReader {
@@ -512,6 +557,77 @@ mod _pyexpat {
         }
     }
 
+    /// `std::io::Read` wrapper that records every byte pulled through it
+    /// into a `LineTracker`, so `Backend::Sync` can compute
+    /// `CurrentLineNumber`/`CurrentColumnNumber`/`CurrentByteIndex` the same
+    /// way `FeedReader` does for `Backend::Threaded` (see that struct and
+    /// the module doc comment). Used single-threaded, so a plain
+    /// `Rc<RefCell<_>>` (rather than `FeedReader`'s thread-safe handle) is
+    /// enough to let the tracker be read back after the reader has been
+    /// moved into the `EventReader`.
+    struct TrackingReader<R> {
+        inner: R,
+        tracker: Rc<RefCell<LineTracker>>,
+    }
+
+    impl<R: Read> Read for TrackingReader<R> {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let n = self.inner.read(out)?;
+            self.tracker.borrow_mut().record(&out[..n]);
+            Ok(n)
+        }
+    }
+
+    /// Single-threaded fallback backend, used on targets that cannot spawn
+    /// an OS thread (e.g. `wasm32`) or if doing so failed at runtime. See
+    /// the module doc comment for the accumulate-and-reparse strategy and
+    /// its O(total bytes fed so far) per-`Parse()` cost.
+    #[derive(Debug)]
+    struct SyncParser {
+        config: xml::ParserConfig,
+        buffer: Vec<u8>,
+        /// Number of events (including the trailing `EndDocument`, once
+        /// reached) already dispatched by a previous call, so a re-parse of
+        /// the grown buffer only dispatches events at or beyond this index.
+        dispatched_events: usize,
+    }
+
+    impl SyncParser {
+        fn new(config: xml::ParserConfig) -> Self {
+            Self {
+                config,
+                buffer: Vec::new(),
+                dispatched_events: 0,
+            }
+        }
+    }
+
+    /// The two ways a parser can drive `xml-rs`: a background thread when
+    /// one can be spawned (`Threaded`), or an in-place accumulate-and-reparse
+    /// fallback when it can't (`Sync`). See the module doc comment.
+    #[derive(Debug)]
+    enum Backend {
+        #[cfg(not(target_arch = "wasm32"))]
+        Threaded(ParserStream),
+        Sync(SyncParser),
+    }
+
+    impl Backend {
+        /// Prefer a background thread wherever the target supports one;
+        /// fall back to the synchronous backend on targets that can't spawn
+        /// threads (`wasm32`) or if spawning fails at runtime, so `Parse()`
+        /// never panics for lack of threads.
+        fn new(config: xml::ParserConfig) -> Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if let Some(stream) = ParserStream::try_spawn(config.clone()) {
+                    return Self::Threaded(stream);
+                }
+            }
+            Self::Sync(SyncParser::new(config))
+        }
+    }
+
     #[pyclass]
     impl PyExpatLikeXmlParser {
         fn new(
@@ -526,7 +642,7 @@ mod _pyexpat {
                 current_line: PyRwLock::new(1),
                 current_column: PyRwLock::new(0),
                 current_byte_index: PyRwLock::new(-1),
-                stream: PyRwLock::new(None),
+                backend: PyRwLock::new(None),
                 busy: AtomicBool::new(false),
                 finished: AtomicBool::new(false),
                 start_element: MutableObject::new(vm.ctx.none()),
@@ -821,11 +937,13 @@ mod _pyexpat {
             }
         }
 
-        /// Tear down the current parser thread (if any), stopping and
-        /// joining it. Called once the document is finished, or a handler
-        /// raised and we choose not to keep the stream around (see `pump`).
-        fn teardown_stream(&self) {
-            let mut guard = self.stream.write();
+        /// Tear down the current backend (if any). For `Backend::Threaded`
+        /// this stops and joins the parser thread; for `Backend::Sync` it
+        /// simply drops the accumulated buffer. Called once the document is
+        /// finished, or (for the threaded backend) a handler raised and we
+        /// choose not to keep the stream around (see `pump`).
+        fn teardown_backend(&self) {
+            let mut guard = self.backend.write();
             *guard = None;
         }
 
@@ -839,12 +957,14 @@ mod _pyexpat {
         /// already produced are kept around so a later `Parse()` call
         /// resumes exactly where dispatch left off, mirroring libexpat
         /// (a callback exception aborts that `XML_Parse()` call without
-        /// corrupting the parser's internal state).
+        /// corrupting the parser's internal state). Only used by
+        /// `Backend::Threaded`.
+        #[cfg(not(target_arch = "wasm32"))]
         fn pump(&self, vm: &VirtualMachine) -> PyResult<()> {
             loop {
                 let msg = {
-                    let guard = self.stream.read();
-                    let Some(stream) = guard.as_ref() else {
+                    let guard = self.backend.read();
+                    let Some(Backend::Threaded(stream)) = guard.as_ref() else {
                         return Ok(());
                     };
                     let received = stream.rx.lock().unwrap().recv();
@@ -859,11 +979,11 @@ mod _pyexpat {
                     ParserMsg::NeedMore => return Ok(()),
                     ParserMsg::Finished => {
                         self.finished.store(true, Ordering::SeqCst);
-                        self.teardown_stream();
+                        self.teardown_backend();
                         return Ok(());
                     }
                     ParserMsg::Error => {
-                        self.teardown_stream();
+                        self.teardown_backend();
                         return Ok(());
                     }
                     ParserMsg::Event(ev) => {
@@ -876,18 +996,127 @@ mod _pyexpat {
             }
         }
 
+        /// `Backend::Sync` counterpart of `pump`: grow the accumulated
+        /// buffer with `chunk`, re-parse it from scratch, and dispatch only
+        /// the events at or beyond `dispatched_events`. See the module doc
+        /// comment for why this is O(total bytes fed so far) per call and
+        /// only used where `Backend::Threaded` is unavailable.
+        ///
+        /// Note `EndDocument` reached while re-parsing an as-yet-incomplete
+        /// buffer is *not* proof the document is over: a byte slice reader
+        /// reports EOF the instant the currently accumulated bytes happen
+        /// to form a well-formed document (e.g. right after a root
+        /// element's closing tag), even though XML still permits epilog
+        /// content (comments, PIs, whitespace) afterwards, and a later
+        /// `Parse()` call may append exactly that. So only `isfinal` --
+        /// the caller's actual "no more data is coming" signal -- marks the
+        /// parser finished here, mirroring `Backend::Threaded` (whose
+        /// blocking `Read` only reports EOF once the caller closes the feed
+        /// buffer via `isfinal`, so it never reaches `EndDocument`
+        /// prematurely).
+        fn feed_sync(&self, vm: &VirtualMachine, chunk: &[u8], isfinal: bool) -> PyResult<()> {
+            let (config, buffer, skip) = {
+                let mut guard = self.backend.write();
+                let Some(Backend::Sync(sync)) = guard.as_mut() else {
+                    // feed_inner only calls feed_sync once the backend has
+                    // been initialized to Backend::Sync.
+                    return Ok(());
+                };
+                sync.buffer.extend_from_slice(chunk);
+                (
+                    sync.config.clone(),
+                    sync.buffer.clone(),
+                    sync.dispatched_events,
+                )
+            };
+
+            let tracker = Rc::new(RefCell::new(LineTracker::new()));
+            let reader = TrackingReader {
+                inner: buffer.as_slice(),
+                tracker: Rc::clone(&tracker),
+            };
+            let mut parser = config.create_reader(reader);
+
+            let mut index = 0usize;
+            let result = loop {
+                match parser.next() {
+                    // Deliberately *not* counted towards `index`: on a
+                    // buffer that is not yet the whole document, a byte
+                    // slice `Read` reports EOF (hence `EndDocument`) the
+                    // instant the bytes seen so far happen to form a
+                    // well-formed document, e.g. right after a root
+                    // element's closing tag -- even though XML still
+                    // permits epilog content (comments, PIs, whitespace)
+                    // afterwards, and a later `Parse()` call may append
+                    // exactly that. If this slot were counted, a later call
+                    // that reparses a longer buffer would find a *real*
+                    // event at this same index (the epilog content) and
+                    // wrongly skip it as already dispatched. Real events
+                    // never move to an earlier index across reparses (the
+                    // bytes producing them are unchanged), so leaving
+                    // `EndDocument` uncounted is always safe.
+                    Ok(XmlEvent::EndDocument) => break Ok(()),
+                    Ok(event) => {
+                        let this_index = index;
+                        index += 1;
+                        let pos = parser.position();
+                        let byte_index = tracker.borrow_mut().byte_index_for(pos);
+                        *self.current_line.write() = pos.row() as i64 + 1;
+                        *self.current_column.write() = pos.column() as i64;
+                        *self.current_byte_index.write() = byte_index;
+                        if this_index < skip {
+                            continue;
+                        }
+                        if let Err(e) = self.dispatch(vm, event) {
+                            // The handler for `this_index` was invoked (it
+                            // raised, but it ran), so don't replay it next
+                            // call -- mirrors `Backend::Threaded`, where an
+                            // event already popped off the channel is gone
+                            // for good.
+                            index = this_index + 1;
+                            break Err(e);
+                        }
+                    }
+                    // xml-rs is stricter than libexpat about a document
+                    // prefix that is only well-formed once more bytes
+                    // arrive (or never, if this chunk really is malformed);
+                    // mirrors `ParserMsg::Error`, which is silently
+                    // swallowed for compatibility rather than raising
+                    // `ExpatError`.
+                    Err(_) => break Ok(()),
+                }
+            };
+
+            {
+                let mut guard = self.backend.write();
+                if let Some(Backend::Sync(sync)) = guard.as_mut() {
+                    sync.dispatched_events = index.max(skip);
+                }
+            }
+            if isfinal {
+                // The caller has declared there is no more data coming, so
+                // (whether or not this re-parse actually reached
+                // `EndDocument`) further Parse()/ParseFile() calls become
+                // no-ops, matching libexpat/`Backend::Threaded`.
+                self.finished.store(true, Ordering::SeqCst);
+                self.teardown_backend();
+            }
+            result
+        }
+
         /// Feed another chunk of the document to the (possibly newly
-        /// spawned) parser thread and dispatch whatever events that
-        /// unblocks. `Parse()` and `ParseFile()` may each be called several
-        /// times with successive chunks of one logical document (e.g.
+        /// created) backend and dispatch whatever events that unblocks.
+        /// `Parse()` and `ParseFile()` may each be called several times
+        /// with successive chunks of one logical document (e.g.
         /// `xml.etree.ElementTree` reads and feeds a file 64KB at a time);
-        /// see the module doc comment for how a single parser thread stays
-        /// alive across those calls.
+        /// see the module doc comment for how each backend stays consistent
+        /// across those calls.
         fn feed(&self, vm: &VirtualMachine, chunk: &[u8], isfinal: bool) -> PyResult<()> {
             if self.busy.swap(true, Ordering::SeqCst) {
                 // Reentrant call, e.g. a handler calling Parse() on the same
-                // parser. Draining our own channel from within itself would
-                // deadlock, so reject it instead, mirroring CPython.
+                // parser. Draining our own channel (Threaded) or re-entering
+                // feed_sync (Sync) from within itself would deadlock or
+                // corrupt state, so reject it instead, mirroring CPython.
                 return Err(vm.new_runtime_error("Parse() called before Parse() returned"));
             }
             let result = self.feed_inner(vm, chunk, isfinal);
@@ -902,16 +1131,25 @@ mod _pyexpat {
                 return Ok(());
             }
             {
-                let mut guard = self.stream.write();
+                let mut guard = self.backend.write();
                 if guard.is_none() {
-                    *guard = Some(ParserStream::spawn(self.create_config()));
+                    *guard = Some(Backend::new(self.create_config()));
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
             {
-                let guard = self.stream.read();
-                guard.as_ref().unwrap().buf.push(chunk, isfinal);
+                let is_threaded = matches!(*self.backend.read(), Some(Backend::Threaded(_)));
+                if is_threaded {
+                    {
+                        let guard = self.backend.read();
+                        if let Some(Backend::Threaded(stream)) = guard.as_ref() {
+                            stream.buf.push(chunk, isfinal);
+                        }
+                    }
+                    return self.pump(vm);
+                }
             }
-            self.pump(vm)
+            self.feed_sync(vm, chunk, isfinal)
         }
 
         #[pymethod(name = "Parse")]
