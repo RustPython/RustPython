@@ -242,7 +242,6 @@ class PyclbrTest(TestCase):
 
         compare(None, actual, None, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_others(self):
         cm = self.checkModule
 

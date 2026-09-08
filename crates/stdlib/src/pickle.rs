@@ -634,6 +634,16 @@ mod _pickle {
             let cfg = zelf.config.read();
             (cfg.proto, cfg.fix_imports)
         };
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            audit.call(
+                (
+                    vm.ctx.new_str("pickle.find_class"),
+                    module.clone(),
+                    name.clone(),
+                ),
+                vm,
+            )?;
+        }
         let mut module = module
             .downcast::<PyStr>()
             .map_err(|_| vm.new_type_error("module name must be a string"))?;
