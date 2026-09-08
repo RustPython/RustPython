@@ -669,6 +669,12 @@ pub fn log10(a: &Decimal, ctx: &Context, status: &mut u32) -> Decimal {
 /// equal to 1; `b` must be finite and nonzero. Returns `None` when `a**b` is
 /// not exactly representable in `p` digits.
 fn power_exact(a: &Decimal, b: &Decimal, p: i128) -> Option<Decimal> {
+    // `p` is only ever used as "how many digits may the result have", and the
+    // caller may pass the unbounded context's precision. Clamp it to what can
+    // actually be held in memory so the size checks below still bite; a result
+    // needing more digits than that is left to the caller's series path, which
+    // reports it as a memory error the way libmpdec does.
+    let p = p.min(MAX_WORK_DIGITS);
     let mut xc = BigInt::from(a.coefficient().clone());
     let mut xe = i128::from(a.exponent());
     while (&xc % 10u32).is_zero() {
@@ -948,10 +954,12 @@ pub fn power(a: &Decimal, b: &Decimal, ctx: &Context, status: &mut u32) -> Decim
         };
     }
 
+    // No working-precision guard here: an integer exponent can have an exact
+    // result that is cheap to materialise even under the unbounded context
+    // `_pylong` uses (`prec = MAX_PREC`), which is exactly how `int(str)`
+    // converts a huge decimal string. Only the series fallback below needs a
+    // precision it can actually allocate.
     let p = i128::from(ctx.prec);
-    if let Some(nan) = work_prec_guard(p, status) {
-        return nan;
-    }
 
     let bound = log10_exp_bound(&a) + i128::from(b.adjusted());
     let mut ans = None;
@@ -982,30 +990,36 @@ pub fn power(a: &Decimal, b: &Decimal, ctx: &Context, status: &mut u32) -> Decim
         });
     }
 
-    let ans = ans.unwrap_or_else(|| {
-        let xc = BigInt::from(a.coefficient().clone());
-        let xe = i128::from(a.exponent());
-        let mut yc = BigInt::from(b.coefficient().clone());
-        let ye = i128::from(b.exponent());
-        if b.sign() == 1 {
-            yc = -yc;
-        }
-        let mut extra: i128 = 3;
-        let (coeff, exp) = loop {
-            let (coeff, exp) = dpower(&xc, xe, &yc, ye, p + extra);
-            let clen = intlen(&coeff);
-            let modulus = BigInt::from(5) * pow10_bi(clen - p - 1);
-            if !(&coeff % &modulus).is_zero() {
-                break (coeff, exp);
+    let ans = match ans {
+        Some(ans) => ans,
+        None => {
+            if let Some(nan) = work_prec_guard(p, status) {
+                return nan;
             }
-            extra += 3;
-        };
-        Decimal::new_finite(
-            result_sign,
-            coeff.to_biguint().expect("dpower coefficient is positive"),
-            i128_to_i64_sat(exp),
-        )
-    });
+            let xc = BigInt::from(a.coefficient().clone());
+            let xe = i128::from(a.exponent());
+            let mut yc = BigInt::from(b.coefficient().clone());
+            let ye = i128::from(b.exponent());
+            if b.sign() == 1 {
+                yc = -yc;
+            }
+            let mut extra: i128 = 3;
+            let (coeff, exp) = loop {
+                let (coeff, exp) = dpower(&xc, xe, &yc, ye, p + extra);
+                let clen = intlen(&coeff);
+                let modulus = BigInt::from(5) * pow10_bi(clen - p - 1);
+                if !(&coeff % &modulus).is_zero() {
+                    break (coeff, exp);
+                }
+                extra += 3;
+            };
+            Decimal::new_finite(
+                result_sign,
+                coeff.to_biguint().expect("dpower coefficient is positive"),
+                i128_to_i64_sat(exp),
+            )
+        }
+    };
 
     if exact && !b.is_integer_valued() {
         let mut ans = ans;

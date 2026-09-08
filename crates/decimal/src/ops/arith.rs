@@ -350,6 +350,40 @@ pub fn mul(a: &Decimal, b: &Decimal, ctx: &Context, status: &mut u32) -> Decimal
 }
 
 /// `Decimal.__truediv__`.
+/// The exact quotient of two coefficients, when it terminates.
+///
+/// `div` normally scales the dividend by the context precision, which is what
+/// correct rounding of a non-terminating quotient needs. Under the unbounded
+/// context (`prec = MAX_PREC`) that scaling is unaffordable even though the
+/// answer may be tiny -- `1 / 256` is `0.00390625` -- so this computes the
+/// terminating case directly instead. A quotient terminates exactly when the
+/// divisor, stripped of its factors of two and five, divides the dividend;
+/// what is left is a shift by the larger of the two factor counts.
+fn exact_quotient(num: &BigUint, den: &BigUint) -> Option<(BigUint, u64)> {
+    let mut stripped = den.clone();
+    let twos = stripped.trailing_zeros().unwrap_or(0);
+    stripped >>= twos;
+    let mut fives: u64 = 0;
+    let five = BigUint::from(5u32);
+    while (&stripped % &five).is_zero() {
+        stripped /= &five;
+        fives += 1;
+    }
+    if !stripped.is_one() || !(num % &stripped).is_zero() {
+        return None;
+    }
+    let shift = twos.max(fives);
+    // `pow` below takes a `u32`, and a shift anywhere near that many digits
+    // could not be held in memory anyway.
+    if shift > MAX_MATERIALIZABLE_DIGITS as u64 {
+        return None;
+    }
+    let mut coeff = num / &stripped;
+    coeff <<= shift - twos;
+    coeff *= five.pow(u32::try_from(shift - fives).ok()?);
+    Some((coeff, shift))
+}
+
 pub fn div(a: &Decimal, b: &Decimal, ctx: &Context, status: &mut u32) -> Decimal {
     let sign = a.sign() ^ b.sign();
 
@@ -384,6 +418,17 @@ pub fn div(a: &Decimal, b: &Decimal, ctx: &Context, status: &mut u32) -> Decimal
 
     let shift = b.digits() as i128 - a.digits() as i128 + ctx.prec as i128 + 1;
     let exp = a.exponent() as i128 - b.exponent() as i128 - shift;
+
+    // A precision this large cannot be scaled to, but the quotient may still
+    // terminate well inside it; `_pylong` divides under exactly such a context
+    // to build exact reciprocals.
+    if shift > 0 && !padding_is_safe(a.digits(), shift) {
+        if let Some((coeff, used)) = exact_quotient(a.coefficient(), b.coefficient()) {
+            let exp = a.exponent() as i128 - b.exponent() as i128 - used as i128;
+            let ans = Decimal::new_finite(sign, coeff, sat_i64(exp));
+            return fix(&ans, ctx, status);
+        }
+    }
 
     let (mut coeff, remainder) = if shift >= 0 {
         let lhs = match guarded_mul_pow10(a.coefficient(), a.digits(), shift, status) {
