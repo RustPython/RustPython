@@ -1761,6 +1761,17 @@ mod _pickle {
             self.buf.extend_from_slice(data);
         }
 
+        /// Write an opcode plus its payload without building a temporary buffer.
+        fn write_pair(&mut self, header: &[u8], data: &[u8]) {
+            if self.framing && self.frame_start.is_none() {
+                self.frame_start = Some(self.buf.len());
+                self.buf.extend_from_slice(&[0xfe; FRAME_HEADER_SIZE]);
+            }
+            self.buf.reserve(header.len() + data.len());
+            self.buf.extend_from_slice(header);
+            self.buf.extend_from_slice(data);
+        }
+
         fn commit_frame(&mut self) {
             let Some(start) = self.frame_start.take() else {
                 return;
@@ -2155,6 +2166,24 @@ mod _pickle {
             self.out.write_bytes(data);
         }
 
+        fn write_pair(&mut self, header: &[u8], data: &[u8]) {
+            self.out.write_pair(header, data);
+        }
+
+        fn write_put(&mut self, idx: usize) {
+            if self.proto >= 4 {
+                self.write(&[MEMOIZE]);
+            } else if self.bin && idx < 256 {
+                self.write(&[BINPUT, idx as u8]);
+            } else if self.bin {
+                let mut buf = [LONG_BINPUT, 0, 0, 0, 0];
+                buf[1..].copy_from_slice(&(idx as u32).to_le_bytes());
+                self.write(&buf);
+            } else {
+                self.write_pair(&[PUT], format!("{idx}\n").as_bytes());
+            }
+        }
+
         fn copyreg(&mut self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             if let Some(m) = &self.copyreg {
                 return Ok(m.clone());
@@ -2162,25 +2191,6 @@ mod _pickle {
             let m = vm.import("copyreg", 0)?;
             self.copyreg = Some(m.clone());
             Ok(m)
-        }
-
-        fn put_opcode(&self, idx: usize) -> Vec<u8> {
-            if self.proto >= 4 {
-                vec![MEMOIZE]
-            } else if self.bin {
-                if idx < 256 {
-                    vec![BINPUT, idx as u8]
-                } else {
-                    let mut v = vec![LONG_BINPUT];
-                    v.extend_from_slice(&(idx as u32).to_le_bytes());
-                    v
-                }
-            } else {
-                let mut v = vec![PUT];
-                v.extend_from_slice(idx.to_string().as_bytes());
-                v.push(b'\n');
-                v
-            }
         }
 
         fn get_opcode(&self, idx: usize) -> Vec<u8> {
@@ -2218,13 +2228,19 @@ mod _pickle {
                 memo.insert(obj.get_id(), (idx, obj.to_owned()));
                 idx
             };
-            let op = self.put_opcode(idx);
-            self.write(&op);
+            self.write_put(idx);
         }
 
         fn write_memo_get(&mut self, idx: usize) {
-            let op = self.get_opcode(idx);
-            self.write(&op);
+            if self.bin && idx < 256 {
+                self.write(&[BINGET, idx as u8]);
+            } else if self.bin {
+                let mut buf = [LONG_BINGET, 0, 0, 0, 0];
+                buf[1..].copy_from_slice(&(idx as u32).to_le_bytes());
+                self.write(&buf);
+            } else {
+                self.write_pair(&[GET], format!("{idx}\n").as_bytes());
+            }
         }
 
         // -- atoms ------------------------------------------------------
@@ -2283,17 +2299,11 @@ mod _pickle {
                 return Ok(());
             }
             let text = value.to_string();
-            let mut buf: Vec<u8> = Vec::with_capacity(text.len() + 3);
             if value.to_i64().is_some_and(|v| i32::try_from(v).is_ok()) {
-                buf.push(INT);
-                buf.extend_from_slice(text.as_bytes());
+                self.write_pair(&[INT], format!("{text}\n").as_bytes());
             } else {
-                buf.push(LONG);
-                buf.extend_from_slice(text.as_bytes());
-                buf.push(b'L');
+                self.write_pair(&[LONG], format!("{text}L\n").as_bytes());
             }
-            buf.push(b'\n');
-            self.write(&buf);
             Ok(())
         }
 
@@ -2318,9 +2328,7 @@ mod _pickle {
         fn save_bytes_no_memo(&mut self, data: &[u8], vm: &VirtualMachine) -> PyResult<()> {
             let n = data.len();
             if n <= 0xff {
-                let mut buf = vec![SHORT_BINBYTES, n as u8];
-                buf.extend_from_slice(data);
-                self.write(&buf);
+                self.write_pair(&[SHORT_BINBYTES, n as u8], data);
             } else if n > 0xffff_ffff && self.proto >= 4 {
                 let mut header = vec![BINBYTES8];
                 header.extend_from_slice(&(n as u64).to_le_bytes());
@@ -2330,23 +2338,21 @@ mod _pickle {
                 header.extend_from_slice(&(n as u32).to_le_bytes());
                 self.out.write_large_bytes(&header, data, vm)?;
             } else {
-                let mut buf = vec![BINBYTES];
-                buf.extend_from_slice(&(n as u32).to_le_bytes());
-                buf.extend_from_slice(data);
-                self.write(&buf);
+                let mut header = [BINBYTES, 0, 0, 0, 0];
+                header[1..].copy_from_slice(&(n as u32).to_le_bytes());
+                self.write_pair(&header, data);
             }
             Ok(())
         }
 
         fn save_bytearray_no_memo(&mut self, data: &[u8], vm: &VirtualMachine) -> PyResult<()> {
             let n = data.len();
-            let mut header = vec![BYTEARRAY8];
-            header.extend_from_slice(&(n as u64).to_le_bytes());
+            let mut header = [BYTEARRAY8, 0, 0, 0, 0, 0, 0, 0, 0];
+            header[1..].copy_from_slice(&(n as u64).to_le_bytes());
             if n >= FRAME_SIZE_TARGET {
                 self.out.write_large_bytes(&header, data, vm)?;
             } else {
-                header.extend_from_slice(data);
-                self.write(&header);
+                self.write_pair(&header, data);
             }
             Ok(())
         }
@@ -2428,9 +2434,7 @@ mod _pickle {
                 let encoded = s.as_bytes();
                 let n = encoded.len();
                 if n <= 0xff && self.proto >= 4 {
-                    let mut buf = vec![SHORT_BINUNICODE, n as u8];
-                    buf.extend_from_slice(encoded);
-                    self.write(&buf);
+                    self.write_pair(&[SHORT_BINUNICODE, n as u8], encoded);
                 } else if n > 0xffff_ffff && self.proto >= 4 {
                     let mut header = vec![BINUNICODE8];
                     header.extend_from_slice(&(n as u64).to_le_bytes());
@@ -2442,10 +2446,9 @@ mod _pickle {
                     let payload = encoded.to_vec();
                     self.out.write_large_bytes(&header, &payload, vm)?;
                 } else {
-                    let mut buf = vec![BINUNICODE];
-                    buf.extend_from_slice(&(n as u32).to_le_bytes());
-                    buf.extend_from_slice(encoded);
-                    self.write(&buf);
+                    let mut header = [BINUNICODE, 0, 0, 0, 0];
+                    header[1..].copy_from_slice(&(n as u32).to_le_bytes());
+                    self.write_pair(&header, encoded);
                 }
             } else {
                 let mut buf = vec![UNICODE];
@@ -2470,7 +2473,7 @@ mod _pickle {
                 }
                 return Ok(());
             }
-            let items: Vec<PyObjectRef> = tuple.as_slice().to_vec();
+            let items = tuple.as_slice();
             if n <= 3 && self.proto >= 2 {
                 for (i, item) in items.iter().enumerate() {
                     self.save(item, false, vm).map_err(|e| {
@@ -2592,7 +2595,7 @@ mod _pickle {
             obj: Option<&PyObject>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let name = obj.map(|o| obj_type_name(o, vm)).unwrap_or_default();
+            let name = |vm: &VirtualMachine| obj.map_or_else(String::new, |o| obj_type_name(o, vm));
             let iter = items.to_owned().get_iter(vm)?;
             let mut index = 0usize;
             let mut pending: Vec<PyObjectRef> = Vec::new();
@@ -2614,7 +2617,7 @@ mod _pickle {
                 if !self.bin {
                     for item in &pending {
                         self.save(item, false, vm).map_err(|e| {
-                            add_note(e, format!("when serializing {name} item {index}"), vm)
+                            add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
                         })?;
                         self.write(&[APPEND]);
                         index += 1;
@@ -2623,14 +2626,14 @@ mod _pickle {
                     self.write(&[MARK]);
                     for item in &pending {
                         self.save(item, false, vm).map_err(|e| {
-                            add_note(e, format!("when serializing {name} item {index}"), vm)
+                            add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
                         })?;
                         index += 1;
                     }
                     self.write(&[APPENDS]);
                 } else {
                     self.save(&pending[0], false, vm).map_err(|e| {
-                        add_note(e, format!("when serializing {name} item {index}"), vm)
+                        add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
                     })?;
                     self.write(&[APPEND]);
                     index += 1;
@@ -3074,7 +3077,8 @@ mod _pickle {
                 ));
             }
 
-            let obj_name = obj.map(|o| obj_type_name(o, vm)).unwrap_or_default();
+            let obj_name =
+                |vm: &VirtualMachine| obj.map_or_else(String::new, |o| obj_type_name(o, vm));
             let func_name = vm
                 .get_attribute_opt(func.clone(), "__name__")?
                 .and_then(|o| {
@@ -3131,14 +3135,14 @@ mod _pickle {
                 }
                 if self.proto >= 4 {
                     self.save(&cls, false, vm).map_err(|e| {
-                        add_note(e, format!("when serializing {obj_name} class"), vm)
+                        add_note(e, format!("when serializing {} class", obj_name(vm)), vm)
                     })?;
                     self.save(&newargs, false, vm)
                         .and_then(|()| self.save(&kwargs, false, vm))
                         .map_err(|e| {
                             add_note(
                                 e,
-                                format!("when serializing {obj_name} __new__ arguments"),
+                                format!("when serializing {} __new__ arguments", obj_name(vm)),
                                 vm,
                             )
                         })?;
@@ -3165,7 +3169,11 @@ mod _pickle {
                     }
                     let func = partial.call(call_args, vm)?;
                     self.save(&func, false, vm).map_err(|e| {
-                        add_note(e, format!("when serializing {obj_name} reconstructor"), vm)
+                        add_note(
+                            e,
+                            format!("when serializing {} reconstructor", obj_name(vm)),
+                            vm,
+                        )
                     })?;
                     let empty: PyObjectRef = vm.ctx.new_tuple(vec![]).into();
                     self.save(&empty, false, vm)?;
@@ -3197,25 +3205,30 @@ mod _pickle {
                     }
                 }
                 let rest: PyObjectRef = vm.ctx.new_tuple(parts[1..].to_vec()).into();
-                self.save(&cls, false, vm)
-                    .map_err(|e| add_note(e, format!("when serializing {obj_name} class"), vm))?;
+                self.save(&cls, false, vm).map_err(|e| {
+                    add_note(e, format!("when serializing {} class", obj_name(vm)), vm)
+                })?;
                 self.save(&rest, false, vm).map_err(|e| {
                     add_note(
                         e,
-                        format!("when serializing {obj_name} __new__ arguments"),
+                        format!("when serializing {} __new__ arguments", obj_name(vm)),
                         vm,
                     )
                 })?;
                 self.write(&[NEWOBJ]);
             } else {
                 self.save(&func, false, vm).map_err(|e| {
-                    add_note(e, format!("when serializing {obj_name} reconstructor"), vm)
+                    add_note(
+                        e,
+                        format!("when serializing {} reconstructor", obj_name(vm)),
+                        vm,
+                    )
                 })?;
                 let args_obj: PyObjectRef = args.into();
                 self.save(&args_obj, false, vm).map_err(|e| {
                     add_note(
                         e,
-                        format!("when serializing {obj_name} reconstructor arguments"),
+                        format!("when serializing {} reconstructor arguments", obj_name(vm)),
                         vm,
                     )
                 })?;
@@ -3242,13 +3255,17 @@ mod _pickle {
                 match state_setter {
                     None => {
                         self.save(&state, false, vm).map_err(|e| {
-                            add_note(e, format!("when serializing {obj_name} state"), vm)
+                            add_note(e, format!("when serializing {} state", obj_name(vm)), vm)
                         })?;
                         self.write(&[BUILD]);
                     }
                     Some(setter) => {
                         self.save(&setter, false, vm).map_err(|e| {
-                            add_note(e, format!("when serializing {obj_name} state setter"), vm)
+                            add_note(
+                                e,
+                                format!("when serializing {} state setter", obj_name(vm)),
+                                vm,
+                            )
                         })?;
                         if let Some(o) = obj {
                             self.save(o, false, vm)?;
@@ -3257,7 +3274,7 @@ mod _pickle {
                             self.save(&none, false, vm)?;
                         }
                         self.save(&state, false, vm).map_err(|e| {
-                            add_note(e, format!("when serializing {obj_name} state"), vm)
+                            add_note(e, format!("when serializing {} state", obj_name(vm)), vm)
                         })?;
                         self.write(&[TUPLE2, REDUCE, POP]);
                     }
