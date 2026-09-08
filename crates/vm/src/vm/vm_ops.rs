@@ -110,11 +110,19 @@ impl VirtualMachine {
     }
 
     pub fn length_hint_opt(&self, iter: PyObjectRef) -> PyResult<Option<usize>> {
-        match iter.length(self) {
-            Ok(len) => return Ok(Some(len)),
-            Err(e) => {
-                if !e.fast_isinstance(self.ctx.exceptions.type_error) {
-                    return Err(e);
+        // Ask for a length only from something that could have one. `length()`
+        // answers a type with no length slot -- every iterator, every
+        // generator, which is most of what gets passed here -- by building a
+        // `TypeError` this caller immediately throws away. CPython's
+        // `PyObject_LengthHint` gates the call on the slots for the same
+        // reason.
+        if let Some(len) = iter.length_opt(self) {
+            match len {
+                Ok(len) => return Ok(Some(len)),
+                Err(e) => {
+                    if !e.fast_isinstance(self.ctx.exceptions.type_error) {
+                        return Err(e);
+                    }
                 }
             }
         }
