@@ -543,14 +543,11 @@ mod tests {
     /// `PyObject::start_gc_refs` treats a strong count of `u32::MAX` or more
     /// as reachable outright; on a 64-bit host that clamp is the only thing
     /// keeping an immortal object out of a collection's dead set.
-    #[test]
-    fn the_parked_count_outruns_any_real_reference_total() {
-        assert!(IMMORTAL_COUNT > 1);
-        assert!(IMMORTAL_COUNT <= STRONG);
-        if usize::BITS >= 64 {
-            assert_eq!(IMMORTAL_COUNT, u32::MAX as usize);
-        }
-    }
+    // Both operands are constants, so these hold at compile time or not at
+    // all; a runtime `assert!` would only be dead weight (and `clippy` says so).
+    const _: () = assert!(IMMORTAL_COUNT > 1);
+    const _: () = assert!(IMMORTAL_COUNT <= STRONG);
+    const _: () = assert!(usize::BITS < 64 || IMMORTAL_COUNT == u32::MAX as usize);
 
     #[test]
     fn published_bit_survives_refcount_traffic() {

@@ -293,7 +293,7 @@ impl<T> DictInner<T> {
         // is required for the hole-free shape-stamp fast path below.
         if self.entries.len() != self.used {
             let mut compacted = Vec::with_capacity(self.used);
-            compacted.extend(self.entries.drain(..).filter(Option::is_some));
+            compacted.extend(self.entries.drain(..).flatten().map(Some));
             self.entries = compacted;
         }
         self.indices = vec![IndexEntry::FREE; new_size];

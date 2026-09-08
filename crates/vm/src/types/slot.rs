@@ -119,6 +119,9 @@ macro_rules! atomic_func {
     };
 }
 
+/// See [`PyTypeSlots::del_needed`].
+pub type DelNeededFn = fn(&PyObject) -> bool;
+
 // The corresponding field in CPython is `tp_` prefixed.
 // e.g. name -> tp_name
 #[derive(Default)]
@@ -199,7 +202,7 @@ pub struct PyTypeSlots {
     /// generator or coroutine). Returning `false` skips the `del` call
     /// entirely, avoiding that VM lookup; `None` (the default) preserves the
     /// prior behavior of always calling `del`.
-    pub del_needed: AtomicCell<Option<fn(&PyObject) -> bool>>,
+    pub del_needed: AtomicCell<Option<DelNeededFn>>,
 
     // The count of tp_members.
     pub member_count: usize,
