@@ -3153,13 +3153,17 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         self.assertEqual([c.tag for c in children[3:]],
                          [a.tag, b.tag, a.tag, b.tag])
 
-    @unittest.skip("TODO: RUSTPYTHON; stack overflow")
     @support.skip_if_unlimited_stack_size
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()
     def test_deeply_nested_deepcopy(self):
         # This should raise a RecursionError and not crash.
         # See https://github.com/python/cpython/issues/148801.
+        if is_python_implementation():
+            # TODO: RUSTPYTHON; only the _elementtree accelerator charges the
+            # copy to the recursion budget, so the pure-Python one still
+            # overflows the stack.
+            self.skipTest("TODO: RUSTPYTHON")
         root = cur = ET.Element('s')
         for _ in range(500_000):
             cur = ET.SubElement(cur, 'u')
