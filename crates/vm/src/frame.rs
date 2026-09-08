@@ -279,7 +279,7 @@ unsafe impl<T: Send> Sync for FrameUnsafeCell<T> {}
 /// analysis that establishes it is `optimize_load_fast` in
 /// `crates/codegen/src/ir.rs`. Debug builds audit it in
 /// `LocalsPlus::debug_audit_local_release`.
-pub(crate) const BORROW_LOCAL_LOADS: bool = false;
+pub(crate) const BORROW_LOCAL_LOADS: bool = true;
 
 /// Unified storage for local variables and evaluation stack.
 ///
