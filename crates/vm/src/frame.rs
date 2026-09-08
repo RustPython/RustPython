@@ -1913,18 +1913,28 @@ impl FrameObject {
                 .filter_map(Option::take)
                 .collect::<Vec<_>>()
         };
-        let cold = self.iframe().cold();
-        let extra_locals = {
-            let mut guard = cold.f_extra_locals.lock();
-            guard.take()
-        };
-        let locals_cache = {
-            let mut guard = cold.f_locals_cache.lock();
-            guard.take()
-        };
-        let overwritten = {
-            let mut guard = cold.f_overwritten_fast_locals.lock();
-            core::mem::take(&mut *guard)
+        // Cold data is allocated lazily, by tracing and frame introspection
+        // only. A frame that never grew it holds none of the references read
+        // below, so ask for it without allocating: forcing the allocation here
+        // would hand every finishing generator a `FrameColdData` to malloc and
+        // free just to find all three fields empty.
+        let (extra_locals, locals_cache, overwritten) = match self.iframe().cold_opt() {
+            Some(cold) => {
+                let extra_locals = {
+                    let mut guard = cold.f_extra_locals.lock();
+                    guard.take()
+                };
+                let locals_cache = {
+                    let mut guard = cold.f_locals_cache.lock();
+                    guard.take()
+                };
+                let overwritten = {
+                    let mut guard = cold.f_overwritten_fast_locals.lock();
+                    core::mem::take(&mut *guard)
+                };
+                (extra_locals, locals_cache, overwritten)
+            }
+            None => (None, None, Vec::new()),
         };
         drop((fastlocals, extra_locals, locals_cache, overwritten));
     }
