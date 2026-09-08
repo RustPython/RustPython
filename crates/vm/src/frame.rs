@@ -3091,6 +3091,21 @@ fn compactlongs_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> bo
     compact_int_from_obj(lhs, vm).is_some() && compact_int_from_obj(rhs, vm).is_some()
 }
 
+/// A conditional jump the instruction ahead of it can perform itself.
+///
+/// Built by [`ExecutingFrame::fused_bool_jump`] and consumed by
+/// [`ExecutingFrame::take_fused_bool_jump`].
+#[derive(Clone, Copy)]
+struct FusedBoolJump {
+    /// Boolean value that takes the branch.
+    jump_on: bool,
+    /// Code-unit index the branch lands on when taken.
+    taken: u32,
+    /// Code-unit index just past the jump and its cache, where the compiler
+    /// puts the `NOT_TAKEN` marker.
+    fallthrough: u32,
+}
+
 macro_rules! bitwise_longs_action {
     ($name:ident, $op:tt) => {
         #[inline]
@@ -4260,7 +4275,7 @@ impl ExecutingFrame<'_> {
                     bytecode::Invert::No => self._in(vm, &a, &b)?,
                     bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                 };
-                self.push_value(vm.ctx.new_bool(value).into());
+                self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                 Ok(None)
             }
             Instruction::ConvertValue { oparg: conversion } => {
@@ -4643,7 +4658,7 @@ impl ExecutingFrame<'_> {
                     bytecode::Invert::No => res,
                     bytecode::Invert::Yes => !res,
                 };
-                self.push_value(vm.ctx.new_bool(value).into());
+                self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                 Ok(None)
             }
             Instruction::JumpForward { .. } => {
@@ -5267,6 +5282,8 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_stackref();
                 if vm.is_none(&value) {
                     self.jump_relative_forward(u32::from(arg), 1);
+                } else {
+                    self.skip_fallthrough_not_taken(vm, 1);
                 }
                 Ok(None)
             }
@@ -5274,6 +5291,8 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_stackref();
                 if !vm.is_none(&value) {
                     self.jump_relative_forward(u32::from(arg), 1);
+                } else {
+                    self.skip_fallthrough_not_taken(vm, 1);
                 }
                 Ok(None)
             }
@@ -5528,7 +5547,7 @@ impl ExecutingFrame<'_> {
                 self.adaptive(|s, ii, cb| s.specialize_to_bool(vm, ii, cb));
                 let obj = self.pop_stackref();
                 let bool_val = obj.try_to_bool(vm)?;
-                self.push_value(vm.ctx.new_bool(bool_val).into());
+                self.push_bool_or_fused_jump(instruction.cache_entries(), bool_val, vm);
                 Ok(None)
             }
             Instruction::UnpackEx { counts: args } => {
@@ -7332,9 +7351,7 @@ impl ExecutingFrame<'_> {
                     let result = op.eval_ord(a_val.cmp(&b_val));
                     self.pop_stackref();
                     self.pop_stackref();
-                    if !self.try_fused_compare_int_jump(result, vm) {
-                        self.push_value(vm.ctx.new_bool(result).into());
-                    }
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
                     self.execute_compare(vm, arg)
@@ -7356,7 +7373,7 @@ impl ExecutingFrame<'_> {
                     };
                     self.pop_stackref();
                     self.pop_stackref();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
                     self.execute_compare(vm, arg)
@@ -7379,7 +7396,7 @@ impl ExecutingFrame<'_> {
                     };
                     self.pop_stackref();
                     self.pop_stackref();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
                     self.execute_compare(vm, arg)
@@ -7388,12 +7405,19 @@ impl ExecutingFrame<'_> {
             Instruction::ToBoolBool => {
                 let obj = self.top_value();
                 if obj.class().is(vm.ctx.types.bool_type) {
-                    // Already a bool, no-op
+                    // Already a bool, so normally a no-op — but when a
+                    // POP_JUMP_IF_* follows, branching on it here retires both
+                    // instructions in one dispatch.
+                    if let Some(jump) = self.fused_bool_jump(instruction.cache_entries(), vm) {
+                        let result = obj.is(&vm.ctx.true_value);
+                        self.pop_stackref();
+                        self.take_fused_bool_jump(jump, result);
+                    }
                     Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
@@ -7402,12 +7426,12 @@ impl ExecutingFrame<'_> {
                 if let Some(int_val) = obj.downcast_ref_if_exact::<PyInt>(vm) {
                     let result = !int_val.as_bigint().is_zero();
                     self.pop_stackref();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
@@ -7415,12 +7439,12 @@ impl ExecutingFrame<'_> {
                 let obj = self.top_value();
                 if obj.class().is(vm.ctx.types.none_type) {
                     self.pop_stackref();
-                    self.push_value(vm.ctx.new_bool(false).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), false, vm);
                     Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
@@ -7429,12 +7453,12 @@ impl ExecutingFrame<'_> {
                 if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
                     let result = !list.borrow_vec().is_empty();
                     self.pop_stackref();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
@@ -7443,12 +7467,12 @@ impl ExecutingFrame<'_> {
                 if let Some(s) = obj.downcast_ref_if_exact::<PyStr>(vm) {
                     let result = !s.is_empty();
                     self.pop_stackref();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
@@ -7462,12 +7486,12 @@ impl ExecutingFrame<'_> {
                 if cached_version != 0 && obj.class().tp_version_tag.load(Acquire) == cached_version
                 {
                     self.pop_stackref();
-                    self.push_value(vm.ctx.new_bool(true).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), true, vm);
                     Ok(None)
                 } else {
                     let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
@@ -7484,7 +7508,7 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::No => found,
                         bytecode::Invert::Yes => !found,
                     };
-                    self.push_value(vm.ctx.new_bool(value).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                     Ok(None)
                 } else {
                     let b = self.pop_value();
@@ -7495,7 +7519,7 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::No => self._in(vm, &a, &b)?,
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                     };
-                    self.push_value(vm.ctx.new_bool(value).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                     Ok(None)
                 }
             }
@@ -7514,7 +7538,7 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::No => found,
                         bytecode::Invert::Yes => !found,
                     };
-                    self.push_value(vm.ctx.new_bool(value).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                     Ok(None)
                 } else {
                     let b = self.pop_value();
@@ -7525,7 +7549,7 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::No => self._in(vm, &a, &b)?,
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                     };
-                    self.push_value(vm.ctx.new_bool(value).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                     Ok(None)
                 }
             }
@@ -8954,6 +8978,33 @@ impl ExecutingFrame<'_> {
         self.update_lasti(|i| *i = target);
     }
 
+    /// Step over the `NOT_TAKEN` marker on a conditional jump's fall-through edge.
+    ///
+    /// The compiler plants `NOT_TAKEN` after every conditional jump purely as the
+    /// anchor `sys.monitoring` swaps for `INSTRUMENTED_NOT_TAKEN` when branch
+    /// events are on. Left alone it is a no-op, so land past it instead of
+    /// spending a whole dispatch on it. `caches` is the jump's own inline-cache
+    /// count, which the fall-through path would otherwise leave for the dispatch
+    /// loop to add.
+    ///
+    /// Skipped while tracing, where the dispatch loop is what emits per-opcode
+    /// `sys.settrace` events and every executed instruction has to be seen.
+    #[inline]
+    fn skip_fallthrough_not_taken(&mut self, vm: &VirtualMachine, caches: u32) {
+        if self.specialization_eval_frame_active(vm) {
+            return;
+        }
+        let next = self.lasti() + caches;
+        if (next as usize) < self.code.instructions.len()
+            && matches!(
+                self.code.instructions.read_op(next as usize),
+                Instruction::NotTaken
+            )
+        {
+            self.update_lasti(|i| *i = next + 1);
+        }
+    }
+
     #[inline]
     fn pop_jump_if_relative(
         &mut self,
@@ -8966,6 +9017,8 @@ impl ExecutingFrame<'_> {
         let value = obj.try_to_bool(vm)?;
         if value == flag {
             self.jump_relative_forward(u32::from(arg), caches);
+        } else {
+            self.skip_fallthrough_not_taken(vm, caches);
         }
         Ok(None)
     }
@@ -11023,31 +11076,83 @@ impl ExecutingFrame<'_> {
     /// the comparison result as a Python bool. This is the adaptive interpreter
     /// equivalent of keeping the result virtual across the two-opcode trace.
     #[inline]
-    fn try_fused_compare_int_jump(&mut self, result: bool, vm: &VirtualMachine) -> bool {
+    /// A `POP_JUMP_IF_TRUE`/`POP_JUMP_IF_FALSE` sitting immediately after the
+    /// running instruction, resolved so the boolean's producer can branch on it
+    /// without the jump being dispatched at all.
+    ///
+    /// `None` when the successor is anything else -- its instrumented form
+    /// included, so `sys.monitoring` branch events still fire -- or while
+    /// tracing, where the dispatch loop has to see every instruction to report
+    /// it.
+    fn fused_bool_jump(&self, caches: usize, vm: &VirtualMachine) -> Option<FusedBoolJump> {
         if self.specialization_eval_frame_active(vm) {
-            return false;
+            return None;
         }
 
-        let jump_idx = self.lasti() as usize + Instruction::CompareOpInt.cache_entries();
+        let jump_idx = self.lasti() as usize + caches;
         if jump_idx >= self.code.instructions.len() {
-            return false;
+            return None;
         }
 
-        let jump_op = self.code.instructions.read_op(jump_idx);
-        let jump_on = match jump_op {
+        // One Acquire load for opcode and delta together. A jump needing
+        // EXTENDED_ARG has that prefix at `jump_idx` instead, so the match
+        // rejects it and this single byte is the whole delta.
+        let jump = self.code.instructions.read_unit(jump_idx);
+        let jump_on = match jump.op {
             Instruction::PopJumpIfFalse { .. } => false,
             Instruction::PopJumpIfTrue { .. } => true,
-            _ => return false,
+            _ => return None,
         };
-        let jump_delta = self.code.instructions.read_arg(jump_idx).as_u32();
-        let after_jump = jump_idx as u32 + 1 + jump_op.cache_entries() as u32;
-        let target = if result == jump_on {
-            after_jump + jump_delta
+        debug_assert_eq!(jump.op.cache_entries(), 1);
+        let fallthrough = jump_idx as u32 + 2;
+        Some(FusedBoolJump {
+            jump_on,
+            taken: fallthrough + jump.arg.as_u32(),
+            fallthrough,
+        })
+    }
+
+    /// Land on the edge `result` selects, stepping over the fall-through
+    /// `NOT_TAKEN` marker. The marker is only probed when the branch is not
+    /// taken, keeping the taken edge to a single instruction-array read.
+    #[inline]
+    fn take_fused_bool_jump(&mut self, jump: FusedBoolJump, result: bool) {
+        let target = if result == jump.jump_on {
+            jump.taken
         } else {
-            after_jump
+            self.not_taken_skipped(jump.fallthrough)
         };
-        self.update_lasti(|i| *i = target);
-        true
+        self.lasti.store(target, Relaxed);
+    }
+
+    /// Push `result` as the running instruction's boolean output, or branch on it
+    /// directly when a `POP_JUMP_IF_*` follows. See [`Self::fused_bool_jump`].
+    #[inline]
+    fn push_bool_or_fused_jump(&mut self, caches: usize, result: bool, vm: &VirtualMachine) {
+        match self.fused_bool_jump(caches, vm) {
+            Some(jump) => self.take_fused_bool_jump(jump, result),
+            None => self.push_value(vm.ctx.new_bool(result).into()),
+        }
+    }
+
+    /// `next`, advanced past a `NOT_TAKEN` marker sitting there.
+    ///
+    /// The fused-jump paths land directly on the successor, so they step over
+    /// the marker themselves rather than going through
+    /// [`Self::skip_fallthrough_not_taken`]; the tracing guard is the caller's,
+    /// since fusion is already disabled while tracing.
+    #[inline]
+    fn not_taken_skipped(&self, next: u32) -> u32 {
+        if (next as usize) < self.code.instructions.len()
+            && matches!(
+                self.code.instructions.read_op(next as usize),
+                Instruction::NotTaken
+            )
+        {
+            next + 1
+        } else {
+            next
+        }
     }
 
     /// Recover the BinaryOperator from the instruction arg byte.
