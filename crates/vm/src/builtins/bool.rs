@@ -32,10 +32,14 @@ impl<'a> TryFromBorrowedObject<'a> for bool {
     }
 }
 
-impl PyObjectRef {
+impl PyObject {
     /// Convert Python bool into Rust bool.
+    ///
+    /// Takes `&self` rather than an owned reference so that the eval loop can
+    /// call it straight through a borrowed stack entry, without the reference
+    /// count round trip that owning the operand would cost.
     #[inline(always)]
-    pub fn try_to_bool(self, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn try_to_bool(&self, vm: &VirtualMachine) -> PyResult<bool> {
         if self.is(&vm.ctx.true_value) {
             return Ok(true);
         } else if self.is(&vm.ctx.false_value) {
@@ -47,7 +51,7 @@ impl PyObjectRef {
 
     #[cold]
     #[inline(never)]
-    fn try_to_bool_slow(self, vm: &VirtualMachine) -> PyResult<bool> {
+    fn try_to_bool_slow(&self, vm: &VirtualMachine) -> PyResult<bool> {
         let slots = &self.class().slots;
 
         // 1. Try nb_bool slot first

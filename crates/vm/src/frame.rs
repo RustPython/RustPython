@@ -4218,8 +4218,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ContainsOp { invert } => {
                 self.adaptive(|s, ii, cb| s.specialize_contains_op(vm, ii, cb));
-                let b = self.pop_value();
-                let a = self.pop_value();
+                let b = self.pop_stackref();
+                let a = self.pop_stackref();
 
                 let value = match invert.get(arg) {
                     bytecode::Invert::No => self._in(vm, &a, &b)?,
@@ -4573,9 +4573,9 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::IsOp { invert } => {
-                let b = self.pop_value();
-                let a = self.pop_value();
-                let res = a.is(&b);
+                let b = self.pop_stackref();
+                let a = self.pop_stackref();
+                let res = a.is(b.as_object());
 
                 let value = match invert.get(arg) {
                     bytecode::Invert::No => res,
@@ -5202,14 +5202,14 @@ impl ExecutingFrame<'_> {
             Instruction::PopJumpIfFalse { .. } => self.pop_jump_if_relative(vm, arg, 1, false),
             Instruction::PopJumpIfTrue { .. } => self.pop_jump_if_relative(vm, arg, 1, true),
             Instruction::PopJumpIfNone { .. } => {
-                let value = self.pop_value();
+                let value = self.pop_stackref();
                 if vm.is_none(&value) {
                     self.jump_relative_forward(u32::from(arg), 1);
                 }
                 Ok(None)
             }
             Instruction::PopJumpIfNotNone { .. } => {
-                let value = self.pop_value();
+                let value = self.pop_stackref();
                 if !vm.is_none(&value) {
                     self.jump_relative_forward(u32::from(arg), 1);
                 }
@@ -5217,17 +5217,17 @@ impl ExecutingFrame<'_> {
             }
             Instruction::PopTop => {
                 // Pop value from stack and ignore.
-                self.pop_value();
+                self.pop_stackref();
                 Ok(None)
             }
             Instruction::EndFor => {
                 // Pop the next value from stack (cleanup after loop body)
-                self.pop_value();
+                self.pop_stackref();
                 Ok(None)
             }
             Instruction::PopIter => {
                 // Pop the iterator from stack (end of for loop)
-                self.pop_value();
+                self.pop_stackref();
                 Ok(None)
             }
             Instruction::PushNull => {
@@ -5464,7 +5464,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ToBool => {
                 self.adaptive(|s, ii, cb| s.specialize_to_bool(vm, ii, cb));
-                let obj = self.pop_value();
+                let obj = self.pop_stackref();
                 let bool_val = obj.try_to_bool(vm)?;
                 self.push_value(vm.ctx.new_bool(bool_val).into());
                 Ok(None)
@@ -5631,7 +5631,7 @@ impl ExecutingFrame<'_> {
                 // Stack: (receiver, value) -> (value)
                 // Pops receiver, leaves value
                 let value = self.pop_value();
-                self.pop_value(); // discard receiver
+                self.pop_stackref(); // discard receiver
                 self.push_value(value);
                 Ok(None)
             }
@@ -5666,9 +5666,9 @@ impl ExecutingFrame<'_> {
                     // Extract value from StopIteration
                     let value = exc_ref.get_arg(0).unwrap_or_else(|| vm.ctx.none());
                     // Now pop all three
-                    self.pop_value(); // exc
-                    self.pop_value(); // last_sent_val
-                    self.pop_value(); // sub_iter
+                    self.pop_stackref(); // exc
+                    self.pop_stackref(); // last_sent_val
+                    self.pop_stackref(); // sub_iter
                     self.push_value(vm.ctx.none());
                     self.push_value(value);
                     return Ok(None);
@@ -5676,8 +5676,8 @@ impl ExecutingFrame<'_> {
 
                 // Re-raise other exceptions: pop all three and return Err(exc)
                 let exc = self.pop_value(); // exc
-                self.pop_value(); // last_sent_val
-                self.pop_value(); // sub_iter
+                self.pop_stackref(); // last_sent_val
+                self.pop_stackref(); // sub_iter
 
                 let exc = exc
                     .downcast::<PyBaseException>()
@@ -5714,9 +5714,9 @@ impl ExecutingFrame<'_> {
                     && owner.class().tp_version_tag.load(Acquire) == type_version
                     && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    let owner = self.pop_value();
+                    let owner = self.pop_stackref();
                     self.push_value(func);
-                    self.push_value(owner);
+                    self.push_stackref_opt(Some(owner));
                     Ok(None)
                 } else {
                     self.load_attr_slow(vm, oparg)
@@ -5734,9 +5734,9 @@ impl ExecutingFrame<'_> {
                     && !owner.has_instance_dict()
                     && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    let owner = self.pop_value();
+                    let owner = self.pop_stackref();
                     self.push_value(func);
-                    self.push_value(owner);
+                    self.push_stackref_opt(Some(owner));
                     Ok(None)
                 } else {
                     self.load_attr_slow(vm, oparg)
@@ -5762,9 +5762,9 @@ impl ExecutingFrame<'_> {
                         && let Some(func) =
                             self.try_read_cached_descriptor(cache_base, type_version)
                     {
-                        let owner = self.pop_value();
+                        let owner = self.pop_stackref();
                         self.push_value(func);
-                        self.push_value(owner);
+                        self.push_stackref_opt(Some(owner));
                         return Ok(None);
                     }
                 }
@@ -5784,7 +5784,7 @@ impl ExecutingFrame<'_> {
                     if let Some(dict) = owner.dict()
                         && let Some(value) = dict.get_item_opt(attr_name, vm)?
                     {
-                        self.pop_value();
+                        self.pop_stackref();
                         self.push_value(value);
                         return Ok(None);
                     }
@@ -5817,7 +5817,7 @@ impl ExecutingFrame<'_> {
                                     .write_cache_u16(cache_base + 3, new_hint);
                             }
                         }
-                        self.pop_value();
+                        self.pop_stackref();
                         if oparg.is_method() {
                             self.push_value(value);
                             self.push_value_opt(None);
@@ -5843,7 +5843,7 @@ impl ExecutingFrame<'_> {
                     && let Some(module) = owner.downcast_ref_if_exact::<PyModule>(vm)
                     && let Ok(value) = module.get_attr(attr_name, vm)
                 {
-                    self.pop_value();
+                    self.pop_stackref();
                     if oparg.is_method() {
                         self.push_value(value);
                         self.push_value_opt(None);
@@ -5865,7 +5865,7 @@ impl ExecutingFrame<'_> {
                     && owner.class().tp_version_tag.load(Acquire) == type_version
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    self.pop_value();
+                    self.pop_stackref();
                     if oparg.is_method() {
                         self.push_value(attr);
                         self.push_value_opt(None);
@@ -5887,7 +5887,7 @@ impl ExecutingFrame<'_> {
                 if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
                     // Instance dict has priority — check if attr is shadowed
                     if let Some(value) = self.shadowing_instance_attr(cache_base, attr_name, vm)? {
-                        self.pop_value();
+                        self.pop_stackref();
                         if oparg.is_method() {
                             self.push_value(value);
                             self.push_value_opt(None);
@@ -5901,7 +5901,7 @@ impl ExecutingFrame<'_> {
                     else {
                         return self.load_attr_slow(vm, oparg);
                     };
-                    self.pop_value();
+                    self.pop_stackref();
                     if oparg.is_method() {
                         self.push_value(attr);
                         self.push_value_opt(None);
@@ -5924,7 +5924,7 @@ impl ExecutingFrame<'_> {
                     && owner_type.tp_version_tag.load(Acquire) == type_version
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    self.pop_value();
+                    self.pop_stackref();
                     if oparg.is_method() {
                         self.push_value(attr);
                         self.push_value_opt(None);
@@ -5950,7 +5950,7 @@ impl ExecutingFrame<'_> {
                     && owner.class().tp_version_tag.load(Acquire) == metaclass_version
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    self.pop_value();
+                    self.pop_stackref();
                     if oparg.is_method() {
                         self.push_value(attr);
                         self.push_value_opt(None);
@@ -6000,7 +6000,7 @@ impl ExecutingFrame<'_> {
                     let slot_offset =
                         self.code.instructions.read_cache_u32(cache_base + 3) as usize;
                     if let Some(value) = owner.get_slot(slot_offset) {
-                        self.pop_value();
+                        self.pop_stackref();
                         if oparg.is_method() {
                             self.push_value(value);
                             self.push_value_opt(None);
@@ -6048,7 +6048,7 @@ impl ExecutingFrame<'_> {
                     && owner.class().tp_version_tag.load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
                 {
-                    self.pop_value(); // owner
+                    self.pop_stackref(); // owner
                     let value = self.pop_value();
                     // The key was absent at specialization time, but this
                     // very store inserts it; hint learning makes later
@@ -6070,7 +6070,7 @@ impl ExecutingFrame<'_> {
                     && owner.class().tp_version_tag.load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
                 {
-                    self.pop_value(); // owner
+                    self.pop_stackref(); // owner
                     let value = self.pop_value();
                     self.store_attr_dict_hinted(&dict, attr_name, value, cache_base, vm)?;
                     return Ok(None);
@@ -6099,8 +6099,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::StoreSubscrListInt => {
                 // Stack: [value, obj, idx] (TOS=idx, TOS1=obj, TOS2=value)
-                let idx = self.pop_value();
-                let obj = self.pop_value();
+                let idx = self.pop_stackref();
+                let obj = self.pop_stackref();
                 let value = self.pop_value();
                 if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm)
                     && let Some(int_idx) = idx.downcast_ref_if_exact::<PyInt>(vm)
@@ -6112,19 +6112,19 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                obj.set_item(&*idx, value, vm)?;
+                obj.set_item(idx.as_object(), value, vm)?;
                 Ok(None)
             }
             Instruction::StoreSubscrDict => {
                 // Stack: [value, obj, idx] (TOS=idx, TOS1=obj, TOS2=value)
-                let idx = self.pop_value();
-                let obj = self.pop_value();
+                let idx = self.pop_stackref();
+                let obj = self.pop_stackref();
                 let value = self.pop_value();
                 if let Some(dict) = obj.downcast_ref_if_exact::<PyDict>(vm) {
-                    dict.set_item(&*idx, value, vm)?;
+                    dict.set_item(idx.as_object(), value, vm)?;
                     Ok(None)
                 } else {
-                    obj.set_item(&*idx, value, vm)?;
+                    obj.set_item(idx.as_object(), value, vm)?;
                     Ok(None)
                 }
             }
@@ -6194,8 +6194,8 @@ impl ExecutingFrame<'_> {
                     && (descr.guard)(a, b, vm)
                     && let Some(result) = (descr.action)(a, b, vm)
                 {
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     self.push_value(result);
                     Ok(None)
                 } else {
@@ -6214,8 +6214,8 @@ impl ExecutingFrame<'_> {
                     if i < vec.len() {
                         let value = vec.do_get(i);
                         drop(vec);
-                        self.pop_value();
-                        self.pop_value();
+                        self.pop_stackref();
+                        self.pop_stackref();
                         self.push_value(value);
                         return Ok(None);
                     }
@@ -6233,8 +6233,8 @@ impl ExecutingFrame<'_> {
                     let elements = tuple.as_slice();
                     if i < elements.len() {
                         let value = elements[i].clone();
-                        self.pop_value();
-                        self.pop_value();
+                        self.pop_stackref();
+                        self.pop_stackref();
                         self.push_value(value);
                         return Ok(None);
                     }
@@ -6247,14 +6247,14 @@ impl ExecutingFrame<'_> {
                 if let Some(dict) = a.downcast_ref_if_exact::<PyDict>(vm) {
                     match dict.get_item_opt(b, vm) {
                         Ok(Some(value)) => {
-                            self.pop_value();
-                            self.pop_value();
+                            self.pop_stackref();
+                            self.pop_stackref();
                             self.push_value(value);
                             return Ok(None);
                         }
                         Ok(None) => {
                             let key = self.pop_value();
-                            self.pop_value();
+                            self.pop_stackref();
                             return Err(vm.new_key_error(key));
                         }
                         Err(e) => {
@@ -6275,8 +6275,8 @@ impl ExecutingFrame<'_> {
                     && ch.is_ascii()
                 {
                     let ascii_idx = ch.to_u32() as usize;
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     self.push_value(vm.ctx.ascii_char_cache[ascii_idx].clone().into());
                     return Ok(None);
                 }
@@ -6410,8 +6410,8 @@ impl ExecutingFrame<'_> {
                         {
                             *slot = Some(arg);
                         }
-                        self.pop_value_opt(); // null (self_or_null)
-                        self.pop_value(); // callable (bound method)
+                        self.pop_stackref_opt(); // null (self_or_null)
+                        self.pop_stackref(); // callable (bound method)
                         args[0] = Some(bound_self);
                         let result = func.invoke_exact_args_slots(args, vm)?;
                         self.push_value(result);
@@ -6466,12 +6466,12 @@ impl ExecutingFrame<'_> {
                         let cls = self.pop_value();
                         let inst = if nargs == 2 {
                             let inst = self.pop_value();
-                            self.pop_value_opt(); // null
+                            self.pop_stackref_opt(); // null
                             inst
                         } else {
                             self.pop_value() // self_or_null holds the instance
                         };
-                        self.pop_value(); // callable
+                        self.pop_stackref(); // callable
                         let result = inst.is_instance(&cls, vm)?;
                         self.push_value(vm.ctx.new_bool(result).into());
                         return Ok(None);
@@ -6653,8 +6653,8 @@ impl ExecutingFrame<'_> {
                         let mut args_vec = Vec::with_capacity(nargs_usize + 1);
                         args_vec.push(bound_self);
                         args_vec.extend(self.pop_multiple(nargs_usize));
-                        self.pop_value_opt(); // null (self_or_null)
-                        self.pop_value(); // callable (bound method)
+                        self.pop_stackref_opt(); // null (self_or_null)
+                        self.pop_stackref(); // callable (bound method)
                         let result = vectorcall_function(
                             &bound_function,
                             args_vec,
@@ -7075,8 +7075,8 @@ impl ExecutingFrame<'_> {
                             .expect("kwarg names should be tuple");
                         let kw_count = kwarg_names_tuple.len();
                         let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        self.pop_value_opt(); // null (self_or_null)
-                        self.pop_value(); // callable (bound method)
+                        self.pop_stackref_opt(); // null (self_or_null)
+                        self.pop_stackref(); // callable (bound method)
                         let pos_count = nargs_usize - kw_count;
                         let mut args_vec = Vec::with_capacity(nargs_usize + 1);
                         args_vec.push(bound_self);
@@ -7179,9 +7179,9 @@ impl ExecutingFrame<'_> {
                         }
                     }
                     if let Some(attr) = found {
-                        self.pop_value(); // self
-                        self.pop_value(); // class
-                        self.pop_value(); // super
+                        self.pop_stackref(); // self
+                        self.pop_stackref(); // class
+                        self.pop_stackref(); // super
                         self.push_value(attr);
                         return Ok(None);
                     }
@@ -7241,9 +7241,9 @@ impl ExecutingFrame<'_> {
                         }
                     }
                     if let Some((attr, is_method)) = found {
-                        self.pop_value(); // self
-                        self.pop_value(); // class
-                        self.pop_value(); // super
+                        self.pop_stackref(); // self
+                        self.pop_stackref(); // class
+                        self.pop_stackref(); // super
                         self.push_value(attr);
                         if is_method {
                             self.push_value(self_val);
@@ -7292,8 +7292,8 @@ impl ExecutingFrame<'_> {
                         Some(ord) => op.eval_ord(ord),
                         None => op == PyComparisonOp::Ne, // NaN != anything is true
                     };
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
@@ -7315,8 +7315,8 @@ impl ExecutingFrame<'_> {
                     else {
                         return self.execute_compare(vm, arg);
                     };
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
@@ -7329,7 +7329,7 @@ impl ExecutingFrame<'_> {
                     // Already a bool, no-op
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
@@ -7339,11 +7339,11 @@ impl ExecutingFrame<'_> {
                 let obj = self.top_value();
                 if let Some(int_val) = obj.downcast_ref_if_exact::<PyInt>(vm) {
                     let result = !int_val.as_bigint().is_zero();
-                    self.pop_value();
+                    self.pop_stackref();
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
@@ -7352,11 +7352,11 @@ impl ExecutingFrame<'_> {
             Instruction::ToBoolNone => {
                 let obj = self.top_value();
                 if obj.class().is(vm.ctx.types.none_type) {
-                    self.pop_value();
+                    self.pop_stackref();
                     self.push_value(vm.ctx.new_bool(false).into());
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
@@ -7366,11 +7366,11 @@ impl ExecutingFrame<'_> {
                 let obj = self.top_value();
                 if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
                     let result = !list.borrow_vec().is_empty();
-                    self.pop_value();
+                    self.pop_stackref();
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
@@ -7380,11 +7380,11 @@ impl ExecutingFrame<'_> {
                 let obj = self.top_value();
                 if let Some(s) = obj.downcast_ref_if_exact::<PyStr>(vm) {
                     let result = !s.is_empty();
-                    self.pop_value();
+                    self.pop_stackref();
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
@@ -7399,11 +7399,11 @@ impl ExecutingFrame<'_> {
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 if cached_version != 0 && obj.class().tp_version_tag.load(Acquire) == cached_version
                 {
-                    self.pop_value();
+                    self.pop_stackref();
                     self.push_value(vm.ctx.new_bool(true).into());
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
                     self.push_value(vm.ctx.new_bool(result).into());
                     Ok(None)
@@ -7414,8 +7414,8 @@ impl ExecutingFrame<'_> {
                 if let Some(dict) = b.downcast_ref_if_exact::<PyDict>(vm) {
                     let a = self.nth_value(1); // needle
                     let found = dict.get_item_opt(a, vm)?.is_some();
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
                         .unwrap_or(bytecode::Invert::No);
                     let value = match invert {
@@ -7444,8 +7444,8 @@ impl ExecutingFrame<'_> {
                 {
                     let a = self.nth_value(1); // needle
                     let found = vm._contains(b, a)?;
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
                         .unwrap_or(bytecode::Invert::No);
                     let value = match invert {
@@ -7474,7 +7474,7 @@ impl ExecutingFrame<'_> {
                     if elements.len() == 2 {
                         let e0 = elements[0].clone();
                         let e1 = elements[1].clone();
-                        self.pop_value();
+                        self.pop_stackref();
                         self.push_value(e1);
                         self.push_value(e0);
                         return Ok(None);
@@ -7490,7 +7490,7 @@ impl ExecutingFrame<'_> {
                     let elements = tuple.as_slice();
                     if elements.len() == size {
                         let elems: Vec<_> = elements.to_vec();
-                        self.pop_value();
+                        self.pop_stackref();
                         for elem in elems.into_iter().rev() {
                             self.push_value(elem);
                         }
@@ -7507,7 +7507,7 @@ impl ExecutingFrame<'_> {
                     if vec.len() == size {
                         let elems: Vec<_> = vec.to_vec();
                         drop(vec);
-                        self.pop_value();
+                        self.pop_stackref();
                         for elem in elems.into_iter().rev() {
                             self.push_value(elem);
                         }
@@ -7936,7 +7936,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedPopIter => {
                 // BRANCH_RIGHT is fired by InstrumentedForIter, not here.
-                self.pop_value();
+                self.pop_stackref();
                 Ok(None)
             }
             Instruction::InstrumentedEndAsyncFor => {
@@ -8336,17 +8336,17 @@ impl ExecutingFrame<'_> {
     }
 
     fn execute_store_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
-        let idx = self.pop_value();
-        let obj = self.pop_value();
+        let idx = self.pop_stackref();
+        let obj = self.pop_stackref();
         let value = self.pop_value();
-        obj.set_item(&*idx, value, vm)?;
+        obj.set_item(idx.as_object(), value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
-        let idx = self.pop_value();
-        let obj = self.pop_value();
-        obj.del_item(&*idx, vm)?;
+        let idx = self.pop_stackref();
+        let obj = self.pop_stackref();
+        obj.del_item(idx.as_object(), vm)?;
         Ok(None)
     }
 
@@ -8885,7 +8885,7 @@ impl ExecutingFrame<'_> {
         caches: u32,
         flag: bool,
     ) -> FrameResult {
-        let obj = self.pop_value();
+        let obj = self.pop_stackref();
         let value = obj.try_to_bool(vm)?;
         if value == flag {
             self.jump_relative_forward(u32::from(arg), caches);
@@ -8935,7 +8935,7 @@ impl ExecutingFrame<'_> {
                 Ok(false)
             }
             Err(next_error) => {
-                self.pop_value();
+                self.pop_stackref();
                 Err(next_error)
             }
         }
@@ -8999,8 +8999,9 @@ impl ExecutingFrame<'_> {
 
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn execute_bin_op(&mut self, vm: &VirtualMachine, op: bytecode::BinaryOperator) -> FrameResult {
-        let b_ref = &self.pop_value();
-        let a_ref = &self.pop_value();
+        let b = self.pop_stackref();
+        let a = self.pop_stackref();
+        let (a_ref, b_ref) = (a.as_object(), b.as_object());
         let value = match op {
             // Exact-int fast paths for +, -, *, //, %: bypass binary_op1
             // dispatch and use i64 arithmetic when possible to avoid BigInt
@@ -9215,7 +9216,7 @@ impl ExecutingFrame<'_> {
 
     /// _PyEval_UnpackIterableStackRef
     fn unpack_sequence(&mut self, size: u32, vm: &VirtualMachine) -> FrameResult {
-        let value = self.pop_value();
+        let value = self.pop_stackref();
         let size = size as usize;
 
         // Fast path for exact tuple/list types (not subclasses) — push
@@ -9238,7 +9239,7 @@ impl ExecutingFrame<'_> {
             && value
                 .get_class_attr(vm.ctx.intern_str("__getitem__"))
                 .is_none();
-        let iter = PyIter::try_from_object(vm, value.clone()).map_err(|e| {
+        let iter = PyIter::try_from_object(vm, value.as_object().to_owned()).map_err(|e| {
             if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
                 vm.new_type_error(format!(
                     "cannot unpack non-iterable {} object",
@@ -9356,8 +9357,8 @@ impl ExecutingFrame<'_> {
     fn execute_compare(&mut self, vm: &VirtualMachine, arg: bytecode::OpArg) -> FrameResult {
         let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
             .unwrap_or(bytecode::ComparisonOperator::Equal);
-        let b = self.pop_value();
-        let a = self.pop_value();
+        let b = self.pop_stackref();
+        let a = self.pop_stackref();
         let cmp_op: PyComparisonOp = op.into();
         let force_bool = u32::from(arg) & bytecode::oparg::COMPARE_OP_BOOL_MASK != 0;
 
@@ -9382,7 +9383,7 @@ impl ExecutingFrame<'_> {
             return Ok(None);
         }
 
-        let value = a.rich_compare(b, cmp_op, vm)?;
+        let value = a.rich_compare(b.as_object(), cmp_op, vm)?;
         let value = if force_bool {
             let bool_val = value.try_to_bool(vm)?;
             vm.ctx.new_bool(bool_val).into()
@@ -9962,25 +9963,28 @@ impl ExecutingFrame<'_> {
 
     fn load_attr_slow(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
         let attr_name = self.code.names[oparg.name_idx() as usize];
-        let parent = self.pop_value();
 
-        if oparg.is_method() {
-            // Method call: push [method, self_or_null]
-            let method = PyMethod::get(parent.clone(), attr_name, vm)?;
-            match method {
-                PyMethod::Function { target: _, func } => {
-                    self.push_value(func);
-                    self.push_value(parent);
-                }
-                PyMethod::Attribute(val) => {
-                    self.push_value(val);
-                    self.push_null();
-                }
-            }
-        } else {
-            // Regular attribute access
+        if !oparg.is_method() {
+            // Regular attribute access: `get_attr` reads through the receiver,
+            // so a borrowed entry never has to become an owned one.
+            let parent = self.pop_stackref();
             let obj = parent.get_attr(attr_name, vm)?;
             self.push_value(obj);
+            return Ok(None);
+        }
+
+        // Method call: push [method, self_or_null]. `PyMethod::get` binds the
+        // receiver, so this path does need it owned.
+        let parent = self.pop_value();
+        match PyMethod::get(parent.clone(), attr_name, vm)? {
+            PyMethod::Function { target: _, func } => {
+                self.push_value(func);
+                self.push_value(parent);
+            }
+            PyMethod::Attribute(val) => {
+                self.push_value(val);
+                self.push_null();
+            }
         }
         Ok(None)
     }
@@ -10321,8 +10325,8 @@ impl ExecutingFrame<'_> {
             b.downcast_ref_if_exact::<PyFloat>(vm),
         ) {
             let result = op(a_f.to_f64(), b_f.to_f64());
-            self.pop_value();
-            self.pop_value();
+            self.pop_stackref();
+            self.pop_stackref();
             self.push_value(vm.ctx.new_float(result).into());
             Ok(None)
         } else {
@@ -11221,8 +11225,8 @@ impl ExecutingFrame<'_> {
         {
             *dst = Some(arg);
         }
-        self.pop_value_opt(); // null (self_or_null)
-        self.pop_value(); // callable (bound method)
+        self.pop_stackref_opt(); // null (self_or_null)
+        self.pop_stackref(); // callable (bound method)
         fastlocals[0] = Some(bound_self);
 
         // The function owns every field borrowed by the callee frame.
@@ -11595,7 +11599,7 @@ impl ExecutingFrame<'_> {
 
     fn store_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
         let attr_name = self.code.names[attr as usize];
-        let parent = self.pop_value();
+        let parent = self.pop_stackref();
         let value = self.pop_value();
         parent.set_attr(attr_name, value, vm)?;
         Ok(None)
@@ -11603,7 +11607,7 @@ impl ExecutingFrame<'_> {
 
     fn delete_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
         let attr_name = self.code.names[attr as usize];
-        let parent = self.pop_value();
+        let parent = self.pop_stackref();
         parent.del_attr(attr_name, vm)?;
         Ok(None)
     }
