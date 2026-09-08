@@ -24,15 +24,15 @@ pub(crate) use _elementtree::module_def;
 #[pymodule(name = "_elementtree")]
 pub(crate) mod _elementtree {
     use crate::vm::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        atomic_func,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine, atomic_func,
         builtins::{PyDict, PyDictRef, PyList, PyModule, PyStr, PyType, PyTypeRef},
         function::{FuncArgs, OptionalArg, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
         sliceable::{SequenceIndex, SliceableSequenceOp},
         types::{
-            AsMapping, AsNumber, AsSequence, Constructor, Initializer, IterNext, Iterable,
-            Representable, SelfIter,
+            AsMapping, AsNumber, AsSequence, Constructor, DefaultConstructor, Initializer,
+            IterNext, Iterable, Representable, SelfIter,
         },
     };
     use rustpython_common::lock::PyRwLock;
@@ -52,6 +52,7 @@ pub(crate) mod _elementtree {
         pi_factory: PyRwLock<Option<PyObjectRef>>,
         element_path: PyRwLock<Option<PyObjectRef>>,
         deepcopy: PyRwLock<Option<PyObjectRef>>,
+        parse_error: PyRwLock<Option<PyTypeRef>>,
     }
 
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
@@ -106,6 +107,7 @@ pub(crate) mod _elementtree {
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         __module_exec(vm, module);
         let state = ElementTreeState::default().into_ref(&vm.ctx);
+        *state.parse_error.write() = module.get_attr("ParseError", vm)?.downcast::<PyType>().ok();
         module.set_attr("_state", state, vm)?;
         Ok(())
     }
@@ -1236,6 +1238,1122 @@ pub(crate) mod _elementtree {
         let element = create_element(parent.class().to_owned(), tag, attrib, vm)?;
         parent.push(element.clone());
         Ok(element)
+    }
+
+    // -----------------------------------------------------------------
+    // TreeBuilder
+    // -----------------------------------------------------------------
+
+    #[derive(Debug, Default)]
+    struct TreeBuilderState {
+        /// First element created; what `close()` hands back.
+        root: Option<PyObjectRef>,
+        /// Element currently open (`None` == CPython's `Py_None`).
+        this: Option<PyObjectRef>,
+        /// Most recently created element.
+        last: Option<PyObjectRef>,
+        /// Most recently *closed* node, i.e. the one character data now
+        /// belongs to as a tail rather than as text.
+        last_for_tail: Option<PyObjectRef>,
+        /// Character data seen since the last flush: a single string while
+        /// there is only one fragment, a list once there are more.
+        data: Option<PyObjectRef>,
+        stack: Vec<Option<PyObjectRef>>,
+        element_factory: Option<PyObjectRef>,
+        comment_factory: Option<PyObjectRef>,
+        pi_factory: Option<PyObjectRef>,
+        /// `.append` of the XMLPullParser event queue, once `_setevents`
+        /// has wired this builder up for event reporting.
+        events_append: Option<PyObjectRef>,
+        start_event: Option<PyObjectRef>,
+        end_event: Option<PyObjectRef>,
+        start_ns_event: Option<PyObjectRef>,
+        end_ns_event: Option<PyObjectRef>,
+        comment_event: Option<PyObjectRef>,
+        pi_event: Option<PyObjectRef>,
+        insert_comments: bool,
+        insert_pis: bool,
+    }
+
+    #[pyattr]
+    #[pyclass(
+        module = "xml.etree.ElementTree",
+        name = "TreeBuilder",
+        traverse = "manual"
+    )]
+    #[derive(Debug, PyPayload)]
+    pub(crate) struct PyTreeBuilder {
+        state: PyRwLock<TreeBuilderState>,
+    }
+
+    // SAFETY: every owned PyObjectRef held by the builder is visited.
+    unsafe impl crate::vm::object::Traverse for PyTreeBuilder {
+        fn traverse(&self, traverse_fn: &mut crate::vm::object::TraverseFn<'_>) {
+            let Some(st) = self.state.try_read() else {
+                return;
+            };
+            st.root.traverse(traverse_fn);
+            st.this.traverse(traverse_fn);
+            st.last.traverse(traverse_fn);
+            st.last_for_tail.traverse(traverse_fn);
+            st.data.traverse(traverse_fn);
+            st.stack.traverse(traverse_fn);
+            st.element_factory.traverse(traverse_fn);
+            st.comment_factory.traverse(traverse_fn);
+            st.pi_factory.traverse(traverse_fn);
+            st.events_append.traverse(traverse_fn);
+            st.start_event.traverse(traverse_fn);
+            st.end_event.traverse(traverse_fn);
+            st.start_ns_event.traverse(traverse_fn);
+            st.end_ns_event.traverse(traverse_fn);
+            st.comment_event.traverse(traverse_fn);
+            st.pi_event.traverse(traverse_fn);
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            let Some(mut st) = self.state.try_write() else {
+                return;
+            };
+            out.extend(st.stack.drain(..).flatten());
+            out.extend(
+                [
+                    st.root.take(),
+                    st.this.take(),
+                    st.last.take(),
+                    st.last_for_tail.take(),
+                    st.data.take(),
+                    st.element_factory.take(),
+                    st.comment_factory.take(),
+                    st.pi_factory.take(),
+                    st.events_append.take(),
+                    st.start_event.take(),
+                    st.end_event.take(),
+                    st.start_ns_event.take(),
+                    st.end_ns_event.take(),
+                    st.comment_event.take(),
+                    st.pi_event.take(),
+                ]
+                .into_iter()
+                .flatten(),
+            );
+        }
+    }
+
+    #[derive(FromArgs)]
+    pub(crate) struct TreeBuilderArgs {
+        #[pyarg(any, default)]
+        element_factory: Option<PyObjectRef>,
+        #[pyarg(named, default)]
+        comment_factory: Option<PyObjectRef>,
+        #[pyarg(named, default)]
+        pi_factory: Option<PyObjectRef>,
+        #[pyarg(named, default = false)]
+        insert_comments: bool,
+        #[pyarg(named, default = false)]
+        insert_pis: bool,
+    }
+
+    impl DefaultConstructor for PyTreeBuilder {}
+
+    impl Default for PyTreeBuilder {
+        fn default() -> Self {
+            Self {
+                state: PyRwLock::new(TreeBuilderState::default()),
+            }
+        }
+    }
+
+    impl Initializer for PyTreeBuilder {
+        type Args = TreeBuilderArgs;
+
+        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let module = module_state(vm)?;
+            let element_factory = args.element_factory.filter(|f| !vm.is_none(f));
+            let comment_factory = match args.comment_factory {
+                Some(f) if !vm.is_none(&f) => Some(f),
+                // A `None` comment_factory means "use whatever
+                // `_set_factories` installed", not "no factory".
+                _ => module.comment_factory.read().clone(),
+            };
+            let pi_factory = match args.pi_factory {
+                Some(f) if !vm.is_none(&f) => Some(f),
+                _ => module.pi_factory.read().clone(),
+            };
+            let _recycle = {
+                let mut st = zelf.state.write();
+                st.insert_comments = comment_factory.is_some() && args.insert_comments;
+                st.insert_pis = pi_factory.is_some() && args.insert_pis;
+                (
+                    core::mem::replace(&mut st.element_factory, element_factory),
+                    core::mem::replace(&mut st.comment_factory, comment_factory),
+                    core::mem::replace(&mut st.pi_factory, pi_factory),
+                )
+            };
+            Ok(())
+        }
+    }
+
+    /// Append `child` to `element`, taking the direct route when the parent
+    /// really is one of our elements and falling back to `.append()` for
+    /// subclasses and foreign targets.
+    fn tb_add_subelement(
+        element: &PyObject,
+        child: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if element.class().is(PyElement::class(&vm.ctx)) {
+            check_element(&child, vm)?;
+            element.downcast_ref::<PyElement>().unwrap().push(child);
+            Ok(())
+        } else {
+            vm.call_method(element, "append", (child,))?;
+            Ok(())
+        }
+    }
+
+    /// Attach the buffered character data to `element` as its text or tail.
+    fn extend_text_or_tail(
+        element: &PyObject,
+        data: PyObjectRef,
+        is_tail: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if element.class().is(PyElement::class(&vm.ctx)) {
+            let elem = element.downcast_ref::<PyElement>().unwrap();
+            enum Fast {
+                Done,
+                Pending(PyObjectRef),
+                Slow,
+            }
+            let outcome = {
+                let mut inner = elem.inner.write();
+                let slot = if is_tail {
+                    &mut inner.tail
+                } else {
+                    &mut inner.text
+                };
+                if vm.is_none(&slot.obj) {
+                    // Nothing there yet: adopt the fragment (or fragment
+                    // list) as-is and let the join happen on first read.
+                    let pending = data.downcastable::<PyList>();
+                    slot.obj = data.clone();
+                    slot.pending = pending;
+                    Fast::Done
+                } else if slot.pending {
+                    Fast::Pending(slot.obj.clone())
+                } else {
+                    Fast::Slow
+                }
+            };
+            match outcome {
+                Fast::Done => return Ok(()),
+                Fast::Pending(list) => {
+                    let list = list
+                        .downcast::<PyList>()
+                        .map_err(|_| vm.new_type_error("internal error (text)"))?;
+                    if let Some(more) = data.downcast_ref::<PyList>() {
+                        let items = more.borrow_vec().to_vec();
+                        list.borrow_vec_mut().extend(items);
+                    } else {
+                        list.borrow_vec_mut().push(data);
+                    }
+                    return Ok(());
+                }
+                Fast::Slow => {}
+            }
+        }
+        let name = if is_tail { "tail" } else { "text" };
+        let previous = element.get_attr(name, vm)?;
+        let joined = list_join(&data, vm)?;
+        let joined = if vm.is_none(&previous) {
+            joined
+        } else {
+            vm._add(&previous, &joined)?
+        };
+        element.set_attr(name, joined, vm)?;
+        Ok(())
+    }
+
+    impl PyTreeBuilder {
+        fn append_event(
+            &self,
+            action: Option<PyObjectRef>,
+            node: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let Some(action) = action else { return Ok(()) };
+            let append = self.state.read().events_append.clone();
+            let Some(append) = append else { return Ok(()) };
+            let event = vm.ctx.new_tuple(vec![action, node]);
+            append.call((event,), vm)?;
+            Ok(())
+        }
+
+        fn flush_data(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let Some((data, target, is_tail)) = ({
+                let mut st = self.state.write();
+                match st.data.take() {
+                    None => None,
+                    Some(data) => match st.last_for_tail.clone() {
+                        Some(target) => Some((data, target, true)),
+                        None => st.last.clone().map(|target| (data, target, false)),
+                    },
+                }
+            }) else {
+                return Ok(());
+            };
+            extend_text_or_tail(&target, data, is_tail, vm)
+        }
+
+        pub(crate) fn handle_start(
+            &self,
+            tag: PyObjectRef,
+            attrib: Option<PyDictRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            self.flush_data(vm)?;
+            let factory = self.state.read().element_factory.clone();
+            let node = match factory {
+                None => create_element(
+                    PyElement::class(&vm.ctx).to_owned(),
+                    tag,
+                    attrib.map(|d| d.copy().into_ref(&vm.ctx)),
+                    vm,
+                )?,
+                Some(factory) => {
+                    let attrib = attrib.unwrap_or_else(|| vm.ctx.new_dict());
+                    factory.call((tag, attrib), vm)?
+                }
+            };
+            let this = {
+                let mut st = self.state.write();
+                st.last_for_tail = None;
+                st.this.clone()
+            };
+            match &this {
+                Some(this) => tb_add_subelement(this, node.clone(), vm)?,
+                None => {
+                    let mut st = self.state.write();
+                    if st.root.is_some() {
+                        drop(st);
+                        return Err(new_parse_error(
+                            "multiple elements on top level",
+                            None,
+                            None,
+                            vm,
+                        )?);
+                    }
+                    st.root = Some(node.clone());
+                }
+            }
+            let start_event = {
+                let mut st = self.state.write();
+                st.stack.push(this);
+                st.this = Some(node.clone());
+                st.last = Some(node.clone());
+                st.start_event.clone()
+            };
+            self.append_event(start_event, node.clone(), vm)?;
+            Ok(node)
+        }
+
+        pub(crate) fn handle_data(&self, data: PyObjectRef, vm: &VirtualMachine) {
+            let existing = {
+                let mut st = self.state.write();
+                match st.data.take() {
+                    None => {
+                        if st.last.is_none() {
+                            // Data before the first start tag is dropped.
+                            return;
+                        }
+                        st.data = Some(data);
+                        return;
+                    }
+                    Some(existing) => existing,
+                }
+            };
+            // Growing the fragment list touches only the list's own lock.
+            if let Some(list) = existing.downcast_ref::<PyList>() {
+                list.borrow_vec_mut().push(data);
+                self.state.write().data = Some(existing);
+            } else {
+                let list = vm.ctx.new_list(vec![existing, data]);
+                self.state.write().data = Some(list.into());
+            }
+        }
+
+        pub(crate) fn handle_end(&self, vm: &VirtualMachine) -> PyResult {
+            self.flush_data(vm)?;
+            let (last, end_event) = {
+                let mut st = self.state.write();
+                let Some(parent) = st.stack.pop() else {
+                    return Err(vm.new_index_error("pop from empty stack"));
+                };
+                let closed = st.this.take();
+                st.last.clone_from(&closed);
+                st.last_for_tail.clone_from(&closed);
+                st.this = parent;
+                (closed, st.end_event.clone())
+            };
+            let last = last.unwrap_or_else(|| vm.ctx.none());
+            self.append_event(end_event, last.clone(), vm)?;
+            Ok(last)
+        }
+
+        pub(crate) fn handle_comment(&self, text: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            self.flush_data(vm)?;
+            let factory = self.state.read().comment_factory.clone();
+            let comment = match factory {
+                Some(factory) => {
+                    let comment = factory.call((text,), vm)?;
+                    let (insert, this) = {
+                        let st = self.state.read();
+                        (st.insert_comments, st.this.clone())
+                    };
+                    if insert && let Some(this) = this {
+                        tb_add_subelement(&this, comment.clone(), vm)?;
+                        self.state.write().last_for_tail = Some(comment.clone());
+                    }
+                    comment
+                }
+                None => text,
+            };
+            let event = self.state.read().comment_event.clone();
+            self.append_event(event, comment.clone(), vm)?;
+            Ok(comment)
+        }
+
+        pub(crate) fn handle_pi(
+            &self,
+            target: PyObjectRef,
+            text: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            self.flush_data(vm)?;
+            let factory = self.state.read().pi_factory.clone();
+            let pi = match factory {
+                Some(factory) => {
+                    let pi = factory.call((target, text), vm)?;
+                    let (insert, this) = {
+                        let st = self.state.read();
+                        (st.insert_pis, st.this.clone())
+                    };
+                    if insert && let Some(this) = this {
+                        tb_add_subelement(&this, pi.clone(), vm)?;
+                        self.state.write().last_for_tail = Some(pi.clone());
+                    }
+                    pi
+                }
+                None => vm.ctx.new_tuple(vec![target, text]).into(),
+            };
+            let event = self.state.read().pi_event.clone();
+            self.append_event(event, pi.clone(), vm)?;
+            Ok(pi)
+        }
+
+        pub(crate) fn handle_start_ns(
+            &self,
+            prefix: PyObjectRef,
+            uri: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let event = self.state.read().start_ns_event.clone();
+            if event.is_none() {
+                return Ok(());
+            }
+            let parcel = vm.ctx.new_tuple(vec![prefix, uri]);
+            self.append_event(event, parcel.into(), vm)
+        }
+
+        pub(crate) fn handle_end_ns(
+            &self,
+            prefix: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let event = self.state.read().end_ns_event.clone();
+            if event.is_none() {
+                return Ok(());
+            }
+            self.append_event(event, prefix, vm)
+        }
+
+        fn done(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.state
+                .read()
+                .root
+                .clone()
+                .unwrap_or_else(|| vm.ctx.none())
+        }
+
+        fn set_events(
+            &self,
+            events_append: PyObjectRef,
+            events_to_report: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            {
+                let mut st = self.state.write();
+                st.events_append = Some(events_append);
+                st.start_event = None;
+                st.end_event = None;
+                st.start_ns_event = None;
+                st.end_ns_event = None;
+                st.comment_event = None;
+                st.pi_event = None;
+                if vm.is_none(&events_to_report) {
+                    st.end_event = Some(vm.ctx.new_str("end").into());
+                    return Ok(());
+                }
+            }
+            let events: Vec<PyObjectRef> = events_to_report
+                .try_to_value(vm)
+                .map_err(|_| vm.new_type_error("events must be a sequence"))?;
+            for event in events {
+                let name = if let Some(s) = event.downcast_ref::<PyStr>() {
+                    s.as_bytes().to_vec()
+                } else if let Some(b) = event.downcast_ref::<crate::vm::builtins::PyBytes>() {
+                    b.as_bytes().to_vec()
+                } else {
+                    return Err(vm.new_value_error("invalid events sequence"));
+                };
+                let mut st = self.state.write();
+                match name.as_slice() {
+                    b"start" => st.start_event = Some(event),
+                    b"end" => st.end_event = Some(event),
+                    b"start-ns" => st.start_ns_event = Some(event),
+                    b"end-ns" => st.end_ns_event = Some(event),
+                    b"comment" => st.comment_event = Some(event),
+                    b"pi" => st.pi_event = Some(event),
+                    _ => {
+                        drop(st);
+                        return Err(
+                            vm.new_value_error(format!("unknown event {}", event.repr(vm)?))
+                        );
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        fn wants_pi(&self) -> bool {
+            let st = self.state.read();
+            st.insert_pis || (st.events_append.is_some() && st.pi_event.is_some())
+        }
+    }
+
+    #[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_WEAKREF))]
+    impl PyTreeBuilder {
+        #[pymethod]
+        fn start(&self, tag: PyObjectRef, attrs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let attrs = attrs.downcast::<PyDict>().map_err(|obj| {
+                vm.new_type_error(format!(
+                    "start() argument 2 must be dict, not {}",
+                    obj.class().name()
+                ))
+            })?;
+            self.handle_start(tag, Some(attrs), vm)
+        }
+
+        #[pymethod]
+        fn data(&self, data: PyObjectRef, vm: &VirtualMachine) {
+            self.handle_data(data, vm);
+        }
+
+        #[pymethod]
+        fn end(&self, _tag: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            self.handle_end(vm)
+        }
+
+        #[pymethod]
+        fn comment(&self, text: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            self.handle_comment(text, vm)
+        }
+
+        #[pymethod]
+        fn pi(
+            &self,
+            target: PyObjectRef,
+            text: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            self.handle_pi(target, text.unwrap_or_none(vm), vm)
+        }
+
+        #[pymethod]
+        fn close(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.done(vm)
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // XMLParser
+    // -----------------------------------------------------------------
+
+    fn new_parse_error(
+        message: &str,
+        code: Option<i32>,
+        position: Option<(i64, i64)>,
+        vm: &VirtualMachine,
+    ) -> PyResult<crate::vm::builtins::PyBaseExceptionRef> {
+        let state = module_state(vm)?;
+        let cls = state
+            .parse_error
+            .read()
+            .clone()
+            .ok_or_else(|| vm.new_runtime_error("ParseError is missing"))?;
+        let exc = vm.invoke_exception(&cls, vec![vm.ctx.new_str(message).into()])?;
+        exc.as_object()
+            .set_attr("code", vm.ctx.new_int(code.unwrap_or(0)), vm)?;
+        let (line, column) = position.unwrap_or((0, 0));
+        exc.as_object().set_attr(
+            "position",
+            vm.ctx.new_tuple(vec![
+                vm.ctx.new_int(line).into(),
+                vm.ctx.new_int(column).into(),
+            ]),
+            vm,
+        )?;
+        Ok(exc)
+    }
+
+    #[derive(Debug, Default)]
+    struct XMLParserState {
+        /// The `pyexpat.xmlparser` doing the actual scanning, or `None`
+        /// before `__init__` (and after `close()` dropped it).
+        parser: Option<PyObjectRef>,
+        target: Option<PyObjectRef>,
+        entity: Option<PyDictRef>,
+        /// Cache of raw expat names to their `{uri}local` form.
+        names: Option<PyDictRef>,
+        handle_start: Option<PyObjectRef>,
+        handle_end: Option<PyObjectRef>,
+        handle_data: Option<PyObjectRef>,
+        handle_comment: Option<PyObjectRef>,
+        handle_pi: Option<PyObjectRef>,
+        handle_start_ns: Option<PyObjectRef>,
+        handle_end_ns: Option<PyObjectRef>,
+        handle_close: Option<PyObjectRef>,
+        handle_doctype: Option<PyObjectRef>,
+    }
+
+    #[pyattr]
+    #[pyclass(
+        module = "xml.etree.ElementTree",
+        name = "XMLParser",
+        traverse = "manual"
+    )]
+    #[derive(Debug, PyPayload)]
+    pub(crate) struct PyXMLParser {
+        state: PyRwLock<XMLParserState>,
+    }
+
+    // SAFETY: every owned PyObjectRef held by the parser is visited.
+    unsafe impl crate::vm::object::Traverse for PyXMLParser {
+        fn traverse(&self, traverse_fn: &mut crate::vm::object::TraverseFn<'_>) {
+            let Some(st) = self.state.try_read() else {
+                return;
+            };
+            st.parser.traverse(traverse_fn);
+            st.target.traverse(traverse_fn);
+            st.entity.traverse(traverse_fn);
+            st.names.traverse(traverse_fn);
+            st.handle_start.traverse(traverse_fn);
+            st.handle_end.traverse(traverse_fn);
+            st.handle_data.traverse(traverse_fn);
+            st.handle_comment.traverse(traverse_fn);
+            st.handle_pi.traverse(traverse_fn);
+            st.handle_start_ns.traverse(traverse_fn);
+            st.handle_end_ns.traverse(traverse_fn);
+            st.handle_close.traverse(traverse_fn);
+            st.handle_doctype.traverse(traverse_fn);
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            let Some(mut st) = self.state.try_write() else {
+                return;
+            };
+            out.extend(
+                [
+                    st.parser.take(),
+                    st.target.take(),
+                    st.entity.take().map(Into::into),
+                    st.names.take().map(Into::into),
+                    st.handle_start.take(),
+                    st.handle_end.take(),
+                    st.handle_data.take(),
+                    st.handle_comment.take(),
+                    st.handle_pi.take(),
+                    st.handle_start_ns.take(),
+                    st.handle_end_ns.take(),
+                    st.handle_close.take(),
+                    st.handle_doctype.take(),
+                ]
+                .into_iter()
+                .flatten(),
+            );
+        }
+    }
+
+    #[derive(FromArgs)]
+    pub(crate) struct XMLParserArgs {
+        #[pyarg(named, default)]
+        target: Option<PyObjectRef>,
+        #[pyarg(named, default)]
+        encoding: Option<PyObjectRef>,
+    }
+
+    impl DefaultConstructor for PyXMLParser {}
+
+    impl Default for PyXMLParser {
+        fn default() -> Self {
+            Self {
+                state: PyRwLock::new(XMLParserState::default()),
+            }
+        }
+    }
+
+    /// `getattr(target, name)`, treating a missing attribute as "the target
+    /// does not implement this callback" rather than an error.
+    fn optional_handler(
+        target: &PyObject,
+        name: &'static str,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        vm.get_attribute_opt(target.to_owned(), name)
+    }
+
+    impl Initializer for PyXMLParser {
+        type Args = XMLParserArgs;
+
+        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let encoding = match args.encoding {
+                Some(e) if !vm.is_none(&e) => {
+                    if !e.downcastable::<PyStr>() {
+                        return Err(vm.new_type_error(format!(
+                            "XMLParser() argument 'encoding' must be str or None, not {}",
+                            e.class().name()
+                        )));
+                    }
+                    e
+                }
+                _ => vm.ctx.none(),
+            };
+            let expat = vm.import("pyexpat", 0)?;
+            // The "}" namespace separator makes expat report names as
+            // "uri}local", which `makeuniversal` turns into "{uri}local".
+            let parser = vm.call_method(&expat, "ParserCreate", (encoding, "}"))?;
+            parser.set_attr("buffer_text", vm.ctx.new_int(1), vm)?;
+            parser.set_attr("ordered_attributes", vm.ctx.new_int(1), vm)?;
+
+            let target = match args.target {
+                Some(t) if !vm.is_none(&t) => t,
+                _ => PyTreeBuilder::default().into_ref(&vm.ctx).into(),
+            };
+
+            let handlers = XMLParserState {
+                parser: Some(parser.clone()),
+                entity: Some(vm.ctx.new_dict()),
+                names: Some(vm.ctx.new_dict()),
+                handle_start_ns: optional_handler(&target, "start_ns", vm)?,
+                handle_end_ns: optional_handler(&target, "end_ns", vm)?,
+                handle_start: optional_handler(&target, "start", vm)?,
+                handle_data: optional_handler(&target, "data", vm)?,
+                handle_end: optional_handler(&target, "end", vm)?,
+                handle_comment: optional_handler(&target, "comment", vm)?,
+                handle_pi: optional_handler(&target, "pi", vm)?,
+                handle_close: optional_handler(&target, "close", vm)?,
+                handle_doctype: optional_handler(&target, "doctype", vm)?,
+                target: Some(target),
+            };
+            let has_comment = handlers.handle_comment.is_some();
+            let has_pi = handlers.handle_pi.is_some();
+            let has_ns = handlers.handle_start_ns.is_some() || handlers.handle_end_ns.is_some();
+            *zelf.state.write() = handlers;
+
+            // Expat calls back into these; they dispatch straight to the
+            // target (and, when it is our own TreeBuilder, straight into
+            // Rust) without a Python frame in between.
+            let this = zelf.as_object();
+            parser.set_attr(
+                "StartElementHandler",
+                this.get_attr("_expat_start", vm)?,
+                vm,
+            )?;
+            parser.set_attr("EndElementHandler", this.get_attr("_expat_end", vm)?, vm)?;
+            parser.set_attr(
+                "CharacterDataHandler",
+                this.get_attr("_expat_data", vm)?,
+                vm,
+            )?;
+            if has_comment {
+                parser.set_attr("CommentHandler", this.get_attr("_expat_comment", vm)?, vm)?;
+            }
+            if has_pi {
+                parser.set_attr(
+                    "ProcessingInstructionHandler",
+                    this.get_attr("_expat_pi", vm)?,
+                    vm,
+                )?;
+            }
+            if has_ns {
+                install_ns_handlers(zelf.as_object(), &parser, vm)?;
+            }
+            Ok(())
+        }
+    }
+
+    /// Namespace declarations are only reported when someone asked for
+    /// them, either by giving the target `start_ns`/`end_ns` methods or by
+    /// requesting the `start-ns`/`end-ns` pull-parser events.
+    fn install_ns_handlers(
+        this: &PyObject,
+        parser: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        parser.set_attr(
+            "StartNamespaceDeclHandler",
+            this.get_attr("_expat_start_ns", vm)?,
+            vm,
+        )?;
+        parser.set_attr(
+            "EndNamespaceDeclHandler",
+            this.get_attr("_expat_end_ns", vm)?,
+            vm,
+        )?;
+        Ok(())
+    }
+
+    impl PyXMLParser {
+        fn check(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let st = self.state.read();
+            if st.target.is_none() {
+                return Err(vm.new_value_error("XMLParser.__init__() wasn't called"));
+            }
+            st.parser
+                .clone()
+                .ok_or_else(|| vm.new_value_error("XMLParser.__init__() wasn't called"))
+        }
+
+        /// The target, when it is exactly our own `TreeBuilder` and can
+        /// therefore be driven without going back through Python.
+        fn native_target(&self, vm: &VirtualMachine) -> Option<PyRef<PyTreeBuilder>> {
+            let target = self.state.read().target.clone()?;
+            if target.class().is(PyTreeBuilder::class(&vm.ctx)) {
+                target.downcast::<PyTreeBuilder>().ok()
+            } else {
+                None
+            }
+        }
+
+        /// Turn expat's "uri}local" into ElementTree's "{uri}local",
+        /// memoized so a repeated tag costs one dictionary hit.
+        fn make_universal(&self, name: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let names = self.state.read().names.clone();
+            let Some(names) = names else { return Ok(name) };
+            if let Some(cached) = names.get_item_opt(&*name, vm)? {
+                return Ok(cached);
+            }
+            let value = match name.downcast_ref::<PyStr>() {
+                Some(s) if s.as_bytes().contains(&b'}') => {
+                    vm.ctx.new_str(format!("{{{}", s.as_wtf8())).into()
+                }
+                _ => name.clone(),
+            };
+            names.set_item(&*name, value.clone(), vm)?;
+            Ok(value)
+        }
+
+        fn raise_expat_error(&self, err: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let message = err.str(vm)?;
+            let code = err
+                .get_attr("code", vm)
+                .ok()
+                .and_then(|c| i32::try_from_object(vm, c).ok());
+            let lineno = err
+                .get_attr("lineno", vm)
+                .ok()
+                .and_then(|c| i64::try_from_object(vm, c).ok());
+            let offset = err
+                .get_attr("offset", vm)
+                .ok()
+                .and_then(|c| i64::try_from_object(vm, c).ok());
+            let position = match (lineno, offset) {
+                (Some(l), Some(o)) => Some((l, o)),
+                _ => None,
+            };
+            Err(new_parse_error(message.as_ref(), code, position, vm)?)
+        }
+
+        /// Feed one chunk through expat, translating its `ExpatError` into
+        /// the `ParseError` callers of `xml.etree` expect.
+        fn expat_parse(
+            &self,
+            data: PyObjectRef,
+            final_: bool,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let parser = self.check(vm)?;
+            match vm.call_method(&parser, "Parse", (data, final_)) {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    let expat = vm.import("pyexpat", 0)?;
+                    let error_type = expat.get_attr("error", vm)?;
+                    if let Ok(error_type) = error_type.downcast::<PyType>()
+                        && e.fast_isinstance(&error_type)
+                    {
+                        self.raise_expat_error(e.into(), vm)?;
+                        unreachable!()
+                    }
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    #[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_WEAKREF))]
+    impl PyXMLParser {
+        #[pygetset]
+        fn entity(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.state
+                .read()
+                .entity
+                .clone()
+                .map_or_else(|| vm.ctx.none(), Into::into)
+        }
+
+        #[pygetset]
+        fn target(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.state
+                .read()
+                .target
+                .clone()
+                .unwrap_or_else(|| vm.ctx.none())
+        }
+
+        #[pygetset]
+        fn version(&self, vm: &VirtualMachine) -> PyResult<String> {
+            let expat = vm.import("pyexpat", 0)?;
+            let info: Vec<PyObjectRef> = expat.get_attr("version_info", vm)?.try_to_value(vm)?;
+            let part = |i: usize| -> String {
+                info.get(i)
+                    .map(|o| o.str(vm).map(|s| s.to_string()).unwrap_or_default())
+                    .unwrap_or_default()
+            };
+            Ok(format!("Expat {}.{}.{}", part(0), part(1), part(2)))
+        }
+
+        #[pymethod]
+        fn feed(&self, data: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            self.expat_parse(data, false, vm)
+        }
+
+        #[pymethod]
+        fn close(&self, vm: &VirtualMachine) -> PyResult {
+            self.expat_parse(vm.ctx.new_bytes(vec![]).into(), true, vm)?;
+            if let Some(builder) = self.native_target(vm) {
+                return Ok(builder.done(vm));
+            }
+            let close = self.state.read().handle_close.clone();
+            match close {
+                Some(close) => close.call((), vm),
+                None => Ok(vm.ctx.none()),
+            }
+        }
+
+        #[pymethod]
+        fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
+            // This backend has no reparse deferral to turn off, so, like the
+            // C accelerator built against an expat without
+            // XML_SetReparseDeferralEnabled, there is nothing to flush.
+            self.check(vm)?;
+            Ok(())
+        }
+
+        #[pymethod]
+        fn _parse_whole(&self, file: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            self.check(vm)?;
+            let read = file.get_attr("read", vm)?;
+            loop {
+                let buffer = read.call((64 * 1024,), vm)?;
+                if let Some(s) = buffer.downcast_ref::<PyStr>() {
+                    if s.is_empty() {
+                        break;
+                    }
+                } else if let Some(b) = buffer.downcast_ref::<crate::vm::builtins::PyBytes>() {
+                    if b.as_bytes().is_empty() {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+                self.expat_parse(buffer, false, vm)?;
+            }
+            self.expat_parse(vm.ctx.new_bytes(vec![]).into(), true, vm)?;
+            if let Some(builder) = self.native_target(vm) {
+                return Ok(builder.done(vm));
+            }
+            Ok(vm.ctx.none())
+        }
+
+        #[pymethod]
+        fn _setevents(
+            zelf: &Py<Self>,
+            events_queue: PyObjectRef,
+            events_to_report: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let parser = zelf.check(vm)?;
+            let Some(builder) = zelf.native_target(vm) else {
+                return Err(vm.new_type_error(
+                    "event handling only supported for ElementTree.TreeBuilder targets",
+                ));
+            };
+            let append = events_queue.get_attr("append", vm)?;
+            builder.set_events(append, events_to_report.unwrap_or_none(vm), vm)?;
+            // Comments and processing instructions are only reported once
+            // asked for, so their handlers are installed lazily here.
+            let this = zelf.as_object();
+            parser.set_attr("CommentHandler", this.get_attr("_expat_comment", vm)?, vm)?;
+            parser.set_attr(
+                "ProcessingInstructionHandler",
+                this.get_attr("_expat_pi", vm)?,
+                vm,
+            )?;
+            install_ns_handlers(this, &parser, vm)?;
+            Ok(())
+        }
+
+        #[pymethod]
+        fn _expat_start(
+            zelf: &Py<Self>,
+            tag: PyObjectRef,
+            attr_list: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let tag = zelf.make_universal(tag, vm)?;
+            let items = attr_list
+                .downcast_ref::<PyList>()
+                .map(|l| l.borrow_vec().to_vec())
+                .unwrap_or_default();
+            let attrib = if items.is_empty() {
+                None
+            } else {
+                let dict = vm.ctx.new_dict();
+                let mut i = 0;
+                while i + 1 < items.len() {
+                    let key = zelf.make_universal(items[i].clone(), vm)?;
+                    dict.set_item(&*key, items[i + 1].clone(), vm)?;
+                    i += 2;
+                }
+                Some(dict)
+            };
+            if let Some(builder) = zelf.native_target(vm) {
+                builder.handle_start(tag, attrib, vm)?;
+                return Ok(());
+            }
+            let handler = zelf.state.read().handle_start.clone();
+            if let Some(handler) = handler {
+                let attrib = attrib.unwrap_or_else(|| vm.ctx.new_dict());
+                handler.call((tag, attrib), vm)?;
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn _expat_end(zelf: &Py<Self>, tag: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            if let Some(builder) = zelf.native_target(vm) {
+                // The standard tree builder does not look at the end tag.
+                builder.handle_end(vm)?;
+                return Ok(());
+            }
+            let handler = zelf.state.read().handle_end.clone();
+            if let Some(handler) = handler {
+                let tag = zelf.make_universal(tag, vm)?;
+                handler.call((tag,), vm)?;
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn _expat_data(zelf: &Py<Self>, data: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            if let Some(builder) = zelf.native_target(vm) {
+                builder.handle_data(data, vm);
+                return Ok(());
+            }
+            let handler = zelf.state.read().handle_data.clone();
+            if let Some(handler) = handler {
+                handler.call((data,), vm)?;
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn _expat_comment(zelf: &Py<Self>, text: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            if let Some(builder) = zelf.native_target(vm) {
+                builder.handle_comment(text, vm)?;
+                return Ok(());
+            }
+            let handler = zelf.state.read().handle_comment.clone();
+            if let Some(handler) = handler {
+                handler.call((text,), vm)?;
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn _expat_start_ns(
+            zelf: &Py<Self>,
+            prefix: PyObjectRef,
+            uri: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            if let Some(builder) = zelf.native_target(vm) {
+                // The standard tree builder has no start_ns() of its own; it
+                // only forwards the event when one was asked for.
+                return builder.handle_start_ns(prefix, uri, vm);
+            }
+            let handler = zelf.state.read().handle_start_ns.clone();
+            if let Some(handler) = handler {
+                handler.call((prefix, uri), vm)?;
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn _expat_end_ns(
+            zelf: &Py<Self>,
+            prefix: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            if let Some(builder) = zelf.native_target(vm) {
+                return builder.handle_end_ns(vm.ctx.none(), vm);
+            }
+            let handler = zelf.state.read().handle_end_ns.clone();
+            if let Some(handler) = handler {
+                handler.call((prefix,), vm)?;
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn _expat_pi(
+            zelf: &Py<Self>,
+            target: PyObjectRef,
+            data: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            if let Some(builder) = zelf.native_target(vm) {
+                if builder.wants_pi() {
+                    builder.handle_pi(target, data, vm)?;
+                }
+                return Ok(());
+            }
+            let handler = zelf.state.read().handle_pi.clone();
+            if let Some(handler) = handler {
+                handler.call((target, data), vm)?;
+            }
+            Ok(())
+        }
     }
 
     // -----------------------------------------------------------------
