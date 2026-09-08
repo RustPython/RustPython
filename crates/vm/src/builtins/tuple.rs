@@ -1,5 +1,5 @@
 use super::{
-    PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
+    PositionIterInternal, PyGenericAlias, PyInt, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
     locked_next,
 };
 use crate::common::lock::LazyLock;
@@ -769,5 +769,21 @@ pub(crate) fn init(context: &'static Context) {
 }
 
 pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyHash> {
-    hash::hash_tuple(elements.iter().map(|val| val.hash(vm)))
+    hash::hash_tuple(elements.iter().map(|val| element_hash(val, vm)))
+}
+
+/// Hash a single tuple element, skipping the generic recursion guard for
+/// exact `int`s. `int.__hash__` is a leaf computation - it can't recurse or
+/// call back into arbitrary Python code - so `PyObject::hash`'s native-stack
+/// depth check is pure overhead here. This matters because tuples used as
+/// dict keys (e.g. state tuples in `pyperformance`'s `mdp` benchmark) are
+/// often deeply nested namedtuples whose leaves are plain ints.
+#[inline]
+fn element_hash(val: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+    if val.class().is(vm.ctx.types.int_type)
+        && let Some(i) = val.downcast_ref::<PyInt>()
+    {
+        return Ok(hash::hash_bigint(i.as_bigint()));
+    }
+    val.hash(vm)
 }
