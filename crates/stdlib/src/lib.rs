@@ -55,6 +55,7 @@ mod mmap;
 
 mod _heapq;
 mod _queue;
+mod pickle;
 mod pyexpat;
 mod pystruct;
 mod random;
@@ -231,6 +232,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             not(target_os = "android")
         ))]
         posixshmem::module_def(ctx),
+        pickle::module_def(ctx),
         pyexpat::module_def(ctx),
         pystruct::module_def(ctx),
         _heapq::module_def(ctx),

@@ -62,33 +62,15 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
         self.assertIs(unpickled2[1], unpickled2[2])
         self.assertNotIn(pickle.BINPUT, pickled2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_buffers_error(self):
-        return super().test_buffers_error()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_bytearray_memoization(self):
-        return super().test_bytearray_memoization()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_bytes_memoization(self):
-        return super().test_bytes_memoization()
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_c_methods(self):
         return super().test_c_methods()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_in_band_buffers(self):
-        return super().test_in_band_buffers()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_oob_buffers(self):
-        return super().test_oob_buffers()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_oob_buffers_writable_to_readonly(self):
-        return super().test_oob_buffers_writable_to_readonly()
 
 
 class SimpleReader:
