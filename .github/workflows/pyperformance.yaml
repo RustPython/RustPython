@@ -95,15 +95,20 @@ jobs:
           cp -r Lib "${RUNNER_TEMP}/head/Lib"
 
       - name: Build base
+        continue-on-error: true # a base that cannot build leaves head vs. CPython
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git checkout --quiet "${{ github.event.pull_request.base.sha }}" --
+          git checkout --quiet "${BASE_SHA}" --
           cargo build --release --locked
           mkdir -p "${RUNNER_TEMP}/base"
           cp target/release/rustpython "${RUNNER_TEMP}/base/rustpython"
           cp -r Lib "${RUNNER_TEMP}/base/Lib"
 
       - name: Restore head checkout
-        run: git checkout --quiet "${{ github.event.pull_request.head.sha }}" --
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git checkout --quiet "${HEAD_SHA}" --
 
       - name: Save cache
         if: always()
@@ -120,14 +125,17 @@ jobs:
       # The three runs are deliberately adjacent, with no build between them,
       # so nothing but the interpreter differs across the comparison.
       - name: Measure CPython
+        env:
+          CPYTHON: ${{ steps.cpython.outputs.python-path }}
         run: |
           python3 "${RUNNER_TEMP}/pyperformance-scripts/run_all.py" \
-            --python "${{ steps.cpython.outputs.python-path }}" \
+            --python "${CPYTHON}" \
             --label cpython --no-psutil-stub \
             --benchmarks "${BENCHMARKS//[$'\n' ]/}" \
             --timeout "${BENCH_TIMEOUT}" --out "${RUNNER_TEMP}/pyperf-results"
 
       - name: Measure base
+        continue-on-error: true # as above: the table falls back to head alone
         env:
           RUSTPYTHONPATH: ${{ runner.temp }}/base/Lib
         run: |
@@ -148,12 +156,15 @@ jobs:
             --timeout "${BENCH_TIMEOUT}" --out "${RUNNER_TEMP}/pyperf-results"
 
       - name: Render the comparison
+        env:
+          CPYTHON_VERSION: ${{ steps.cpython.outputs.python-version }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           python3 "${RUNNER_TEMP}/pyperformance-scripts/pr_diff.py" \
             --results-dir "${RUNNER_TEMP}/pyperf-results" \
-            --cpython-version "CPython ${{ steps.cpython.outputs.python-version }}" \
+            --cpython-version "CPython ${CPYTHON_VERSION}" \
             --md diff.md --json diff.json
-          echo "${{ github.event.pull_request.number }}" > pr_number.txt
+          echo "${PR_NUMBER}" > pr_number.txt
 
       # A `pull_request` run triggered from a fork carries a read-only token no
       # matter what this workflow grants, so the comment is posted from
@@ -178,7 +189,7 @@ jobs:
         if: >-
           github.event_name == 'pull_request' &&
           github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');

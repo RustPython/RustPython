@@ -74,8 +74,15 @@ def main() -> None:
     args = parser.parse_args()
 
     cpython = load_catalog(args.results_dir, args.cpython)
-    base = load_catalog(args.results_dir, args.base)
     head = load_catalog(args.results_dir, args.head)
+    # The base commit is the column that makes this a review aid rather than a
+    # status report, but it is also the one that can go missing: it may fail to
+    # build, or predate something the benchmarks now need. Rather than fail the
+    # whole comparison, fall back to head against CPython alone.
+    base = {}
+    if (args.results_dir / args.base / "catalog.json").exists():
+        base = load_catalog(args.results_dir, args.base)
+    have_base = any(parse_mean_seconds(r.get("mean")) for r in base.values())
 
     rows = []
     for name in sorted(set(cpython) | set(base) | set(head)):
@@ -100,17 +107,32 @@ def main() -> None:
     base_ratios = [r["base_vs_cpython"] for r in rows if r["base_vs_cpython"]]
     head_ratios = [r["head_vs_cpython"] for r in rows if r["head_vs_cpython"]]
 
-    out = [MARKER, "### pyperformance: base vs. head vs. CPython (same runner)", ""]
-    out.append(
-        "All three interpreters were measured back to back in this one job, so "
-        "they share the exact same CPU and kernel. Ratios are "
-        f"`time / {args.cpython_version} time` -- lower is better. A head/base "
-        f"difference smaller than {NOISE:.0%} is shown as `~`; CI runners are "
-        "not quiet enough to read more into it than that."
+    title = (
+        "base vs. head vs. CPython (same runner)"
+        if have_base
+        else "head vs. CPython (same runner)"
     )
+    out = [MARKER, f"### pyperformance: {title}", ""]
+    if have_base:
+        out.append(
+            "All three interpreters were measured back to back in this one job, "
+            "so they share the exact same CPU and kernel. Ratios are "
+            f"`time / {args.cpython_version} time` -- lower is better. A "
+            f"head/base difference smaller than {NOISE:.0%} is shown as `~`; CI "
+            "runners are not quiet enough to read more into it than that."
+        )
+    else:
+        out.append(
+            "No usable result for the base commit -- it did not build, or none "
+            "of its benchmarks produced a time -- so this is head against "
+            f"{args.cpython_version} alone, both measured back to back in this "
+            "one job. Ratios are `time / {} time`; lower is better.".format(
+                args.cpython_version
+            )
+        )
     out.append("")
 
-    if base_ratios and head_ratios:
+    if have_base and base_ratios and head_ratios:
         out.append("| | base | head |")
         out.append("| --- | ---: | ---: |")
         out.append(
@@ -126,15 +148,31 @@ def main() -> None:
             )
         out.append("")
 
-    out.append(
-        f"| Benchmark | {args.cpython_version} | base | head | base | head | head vs. base |"
-    )
-    out.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
-    for r in sorted(rows, key=lambda r: r["head_vs_base"] or 1.0):
+    if have_base:
+        out.append(
+            f"| Benchmark | {args.cpython_version} | base | head "
+            f"| base/{args.cpython_version} | head/{args.cpython_version} "
+            "| head vs. base |"
+        )
+        out.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+    else:
+        out.append(
+            f"| Benchmark | {args.cpython_version} | head "
+            f"| head/{args.cpython_version} |"
+        )
+        out.append("| --- | ---: | ---: | ---: |")
+
+    for r in sorted(rows, key=lambda r: r["head_vs_base"] or r["head_vs_cpython"] or 0):
         if not r["base_mean"] and not r["head_mean"]:
             continue
-        base_cell = r["base_mean"] or "({})".format(r["base_status"])
         head_cell = r["head_mean"] or "({})".format(r["head_status"])
+        if not have_base:
+            out.append(
+                f"| {r['benchmark']} | {r['cpython_mean'] or '-'} | {head_cell} "
+                f"| {fmt_ratio(r['head_vs_cpython'])} |"
+            )
+            continue
+        base_cell = r["base_mean"] or "({})".format(r["base_status"])
         out.append(
             f"| {r['benchmark']} | {r['cpython_mean'] or '-'} "
             f"| {base_cell} | {head_cell} "
@@ -142,7 +180,11 @@ def main() -> None:
             f"| {fmt_change(r['base_vs_cpython'], r['head_vs_cpython'])} |"
         )
 
-    only_head = [r["benchmark"] for r in rows if r["head_mean"] and not r["base_mean"]]
+    only_head = [
+        r["benchmark"]
+        for r in rows
+        if have_base and r["head_mean"] and not r["base_mean"]
+    ]
     only_base = [r["benchmark"] for r in rows if r["base_mean"] and not r["head_mean"]]
     if only_head:
         out += ["", f"Newly passing on head: {', '.join(only_head)}."]
