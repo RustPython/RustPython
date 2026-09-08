@@ -2032,13 +2032,47 @@ impl PyObject {
     }
 
     /// # Safety
-    /// This call will make the object live forever.
+    /// This call will make the object live forever: it marks the object both
+    /// interned and immortal (see [`Self::make_immortal`]), so no `__del__`
+    /// and no weakref callback will ever run for it.
     pub(crate) unsafe fn mark_intern(&self) {
         self.0.ref_count.leak();
     }
 
     pub(crate) fn is_interned(&self) -> bool {
         self.0.ref_count.is_leaked()
+    }
+
+    /// Make this object live for the whole process (PEP 683).
+    ///
+    /// Every later reference operation on it becomes a relaxed load and a
+    /// branch instead of an atomic read-modify-write — and a decref in
+    /// particular stops paying for a `Release` store, which is the expensive
+    /// half of the pair on a weakly ordered target. `RefCount`'s `IMMORTAL`
+    /// documents the full invariant; the parts that bind a caller:
+    ///
+    /// * The object is never deallocated, so its `__del__` and its weakref
+    ///   callbacks never run. Only grant this to something an owner already
+    ///   keeps for the whole process — a `static_cell`, the [`Context`], the
+    ///   string pool.
+    /// * [`Self::strong_count`] reports a number far past any real total, so
+    ///   the object stays out of every `strong_count() == 1` in-place-mutation
+    ///   fast path and the cycle collector reads it as a permanent root.
+    ///
+    /// This is *not* interning: [`Self::is_interned`] answers from a separate
+    /// bit and keeps meaning "this string is the pool's copy".
+    ///
+    /// [`Context`]: crate::vm::Context
+    #[inline]
+    pub fn make_immortal(&self) {
+        self.0.ref_count.make_immortal();
+    }
+
+    /// Whether this object lives for the whole process.
+    #[inline(always)]
+    #[must_use]
+    pub fn is_immortal(&self) -> bool {
+        self.0.ref_count.is_immortal()
     }
 
     pub(crate) fn get_slot(&self, offset: usize) -> Option<PyObjectRef> {
