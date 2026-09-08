@@ -1,5 +1,7 @@
 atfork
 cfgs
+csascii
+csisolatin
 genshi
 mimalloc
 miri
