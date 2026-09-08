@@ -2613,6 +2613,16 @@ impl Constructor for PyType {
                 // __slots__ attributes always get a member descriptor
                 // (this overrides any inherited attribute from MRO)
                 typ.set_attr(attr_name, member_descriptor.into());
+                // `init_slots` already ran in `new_heap_inner` before these member
+                // descriptors existed, so a slot name shaped like a dunder (e.g. a
+                // class that puts "__setitem__" in `__slots__` to store a per-instance
+                // callable under a slot descriptor) was never wired into the type's C
+                // slots (mp_ass_subscript and friends). Recompute the slot now that
+                // the attribute is actually present on the type.
+                if attr_name.as_bytes().starts_with(b"__") && attr_name.as_bytes().ends_with(b"__")
+                {
+                    typ.update_slot::<true>(attr_name, &vm.ctx);
+                }
             }
         }
 
