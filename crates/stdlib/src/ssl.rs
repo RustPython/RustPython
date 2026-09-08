@@ -5,9 +5,8 @@
 //! This module provides SSL/TLS support without requiring C dependencies.
 //! It implements the Python ssl module API using:
 //! - rustls: TLS protocol implementation
-//! - x509-parser/x509-cert: Certificate parsing
+//! - x509-parser: Certificate parsing
 //! - ring: Cryptographic primitives
-//! - rustls-platform-verifier: Platform-native certificate verification
 //!
 //! DO NOT add openssl dependency here.
 //!
@@ -44,8 +43,8 @@ mod _ssl {
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
             VirtualMachine,
             builtins::{
-                PyBaseExceptionRef, PyByteArray, PyBytesRef, PyListRef, PyStrRef, PyType,
-                PyTypeRef, PyUtf8StrRef, PyWeak,
+                PyBaseExceptionRef, PyBytesRef, PyListRef, PyStrRef, PyType, PyTypeRef,
+                PyUtf8StrRef, PyWeak,
             },
             convert::IntoPyException,
             function::{
@@ -69,27 +68,26 @@ mod _ssl {
         sync::atomic::{AtomicUsize, Ordering},
         time::Duration,
     };
-    use memchr::memchr;
     use rustpython_vm::exceptions;
     use std::{
         collections::{HashMap, hash_map::DefaultHasher},
-        io::BufRead,
         time::SystemTime,
     };
 
     // Rustls imports
-    use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
+    use parking_lot::RwLock as ParkingRwLock;
     use pem_rfc7468::{LineEnding, encode_string};
     use rustls::{
         ClientConnection, Connection, HandshakeKind, RootCertStore,
-        client::{ClientSessionMemoryCache, ClientSessionStore},
         crypto::SupportedKxGroup,
         pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, ServerName},
         server::{Accepted, ResolvesServerCert},
         sign::CertifiedKey,
-        version::{TLS12, TLS13},
     };
-    use sha2::{Digest, Sha256};
+    use rustpython_host_env::ssl::{
+        CapturingClientSessionStore, ClientSessionKind, RecordCursor, SessionCache, SessionData,
+        TlsConnection,
+    };
 
     /// Caps unsent TLS so BIO writes stay inside asyncio's 64 KiB
     /// socket-transport high-water mark when SO_SNDBUF is small.
@@ -149,8 +147,6 @@ mod _ssl {
     #[pyattr]
     const PROTOCOL_TLSv1_3: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1_3;
 
-    static NEXT_SSL_SESSION_NONCE: AtomicUsize = AtomicUsize::new(1);
-
     // Protocol version constants for TLSVersion enum
     #[pyattr]
     const PROTO_SSLv3: i32 = 0x0300;
@@ -159,9 +155,9 @@ mod _ssl {
     #[pyattr]
     const PROTO_TLSv1_1: i32 = 0x0302;
     #[pyattr]
-    const PROTO_TLSv1_2: i32 = 0x0303;
+    const PROTO_TLSv1_2: i32 = rustpython_host_env::ssl::PROTO_TLSV1_2;
     #[pyattr]
-    const PROTO_TLSv1_3: i32 = 0x0304;
+    const PROTO_TLSv1_3: i32 = rustpython_host_env::ssl::PROTO_TLSV1_3;
 
     // Minimum and maximum supported protocol versions for rustls
     // Use special values -2 and -1 to avoid enum name conflicts
@@ -177,30 +173,9 @@ mod _ssl {
 
     // Buffer sizes and limits (OpenSSL/CPython compatibility)
     const PEM_BUFSIZE: usize = 1024;
-
-    // OpenSSL: ssl/ssl_local.h
-    const SSL3_RT_HEADER_LENGTH: usize = 5;
-    // This is the maximum MAC (digest) size used by the SSL library. Currently
-    // maximum of 20 is used by SHA1, but we reserve for future extension for
-    // 512-bit hashes.
-    const SSL3_RT_MAX_MD_SIZE: usize = 64;
-    // Maximum plaintext length: defined by SSL/TLS standards
-    const SSL3_RT_MAX_PLAIN_LENGTH: usize = 16384;
-    // Maximum compression overhead: defined by SSL/TLS standards
-    const SSL3_RT_MAX_COMPRESSED_OVERHEAD: usize = 1024;
-    // The standards give a maximum encryption overhead of 1024 bytes. In
-    // practice the value is lower than this. The overhead is the maximum number
-    // of padding bytes (256) plus the mac size.
-    const SSL3_RT_MAX_ENCRYPTED_OVERHEAD: usize = 256 + SSL3_RT_MAX_MD_SIZE;
-    const SSL3_RT_MAX_COMPRESSED_LENGTH: usize =
-        SSL3_RT_MAX_PLAIN_LENGTH + SSL3_RT_MAX_COMPRESSED_OVERHEAD;
-    const SSL3_RT_MAX_ENCRYPTED_LENGTH: usize =
-        SSL3_RT_MAX_ENCRYPTED_OVERHEAD + SSL3_RT_MAX_COMPRESSED_LENGTH;
     pub(crate) const SSL3_RT_MAX_PACKET_SIZE: usize =
-        SSL3_RT_MAX_ENCRYPTED_LENGTH + SSL3_RT_HEADER_LENGTH;
-
-    // SSL session cache size (common practice, similar to OpenSSL defaults)
-    const SSL_SESSION_CACHE_SIZE: usize = 256;
+        rustpython_host_env::ssl::SSL3_RT_MAX_PACKET_SIZE;
+    const SSL_SESSION_CACHE_SIZE: usize = rustpython_host_env::ssl::SESSION_CACHE_SIZE;
 
     // Certificate verification modes
     #[pyattr]
@@ -242,9 +217,9 @@ mod _ssl {
     #[pyattr]
     const OP_NO_TLSv1_1: i32 = 0x10000000;
     #[pyattr]
-    const OP_NO_TLSv1_2: i32 = 0x08000000;
+    const OP_NO_TLSv1_2: i32 = rustpython_host_env::ssl::OP_NO_TLSV1_2;
     #[pyattr]
-    const OP_NO_TLSv1_3: i32 = 0x20000000;
+    const OP_NO_TLSv1_3: i32 = rustpython_host_env::ssl::OP_NO_TLSV1_3;
     #[pyattr]
     const OP_NO_COMPRESSION: i32 = 0x00020000;
     #[pyattr]
@@ -389,263 +364,23 @@ mod _ssl {
     #[pyattr]
     const ENCODING_PEM_AUX: i32 = 0x101; // PEM + 0x100
 
-    /// Validate server hostname for TLS SNI
-    ///
-    /// Checks that the hostname:
-    /// - Is not empty
-    /// - Does not start with a dot
-    /// - Is not an IP address (SNI requires DNS names)
-    /// - Does not contain null bytes
-    /// - Does not exceed 253 characters (DNS limit)
-    ///
-    /// Returns Ok(()) if validation passes, or an appropriate error.
+    /// Validate server hostname for TLS SNI.
     fn validate_hostname(hostname: &str, vm: &VirtualMachine) -> PyResult<()> {
-        if hostname.is_empty() {
-            return Err(vm.new_value_error("server_hostname cannot be an empty string"));
-        }
-
-        if hostname.starts_with('.') {
-            return Err(vm.new_value_error("server_hostname cannot start with a dot"));
-        }
-
-        // IP addresses are allowed as server_hostname
-        // SNI will not be sent for IP addresses
-
-        if memchr(b'\0', hostname.as_bytes()).is_some() {
-            cold_path();
-            return Err(exceptions::nul_char_type_error(vm));
-        }
-
-        if hostname.len() > 253 {
-            return Err(vm.new_value_error("server_hostname is too long (maximum 253 characters)"));
-        }
-
-        Ok(())
-    }
-
-    // Session data structure for tracking TLS sessions
-    #[derive(Debug, Clone)]
-    struct SessionData {
-        _server_name: String,
-        session_id: Vec<u8>,
-        creation_time: SystemTime,
-        lifetime: u64,
-    }
-
-    impl SessionData {
-        // NOTE: This is NOT the actual TLS session ID, just a unique identifier.
-        fn new(server_name: &str, lifetime: u64) -> Self {
-            let creation_time = SystemTime::now();
-            let nonce = NEXT_SSL_SESSION_NONCE.fetch_add(1, Ordering::Relaxed);
-            let mut hasher = Sha256::new();
-            hasher.update(server_name.as_bytes());
-            hasher.update(
-                creation_time
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos()
-                    .to_le_bytes(),
-            );
-            hasher.update(nonce.to_le_bytes());
-
-            Self {
-                _server_name: server_name.to_owned(),
-                session_id: hasher.finalize()[..16].to_vec(),
-                creation_time,
-                lifetime,
+        use rustpython_host_env::ssl::HostnameError;
+        match rustpython_host_env::ssl::validate_hostname(hostname) {
+            Ok(()) => Ok(()),
+            Err(HostnameError::EmbeddedNul) => {
+                cold_path();
+                Err(exceptions::nul_char_type_error(vm))
             }
+            Err(error) => Err(vm.new_value_error(error.message().to_owned())),
         }
     }
 
-    // Type alias to simplify complex session cache type
-    type SessionCache = Arc<ParkingRwLock<HashMap<Vec<u8>, Arc<ParkingMutex<SessionData>>>>>;
-
-    // SESSION EMULATION IMPLEMENTATION
-    //
-    // IMPORTANT: This is an EMULATION of CPython's SSL session management.
-    // Rustls 0.23 does NOT expose session data (ticket bytes, session IDs, etc.)
-    // through public APIs. All session value fields are private.
-    //
-    // LIMITATIONS:
-    // - Session IDs are generated from metadata (server name + timestamp hash)
-    //   NOT actual TLS session IDs
-    // - Ticket data is not stored (Rustls keeps it internally)
-    // - Session resumption works (via Rustls's automatic mechanism)
-    //   but we can't access the actual session state
-    //
-    // This implementation provides:
-    // ✓ session.id - synthetic ID based on metadata
-    // ✓ session.time - creation timestamp
-    // ✓ session.timeout - default lifetime value
-    // ✓ session.has_ticket - always True when session exists
-    // ✓ session_reused - tracked via handshake_kind()
-    // ✗ Actual TLS session ID/ticket data - NOT ACCESSIBLE
-
-    // Custom ClientSessionStore that tracks session metadata for Python access
-    // NOTE: This wraps ClientSessionMemoryCache and records metadata when sessions are stored
-    #[derive(Debug)]
-    struct PythonClientSessionStore {
-        inner: Arc<ClientSessionMemoryCache>,
-        session_cache: SessionCache,
-    }
-
-    impl PythonClientSessionStore {
-        fn new(session_cache: SessionCache) -> Self {
-            Self {
-                inner: Arc::new(ClientSessionMemoryCache::new(SSL_SESSION_CACHE_SIZE)),
-                session_cache,
-            }
-        }
-
-        fn transfer_session(
-            &self,
-            target: &Self,
-            server_name: &ServerName<'static>,
-            kind: ClientSessionKind,
-        ) {
-            if let Some(group) = self.kx_hint(server_name) {
-                target.set_kx_hint(server_name.clone(), group);
-            }
-
-            match kind {
-                ClientSessionKind::Tls12 => {
-                    if let Some(session) = self.tls12_session(server_name) {
-                        target.set_tls12_session(server_name.clone(), session);
-                    }
-                }
-                ClientSessionKind::Tls13 => {
-                    if let Some(ticket) = self.take_tls13_ticket(server_name) {
-                        target.insert_tls13_ticket(server_name.clone(), ticket);
-                    }
-                }
-            }
-        }
-    }
-
-    impl ClientSessionStore for PythonClientSessionStore {
-        fn set_kx_hint(&self, server_name: ServerName<'static>, group: rustls::NamedGroup) {
-            self.inner.set_kx_hint(server_name, group);
-        }
-
-        fn kx_hint(&self, server_name: &ServerName<'_>) -> Option<rustls::NamedGroup> {
-            self.inner.kx_hint(server_name)
-        }
-
-        fn set_tls12_session(
-            &self,
-            server_name: ServerName<'static>,
-            value: rustls::client::Tls12ClientSessionValue,
-        ) {
-            // Store in inner cache for actual resumption (Rustls handles this)
-            self.inner.set_tls12_session(server_name.clone(), value);
-
-            // Record metadata in Python-accessible cache
-            // NOTE: We can't access value.session_id or value.ticket (private fields)
-            // So we generate a synthetic ID from metadata
-            let server_name_str = server_name.to_str();
-            let session_data = SessionData::new(server_name_str.as_ref(), 7200);
-
-            let key = server_name_str.as_bytes().to_vec();
-            self.session_cache
-                .write()
-                .insert(key, Arc::new(ParkingMutex::new(session_data)));
-        }
-
-        fn tls12_session(
-            &self,
-            server_name: &ServerName<'_>,
-        ) -> Option<rustls::client::Tls12ClientSessionValue> {
-            self.inner.tls12_session(server_name)
-        }
-
-        fn remove_tls12_session(&self, server_name: &ServerName<'static>) {
-            self.inner.remove_tls12_session(server_name);
-
-            // Also remove from Python cache
-            let key = server_name.to_str().as_bytes().to_vec();
-            self.session_cache.write().remove(&key);
-        }
-
-        fn insert_tls13_ticket(
-            &self,
-            server_name: ServerName<'static>,
-            value: rustls::client::Tls13ClientSessionValue,
-        ) {
-            // Store in inner cache for actual resumption (Rustls handles this)
-            self.inner.insert_tls13_ticket(server_name.clone(), value);
-
-            // Record metadata in Python-accessible cache
-            // NOTE: We can't access value.ticket or value.lifetime_secs (private fields)
-            // So we use default values
-            let server_name_str = server_name.to_str();
-            let session_data = SessionData::new(server_name_str.as_ref(), 7200);
-
-            let key = server_name_str.as_bytes().to_vec();
-            self.session_cache
-                .write()
-                .insert(key, Arc::new(ParkingMutex::new(session_data)));
-        }
-
-        fn take_tls13_ticket(
-            &self,
-            server_name: &ServerName<'static>,
-        ) -> Option<rustls::client::Tls13ClientSessionValue> {
-            self.inner.take_tls13_ticket(server_name)
-        }
-    }
-
-    /// Parse length-prefixed ALPN protocol list
-    ///
-    /// Format: [len1, proto1..., len2, proto2..., ...]
-    ///
-    /// This is the wire format used by Python's ssl.py when calling _set_alpn_protocols().
-    /// Each protocol is prefixed with a single byte indicating its length.
-    ///
-    /// # Arguments
-    /// * `bytes` - The length-prefixed protocol data
-    /// * `vm` - VirtualMachine for error creation
-    ///
-    /// # Returns
-    /// * `Ok(Vec<Vec<u8>>)` - List of protocol names as byte vectors
-    /// * `Err(PyBaseExceptionRef)` - ValueError with detailed error message
+    /// Parse `[len][proto]...` the way `ssl.py` hands it to `_set_alpn_protocols`.
     fn parse_length_prefixed_alpn(bytes: &[u8], vm: &VirtualMachine) -> PyResult<Vec<Vec<u8>>> {
-        let mut alpn_list = Vec::new();
-        let mut offset = 0;
-
-        while offset < bytes.len() {
-            // Check if we can read the length byte
-            if offset + 1 > bytes.len() {
-                return Err(vm.new_value_error(format!(
-                    "Invalid ALPN protocol data: unexpected end at offset {offset}",
-                )));
-            }
-
-            let proto_len = bytes[offset] as usize;
-            offset += 1;
-
-            // Validate protocol length
-            if proto_len == 0 {
-                return Err(vm.new_value_error(format!(
-                    "Invalid ALPN protocol data: protocol length cannot be 0 at offset {}",
-                    offset - 1
-                )));
-            }
-
-            // Check if we have enough bytes for the protocol data
-            if offset + proto_len > bytes.len() {
-                return Err(vm.new_value_error(format!(
-                    "Invalid ALPN protocol data: expected {} bytes at offset {}, but only {} bytes remain",
-                    proto_len, offset, bytes.len() - offset
-                )));
-            }
-
-            // Extract protocol bytes
-            let proto = bytes[offset..offset + proto_len].to_vec();
-            alpn_list.push(proto);
-            offset += proto_len;
-        }
-
-        Ok(alpn_list)
+        rustpython_host_env::ssl::parse_length_prefixed_alpn(bytes)
+            .map_err(|error| vm.new_value_error(error.0))
     }
 
     // SSLContext - manages TLS configuration
@@ -1897,10 +1632,7 @@ mod _ssl {
                     send: socket_class.get_attr("send", vm)?,
                     recv: socket_class.get_attr("recv", vm)?,
                 },
-                tls_record_header_buf: vm
-                    .ctx
-                    .new_bytearray(Vec::with_capacity(TLS_RECORD_HEADER_SIZE))
-                    .into(),
+                record_cursor: PyMutex::new(RecordCursor::default()),
                 key_log: Arc::new(super::keylog::ConnectionKeyLog::new(zelf.key_log.clone())),
                 context: PyRwLock::new(zelf),
                 server_side: args.server_side,
@@ -1920,7 +1652,6 @@ mod _ssl {
                 verified_chain: PyRwLock::new(None),
                 client_session_store: PyRwLock::new(None),
                 pending_tls_output: PyMutex::new(Vec::new()),
-                write_buffered_len: PyMutex::new(0),
                 msg_state: PyMutex::new(super::msg::MsgState::default()),
                 pending_msg_exc: PyMutex::new(None),
                 deferred_cert_error: Arc::new(ParkingRwLock::new(None)),
@@ -1987,10 +1718,7 @@ mod _ssl {
                     outgoing: args.outgoing,
                 },
 
-                tls_record_header_buf: vm
-                    .ctx
-                    .new_bytearray(Vec::with_capacity(TLS_RECORD_HEADER_SIZE))
-                    .into(),
+                record_cursor: PyMutex::new(RecordCursor::default()),
                 key_log: Arc::new(super::keylog::ConnectionKeyLog::new(zelf.key_log.clone())),
                 context: PyRwLock::new(zelf),
                 server_side,
@@ -2010,7 +1738,6 @@ mod _ssl {
                 verified_chain: PyRwLock::new(None),
                 client_session_store: PyRwLock::new(None),
                 pending_tls_output: PyMutex::new(Vec::new()),
-                write_buffered_len: PyMutex::new(0),
                 msg_state: PyMutex::new(super::msg::MsgState::default()),
                 pending_msg_exc: PyMutex::new(None),
                 deferred_cert_error: Arc::new(ParkingRwLock::new(None)),
@@ -2394,9 +2121,8 @@ mod _ssl {
     #[derive(Debug, PyPayload)]
     pub(crate) struct PySSLSocket {
         io: SocketOrBio,
-        // Header of currently read TLS record.
         #[pytraverse(skip)]
-        tls_record_header_buf: PyObjectRef,
+        record_cursor: PyMutex<RecordCursor>,
         // SSL context
         context: PyRwLock<PyRef<PySSLContext>>,
         #[pytraverse(skip)]
@@ -2409,7 +2135,7 @@ mod _ssl {
         server_hostname: PyRwLock<Option<String>>,
         // TLS connection state
         #[pytraverse(skip)]
-        connection: PyMutex<Option<Connection>>,
+        connection: PyMutex<Option<TlsConnection>>,
         // Includes the saved exception while a rejected handshake sends its alert.
         state: PyMutex<TlsState>,
         // Session was reused (for session resumption tracking)
@@ -2429,17 +2155,13 @@ mod _ssl {
         verified_chain: PyRwLock<Option<Vec<Vec<u8>>>>,
         // Per-connection store containing the session selected by this connection.
         #[pytraverse(skip)]
-        client_session_store: PyRwLock<Option<Arc<PythonClientSessionStore>>>,
+        client_session_store: PyRwLock<Option<Arc<CapturingClientSessionStore>>>,
         // Pending TLS output buffer for non-blocking sockets
         // Stores unsent TLS bytes when sock_send() would block
         // This prevents data loss when write_tls() drains rustls' internal buffer
         // but the socket cannot accept all the data immediately
         #[pytraverse(skip)]
         pub(crate) pending_tls_output: PyMutex<Vec<u8>>,
-        // Tracks bytes already buffered in rustls for the current write operation
-        // Prevents duplicate writes when retrying after WantWrite/WantRead
-        #[pytraverse(skip)]
-        pub(crate) write_buffered_len: PyMutex<usize>,
         #[pytraverse(skip)]
         msg_state: PyMutex<super::msg::MsgState>,
         pending_msg_exc: PyMutex<Option<PyBaseExceptionRef>>,
@@ -2450,9 +2172,6 @@ mod _ssl {
         #[pytraverse(skip)]
         deferred_cert_error: Arc<ParkingRwLock<Option<String>>>,
     }
-
-    /// TLS record header size (content_type + version + length).
-    const TLS_RECORD_HEADER_SIZE: usize = 5;
 
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl PySSLSocket {
@@ -2472,8 +2191,21 @@ mod _ssl {
 
         /// rustls connection lock. Hold only around rustls operations, never
         /// across socket or MemoryBIO I/O.
-        pub(crate) fn connection(&self) -> &PyMutex<Option<Connection>> {
+        pub(crate) fn connection(&self) -> &PyMutex<Option<TlsConnection>> {
             &self.connection
+        }
+
+        pub(crate) fn write_buffered_len(&self) -> usize {
+            self.connection
+                .lock()
+                .as_ref()
+                .map_or(0, TlsConnection::write_buffered_len)
+        }
+
+        pub(crate) fn set_write_buffered_len(&self, n: usize) {
+            if let Some(conn) = self.connection.lock().as_mut() {
+                conn.set_write_buffered_len(n);
+            }
         }
 
         pub(crate) fn observe_tls(&self, write: bool, bytes: &[u8], vm: &VirtualMachine) {
@@ -2605,7 +2337,7 @@ mod _ssl {
                     .as_ref()
                     .and_then(|session| session.downcast_ref::<PySSLSession>())
                     .map_or(cached_session_data, |session| SessionData {
-                        _server_name: server_name.clone().unwrap_or_default(),
+                        server_name: server_name.clone().unwrap_or_default(),
                         session_id: session.session_id.clone(),
                         creation_time: session.creation_time,
                         lifetime: session.lifetime,
@@ -2970,31 +2702,22 @@ mod _ssl {
                     .map_err(|_| vm.new_os_error("Expected bytes from recv"))
             };
 
-            let tls_record_header_buf = self
-                .tls_record_header_buf
-                .clone()
-                .downcast::<PyByteArray>()
-                .expect("BUG: tls_record_header_buf is not PyByteArray");
-
-            let buf_len = tls_record_header_buf.borrow_buf().len();
-            let (mut collected, remaining) = if buf_len < TLS_RECORD_HEADER_SIZE {
-                let bytes = obj_to_bytes(self.sock_recv(TLS_RECORD_HEADER_SIZE - buf_len, vm)?)?;
-                let mut header = tls_record_header_buf.borrow_buf_mut();
-                header.extend_from_slice(bytes.as_bytes());
-                if header.len() < TLS_RECORD_HEADER_SIZE {
+            let (mut collected, remaining) = if self.record_cursor.lock().in_header() {
+                let want = self.record_cursor.lock().want();
+                let bytes = obj_to_bytes(self.sock_recv(want, vm)?)?;
+                self.record_cursor.lock().consume(bytes.as_bytes());
+                if self.record_cursor.lock().in_header() {
                     return Ok(bytes);
                 }
-                let remaining = u16::from_be_bytes([header[3], header[4]]);
+                let remaining = self.record_cursor.lock().want();
                 if remaining == 0 {
-                    header.clear();
                     return Ok(bytes);
                 }
                 (Some(bytes.as_bytes().to_vec()), remaining)
             } else {
-                let header = tls_record_header_buf.borrow_buf();
-                (None, u16::from_be_bytes([header[3], header[4]]))
+                (None, self.record_cursor.lock().want())
             };
-            let bytes = match self.sock_recv(remaining as usize, vm) {
+            let bytes = match self.sock_recv(remaining, vm) {
                 Ok(bytes) => obj_to_bytes(bytes)?,
                 Err(error) => {
                     // Header bytes already consumed must reach the TLS parser,
@@ -3008,13 +2731,7 @@ mod _ssl {
                     return Err(error);
                 }
             };
-            let mut header = tls_record_header_buf.borrow_buf_mut();
-            let remaining = remaining - bytes.len() as u16;
-            if remaining == 0 {
-                header.clear();
-            } else {
-                header[3..5].copy_from_slice(&remaining.to_be_bytes());
-            }
+            self.record_cursor.lock().consume(bytes.as_bytes());
             if let Some(collected) = collected.as_mut() {
                 collected.extend_from_slice(bytes.as_bytes());
             }
@@ -3066,59 +2783,13 @@ mod _ssl {
             Ok(())
         }
 
-        // Helper function to convert Python PROTO_* constants to rustls versions
-        fn get_rustls_versions(
-            minimum: i32,
-            maximum: i32,
-            options: i32,
-        ) -> &'static [&'static rustls::SupportedProtocolVersion] {
-            // Rustls only supports TLS 1.2 and 1.3
-            // PROTO_TLSv1_2 = 0x0303, PROTO_TLSv1_3 = 0x0304
-            // PROTO_MINIMUM_SUPPORTED = -2, PROTO_MAXIMUM_SUPPORTED = -1
-            // If minimum and maximum are 0, use default (both TLS 1.2 and 1.3)
-
-            // Static arrays for single-version configurations
-            static TLS12_ONLY: &[&rustls::SupportedProtocolVersion] = &[&TLS12];
-            static TLS13_ONLY: &[&rustls::SupportedProtocolVersion] = &[&TLS13];
-
-            // Normalize special values: -2 (MINIMUM_SUPPORTED) → TLS 1.2, -1 (MAXIMUM_SUPPORTED) → TLS 1.3
-            let min = if minimum == -2 {
-                PROTO_TLSv1_2
-            } else {
-                minimum
-            };
-            let max = if maximum == -1 {
-                PROTO_TLSv1_3
-            } else {
-                maximum
-            };
-
-            // Check if versions are disabled by options
-            let tls12_disabled = (options & OP_NO_TLSv1_2) != 0;
-            let tls13_disabled = (options & OP_NO_TLSv1_3) != 0;
-
-            let want_tls12 = (min == 0 || min <= PROTO_TLSv1_2)
-                && (max == 0 || max >= PROTO_TLSv1_2)
-                && !tls12_disabled;
-            let want_tls13 = (min == 0 || min <= PROTO_TLSv1_3)
-                && (max == 0 || max >= PROTO_TLSv1_3)
-                && !tls13_disabled;
-
-            match (want_tls12, want_tls13) {
-                (true, true) => rustls::DEFAULT_VERSIONS, // Both TLS 1.2 and 1.3
-                (true, false) => TLS12_ONLY,              // Only TLS 1.2
-                (false, true) => TLS13_ONLY,              // Only TLS 1.3
-                (false, false) => rustls::DEFAULT_VERSIONS, // Fallback to default
-            }
-        }
-
         /// Helper: Prepare TLS versions from context settings
         fn prepare_tls_versions(&self) -> &'static [&'static rustls::SupportedProtocolVersion] {
             let ctx = self.context.read();
             let min_ver = *ctx.minimum_version.read();
             let max_ver = *ctx.maximum_version.read();
             let options = *ctx.options.read();
-            Self::get_rustls_versions(min_ver, max_ver, options)
+            rustpython_host_env::ssl::rustls_versions(min_ver, max_ver, options)
         }
 
         /// Helper: Prepare KX groups (ECDH curve) from context settings
@@ -3171,7 +2842,7 @@ mod _ssl {
         /// Continue the accepted ClientHello using the context selected by SNI.
         fn initialize_server_connection(
             &self,
-            conn_guard: &mut Option<Connection>,
+            conn_guard: &mut Option<TlsConnection>,
             accepted: Accepted,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -3300,7 +2971,7 @@ mod _ssl {
             match accepted.into_connection(config_arc) {
                 Ok(mut conn) => {
                     conn.set_buffer_limit(TLS_IO_BUFFER_LIMIT);
-                    *conn_guard = Some(Connection::Server(conn));
+                    *conn_guard = Some(TlsConnection::new(Connection::Server(conn)));
                     *self.state.lock() = TlsState::Handshaking;
                 }
                 Err((error, mut alert)) => {
@@ -3396,7 +3067,7 @@ mod _ssl {
                     };
 
                     let explicit_session = self.session.read().clone();
-                    let session_store = Arc::new(PythonClientSessionStore::new(session_cache));
+                    let session_store = Arc::new(CapturingClientSessionStore::new(session_cache));
                     let (mut config, chain_builder) = if let Some(session) = explicit_session {
                         let session = session
                             .downcast_ref::<PySSLSession>()
@@ -3447,7 +3118,7 @@ mod _ssl {
                     })?;
                     conn.set_buffer_limit(TLS_IO_BUFFER_LIMIT);
 
-                    *conn_guard = Some(Connection::Client(conn));
+                    *conn_guard = Some(TlsConnection::new(Connection::Client(conn)));
                 }
             }
             drop(conn_guard);
@@ -3457,10 +3128,12 @@ mod _ssl {
             if let Err(error @ (SslError::Rustls(_) | SslError::PreauthData)) = handshake_result {
                 // rustls queued the fatal alert while processing the failing
                 // record. Retain it and the original error across output retries.
-                let mut bytes = Vec::new();
-                if let Some(conn) = self.connection.lock().as_mut() {
-                    let _ = conn.write_tls(&mut bytes);
-                }
+                let bytes = self
+                    .connection
+                    .lock()
+                    .as_mut()
+                    .and_then(|conn| conn.drain_tls().ok())
+                    .unwrap_or_default();
                 self.reject_connection(error.into_py_err(vm), bytes, vm);
                 return self.accept_client_hello(vm).map(|_| ());
             }
@@ -3577,9 +3250,7 @@ mod _ssl {
                             Some(conn) => conn,
                             None => return Err(create_ssl_eof_error(vm).upcast()),
                         };
-
-                        let mut reader = conn.reader();
-                        reader.fill_buf().map_or(0, |buf| buf.len())
+                        conn.pending_plaintext()
                     };
                     if pending > 0 {
                         let mut buf = vec![0u8; pending.min(len)];
@@ -3600,9 +3271,7 @@ mod _ssl {
                             Some(conn) => conn,
                             None => return Err(create_ssl_zero_return_error(vm).upcast()),
                         };
-
-                        let mut reader = conn.reader();
-                        reader.fill_buf().map_or(0, |buf| buf.len())
+                        conn.pending_plaintext()
                     };
                     if pending > 0 {
                         let mut buf = vec![0u8; pending.min(len)];
@@ -3657,19 +3326,7 @@ mod _ssl {
                 Some(c) => c,
                 None => return 0, // No connection established yet
             };
-
-            // Use rustls Reader's fill_buf() to check buffered plaintext
-            // fill_buf() returns a reference to buffered data without consuming it
-            // This matches OpenSSL's SSL_pending() behavior
-            let mut reader = conn.reader();
-            match reader.fill_buf() {
-                Ok(buf) => buf.len(),
-                Err(_) => {
-                    // WouldBlock or other errors mean no data available
-                    // Return 0 like OpenSSL does when buffer is empty
-                    0
-                }
-            }
+            conn.pending_plaintext()
         }
 
         #[pymethod]
@@ -4026,15 +3683,14 @@ mod _ssl {
             }
 
             let result = (|| loop {
-                let mut bytes = Vec::new();
-                {
+                let bytes = {
                     let mut conn_guard = self.connection.lock();
                     let conn = conn_guard
                         .as_mut()
                         .ok_or_else(|| vm.new_value_error("Connection not established"))?;
-                    conn.write_tls(&mut bytes)
-                        .map_err(|e| e.into_pyexception(vm))?;
-                }
+                    conn.drain_tls()
+                        .map_err(|e| SslError::from(e).into_py_err(vm))?
+                };
                 super::compat::send_all_bytes(self, bytes, vm, deadline)
                     .map_err(|e| e.into_py_err(vm))?;
 
@@ -4043,8 +3699,8 @@ mod _ssl {
                     let conn = conn_guard
                         .as_mut()
                         .ok_or_else(|| vm.new_value_error("Connection not established"))?;
-                    conn.process_new_packets()
-                        .map_err(|e| SslError::from_rustls(e).into_py_err(vm))?
+                    conn.process_packets()
+                        .map_err(|e| SslError::from(e).into_py_err(vm))?
                 };
                 if io_state.plaintext_bytes_to_read() != 0 {
                     return Err(SslError::create_ssl_error_with_reason(
@@ -4093,10 +3749,12 @@ mod _ssl {
             {
                 // A protocol failure cannot resume as a normal shutdown. Keep
                 // any fatal alert rustls queued and preserve the original error.
-                let mut bytes = Vec::new();
-                if let Some(conn) = self.connection.lock().as_mut() {
-                    let _ = conn.write_tls(&mut bytes);
-                }
+                let bytes = self
+                    .connection
+                    .lock()
+                    .as_mut()
+                    .and_then(|conn| conn.drain_tls().ok())
+                    .unwrap_or_default();
                 self.reject_connection(error.clone(), bytes, vm);
                 return self
                     .accept_client_hello(vm)
@@ -4156,7 +3814,7 @@ mod _ssl {
             // Check connection exists and protocol version
             let conn_guard = self.connection.lock();
             if let Some(conn) = conn_guard.as_ref() {
-                let version = match conn {
+                let version = match conn.inner() {
                     Connection::Client(_) => {
                         return Err(vm.new_value_error(
                             "Post-handshake authentication requires server socket",
@@ -4360,12 +4018,6 @@ mod _ssl {
 
     // SSLSession - represents a cached SSL session
     // NOTE: This is an EMULATION - actual session data is managed by Rustls internally
-    #[derive(Debug, Clone, Copy)]
-    enum ClientSessionKind {
-        Tls12,
-        Tls13,
-    }
-
     #[pyattr]
     #[pyclass(name = "SSLSession", module = "ssl")]
     #[derive(Debug, PyPayload)]
@@ -4373,7 +4025,7 @@ mod _ssl {
         context_identity: Arc<()>,
         client_config: Arc<rustls::ClientConfig>,
         chain_builder: Arc<VerifiedChainBuilder>,
-        session_store: Arc<PythonClientSessionStore>,
+        session_store: Arc<CapturingClientSessionStore>,
         server_name: Option<ServerName<'static>>,
         kind: ClientSessionKind,
         // Session ID - synthetic ID generated from metadata (NOT actual TLS session ID)

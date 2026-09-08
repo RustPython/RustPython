@@ -10,7 +10,7 @@ license.workspace = true
 
 [features]
 native-certs = ["dep:rustls-native-certs"]
-ssl = ["dep:rustls", "dep:rustls-pemfile", "dep:rustls-webpki", "dep:x509-parser", "dep:der", "dep:pkcs8"]
+ssl = ["dep:rustls", "dep:rustls-pemfile", "dep:rustls-webpki", "dep:x509-parser", "dep:der", "dep:pkcs8", "dep:sha2"]
 
 [dependencies]
 rustpython-wtf8 = { workspace = true }
@@ -28,6 +28,7 @@ rustls-webpki = { workspace = true, optional = true }
 x509-parser = { workspace = true, optional = true }
 der = { workspace = true, optional = true }
 pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
+sha2 = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
