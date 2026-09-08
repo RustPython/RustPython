@@ -813,3 +813,22 @@ cannot(
     lambda: bytearray(b"ab").__setitem__(slice(0, 2), "ab"),
     "can assign only bytes, buffers, or iterables of ints in range(0, 256)",
 )
+
+
+def out_of_range(fn, message):
+    try:
+        fn()
+    except ValueError as e:
+        assert str(e) == message, e
+    else:
+        raise AssertionError(f"expected ValueError: {message}")
+
+
+# `bytes` is the one entry point that does not name a single byte, and both the
+# sized and unsized iterator paths report it that way.
+out_of_range(lambda: bytes([256]), "bytes must be in range(0, 256)")
+out_of_range(lambda: bytes(iter([256])), "bytes must be in range(0, 256)")
+out_of_range(lambda: bytes([-1]), "bytes must be in range(0, 256)")
+out_of_range(lambda: bytearray([256]), "byte must be in range(0, 256)")
+out_of_range(lambda: bytearray(iter([256])), "byte must be in range(0, 256)")
+out_of_range(lambda: bytearray().extend([256]), "byte must be in range(0, 256)")
