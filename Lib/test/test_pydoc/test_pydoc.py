@@ -1540,7 +1540,6 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(textwrap.TextWrapper.wrap),
             "wrap(self, text)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_unbound_builtin_method(self):
         self.assertEqual(self._get_summary_line(_pickle.Pickler.dump),
@@ -1567,7 +1566,6 @@ class TestDescriptions(unittest.TestCase):
         pydoc.render_doc(NonIterableFields)
         pydoc.render_doc(NonHashableFields)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_bound_builtin_method(self):
         s = StringIO()
