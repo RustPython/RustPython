@@ -4358,6 +4358,33 @@ impl ExecutingFrame<'_> {
                 let callable = self.nth_value(idx + 2);
                 let func_str = Self::object_function_str(callable, vm);
 
+                // Fast path: source is an exact dict (not a subclass, which may
+                // override `keys`/`__getitem__`). Iterate its entries natively
+                // instead of going through the mapping protocol, mirroring
+                // CPython's `PyDict_Merge` fast path for `PyDict_Check(other)`.
+                let source = if source.class().is(vm.ctx.types.dict_type) {
+                    let src_dict = source
+                        .downcast_ref::<PyDict>()
+                        .expect("exact dict must have a PyDict payload");
+                    // Snapshot under a single read lock so a mutation of `source`
+                    // triggered by `dict.set_item` (e.g. via a target subclass, or
+                    // aliasing) can't be observed mid-iteration.
+                    for (key, value) in src_dict.items_vec() {
+                        if dict.contains_key(&*key, vm) {
+                            let key_str = key.str(vm)?;
+                            return Err(vm.new_type_error(format!(
+                                "{} got multiple values for keyword argument '{}'",
+                                func_str,
+                                key_str.as_wtf8()
+                            )));
+                        }
+                        dict.set_item(&*key, value, vm)?;
+                    }
+                    return Ok(None);
+                } else {
+                    source
+                };
+
                 // Check if source is a mapping
                 if vm
                     .get_method(source.clone(), vm.ctx.intern_str("keys"))
@@ -8415,13 +8442,12 @@ impl ExecutingFrame<'_> {
             let callable = self.nth_value(2);
             let func_str = Self::object_function_str(callable, vm);
 
-            Self::iterate_mapping_keys(vm, &kw_obj, &func_str, |key| {
+            Self::iterate_mapping_keys(vm, &kw_obj, &func_str, |key, value| {
                 // `PyStr`, not `PyUtf8Str`: CPython only checks that the key is a
                 // `str`, not that it is valid UTF-8, so surrogate keys are accepted.
                 let key_str = key
                     .downcast_ref::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
-                let value = kw_obj.get_item(&*key, vm)?;
                 kwargs.insert(key_str.as_wtf8().to_owned(), value);
                 Ok(())
             })?
@@ -8488,8 +8514,23 @@ impl ExecutingFrame<'_> {
         mut key_handler: F,
     ) -> PyResult<()>
     where
-        F: FnMut(PyObjectRef) -> PyResult<()>,
+        F: FnMut(PyObjectRef, PyObjectRef) -> PyResult<()>,
     {
+        // Fast path: exact dict (e.g. built by DICT_MERGE), not a subclass which
+        // may override `keys`/`__getitem__`. Iterate its entries natively,
+        // mirroring CPython's `PyDict_Check(kwargs)` fast path in `CALL_FUNCTION_EX`.
+        if mapping.class().is(vm.ctx.types.dict_type) {
+            let dict = mapping
+                .downcast_ref::<PyDict>()
+                .expect("exact dict must have a PyDict payload");
+            // Snapshot under a single read lock: safe against mutation of
+            // `mapping` from within `key_handler`.
+            for (key, value) in dict.items_vec() {
+                key_handler(key, value)?;
+            }
+            return Ok(());
+        }
+
         let Some(keys_method) = vm.get_method(mapping.to_owned(), vm.ctx.intern_str("keys")) else {
             return Err(vm.new_type_error(format!(
                 "{} argument after ** must be a mapping, not {}",
@@ -8500,7 +8541,8 @@ impl ExecutingFrame<'_> {
 
         let keys = keys_method?.call((), vm)?.get_iter(vm)?;
         while let PyIterReturn::Return(key) = keys.next(vm)? {
-            key_handler(key)?;
+            let value = mapping.get_item(&*key, vm)?;
+            key_handler(key, value)?;
         }
         Ok(())
     }
