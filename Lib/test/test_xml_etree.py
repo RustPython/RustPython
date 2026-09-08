@@ -552,7 +552,6 @@ class ElementTreeTest(unittest.TestCase):
                 '   <empty-element />\n'
                 '</root>')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parseliteral(self):
         element = ET.XML("<html><body>text</body></html>")
         self.assertEqual(ET.tostring(element, encoding='unicode'),
@@ -1587,7 +1586,6 @@ class XMLPullParserTest(unittest.TestCase):
         self.assertEqual([(action, elem.tag) for action, elem in events],
                          expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_xml(self, chunk_size=None, flush=False):
         parser = ET.XMLPullParser()
         self.assert_event_tags(parser, [])
@@ -1617,11 +1615,9 @@ class XMLPullParserTest(unittest.TestCase):
     def test_simple_xml_chunk_5(self):
         self.test_simple_xml(chunk_size=5, flush=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_xml_chunk_22(self):
         self.test_simple_xml(chunk_size=22)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_feed_while_iterating(self):
         parser = ET.XMLPullParser()
         it = parser.read_events()
@@ -1634,7 +1630,6 @@ class XMLPullParserTest(unittest.TestCase):
         with self.assertRaises(StopIteration):
             next(it)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_xml_with_ns(self):
         parser = ET.XMLPullParser()
         self.assert_event_tags(parser, [])
@@ -1724,7 +1719,6 @@ class XMLPullParserTest(unittest.TestCase):
             ('end-ns', None),
         ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_events(self):
         parser = ET.XMLPullParser(events=())
         self._feed(parser, "<root/>\n")

@@ -61,7 +61,6 @@ mod _pyexpat {
         types::Constructor,
     };
     use rustpython_common::lock::PyRwLock;
-    use std::io::Cursor;
     use xml::reader::XmlEvent;
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
@@ -109,6 +108,18 @@ mod _pyexpat {
         current_column: PyRwLock<i64>,
         #[pytraverse(skip)]
         current_byte_index: PyRwLock<i64>,
+        // Incremental-parsing state: Parse()/ParseFile() may be called
+        // multiple times with successive chunks of the same document (e.g.
+        // xml.etree.ElementTree and genshi both feed input in ~64KB chunks).
+        // xml-rs has no API to resume a parser across separate `Read`
+        // sources, so instead we keep growing `buffer` with every chunk fed
+        // so far and re-parse it from scratch on each call, replaying only
+        // the events at or beyond `dispatched_events` so handlers still see
+        // each event exactly once.
+        #[pytraverse(skip)]
+        buffer: PyRwLock<Vec<u8>>,
+        #[pytraverse(skip)]
+        dispatched_events: PyRwLock<usize>,
         start_element: MutableObject,
         end_element: MutableObject,
         character_data: MutableObject,
@@ -204,6 +215,8 @@ mod _pyexpat {
                 current_line: PyRwLock::new(1),
                 current_column: PyRwLock::new(0),
                 current_byte_index: PyRwLock::new(-1),
+                buffer: PyRwLock::new(Vec::new()),
+                dispatched_events: PyRwLock::new(0),
                 start_element: MutableObject::new(vm.ctx.none()),
                 end_element: MutableObject::new(vm.ctx.none()),
                 character_data: MutableObject::new(vm.ctx.none()),
@@ -437,31 +450,47 @@ mod _pyexpat {
             }
         }
 
+        /// Parse `source_bytes` from the start, skipping the first `skip`
+        /// events (already dispatched by a previous call) and dispatching
+        /// the rest to the registered handlers. Returns the total number of
+        /// events consumed from the reader (dispatched or skipped), which
+        /// the caller should remember and pass back as `skip` next time it
+        /// re-parses a grown buffer. See the `buffer`/`dispatched_events`
+        /// fields for why this re-parse-from-scratch approach is needed.
         fn do_parse<T>(
             &self,
             vm: &VirtualMachine,
             source_bytes: &[u8],
             mut parser: xml::EventReader<T>,
-        ) -> PyResult<()>
+            skip: usize,
+        ) -> PyResult<usize>
         where
             T: std::io::Read,
         {
             use xml::common::Position;
 
             let line_starts = compute_line_starts(source_bytes);
+            let mut index = 0usize;
 
             // xml-rs is stricter than libexpat; some errors are silently
             // ignored to maintain compatibility with existing Python code.
             while let Ok(event) = parser.next() {
                 if matches!(event, XmlEvent::EndDocument) {
+                    index += 1;
                     break;
                 }
+                let this_index = index;
+                index += 1;
 
                 let pos = parser.position();
                 *self.current_line.write() = pos.row() as i64 + 1;
                 *self.current_column.write() = pos.column() as i64;
                 *self.current_byte_index.write() =
                     byte_index_for_position(source_bytes, &line_starts, pos);
+
+                if this_index < skip {
+                    continue;
+                }
 
                 match event {
                     XmlEvent::StartElement {
@@ -518,6 +547,25 @@ mod _pyexpat {
                     _ => {}
                 }
             }
+            Ok(index)
+        }
+
+        /// Feed another chunk of the document to the parser. `Parse()` and
+        /// `ParseFile()` may each be called several times with successive
+        /// chunks of one logical document (e.g. `xml.etree.ElementTree`
+        /// reads and feeds a file 64KB at a time), so we grow a persistent
+        /// buffer and re-parse it as a whole each time, replaying only the
+        /// events not yet dispatched.
+        fn feed(&self, vm: &VirtualMachine, chunk: &[u8]) -> PyResult<()> {
+            let snapshot = {
+                let mut buffer = self.buffer.write();
+                buffer.extend_from_slice(chunk);
+                buffer.clone()
+            };
+            let parser = self.create_config().create_reader(snapshot.as_slice());
+            let skip = *self.dispatched_events.read();
+            let new_count = self.do_parse(vm, &snapshot, parser, skip)?;
+            *self.dispatched_events.write() = new_count;
             Ok(())
         }
 
@@ -532,13 +580,7 @@ mod _pyexpat {
                 Either::A(s) => s.as_bytes().to_vec(),
                 Either::B(b) => b.as_bytes().to_vec(),
             };
-            // Empty data is valid - used to finalize parsing
-            if bytes.is_empty() {
-                return Ok(1);
-            }
-            let reader = Cursor::<Vec<u8>>::new(bytes.clone());
-            let parser = self.create_config().create_reader(reader);
-            self.do_parse(vm, &bytes, parser)?;
+            self.feed(vm, &bytes)?;
             Ok(1)
         }
 
@@ -547,12 +589,7 @@ mod _pyexpat {
             let read_res = vm.call_method(&file, "read", ())?;
             let bytes_like = ArgBytesLike::try_from_object(vm, read_res)?;
             let buf = bytes_like.borrow_buf().to_vec();
-            if buf.is_empty() {
-                return Ok(1);
-            }
-            let reader = Cursor::new(buf.clone());
-            let parser = self.create_config().create_reader(reader);
-            self.do_parse(vm, &buf, parser)?;
+            self.feed(vm, &buf)?;
             Ok(1)
         }
     }
