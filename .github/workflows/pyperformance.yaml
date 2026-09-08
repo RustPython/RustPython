@@ -42,6 +42,12 @@ jobs:
     name: base vs. head vs. CPython
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    permissions:
+      contents: read
+      # Honoured for a pull request opened from this repo, which is then
+      # commented on directly by the last step; a fork's run is handed
+      # read-only whatever is asked for here and goes the artifact route.
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -164,3 +170,40 @@ jobs:
             pr_number.txt
           retention-days: 14
           if-no-files-found: ignore
+
+      # A pull request opened from this repo can be commented on from here,
+      # which puts the table on the PR in the same run instead of waiting for
+      # the companion workflow. Forks fall through to that workflow instead.
+      - name: Post or update the PR comment
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('diff.md', 'utf8');
+            const marker = '<!-- pyperformance-local-diff -->';
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body,
+              });
+            }
