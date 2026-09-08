@@ -831,7 +831,6 @@ class TestPlistlib(unittest.TestCase):
                 self.assertEqual(test1, result1)
                 self.assertEqual(test2, result2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalidarray(self):
         for i in ["<key>key inside an array</key>",
                   "<key>key inside an array2</key><real>3</real>",
@@ -839,7 +838,6 @@ class TestPlistlib(unittest.TestCase):
             self.assertRaises(ValueError, plistlib.loads,
                               ("<plist><array>%s</array></plist>"%i).encode())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invaliddict(self):
         for i in ["<key><true/>k</key><string>compound key</string>",
                   "<key>single key</key>",
@@ -851,12 +849,10 @@ class TestPlistlib(unittest.TestCase):
             self.assertRaises(ValueError, plistlib.loads,
                               ("<plist><array><dict>%s</dict></array></plist>"%i).encode())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalidinteger(self):
         self.assertRaises(ValueError, plistlib.loads,
                           b"<plist><integer>not integer</integer></plist>")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalidreal(self):
         self.assertRaises(ValueError, plistlib.loads,
                           b"<plist><integer>not real</integer></plist>")

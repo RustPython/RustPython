@@ -239,7 +239,6 @@ class XMLRPCTestCase(unittest.TestCase):
             self.assertIs(type(newvalue), xmlrpclib.Binary)
             self.assertIsNone(m)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_loads_unsupported(self):
         ResponseError = xmlrpclib.ResponseError
         data = '<params><param><value><spam/></value></param></params>'
