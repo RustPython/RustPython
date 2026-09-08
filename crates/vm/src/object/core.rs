@@ -2294,6 +2294,34 @@ const STACKREF_BORROW_TAG: usize = 1;
 ///
 /// Uses `NonZeroUsize` so that `Option<PyStackRef>` has the same size as
 /// `PyStackRef` via niche optimization (matching `Option<PyObjectRef>`).
+///
+/// # The borrow invariant
+///
+/// A borrowed entry keeps no strong count of its own, so something else has to
+/// keep the object alive for as long as the entry sits on the value stack.
+/// Two producers create them, each with its own reason:
+///
+/// * `LOAD_SMALL_INT` and friends borrow objects the `Context` owns for the
+///   whole life of the interpreter, so nothing can free them.
+/// * `LOAD_FAST_BORROW` borrows the object in a fastlocals slot of the frame
+///   that is executing. The slot holds the strong count. The codegen pass
+///   `optimize_load_fast` (`crates/codegen/src/ir.rs`, a port of CPython's
+///   `flowgraph.c`) only rewrites `LOAD_FAST` into `LOAD_FAST_BORROW` when it
+///   can prove, over the basic block, that the pushed entry is consumed before
+///   anything stores to or deletes that local, and before the entry could be
+///   stored into the local itself.
+///
+/// Three rules keep the runtime side of that bargain:
+///
+/// 1. Anything that makes a borrowed entry outlive the block it was pushed in
+///    must promote it first (`LocalsPlus::promote_stack`, run at every yield
+///    point). A frame that suspends keeps its own fastlocals, so this is
+///    belt-and-braces, but a stack that is copied out of the frame is not.
+/// 2. The cycle collector must not count a borrowed entry as an edge; see
+///    `Traverse for PyStackRef`.
+/// 3. Anything that overwrites a fastlocals slot from outside the eval loop --
+///    `frame.f_locals` write-back -- must keep the displaced value alive
+///    (`f_overwritten_fast_locals`) rather than dropping it in place.
 #[repr(transparent)]
 pub struct PyStackRef {
     bits: NonZeroUsize,

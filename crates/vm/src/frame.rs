@@ -267,6 +267,20 @@ unsafe impl<T: Send> Send for FrameUnsafeCell<T> {}
 #[cfg(feature = "threading")]
 unsafe impl<T: Send> Sync for FrameUnsafeCell<T> {}
 
+/// Compile-time switch for borrowed `LOAD_FAST_BORROW` pushes.
+///
+/// With this off, `LOAD_FAST_BORROW` behaves exactly like `LOAD_FAST`: it
+/// clones the fastlocals slot, so every load pays an atomic increment and the
+/// consuming instruction an atomic decrement. With it on, the entry the load
+/// pushes is a tagged borrow that owns no count, and both of those disappear
+/// for every consumer that only ever reads through the entry.
+///
+/// The safety argument lives on `PyStackRef` in `object/core.rs`; the codegen
+/// analysis that establishes it is `optimize_load_fast` in
+/// `crates/codegen/src/ir.rs`. Debug builds audit it in
+/// `LocalsPlus::debug_audit_local_release`.
+pub(crate) const BORROW_LOCAL_LOADS: bool = false;
+
 /// Unified storage for local variables and evaluation stack.
 ///
 /// Memory layout (each slot is `usize`-sized):
@@ -533,6 +547,43 @@ impl LocalsPlus {
         let data = self.data_as_mut_slice();
         let raw = core::mem::replace(&mut data[idx], 0);
         unsafe { core::mem::transmute::<usize, Option<PyStackRef>>(raw) }
+    }
+
+    /// Debug-mode audit of the borrow invariant: nothing may drop the last
+    /// strong count of an object that a borrowed stack entry still points at.
+    ///
+    /// Called from the eval loop wherever a fastlocals slot is about to
+    /// release what it holds (`STORE_FAST`, `DELETE_FAST` and the fused
+    /// forms). Codegen's `optimize_load_fast` is what guarantees this cannot
+    /// happen; the check is here to catch a gap in that analysis, or an
+    /// instruction whose modelled stack effect does not match the one the
+    /// interpreter actually has, before it turns into a use-after-free.
+    #[inline(always)]
+    fn debug_audit_local_release(&self, idx: usize) {
+        #[cfg(debug_assertions)]
+        {
+            let Some(old) = self.fastlocals()[idx].as_ref() else {
+                return;
+            };
+            // Another owner keeps it alive; releasing this slot frees nothing.
+            if old.strong_count() != 1 {
+                return;
+            }
+            let old_ptr = old.as_object() as *const PyObject;
+            for i in 0..self.stack_top as usize {
+                if let Some(stack_ref) = self.stack_index(i)
+                    && stack_ref.is_borrowed()
+                    && core::ptr::eq(stack_ref.as_object() as *const PyObject, old_ptr)
+                {
+                    panic!(
+                        "borrow invariant violated: fastlocals[{idx}] is dropping the last \
+                         reference to an object that stack slot {i} still borrows"
+                    );
+                }
+            }
+        }
+        #[cfg(not(debug_assertions))]
+        let _ = idx;
     }
 
     /// Give every borrowed stack ref its own reference.
@@ -2761,6 +2812,9 @@ pub(crate) fn is_delegating(coro: &Coro) -> bool {
 /// leave `lasti` where the skipped `YIELD_VALUE` would have left it.
 #[inline]
 pub(crate) fn park_after_yield_from(iframe: &mut InterpreterFrame, resumed_at: u32) {
+    // The `YIELD_VALUE` this stands in for never ran, so nothing has promoted
+    // the parked stack yet. Do it here for the same reason that handler does.
+    iframe.localsplus.promote_stack();
     debug_assert!(
         iframe
             .localsplus
@@ -4212,6 +4266,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::DeleteFast { var_num } => {
+                self.localsplus
+                    .debug_audit_local_release(var_num.get(arg).as_usize());
                 let fastlocals = self.localsplus.fastlocals_mut();
                 let idx = var_num.get(arg);
                 if fastlocals[idx].is_none() {
@@ -4773,38 +4829,16 @@ impl ExecutingFrame<'_> {
                 self.push_value(x2);
                 Ok(None)
             }
-            // Borrow optimization not yet active; falls back to clone.
-            // push_borrowed() is available but disabled until stack
-            // lifetime issues at yield/exception points are resolved.
             Instruction::LoadFastBorrow { var_num } => {
                 let idx = var_num.get(arg);
-                let x = self.localsplus.fastlocals()[idx].clone().ok_or_else(|| {
-                    vm.new_unbound_local_error(format!(
-                        "local variable '{}' referenced before assignment",
-                        self.code.varnames[idx]
-                    ))
-                })?;
-                self.push_value(x);
+                self.push_local(idx.as_usize(), vm)?;
                 Ok(None)
             }
             Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (idx1, idx2) = oparg.indexes();
-                let fastlocals = self.localsplus.fastlocals();
-                let x1 = fastlocals[idx1].clone().ok_or_else(|| {
-                    vm.new_unbound_local_error(format!(
-                        "local variable '{}' referenced before assignment",
-                        self.code.varnames[idx1]
-                    ))
-                })?;
-                let x2 = fastlocals[idx2].clone().ok_or_else(|| {
-                    vm.new_unbound_local_error(format!(
-                        "local variable '{}' referenced before assignment",
-                        self.code.varnames[idx2]
-                    ))
-                })?;
-                self.push_value(x1);
-                self.push_value(x2);
+                self.push_local(idx1.as_usize(), vm)?;
+                self.push_local(idx2.as_usize(), vm)?;
                 Ok(None)
             }
             Instruction::LoadGlobal { namei: idx } => {
@@ -5345,8 +5379,10 @@ impl ExecutingFrame<'_> {
             Instruction::StoreFast { var_num } => {
                 // pop_value_opt: allows NULL from LoadFastAndClear restore path
                 let value = self.pop_value_opt();
+                let idx = var_num.get(arg);
+                self.localsplus.debug_audit_local_release(idx.as_usize());
                 let fastlocals = self.localsplus.fastlocals_mut();
-                fastlocals[var_num.get(arg)] = value;
+                fastlocals[idx] = value;
                 Ok(None)
             }
             Instruction::StoreFastLoadFast { var_nums } => {
@@ -5354,6 +5390,8 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value_opt();
                 let oparg = var_nums.get(arg);
                 let (store_idx, load_idx) = oparg.indexes();
+                self.localsplus
+                    .debug_audit_local_release(store_idx.as_usize());
                 let load_value = {
                     let locals = self.localsplus.fastlocals_mut();
                     locals[store_idx] = value;
@@ -5368,6 +5406,8 @@ impl ExecutingFrame<'_> {
                 // pop_value_opt: allows NULL from LoadFastAndClear restore path
                 let value1 = self.pop_value_opt();
                 let value2 = self.pop_value_opt();
+                self.localsplus.debug_audit_local_release(idx1.as_usize());
+                self.localsplus.debug_audit_local_release(idx2.as_usize());
                 let fastlocals = self.localsplus.fastlocals_mut();
                 fastlocals[idx1] = value1;
                 fastlocals[idx2] = value2;
@@ -11598,9 +11638,45 @@ impl ExecutingFrame<'_> {
     /// The compiler guarantees consumption within the same basic block.
     #[inline]
     #[track_caller]
-    #[allow(dead_code)]
     unsafe fn push_borrowed(&mut self, obj: &PyObject) {
         self.push_stackref_opt(Some(unsafe { PyStackRef::new_borrowed(obj) }));
+    }
+
+    /// Push the fastlocals slot `idx` for a `LOAD_FAST_BORROW`.
+    ///
+    /// With [`BORROW_LOCAL_LOADS`] on this is a borrow: the slot holds the
+    /// strong count and codegen has proved the entry is consumed before
+    /// anything can release that slot, so the push and its matching pop cost
+    /// no atomic traffic at all. With the flag off it is a plain clone, which
+    /// is what every `LOAD_FAST` does.
+    #[inline(always)]
+    fn push_local(&mut self, idx: usize, vm: &VirtualMachine) -> PyResult<()> {
+        #[cold]
+        #[inline(never)]
+        fn unbound(varname: &'static PyStrInterned, vm: &VirtualMachine) -> PyBaseExceptionRef {
+            vm.new_unbound_local_error(format!(
+                "local variable '{varname}' referenced before assignment"
+            ))
+        }
+        if BORROW_LOCAL_LOADS {
+            // Take the address out of the slot before the push needs `&mut
+            // self`; the borrow of `localsplus` ends with this statement.
+            let obj: *const PyObject = match self.localsplus.fastlocals()[idx].as_ref() {
+                Some(obj) => obj.as_object(),
+                None => return Err(unbound(self.code.varnames[idx], vm)),
+            };
+            // SAFETY: the fastlocals slot owns a strong count on `obj` and,
+            // per the borrow invariant on `PyStackRef`, cannot release it
+            // before this entry is popped.
+            unsafe { self.push_borrowed(&*obj) };
+        } else {
+            let obj = match self.localsplus.fastlocals()[idx].clone() {
+                Some(obj) => obj,
+                None => return Err(unbound(self.code.varnames[idx], vm)),
+            };
+            self.push_value(obj);
+        }
+        Ok(())
     }
 
     #[inline(always)]
