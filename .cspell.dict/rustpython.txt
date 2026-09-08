@@ -20,6 +20,7 @@ pyname
 pyobj
 pyobject
 pypayload
+pyperformance
 pyref
 pyslot
 pystaticmethod
@@ -31,4 +32,5 @@ pytype
 qsbr
 rustix
 struc
+unscanned
 zelf
