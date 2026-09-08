@@ -1514,12 +1514,8 @@ pub(crate) mod _elementtree {
             self.flush_data(vm)?;
             let factory = self.state.read().element_factory.clone();
             let node = match factory {
-                None => create_element(
-                    PyElement::class(&vm.ctx).to_owned(),
-                    tag,
-                    attrib.map(|d| d.copy().into_ref(&vm.ctx)),
-                    vm,
-                )?,
+                // CPython adopts the caller's dict rather than copying it.
+                None => PyElement::new(tag, attrib, vm).into_ref(&vm.ctx).into(),
                 Some(factory) => {
                     let attrib = attrib.unwrap_or_else(|| vm.ctx.new_dict());
                     factory.call((tag, attrib), vm)?
@@ -1822,6 +1818,9 @@ pub(crate) mod _elementtree {
         /// before `__init__` (and after `close()` dropped it).
         parser: Option<PyObjectRef>,
         target: Option<PyObjectRef>,
+        /// The target again, when it is exactly our own `TreeBuilder`, so a
+        /// per-event dispatch is one clone rather than a type check.
+        native_target: Option<PyRef<PyTreeBuilder>>,
         entity: Option<PyDictRef>,
         /// Cache of raw expat names to their `{uri}local` form.
         names: Option<PyDictRef>,
@@ -1855,6 +1854,7 @@ pub(crate) mod _elementtree {
             };
             st.parser.traverse(traverse_fn);
             st.target.traverse(traverse_fn);
+            st.native_target.traverse(traverse_fn);
             st.entity.traverse(traverse_fn);
             st.names.traverse(traverse_fn);
             st.handle_start.traverse(traverse_fn);
@@ -1876,6 +1876,7 @@ pub(crate) mod _elementtree {
                 [
                     st.parser.take(),
                     st.target.take(),
+                    st.native_target.take().map(Into::into),
                     st.entity.take().map(Into::into),
                     st.names.take().map(Into::into),
                     st.handle_start.take(),
@@ -1963,6 +1964,11 @@ pub(crate) mod _elementtree {
                 handle_pi: optional_handler(&target, "pi", vm)?,
                 handle_close: optional_handler(&target, "close", vm)?,
                 handle_doctype: optional_handler(&target, "doctype", vm)?,
+                native_target: target
+                    .class()
+                    .is(PyTreeBuilder::class(&vm.ctx))
+                    .then(|| target.clone().downcast::<PyTreeBuilder>().ok())
+                    .flatten(),
                 target: Some(target),
             };
             let has_comment = handlers.handle_comment.is_some();
@@ -2036,13 +2042,8 @@ pub(crate) mod _elementtree {
 
         /// The target, when it is exactly our own `TreeBuilder` and can
         /// therefore be driven without going back through Python.
-        fn native_target(&self, vm: &VirtualMachine) -> Option<PyRef<PyTreeBuilder>> {
-            let target = self.state.read().target.clone()?;
-            if target.class().is(PyTreeBuilder::class(&vm.ctx)) {
-                target.downcast::<PyTreeBuilder>().ok()
-            } else {
-                None
-            }
+        fn native_target(&self, _vm: &VirtualMachine) -> Option<PyRef<PyTreeBuilder>> {
+            self.state.read().native_target.clone()
         }
 
         /// Turn expat's "uri}local" into ElementTree's "{uri}local",
