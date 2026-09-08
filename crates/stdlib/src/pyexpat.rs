@@ -450,6 +450,11 @@ mod _pyexpat {
         /// remains parked otherwise, since `stopped` is only ever cleared by
         /// constructing a brand new `FeedBuffer`).
         stopped: bool,
+        /// Number of `push` calls so far. Stamped onto every `NeedMore` so
+        /// the calling thread can tell a "waiting for the chunk you just
+        /// gave me" report from one the parser thread produced *before*
+        /// that chunk landed. See `pump`.
+        pushes: u64,
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -466,18 +471,24 @@ mod _pyexpat {
                     data: VecDeque::new(),
                     closed: false,
                     stopped: false,
+                    pushes: 0,
                 }),
                 cv: Condvar::new(),
             }
         }
 
-        fn push(&self, chunk: &[u8], isfinal: bool) {
+        /// Hand `chunk` to the parser thread, returning the push count this
+        /// chunk was given so `pump` can recognise reports about it.
+        fn push(&self, chunk: &[u8], isfinal: bool) -> u64 {
             let mut inner = self.inner.lock().unwrap();
             inner.data.extend(chunk.iter().copied());
             if isfinal {
                 inner.closed = true;
             }
+            inner.pushes += 1;
+            let pushes = inner.pushes;
             self.cv.notify_all();
+            pushes
         }
 
         fn stop(&self) {
@@ -519,7 +530,7 @@ mod _pyexpat {
                 // The buffer is drained but more data may still arrive:
                 // tell the calling thread we're about to block, so it
                 // regains control instead of waiting on us indefinitely.
-                let _ = self.events_tx.send(ParserMsg::NeedMore);
+                let _ = self.events_tx.send(ParserMsg::NeedMore(inner.pushes));
                 inner = self.buf.cv.wait(inner).unwrap();
             }
         }
@@ -541,8 +552,9 @@ mod _pyexpat {
         /// The parser thread's `Read` call is blocked waiting for more
         /// input: everything fed so far has been turned into events (or
         /// `NeedMore`/`Event` messages already sent), so the calling thread
-        /// can safely return control to Python.
-        NeedMore,
+        /// can safely return control to Python. Carries the `FeedBuffer`
+        /// push count observed when the buffer was found empty.
+        NeedMore(u64),
         Event(PreparedEvent),
         /// `EndDocument` was reached; the parser thread has exited.
         Finished,
@@ -1157,7 +1169,7 @@ mod _pyexpat {
         /// corrupting the parser's internal state). Only used by
         /// `Backend::Threaded`.
         #[cfg(not(target_arch = "wasm32"))]
-        fn pump(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn pump(&self, vm: &VirtualMachine, min_pushes: u64) -> PyResult<()> {
             loop {
                 let msg = {
                     let guard = self.backend.read();
@@ -1173,7 +1185,21 @@ mod _pyexpat {
                     }
                 };
                 match msg {
-                    ParserMsg::NeedMore => return Ok(()),
+                    ParserMsg::NeedMore(seen) => {
+                        if seen >= min_pushes {
+                            return Ok(());
+                        }
+                        // Stale: the parser thread found the buffer empty
+                        // and parked *before* the chunk this call just
+                        // pushed was visible to it, so it has not consumed
+                        // that chunk yet. Returning here would hand control
+                        // back to Python having dispatched nothing. The
+                        // push already notified the condvar (under the same
+                        // mutex the report was sent from, so the wakeup
+                        // cannot be lost), so keep draining until the
+                        // thread reports on the new data.
+                        continue;
+                    }
                     ParserMsg::Finished => {
                         self.finished.store(true, Ordering::SeqCst);
                         self.teardown_backend();
@@ -1361,13 +1387,14 @@ mod _pyexpat {
                             "cannot continue parsing across a fork()".to_owned().into(),
                         ));
                     }
-                    {
+                    let pushes = {
                         let guard = self.backend.read();
-                        if let Some(Backend::Threaded(stream)) = guard.as_ref() {
-                            stream.buf.push(chunk, isfinal);
+                        match guard.as_ref() {
+                            Some(Backend::Threaded(stream)) => stream.buf.push(chunk, isfinal),
+                            _ => return Ok(()),
                         }
-                    }
-                    return self.pump(vm);
+                    };
+                    return self.pump(vm, pushes);
                 }
             }
             self.feed_sync(vm, chunk, isfinal)
