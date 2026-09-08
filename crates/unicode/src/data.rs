@@ -103,7 +103,8 @@ impl AlgorithmicName {
             .map(|c| c.to_ascii_uppercase())
             .collect();
         if let Some(without_base) = folded.strip_prefix(Self::TangutIdeograph.name_base()) {
-            let hex = without_base.strip_prefix('-')?.trim();
+            // `parse_hex_code` does not skip spaces around the digits.
+            let hex = without_base.strip_prefix('-')?;
             // `_getcode` / `parse_hex_code`: 4–6 digits, no leading zero.
             if hex.len() < 4 || hex.len() > 6 || hex.starts_with('0') {
                 return None;
@@ -563,5 +564,7 @@ mod tests {
             character_name('\u{17000}').as_deref(),
             Some("TANGUT IDEOGRAPH-17000")
         );
+        assert_eq!(lookup_character("TANGUT IDEOGRAPH- 17000"), None);
+        assert_eq!(lookup_character("TANGUT IDEOGRAPH-17000 "), None);
     }
 }
