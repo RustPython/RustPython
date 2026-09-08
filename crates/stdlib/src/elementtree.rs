@@ -1043,6 +1043,19 @@ pub(crate) mod _elementtree {
     }
 
     fn deepcopy_element(zelf: &Py<PyElement>, memo: &Py<PyDict>, vm: &VirtualMachine) -> PyResult {
+        // A chain of elements is copied by native recursion, so the depth
+        // has to be charged to the interpreter's recursion budget or a deep
+        // enough tree overflows the real stack instead of raising.
+        vm.with_recursion(" in Element.__deepcopy__", || {
+            deepcopy_element_inner(zelf, memo, vm)
+        })
+    }
+
+    fn deepcopy_element_inner(
+        zelf: &Py<PyElement>,
+        memo: &Py<PyDict>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         let (tag, attrib, text, text_pending, tail, tail_pending, children) = {
             let inner = zelf.inner.read();
             (
