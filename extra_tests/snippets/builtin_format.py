@@ -336,3 +336,45 @@ assert_raises(ValueError, format, True, ".2")
 assert_raises(ValueError, format, True, "5.2")
 assert_raises(ValueError, format, True, "z")
 assert_raises(ValueError, format, True, "s")
+
+
+def test_format_parse_error_messages():
+    # Most FormatParseError variants used to fall into a catch-all that said
+    # "Unexpected error parsing format string", which does not say what is wrong
+    # with the format string. Messages are CPython 3.14.0's.
+    def message(fmt, *args):
+        try:
+            fmt.format(*args)
+        except ValueError as err:
+            return str(err)
+        raise AssertionError("ValueError was not raised for " + repr(fmt))
+
+    assert message("a}b") == "Single '}' encountered in format string"
+    assert message("{{a}") == "Single '}' encountered in format string"
+
+    assert message("{0.}", 1) == "Empty attribute in format string"
+    assert message("{0[]}", [1]) == "Empty attribute in format string"
+
+    assert message("{0[1}", [1, 2]) == "expected '}' before end of string"
+    assert message("{0", 1) == "expected '}' before end of string"
+
+    assert (
+        message("{0[0]x}", [1])
+        == "Only '.' or '[' may follow ']' in format field specifier"
+    )
+    assert (
+        message("{0[0]]}", [1])
+        == "Only '.' or '[' may follow ']' in format field specifier"
+    )
+
+    assert message("{:{{}}", 1) == "unmatched '{' in format spec"
+
+    # A brace with nothing after it is a stray brace; one holding an unclosed
+    # field is not.
+    assert message("{") == "Single '{' encountered in format string"
+    assert message("a{") == "Single '{' encountered in format string"
+    assert message("{s") == "expected '}' before end of string"
+    assert message("a{b") == "expected '}' before end of string"
+
+
+test_format_parse_error_messages()

@@ -103,12 +103,36 @@ impl IntoPyException for FormatSpecError {
 
 impl ToPyException for FormatParseError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        // Matched exhaustively on purpose: a catch-all sent most of these to
+        // "Unexpected error parsing format string", which tells the reader nothing
+        // about the format string they mistyped.
         match self {
-            Self::UnmatchedBracket => vm.new_value_error("expected '}' before end of string"),
+            Self::UnmatchedBracket | Self::MissingRightBracket => {
+                vm.new_value_error("expected '}' before end of string")
+            }
+            Self::MissingStartBracket => {
+                vm.new_value_error("Single '}' encountered in format string")
+            }
+            // A brace in literal text that was not doubled, i.e. a stray `{` with
+            // nothing after it. `parse_spec` reports this rather than
+            // UnmatchedBracket so that "{" and "a{" are separated from "{0" and
+            // "a{b", which are fields left open.
+            Self::UnescapedStartBracketInLiteral => {
+                vm.new_value_error("Single '{' encountered in format string")
+            }
+            Self::InvalidFormatSpecifier => vm.new_value_error("unmatched '{' in format spec"),
+            // Reached both for a conversion that is not one character (`{0!xy}`,
+            // where CPython says "expected ':' after conversion specifier") and for
+            // an empty one (`{0!}`, "unmatched '{' in format spec"). Telling those
+            // apart needs the parser to say which, so the generic message stays.
+            Self::UnknownConversion => vm.new_value_error("Unexpected error parsing format string"),
+            Self::EmptyAttribute => vm.new_value_error("Empty attribute in format string"),
+            Self::InvalidCharacterAfterRightBracket => {
+                vm.new_value_error("Only '.' or '[' may follow ']' in format field specifier")
+            }
             Self::TooManyDecimalDigits => {
                 vm.new_value_error("Too many decimal digits in format string")
             }
-            _ => vm.new_value_error("Unexpected error parsing format string"),
         }
     }
 }
