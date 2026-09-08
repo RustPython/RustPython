@@ -1618,6 +1618,12 @@ impl FormatString {
             let right = &text[pos..];
             let format_part = Self::parse_part_in_brackets(&left)?;
             Ok((format_part, &right[1..]))
+        } else if text.len() == 1 {
+            // Nothing follows the brace, so it is a stray one rather than a field
+            // that was left open: CPython separates "{" and "a{" from "{0" and
+            // "a{b" the same way. `{` is one byte, so a length of one is the brace
+            // on its own.
+            Err(FormatParseError::UnescapedStartBracketInLiteral)
         } else {
             Err(FormatParseError::UnmatchedBracket)
         }
@@ -2336,6 +2342,26 @@ mod tests {
             FormatString::from_str("{s".as_ref()),
             Err(FormatParseError::UnmatchedBracket)
         );
+    }
+
+    #[test]
+    fn format_parse_lone_start_bracket() {
+        // A brace with nothing after it is a stray brace; one holding a field
+        // that was never closed is not. CPython words the two differently.
+        for lone in ["{", "a{"] {
+            assert_eq!(
+                FormatString::from_str(lone.as_ref()),
+                Err(FormatParseError::UnescapedStartBracketInLiteral),
+                "{lone:?}"
+            );
+        }
+        for unclosed in ["{s", "a{b", "{0"] {
+            assert_eq!(
+                FormatString::from_str(unclosed.as_ref()),
+                Err(FormatParseError::UnmatchedBracket),
+                "{unclosed:?}"
+            );
+        }
     }
 
     #[test]
