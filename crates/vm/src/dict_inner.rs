@@ -1340,7 +1340,21 @@ impl DictKey for PyObject {
 
     #[inline(always)]
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
-        vm.identical_or_equal(self, other_key)
+        if self.is(other_key) {
+            return Ok(true);
+        }
+        // Fast path mirroring CPython's `lookdict`: two exact `int`s compare
+        // equal by value without going through the generic rich-compare
+        // dispatch (`__eq__` slot lookup, `NotImplemented` handling, etc).
+        // Only applies when *both* sides are exactly `int` - a subclass may
+        // override `__eq__`.
+        if self.class().is(vm.ctx.types.int_type) && other_key.class().is(vm.ctx.types.int_type) {
+            // SAFETY: just checked both classes are exactly `int`.
+            let a = unsafe { self.downcast_unchecked_ref::<PyInt>() };
+            let b = unsafe { other_key.downcast_unchecked_ref::<PyInt>() };
+            return Ok(a.as_bigint() == b.as_bigint());
+        }
+        vm.bool_eq(self, other_key)
     }
 
     #[inline]
