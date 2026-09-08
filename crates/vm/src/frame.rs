@@ -3336,7 +3336,10 @@ impl ExecutingFrame<'_> {
         // jumped, so re-reading the frame's `lasti` at the top of the loop
         // only added a store-to-load round trip to the fetch chain.
         let lasti_cell = self.lasti;
-        let instructions = &self.code.instructions;
+        // The instruction array never moves once the code object exists, so
+        // its base pointer is hoisted here; reading it through `self.code`
+        // inside the loop cost two more dependent loads per instruction.
+        let units_ptr = self.code.instructions.units_ptr();
         let mut arg_state = bytecode::OpArgState::default();
         let mut idx = lasti_cell.load(Relaxed) as usize;
         loop {
@@ -3394,7 +3397,10 @@ impl ExecutingFrame<'_> {
             // One aligned acquire load fetches opcode and arg together; two
             // separate atomic reads would force the instruction array pointer
             // to be re-loaded across the acquire barrier.
-            let unit = instructions.read_unit(idx);
+            // SAFETY: `idx` is a position this code object's own control flow
+            // produced, so it is in bounds of the instruction array, and
+            // `units_ptr` stays valid for as long as `self.code` is borrowed.
+            let unit = unsafe { bytecode::CodeUnits::read_unit_from(units_ptr, idx) };
             let op = unit.op;
             let arg = arg_state.extend(unit.arg);
             let mut do_extend_arg = false;
