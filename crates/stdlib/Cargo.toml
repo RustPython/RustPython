@@ -24,7 +24,7 @@ ssl-openssl-vendor = ["ssl-openssl", "openssl/vendored"]
 tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
 flame-it = ["flame"]
 
-__ssl-rustls = ["ssl", "rustpython-host_env/ssl", "rustpython-host_env/native-certs", "rustls", "rustls-pemfile", "rustls-platform-verifier", "rustls-webpki", "x509-cert", "x509-parser", "der", "pem-rfc7468", "webpki-roots", "oid-registry", "pkcs8"]
+__ssl-rustls = ["ssl", "rustpython-host_env/ssl", "rustpython-host_env/native-certs", "rustls", "rustls-pemfile", "x509-parser", "pem-rfc7468", "webpki-roots"]
 
 [dependencies]
 # rustpython crates
@@ -92,15 +92,9 @@ foreign-types-shared = { workspace = true, optional = true }
 # Rustls dependencies (optional, for ssl-rustls feature)
 rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
 rustls-pemfile = { workspace = true, optional = true }
-rustls-platform-verifier = { workspace = true, optional = true }
-rustls-webpki = { workspace = true, optional = true }
-x509-cert = { workspace = true, features = ["pem", "builder"], optional = true }
 x509-parser = { workspace = true, optional = true }
-der = { workspace = true, optional = true }
 pem-rfc7468 = { workspace = true, features = ["alloc"], optional = true }
 webpki-roots = { workspace = true, optional = true }
-oid-registry = { workspace = true, features = ["x509", "pkcs1", "nist_algs"], optional = true }
-pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 libsqlite3-sys = { workspace = true, features = ["bundled"], optional = true }
