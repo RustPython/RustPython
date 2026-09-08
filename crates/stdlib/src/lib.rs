@@ -22,6 +22,7 @@ mod cmath;
 mod compression; // internal module
 mod contextvars;
 mod csv;
+mod elementtree;
 
 mod lzma;
 
@@ -189,6 +190,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         cmath::module_def(ctx),
         contextvars::module_def(ctx),
         csv::module_def(ctx),
+        elementtree::module_def(ctx),
         #[cfg(feature = "host_env")]
         faulthandler::module_def(ctx),
         #[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
