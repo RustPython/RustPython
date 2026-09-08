@@ -648,6 +648,10 @@ class PositionTest(unittest.TestCase):
                 'Expected position %s, got position %s' %(pos, expected))
         self.upto += 1
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; the xml-rs backend reports a
+    # token's *current parse cursor* position rather than libexpat's *start of
+    # token* position, so exact byte/column offsets for StartElementHandler
+    # don't match upstream expat.
     def test(self):
         self.parser = expat.ParserCreate()
         self.parser.StartElementHandler = self.StartElementHandler

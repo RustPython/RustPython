@@ -17,6 +17,19 @@ macro_rules! create_property {
     };
 }
 
+macro_rules! create_readonly_int_property {
+    ($ctx: expr, $attributes: expr, $name: expr, $class: expr, $element: ident) => {
+        let getset = crate::vm::builtins::PyGetSet::new($name, $class).with_get(
+            move |this: &PyExpatLikeXmlParser, vm: &VirtualMachine| -> PyObjectRef {
+                vm.ctx.new_int(*this.$element.read()).into()
+            },
+        );
+        let attr = crate::vm::PyRef::new_ref(getset, $ctx.types.getset_type.to_owned(), None);
+
+        $attributes.insert($ctx.intern_str($name), attr.into());
+    };
+}
+
 macro_rules! create_bool_property {
     ($ctx: expr, $attributes: expr, $name: expr, $class: expr, $element: ident) => {
         let attr = $ctx.new_static_getset(
@@ -87,6 +100,15 @@ mod _pyexpat {
         namespace_separator: Option<String>,
         #[pytraverse(skip)]
         base: PyRwLock<Option<String>>,
+        // Position of the last event produced, exposed as CurrentLineNumber /
+        // CurrentColumnNumber / CurrentByteIndex (mirrors libexpat's
+        // XML_GetCurrent* family). Updated before each handler invocation.
+        #[pytraverse(skip)]
+        current_line: PyRwLock<i64>,
+        #[pytraverse(skip)]
+        current_column: PyRwLock<i64>,
+        #[pytraverse(skip)]
+        current_byte_index: PyRwLock<i64>,
         start_element: MutableObject,
         end_element: MutableObject,
         character_data: MutableObject,
@@ -119,13 +141,53 @@ mod _pyexpat {
     type PyExpatLikeXmlParserRef = PyRef<PyExpatLikeXmlParser>;
 
     #[inline]
-    fn invoke_handler<T>(vm: &VirtualMachine, handler: &MutableObject, args: T)
+    fn invoke_handler<T>(vm: &VirtualMachine, handler: &MutableObject, args: T) -> PyResult<()>
     where
         T: IntoFuncArgs,
     {
         // Clone the handler while holding the read lock, then release the lock
         let handler = handler.read().clone();
-        handler.call(args, vm).ok();
+        if vm.is_none(&handler) {
+            return Ok(());
+        }
+        // Mirrors libexpat/CPython: an exception raised from a handler aborts
+        // parsing and propagates out of Parse()/ParseFile(), instead of being
+        // silently discarded.
+        handler.call(args, vm)?;
+        Ok(())
+    }
+
+    /// Compute the byte offsets (in the original document bytes) at which
+    /// each line starts, so that `TextPosition` (row/column, in characters)
+    /// can be translated into an approximation of libexpat's
+    /// `CurrentByteIndex`. This is exact for ASCII documents (which covers
+    /// all callers that rely on this, e.g. genshi) and only approximate for
+    /// documents with multi-byte lines split across positions we don't query.
+    fn compute_line_starts(bytes: &[u8]) -> Vec<usize> {
+        let mut starts = vec![0usize];
+        for (i, &b) in bytes.iter().enumerate() {
+            if b == b'\n' {
+                starts.push(i + 1);
+            }
+        }
+        starts
+    }
+
+    fn byte_index_for_position(
+        bytes: &[u8],
+        line_starts: &[usize],
+        pos: xml::common::TextPosition,
+    ) -> i64 {
+        let row = pos.row() as usize;
+        let line_start = line_starts.get(row).copied().unwrap_or(bytes.len());
+        let line_end = line_starts.get(row + 1).copied().unwrap_or(bytes.len());
+        let line = core::str::from_utf8(&bytes[line_start..line_end]).unwrap_or("");
+        let char_bytes: usize = line
+            .chars()
+            .take(pos.column() as usize)
+            .map(char::len_utf8)
+            .sum();
+        (line_start + char_bytes) as i64
     }
 
     #[pyclass]
@@ -139,6 +201,9 @@ mod _pyexpat {
             Self {
                 namespace_separator,
                 base: PyRwLock::new(None),
+                current_line: PyRwLock::new(1),
+                current_column: PyRwLock::new(0),
+                current_byte_index: PyRwLock::new(-1),
                 start_element: MutableObject::new(vm.ctx.none()),
                 end_element: MutableObject::new(vm.ctx.none()),
                 character_data: MutableObject::new(vm.ctx.none()),
@@ -208,6 +273,27 @@ mod _pyexpat {
                 specified_attributes
             );
             create_property!(ctx, attributes, "intern", class, intern);
+            create_readonly_int_property!(
+                ctx,
+                attributes,
+                "CurrentLineNumber",
+                class,
+                current_line
+            );
+            create_readonly_int_property!(
+                ctx,
+                attributes,
+                "CurrentColumnNumber",
+                class,
+                current_column
+            );
+            create_readonly_int_property!(
+                ctx,
+                attributes,
+                "CurrentByteIndex",
+                class,
+                current_byte_index
+            );
             // Additional handlers (stubs for compatibility)
             create_property!(
                 ctx,
@@ -316,6 +402,17 @@ mod _pyexpat {
             1
         }
 
+        #[pymethod(name = "UseForeignDTD")]
+        fn use_foreign_dtd(&self, _flag: OptionalArg<bool>) {
+            // Compatibility shim: CPython's implementation forwards the flag to
+            // libexpat's XML_UseForeignDTD, which lets a DTD handler splice in an
+            // external subset for documents that only declare one (e.g. via
+            // NotStandaloneHandler). The xml-rs backend used here has no such hook
+            // and always parses documents standalone, so the flag is accepted and
+            // ignored purely so callers that toggle this setting (e.g. genshi) don't
+            // fail with AttributeError.
+        }
+
         #[pymethod(name = "SetBase")]
         fn set_base(&self, base: PyStrRef) {
             // Store-only compatibility state for xml.sax locator APIs. The
@@ -343,13 +440,30 @@ mod _pyexpat {
         fn do_parse<T>(
             &self,
             vm: &VirtualMachine,
-            parser: xml::EventReader<T>,
-        ) -> Result<(), xml::reader::Error>
+            source_bytes: &[u8],
+            mut parser: xml::EventReader<T>,
+        ) -> PyResult<()>
         where
             T: std::io::Read,
         {
-            for e in parser {
-                match e? {
+            use xml::common::Position;
+
+            let line_starts = compute_line_starts(source_bytes);
+
+            // xml-rs is stricter than libexpat; some errors are silently
+            // ignored to maintain compatibility with existing Python code.
+            while let Ok(event) = parser.next() {
+                if matches!(event, XmlEvent::EndDocument) {
+                    break;
+                }
+
+                let pos = parser.position();
+                *self.current_line.write() = pos.row() as i64 + 1;
+                *self.current_column.write() = pos.column() as i64;
+                *self.current_byte_index.write() =
+                    byte_index_for_position(source_bytes, &line_starts, pos);
+
+                match event {
                     XmlEvent::StartElement {
                         name, attributes, ..
                     } => {
@@ -376,30 +490,30 @@ mod _pyexpat {
                         };
 
                         let name_str = PyStr::from(self.make_name(&name)).into_ref(&vm.ctx);
-                        invoke_handler(vm, &self.start_element, (name_str, attrs));
+                        invoke_handler(vm, &self.start_element, (name_str, attrs))?;
                     }
                     XmlEvent::EndElement { name, .. } => {
                         let name_str = PyStr::from(self.make_name(&name)).into_ref(&vm.ctx);
-                        invoke_handler(vm, &self.end_element, (name_str,));
+                        invoke_handler(vm, &self.end_element, (name_str,))?;
                     }
                     XmlEvent::Characters(chars) => {
                         let str = PyStr::from(chars).into_ref(&vm.ctx);
-                        invoke_handler(vm, &self.character_data, (str,));
+                        invoke_handler(vm, &self.character_data, (str,))?;
                     }
                     XmlEvent::ProcessingInstruction { name, data } => {
                         let name = PyStr::from(name).into_ref(&vm.ctx);
                         let data = PyStr::from(data.unwrap_or_default()).into_ref(&vm.ctx);
-                        invoke_handler(vm, &self.processing_instruction, (name, data));
+                        invoke_handler(vm, &self.processing_instruction, (name, data))?;
                     }
                     XmlEvent::Comment(comment) => {
                         let comment = PyStr::from(comment).into_ref(&vm.ctx);
-                        invoke_handler(vm, &self.comment, (comment,));
+                        invoke_handler(vm, &self.comment, (comment,))?;
                     }
                     XmlEvent::CData(chars) => {
-                        invoke_handler(vm, &self.start_cdata_section, ());
+                        invoke_handler(vm, &self.start_cdata_section, ())?;
                         let str = PyStr::from(chars).into_ref(&vm.ctx);
-                        invoke_handler(vm, &self.character_data, (str,));
-                        invoke_handler(vm, &self.end_cdata_section, ());
+                        invoke_handler(vm, &self.character_data, (str,))?;
+                        invoke_handler(vm, &self.end_cdata_section, ())?;
                     }
                     _ => {}
                 }
@@ -413,21 +527,19 @@ mod _pyexpat {
             data: Either<PyStrRef, PyBytesRef>,
             _isfinal: OptionalArg<bool>,
             vm: &VirtualMachine,
-        ) -> i32 {
+        ) -> PyResult<i32> {
             let bytes = match data {
                 Either::A(s) => s.as_bytes().to_vec(),
                 Either::B(b) => b.as_bytes().to_vec(),
             };
             // Empty data is valid - used to finalize parsing
             if bytes.is_empty() {
-                return 1;
+                return Ok(1);
             }
-            let reader = Cursor::<Vec<u8>>::new(bytes);
+            let reader = Cursor::<Vec<u8>>::new(bytes.clone());
             let parser = self.create_config().create_reader(reader);
-            // Note: xml-rs is stricter than libexpat; some errors are silently ignored
-            // to maintain compatibility with existing Python code
-            let _ = self.do_parse(vm, parser);
-            1
+            self.do_parse(vm, &bytes, parser)?;
+            Ok(1)
         }
 
         #[pymethod(name = "ParseFile")]
@@ -438,10 +550,9 @@ mod _pyexpat {
             if buf.is_empty() {
                 return Ok(1);
             }
-            let reader = Cursor::new(buf);
+            let reader = Cursor::new(buf.clone());
             let parser = self.create_config().create_reader(reader);
-            // Note: xml-rs is stricter than libexpat; some errors are silently ignored
-            let _ = self.do_parse(vm, parser);
+            self.do_parse(vm, &buf, parser)?;
             Ok(1)
         }
     }

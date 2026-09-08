@@ -1,6 +1,7 @@
 cfgs
 csascii
 csisolatin
+genshi
 mimalloc
 miri
 py
