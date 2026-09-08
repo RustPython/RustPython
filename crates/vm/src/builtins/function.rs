@@ -694,11 +694,13 @@ impl Py<PyFunction> {
             !frame.localsplus_is_datastack_backed(),
             "generator frame is data-stack-backed"
         );
-        // SAFETY: the frame is alive (held by `frame`) and untracked.
+        // Both halves are alive (held by `obj` and `frame`), untracked --
+        // generator types and frames both opt out of tracking at allocation --
+        // and enter the GC together.
         unsafe {
-            crate::gc_state::gc_state().track_object(
+            crate::gc_state::track_new_pair(
+                core::ptr::NonNull::from(obj.as_object()),
                 core::ptr::NonNull::from(frame.as_object()),
-                crate::gc_state::current_owner(),
             );
         }
         frame.set_generator(&obj);

@@ -34,6 +34,11 @@ unsafe impl Traverse for PyAsyncGen {
 type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
 impl PyPayload for PyAsyncGen {
+    // Tracked in `make_generator_or_coro`, together with the frame the object
+    // is born owning, so the pair costs one trip through the GC's gen0 list
+    // instead of two.
+    const NEW_REF_UNTRACKED: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.async_generator

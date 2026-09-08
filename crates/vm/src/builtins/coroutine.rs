@@ -25,6 +25,11 @@ unsafe impl Traverse for PyCoroutine {
 }
 
 impl PyPayload for PyCoroutine {
+    // Tracked in `make_generator_or_coro`, together with the frame the object
+    // is born owning, so the pair costs one trip through the GC's gen0 list
+    // instead of two.
+    const NEW_REF_UNTRACKED: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.coroutine_type
