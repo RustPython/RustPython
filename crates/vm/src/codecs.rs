@@ -372,6 +372,13 @@ impl CodecsRegistry {
         errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
+        if let Some(s) =
+            Self::decode_utf8_fast(&obj, encoding, errors.as_deref(), vm).inspect_err(|exc| {
+                Self::add_codec_note(exc, "decoding", encoding, vm);
+            })?
+        {
+            return Ok(s);
+        }
         let codec = self._lookup_text_encoding(encoding, "codecs.decode()", vm)?;
         codec
             .decode(obj, errors, vm)
@@ -387,6 +394,44 @@ impl CodecsRegistry {
                     obj.class().name(),
                 ))
             })
+    }
+
+    /// Fast path for decoding with the "utf-8" encoding (and its common
+    /// aliases), used by `bytes.decode()` / `str(bytes, encoding)`.
+    ///
+    /// CPython's `PyUnicode_Decode` special-cases a handful of built-in
+    /// encoding names -- "utf-8" among them -- and decodes them directly in C
+    /// without ever consulting the codec registry, so a `codecs.register()`
+    /// override does not affect `str(b"...", "utf-8")` there either. This
+    /// mirrors that behavior, skipping the registry lookup, the
+    /// `_is_text_encoding` attribute probe, and the round trip through the
+    /// pure-Python `encodings.utf_8.decode` wrapper and its 2-tuple result.
+    fn decode_utf8_fast(
+        obj: &PyObjectRef,
+        encoding: &str,
+        errors: Option<&Py<PyUtf8Str>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyStrRef>> {
+        const UTF8_ALIASES: &[&str] = &[
+            "utf_8",
+            "utf8",
+            "u8",
+            "utf",
+            "utf8_ucs2",
+            "utf8_ucs4",
+            "cp65001",
+        ];
+        if !UTF8_ALIASES.contains(&normalize_encoding_name(encoding).as_ref()) {
+            return Ok(None);
+        }
+        let Ok(data) = ArgBytesLike::try_from_object(vm, obj.clone()) else {
+            return Ok(None);
+        };
+        let ctx = PyDecodeContext::new(DEFAULT_ENCODING, &data, vm);
+        let errors_handler = ErrorsHandler::new(errors, vm);
+        let (decoded, _consumed) =
+            crate::common::encodings::utf8::decode(ctx, &errors_handler, true)?;
+        Ok(Some(vm.ctx.new_str(decoded)))
     }
 
     fn add_codec_note(
