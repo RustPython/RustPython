@@ -2483,9 +2483,13 @@ class BugsTest(unittest.TestCase):
         self.assertIsInstance(e[0].tail, str)
         self.assertEqual(e[0].tail, 'changed')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lost_elem(self):
         # Issue #25902: Borrowed element can disappear
+        if is_python_implementation():
+            # TODO: RUSTPYTHON; only the _elementtree accelerator keeps the
+            # borrowed element alive here.
+            self.skipTest("TODO: RUSTPYTHON")
+
         class Tag:
             def __eq__(self, other):
                 e[0] = ET.Element('changed')
