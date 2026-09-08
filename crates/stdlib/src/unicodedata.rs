@@ -101,10 +101,12 @@ mod unicodedata {
         #[pymethod]
         fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
             if let Some(name_str) = name.to_str()
-                && let Some(character) = unicode_core::lookup_character(name_str)
-                && self.inner.membership(character)
+                && let Some(found) = self.inner.lookup(name_str)
             {
-                return Ok(character.to_string());
+                return Ok(match found {
+                    unicode_core::LookupResult::Character(ch) => ch.to_string(),
+                    unicode_core::LookupResult::Sequence(seq) => seq.to_string(),
+                });
             }
             Err(vm.new_key_error(
                 vm.ctx

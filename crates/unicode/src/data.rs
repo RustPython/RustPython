@@ -20,6 +20,7 @@ use icu_properties::props::{
 use rustpython_wtf8::CodePoint;
 
 include!(concat!(env!("OUT_DIR"), "/generated/algo_names.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/name_lookups.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/bidi_class_3_2.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/binary_props_3_2.rs"));
 include!(concat!(
@@ -95,8 +96,19 @@ impl AlgorithmicName {
     }
 
     fn check_name(search_name: &str) -> Option<char> {
-        if let Some(without_base) = search_name.strip_prefix(Self::TangutIdeograph.name_base()) {
-            let cp = u32::from_str_radix(without_base.strip_prefix('-')?.trim(), 16).ok()?;
+        // CPython compares derived-name prefixes case-insensitively
+        // (`PyOS_strnicmp` in `_getcode`).
+        let folded: String = search_name
+            .chars()
+            .map(|c| c.to_ascii_uppercase())
+            .collect();
+        if let Some(without_base) = folded.strip_prefix(Self::TangutIdeograph.name_base()) {
+            let hex = without_base.strip_prefix('-')?.trim();
+            // `_getcode` / `parse_hex_code`: 4–6 digits, no leading zero.
+            if hex.len() < 4 || hex.len() > 6 || hex.starts_with('0') {
+                return None;
+            }
+            let cp = u32::from_str_radix(hex, 16).ok()?;
             let ch = char::from_u32(cp)?;
             if lookup_table(ALGO_NAMES, ch)? == Self::TangutIdeograph {
                 return Some(ch);
@@ -105,6 +117,36 @@ impl AlgorithmicName {
 
         None
     }
+}
+
+/// Result of `unicodedata.lookup`.
+///
+/// A named sequence is several characters; `\N{...}` only accepts a
+/// single character, so `lookup_character` drops `Sequence`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LookupResult {
+    Character(char),
+    Sequence(&'static str),
+}
+
+fn fold_lookup_name(name: &str) -> String {
+    name.chars().map(|c| c.to_ascii_uppercase()).collect()
+}
+
+fn lookup_alias(name: &str) -> Option<char> {
+    let key = fold_lookup_name(name);
+    NAME_ALIASES
+        .binary_search_by_key(&key.as_str(), |(n, _)| *n)
+        .ok()
+        .map(|i| NAME_ALIASES[i].1)
+}
+
+fn lookup_named_sequence(name: &str) -> Option<&'static str> {
+    let key = fold_lookup_name(name);
+    NAMED_SEQUENCES
+        .binary_search_by_key(&key.as_str(), |(n, _)| *n)
+        .ok()
+        .map(|i| NAMED_SEQUENCES[i].1)
 }
 
 fn lookup_table<T: Copy>(table: &[(u32, u32, T)], ch: char) -> Option<T> {
@@ -170,10 +212,24 @@ pub fn unicode_version() -> String {
     )
 }
 
-/// Look up a character by its Unicode name (`unicodedata.lookup`).
+/// Look up a name in the latest UCD (`unicodedata.lookup`).
+///
+/// Named sequences are included; `\N{...}` should use [`lookup_character`]
+/// so a sequence is reported as unknown.
+#[must_use]
+pub fn lookup_name(search_name: &str) -> Option<LookupResult> {
+    Ucd::new(true).lookup(search_name)
+}
+
+/// Look up a single character by its Unicode name (`\N{...}`).
+///
+/// Named sequences are not characters and so do not resolve.
 #[must_use]
 pub fn lookup_character(search_name: &str) -> Option<char> {
-    unicode_names2::character(search_name).or_else(|| AlgorithmicName::check_name(search_name))
+    match lookup_name(search_name) {
+        Some(LookupResult::Character(ch)) => Some(ch),
+        Some(LookupResult::Sequence(_)) | None => None,
+    }
 }
 
 /// The Unicode name of `ch` (`unicodedata.name`), if any.
@@ -208,6 +264,26 @@ impl Ucd {
             // Rust chars always "exist" for modern Unicode or else they wouldn't be chars.
             true
         }
+    }
+
+    /// Look up `name` in this UCD view.
+    ///
+    /// Unicode 3.2.0 has no name aliases and no named sequences
+    /// (`unicodedata.ucd_3_2_0.lookup`).
+    #[must_use]
+    pub fn lookup(self, search_name: &str) -> Option<LookupResult> {
+        if let Some(ch) = unicode_names2::character(search_name)
+            .or_else(|| AlgorithmicName::check_name(search_name))
+        {
+            return self.membership(ch).then_some(LookupResult::Character(ch));
+        }
+        if !self.modern {
+            return None;
+        }
+        if let Some(ch) = lookup_alias(search_name) {
+            return Some(LookupResult::Character(ch));
+        }
+        lookup_named_sequence(search_name).map(LookupResult::Sequence)
     }
 
     #[must_use]
@@ -414,7 +490,7 @@ impl Ucd {
 mod tests {
     use rustpython_wtf8::CodePoint;
 
-    use super::{Ucd, character_name, lookup_character};
+    use super::{LookupResult, Ucd, character_name, lookup_character, lookup_name};
 
     fn cp(ch: char) -> CodePoint {
         CodePoint::from(ch)
@@ -437,5 +513,55 @@ mod tests {
     fn ucd_3_2_0_view_differs_from_modern() {
         let legacy = Ucd::new(false);
         assert_eq!(legacy.unidata_version(), "3.2.0");
+    }
+
+    #[test]
+    fn name_aliases_resolve_and_do_not_replace_the_official_name() {
+        assert_eq!(
+            lookup_character("LATIN CAPITAL LETTER GHA"),
+            Some('\u{01A2}')
+        );
+        assert_eq!(
+            lookup_character("latin capital letter gha"),
+            Some('\u{01A2}')
+        );
+        assert_eq!(
+            character_name('\u{01A2}').as_deref(),
+            Some("LATIN CAPITAL LETTER OI")
+        );
+        assert_eq!(Ucd::new(false).lookup("LATIN CAPITAL LETTER GHA"), None);
+    }
+
+    #[test]
+    fn named_sequences_resolve_only_on_the_modern_view() {
+        assert_eq!(
+            lookup_name("LATIN SMALL LETTER R WITH TILDE"),
+            Some(LookupResult::Sequence("r\u{0303}"))
+        );
+        assert_eq!(
+            lookup_name("KEYCAP NUMBER SIGN"),
+            Some(LookupResult::Sequence("#\u{FE0F}\u{20E3}"))
+        );
+        assert_eq!(lookup_character("LATIN SMALL LETTER R WITH TILDE"), None);
+        assert_eq!(
+            Ucd::new(false).lookup("LATIN SMALL LETTER R WITH TILDE"),
+            None
+        );
+    }
+
+    #[test]
+    fn tangut_derived_names_are_case_insensitive() {
+        assert_eq!(
+            lookup_character("TANGUT IDEOGRAPH-17000"),
+            Some('\u{17000}')
+        );
+        assert_eq!(
+            lookup_character("tangut ideograph-18d08"),
+            Some('\u{18D08}')
+        );
+        assert_eq!(
+            character_name('\u{17000}').as_deref(),
+            Some("TANGUT IDEOGRAPH-17000")
+        );
     }
 }

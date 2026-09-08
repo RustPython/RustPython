@@ -221,6 +221,7 @@ fn full_data_parsers_latest() {
 
     generate_decomp(decomp_lines);
     generate_algo_names(algo_names);
+    generate_name_lookups();
 }
 
 fn generate_decomp(decomp_lines: Vec<(u32, String)>) {
@@ -338,6 +339,78 @@ fn generate_algo_names(names: Vec<(u32, Box<str>)>) {
         "(u32, u32, AlgorithmicName)",
         &mut values,
     );
+}
+
+/// Formal name aliases (`NameAliases.txt`) and named sequences
+/// (`NamedSequences.txt`).  `unicodedata.lookup` consults both; `\N{}`
+/// accepts only a single character, so named sequences stay out of
+/// `lookup_character`.
+fn generate_name_lookups() {
+    let mut aliases: Vec<(String, u32)> = Vec::new();
+    for line in UnicodeLineReader::from_file_name("NameAliases.txt", true) {
+        let name = line
+            .field(
+                NonZeroUsize::new(1).unwrap(),
+                Some(&format!(
+                    "field 1 (alias) missing from NameAliases.txt: {}",
+                    line.line
+                )),
+            )
+            .to_ascii_uppercase();
+        aliases.push((name, line.start));
+    }
+    aliases.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    aliases.dedup_by(|a, b| a.0 == b.0);
+
+    let mut sequences: Vec<(String, String)> = Vec::new();
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("unicode")
+        .join("latest")
+        .join("NamedSequences.txt");
+    let file = File::open(&path).unwrap_or_else(|e| {
+        panic!(
+            "{e}: vendored Unicode data file should exist: {}",
+            path.display()
+        )
+    });
+    for raw in BufReader::new(file).lines() {
+        let raw = raw.unwrap();
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (name, codes) = line
+            .split_once(';')
+            .unwrap_or_else(|| panic!("NamedSequences.txt line should be `NAME; HEX HEX`: {line}"));
+        let name = name.trim().to_ascii_uppercase();
+        let mut escaped = String::new();
+        for hex in codes.split_whitespace() {
+            let cp = u32::from_str_radix(hex, 16).unwrap_or_else(|e| {
+                panic!("NamedSequences.txt code point should be hex: {hex} ({e})")
+            });
+            escaped.push_str("\\u{");
+            escaped.push_str(&format!("{cp:X}"));
+            escaped.push('}');
+        }
+        sequences.push((name, escaped));
+    }
+    sequences.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    sequences.dedup_by(|a, b| a.0 == b.0);
+
+    let mut writer = open_writer("name_lookups.rs");
+    writeln!(writer, "static NAME_ALIASES: &[(&str, char)] = &[").unwrap();
+    for (name, code) in &aliases {
+        let ch = char::from_u32(*code)
+            .unwrap_or_else(|| panic!("NameAliases.txt code point should be a scalar: {code:04X}"));
+        writeln!(writer, "    (\"{name}\", '\\u{{{:X}}}'),", ch as u32).unwrap();
+    }
+    writeln!(writer, "];").unwrap();
+
+    writeln!(writer, "static NAMED_SEQUENCES: &[(&str, &str)] = &[").unwrap();
+    for (name, escaped) in &sequences {
+        writeln!(writer, "    (\"{name}\", \"{escaped}\"),").unwrap();
+    }
+    writeln!(writer, "];").unwrap();
 }
 
 /// Drive parsers that require the full 3.2.0 data.
