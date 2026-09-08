@@ -65,7 +65,6 @@ rand = { workspace = true }
 mt19937 = { workspace = true }
 
 # Crypto:
-sha2 = { workspace = true }
 constant_time_eq = { workspace = true }
 
 # compression
