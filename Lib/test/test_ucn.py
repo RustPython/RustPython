@@ -149,7 +149,6 @@ class UnicodeNamesTest(unittest.TestCase):
         self.checkletter("HALFWIDTH KATAKANA SEMI-VOICED SOUND MARK", "\uFF9F")
         self.checkletter("FULLWIDTH LATIN SMALL LETTER A", "\uFF41")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_aliases(self):
         # Check that the aliases defined in the NameAliases.txt file work.
         # This should be updated when new aliases are added or the file
