@@ -3324,6 +3324,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustpython-decimal"
+version = "0.5.0"
+dependencies = [
+ "malachite-bigint",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "rustpython-derive"
 version = "0.5.0"
 dependencies = [

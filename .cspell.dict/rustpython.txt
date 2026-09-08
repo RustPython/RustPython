@@ -36,5 +36,7 @@ pytype
 qsbr
 rustix
 struc
+unallocatable
 unscanned
+untrapped
 zelf
