@@ -1011,6 +1011,32 @@ mod _pyexpat {
             }
         }
 
+        /// Build a `PyStr` for an element or attribute *name*, memoizing it in
+        /// `self.intern` (a plain dict, mirroring libexpat's `intern`
+        /// behavior: `PyDict_SetDefault(self->intern, name, name)`) so that a
+        /// name repeated across many events -- e.g. the same tag or attribute
+        /// key appearing on hundreds of sibling elements -- reuses the same
+        /// `PyStr` object instead of allocating and re-hashing a fresh one
+        /// each time. Falls back to a plain, non-memoized `PyStr` if
+        /// `self.intern` has been replaced with something other than a dict.
+        /// Attribute *values* are intentionally left out of this cache, same
+        /// as libexpat: they vary far more than names and rarely repeat.
+        fn intern_name(&self, vm: &VirtualMachine, name: String) -> PyStrRef {
+            let intern_obj = self.intern.read().clone();
+            if let Ok(dict) = intern_obj.downcast::<crate::vm::builtins::PyDict>() {
+                if let Ok(Some(existing)) = dict.get_item_opt(name.as_str(), vm)
+                    && let Ok(existing) = existing.downcast::<PyStr>()
+                {
+                    return existing;
+                }
+                let interned = vm.ctx.new_str(name);
+                let _ = dict.set_item(AsRef::<str>::as_ref(&interned), interned.clone().into(), vm);
+                interned
+            } else {
+                PyStr::from(name).into_ref(&vm.ctx)
+            }
+        }
+
         /// Dispatch a single parser event to the registered handlers. Runs on
         /// the calling thread only -- see the module doc comment.
         fn dispatch(&self, vm: &VirtualMachine, event: XmlEvent) -> PyResult<()> {
@@ -1023,15 +1049,17 @@ mod _pyexpat {
                     let attrs: PyObjectRef = if ordered {
                         let mut items = Vec::with_capacity(attributes.len() * 2);
                         for attribute in attributes {
-                            items.push(vm.ctx.new_str(self.make_name(&attribute.name)).into());
+                            let key = self.intern_name(vm, self.make_name(&attribute.name));
+                            items.push(key.into());
                             items.push(vm.ctx.new_str(attribute.value).into());
                         }
                         vm.ctx.new_list(items).into()
                     } else {
                         let dict = vm.ctx.new_dict();
                         for attribute in attributes {
+                            let key = self.intern_name(vm, self.make_name(&attribute.name));
                             dict.set_item(
-                                self.make_name(&attribute.name).as_str(),
+                                AsRef::<str>::as_ref(&key),
                                 vm.ctx.new_str(attribute.value).into(),
                                 vm,
                             )
@@ -1040,11 +1068,11 @@ mod _pyexpat {
                         dict.into()
                     };
 
-                    let name_str = PyStr::from(self.make_name(&name)).into_ref(&vm.ctx);
+                    let name_str = self.intern_name(vm, self.make_name(&name));
                     invoke_handler(vm, &self.start_element, (name_str, attrs))
                 }
                 XmlEvent::EndElement { name, .. } => {
-                    let name_str = PyStr::from(self.make_name(&name)).into_ref(&vm.ctx);
+                    let name_str = self.intern_name(vm, self.make_name(&name));
                     invoke_handler(vm, &self.end_element, (name_str,))
                 }
                 XmlEvent::Characters(chars) => {

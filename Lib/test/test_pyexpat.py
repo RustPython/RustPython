@@ -435,7 +435,6 @@ class NamespaceSeparatorTest(unittest.TestCase):
 
 
 class InterningTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test(self):
         # Test the interning machinery.
         p = expat.ParserCreate()
