@@ -1730,7 +1730,6 @@ class MinidomTest(unittest.TestCase):
         doc2 = parseString(doc.toxml())
         self.assertEqual(doc2.namespaceURI, xml.dom.EMPTY_NAMESPACE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testExceptionOnSpacesInXMLNSValue(self):
         with self.assertRaises((ValueError, ExpatError)):
             parseString(
