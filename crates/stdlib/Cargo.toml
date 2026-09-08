@@ -31,6 +31,7 @@ __ssl-rustls = ["ssl", "rustpython-host_env/ssl", "rustpython-host_env/native-ce
 rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
 rustpython-common = { workspace = true, features = ["binascii", "bz2", "cjk-codecs", "hashlib", "inet", "json", "lzma", "zlib"] }
+rustpython-decimal = { workspace = true }
 rustpython-host_env = { workspace = true }
 rustpython-unicode = { workspace = true }
 

@@ -3560,6 +3560,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "rustpython-common",
+ "rustpython-decimal",
  "rustpython-derive",
  "rustpython-host_env",
  "rustpython-pylib",
