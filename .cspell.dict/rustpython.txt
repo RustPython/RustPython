@@ -29,6 +29,7 @@ pystone
 pystr
 pystruct
 pystructseq
+pyperformance
 pytype
 qsbr
 rustix
