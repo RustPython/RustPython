@@ -351,16 +351,50 @@ mod _pyexpat {
         }
 
         fn record(&mut self, bytes: &[u8]) {
-            for &b in bytes {
-                self.current_line.push_back(b);
-                self.total_read += 1;
-                if b == b'\n' {
-                    self.line_starts.push(self.total_read);
-                    self.current_line.clear();
-                    self.line_scanned_bytes = 0;
-                    self.line_scanned_chars = 0;
-                }
+            // Everything before the last newline in this chunk belongs to
+            // lines that are already finished, so only their start offsets
+            // are worth keeping; the tail after it is what a later position
+            // query can still be asked about.
+            let mut rest = bytes;
+            while let Some(nl) = rest.iter().position(|&b| b == b'\n') {
+                self.total_read += nl + 1;
+                self.line_starts.push(self.total_read);
+                self.current_line.clear();
+                self.line_scanned_bytes = 0;
+                self.line_scanned_chars = 0;
+                rest = &rest[nl + 1..];
             }
+            self.current_line.extend(rest.iter().copied());
+            self.total_read += rest.len();
+        }
+
+        /// Walk at most `take` UTF-8 characters from the front of `slice`,
+        /// returning how many bytes and characters that covered. Stops early
+        /// on a byte that cannot start a character or on a character the
+        /// slice does not hold in full.
+        fn advance_chars(slice: &[u8], take: usize) -> (usize, usize) {
+            let mut bytes = 0usize;
+            let mut chars = 0usize;
+            while chars < take && bytes < slice.len() {
+                let lead = slice[bytes];
+                let width = if lead < 0x80 {
+                    1
+                } else if lead >> 5 == 0b110 {
+                    2
+                } else if lead >> 4 == 0b1110 {
+                    3
+                } else if lead >> 3 == 0b11110 {
+                    4
+                } else {
+                    break;
+                };
+                if bytes + width > slice.len() {
+                    break;
+                }
+                bytes += width;
+                chars += 1;
+            }
+            (bytes, chars)
         }
 
         fn byte_index_for(&mut self, pos: xml::common::TextPosition) -> i64 {
@@ -381,18 +415,20 @@ mod _pyexpat {
             let target_chars = pos.column() as usize;
             if target_chars > self.line_scanned_chars {
                 let take = target_chars - self.line_scanned_chars;
-                self.current_line.make_contiguous();
-                let (slice, _) = self.current_line.as_slices();
-                let text = core::str::from_utf8(slice).unwrap_or("");
-                let mut consumed_bytes = 0usize;
-                let mut consumed_chars = 0usize;
-                for ch in text.chars().take(take) {
-                    consumed_bytes += ch.len_utf8();
-                    consumed_chars += 1;
+                // Walk only as far as the requested column, over the deque's
+                // two halves in place. Decoding (or even merely validating)
+                // the whole buffered tail here made every query cost the
+                // length of the read-ahead, which on a document that is one
+                // long line -- the shape `xml.etree` writes -- turned a
+                // per-event position lookup into quadratic work.
+                let (front, back) = self.current_line.as_slices();
+                let (mut consumed_bytes, mut consumed_chars) = Self::advance_chars(front, take);
+                if consumed_chars < take && consumed_bytes == front.len() {
+                    let (b, c) = Self::advance_chars(back, take - consumed_chars);
+                    consumed_bytes += b;
+                    consumed_chars += c;
                 }
-                for _ in 0..consumed_bytes {
-                    self.current_line.pop_front();
-                }
+                self.current_line.drain(..consumed_bytes);
                 self.line_scanned_bytes += consumed_bytes;
                 self.line_scanned_chars += consumed_chars;
             }
