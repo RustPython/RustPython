@@ -1,0 +1,17 @@
+[package]
+name = "rustpython-decimal"
+description = "Arbitrary-precision decimal arithmetic engine following the General Decimal Arithmetic Specification."
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+malachite-bigint = { workspace = true }
+num-traits = { workspace = true }
+num-integer = { workspace = true }
+
+[lints]
+workspace = true
