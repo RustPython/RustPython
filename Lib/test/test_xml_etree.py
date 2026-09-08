@@ -1607,13 +1607,19 @@ class XMLPullParserTest(unittest.TestCase):
         self.assert_event_tags(parser, [('end', 'root')])
         self.assertIsNone(parser.close())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_xml_chunk_1(self):
+        self._skip_pure_python_flush()
         self.test_simple_xml(chunk_size=1, flush=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_xml_chunk_5(self):
+        self._skip_pure_python_flush()
         self.test_simple_xml(chunk_size=5, flush=True)
+
+    def _skip_pure_python_flush(self):
+        if is_python_implementation():
+            # TODO: RUSTPYTHON; the pure-Python XMLParser.flush() drives
+            # pyexpat's reparse deferral, which this pyexpat lacks.
+            self.skipTest("TODO: RUSTPYTHON")
 
     def test_simple_xml_chunk_22(self):
         self.test_simple_xml(chunk_size=22)
