@@ -225,12 +225,24 @@ def run_one_benchmark(
         str(result_json),
         *extra_args,
     ]
+    inherited = []
     if stub_pkgs_dir is not None:
         # Work around the target interpreter's lack of a C-extension psutil (see
         # module docstring). Real CPython doesn't need this -- pass
         # stub_pkgs_dir=None for it so it installs and uses the real psutil.
         env["PIP_FIND_LINKS"] = str(stub_pkgs_dir)
-        cmd += ["--inherit-environ", "PIP_FIND_LINKS"]
+        inherited.append("PIP_FIND_LINKS")
+    if "RUSTPYTHONPATH" in env:
+        # A RustPython binary copied away from its checkout (as CI does when it
+        # keeps one build of each commit around) can only find the stdlib
+        # through this variable, and pyperf re-executes the target interpreter
+        # in a venv of its own, so it has to survive that hop too.
+        inherited.append("RUSTPYTHONPATH")
+    if inherited:
+        # One comma-separated flag, not one flag per variable: pyperf's
+        # `--inherit-environ` is a plain (non-appending) option, so repeating it
+        # keeps only the last name.
+        cmd += ["--inherit-environ", ",".join(inherited)]
 
     log(f"running {bench} ...")
     try:
