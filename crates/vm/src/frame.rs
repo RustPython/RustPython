@@ -684,7 +684,11 @@ impl LocalsPlus {
 
     /// Extract every owned Python reference for GC's deferred-drop phase.
     fn clear_into(&mut self, out: &mut Vec<PyObjectRef>) {
-        out.extend(self.take_stack_object_refs());
+        while self.stack_top > 0 {
+            if let Some(value) = self.stack_pop() {
+                out.push(value.to_pyobj());
+            }
+        }
         out.extend(self.fastlocals_mut().iter_mut().filter_map(Option::take));
     }
 
@@ -1649,7 +1653,11 @@ unsafe impl Traverse for FrameObject {
         // Extract every child before dropping the frame husk. GC drops `out`
         // after this exclusive payload borrow ends, so re-entrant finalizers
         // cannot alias frame storage or run under one of its locks.
-        if let Some(mut iframe) = self.iframe.get_mut().take() {
+        // Drain the frame where it lies and empty the slot afterwards.
+        // `Option::take` would move the whole `InterpreterFrame` -- a couple
+        // of hundred bytes -- onto the stack only to drop it there.
+        let slot = self.iframe.get_mut();
+        if let Some(iframe) = slot.as_mut() {
             iframe.localsplus.clear_into(out);
             if let Some(locals) = iframe.locals.take() {
                 out.push(locals.into());
@@ -1672,6 +1680,7 @@ unsafe impl Traverse for FrameObject {
                 }
             }
         }
+        *slot = None;
         if let Some(code) = self.owned_code.take() {
             out.push(code.into());
         }
@@ -1894,7 +1903,13 @@ impl FrameObject {
     pub(crate) fn clear_stack_and_cells(&self) {
         // SAFETY: Called when frame is not executing (generator closed).
         // Cell refs in fastlocals[nlocals..] are cleared by clear_locals_and_stack().
-        let refs = unsafe { self.iframe_mut().localsplus.take_stack_object_refs() };
+        let localsplus = unsafe { &mut self.iframe_mut().localsplus };
+        // A frame that ran to its `return` left nothing on the stack, which is
+        // how every generator that simply finished arrives here.
+        if localsplus.stack_is_empty() {
+            return;
+        }
+        let refs = localsplus.take_stack_object_refs();
         drop(refs);
     }
 
