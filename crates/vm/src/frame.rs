@@ -3421,6 +3421,10 @@ impl ExecutingFrame<'_> {
         let units_ptr = self.code.instructions.units_ptr();
         let mut arg_state = bytecode::OpArgState::default();
         let mut idx = lasti_cell.load(Relaxed) as usize;
+        // Previous opcode in this frame, for the `(prev, op)` pair histogram.
+        // Zero (`CACHE`, never dispatched) marks "no predecessor yet".
+        #[cfg(feature = "opcode-histogram")]
+        let mut prev_op: u8 = 0;
         loop {
             // Advance lasti past the current instruction BEFORE firing the
             // line event.  This ensures that f_lineno (which reads
@@ -3568,6 +3572,12 @@ impl ExecutingFrame<'_> {
             // there and here writes it, so the pre-dispatch value is known
             // without an extra atomic load.
             let lasti_before = idx as u32 + 1;
+            #[cfg(feature = "opcode-histogram")]
+            {
+                let op_byte = u8::from(op);
+                crate::opcode_histogram::record(prev_op, op_byte);
+                prev_op = op_byte;
+            }
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
             // Skip inline cache entries if instruction fell through (no jump).
             // `cache_entries()` is a table lookup, so it is done here rather
