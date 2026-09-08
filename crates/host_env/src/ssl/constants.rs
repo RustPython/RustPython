@@ -19,3 +19,8 @@ pub const VERIFY_X509_STRICT: i32 = 32;
 pub const VERIFY_ALLOW_PROXY_CERTS: i32 = 64;
 pub const VERIFY_X509_TRUSTED_FIRST: i32 = 32768;
 pub const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
+
+pub const PROTO_TLSV1_2: i32 = 0x0303;
+pub const PROTO_TLSV1_3: i32 = 0x0304;
+pub const OP_NO_TLSV1_2: i32 = 0x0800_0000;
+pub const OP_NO_TLSV1_3: i32 = 0x2000_0000;
