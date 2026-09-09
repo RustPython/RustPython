@@ -98,7 +98,23 @@ pub fn div_pow10(n: &BigUint, e: u64) -> BigUint {
     if n.is_zero() || e == 0 {
         return n.clone();
     }
+    if dwarfs(n, e) {
+        return BigUint::zero();
+    }
     n / pow10(e)
+}
+
+/// Whether `10.pow(e)` is certainly larger than `n`, decided without building
+/// it.
+///
+/// A decimal exponent can be as far from a coefficient's size as `1e-999999999`
+/// is from `1`, and materialising `10.pow(e)` for such an `e` costs hundreds of
+/// megabytes and seconds of multiplication for an answer that is a foregone
+/// conclusion. `10.pow(e) >= 2.pow(e)`, so `e` at least the bit length settles
+/// it; the bound is loose by the ratio between the two logarithms, which only
+/// costs an exact comparison in a narrow band.
+fn dwarfs(n: &BigUint, e: u64) -> bool {
+    e >= n.bits()
 }
 
 /// `(n // 10.pow(e), n % 10.pow(e))`.
@@ -108,6 +124,9 @@ pub fn split_pow10(n: &BigUint, e: u64) -> (BigUint, BigUint) {
     }
     if n.is_zero() {
         return (BigUint::zero(), BigUint::zero());
+    }
+    if dwarfs(n, e) {
+        return (BigUint::zero(), n.clone());
     }
     let p = pow10(e);
     let q = n / &p;

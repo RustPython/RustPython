@@ -422,12 +422,13 @@ pub fn div(a: &Decimal, b: &Decimal, ctx: &Context, status: &mut u32) -> Decimal
     // A precision this large cannot be scaled to, but the quotient may still
     // terminate well inside it; `_pylong` divides under exactly such a context
     // to build exact reciprocals.
-    if shift > 0 && !padding_is_safe(a.digits(), shift) {
-        if let Some((coeff, used)) = exact_quotient(a.coefficient(), b.coefficient()) {
-            let exp = a.exponent() as i128 - b.exponent() as i128 - used as i128;
-            let ans = Decimal::new_finite(sign, coeff, sat_i64(exp));
-            return fix(&ans, ctx, status);
-        }
+    if shift > 0
+        && !padding_is_safe(a.digits(), shift)
+        && let Some((coeff, used)) = exact_quotient(a.coefficient(), b.coefficient())
+    {
+        let exp = a.exponent() as i128 - b.exponent() as i128 - used as i128;
+        let ans = Decimal::new_finite(sign, coeff, sat_i64(exp));
+        return fix(&ans, ctx, status);
     }
 
     let (mut coeff, remainder) = if shift >= 0 {
