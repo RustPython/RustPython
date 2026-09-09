@@ -768,8 +768,9 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
         };
         let ty_tokens = &typed.ty;
         let ty = quote!(#ty_tokens).to_string().replace(' ', "");
-        // `vm: &VirtualMachine` is not a Python-level argument.
-        if ty.starts_with('&') && ty.ends_with("VirtualMachine") {
+        // The interpreter supplies `vm` and `callee`; a Python call never
+        // passes them.
+        if (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee") {
             continue;
         }
         typed_args.push(ty);
@@ -853,7 +854,7 @@ fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> 
             params.push("*args, **kwargs".to_owned());
             continue;
         }
-        if ty.starts_with('&') && ty.ends_with("VirtualMachine") {
+        if (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee") {
             continue;
         }
         if let Some(marker) = implicit_self.take() {
