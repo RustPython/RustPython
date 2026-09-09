@@ -54,6 +54,16 @@ assert unicodedata.digit("²") == 2
 assert abs(unicodedata.numeric("⅓") - (1 / 3)) < 1e-6
 assert unicodedata.name("☃") == "SNOWMAN"
 assert unicodedata.lookup("SNOWMAN") == "☃"
+assert unicodedata.lookup("LATIN CAPITAL LETTER GHA") == "\u01a2"
+assert unicodedata.lookup("LATIN SMALL LETTER R WITH TILDE") == "r\u0303"
+assert unicodedata.lookup("TANGUT IDEOGRAPH-17000") == "\U00017000"
+assert unicodedata.ucd_3_2_0.lookup("SNOWMAN") == "☃"
+try:
+    unicodedata.ucd_3_2_0.lookup("LATIN CAPITAL LETTER GHA")
+except KeyError:
+    pass
+else:
+    raise AssertionError("3.2.0 has no name aliases")
 assert unicodedata.combining("́") == 230  # COMBINING ACUTE ACCENT
 assert unicodedata.mirrored("(") == 1
 assert unicodedata.east_asian_width("あ") == "W"
