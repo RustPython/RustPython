@@ -31,20 +31,6 @@ cfg_select! {
 
 pub(crate) use _ssl::module_def;
 
-use openssl_probe::ProbeResult;
-use rustpython_common::lock::LazyLock;
-
-// define our own copy of ProbeResult so we can handle the vendor case
-// easily, without having to have a bunch of cfgs
-static PROBE: LazyLock<ProbeResult> = cfg_select! {
-    openssl_vendored => LazyLock::new(openssl_probe::probe),
-    _ => LazyLock::new(|| ProbeResult { cert_file: None, cert_dir: vec![] })
-};
-
-fn probe() -> &'static ProbeResult {
-    &PROBE
-}
-
 #[allow(non_upper_case_globals)]
 #[pymodule(with(
     cert::ssl_cert,
@@ -55,7 +41,7 @@ fn probe() -> &'static ProbeResult {
 mod _ssl {
     use core::hint::cold_path;
 
-    use super::{bio, probe};
+    use super::bio;
 
     // Import error types and helpers used in this module (others are exposed via pymodule(with(...)))
     use super::ssl_error::{
@@ -102,7 +88,7 @@ mod _ssl {
     use core::{ffi::CStr, fmt};
     use std::{
         io::{Read, Write},
-        path::{Path, PathBuf},
+        path::PathBuf,
         time::Instant,
     };
 
@@ -110,11 +96,6 @@ mod _ssl {
     use super::cert::{self, cert_to_certificate, cert_to_py};
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
-        // if openssl is vendored, it doesn't know the locations
-        // of system certificates - cache the probe result now.
-        #[cfg(openssl_vendored)]
-        rustpython_common::lock::LazyLock::force(&super::PROBE);
-
         __module_exec(vm, module);
         Ok(())
     }
@@ -440,42 +421,34 @@ mod _ssl {
             .and_then(|obj| obj2py(obj, vm))
     }
 
-    // Lazily compute and cache cert file/dir paths
-    static CERT_PATHS: LazyLock<(PathBuf, PathBuf)> = LazyLock::new(|| {
-        fn path_from_cstr(c: &CStr) -> PathBuf {
-            #[cfg(unix)]
-            {
-                use std::os::unix::ffi::OsStrExt;
-                std::ffi::OsStr::from_bytes(c.to_bytes()).into()
-            }
-            #[cfg(windows)]
-            {
-                // Use lossy conversion for potential non-UTF8
-                PathBuf::from(c.to_string_lossy().as_ref())
-            }
+    fn path_from_cstr(c: &CStr) -> PathBuf {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            std::ffi::OsStr::from_bytes(c.to_bytes()).into()
         }
+        #[cfg(windows)]
+        {
+            PathBuf::from(c.to_string_lossy().as_ref())
+        }
+    }
 
-        let probe = probe();
-        let cert_file = probe
-            .cert_file
-            .as_ref()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                path_from_cstr(unsafe { CStr::from_ptr(sys::X509_get_default_cert_file()) })
-            });
-        let cert_dir = probe
-            .cert_dir
-            .first()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                path_from_cstr(unsafe { CStr::from_ptr(sys::X509_get_default_cert_dir()) })
-            });
-        (cert_file, cert_dir)
-    });
+    fn openssl_default_cert_paths() -> (PathBuf, PathBuf) {
+        (
+            path_from_cstr(unsafe { CStr::from_ptr(sys::X509_get_default_cert_file()) }),
+            path_from_cstr(unsafe { CStr::from_ptr(sys::X509_get_default_cert_dir()) }),
+        )
+    }
 
-    fn get_cert_file_dir() -> (&'static Path, &'static Path) {
-        let (cert_file, cert_dir) = &*CERT_PATHS;
-        (cert_file.as_path(), cert_dir.as_path())
+    fn get_cert_file_dir() -> (PathBuf, PathBuf) {
+        cfg_select! {
+            all(openssl_vendored, not(target_arch = "wasm32")) => {
+                let (cert_file, cert_dir) =
+                    rustpython_host_env::native_certs::default_verify_paths();
+                (PathBuf::from(cert_file), PathBuf::from(cert_dir))
+            }
+            _ => openssl_default_cert_paths(),
+        }
     }
 
     // Lazily compute and cache cert environment variable names
@@ -495,8 +468,8 @@ mod _ssl {
     ) -> PyResult<(&'static str, PyObjectRef, &'static str, PyObjectRef)> {
         let (cert_file_env, cert_dir_env) = &*CERT_ENV_NAMES;
         let (cert_file, cert_dir) = get_cert_file_dir();
-        let cert_file = OsPath::new_str(cert_file).filename(vm);
-        let cert_dir = OsPath::new_str(cert_dir).filename(vm);
+        let cert_file = OsPath::new_str(cert_file.as_path()).filename(vm);
+        let cert_dir = OsPath::new_str(cert_dir.as_path()).filename(vm);
         Ok((
             cert_file_env.as_str(),
             cert_file,
@@ -1419,7 +1392,7 @@ mod _ssl {
                 openssl_vendored => {
                     let (cert_file, cert_dir) = get_cert_file_dir();
                     self.builder()
-                        .load_verify_locations(Some(cert_file), Some(cert_dir))
+                        .load_verify_locations(Some(cert_file.as_path()), Some(cert_dir.as_path()))
                         .map_err(|e| convert_openssl_error(vm, e))
                 }
                 _ => {
@@ -1595,7 +1568,7 @@ mod _ssl {
                 let capath_path = args.capath.map(|p| p.to_path_buf(vm)).transpose()?;
                 // Check file/directory existence before calling OpenSSL to get proper errno
                 if let Some(ref path) = cafile_path
-                    && !path.exists()
+                    && !rustpython_host_env::fs::exists(path)
                 {
                     return Err(vm
                         .new_os_subtype_error(
@@ -1606,7 +1579,7 @@ mod _ssl {
                         .upcast());
                 }
                 if let Some(ref path) = capath_path
-                    && !path.exists()
+                    && !rustpython_host_env::fs::exists(path)
                 {
                     return Err(vm
                         .new_os_subtype_error(
@@ -1915,7 +1888,7 @@ mod _ssl {
             let cert_path = certfile.to_path_buf(vm)?;
 
             // Check file existence before calling OpenSSL to get proper errno
-            if !cert_path.exists() {
+            if !rustpython_host_env::fs::exists(&cert_path) {
                 return Err(vm
                     .new_os_subtype_error(
                         vm.ctx.exceptions.file_not_found_error.to_owned(),
@@ -1925,7 +1898,7 @@ mod _ssl {
                     .upcast());
             }
             if let Some(ref kp) = key_path
-                && !kp.exists()
+                && !rustpython_host_env::fs::exists(kp)
             {
                 return Err(vm
                     .new_os_subtype_error(
@@ -4110,11 +4083,8 @@ mod _ssl {
             ssl::SslContextBuilder,
             x509::{X509, store::X509StoreBuilder},
         };
-        use std::{
-            fs::{File, read_dir},
-            io::Read,
-            path::Path,
-        };
+        use rustpython_host_env::fs;
+        use std::path::Path;
 
         static CERT_DIR: &'static str = "/system/etc/security/cacerts";
 
@@ -4123,7 +4093,7 @@ mod _ssl {
             b: &mut SslContextBuilder,
         ) -> Result<(), PyBaseExceptionRef> {
             let root = Path::new(CERT_DIR);
-            if !root.is_dir() {
+            if !fs::is_dir(root) {
                 return Err(vm
                     .new_os_subtype_error(
                         vm.ctx.exceptions.file_not_found_error.to_owned(),
@@ -4134,23 +4104,21 @@ mod _ssl {
             }
 
             let mut combined_pem = String::new();
-            let entries = read_dir(root)
+            let entries = fs::read_dir(root)
                 .map_err(|err| vm.new_os_error(format!("read cert root: {}", err)))?;
             for entry in entries {
                 let entry =
                     entry.map_err(|err| vm.new_os_error(format!("iter cert root: {}", err)))?;
 
                 let path = entry.path();
-                if !path.is_file() {
+                if !fs::is_file(&path) {
                     continue;
                 }
 
-                File::open(&path)
-                    .and_then(|mut file| file.read_to_string(&mut combined_pem))
-                    .map_err(|err| {
-                        vm.new_os_error(format!("open cert file {}: {}", path.display(), err))
-                    })?;
-
+                let pem = fs::read_to_string(&path).map_err(|err| {
+                    vm.new_os_error(format!("open cert file {}: {}", path.display(), err))
+                })?;
+                combined_pem.push_str(&pem);
                 combined_pem.push('\n');
             }
 
