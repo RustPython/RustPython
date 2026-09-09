@@ -3521,7 +3521,6 @@ dependencies = [
  "num-traits",
  "num_enum",
  "openssl",
- "openssl-probe",
  "openssl-sys",
  "parking_lot",
  "paste",
