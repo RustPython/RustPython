@@ -3,7 +3,7 @@ use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use core::ffi::c_char;
 use rustpython_vm::builtins::PyByteArray;
-use rustpython_vm::byte::bytes_from_object;
+use rustpython_vm::byte::bytearray_from_object;
 
 define_py_check!(fn PyByteArray_Check, types.bytearray_type);
 
@@ -41,7 +41,7 @@ pub unsafe extern "C" fn PyByteArray_FromStringAndSize(
 pub unsafe extern "C" fn PyByteArray_FromObject(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let data = bytes_from_object(vm, obj)?;
+        let data = bytearray_from_object(vm, obj)?;
         Ok(vm.ctx.new_bytearray(data))
     })
 }
