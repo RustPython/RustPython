@@ -19,7 +19,7 @@ sqlite = ["dep:libsqlite3-sys"]
 # SSL backends
 ssl = ["host_env"]
 ssl-rustls = ["__ssl-rustls", "rustls/custom-provider"]
-ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
+ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "rustpython-host_env/native-certs"]
 ssl-openssl-vendor = ["ssl-openssl", "openssl/vendored"]
 tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
 flame-it = ["flame"]
@@ -85,7 +85,6 @@ uuid = { workspace = true, features = ["v1"] }
 # OpenSSL dependencies (optional, for ssl-openssl feature)
 openssl = { workspace = true, optional = true }
 openssl-sys = { workspace = true, optional = true }
-openssl-probe = { workspace = true, optional = true }
 foreign-types-shared = { workspace = true, optional = true }
 
 # Rustls dependencies (optional, for ssl-rustls feature)

@@ -1120,7 +1120,7 @@ mod _ssl {
         /// Helper: Load system certificates using rustls-native-certs
         ///
         /// This uses platform-specific methods:
-        /// - Linux: openssl-probe to find certificate files
+        /// - Linux: host CA file/directory paths
         /// - macOS: Keychain API
         /// - Windows: System certificate store (ROOT + CA stores)
         fn load_system_certificates(
