@@ -1173,6 +1173,7 @@ pub struct PartialChainVerifier {
     inner: Arc<dyn ServerCertVerifier>,
     ca_certs_der: Vec<Vec<u8>>,
     verify_flags: i32,
+    check_common_name: bool,
 }
 
 impl PartialChainVerifier {
@@ -1180,11 +1181,13 @@ impl PartialChainVerifier {
         inner: Arc<dyn ServerCertVerifier>,
         ca_certs_der: Vec<Vec<u8>>,
         verify_flags: i32,
+        check_common_name: bool,
     ) -> Self {
         Self {
             inner,
             ca_certs_der,
             verify_flags,
+            check_common_name,
         }
     }
 }
@@ -1227,7 +1230,7 @@ impl ServerCertVerifier for PartialChainVerifier {
                     // Non-self-signed: require VERIFY_X509_PARTIAL_CHAIN flag
                     if is_self_signed_cert || (self.verify_flags & VERIFY_X509_PARTIAL_CHAIN != 0) {
                         // Certificate is trusted, but still perform hostname verification
-                        verify_hostname(end_entity, server_name)?;
+                        verify_hostname(end_entity, server_name, self.check_common_name)?;
                         return Ok(ServerCertVerified::assertion());
                     }
                 }
@@ -1278,11 +1281,93 @@ fn is_self_signed(cert_der: &CertificateDer<'_>) -> bool {
     cert.issuer() == cert.subject()
 }
 
+/// True when the certificate advertises at least one dNSName SAN.
+fn cert_has_dns_san(cert: &X509Certificate<'_>) -> bool {
+    use x509_parser::extensions::GeneralName;
+    cert.subject_alternative_name()
+        .ok()
+        .flatten()
+        .is_some_and(|san| {
+            san.value
+                .general_names
+                .iter()
+                .any(|name| matches!(name, GeneralName::DNSName(_)))
+        })
+}
+
+/// rustls checks SAN only. When no dNSName SAN is present and CN matching
+/// is enabled, accept a Common Name that matches the requested hostname.
+#[derive(Debug)]
+pub struct CommonNameFallbackVerifier {
+    inner: Arc<dyn ServerCertVerifier>,
+}
+
+impl CommonNameFallbackVerifier {
+    pub fn new(inner: Arc<dyn ServerCertVerifier>) -> Self {
+        Self { inner }
+    }
+}
+
+impl ServerCertVerifier for CommonNameFallbackVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        match self.inner.verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        ) {
+            Ok(verified) => Ok(verified),
+            Err(
+                e @ rustls::Error::InvalidCertificate(
+                    rustls::CertificateError::NotValidForName
+                    | rustls::CertificateError::NotValidForNameContext { .. },
+                ),
+            ) => {
+                verify_hostname(end_entity, server_name, true).map_err(|_| e)?;
+                Ok(ServerCertVerified::assertion())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.inner.supported_verify_schemes()
+    }
+}
+
 /// Verify that a certificate is valid for the given hostname/IP address.
-/// This function checks Subject Alternative Names (SAN) and Common Name (CN).
+/// SAN dNSName entries take precedence. Common Name is used only when
+/// `check_common_name` is set and the certificate has no dNSName SAN.
 fn verify_hostname(
     cert_der: &CertificateDer<'_>,
     server_name: &ServerName<'_>,
+    check_common_name: bool,
 ) -> Result<(), rustls::Error> {
     use x509_parser::extensions::GeneralName;
     use x509_parser::prelude::*;
@@ -1297,31 +1382,31 @@ fn verify_hostname(
     match server_name {
         ServerName::DnsName(dns) => {
             let expected_name = dns.as_ref();
+            let has_dns_san = cert_has_dns_san(&cert);
 
-            // 1. Check Subject Alternative Names (SAN) - preferred method
-            if let Ok(Some(san_ext)) = cert.subject_alternative_name() {
-                for name in &san_ext.value.general_names {
-                    if let GeneralName::DNSName(dns_name) = name
-                        && hostname_matches(expected_name, dns_name)
-                    {
-                        return Ok(());
+            if has_dns_san {
+                if let Ok(Some(san_ext)) = cert.subject_alternative_name() {
+                    for name in &san_ext.value.general_names {
+                        if let GeneralName::DNSName(dns_name) = name
+                            && hostname_matches(expected_name, dns_name)
+                        {
+                            return Ok(());
+                        }
+                    }
+                }
+            } else if check_common_name {
+                for rdn in cert.subject().iter() {
+                    for attr in rdn.iter() {
+                        if attr.attr_type() == &x509_parser::oid_registry::OID_X509_COMMON_NAME
+                            && let Ok(cn) = attr.attr_value().as_str()
+                            && hostname_matches(expected_name, cn)
+                        {
+                            return Ok(());
+                        }
                     }
                 }
             }
 
-            // 2. Fallback to Common Name (CN) - deprecated but still checked for compatibility
-            for rdn in cert.subject().iter() {
-                for attr in rdn.iter() {
-                    if attr.attr_type() == &x509_parser::oid_registry::OID_X509_COMMON_NAME
-                        && let Ok(cn) = attr.attr_value().as_str()
-                        && hostname_matches(expected_name, cn)
-                    {
-                        return Ok(());
-                    }
-                }
-            }
-
-            // No match found - return error
             Err(cert_error::to_rustls_invalid_cert(format!(
                 "Hostname mismatch: certificate is not valid for '{expected_name}'",
             )))

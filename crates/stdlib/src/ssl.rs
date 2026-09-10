@@ -206,6 +206,9 @@ mod _ssl {
     #[pyattr]
     pub(crate) const VERIFY_X509_PARTIAL_CHAIN: i32 =
         rustpython_host_env::ssl::VERIFY_X509_PARTIAL_CHAIN;
+    #[pyattr]
+    const HOSTFLAG_NEVER_CHECK_SUBJECT: i32 =
+        rustpython_host_env::ssl::HOSTFLAG_NEVER_CHECK_SUBJECT;
 
     // Options (OpenSSL-compatible flags, mostly no-op in rustls)
     #[pyattr]
@@ -332,7 +335,7 @@ mod _ssl {
     #[pyattr]
     const HAS_SNI: bool = true;
     #[pyattr]
-    const HAS_TLS_UNIQUE: bool = false; // Not supported
+    const HAS_TLS_UNIQUE: bool = true;
     #[pyattr]
     const HAS_ECDH: bool = true;
     #[pyattr]
@@ -394,6 +397,8 @@ mod _ssl {
         protocol: i32,
         #[pytraverse(skip)]
         check_hostname: PyRwLock<bool>,
+        #[pytraverse(skip)]
+        host_flags: PyRwLock<i32>,
         #[pytraverse(skip)]
         verify_mode: PyRwLock<i32>,
         #[pytraverse(skip)]
@@ -630,6 +635,16 @@ mod _ssl {
                     *self.verify_mode.write() = CERT_REQUIRED;
                 }
             }
+        }
+
+        #[pygetset]
+        fn _host_flags(&self) -> i32 {
+            *self.host_flags.read()
+        }
+
+        #[pygetset(setter)]
+        fn set__host_flags(&self, value: i32) {
+            *self.host_flags.write() = value;
         }
 
         #[pygetset]
@@ -2017,6 +2032,7 @@ mod _ssl {
                 context_identity: Arc::new(()),
                 protocol,
                 check_hostname: PyRwLock::new(protocol == PROTOCOL_TLS_CLIENT),
+                host_flags: PyRwLock::new(0),
                 verify_mode: PyRwLock::new(default_verify_mode),
                 verify_flags: PyRwLock::new(default_verify_flags),
                 server_config: PyRwLock::new(None),
@@ -3037,6 +3053,8 @@ mod _ssl {
                     drop(cert_keys_guard);
 
                     let check_hostname = *ctx.check_hostname.read();
+                    let check_common_name =
+                        *ctx.host_flags.read() & HOSTFLAG_NEVER_CHECK_SUBJECT == 0;
                     let verify_flags = *ctx.verify_flags.read();
                     let context_identity = ctx.context_identity.clone();
 
@@ -3101,6 +3119,7 @@ mod _ssl {
                             private_key: private_key_opt,
                             verify_server_cert: verify_mode != CERT_NONE,
                             check_hostname,
+                            check_common_name,
                             verify_flags,
                             session_store: Some(session_store.clone()),
                             crls: crls_clone,
