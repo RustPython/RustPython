@@ -68,6 +68,8 @@ pub struct ClientConfigOptions {
     pub verify_server_cert: bool,
     /// Whether to check hostname against certificate (check_hostname)
     pub check_hostname: bool,
+    /// When true, a certificate with no SAN may still match via Common Name.
+    pub check_common_name: bool,
     /// SSL verification flags (e.g., VERIFY_X509_STRICT)
     pub verify_flags: i32,
     /// Session store for client-side session resumption
@@ -244,6 +246,7 @@ fn apply_verifier_wrappers(
     verify_flags: i32,
     has_crls: bool,
     ca_certs_der: Vec<Vec<u8>>,
+    check_common_name: bool,
 ) -> Arc<dyn rustls::client::danger::ServerCertVerifier> {
     let crl_check_requested = verify_flags & X509_V_FLAG_CRL_CHECK != 0;
 
@@ -268,6 +271,7 @@ fn apply_verifier_wrappers(
             verifier,
             ca_certs_der,
             verify_flags,
+            check_common_name,
         ))
     } else {
         verifier
@@ -356,12 +360,19 @@ pub fn create_client_config(options: ClientConfigOptions) -> Result<chain::Clien
                 )?;
 
                 // Apply CRL and Strict verifier wrappers using helper function
-                apply_verifier_wrappers(
+                let verifier = apply_verifier_wrappers(
                     base_verifier,
                     options.verify_flags,
                     has_crls,
                     options.ca_certs_der.clone(),
-                )
+                    options.check_common_name,
+                );
+                if options.check_common_name {
+                    use super::verify::CommonNameFallbackVerifier;
+                    Arc::new(CommonNameFallbackVerifier::new(verifier))
+                } else {
+                    verifier
+                }
             } else {
                 // check_hostname=False: verify certificate chain but ignore hostname
                 use super::verify::HostnameIgnoringVerifier;
@@ -393,6 +404,7 @@ pub fn create_client_config(options: ClientConfigOptions) -> Result<chain::Clien
                         verifier,
                         options.ca_certs_der.clone(),
                         options.verify_flags,
+                        options.check_common_name,
                     )) as Arc<dyn rustls::client::danger::ServerCertVerifier>
                 } else {
                     verifier
