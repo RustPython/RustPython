@@ -163,7 +163,6 @@ class ContextTest(unittest.TestCase):
         with self.assertRaises(ZeroDivisionError):
             ctx.run(func, 1, 2, a=123)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @isolated_context
     def test_context_run_4(self):
         ctx1 = contextvars.Context()

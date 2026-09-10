@@ -12,17 +12,22 @@ thread_local! {
 #[pymodule]
 mod _contextvars {
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        atomic_func,
         builtins::{PyGenericAlias, PyList, PyStr, PyStrRef, PyType, PyTypeRef},
         class::StaticType,
+        class_or_notimplemented,
         common::{
             hash::PyHash,
             lock::{LazyLock, PyMutex},
             wtf8::Wtf8Buf,
         },
-        function::{FuncArgs, OptionalArg},
+        function::{FuncArgs, OptionalArg, PyComparisonValue},
         protocol::{PyMappingMethods, PySequenceMethods},
-        types::{AsMapping, AsSequence, Constructor, Hashable, Iterable, Representable},
+        types::{
+            AsMapping, AsSequence, Comparable, Constructor, Hashable, Iterable, PyComparisonOp,
+            Representable,
+        },
     };
     use core::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
     use indexmap::IndexMap;
@@ -56,7 +61,7 @@ mod _contextvars {
     }
 
     #[pyattr]
-    #[pyclass(name = "Context")]
+    #[pyclass(name = "Context", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct PyContext {
         // not to confuse with vm::Context
@@ -166,7 +171,7 @@ mod _contextvars {
         }
     }
 
-    #[pyclass(with(Constructor, AsMapping, AsSequence, Iterable))]
+    #[pyclass(with(Constructor, AsMapping, AsSequence, Iterable, Comparable))]
     impl PyContext {
         #[pymethod]
         fn run(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -305,6 +310,46 @@ mod _contextvars {
             let list = vm.ctx.new_list(keys);
             <PyList as Iterable>::iter(list, vm)
         }
+    }
+
+    impl Comparable for PyContext {
+        fn cmp(
+            zelf: &Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            let other = class_or_notimplemented!(Self, other);
+            op.eq_only(|| Ok(vars_eq(zelf, other, vm)?.into()))
+        }
+    }
+
+    fn vars_eq(left: &Py<PyContext>, right: &Py<PyContext>, vm: &VirtualMachine) -> PyResult<bool> {
+        if left.is(right) {
+            return Ok(true);
+        }
+        // Snapshot first: value __eq__ may re-enter Context.run / ContextVar.set.
+        let pairs: Vec<(PyObjectRef, PyObjectRef)> = {
+            let left_vars = left.borrow_vars();
+            let right_vars = right.borrow_vars();
+            if left_vars.len() != right_vars.len() {
+                return Ok(false);
+            }
+            let mut pairs = Vec::with_capacity(left_vars.len());
+            for (key, left_value) in left_vars.iter() {
+                let Some(right_value) = right_vars.get(key) else {
+                    return Ok(false);
+                };
+                pairs.push((left_value.clone(), right_value.clone()));
+            }
+            pairs
+        };
+        for (left_value, right_value) in pairs {
+            if !vm.bool_eq(&left_value, &right_value)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     #[pyattr]
