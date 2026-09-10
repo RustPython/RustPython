@@ -74,10 +74,16 @@ impl CompileWarningError {
         let Ok(message) = self.exception.as_object().str(vm) else {
             return self.exception;
         };
-        let syntax_error = vm.new_exception_msg(
-            vm.ctx.exceptions.syntax_error.to_owned(),
-            message.as_wtf8().to_owned(),
-        );
+        // RAISE_ERROR_KNOWN_LOCATION after an escalated SyntaxWarning drops the
+        // "will not work in the future" clause and spans just the `\X` pair.
+        let mut msg = message.to_string_lossy().into_owned();
+        let invalid_escape = msg.contains("is an invalid escape sequence")
+            || msg.contains("is an invalid octal escape sequence");
+        if invalid_escape {
+            msg = msg.replace(" Such sequences will not work in the future.", "");
+        }
+        let syntax_error =
+            vm.new_exception_msg(vm.ctx.exceptions.syntax_error.to_owned(), msg.into());
         syntax_error
             .as_object()
             .set_attr("lineno", vm.ctx.new_int(self.lineno), vm)
@@ -86,6 +92,16 @@ impl CompileWarningError {
             .as_object()
             .set_attr("offset", vm.ctx.new_int(self.offset), vm)
             .unwrap();
+        if invalid_escape {
+            syntax_error
+                .as_object()
+                .set_attr("end_lineno", vm.ctx.new_int(self.lineno), vm)
+                .unwrap();
+            syntax_error
+                .as_object()
+                .set_attr("end_offset", vm.ctx.new_int(self.offset + 2), vm)
+                .unwrap();
+        }
         syntax_error
             .as_object()
             .set_attr("filename", vm.ctx.new_str(self.filename), vm)
