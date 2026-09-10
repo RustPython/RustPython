@@ -12,17 +12,22 @@ thread_local! {
 #[pymodule]
 mod _contextvars {
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-        builtins::{PyGenericAlias, PyList, PyStr, PyType, PyTypeRef},
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        atomic_func,
+        builtins::{PyGenericAlias, PyList, PyStr, PyStrRef, PyType, PyTypeRef},
         class::StaticType,
+        class_or_notimplemented,
         common::{
             hash::PyHash,
             lock::{LazyLock, PyMutex},
             wtf8::Wtf8Buf,
         },
-        function::{FuncArgs, OptionalArg},
+        function::{FuncArgs, OptionalArg, PyComparisonValue},
         protocol::{PyMappingMethods, PySequenceMethods},
-        types::{AsMapping, AsSequence, Constructor, Hashable, Iterable, Representable},
+        types::{
+            AsMapping, AsSequence, Comparable, Constructor, Hashable, Iterable, PyComparisonOp,
+            Representable,
+        },
     };
     use core::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
     use indexmap::IndexMap;
@@ -56,7 +61,7 @@ mod _contextvars {
     }
 
     #[pyattr]
-    #[pyclass(name = "Context")]
+    #[pyclass(name = "Context", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct PyContext {
         // not to confuse with vm::Context
@@ -166,7 +171,7 @@ mod _contextvars {
         }
     }
 
-    #[pyclass(with(Constructor, AsMapping, AsSequence, Iterable))]
+    #[pyclass(with(Constructor, AsMapping, AsSequence, Iterable, Comparable))]
     impl PyContext {
         #[pymethod]
         fn run(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -307,12 +312,51 @@ mod _contextvars {
         }
     }
 
+    impl Comparable for PyContext {
+        fn cmp(
+            zelf: &Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            let other = class_or_notimplemented!(Self, other);
+            op.eq_only(|| Ok(vars_eq(zelf, other, vm)?.into()))
+        }
+    }
+
+    fn vars_eq(left: &Py<PyContext>, right: &Py<PyContext>, vm: &VirtualMachine) -> PyResult<bool> {
+        if left.is(right) {
+            return Ok(true);
+        }
+        // Snapshot first: value __eq__ may re-enter Context.run / ContextVar.set.
+        let pairs: Vec<(PyObjectRef, PyObjectRef)> = {
+            let left_vars = left.borrow_vars();
+            let right_vars = right.borrow_vars();
+            if left_vars.len() != right_vars.len() {
+                return Ok(false);
+            }
+            let mut pairs = Vec::with_capacity(left_vars.len());
+            for (key, left_value) in left_vars.iter() {
+                let Some(right_value) = right_vars.get(key) else {
+                    return Ok(false);
+                };
+                pairs.push((left_value.clone(), right_value.clone()));
+            }
+            pairs
+        };
+        for (left_value, right_value) in pairs {
+            if !vm.bool_eq(&left_value, &right_value)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     #[pyattr]
     #[pyclass(name, traverse)]
     #[derive(PyPayload)]
     struct ContextVar {
-        #[pytraverse(skip)]
-        name: String,
+        name: PyStrRef,
         default: Option<PyObjectRef>,
         #[pytraverse(skip)]
         cached: PyMutex<Option<ContextVarCache>>,
@@ -390,7 +434,7 @@ mod _contextvars {
     #[pyclass(with(Constructor, Hashable, Representable))]
     impl ContextVar {
         #[pygetset]
-        fn name(&self) -> String {
+        fn name(&self) -> PyStrRef {
             self.name.clone()
         }
 
@@ -524,7 +568,6 @@ mod _contextvars {
                 .downcast::<PyStr>()
                 .map_err(|_| vm.new_type_error("context variable name must be a str"))?;
             let name_hash = name.as_object().hash(vm)?;
-            let name = name.to_string();
 
             let var = Self {
                 name,
@@ -559,17 +602,18 @@ mod _contextvars {
     }
 
     impl Representable for ContextVar {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name = zelf.name.as_str();
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let name = zelf.name.as_object().repr(vm)?;
             let id = zelf.get_id();
-
-            Ok(if let Some(arg) = zelf.default.as_ref() {
-                let default = arg.str(vm).ok();
-                format!("<ContextVar name='{name}' default={default:?} at {id:#x}>",)
-            } else {
-                format!("<ContextVar name='{name}' at {id:#x}>")
-            })
+            let mut result = Wtf8Buf::from("<ContextVar name=");
+            result.push_wtf8(name.as_wtf8());
+            if let Some(arg) = zelf.default.as_ref() {
+                let default = arg.repr(vm)?;
+                result.push_str(" default=");
+                result.push_wtf8(default.as_wtf8());
+            }
+            result.push_str(&format!(" at {id:#x}>"));
+            Ok(result)
         }
     }
 
