@@ -250,8 +250,8 @@ impl PyBytes {
     }
 
     #[pystaticmethod]
-    fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        PyBytesInner::maketrans(from, to, vm)
+    fn maketrans(frm: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        PyBytesInner::maketrans(frm, to, vm)
     }
 
     fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
