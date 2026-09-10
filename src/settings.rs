@@ -339,8 +339,8 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
                 };
             }
             "int_max_str_digits" => {
-                settings.int_max_str_digits = match value.unwrap().parse() {
-                    Ok(digits) if digits == 0 || digits >= 640 => digits,
+                settings.int_max_str_digits = match value.and_then(|value| value.parse().ok()) {
+                    Some(digits) if digits == 0 || digits >= 640 => digits,
                     _ => {
                         error!(
                             "Fatal Python error: config_init_int_max_str_digits: \
