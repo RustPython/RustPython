@@ -225,7 +225,6 @@ class TestLiterals(unittest.TestCase):
         self.assertRaises(SyntaxError, eval, r""" b'\x' """)
         self.assertRaises(SyntaxError, eval, r""" b'\x0' """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_eval_bytes_invalid_escape(self):
         for b in range(1, 128):
             if b in b"""\n\r"'01234567\\abfnrtvx""":

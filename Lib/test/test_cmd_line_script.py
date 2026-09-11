@@ -387,7 +387,6 @@ class CmdLineTest(unittest.TestCase):
                    "be directly executed")
             self._check_import_error(["-m", "test_pkg"], msg, cwd=script_dir)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_issue8202(self):
         # Make sure package __init__ modules see "-m" in sys.argv0 while
         # searching for the module to execute
@@ -656,7 +655,6 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntaxerror_invalid_escape_sequence_multi_line(self):
         script = 'foo = """\\q"""\n'
         with os_helper.temp_dir() as script_dir:
@@ -673,7 +671,6 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntaxerror_null_bytes(self):
         script = "x = '\0' nothing to see here\n';import os;os.system('echo pwnd')\n"
         with os_helper.temp_dir() as script_dir:
@@ -686,7 +683,6 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntaxerror_null_bytes_in_multiline_string(self):
         scripts = ["\n'''\nmultilinestring\0\n'''", "\nf'''\nmultilinestring\0\n'''"] # Both normal and f-strings
         with os_helper.temp_dir() as script_dir:

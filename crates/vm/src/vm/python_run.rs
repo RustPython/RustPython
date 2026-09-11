@@ -55,8 +55,8 @@ impl VirtualMachine {
 #[cfg(feature = "host_env")]
 mod file_run {
     use crate::{
-        Py, PyResult, VirtualMachine,
-        builtins::{PyCode, PyDict},
+        AsObject, Py, PyResult, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyCode, PyDict},
         compiler::{self},
         scope::Scope,
     };
@@ -107,11 +107,8 @@ mod file_run {
                 }
                 match crate::host_env::fs::read(path) {
                     Ok(source_bytes) => {
-                        if source_bytes.contains(&0) {
-                            return Err(self.new_exception_msg(
-                                self.ctx.exceptions.syntax_error.to_owned(),
-                                "source code cannot contain null bytes".into(),
-                            ));
+                        if let Some(null_at) = source_bytes.iter().position(|&b| b == 0) {
+                            return Err(null_byte_syntax_error(self, path, &source_bytes, null_at));
                         }
                         #[cfg(feature = "parser")]
                         // Match compile() by honoring BOMs and encoding cookies in files.
@@ -136,6 +133,31 @@ mod file_run {
         pub fn run_script(&self, scope: Scope, path: &str) -> PyResult<()> {
             self.run_any_file(scope, path)
         }
+    }
+
+    fn null_byte_syntax_error(
+        vm: &VirtualMachine,
+        path: &str,
+        source_bytes: &[u8],
+        null_at: usize,
+    ) -> PyBaseExceptionRef {
+        let before = &source_bytes[..null_at];
+        let lineno = before.iter().filter(|&&b| b == b'\n').count() + 1;
+        let line_start = before
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |i| i + 1);
+        let line = String::from_utf8_lossy(&source_bytes[line_start..null_at]);
+        let syntax_error = vm.new_exception_msg(
+            vm.ctx.exceptions.syntax_error.to_owned(),
+            "source code cannot contain null bytes".into(),
+        );
+        let obj = syntax_error.as_object();
+        obj.set_attr("filename", vm.ctx.new_str(path), vm).unwrap();
+        obj.set_attr("lineno", vm.ctx.new_int(lineno), vm).unwrap();
+        obj.set_attr("text", vm.ctx.new_str(format!("{line}\n")), vm)
+            .unwrap();
+        syntax_error
     }
 
     fn set_main_loader(
