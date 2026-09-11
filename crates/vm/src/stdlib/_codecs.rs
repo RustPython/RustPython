@@ -13,10 +13,11 @@ mod _codecs {
     use crate::common::wtf8::Wtf8Buf;
     use crate::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyUtf8StrRef},
+        builtins::{PyBytesRef, PyStrRef, PyUtf8StrRef},
         codecs,
+        convert::TryFromObject,
         exceptions::nul_char_error,
-        function::{ArgBytesLike, PosArgs},
+        function::{ArgBytesLike, OptionalArg, PosArgs},
     };
 
     #[pyfunction]
@@ -244,7 +245,329 @@ mod _codecs {
         do_codec!(ascii::decode, args, vm)
     }
 
-    // TODO: implement these codecs in Rust!
+    fn wide_order(byteorder: i32) -> encodings::utf16::ByteOrder {
+        if byteorder < 0 {
+            encodings::utf16::ByteOrder::Little
+        } else if byteorder > 0 {
+            encodings::utf16::ByteOrder::Big
+        } else {
+            encodings::utf16::ByteOrder::Native
+        }
+    }
+
+    fn warn_escape(
+        note: Option<encodings::unicode_escape::EscapeNote>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(note) = note {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.deprecation_warning,
+                note.message,
+                1,
+                vm,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn readbuffer_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
+        rustpython_common::static_cell!(
+            static FUNC: PyObjectRef;
+        );
+        super::delegate_pycodecs(&FUNC, "readbuffer_encode", args, vm)
+    }
+
+    #[derive(FromArgs)]
+    struct EscapeEncodeArgs {
+        #[pyarg(positional)]
+        data: PyBytesRef,
+        #[pyarg(positional, optional)]
+        _errors: OptionalArg<PyUtf8StrRef>,
+    }
+
+    #[pyfunction]
+    fn escape_encode(args: EscapeEncodeArgs, _vm: &VirtualMachine) -> EncodeResult {
+        let encoded = encodings::escape::encode(args.data.as_bytes());
+        Ok((encoded, args.data.len()))
+    }
+
+    #[derive(FromArgs)]
+    struct EscapeDecodeArgs {
+        #[pyarg(positional)]
+        data: PyObjectRef,
+        #[pyarg(positional, optional)]
+        errors: OptionalArg<PyUtf8StrRef>,
+    }
+
+    #[pyfunction]
+    fn escape_decode(args: EscapeDecodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
+        let data = if let Ok(s) = args.data.clone().downcast::<crate::builtins::PyStr>() {
+            s.as_bytes().to_vec()
+        } else {
+            ArgBytesLike::try_from_object(vm, args.data)?
+                .borrow_buf()
+                .to_vec()
+        };
+        let name = args.errors.as_option().map_or("strict", |s| s.as_str());
+        let mode = encodings::escape::EscapeErrorMode::from_name(name).ok_or_else(|| {
+            vm.new_value_error(format!(
+                "decoding error; unknown error handling code: {name}"
+            ))
+        })?;
+        match encodings::escape::decode(&data, mode) {
+            Ok((out, warning)) => {
+                if let Some(message) = warning {
+                    crate::stdlib::_warnings::warn(
+                        vm.ctx.exceptions.deprecation_warning,
+                        message,
+                        1,
+                        vm,
+                    )?;
+                }
+                let consumed = data.len();
+                Ok((out, consumed))
+            }
+            Err(encodings::escape::EscapeDecodeError::TrailingBackslash) => {
+                Err(vm.new_value_error("Trailing \\ in string"))
+            }
+            Err(encodings::escape::EscapeDecodeError::InvalidHex { position }) => {
+                Err(vm.new_value_error(format!("invalid \\x escape at position {position}")))
+            }
+            Err(encodings::escape::EscapeDecodeError::UnknownHandler { name }) => Err(vm
+                .new_value_error(format!(
+                    "decoding error; unknown error handling code: {name}"
+                ))),
+        }
+    }
+
+    #[pyfunction]
+    fn unicode_escape_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::unicode_escape::ENCODING_NAME,
+            |ctx, errors| encodings::unicode_escape::encode(ctx, errors),
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn unicode_escape_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::unicode_escape::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, note) =
+            encodings::unicode_escape::decode(ctx, &errors, args.final_decode)?;
+        warn_escape(note, vm)?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn raw_unicode_escape_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::raw_unicode_escape::ENCODING_NAME,
+            |ctx, errors| encodings::raw_unicode_escape::encode(ctx, errors),
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn raw_unicode_escape_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx =
+            PyDecodeContext::new(encodings::raw_unicode_escape::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        encodings::raw_unicode_escape::decode(ctx, &errors, args.final_decode)
+    }
+
+    #[pyfunction]
+    fn utf_7_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf7::ENCODING_NAME,
+            |ctx, errors| encodings::utf7::encode(ctx, errors),
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_7_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf7::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        encodings::utf7::decode(ctx, &errors, args.final_decode)
+    }
+
+    #[pyfunction]
+    fn utf_16_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf16::ENCODING_NAME,
+            |ctx, errors| {
+                encodings::utf16::encode(ctx, errors, encodings::utf16::ByteOrder::Native, true)
+            },
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_16_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf16::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf16::decode(
+            ctx,
+            &errors,
+            encodings::utf16::ByteOrder::Native,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn utf_16_le_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf16::ENCODING_NAME_LE,
+            |ctx, errors| {
+                encodings::utf16::encode(ctx, errors, encodings::utf16::ByteOrder::Little, false)
+            },
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_16_le_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf16::ENCODING_NAME_LE, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf16::decode(
+            ctx,
+            &errors,
+            encodings::utf16::ByteOrder::Little,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn utf_16_be_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf16::ENCODING_NAME_BE,
+            |ctx, errors| {
+                encodings::utf16::encode(ctx, errors, encodings::utf16::ByteOrder::Big, false)
+            },
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_16_be_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf16::ENCODING_NAME_BE, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf16::decode(
+            ctx,
+            &errors,
+            encodings::utf16::ByteOrder::Big,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[derive(FromArgs)]
+    struct ExDecodeArgs {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(positional, optional)]
+        errors: Option<PyUtf8StrRef>,
+        #[pyarg(positional, default = 0)]
+        byteorder: i32,
+        #[pyarg(positional, default = false)]
+        final_decode: bool,
+    }
+
+    #[pyfunction]
+    fn utf_16_ex_decode(
+        args: ExDecodeArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Wtf8Buf, usize, i32)> {
+        let ctx = PyDecodeContext::new(encodings::utf16::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        encodings::utf16::decode(ctx, &errors, wide_order(args.byteorder), args.final_decode)
+    }
+
+    #[pyfunction]
+    fn utf_32_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf32::ENCODING_NAME,
+            |ctx, errors| {
+                encodings::utf32::encode(ctx, errors, encodings::utf32::ByteOrder::Native, true)
+            },
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_32_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf32::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf32::decode(
+            ctx,
+            &errors,
+            encodings::utf32::ByteOrder::Native,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn utf_32_le_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf32::ENCODING_NAME_LE,
+            |ctx, errors| {
+                encodings::utf32::encode(ctx, errors, encodings::utf32::ByteOrder::Little, false)
+            },
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_32_le_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf32::ENCODING_NAME_LE, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf32::decode(
+            ctx,
+            &errors,
+            encodings::utf32::ByteOrder::Little,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn utf_32_be_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf32::ENCODING_NAME_BE,
+            |ctx, errors| {
+                encodings::utf32::encode(ctx, errors, encodings::utf32::ByteOrder::Big, false)
+            },
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_32_be_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf32::ENCODING_NAME_BE, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf32::decode(
+            ctx,
+            &errors,
+            encodings::utf32::ByteOrder::Big,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn utf_32_ex_decode(
+        args: ExDecodeArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Wtf8Buf, usize, i32)> {
+        let ctx = PyDecodeContext::new(encodings::utf32::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        encodings::utf32::decode(ctx, &errors, wide_order(args.byteorder), args.final_decode)
+    }
 
     macro_rules! delegate_pycodecs {
         ($name:ident, $args:ident, $vm:ident) => {{
@@ -256,50 +579,6 @@ mod _codecs {
     }
 
     #[pyfunction]
-    fn readbuffer_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(readbuffer_encode, args, vm)
-    }
-    #[pyfunction]
-    fn escape_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(escape_encode, args, vm)
-    }
-    #[pyfunction]
-    fn escape_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn unicode_escape_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(unicode_escape_encode, args, vm)
-    }
-    #[pyfunction]
-    fn unicode_escape_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(unicode_escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn raw_unicode_escape_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(raw_unicode_escape_encode, args, vm)
-    }
-    #[pyfunction]
-    fn raw_unicode_escape_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(raw_unicode_escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_7_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_7_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_7_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_7_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_decode, args, vm)
-    }
-    #[pyfunction]
     fn charmap_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
         delegate_pycodecs!(charmap_encode, args, vm)
     }
@@ -310,54 +589,6 @@ mod _codecs {
     #[pyfunction]
     fn charmap_build(args: PosArgs, vm: &VirtualMachine) -> PyResult {
         delegate_pycodecs!(charmap_build, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_le_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_le_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_le_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_le_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_be_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_be_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_be_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_be_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_ex_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_ex_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_ex_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_ex_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_le_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_le_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_le_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_le_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_be_encode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_be_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_be_decode(args: PosArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_be_decode, args, vm)
     }
 }
 
