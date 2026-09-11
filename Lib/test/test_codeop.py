@@ -348,7 +348,6 @@ class CodeopTests(unittest.TestCase):
         compiler("'\\e' + (")
         self.assertEqual(w, [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 1
     @subTests('compiler', RAW_COMPILERS)
     def test_raw_raises_error(self, compiler):
         warnings_cm = warnings_helper.check_warnings(
@@ -358,7 +357,6 @@ class CodeopTests(unittest.TestCase):
             compiler("'\\e' + (", "<input>", 'single')
         self.assertEqual(len(w.warnings), 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 1
     @subTests('compiler', COMPILERS)
     def test_invalid_warning(self, compiler):
         with warnings.catch_warnings(record=True) as w:
