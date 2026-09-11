@@ -530,9 +530,58 @@ mod escape_warnings {
         if cs <= ce { Some((cs, ce)) } else { None }
     }
 
+    enum InvalidEscape {
+        Char { ch: char, offset: usize },
+        Octal { digits: [u8; 3], offset: usize },
+    }
+
+    impl InvalidEscape {
+        fn offset(&self) -> usize {
+            match self {
+                Self::Char { offset, .. } | Self::Octal { offset, .. } => *offset,
+            }
+        }
+
+        fn octal_text(digits: [u8; 3]) -> [char; 3] {
+            [digits[0] as char, digits[1] as char, digits[2] as char]
+        }
+
+        fn warning_message(&self) -> String {
+            match self {
+                Self::Char { ch, .. } => format!(
+                    "\"\\{ch}\" is an invalid escape sequence. \
+                     Such sequences will not work in the future. \
+                     Did you mean \"\\\\{ch}\"? A raw string is also an option."
+                ),
+                Self::Octal { digits, .. } => {
+                    let [a, b, c] = Self::octal_text(*digits);
+                    format!(
+                        "\"\\{a}{b}{c}\" is an invalid octal escape sequence. \
+                         Such sequences will not work in the future. \
+                         Did you mean \"\\\\{a}{b}{c}\"? A raw string is also an option."
+                    )
+                }
+            }
+        }
+
+        fn syntax_error_message(&self) -> String {
+            match self {
+                Self::Char { ch, .. } => format!(
+                    "\"\\{ch}\" is an invalid escape sequence. \
+                     Did you mean \"\\\\{ch}\"? A raw string is also an option."
+                ),
+                Self::Octal { digits, .. } => {
+                    let [a, b, c] = Self::octal_text(*digits);
+                    format!(
+                        "\"\\{a}{b}{c}\" is an invalid octal escape sequence. \
+                         Did you mean \"\\\\{a}{b}{c}\"? A raw string is also an option."
+                    )
+                }
+            }
+        }
+    }
+
     /// Scan `source[start..end]` for the first invalid escape sequence.
-    /// Returns `Some((invalid_char, byte_offset_in_source))` for the first
-    /// invalid escape found, or `None` if all escapes are valid.
     ///
     /// When `is_bytes` is true, `\u`, `\U`, and `\N` are treated as invalid
     /// (bytes literals only support byte-oriented escapes).
@@ -545,7 +594,7 @@ mod escape_warnings {
         start: usize,
         end: usize,
         is_bytes: bool,
-    ) -> Option<(char, usize)> {
+    ) -> Option<InvalidEscape> {
         let raw = &source[start..end];
         let mut chars = raw.char_indices().peekable();
         while let Some((i, ch)) = chars.next() {
@@ -555,6 +604,7 @@ mod escape_warnings {
             let Some((_, next)) = chars.next() else {
                 break;
             };
+            let offset = start + i;
             let valid = match next {
                 '\\' | '\'' | '"' | 'a' | 'b' | 'f' | 'n' | 'r' | 't' | 'v' => true,
                 '\n' => true,
@@ -565,11 +615,23 @@ mod escape_warnings {
                     true
                 }
                 '0'..='7' => {
+                    let mut digits = [next as u8, 0, 0];
+                    let mut len = 1;
                     for _ in 0..2 {
                         if matches!(chars.peek(), Some(&(_, '0'..='7'))) {
-                            chars.next();
+                            let (_, digit) = chars.next().unwrap();
+                            digits[len] = digit as u8;
+                            len += 1;
                         } else {
                             break;
+                        }
+                    }
+                    if len == 3 {
+                        let value = ((digits[0] - b'0') as u16) * 64
+                            + ((digits[1] - b'0') as u16) * 8
+                            + (digits[2] - b'0') as u16;
+                        if value > 0o377 {
+                            return Some(InvalidEscape::Octal { digits, offset });
                         }
                     }
                     true
@@ -614,7 +676,7 @@ mod escape_warnings {
                 _ => false,
             };
             if !valid {
-                return Some((next, start + i));
+                return Some(InvalidEscape::Char { ch: next, offset });
             }
         }
         None
@@ -625,21 +687,13 @@ mod escape_warnings {
     /// `warn_invalid_escape_sequence()` in `Parser/string_parser.c`
     fn warn_invalid_escape_sequence(
         source: &str,
-        ch: char,
-        offset: usize,
+        escape: InvalidEscape,
         filename: &str,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
-        let (lineno, column) = line_offset_at(source, offset);
-        let warning = format!(
-            "\"\\{ch}\" is an invalid escape sequence. \
-             Such sequences will not work in the future. \
-             Did you mean \"\\\\{ch}\"? A raw string is also an option."
-        );
-        let syntax_error = format!(
-            "\"\\{ch}\" is an invalid escape sequence. \
-             Did you mean \"\\\\{ch}\"? A raw string is also an option."
-        );
+        let (lineno, column) = line_offset_at(source, escape.offset());
+        let warning = escape.warning_message();
+        let syntax_error = escape.syntax_error_message();
         let fname = vm.ctx.new_str(filename);
         warn::warn_explicit(
             Some(vm.ctx.exceptions.syntax_warning.to_owned()),
@@ -856,6 +910,61 @@ mod escape_warnings {
         index
     }
 
+    fn string_prefix_flags(bytes: &[u8], quote_index: usize) -> (bool, bool) {
+        let mut is_raw = false;
+        let mut is_bytes = false;
+        let mut index = quote_index;
+        while index > 0 {
+            index -= 1;
+            match bytes[index] {
+                b'r' | b'R' => is_raw = true,
+                b'b' | b'B' => is_bytes = true,
+                b'u' | b'U' | b'f' | b'F' | b't' | b'T' => {}
+                _ => break,
+            }
+        }
+        (is_raw, is_bytes)
+    }
+
+    /// Scan quoted literals without a successful parse, matching the tokenizer
+    /// path that warns before the parser rejects the rest of the source.
+    fn emit_string_escape_warnings_unparsed(
+        source: &str,
+        filename: &str,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        let bytes = source.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'#' => {
+                    while index < bytes.len() && bytes[index] != b'\n' {
+                        index += 1;
+                    }
+                }
+                b'\'' | b'"' => {
+                    let (is_raw, is_bytes) = string_prefix_flags(bytes, index);
+                    let end = skip_quoted_string(bytes, index);
+                    if !is_raw {
+                        let range = TextRange::new(
+                            ruff_text_size::TextSize::try_from(index).unwrap_or_default(),
+                            ruff_text_size::TextSize::try_from(end).unwrap_or_default(),
+                        );
+                        if let Some((start, content_end)) = content_bounds(source, range)
+                            && let Some(escape) =
+                                first_invalid_escape(source, start, content_end, is_bytes)
+                        {
+                            warn_invalid_escape_sequence(source, escape, filename, vm)?;
+                        }
+                    }
+                    index = end.max(index + 1);
+                }
+                _ => index += 1,
+            }
+        }
+        Ok(())
+    }
+
     fn emit_numeric_literal_warnings(
         source: &str,
         filename: &str,
@@ -923,10 +1032,10 @@ mod escape_warnings {
         /// The range must include the prefix and quote delimiters.
         fn check_quoted_literal(&mut self, range: TextRange, is_bytes: bool) {
             if let Some((start, end)) = content_bounds(self.source, range)
-                && let Some((ch, offset)) = first_invalid_escape(self.source, start, end, is_bytes)
+                && let Some(escape) = first_invalid_escape(self.source, start, end, is_bytes)
             {
                 let result =
-                    warn_invalid_escape_sequence(self.source, ch, offset, self.filename, self.vm);
+                    warn_invalid_escape_sequence(self.source, escape, self.filename, self.vm);
                 self.record_warning(result);
             }
         }
@@ -943,9 +1052,9 @@ mod escape_warnings {
             if start >= end || end > self.source.len() {
                 return;
             }
-            if let Some((ch, offset)) = first_invalid_escape(self.source, start, end, false) {
+            if let Some(escape) = first_invalid_escape(self.source, start, end, false) {
                 let result =
-                    warn_invalid_escape_sequence(self.source, ch, offset, self.filename, self.vm);
+                    warn_invalid_escape_sequence(self.source, escape, self.filename, self.vm);
                 self.record_warning(result);
                 return;
             }
@@ -966,8 +1075,10 @@ mod escape_warnings {
             {
                 let result = warn_invalid_escape_sequence(
                     self.source,
-                    after as char,
-                    end - 1,
+                    InvalidEscape::Char {
+                        ch: after as char,
+                        offset: end - 1,
+                    },
                     self.filename,
                     self.vm,
                 );
@@ -1076,7 +1187,7 @@ mod escape_warnings {
             let Ok(parsed) =
                 ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
             else {
-                return Ok(());
+                return emit_string_escape_warnings_unparsed(source, filename, self);
             };
             let ast = parsed.into_syntax();
             let mut visitor = EscapeWarningVisitor {
@@ -1276,6 +1387,24 @@ mod escape_warnings {
             assert!(
                 message.contains("\"\\z\" is an invalid escape sequence"),
                 "expected invalid escape SyntaxWarning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn string_escape_warning_precedes_later_parse_error() {
+            let message = compile_error_message("'\\e' $\n");
+            assert!(
+                message.contains("\"\\e\" is an invalid escape sequence"),
+                "expected invalid escape before parse error, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn invalid_octal_escape_warning_escalates() {
+            let message = compile_error_message("'''\n\\407'''\n");
+            assert!(
+                message.contains("\"\\407\" is an invalid octal escape sequence"),
+                "expected invalid octal escape, got {message:?}"
             );
         }
 
