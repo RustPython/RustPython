@@ -26,6 +26,13 @@ pub struct CompileWarningError {
     filename: String,
     lineno: usize,
     offset: usize,
+    replacement: Option<SyntaxErrorReplacement>,
+}
+
+#[derive(Debug)]
+struct SyntaxErrorReplacement {
+    message: String,
+    end_offset: usize,
 }
 
 impl From<CompileError> for VmCompileError {
@@ -71,13 +78,16 @@ impl CompileWarningError {
         {
             return self.exception;
         }
-        let Ok(message) = self.exception.as_object().str(vm) else {
-            return self.exception;
+        let (message, end_offset) = if let Some(replacement) = self.replacement {
+            (replacement.message, Some(replacement.end_offset))
+        } else {
+            let Ok(message) = self.exception.as_object().str(vm) else {
+                return self.exception;
+            };
+            (message.to_string_lossy().into_owned(), None)
         };
-        let syntax_error = vm.new_exception_msg(
-            vm.ctx.exceptions.syntax_error.to_owned(),
-            message.as_wtf8().to_owned(),
-        );
+        let syntax_error =
+            vm.new_exception_msg(vm.ctx.exceptions.syntax_error.to_owned(), message.into());
         syntax_error
             .as_object()
             .set_attr("lineno", vm.ctx.new_int(self.lineno), vm)
@@ -86,6 +96,16 @@ impl CompileWarningError {
             .as_object()
             .set_attr("offset", vm.ctx.new_int(self.offset), vm)
             .unwrap();
+        if let Some(end_offset) = end_offset {
+            syntax_error
+                .as_object()
+                .set_attr("end_lineno", vm.ctx.new_int(self.lineno), vm)
+                .unwrap();
+            syntax_error
+                .as_object()
+                .set_attr("end_offset", vm.ctx.new_int(end_offset), vm)
+                .unwrap();
+        }
         syntax_error
             .as_object()
             .set_attr("filename", vm.ctx.new_str(self.filename), vm)
@@ -484,6 +504,7 @@ mod escape_warnings {
             filename: filename.to_owned(),
             lineno,
             offset,
+            replacement: None,
         }
     }
 
@@ -609,16 +630,20 @@ mod escape_warnings {
         filename: &str,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
-        let lineno = line_number_at(source, offset);
-        let message = vm.ctx.new_str(format!(
+        let (lineno, column) = line_offset_at(source, offset);
+        let warning = format!(
             "\"\\{ch}\" is an invalid escape sequence. \
              Such sequences will not work in the future. \
              Did you mean \"\\\\{ch}\"? A raw string is also an option."
-        ));
+        );
+        let syntax_error = format!(
+            "\"\\{ch}\" is an invalid escape sequence. \
+             Did you mean \"\\\\{ch}\"? A raw string is also an option."
+        );
         let fname = vm.ctx.new_str(filename);
         warn::warn_explicit(
             Some(vm.ctx.exceptions.syntax_warning.to_owned()),
-            message.into(),
+            vm.ctx.new_str(warning).into(),
             fname,
             lineno,
             None,
@@ -627,7 +652,16 @@ mod escape_warnings {
             None,
             vm,
         )
-        .map_err(|err| compile_warning_error(err, source, filename, offset))
+        .map_err(|exception| CompileWarningError {
+            exception,
+            filename: filename.to_owned(),
+            lineno,
+            offset: column,
+            replacement: Some(SyntaxErrorReplacement {
+                message: syntax_error,
+                end_offset: column + 2,
+            }),
+        })
     }
 
     fn warn_syntax_at_offset(
@@ -678,6 +712,7 @@ mod escape_warnings {
             filename: filename.to_owned(),
             lineno: location.line.get(),
             offset: location.character_offset.get(),
+            replacement: None,
         })
     }
 

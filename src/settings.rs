@@ -136,7 +136,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             Short('I') => args.isolate = true,
             Short('m') => {
                 let module = parser.value()?.string()?;
-                let argv = argv("PLACEHOLDER".to_owned(), parser)?;
+                let argv = argv("-m".to_owned(), parser)?;
                 return Ok((args, RunMode::Module(module), argv));
             }
             Short('O') => args.optimize += 1,
