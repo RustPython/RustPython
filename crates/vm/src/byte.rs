@@ -7,9 +7,15 @@ use crate::{
     protocol::{BufferFlags, PyBuffer},
 };
 
+/// The element error `bytes` reports, which is the one entry point here that does
+/// not name a single byte: `bytes([256])` says "bytes must be in range(0, 256)"
+/// where every `bytearray` path says "byte".
+const BYTES_ELEMENT_ERROR: &str = "bytes must be in range(0, 256)";
+const BYTE_ELEMENT_ERROR: &str = "byte must be in range(0, 256)";
+
 // PyBytes_FromObject
 pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Vec<u8>> {
-    collect_bytes(vm, obj, true, |name| {
+    collect_bytes(vm, obj, true, BYTES_ELEMENT_ERROR, |name| {
         format!("cannot convert '{name}' object to bytes")
     })
 }
@@ -18,7 +24,7 @@ pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Vec<u8
 /// slice of one, which run the iterator without asking the object they were
 /// handed how long it is.
 pub fn bytearray_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Vec<u8>> {
-    collect_bytes(vm, obj, false, |name| {
+    collect_bytes(vm, obj, false, BYTE_ELEMENT_ERROR, |name| {
         format!("cannot convert '{name}' object to bytearray")
     })
 }
@@ -26,17 +32,19 @@ pub fn bytearray_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Ve
 /// [`bytes_from_object`] for `bytearray_extend()`, which names what it was
 /// doing rather than what it was converting to.
 pub fn bytearray_extend_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Vec<u8>> {
-    collect_bytes(vm, obj, true, |name| {
+    collect_bytes(vm, obj, true, BYTE_ELEMENT_ERROR, |name| {
         format!("can't extend bytearray with {name}")
     })
 }
 
-/// `measured` is whether the object is asked how long it is; `unusable` names,
-/// from the class name, what could not be done with one that is not iterable.
+/// `measured` is whether the object is asked how long it is; `element` is the error
+/// for a value outside `range(0, 256)`; `unusable` names, from the class name, what
+/// could not be done with one that is not iterable.
 fn collect_bytes(
     vm: &VirtualMachine,
     obj: &PyObject,
     measured: bool,
+    element: &'static str,
     unusable: impl FnOnce(&str) -> String,
 ) -> PyResult<Vec<u8>> {
     if obj.check_buffer() {
@@ -52,7 +60,7 @@ fn collect_bytes(
         if cls.slots.iter.load().is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
             return Err(vm.new_type_error(unusable(&cls.name())));
         }
-        let value = |x: PyObjectRef| value_from_object(vm, &x);
+        let value = |x: PyObjectRef| value_from_object_with(vm, &x, element);
         let elements = if measured {
             vm.map_iterable_object_sized(obj, value)
         } else {
@@ -67,8 +75,16 @@ fn collect_bytes(
 }
 
 pub fn value_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<u8> {
+    value_from_object_with(vm, obj, BYTE_ELEMENT_ERROR)
+}
+
+fn value_from_object_with(
+    vm: &VirtualMachine,
+    obj: &PyObject,
+    element: &'static str,
+) -> PyResult<u8> {
     obj.try_index(vm)?
         .as_bigint()
         .to_u8()
-        .ok_or_else(|| vm.new_value_error("byte must be in range(0, 256)"))
+        .ok_or_else(|| vm.new_value_error(element))
 }
