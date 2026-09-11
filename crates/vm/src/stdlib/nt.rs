@@ -10,7 +10,7 @@ pub(crate) mod module {
         builtins::{PyBytes, PyDictRef, PyListRef, PyStr, PyStrRef, PyTupleRef},
         convert::ToPyException,
         exceptions::{self, OSErrorBuilder, ToOSErrorBuilder},
-        function::{ArgMapping, Either, OptionalArg},
+        function::{ArgMapping, Either, FsPath, OptionalArg},
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{_os, DirFd, SupportFunc, SymlinkArgs},
@@ -417,8 +417,6 @@ pub(crate) mod module {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<intptr_t> {
-        use crate::function::FsPath;
-
         let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
@@ -447,8 +445,6 @@ pub(crate) mod module {
         env: PyDictRef,
         vm: &VirtualMachine,
     ) -> PyResult<intptr_t> {
-        use crate::function::FsPath;
-
         let path = path.to_wide_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
@@ -465,7 +461,7 @@ pub(crate) mod module {
         }
 
         // Build environment strings as "KEY=VALUE\0" wide strings
-        let mut env_strings: Vec<widestring::WideCString> = Vec::new();
+        let mut env_strings: Vec<widestring::WideCString> = Vec::with_capacity(env.size().used);
         for (key, value) in env {
             let key = FsPath::try_from_path_like(key, true, vm)?;
             let value = FsPath::try_from_path_like(value, true, vm)?;
@@ -481,7 +477,7 @@ pub(crate) mod module {
 
             let env_str = format!("{key_str}={value_str}");
             env_strings.push(
-                widestring::WideCString::from_os_str(&*std::ffi::OsString::from(env_str))
+                widestring::WideCString::from_str(&env_str)
                     .map_err(|err| err.to_pyexception(vm))?,
             );
         }
@@ -504,14 +500,12 @@ pub(crate) mod module {
                 vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
             );
         }
-        let make_widestring =
-            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
         let path = path.to_wide_cstring(vm)?;
-
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
             let arg = PyStrRef::try_from_object(vm, obj)?;
-            make_widestring(arg.expect_str())
+            widestring::WideCString::from_str(arg.expect_str())
+                .map_err(|err| err.to_pyexception(vm))
         })?;
 
         let first = argv
@@ -539,14 +533,12 @@ pub(crate) mod module {
                 vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
             );
         }
-        let make_widestring =
-            |s: &str| widestring::WideCString::from_os_str(s).map_err(|err| err.to_pyexception(vm));
 
         let path = path.to_wide_cstring(vm)?;
-
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
             let arg = PyStrRef::try_from_object(vm, obj)?;
-            make_widestring(arg.expect_str())
+            widestring::WideCString::from_str(arg.expect_str())
+                .map_err(|err| err.to_pyexception(vm))
         })?;
 
         let first = argv
@@ -571,6 +563,7 @@ pub(crate) mod module {
                 cold_path();
                 return Err(exceptions::nul_char_error(vm));
             }
+
             // Validate: empty key or '=' in key after position 0
             // (search from index 1 because on Windows starting '=' is allowed
             // for defining hidden environment variables)
@@ -579,7 +572,9 @@ pub(crate) mod module {
             }
 
             let env_str = format!("{key_str}={value_str}");
-            env_strings.push(make_widestring(&env_str)?);
+            // SAFETY: Interior NULs are rejected above. WideCString appends the trailing NUL.
+            let env_str = unsafe { widestring::WideCString::from_str_unchecked(&env_str) };
+            env_strings.push(env_str);
         }
 
         let argv_refs: Vec<&widestring::WideCStr> = argv.iter().map(|s| s.as_ref()).collect();
