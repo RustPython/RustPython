@@ -1,4 +1,4 @@
-use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
+use super::{PyCode, PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -16,11 +16,15 @@ use crossbeam_utils::atomic::AtomicCell;
 // PyCoro_Type in CPython
 pub struct PyCoroutine {
     inner: Coro,
+    origin: Option<PyTupleRef>,
 }
 
 unsafe impl Traverse for PyCoroutine {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.inner.traverse(tracer_fn);
+        if let Some(origin) = &self.origin {
+            origin.traverse(tracer_fn);
+        }
     }
 }
 
@@ -33,7 +37,7 @@ impl PyPayload for PyCoroutine {
 
 #[pyclass(
     flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
-    with(Py, IterNext, Representable, Destructor)
+    with(Py, Representable, Destructor)
 )]
 impl PyCoroutine {
     pub const fn as_coro(&self) -> &Coro {
@@ -41,13 +45,20 @@ impl PyCoroutine {
     }
 
     #[must_use]
-    pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
+    pub fn new(
+        frame: FrameObjectRef,
+        name: PyStrRef,
+        qualname: PyStrRef,
+        origin: Option<PyTupleRef>,
+    ) -> Self {
         Self {
             inner: Coro::new(frame, name, qualname),
+            origin,
         }
     }
 
     #[pygetset]
+    /// name of the coroutine
     fn __name__(&self) -> PyStrRef {
         self.inner.name()
     }
@@ -58,6 +69,7 @@ impl PyCoroutine {
     }
 
     #[pygetset]
+    /// qualified name of the coroutine
     fn __qualname__(&self) -> PyStrRef {
         self.inner.qualname()
     }
@@ -95,11 +107,13 @@ impl PyCoroutine {
     fn cr_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.frame().iframe().code().to_owned()
     }
-    // TODO: coroutine origin tracking:
-    // https://docs.python.org/3/library/sys.html#sys.set_coroutine_origin_tracking_depth
     #[pygetset]
-    const fn cr_origin(&self, _vm: &VirtualMachine) -> Option<(PyStrRef, usize, PyStrRef)> {
-        None
+    fn cr_origin(&self, _vm: &VirtualMachine) -> Option<PyTupleRef> {
+        self.origin.clone()
+    }
+    #[pygetset]
+    fn cr_suspended(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.suspended()
     }
 
     #[pyclassmethod]
@@ -115,11 +129,20 @@ impl PyCoroutine {
 #[pyclass]
 impl Py<PyCoroutine> {
     #[pymethod]
+    /// send(arg) -> send 'arg' into coroutine,
+    /// return next iterated value or raise StopIteration.
     fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         self.inner.send(self.as_object(), value, vm)
     }
 
     #[pymethod]
+    /// throw(value)
+    /// throw(type[,value[,traceback]])
+    ///
+    /// Raise exception in coroutine, return next iterated value or raise
+    /// StopIteration.
+    /// the (type, val, tb) signature is deprecated,
+    /// and may be removed in a future version of Python.
     fn throw(
         &self,
         exc_type: PyObjectRef,
@@ -138,6 +161,7 @@ impl Py<PyCoroutine> {
     }
 
     #[pymethod]
+    /// close() -> raise GeneratorExit inside coroutine.
     fn close(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         self.inner.close(self.as_object(), vm)
     }
@@ -150,26 +174,13 @@ impl Representable for PyCoroutine {
     }
 }
 
-impl SelfIter for PyCoroutine {}
-impl IterNext for PyCoroutine {
-    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.send(vm.ctx.none(), vm)
-    }
-}
-
 impl Destructor for PyCoroutine {
     fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
         if zelf.inner.closed() || zelf.inner.running() {
             return Ok(());
         }
         if zelf.inner.frame().lasti() == 0 {
-            let name = zelf.inner.qualname();
-            let msg = format!("coroutine '{name}' was never awaited");
-            if let Err(e) =
-                crate::stdlib::_warnings::warn(vm.ctx.exceptions.runtime_warning, msg, 1, vm)
-            {
-                vm.run_unraisable(e, None, zelf.as_object().to_owned());
-            }
+            crate::warn::warn_unawaited_coroutine(zelf.as_object(), &zelf.inner.qualname(), vm);
             zelf.inner.closed.store(true);
             return Ok(());
         }

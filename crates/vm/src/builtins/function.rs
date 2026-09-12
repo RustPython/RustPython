@@ -688,7 +688,9 @@ impl Py<PyFunction> {
         } else if is_gen {
             PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__()).into_pyobject(vm)
         } else {
-            PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__()).into_pyobject(vm)
+            let origin = crate::coroutine::compute_cr_origin(vm);
+            PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__(), origin)
+                .into_pyobject(vm)
         };
         debug_assert!(
             !frame.localsplus_is_datastack_backed(),

@@ -17,7 +17,7 @@ pub struct PyGetSet {
     class: PyRef<PyType>,
     getter: Option<PyGetterFunc>,
     setter: Option<PySetterFunc>,
-    // doc: Option<String>,
+    doc: Option<String>,
 }
 
 impl core::fmt::Debug for PyGetSet {
@@ -85,7 +85,14 @@ impl PyGetSet {
             class: class.to_owned(),
             getter: None,
             setter: None,
+            doc: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_doc(mut self, doc: impl Into<String>) -> Self {
+        self.doc = Some(doc.into());
+        self
     }
 
     #[must_use]
@@ -138,6 +145,11 @@ impl PyGetSet {
     #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.class.slot_name(), self.name.clone())
+    }
+
+    #[pygetset]
+    fn __doc__(&self) -> Option<String> {
+        self.doc.clone()
     }
 
     #[pymember]

@@ -4064,7 +4064,24 @@ impl ExecutingFrame<'_> {
             }
             Instruction::GetAiter => {
                 let aiterable = self.pop_value();
-                let aiter = vm.call_special_method(&aiterable, identifier!(vm, __aiter__), ())?;
+                let aiter = match vm.get_special_method(&aiterable, identifier!(vm, __aiter__))? {
+                    Some(meth) => meth.invoke((), vm)?,
+                    None => {
+                        return Err(vm.new_type_error(format!(
+                            "'async for' requires an object with __aiter__ method, got {}",
+                            aiterable.class().name()
+                        )));
+                    }
+                };
+                if vm
+                    .get_special_method(&aiter, identifier!(vm, __anext__))?
+                    .is_none()
+                {
+                    return Err(vm.new_type_error(format!(
+                        "'async for' received an object from __aiter__ that does not implement __anext__: {}",
+                        aiter.class().name()
+                    )));
+                }
                 self.push_value(aiter);
                 Ok(None)
             }
@@ -4076,8 +4093,10 @@ impl ExecutingFrame<'_> {
                 let awaitable = if aiter.class().is(vm.ctx.types.async_generator) {
                     vm.call_special_method(aiter, identifier!(vm, __anext__), ())?
                 } else {
-                    if !aiter.has_attr("__anext__", vm).unwrap_or(false) {
-                        // TODO: __anext__ must be protocol
+                    if vm
+                        .get_special_method(aiter, identifier!(vm, __anext__))?
+                        .is_none()
+                    {
                         let msg = format!(
                             "'async for' requires an iterator with __anext__ method, got {:.100}",
                             aiter.class().name()
@@ -4086,26 +4105,13 @@ impl ExecutingFrame<'_> {
                     }
                     let next_iter =
                         vm.call_special_method(aiter, identifier!(vm, __anext__), ())?;
-
-                    // _PyCoro_GetAwaitableIter in CPython
-                    fn get_awaitable_iter(next_iter: &PyObject, vm: &VirtualMachine) -> PyResult {
-                        let gen_is_coroutine = |_| {
-                            // TODO: cpython gen_is_coroutine
-                            true
-                        };
-                        if next_iter.class().is(vm.ctx.types.coroutine_type)
-                            || gen_is_coroutine(next_iter)
-                        {
-                            return Ok(next_iter.to_owned());
-                        }
-                        // TODO: error handling
-                        vm.call_special_method(next_iter, identifier!(vm, __await__), ())
-                    }
-                    get_awaitable_iter(&next_iter, vm).map_err(|_| {
-                        vm.new_type_error(format!(
+                    crate::coroutine::get_awaitable_iter(next_iter.clone(), vm).map_err(|e| {
+                        let err = vm.new_type_error(format!(
                             "'async for' received an invalid object from __anext__: {:.200}",
                             next_iter.class().name()
-                        ))
+                        ));
+                        err.set___cause__(Some(e));
+                        err
                     })?
                 };
                 self.push_value(awaitable);
