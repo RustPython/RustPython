@@ -1396,6 +1396,9 @@ pub fn create_hard_link(dst: &widestring::WideCStr, src: &widestring::WideCStr) 
     .check_win32_bool()
 }
 
+/// `SW_SHOWNORMAL` — the default `os.startfile` show command.
+pub const SW_SHOWNORMAL: i32 = 1;
+
 /// `ShellExecuteW` with a null owner window. Failure is a return of 32 or less.
 pub fn shell_execute_w(
     file: &widestring::WideCStr,
