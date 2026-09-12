@@ -1199,7 +1199,6 @@ class EscapeDecodeTest(unittest.TestCase):
         check(br"[\x41]", b"[A]")
         check(br"[\x410]", b"[A0]")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_warnings(self):
         decode = codecs.escape_decode
         check = coding_checker(self, decode)
@@ -2582,7 +2581,6 @@ class WithStmtTest(unittest.TestCase):
 
 
 class TypesTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'codecs' has no attribute 'utf_32_ex_decode'. Did you mean: 'utf_16_ex_decode'?
     def test_decode_unicode(self):
         # Most decoders don't accept unicode input
         decoders = [
@@ -2684,7 +2682,6 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
         check(br"\u20ac", "\u20ac")
         check(br"\U0001d120", "\U0001d120")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_decode_warnings(self):
         decode = codecs.unicode_escape_decode
         check = coding_checker(self, decode)

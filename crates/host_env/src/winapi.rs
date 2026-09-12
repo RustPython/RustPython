@@ -1285,6 +1285,23 @@ pub fn read_file(handle: HANDLE, size: u32) -> io::Result<ReadFileResult> {
     Ok(ReadFileResult { data, error: err })
 }
 
+pub fn get_named_pipe_handle_state(handle: HANDLE) -> io::Result<u32> {
+    let mut mode = 0u32;
+    unsafe {
+        windows_sys::Win32::System::Pipes::GetNamedPipeHandleStateW(
+            handle,
+            &mut mode,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            0,
+        )
+    }
+    .check_win32_bool()?;
+    Ok(mode)
+}
+
 pub fn set_named_pipe_handle_state(
     handle: HANDLE,
     mode: Option<u32>,
