@@ -573,6 +573,17 @@ impl<T: Clone> Dict<T> {
         self._get_inner(vm, key, hash)
     }
 
+    /// [`Self::get`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
+    pub(crate) fn get_known_hash<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<Option<T>> {
+        self._get_inner(vm, key, hash)
+    }
+
     /// Return a stable entry hint for `key` if present.
     ///
     /// The hint is the internal entry index and can be used with
@@ -872,12 +883,19 @@ impl<T: Clone> Dict<T> {
         Ok(())
     }
 
-    pub(crate) fn setdefault<K, F>(&self, vm: &VirtualMachine, key: &K, default: F) -> PyResult<T>
+    /// Get the value for `key`, inserting `default()` if it is absent, given a
+    /// known hash. Same contract as [`Self::insert_known_hash`].
+    pub(crate) fn setdefault<K, F>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+        default: F,
+    ) -> PyResult<T>
     where
         K: DictKey + ?Sized,
         F: FnOnce() -> T,
     {
-        let hash = key.key_hash(vm)?;
         let mut default = Some(default);
         loop {
             let (index_entry, index_index) = self.lookup(vm, key, hash, None)?;
@@ -904,43 +922,6 @@ impl<T: Clone> Dict<T> {
                 index_entry,
             );
             return Ok(value);
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn setdefault_entry<K, F>(
-        &self,
-        vm: &VirtualMachine,
-        key: &K,
-        default: F,
-    ) -> PyResult<(PyObjectRef, T)>
-    where
-        K: DictKey + ?Sized,
-        F: FnOnce() -> T,
-    {
-        let hash = key.key_hash(vm)?;
-        let mut default = Some(default);
-        loop {
-            let (index_entry, index_index) = self.lookup(vm, key, hash, None)?;
-            if let Some(index) = index_entry.index() {
-                let inner = self.read();
-                if let Some(entry) = inner.get_entry_checked(index, index_index) {
-                    return Ok((entry.key.clone(), entry.value.clone()));
-                }
-                continue;
-            }
-            let mut inner = self.write();
-            if inner.indices.get(index_index) != Some(&index_entry) {
-                continue;
-            }
-            let value = default
-                .take()
-                .expect("default must only be computed on insertion")();
-            let key_obj = key.to_pyobject(vm);
-            let ret = (key_obj.clone(), value.clone());
-            self.invalidate_keys_version();
-            inner.unchecked_push(index_index, hash, key_obj, value, index_entry);
-            return Ok(ret);
         }
     }
 
@@ -1228,13 +1209,14 @@ impl<T: Clone> Dict<T> {
         Ok(ControlFlow::Break(removed))
     }
 
-    /// Retrieve and delete a key
+    /// Retrieve and delete a key, given a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
     pub(crate) fn pop<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
         key: &K,
+        hash_value: HashValue,
     ) -> PyResult<Option<T>> {
-        let hash_value = key.key_hash(vm)?;
         let removed = loop {
             let lookup = self.lookup(vm, key, hash_value, None)?;
             match self.pop_inner(lookup) {

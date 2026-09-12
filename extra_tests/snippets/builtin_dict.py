@@ -408,3 +408,112 @@ expected_keys = ["x", "y", "w", "z"]
 assert list(result.keys()) == expected_keys, (
     f"Expected {expected_keys}, got {list(result.keys())}"
 )
+
+
+# A TypeError raised while *comparing* keys (e.g. from a colliding key's
+# __eq__) must propagate unchanged, not be rewritten as an unhashable-key
+# error. Only genuine hashing failures get the dict-specific "unhashable"
+# wording.
+class BadEq:
+    def __hash__(self):
+        return 42  # fixed hash forces a collision
+
+    def __eq__(self, other):
+        raise TypeError("nope")
+
+
+bad = {}
+bad[BadEq()] = 1
+with assert_raises(TypeError) as cm:
+    bad[BadEq()]  # hashes fine (42), then compares against the colliding key
+assert "nope" in str(cm.exception), str(cm.exception)
+assert "dict key" not in str(cm.exception), (
+    f"comparison error mislabeled as unhashable: {cm.exception}"
+)
+
+# A genuinely unhashable key still reports the dict-specific message.
+with assert_raises(TypeError) as cm:
+    {}[[]]
+assert "as a dict key" in str(cm.exception), str(cm.exception)
+
+# The message reaches every insertion path, not just __setitem__: the
+# constructor, update() and |= all go through the same wrapping.
+for make in (
+    lambda: dict([([], 1)]),
+    lambda: {}.update([([], 1)]),
+    lambda: {}.__ior__([([], 1)]),
+):
+    with assert_raises(TypeError) as cm:
+        make()
+    assert "as a dict key" in str(cm.exception), str(cm.exception)
+
+
+# The key is hashed once up front, so a __hash__ that fails only on its first
+# call is still reported (a re-hash on the error path would let it escape).
+class FlakyHash:
+    _calls = 0
+
+    def __hash__(self):
+        FlakyHash._calls += 1
+        if FlakyHash._calls == 1:
+            raise TypeError("first call fails")
+        return 0
+
+
+with assert_raises(TypeError) as cm:
+    {}[FlakyHash()]
+assert "as a dict key" in str(cm.exception), str(cm.exception)
+
+
+# The type name is the fully qualified one, like CPython's %T.
+def _make_nested():
+    class Nested:
+        __hash__ = None
+
+    return Nested
+
+
+with assert_raises(TypeError) as cm:
+    {}[_make_nested()()]
+assert "_make_nested.<locals>.Nested" in str(cm.exception), str(cm.exception)
+
+
+# A __hash__ raising a *subclass* of TypeError is left unchanged (CPython
+# checks the exact type), so `except MySubclass` still catches it.
+class MyTypeError(TypeError):
+    pass
+
+
+class SubclassHash:
+    def __hash__(self):
+        raise MyTypeError("custom")
+
+
+with assert_raises(MyTypeError) as cm:
+    {}[SubclassHash()]
+assert "as a dict key" not in str(cm.exception), str(cm.exception)
+
+
+# Every operation hashes the key exactly once (the hash is threaded into the
+# inner map), so a __hash__ that would fail on a second call is never called
+# twice. setdefault() and pop() went through their own lookup before.
+class CountingHash:
+    calls = 0
+
+    def __hash__(self):
+        CountingHash.calls += 1
+        if CountingHash.calls >= 2:
+            raise TypeError("must not hash twice")
+        return 7
+
+
+CountingHash.calls = 0
+{}.setdefault(CountingHash(), 1)
+assert CountingHash.calls == 1, CountingHash.calls
+
+CountingHash.calls = 0
+with assert_raises(KeyError):
+    # A non-empty dict so the lookup must hash the key (CPython skips hashing
+    # entirely when popping from an empty dict).
+    {1: 1}.pop(CountingHash())
+assert CountingHash.calls == 1, CountingHash.calls
