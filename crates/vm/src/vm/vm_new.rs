@@ -954,6 +954,25 @@ impl VirtualMachine {
             }
             _ => false,
         };
+        // CPython reports the unparenthesized exception types error with a range ending
+        // at the `:` that closes the `except` clause, which covers the `as NAME` part,
+        // while the parser reports the exception types alone. See `invalid_except_stmt_end`.
+        let except_as_end = cfg_select! {
+            feature = "parser" => {
+                if msg == "multiple exception types must be parenthesized when using 'as'"
+                    && let crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        raw_location,
+                        ..
+                    }) = error
+                    && let Some(source) = source
+                {
+                    invalid_except_stmt_end(source, raw_location.end().to_usize())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
 
         let syntax_error = self.new_exception_msg(syntax_error_type, msg.into());
 
@@ -986,6 +1005,8 @@ impl VirtualMachine {
             } else if narrow_caret {
                 let (l, o) = error.python_location();
                 (l, (o + 1) as isize)
+            } else if let Some((l, o)) = except_as_end {
+                (l, o as isize)
             } else {
                 (end_lineno, end_offset as isize)
             };
@@ -1148,4 +1169,62 @@ impl VirtualMachine {
     define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
     define_exception_fn!(fn new_assertion_error, assertion_error, AssertionError);
     define_exception_fn!(fn new_unbound_local_error, unbound_local_error, UnboundLocalError);
+}
+
+/// Returns the end of the range CPython reports for its `invalid_except_stmt` rule, as a
+/// 1-based `(line, column)` pair: the location of the `:` that closes the `except` clause
+/// whose exception types were reported as needing parentheses.
+///
+/// CPython raises that error only once the whole clause has matched, and reports a range
+/// starting at the first exception type and ending at the `:`, so the range covers the
+/// `as NAME` part as well:
+///
+/// ```text
+/// invalid_except_stmt:
+///     | 'except' a=expression ',' expressions 'as' NAME  ':' {
+///         RAISE_SYNTAX_ERROR_STARTING_FROM(a, "multiple exception types must be parenthesized when using 'as'") }
+/// ```
+///
+/// The parser reports the exception types alone, so the `:` is looked up here. Only
+/// `as NAME` can follow the exception types, which is why the first `:` after them is the
+/// one closing the clause. `types_end` is a byte offset into `source`.
+///
+/// Returns `None` when the clause has no `:`, in which case CPython reports a different
+/// error and the range is left alone.
+#[cfg(feature = "parser")]
+fn invalid_except_stmt_end(source: &str, types_end: usize) -> Option<(usize, usize)> {
+    let bytes = source.as_bytes();
+    let mut index = types_end;
+
+    let colon = loop {
+        match *bytes.get(index)? {
+            b':' => break index,
+            // An explicit line join continues the clause on the next line.
+            b'\\' => {
+                index += 1;
+                if bytes.get(index) == Some(&b'\r') {
+                    index += 1;
+                }
+                if bytes.get(index) != Some(&b'\n') {
+                    return None;
+                }
+                index += 1;
+            }
+            b'\n' | b'\r' | b'#' => return None,
+            _ => index += 1,
+        }
+    };
+
+    // Only `as NAME` may appear between the exception types and the `:`. CPython reports a
+    // different error when the name is missing, so leave the range alone in that case.
+    let name = source.get(types_end..colon)?.trim().strip_prefix("as")?;
+    if name.trim().is_empty() {
+        return None;
+    }
+
+    let before = source.get(..colon)?;
+    let line = before.bytes().filter(|&byte| byte == b'\n').count() + 1;
+    let line_start = before.rfind('\n').map_or(0, |index| index + 1);
+
+    Some((line, colon - line_start + 1))
 }
