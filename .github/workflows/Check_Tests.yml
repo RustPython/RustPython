@@ -1,0 +1,176 @@
+---
+name: CI-5974
+description: "Continuous Integration workflow for GHI 5974."
+run-name: Prototyping integration tests ${{ github.ref_name }}
+#
+# Jobs included:
+# - TEST-5974: Tests Integration with CPython Tests across Python versions and OSes
+#
+# Required Secrets:
+# NONE
+#
+# WORK IN PROGRESS
+# search for "TODO" in file for more details on what is still un-implemented
+
+
+on:  # yamllint disable-line rule:truthy
+  push:
+    branches: ["**"]  # matches any branch
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      python-version:
+        description: 'Target python version to target. Expected format: X.Y (e.g., 3.14)'
+        type: string
+        default: "3.14"
+      subshell-timeout:
+        description: 'Max time in seconds before marking a subshell as hung (per-subshell).'
+        type: int
+        default: 30
+
+# Declare default permissions as none.
+permissions: {}
+
+env:
+  #define cargo args like in cron
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,ssl,jit
+  # Define Python versions at the top level -- Expected format: X.Y (e.g., 3.14)
+  PYTHON_DEFAULT: "${{ inputs.python-version || vars.PYTHON_DEFAULT || '3.14' }}"
+  PYTHON_OLD_MIN: "${{ vars.PYTHON_OLD_MIN || '3.9' }}"  # For Oldest Python versions
+  PYTHON_OLD_EXTRA: "${{ vars.PYTHON_OLD_EXTRA || '3.12' }}"  # For Older Python versions (Extra coverage)
+  PYTHON_EXPERIMENTAL: "${{ vars.PYTHON_EXPERIMENTAL || 'main' }}"  # For future Python versions
+  # define how mush time before assuming the test has hung in seconds (parsed by sleep)
+  SUBSHELL_TIMEOUT: ${{ inputs.subshell-timeout || 30 }}
+
+
+# TODO: coordinate with @moreal - to support initial use-case See RustPython/RustPython#5974
+# TODO: coordinate with @arihant2math - to really build out the migration/Reporting logic
+# TODO: coordinate with @ShaharNaveh - see PR #6089 with RPAU
+
+jobs:
+  TEST-5974:
+    permissions:
+      actions: read
+      contents: read
+      statuses: write
+      packages: none
+      pull-requests: read
+      security-events: none
+    if: ${{ !cancelled() }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      max-parallel: 3
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["${{ vars.PYTHON_OLD_MIN }}", "${{ vars.PYTHON_OLD_EXTRA }}", "${{ vars.PYTHON_DEFAULT }}", "${{ vars.PYTHON_EXPERIMENTAL }}"]
+        experimental: [true]
+        include:
+          - os: ubuntu-latest
+            python-version: "${{ vars.PYTHON_DEFAULT }}"
+            experimental: false
+          - os: macos-15
+            python-version: "${{ vars.PYTHON_EXPERIMENTAL }}"
+            experimental: true
+          - os: windows-latest
+            python-version: "${{ vars.PYTHON_DEFAULT }}"
+            experimental: true
+          - os: macos-14
+            python-version: "${{ vars.PYTHON_DEFAULT }}"
+            experimental: false
+          - os: windows-2025
+            python-version: "${{ vars.PYTHON_DEFAULT }}"
+            experimental: true
+    outputs:
+      smoke_testing_status: ${{ steps.smoke_testing.outcome }}
+    env:
+      PYTHON_VERSION: ${{ matrix.python-version }}
+    steps:
+      - name: pre-checkout repository for actions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref || 'HEAD' }}
+          sparse-checkout: |
+            .github/actions
+            .github/actions/CI-5974-Fetch-RustPython
+            .github/actions/CI-5974-Fetch-CPython
+            .github/actions/CI-5974-Integrate-CPython
+            .github/actions/CI-5974-Test-RustPython-Integration
+      - name: Checkout RustPython repository on ${{ matrix.os }}
+        id: fetch-rpython
+        uses: ./.github/actions/CI-5974-Fetch-RustPython
+        with:
+          override-path: rustpython
+          override-rustpython-path: Lib
+          override-repository: 'RustPython/RustPython'
+          override-ref: main # Hint: could be changed to ${{ github.ref }}
+      - name: Fetch Reference Cpython ${{ matrix.python-version }} on ${{ matrix.os }}
+        id: fetch-cpython
+        uses: ./.github/actions/CI-5974-Fetch-CPython
+        with:
+          # Define the reference files to pull as a file glob pattern (defaults to ONLY tests)
+          match: "Lib/test/*.py Lib/test/**/*.py"
+          # ignore: "Lib/test/*.pyc"
+          python-version: ${{ matrix.python-version }}
+          override-path: cpython
+          override-cpython-lib-path: 'Lib/test'
+          # override-rustpython-path: ${{ steps.fetch-rpython.outputs.rustpython-lib-path }}
+          override-repository: 'python/cpython'
+      - name: "Integrate Cpython Test file"
+        id: merge_theirs
+        uses: ./.github/actions/CI-5974-Integrate-CPython
+        if: ${{ !cancelled() }}
+        with:
+          from-path: cpython
+          into-path: rustpython
+          files: |
+            ${{ steps.fetch-cpython.outputs.files }}
+          python-version: ${{ env.PYTHON_VERSION }}
+      - id: output_python
+        name: "bootstrap Python"
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          printf "%s\n" "::group::bootstrap-python-env"
+          printf "python-version=%s\n" "${{ matrix.python-version }}" >> "$GITHUB_OUTPUT"
+          printf "Configured Cpython %s on %s.\n" '${{ matrix.python-version }}' '${{ matrix.os }}' ;
+          printf "PYTHON_VERSION=%s\n" "${{ matrix.python-version }}" >> "$GITHUB_ENV"
+          printf "%s\n" "::endgroup::"
+      - name: Try Smoke Testing
+        id: smoke_testing
+        uses: ./.github/actions/CI-5974-Test-RustPython-Integration
+        with:
+          override-working-dir: rustpython
+          # override-rustpython-path: 'Lib'
+          test-files: |
+            ${{ steps.fetch-cpython.outputs.files }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          max-test-time: ${{ env.SUBSHELL_TIMEOUT }} # seconds
+      - name: Format GitHub Actions environment file to JSON
+        id: reformat_json
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          echo '{}' > formatted_env.json  # Initialize an empty JSON file
+          jq -Rn 'inputs | split("=") | { (.[0]): .[1] }' < "$GITHUB_ENV" | jq -s 'add' > formatted_env.json
+
+      - name: Upload JSON as artifact
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: formatted-env
+          path: formatted_env.json
+          if-no-files-found: ignore
+          compression-level: 9
+          retention-days: 1
+          overwrite: true
+
+      - name: Post-Process
+        id: summarize
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          exit 0 ; # don't break CI on regression
