@@ -1010,22 +1010,9 @@ impl<T: Clone> Dict<T> {
         Ok(())
     }
 
-    /// Callers within the crate thread a known hash (see
-    /// [`Self::setdefault_known_hash`]); this hashing wrapper is kept for API
-    /// symmetry with the other operations.
-    #[allow(dead_code)]
-    pub(crate) fn setdefault<K, F>(&self, vm: &VirtualMachine, key: &K, default: F) -> PyResult<T>
-    where
-        K: DictKey + ?Sized,
-        F: FnOnce() -> T,
-    {
-        let hash = key.key_hash(vm)?;
-        self.setdefault_known_hash(vm, key, hash, default)
-    }
-
-    /// [`Self::setdefault`] with a known hash. Same contract as
-    /// [`Self::insert_known_hash`].
-    pub(crate) fn setdefault_known_hash<K, F>(
+    /// Get the value for `key`, inserting `default()` if it is absent, given a
+    /// known hash. Same contract as [`Self::insert_known_hash`].
+    pub(crate) fn setdefault<K, F>(
         &self,
         vm: &VirtualMachine,
         key: &K,
