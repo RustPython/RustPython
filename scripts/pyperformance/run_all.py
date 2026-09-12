@@ -50,6 +50,7 @@ benchmarks already recorded); pass --force to redo everything.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -69,6 +70,14 @@ DEFAULT_TIMEOUT = 180
 
 def log(msg: str) -> None:
     print(f"[pyperformance-runner] {msg}", flush=True)
+
+
+def executable_fingerprint(path: Path) -> str:
+    """Hash of the target executable's contents, used to invalidate a resumed
+    catalog when a local rebuild (or a different target under the same
+    --label) replaces the binary the earlier results were measured against.
+    """
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def find_host_python() -> str:
@@ -434,10 +443,26 @@ def main() -> None:
     # `all_results` starts as *every* benchmark previously recorded (not just the
     # ones in this invocation's --benchmarks subset), so a partial/targeted re-run
     # never drops earlier results from catalog.json/CATALOG.md -- it only updates
-    # the entries it actually re-ran.
+    # the entries it actually re-ran. But those results are only trustworthy if
+    # they were measured against this same executable: a local rebuild or a
+    # target swap under the same --label must not let resume reuse stale times.
+    out_dir.mkdir(parents=True, exist_ok=True)
+    current_fingerprint = executable_fingerprint(target_python)
+    fingerprint_path = out_dir / ".executable-fingerprint"
+    stale = (
+        fingerprint_path.exists()
+        and fingerprint_path.read_text().strip() != current_fingerprint
+    )
+    fingerprint_path.write_text(current_fingerprint + "\n")
+
     all_results: dict[str, dict] = {}
     catalog_json = out_dir / "catalog.json"
-    if catalog_json.exists():
+    if stale:
+        log(
+            f"target executable for label {label!r} changed since the last run; "
+            "ignoring the existing catalog and re-running all benchmarks"
+        )
+    elif catalog_json.exists():
         for r in json.loads(catalog_json.read_text()):
             all_results[r["benchmark"]] = r
 
