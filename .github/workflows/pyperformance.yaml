@@ -107,7 +107,7 @@ jobs:
 
       - name: Restore head checkout
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: git checkout --quiet "${HEAD_SHA}" --
 
       - name: Save cache
