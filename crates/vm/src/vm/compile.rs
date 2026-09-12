@@ -910,20 +910,231 @@ mod escape_warnings {
         index
     }
 
-    fn string_prefix_flags(bytes: &[u8], quote_index: usize) -> (bool, bool) {
-        let mut is_raw = false;
-        let mut is_bytes = false;
+    #[derive(Clone, Copy)]
+    enum StringPrefix {
+        None,
+        Invalid,
+        Valid {
+            is_raw: bool,
+            is_bytes: bool,
+            is_interpolated: bool,
+        },
+    }
+
+    fn is_string_prefix_letter(byte: u8) -> bool {
+        matches!(
+            byte,
+            b'r' | b'R' | b'b' | b'B' | b'u' | b'U' | b'f' | b'F' | b't' | b'T'
+        )
+    }
+
+    fn prefix_continues_identifier(byte: u8) -> bool {
+        byte == b'_' || byte.is_ascii_alphabetic() || byte >= 0x80
+    }
+
+    fn two_char_prefix(first: u8, second: u8) -> Option<(bool, bool, bool)> {
+        match [first.to_ascii_lowercase(), second.to_ascii_lowercase()] {
+            [b'r', b'f' | b't'] | [b'f' | b't', b'r'] => Some((true, false, true)),
+            [b'r', b'b'] | [b'b', b'r'] => Some((true, true, false)),
+            _ => None,
+        }
+    }
+
+    /// Prefix letters immediately before a quote, only when they form their own token.
+    fn string_prefix(bytes: &[u8], quote_index: usize) -> StringPrefix {
+        let mut taken = [0u8; 2];
+        let mut count = 0;
         let mut index = quote_index;
-        while index > 0 {
+        while index > 0 && count < 2 {
+            let byte = bytes[index - 1];
+            if !is_string_prefix_letter(byte) {
+                break;
+            }
+            taken[count] = byte;
+            count += 1;
             index -= 1;
+        }
+        if count == 0 {
+            return StringPrefix::None;
+        }
+        if index > 0 && prefix_continues_identifier(bytes[index - 1]) {
+            return StringPrefix::None;
+        }
+        if count == 2 {
+            return match two_char_prefix(taken[1], taken[0]) {
+                Some((is_raw, is_bytes, is_interpolated)) => StringPrefix::Valid {
+                    is_raw,
+                    is_bytes,
+                    is_interpolated,
+                },
+                None => StringPrefix::Invalid,
+            };
+        }
+        let (is_raw, is_bytes, is_interpolated) = match taken[0] {
+            b'r' | b'R' => (true, false, false),
+            b'b' | b'B' => (false, true, false),
+            b'f' | b'F' | b't' | b'T' => (false, false, true),
+            _ => (false, false, false),
+        };
+        StringPrefix::Valid {
+            is_raw,
+            is_bytes,
+            is_interpolated,
+        }
+    }
+
+    fn text_range_from_bounds(start: usize, end: usize) -> TextRange {
+        TextRange::new(
+            ruff_text_size::TextSize::try_from(start).unwrap_or_default(),
+            ruff_text_size::TextSize::try_from(end).unwrap_or_default(),
+        )
+    }
+
+    fn warn_quoted_literal(
+        source: &str,
+        quote_index: usize,
+        end: usize,
+        is_bytes: bool,
+        filename: &str,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        if let Some((start, content_end)) =
+            content_bounds(source, text_range_from_bounds(quote_index, end))
+            && let Some(escape) = first_invalid_escape(source, start, content_end, is_bytes)
+        {
+            warn_invalid_escape_sequence(source, escape, filename, vm)?;
+        }
+        Ok(())
+    }
+
+    fn warn_fstring_literal_part(
+        source: &str,
+        start: usize,
+        end: usize,
+        filename: &str,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        if start >= end || end > source.len() {
+            return Ok(());
+        }
+        if let Some(escape) = first_invalid_escape(source, start, end, false) {
+            return warn_invalid_escape_sequence(source, escape, filename, vm);
+        }
+        let trailing_bs = source.as_bytes()[start..end]
+            .iter()
+            .rev()
+            .take_while(|&&byte| byte == b'\\')
+            .count();
+        if trailing_bs % 2 == 1
+            && let Some(&after) = source.as_bytes().get(end)
+            && (after == b'{' || after == b'}')
+        {
+            warn_invalid_escape_sequence(
+                source,
+                InvalidEscape::Char {
+                    ch: after as char,
+                    offset: end - 1,
+                },
+                filename,
+                vm,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn find_interpolation_end(bytes: &[u8], open: usize, limit: usize) -> usize {
+        let mut index = open + 1;
+        let mut depth: u32 = 1;
+        let mut paren: u32 = 0;
+        let mut bracket: u32 = 0;
+        while index < limit {
             match bytes[index] {
-                b'r' | b'R' => is_raw = true,
-                b'b' | b'B' => is_bytes = true,
-                b'u' | b'U' | b'f' | b'F' | b't' | b'T' => {}
-                _ => break,
+                b'#' if paren == 0 && bracket == 0 && depth == 1 => {
+                    while index < limit && bytes[index] != b'\n' {
+                        index += 1;
+                    }
+                }
+                b'\'' | b'"' => {
+                    index = skip_quoted_string(bytes, index).max(index + 1);
+                }
+                b'(' => {
+                    paren += 1;
+                    index += 1;
+                }
+                b')' => {
+                    paren = paren.saturating_sub(1);
+                    index += 1;
+                }
+                b'[' => {
+                    bracket += 1;
+                    index += 1;
+                }
+                b']' => {
+                    bracket = bracket.saturating_sub(1);
+                    index += 1;
+                }
+                b'{' => {
+                    depth += 1;
+                    index += 1;
+                }
+                b'}' => {
+                    depth -= 1;
+                    index += 1;
+                    if depth == 0 {
+                        return index;
+                    }
+                }
+                b'\\' => index = (index + 2).min(limit),
+                _ => index += 1,
             }
         }
-        (is_raw, is_bytes)
+        limit
+    }
+
+    fn scan_interpolated_content(
+        source: &str,
+        start: usize,
+        end: usize,
+        is_raw: bool,
+        filename: &str,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        let bytes = source.as_bytes();
+        let mut index = start;
+        let mut literal_start = start;
+        while index < end {
+            match bytes[index] {
+                b'{' if bytes.get(index + 1) == Some(&b'{') => {
+                    index += 2;
+                }
+                b'{' => {
+                    if !is_raw {
+                        warn_fstring_literal_part(source, literal_start, index, filename, vm)?;
+                    }
+                    let close = find_interpolation_end(bytes, index, end);
+                    let body_end = if close > index + 1 { close - 1 } else { close };
+                    emit_string_escape_warnings_in_range(
+                        source,
+                        index + 1,
+                        body_end,
+                        Some(is_raw),
+                        filename,
+                        vm,
+                    )?;
+                    index = close.max(index + 1);
+                    literal_start = index;
+                }
+                b'}' if bytes.get(index + 1) == Some(&b'}') => {
+                    index += 2;
+                }
+                b'\\' => index = (index + 2).min(end),
+                _ => index += 1,
+            }
+        }
+        if !is_raw {
+            warn_fstring_literal_part(source, literal_start, end, filename, vm)?;
+        }
+        Ok(())
     }
 
     /// Scan quoted literals without a successful parse, matching the tokenizer
@@ -933,31 +1144,96 @@ mod escape_warnings {
         filename: &str,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
+        emit_string_escape_warnings_in_range(source, 0, source.len(), None, filename, vm)
+    }
+
+    fn emit_string_escape_warnings_in_range(
+        source: &str,
+        start: usize,
+        end: usize,
+        format_spec_raw: Option<bool>,
+        filename: &str,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
         let bytes = source.as_bytes();
-        let mut index = 0;
-        while index < bytes.len() {
+        let end = end.min(bytes.len());
+        let mut index = start;
+        let mut paren: u32 = 0;
+        let mut bracket: u32 = 0;
+        let mut brace: u32 = 0;
+        while index < end {
             match bytes[index] {
                 b'#' => {
-                    while index < bytes.len() && bytes[index] != b'\n' {
+                    while index < end && bytes[index] != b'\n' {
                         index += 1;
                     }
                 }
                 b'\'' | b'"' => {
-                    let (is_raw, is_bytes) = string_prefix_flags(bytes, index);
-                    let end = skip_quoted_string(bytes, index);
-                    if !is_raw {
-                        let range = TextRange::new(
-                            ruff_text_size::TextSize::try_from(index).unwrap_or_default(),
-                            ruff_text_size::TextSize::try_from(end).unwrap_or_default(),
-                        );
-                        if let Some((start, content_end)) = content_bounds(source, range)
-                            && let Some(escape) =
-                                first_invalid_escape(source, start, content_end, is_bytes)
-                        {
-                            warn_invalid_escape_sequence(source, escape, filename, vm)?;
+                    let prefix = string_prefix(bytes, index);
+                    let quote_end = skip_quoted_string(bytes, index).min(bytes.len());
+                    match prefix {
+                        StringPrefix::Valid {
+                            is_raw,
+                            is_bytes,
+                            is_interpolated,
+                        } => {
+                            if is_interpolated {
+                                if let Some((content_start, content_end)) =
+                                    content_bounds(source, text_range_from_bounds(index, quote_end))
+                                {
+                                    scan_interpolated_content(
+                                        source,
+                                        content_start,
+                                        content_end.min(end),
+                                        is_raw,
+                                        filename,
+                                        vm,
+                                    )?;
+                                }
+                            } else if !is_raw {
+                                warn_quoted_literal(
+                                    source, index, quote_end, is_bytes, filename, vm,
+                                )?;
+                            }
                         }
+                        StringPrefix::None => {
+                            warn_quoted_literal(source, index, quote_end, false, filename, vm)?;
+                        }
+                        StringPrefix::Invalid => {}
                     }
-                    index = end.max(index + 1);
+                    index = quote_end.max(index + 1);
+                }
+                b':' if let Some(is_raw) = format_spec_raw
+                    && paren == 0
+                    && bracket == 0
+                    && brace == 0 =>
+                {
+                    scan_interpolated_content(source, index + 1, end, is_raw, filename, vm)?;
+                    return Ok(());
+                }
+                b'(' if format_spec_raw.is_some() => {
+                    paren += 1;
+                    index += 1;
+                }
+                b')' if format_spec_raw.is_some() => {
+                    paren = paren.saturating_sub(1);
+                    index += 1;
+                }
+                b'[' if format_spec_raw.is_some() => {
+                    bracket += 1;
+                    index += 1;
+                }
+                b']' if format_spec_raw.is_some() => {
+                    bracket = bracket.saturating_sub(1);
+                    index += 1;
+                }
+                b'{' if format_spec_raw.is_some() => {
+                    brace += 1;
+                    index += 1;
+                }
+                b'}' if format_spec_raw.is_some() => {
+                    brace = brace.saturating_sub(1);
+                    index += 1;
                 }
                 _ => index += 1,
             }
@@ -1405,6 +1681,69 @@ mod escape_warnings {
             assert!(
                 message.contains("\"\\407\" is an invalid octal escape sequence"),
                 "expected invalid octal escape, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_identifier_suffix_is_not_a_raw_prefix() {
+            let message = compile_error_message("bar'\\z' $\n");
+            assert!(
+                message.contains("\"\\z\" is an invalid escape sequence"),
+                "trailing r in an identifier must not suppress the warning, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_raw_prefix_after_dot_stays_raw() {
+            let message = compile_error_message("obj.r'\\z'\n");
+            assert!(
+                !message.contains("invalid escape"),
+                "r after '.' is a raw prefix, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_incompatible_prefix_skips_escape_scan() {
+            let message = compile_error_message("ur'\\z'\n");
+            assert!(
+                !message.contains("invalid escape"),
+                "incompatible prefixes should not emit an escape warning, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_raw_interpolation_does_not_warn() {
+            let message = compile_error_message("f\"{r'\\z'}\" $\n");
+            assert!(
+                !message.contains("invalid escape"),
+                "raw interpolation must not be scanned as f-string text, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_fstring_literal_parts_still_warn() {
+            let message = compile_error_message("f\"pre\\z{r'\\e'}post\\q\" $\n");
+            assert!(
+                message.contains("\"\\z\" is an invalid escape sequence"),
+                "f-string literal parts should still warn, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_nested_fstring_in_interpolation_warns() {
+            let message = compile_error_message("f\"{f'\\z'}\" $\n");
+            assert!(
+                message.contains("\"\\z\" is an invalid escape sequence"),
+                "non-raw nested f-string should warn, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_format_spec_escape_warns() {
+            let message = compile_error_message("f\"{x:\\z}\" $\n");
+            assert!(
+                message.contains("\"\\z\" is an invalid escape sequence"),
+                "format spec is f-string text, got {message:?}"
             );
         }
 
