@@ -1073,7 +1073,6 @@ x = (
         self.assertEqual(rf'''{3+
 4}''', '7')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "f-string: expecting a valid expression after '{'" does not match "invalid syntax (<string>, line 1)"
     def test_lambda(self):
         x = 5
         self.assertEqual(f'{(lambda y:x*y)("8")!r}', "'88888'")

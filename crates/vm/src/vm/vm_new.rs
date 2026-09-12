@@ -777,6 +777,11 @@ impl VirtualMachine {
             }) => incomplete_or_syntax(allow_incomplete),
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                is_unclosed_string: true,
+                ..
+            }) => incomplete_or_syntax(allow_incomplete),
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::FStringError(
@@ -794,24 +799,10 @@ impl VirtualMachine {
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::UnclosedStringError,
                     ),
-                raw_location,
                 ..
             }) => {
                 if allow_incomplete {
-                    let mut is_incomplete = false;
-
-                    if let Some(source) = source {
-                        let loc = raw_location.start().to_usize();
-                        let mut iter = source.chars();
-                        if let Some(quote) = iter.nth(loc)
-                            && iter.next() == Some(quote)
-                            && iter.next() == Some(quote)
-                        {
-                            is_incomplete = true;
-                        }
-                    }
-
-                    incomplete_or_syntax(is_incomplete)
+                    incomplete_or_syntax(source.is_some_and(unclosed_string_is_incomplete))
                 } else {
                     self.ctx.exceptions.syntax_error
                 }
@@ -865,6 +856,11 @@ impl VirtualMachine {
                 }
             }
             _ => self.ctx.exceptions.syntax_error,
+        };
+        let syntax_error_type = if allow_incomplete && source.is_some_and(is_blank_python_source) {
+            self.ctx.exceptions.incomplete_input_error
+        } else {
+            syntax_error_type
         }
         .to_owned();
 
@@ -1148,4 +1144,80 @@ impl VirtualMachine {
     define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
     define_exception_fn!(fn new_assertion_error, assertion_error, AssertionError);
     define_exception_fn!(fn new_unbound_local_error, unbound_local_error, UnboundLocalError);
+}
+
+fn is_blank_python_source(source: &str) -> bool {
+    source.lines().all(|line| {
+        let trimmed = line.trim();
+        trimmed.is_empty() || trimmed.starts_with('#')
+    })
+}
+
+#[cfg(feature = "parser")]
+enum QuotedStringScan {
+    Closed(usize),
+    Unclosed {
+        triple: bool,
+        unescaped_newline: bool,
+    },
+}
+
+/// An unclosed string is incomplete when more input could still finish it.
+/// A non-triple string that already hit an unescaped newline is a hard error.
+#[cfg(feature = "parser")]
+fn unclosed_string_is_incomplete(source: &str) -> bool {
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => match scan_quoted_string_for_incomplete(bytes, index) {
+                QuotedStringScan::Closed(end) => index = end,
+                QuotedStringScan::Unclosed {
+                    triple,
+                    unescaped_newline,
+                } => return triple || !unescaped_newline,
+            },
+            _ => index += 1,
+        }
+    }
+    false
+}
+
+#[cfg(feature = "parser")]
+fn scan_quoted_string_for_incomplete(bytes: &[u8], quote_index: usize) -> QuotedStringScan {
+    let quote = bytes[quote_index];
+    let triple =
+        bytes.get(quote_index + 1) == Some(&quote) && bytes.get(quote_index + 2) == Some(&quote);
+    let mut index = quote_index + if triple { 3 } else { 1 };
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+            continue;
+        }
+        if triple {
+            if bytes.get(index) == Some(&quote)
+                && bytes.get(index + 1) == Some(&quote)
+                && bytes.get(index + 2) == Some(&quote)
+            {
+                return QuotedStringScan::Closed(index + 3);
+            }
+        } else if bytes[index] == quote {
+            return QuotedStringScan::Closed(index + 1);
+        } else if bytes[index] == b'\n' {
+            return QuotedStringScan::Unclosed {
+                triple: false,
+                unescaped_newline: true,
+            };
+        }
+        index += 1;
+    }
+    QuotedStringScan::Unclosed {
+        triple,
+        unescaped_newline: false,
+    }
 }

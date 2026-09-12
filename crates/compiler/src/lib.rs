@@ -35,6 +35,8 @@ pub struct ParseError {
     pub source_path: String,
     /// Set when the error is an unclosed bracket (converted from EOF).
     pub is_unclosed_bracket: bool,
+    /// Set when a string is still open at EOF and more input could close it.
+    pub is_unclosed_string: bool,
 }
 
 impl ::core::fmt::Display for ParseError {
@@ -71,6 +73,7 @@ impl CompileError {
             end_location: diagnostic.end_location,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: diagnostic.is_unclosed_bracket,
+            is_unclosed_string: diagnostic.is_unclosed_string,
         })
     }
 
@@ -87,6 +90,7 @@ impl CompileError {
             end_location,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
+            is_unclosed_string: diagnostic.is_unclosed_string,
         })
     }
 
@@ -160,6 +164,7 @@ struct NormalizedParseDiagnostic {
     location: SourceLocation,
     end_location: SourceLocation,
     is_unclosed_bracket: bool,
+    is_unclosed_string: bool,
 }
 
 impl NormalizedParseDiagnostic {
@@ -173,6 +178,7 @@ impl NormalizedParseDiagnostic {
             location,
             end_location,
             is_unclosed_bracket: false,
+            is_unclosed_string: false,
         }
     }
 
@@ -182,11 +188,13 @@ impl NormalizedParseDiagnostic {
             diagnostic.range.start(),
             diagnostic.range.end(),
         );
-        Self::new(
+        let mut diagnostic_out = Self::new(
             parser::ParseErrorType::OtherError(diagnostic.message),
             location,
             end_location,
-        )
+        );
+        diagnostic_out.is_unclosed_string = diagnostic.is_unclosed_string;
+        diagnostic_out
     }
 
     const fn with_unclosed_bracket(mut self, is_unclosed_bracket: bool) -> Self {
@@ -202,6 +210,7 @@ impl NormalizedParseDiagnostic {
 struct CpythonDiagnostic {
     message: String,
     range: ruff_text_size::TextRange,
+    is_unclosed_string: bool,
 }
 
 impl CpythonDiagnostic {
@@ -216,7 +225,13 @@ impl CpythonDiagnostic {
                 TextSize::new(start as u32),
                 TextSize::new(end as u32),
             ),
+            is_unclosed_string: false,
         }
+    }
+
+    const fn with_unclosed_string(mut self) -> Self {
+        self.is_unclosed_string = true;
+        self
     }
 }
 
@@ -1578,7 +1593,7 @@ fn invalid_parameter_list_slice_error(
                         name_end,
                     ));
                 }
-                index = name_end;
+                index = param_end;
             }
             b'(' if level == 0 => {
                 let close = matching_delimiter(bytes, index, b')')
@@ -3920,7 +3935,7 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
                         return Some(error);
                     }
                     let detected_line = if quote_size == 3 { line } else { start_line };
-                    return Some(CpythonDiagnostic::new(
+                    let diagnostic = CpythonDiagnostic::new(
                         unterminated_string_message(
                             detected_line,
                             quote_size == 3,
@@ -3929,7 +3944,12 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
                         ),
                         start,
                         start,
-                    ));
+                    );
+                    return Some(if index >= bytes.len() {
+                        diagnostic.with_unclosed_string()
+                    } else {
+                        diagnostic
+                    });
                 }
             }
             _ => index += 1,
@@ -4446,6 +4466,16 @@ fn replacement_field_error(
         ));
     }
 
+    if let Some(lambda_at) = top_level_lambda(bytes, expr_start, expr_end)
+        && lambda_allowed_at_expression_position(bytes, expr_start, lambda_at)
+    {
+        return Some(CpythonDiagnostic::new(
+            format!("{prefix}: lambda expressions are not allowed without parentheses"),
+            lambda_at,
+            lambda_at + b"lambda".len(),
+        ));
+    }
+
     if bytes[separator] == b':'
         && replacement_expression_has_parse_error(bytes, expr_start, separator)
     {
@@ -4516,6 +4546,65 @@ fn unterminated_string_in_replacement_field(
     None
 }
 
+fn top_level_lambda(bytes: &[u8], mut index: usize, end: usize) -> Option<usize> {
+    let mut level = 0usize;
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' if level > 0 => {
+                level -= 1;
+                index += 1;
+            }
+            _ if level == 0 && starts_identifier(bytes, index, b"lambda") => {
+                return Some(index);
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// Unparenthesized `lambda` is allowed in the same places a `lambdef` can appear:
+/// at the start of the field or after a top-level comma.
+fn lambda_allowed_at_expression_position(bytes: &[u8], mut index: usize, lambda_at: usize) -> bool {
+    let mut after_comma = true;
+    let mut level = 0usize;
+    while index < lambda_at {
+        match bytes[index] {
+            b'\'' | b'"' => {
+                after_comma = false;
+                index = skip_quoted_string(bytes, index);
+            }
+            b'#' => index = skip_replacement_field_comment(bytes, index, lambda_at),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                after_comma = false;
+                index += 1;
+            }
+            b')' | b']' | b'}' if level > 0 => {
+                level -= 1;
+                after_comma = false;
+                index += 1;
+            }
+            b',' if level == 0 => {
+                after_comma = true;
+                index += 1;
+            }
+            b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' => index += 1,
+            _ => {
+                after_comma = false;
+                index += 1;
+            }
+        }
+    }
+    after_comma
+}
+
 fn replacement_expression_has_parse_error(bytes: &[u8], start: usize, end: usize) -> bool {
     let Ok(expression) = ::core::str::from_utf8(&bytes[start..end]) else {
         return false;
@@ -4549,6 +4638,9 @@ fn invalid_replacement_expression_start(bytes: &[u8], index: usize, end: usize) 
 
     if matches!(bytes[index], b'+' | b'-' | b'~') {
         let operand = skip_ascii_whitespace(bytes, index + 1, end);
+        if starts_identifier(bytes, operand, b"lambda") {
+            return true;
+        }
         return !bytes.get(operand).is_some_and(|byte| {
             *byte >= 0x80
                 || *byte == b'_'
@@ -6566,6 +6658,18 @@ mod tests {
             ),
             ("f'{=a}'", "f-string: valid expression required before '='"),
             ("f'{!}'", "f-string: valid expression required before '!'"),
+            (
+                "f'{lambda x:x}'",
+                "f-string: lambda expressions are not allowed without parentheses",
+            ),
+            (
+                "f'{1, lambda:x}'",
+                "f-string: lambda expressions are not allowed without parentheses",
+            ),
+            (
+                "f'{+ lambda:None}'",
+                "f-string: expecting a valid expression after '{'",
+            ),
         ] {
             let err = compile(source, Mode::Eval, "<interp>", CompileOpts::default())
                 .expect_err("should not compile");
