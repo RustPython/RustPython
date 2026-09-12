@@ -107,32 +107,76 @@ pub unsafe fn remove_var(key: impl AsRef<OsStr>) {
     unsafe { env::remove_var(key) };
 }
 
+/// Publish the working directory as `=X:` for the drive it is on.
+///
+/// CRT `_wspawnve` / `_wexecve` walk the environment for the first `=X:`
+/// entry with no bound; a process that was not started by cmd.exe has none
+/// and that walk runs off the block. A UNC-like path is on no drive and
+/// publishes nothing.
+#[cfg(windows)]
+pub fn publish_drive_current_directory() -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
+
+    let mut cwd_wide: Vec<u16> = env::current_dir()?.as_os_str().encode_wide().collect();
+    let unc_like = cwd_wide.len() >= 2
+        && ((cwd_wide[0] == b'\\' as u16 && cwd_wide[1] == b'\\' as u16)
+            || (cwd_wide[0] == b'/' as u16 && cwd_wide[1] == b'/' as u16));
+    if unc_like || cwd_wide.is_empty() {
+        return Ok(());
+    }
+    let env_name = [b'=' as u16, cwd_wide[0], b':' as u16, 0];
+    cwd_wide.push(0);
+    let ok = unsafe { SetEnvironmentVariableW(env_name.as_ptr(), cwd_wide.as_ptr()) };
+    if ok == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// Whether the process environment already has an `=X:` drive-cwd entry.
+#[cfg(windows)]
+pub fn environment_has_drive_current_directory() -> bool {
+    use windows_sys::Win32::System::Environment::{
+        FreeEnvironmentStringsW, GetEnvironmentStringsW,
+    };
+
+    let block = unsafe { GetEnvironmentStringsW() };
+    if block.is_null() {
+        return false;
+    }
+    let mut present = false;
+    let mut entry = block;
+    unsafe {
+        while *entry != 0 {
+            if *entry == b'=' as u16 {
+                present = true;
+                break;
+            }
+            while *entry != 0 {
+                entry = entry.add(1);
+            }
+            entry = entry.add(1);
+        }
+        FreeEnvironmentStringsW(block);
+    }
+    present
+}
+
+/// Publish `=X:` when the process environment has none, so a later
+/// `_wspawnv` / `_wexecv` walk has a first entry.
+#[cfg(windows)]
+pub fn ensure_drive_current_directory() {
+    if !environment_has_drive_current_directory() {
+        let _ = publish_drive_current_directory();
+    }
+}
+
 pub fn set_current_dir(path: impl AsRef<std::path::Path>) -> io::Result<()> {
     env::set_current_dir(&path)?;
-
     #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
-
-        if let Ok(cwd) = env::current_dir() {
-            let cwd_str = cwd.as_os_str();
-            let mut cwd_wide: Vec<u16> = cwd_str.encode_wide().collect();
-
-            let is_unc_like_path = cwd_wide.len() >= 2
-                && ((cwd_wide[0] == b'\\' as u16 && cwd_wide[1] == b'\\' as u16)
-                    || (cwd_wide[0] == b'/' as u16 && cwd_wide[1] == b'/' as u16));
-
-            if !is_unc_like_path {
-                let env_name: [u16; 4] = [b'=' as u16, cwd_wide[0], b':' as u16, 0];
-                cwd_wide.push(0);
-                unsafe {
-                    SetEnvironmentVariableW(env_name.as_ptr(), cwd_wide.as_ptr());
-                }
-            }
-        }
-    }
-
+    publish_drive_current_directory()?;
     Ok(())
 }
 

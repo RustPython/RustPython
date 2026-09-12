@@ -2124,6 +2124,7 @@ pub fn spawnv(
     path: &widestring::WideCStr,
     argv: &[&widestring::WideCStr],
 ) -> io::Result<intptr_t> {
+    crate::os::ensure_drive_current_directory();
     let argv_ptrs = null_terminated_ptrs(argv);
     let result = unsafe { crate::suppress_iph!(_wspawnv(mode, path.as_ptr(), argv_ptrs.as_ptr())) };
     if result == -1 {
@@ -2159,6 +2160,7 @@ pub fn spawnve(
 
 #[cfg(target_env = "msvc")]
 pub fn execv(path: &widestring::WideCStr, argv: &[&widestring::WideCStr]) -> io::Result<()> {
+    crate::os::ensure_drive_current_directory();
     let argv_ptrs = null_terminated_ptrs(argv);
     let result = unsafe { crate::suppress_iph!(_wexecv(path.as_ptr(), argv_ptrs.as_ptr())) };
     if result == -1 {
