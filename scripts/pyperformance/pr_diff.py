@@ -177,7 +177,7 @@ def main() -> None:
             f"| {r['benchmark']} | {r['cpython_mean'] or '-'} "
             f"| {base_cell} | {head_cell} "
             f"| {fmt_ratio(r['base_vs_cpython'])} | {fmt_ratio(r['head_vs_cpython'])} "
-            f"| {fmt_change(r['base_vs_cpython'], r['head_vs_cpython'])} |"
+            f"| {fmt_change(1.0, r['head_vs_base'])} |"
         )
 
     only_head = [
