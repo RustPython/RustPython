@@ -1661,8 +1661,20 @@ mod _sqlite3 {
             self.row_factory.to_owned()
         }
         #[pygetset(setter)]
-        fn set_row_factory(&self, val: Option<PyObjectRef>) {
-            let _ = unsafe { self.row_factory.swap(val) };
+        fn set_row_factory(
+            &self,
+            val: PySetterValue<Option<PyObjectRef>>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            match val {
+                PySetterValue::Assign(val) => {
+                    let _ = unsafe { self.row_factory.swap(val) };
+                    Ok(())
+                }
+                PySetterValue::Delete => {
+                    Err(vm.new_attribute_error("cannot delete row_factory attribute"))
+                }
+            }
         }
 
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
