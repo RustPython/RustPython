@@ -1634,6 +1634,24 @@ pub fn handle_from_fd(fd: i32) -> HANDLE {
     unsafe { crate::suppress_iph!(libc::get_osfhandle(fd)) as HANDLE }
 }
 
+/// The triple `os._getfileinformation` / `ntpath.samefile` identify a file by.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FileInformation {
+    pub volume_serial_number: u32,
+    pub file_index_high: u32,
+    pub file_index_low: u32,
+}
+
+pub fn get_file_information(handle: HANDLE) -> io::Result<FileInformation> {
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { core::mem::zeroed() };
+    unsafe { GetFileInformationByHandle(handle, &mut info) }.check_win32_bool()?;
+    Ok(FileInformation {
+        volume_serial_number: info.dwVolumeSerialNumber,
+        file_index_high: info.nFileIndexHigh,
+        file_index_low: info.nFileIndexLow,
+    })
+}
+
 pub fn console_type(handle: HANDLE) -> char {
     if is_invalid_handle(handle) {
         return '\0';

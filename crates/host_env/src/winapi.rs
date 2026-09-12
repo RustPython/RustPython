@@ -1366,3 +1366,60 @@ pub fn need_current_directory_for_exe_path_w(exe_name: &widestring::WideCStr) ->
             != 0
     }
 }
+
+pub type DllDirectoryCookie = *mut core::ffi::c_void;
+
+pub fn add_dll_directory(path: &widestring::WideCStr) -> io::Result<DllDirectoryCookie> {
+    let cookie =
+        unsafe { windows_sys::Win32::System::LibraryLoader::AddDllDirectory(path.as_ptr()) };
+    if cookie.is_null() {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(cookie)
+    }
+}
+
+pub fn remove_dll_directory(cookie: DllDirectoryCookie) -> io::Result<()> {
+    unsafe { windows_sys::Win32::System::LibraryLoader::RemoveDllDirectory(cookie) }
+        .check_win32_bool()
+}
+
+/// `CreateHardLinkW(new, existing)` — `dst` is the new name, `src` the file it names.
+pub fn create_hard_link(dst: &widestring::WideCStr, src: &widestring::WideCStr) -> io::Result<()> {
+    unsafe {
+        windows_sys::Win32::Storage::FileSystem::CreateHardLinkW(
+            dst.as_ptr(),
+            src.as_ptr(),
+            core::ptr::null(),
+        )
+    }
+    .check_win32_bool()
+}
+
+/// `ShellExecuteW` with a null owner window. Failure is a return of 32 or less.
+pub fn shell_execute_w(
+    file: &widestring::WideCStr,
+    operation: Option<&widestring::WideCStr>,
+    arguments: Option<&widestring::WideCStr>,
+    directory: Option<&widestring::WideCStr>,
+    show_cmd: i32,
+) -> io::Result<()> {
+    let as_ptr = |wide: Option<&widestring::WideCStr>| {
+        wide.map_or(core::ptr::null(), widestring::WideCStr::as_ptr)
+    };
+    let rc = unsafe {
+        windows_sys::Win32::UI::Shell::ShellExecuteW(
+            core::ptr::null_mut(),
+            as_ptr(operation),
+            file.as_ptr(),
+            as_ptr(arguments),
+            as_ptr(directory),
+            show_cmd,
+        )
+    };
+    if rc as isize <= 32 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
