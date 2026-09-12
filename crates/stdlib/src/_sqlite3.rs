@@ -62,7 +62,7 @@ mod _sqlite3 {
         },
         convert::IntoObject,
         function::{
-            ArgCallable, ArgIterable, FsPath, FuncArgs, OptionalArg, PyComparisonValue,
+            ArgCallable, ArgIterable, FsPath, FuncArgs, KwArgs, OptionalArg, PyComparisonValue,
             PySetterValue, TimeoutSeconds,
         },
         object::{Traverse, TraverseFn},
@@ -403,6 +403,12 @@ mod _sqlite3 {
             self.progress.traverse(tracer_fn);
             self.name.traverse(tracer_fn);
         }
+    }
+
+    #[derive(FromArgs)]
+    struct IterDumpArgs {
+        #[pyarg(named, optional)]
+        filter: Option<PyStrRef>,
     }
 
     #[derive(FromArgs)]
@@ -1507,10 +1513,15 @@ mod _sqlite3 {
         }
 
         #[pymethod]
-        fn iterdump(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let module = vm.import("sqlite3.dump", 0)?;
+        fn iterdump(zelf: PyRef<Self>, args: IterDumpArgs, vm: &VirtualMachine) -> PyResult {
+            let from_list = PyTuple::new_ref_typed(vec![vm.ctx.new_str("_iterdump")], &vm.ctx);
+            let module = vm.import_from("sqlite3.dump", &from_list, 0)?;
             let func = module.get_attr("_iterdump", vm)?;
-            func.call((zelf,), vm)
+            let filter: PyObjectRef = args
+                .filter
+                .map_or_else(|| vm.ctx.none(), |filter| filter.into());
+            let kwargs = core::iter::once(("filter", filter)).collect::<KwArgs>();
+            func.call(FuncArgs::new(vec![zelf.into()], kwargs), vm)
         }
 
         #[pymethod]
