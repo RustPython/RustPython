@@ -54,6 +54,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 
@@ -245,23 +246,25 @@ def run_one_benchmark(
         cmd += ["--inherit-environ", ",".join(inherited)]
 
     log(f"running {bench} ...")
+    # A new session makes this process the leader of its own process group, so
+    # a timeout can kill the whole group -- pyperf re-execs the target
+    # interpreter as a child, and `subprocess.run`'s own timeout handling only
+    # ever reaches the direct child, leaving that descendant free to keep
+    # burning CPU into the next benchmark's measurement.
+    proc = subprocess.Popen(
+        cmd,
+        cwd=work_dir,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=work_dir,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
-
-        def _to_str(x):
-            if isinstance(x, bytes):
-                return x.decode("utf-8", "replace")
-            return x or ""
-
-        combined = _to_str(exc.stdout) + "\n" + _to_str(exc.stderr)
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.communicate()  # reap the process, discard its output
         return {
             "benchmark": bench,
             "status": "timeout",
@@ -269,7 +272,7 @@ def run_one_benchmark(
             "mean": None,
         }
 
-    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    combined = (stdout or "") + "\n" + (stderr or "")
     if proc.returncode == 0 and result_json.exists():
         mean_match = MEAN_RE.search(combined)
         return {
