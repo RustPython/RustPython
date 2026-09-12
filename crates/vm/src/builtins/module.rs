@@ -1,4 +1,4 @@
-use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef, PyUtf8Str};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyStrInterned, pystr::AsPyStr},
@@ -161,17 +161,13 @@ impl Py<PyModule> {
             .get_item_opt(identifier!(vm, __name__), vm)
             .ok()
             .flatten();
-        let mod_name_str = mod_name_obj.as_ref().and_then(|n| {
-            n.downcast_ref::<PyStr>()
-                .map(|s| s.to_string_lossy().into_owned())
-        });
+        let mod_name = mod_name_obj
+            .as_ref()
+            .and_then(|n| n.downcast_ref::<PyUtf8Str>());
 
         // If __name__ is not set or not a string, use a simpler error message
-        let mod_display = match mod_name_str.as_deref() {
-            Some(s) => s,
-            None => {
-                return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
-            }
+        let Some(mod_display) = mod_name.map(|s| s.as_str()) else {
+            return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
         };
 
         let spec = dict
@@ -230,8 +226,7 @@ impl Py<PyModule> {
                 }
             } else {
                 // Check for uninitialized submodule
-                let submodule_initializing =
-                    is_uninitialized_submodule(mod_name_str.as_deref(), name, vm);
+                let submodule_initializing = is_uninitialized_submodule(mod_name, name, vm);
                 if submodule_initializing {
                     Err(vm.new_attribute_error(format!(
                         "cannot access submodule '{name}' of module '{mod_display}' \
@@ -465,7 +460,7 @@ pub(crate) fn init(context: &'static Context) {
 
 /// Check if {module_name}.{name} is an uninitialized submodule in sys.modules.
 fn is_uninitialized_submodule(
-    module_name: Option<&str>,
+    module_name: Option<&Py<PyUtf8Str>>,
     name: &Py<PyStr>,
     vm: &VirtualMachine,
 ) -> bool {
@@ -477,8 +472,8 @@ fn is_uninitialized_submodule(
         return false;
     };
 
-    let full_name = format!("{mod_name}.{name}");
-    let Ok(sub_mod) = sys_modules.get_item(&full_name, vm) else {
+    let full_name = vm.ctx.new_utf8_str(format!("{}.{name}", mod_name.as_str()));
+    let Ok(sub_mod) = sys_modules.get_item(&*full_name, vm) else {
         return false;
     };
 
