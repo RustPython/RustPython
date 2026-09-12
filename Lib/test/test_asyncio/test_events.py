@@ -273,7 +273,6 @@ class EventLoopTestsMixin:
         support.gc_collect()
         super().tearDown()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - RuntimeWarning for unawaited coroutine not triggered
     def test_run_until_complete_nesting(self):
         async def coro1():
             await asyncio.sleep(0)
@@ -560,7 +559,6 @@ class EventLoopTestsMixin:
         r.close()
         self.assertEqual(read, data)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - signal handler implementation differs
     @unittest.skipUnless(hasattr(signal, 'SIGKILL'), 'No SIGKILL')
     def test_add_signal_handler(self):
         caught = 0
