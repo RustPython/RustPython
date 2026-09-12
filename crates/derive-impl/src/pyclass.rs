@@ -1152,9 +1152,14 @@ where
             args.attrs.push(allow_attr);
         }
 
-        args.context
-            .getset_items
-            .add_item(&py_name, args.cfgs.to_vec(), kind, ident.clone())?;
+        let doc = args.attrs.doc();
+        args.context.getset_items.add_item(
+            &py_name,
+            args.cfgs.to_vec(),
+            kind,
+            ident.clone(),
+            doc,
+        )?;
         Ok(())
     }
 }
@@ -1422,9 +1427,15 @@ impl ToTokens for MethodNursery {
 }
 
 #[derive(Default)]
-#[allow(clippy::type_complexity)]
+struct GetSetEntry {
+    getter: Option<Ident>,
+    setter: Option<Ident>,
+    doc: Option<String>,
+}
+
+#[derive(Default)]
 struct GetSetNursery {
-    map: HashMap<(String, Vec<Attribute>), (Option<Ident>, Option<Ident>)>,
+    map: HashMap<(String, Vec<Attribute>), GetSetEntry>,
     validated: bool,
 }
 
@@ -1441,14 +1452,15 @@ impl GetSetNursery {
         cfgs: Vec<Attribute>,
         kind: GetSetItemKind,
         item_ident: Ident,
+        doc: Option<String>,
     ) -> Result<()> {
         assert!(!self.validated, "new item is not allowed after validation");
         // Note: Both getter and setter can have #[cfg], but they must have matching cfgs
         // since the map key is (name, cfgs). This ensures getter and setter are paired correctly.
         let entry = self.map.entry((name.to_string(), cfgs)).or_default();
         let func = match kind {
-            GetSetItemKind::Get => &mut entry.0,
-            GetSetItemKind::Set => &mut entry.1,
+            GetSetItemKind::Get => &mut entry.getter,
+            GetSetItemKind::Set => &mut entry.setter,
         };
         if func.is_some() {
             bail_span!(
@@ -1458,6 +1470,11 @@ impl GetSetNursery {
             );
         }
         *func = Some(item_ident);
+        if matches!(kind, GetSetItemKind::Get)
+            && let Some(doc) = doc
+        {
+            entry.doc = Some(doc);
+        }
         Ok(())
     }
 
@@ -1468,10 +1485,10 @@ impl GetSetNursery {
             clippy::iter_over_hash_type,
             reason = "Iteration order doesn't matter here"
         )]
-        for ((name, _cfgs), (getter, setter)) in &self.map {
-            if getter.is_none() {
+        for ((name, _cfgs), entry) in &self.map {
+            if entry.getter.is_none() {
                 errors.push(err_span!(
-                    setter.as_ref().unwrap(),
+                    entry.setter.as_ref().unwrap(),
                     "GetSet '{}' is missing a getter",
                     name
                 ));
@@ -1487,9 +1504,14 @@ impl GetSetNursery {
 impl ToTokens for GetSetNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         assert!(self.validated, "Call `validate()` before token generation");
-        let properties = self.map.iter().map(|((name, cfgs), (getter, setter))| {
-            let setter = match setter {
+        let properties = self.map.iter().map(|((name, cfgs), entry)| {
+            let getter = entry.getter.as_ref().unwrap();
+            let setter = match &entry.setter {
                 Some(setter) => quote_spanned! { setter.span() => .with_set(Self::#setter)},
+                None => quote! {},
+            };
+            let doc = match &entry.doc {
+                Some(doc) => quote! { .with_doc(#doc) },
                 None => quote! {},
             };
             quote_spanned! { getter.span() =>
@@ -1499,7 +1521,8 @@ impl ToTokens for GetSetNursery {
                     ::rustpython_vm::PyRef::new_ref(
                         ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class)
                             .with_get(Self::#getter)
-                            #setter,
+                            #setter
+                            #doc,
                             ctx.types.getset_type.to_owned(), None),
                     ctx
                 );

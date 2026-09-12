@@ -14,6 +14,14 @@ use crate::{
 
 use crossbeam_utils::atomic::AtomicCell;
 
+fn warn_unawaited_asyncgen_method(ag: &Py<PyAsyncGen>, method: &str, vm: &VirtualMachine) {
+    let name = ag.as_coro().qualname();
+    let msg = format!("coroutine method '{method}' of '{name}' was never awaited");
+    if let Err(e) = crate::stdlib::_warnings::warn(vm.ctx.exceptions.runtime_warning, msg, 1, vm) {
+        vm.run_unraisable(e, None, ag.as_object().to_owned());
+    }
+}
+
 #[pyclass(name = "async_generator", module = false, traverse = "manual")]
 #[derive(Debug)]
 pub struct PyAsyncGen {
@@ -303,7 +311,7 @@ impl PyPayload for PyAsyncGenASend {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
+#[pyclass(with(IterNext, Iterable, Destructor))]
 impl PyAsyncGenASend {
     #[pymethod(name = "__await__")]
     const fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
@@ -420,6 +428,15 @@ impl IterNext for PyAsyncGenASend {
     }
 }
 
+impl Destructor for PyAsyncGenASend {
+    fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        if matches!(zelf.state.load(), AwaitableState::Init) {
+            warn_unawaited_asyncgen_method(&zelf.ag, "asend", vm);
+        }
+        Ok(())
+    }
+}
+
 #[pyclass(module = false, name = "async_generator_athrow", traverse = "manual")]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenAThrow {
@@ -443,7 +460,7 @@ impl PyPayload for PyAsyncGenAThrow {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
+#[pyclass(with(IterNext, Iterable, Destructor))]
 impl PyAsyncGenAThrow {
     #[pymethod(name = "__await__")]
     const fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
@@ -618,6 +635,16 @@ impl SelfIter for PyAsyncGenAThrow {}
 impl IterNext for PyAsyncGenAThrow {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
+    }
+}
+
+impl Destructor for PyAsyncGenAThrow {
+    fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        if matches!(zelf.state.load(), AwaitableState::Init) {
+            let method = if zelf.aclose { "aclose" } else { "athrow" };
+            warn_unawaited_asyncgen_method(&zelf.ag, method, vm);
+        }
+        Ok(())
     }
 }
 

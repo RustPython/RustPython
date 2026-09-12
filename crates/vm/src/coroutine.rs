@@ -1,9 +1,9 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::PyStrRef,
+    builtins::{PyStrRef, PyTupleRef},
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
-    frame::{ExecutionResult, FrameObject, FrameObjectRef, FrameOwner},
+    frame::{ExecutionResult, FrameObject, FrameObjectRef, FrameOwner, InterpreterFrame},
     function::OptionalArg,
     object::{PyAtomicRef, Traverse, TraverseFn},
     protocol::PyIterReturn,
@@ -189,12 +189,12 @@ impl Coro {
 
     pub(crate) fn send_none(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if self.closed.load() {
-            return Ok(PyIterReturn::StopIteration(None));
+            return Self::send_when_closed(jen, vm);
         }
         let claim = self.claim(jen, vm)?;
         // The generator can have run to its end in the meantime.
         if self.closed.load() {
-            return Ok(PyIterReturn::StopIteration(None));
+            return Self::send_when_closed(jen, vm);
         }
         let value = if self.frame.lasti() > 0 {
             Some(vm.ctx.none())
@@ -207,6 +207,28 @@ impl Coro {
         self.finalize_send_result(result, jen, vm)
     }
 
+    fn send_when_closed(jen: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        if jen.class().is(vm.ctx.types.coroutine_type) {
+            Err(vm.new_runtime_error("cannot reuse already awaited coroutine"))
+        } else {
+            Ok(PyIterReturn::StopIteration(None))
+        }
+    }
+
+    fn throw_when_closed(
+        jen: &PyObject,
+        exc_type: PyObjectRef,
+        exc_val: PyObjectRef,
+        exc_tb: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyIterReturn> {
+        if jen.class().is(vm.ctx.types.coroutine_type) {
+            Err(vm.new_runtime_error("cannot reuse already awaited coroutine"))
+        } else {
+            Err(vm.normalize_exception(exc_type, exc_val, exc_tb)?)
+        }
+    }
+
     pub fn send(
         &self,
         jen: &PyObject,
@@ -214,12 +236,12 @@ impl Coro {
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
         if self.closed.load() {
-            return Ok(PyIterReturn::StopIteration(None));
+            return Self::send_when_closed(jen, vm);
         }
         let claim = self.claim(jen, vm)?;
         // The generator can have run to its end in the meantime.
         if self.closed.load() {
-            return Ok(PyIterReturn::StopIteration(None));
+            return Self::send_when_closed(jen, vm);
         }
         let value = if self.frame.lasti() > 0 {
             Some(value)
@@ -254,7 +276,7 @@ impl Coro {
             return Err(vm.new_type_error("throw() third argument must be a traceback object"));
         }
         if self.closed.load() {
-            return Err(vm.normalize_exception(exc_type, exc_val, exc_tb)?);
+            return Self::throw_when_closed(jen, exc_type, exc_val, exc_tb, vm);
         }
         // Validate exception type before entering generator context.
         // Invalid types propagate to caller without closing the generator.
@@ -264,7 +286,7 @@ impl Coro {
         // runs the exception's constructor, so let the claim go first.
         if self.closed.load() {
             drop(claim);
-            return Err(vm.normalize_exception(exc_type, exc_val, exc_tb)?);
+            return Self::throw_when_closed(jen, exc_type, exc_val, exc_tb, vm);
         }
         let result = self.run_claimed(&claim, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
         self.maybe_close(&result, &claim);
@@ -354,6 +376,51 @@ impl Coro {
 
 pub(crate) fn is_gen_exit(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> bool {
     exc.fast_isinstance(vm.ctx.exceptions.generator_exit)
+}
+
+fn iframe_origin_lineno(frame: &InterpreterFrame) -> usize {
+    if frame.get_lasti() == 0 {
+        return frame.code().first_line_number.map_or(1, |n| n.get());
+    }
+    let prev = frame.prev_line.get();
+    if prev > 0 {
+        prev as usize
+    } else {
+        frame.code().first_line_number.map_or(1, |n| n.get())
+    }
+}
+
+/// Capture the current call stack as a coroutine `cr_origin` tuple.
+///
+/// Each entry is `(filename, lineno, funcname)`, innermost first. Depth 0
+/// disables tracking and returns `None`.
+pub(crate) fn compute_cr_origin(vm: &VirtualMachine) -> Option<PyTupleRef> {
+    let depth = crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.get();
+    if depth == 0 {
+        return None;
+    }
+    let mut items = Vec::new();
+    let mut iframe = crate::frame::current_thread_iframe();
+    while !iframe.is_null() && items.len() < depth as usize {
+        // SAFETY: TLS iframe chain entries stay alive while this thread runs.
+        let frame = unsafe { &*iframe };
+        let code = frame.code();
+        items.push(
+            vm.ctx
+                .new_tuple(vec![
+                    code.source_path().to_owned().into(),
+                    vm.ctx.new_int(iframe_origin_lineno(frame)).into(),
+                    code.obj_name.to_owned().into(),
+                ])
+                .into(),
+        );
+        iframe = frame.previous();
+    }
+    if items.is_empty() {
+        None
+    } else {
+        Some(vm.ctx.new_tuple(items))
+    }
 }
 
 /// Get an awaitable iterator from an object.

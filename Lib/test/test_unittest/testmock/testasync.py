@@ -852,7 +852,6 @@ class AsyncMockAssert(unittest.TestCase):
         mock.async_method.assert_awaited()
         mock.async_method.assert_awaited_once()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_assert_called_once_and_awaited_twice(self):
         mock = AsyncMock(AsyncClass)
         coroutine = mock.async_method()

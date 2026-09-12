@@ -2860,16 +2860,13 @@ class TestGetCoroutineState(unittest.TestCase):
     def _coroutinestate(self):
         return inspect.getcoroutinestate(self.coroutine)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_created(self):
         self.assertEqual(self._coroutinestate(), inspect.CORO_CREATED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_suspended(self):
         self.coroutine.send(None)
         self.assertEqual(self._coroutinestate(), inspect.CORO_SUSPENDED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_closed_after_exhaustion(self):
         while True:
             try:
@@ -2879,13 +2876,11 @@ class TestGetCoroutineState(unittest.TestCase):
 
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_closed_after_immediate_exception(self):
         with self.assertRaises(RuntimeError):
             self.coroutine.throw(RuntimeError)
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_closed_after_close(self):
         self.coroutine.close()
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
