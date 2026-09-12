@@ -2,7 +2,7 @@ use crate::object::define_py_check;
 use crate::{PyObject, pystate::with_vm};
 use bitflags::bitflags;
 use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_longlong, c_ulong, c_ulonglong, c_void};
-use malachite_bigint::{BigInt, Sign};
+use malachite_bigint::{BigInt, BigUint, Sign};
 use rustpython_vm::builtins::{PyInt, try_bigint_to_f64, try_f64_to_bigint};
 use rustpython_vm::common::int::bytes_to_int;
 use rustpython_vm::protocol::handle_bytes_to_int_err;
@@ -372,7 +372,173 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulon
     })
 }
 
-#[cfg(test)]
+#[repr(C)]
+pub struct PyLongLayout {
+    pub bits_per_digit: u8,
+    pub digit_size: u8,
+    pub digits_order: i8,
+    pub digit_endianness: i8,
+}
+
+#[repr(C)]
+#[derive(Default)]
+pub struct PyLongExport {
+    pub value: i64,
+    pub negative: u8,
+    pub ndigits: isize,
+    pub digits: *const c_void,
+    _reserved: *mut Vec<u32>,
+}
+
+pub struct PyLongWriter {
+    negative: bool,
+    digits: Vec<u32>,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyLong_GetNativeLayout() -> *const PyLongLayout {
+    const NATIVE_LONG_LAYOUT: PyLongLayout = PyLongLayout {
+        bits_per_digit: 32,
+        digit_size: 4,
+        digits_order: -1,
+        digit_endianness: if cfg!(target_endian = "little") {
+            -1
+        } else {
+            1
+        },
+    };
+    &NATIVE_LONG_LAYOUT
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyLong_Export(
+    obj: *mut PyObject,
+    export_long: *mut PyLongExport,
+) -> c_int {
+    with_vm::<PyResult<()>, _>(|vm| {
+        let py_int = unsafe { &*obj }.try_downcast_ref::<PyInt>(vm)?;
+        let bigint = py_int.as_bigint();
+
+        if let Ok(value) = i64::try_from(bigint) {
+            unsafe {
+                *export_long = PyLongExport {
+                    value,
+                    ..Default::default()
+                };
+            }
+            return Ok(());
+        }
+
+        let (sign, digits) = bigint.to_u32_digits();
+        let boxed_digits = Box::new(digits);
+        let ndigits = boxed_digits.len().try_into().map_err(|_| {
+            vm.new_overflow_error("PyLong_Export: too many digits to fit into Py_ssize_t")
+        })?;
+
+        unsafe {
+            *export_long = PyLongExport {
+                value: 0,
+                negative: u8::from(matches!(sign, Sign::Minus)),
+                ndigits,
+                digits: boxed_digits.as_ptr().cast(),
+                _reserved: Box::into_raw(boxed_digits),
+            };
+        }
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyLong_FreeExport(export_long: *mut PyLongExport) {
+    if export_long.is_null() {
+        return;
+    }
+
+    let export_long = unsafe { &mut *export_long };
+    if !export_long._reserved.is_null() {
+        unsafe {
+            drop(Box::from_raw(export_long._reserved));
+        }
+    }
+    core::mem::take(export_long);
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyLongWriter_Create(
+    negative: c_int,
+    ndigits: isize,
+    digits: *mut *mut c_void,
+) -> *mut PyLongWriter {
+    with_vm::<PyResult<*mut c_void>, _>(|vm| {
+        if ndigits <= 0 {
+            return Err(vm.new_value_error("PyLongWriter_Create: ndigits must be greater than 0"));
+        }
+        if digits.is_null() {
+            return Err(vm.new_system_error("PyLongWriter_Create: digits must not be null"));
+        }
+        if negative != 0 && negative != 1 {
+            return Err(vm.new_value_error("PyLongWriter_Create: negative must be 0 or 1"));
+        }
+
+        let ndigits = ndigits
+            .try_into()
+            .map_err(|_| vm.new_overflow_error("PyLongWriter_Create: ndigits out of range"))?;
+
+        let mut writer = Box::new(PyLongWriter {
+            negative: negative == 1,
+            digits: vec![0; ndigits],
+        });
+
+        unsafe {
+            *digits = writer.digits.as_mut_ptr().cast();
+        }
+
+        Ok(Box::into_raw(writer).cast())
+    })
+    .cast()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyLongWriter_Finish(writer: *mut PyLongWriter) -> *mut PyObject {
+    with_vm(|vm| {
+        if writer.is_null() {
+            return Err(vm.new_system_error("PyLongWriter_Finish: writer must not be null"));
+        }
+
+        let writer = unsafe { Box::from_raw(writer) };
+        let mut digits = writer.digits;
+        while matches!(digits.last(), Some(0)) {
+            digits.pop();
+        }
+
+        if digits.is_empty() {
+            return Ok(vm.ctx.new_int(0));
+        }
+
+        let magnitude = BigUint::new(digits);
+        let sign = if writer.negative {
+            Sign::Minus
+        } else {
+            Sign::Plus
+        };
+
+        let value = BigInt::from_biguint(sign, magnitude);
+        Ok(vm.ctx.new_int(value))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyLongWriter_Discard(writer: *mut PyLongWriter) {
+    if writer.is_null() {
+        return;
+    }
+
+    unsafe {
+        drop(Box::from_raw(writer));
+    }
+}
+
+#[cfg(false)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::PyInt;
