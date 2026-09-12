@@ -249,7 +249,7 @@ pub(crate) mod _signal {
         signal::check_signals(vm)?;
 
         unsafe { host_signal::install_handler(signalnum.into(), sig_handler) }
-            .map_err(|_| vm.new_os_error("Failed to set signal"))?;
+            .map_err(|err| err.into_pyexception(vm))?;
 
         let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
         let old_handler = signal_handlers.borrow_mut()[signalnum].replace(handler);

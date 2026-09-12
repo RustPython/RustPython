@@ -2230,7 +2230,6 @@ class CoroutineTest(unittest.TestCase):
             return 'end'
         self.assertEqual(run_async(run_gen()), ([], 'end'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; This would crash the interpreter in 3.11a2
     def test_bpo_45813_1(self):
         'This would crash the interpreter in 3.11a2'
         async def f():
