@@ -12,6 +12,7 @@ name: pyperformance comment
 # with a token that may write the comment.
 permissions:
   contents: read
+  actions: read # needed by download-artifact to fetch another run's artifact
   pull-requests: write
 
 jobs:
