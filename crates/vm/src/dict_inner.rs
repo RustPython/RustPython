@@ -883,22 +883,9 @@ impl<T: Clone> Dict<T> {
         Ok(())
     }
 
-    /// Callers within the crate thread a known hash (see
-    /// [`Self::setdefault_known_hash`]); this hashing wrapper is kept for API
-    /// symmetry with the other operations.
-    #[allow(dead_code)]
-    pub(crate) fn setdefault<K, F>(&self, vm: &VirtualMachine, key: &K, default: F) -> PyResult<T>
-    where
-        K: DictKey + ?Sized,
-        F: FnOnce() -> T,
-    {
-        let hash = key.key_hash(vm)?;
-        self.setdefault_known_hash(vm, key, hash, default)
-    }
-
-    /// [`Self::setdefault`] with a known hash. Same contract as
-    /// [`Self::insert_known_hash`].
-    pub(crate) fn setdefault_known_hash<K, F>(
+    /// Get the value for `key`, inserting `default()` if it is absent, given a
+    /// known hash. Same contract as [`Self::insert_known_hash`].
+    pub(crate) fn setdefault<K, F>(
         &self,
         vm: &VirtualMachine,
         key: &K,
@@ -935,43 +922,6 @@ impl<T: Clone> Dict<T> {
                 index_entry,
             );
             return Ok(value);
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn setdefault_entry<K, F>(
-        &self,
-        vm: &VirtualMachine,
-        key: &K,
-        default: F,
-    ) -> PyResult<(PyObjectRef, T)>
-    where
-        K: DictKey + ?Sized,
-        F: FnOnce() -> T,
-    {
-        let hash = key.key_hash(vm)?;
-        let mut default = Some(default);
-        loop {
-            let (index_entry, index_index) = self.lookup(vm, key, hash, None)?;
-            if let Some(index) = index_entry.index() {
-                let inner = self.read();
-                if let Some(entry) = inner.get_entry_checked(index, index_index) {
-                    return Ok((entry.key.clone(), entry.value.clone()));
-                }
-                continue;
-            }
-            let mut inner = self.write();
-            if inner.indices.get(index_index) != Some(&index_entry) {
-                continue;
-            }
-            let value = default
-                .take()
-                .expect("default must only be computed on insertion")();
-            let key_obj = key.to_pyobject(vm);
-            let ret = (key_obj.clone(), value.clone());
-            self.invalidate_keys_version();
-            inner.unchecked_push(index_index, hash, key_obj, value, index_entry);
-            return Ok(ret);
         }
     }
 

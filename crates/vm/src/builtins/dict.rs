@@ -358,7 +358,7 @@ impl PyDict {
         default: impl FnOnce() -> PyObjectRef,
     ) -> PyResult {
         let hash = Self::hash_or_unhashable(&*key, vm)?;
-        self.entries.setdefault_known_hash(vm, &*key, hash, default)
+        self.entries.setdefault(vm, &*key, hash, default)
     }
 
     pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
@@ -509,7 +509,7 @@ impl PyDict {
     ) -> PyResult {
         let hash = Self::hash_or_unhashable(&*key, vm)?;
         self.entries
-            .setdefault_known_hash(vm, &*key, hash, || default.unwrap_or_none(vm))
+            .setdefault(vm, &*key, hash, || default.unwrap_or_none(vm))
     }
 
     #[pymethod]
