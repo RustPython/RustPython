@@ -418,6 +418,12 @@ def main() -> None:
     target_python = target_python.resolve()
     label = args.label or target_python.name
 
+    # Every benchmark subprocess runs with cwd=work_dir (below); a relative
+    # --out or --cache-dir would then resolve against that directory instead
+    # of the one this script was invoked from.
+    args.out = args.out.resolve()
+    args.cache_dir = args.cache_dir.resolve()
+
     out_dir = args.out / label
 
     extra_args = ["--rigorous"] if args.rigorous else ["--fast"]
