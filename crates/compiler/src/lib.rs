@@ -1600,7 +1600,20 @@ fn invalid_parameter_list_slice_error(
                     })
                     .unwrap_or(end);
                 let name_end = identifier_end(bytes, index, param_end);
-                if top_level_byte(bytes, index, param_end, b'=').is_some() {
+                if let Some(eq) = top_level_byte(bytes, index, param_end, b'=') {
+                    let value_start = next_non_horizontal_whitespace(bytes, eq + 1);
+                    if value_start >= param_end
+                        || matches!(bytes.get(value_start), Some(b',' | b')' | b':'))
+                    {
+                        let message = if matches!(kind, ParameterListKind::Lambda)
+                            && matches!(bytes.get(value_start), Some(b':'))
+                        {
+                            "invalid syntax"
+                        } else {
+                            "expected default value expression"
+                        };
+                        return Some(CpythonDiagnostic::new(message.to_owned(), eq, eq + 1));
+                    }
                     default_seen = true;
                 } else if default_seen {
                     return Some(CpythonDiagnostic::new(
@@ -5833,14 +5846,10 @@ fn invalid_parenthesized_import_star_error(source: &str) -> Option<CpythonDiagno
     None
 }
 
-fn prefix_letters_before_quote(
-    bytes: &[u8],
-    quote_index: usize,
-) -> Option<(usize, [u8; 3], usize)> {
-    let mut letters = [0u8; 3];
-    let mut count = 0;
+fn prefix_letters_before_quote(bytes: &[u8], quote_index: usize) -> Option<(usize, Vec<u8>)> {
+    let mut letters = Vec::new();
     let mut index = quote_index;
-    while index > 0 && count < 3 {
+    while index > 0 {
         let byte = bytes[index - 1];
         if !matches!(
             byte,
@@ -5848,18 +5857,17 @@ fn prefix_letters_before_quote(
         ) {
             break;
         }
-        letters[count] = byte.to_ascii_lowercase();
-        count += 1;
+        letters.push(byte.to_ascii_lowercase());
         index -= 1;
     }
-    if count == 0 {
+    if letters.is_empty() {
         return None;
     }
     if index > 0 && (bytes[index - 1] == b'_' || bytes[index - 1].is_ascii_alphabetic()) {
         return None;
     }
-    letters[..count].reverse();
-    Some((index, letters, count))
+    letters.reverse();
+    Some((index, letters))
 }
 
 fn incompatible_string_prefix_error(source: &str) -> Option<CpythonDiagnostic> {
@@ -5873,8 +5881,8 @@ fn incompatible_string_prefix_error(source: &str) -> Option<CpythonDiagnostic> {
                 }
             }
             b'\'' | b'"' => {
-                if let Some((start, letters, count)) = prefix_letters_before_quote(bytes, index)
-                    && let Some(message) = incompatible_prefix_message(&letters[..count])
+                if let Some((start, letters)) = prefix_letters_before_quote(bytes, index)
+                    && let Some(message) = incompatible_prefix_message(&letters)
                 {
                     return Some(CpythonDiagnostic::new(message, start, start + 1));
                 }
@@ -5910,10 +5918,10 @@ fn incompatible_prefix_message(letters: &[u8]) -> Option<String> {
             _ => {}
         }
     }
-    let pair = if seen_u && seen_r {
-        ("u", "r")
-    } else if seen_u && seen_b {
+    let pair = if seen_u && seen_b {
         ("u", "b")
+    } else if seen_u && seen_r {
+        ("u", "r")
     } else if seen_u && seen_f {
         ("u", "f")
     } else if seen_u && seen_t {
@@ -6930,6 +6938,22 @@ mod tests {
         let code = "x = 'abc'";
         let compiled = compile(code, Mode::Single, "<>", CompileOpts::default());
         dbg!(compiled.expect("compile error"));
+    }
+
+    #[test]
+    fn empty_parameter_default_is_reported_before_later_params() {
+        let err = compile(
+            "def foo(a=1,d=,c):\n    pass\n",
+            Mode::Exec,
+            "<params>",
+            CompileOpts::default(),
+        )
+        .expect_err("empty default should fail");
+        assert!(
+            err.to_string()
+                .contains("expected default value expression"),
+            "got {err}"
+        );
     }
 
     #[test]
