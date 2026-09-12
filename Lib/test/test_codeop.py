@@ -113,7 +113,6 @@ class CodeopTests(unittest.TestCase):
         av("def f():\n pass\n#foo\n")
         av("@a.b.c\ndef f():\n pass\n")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <code object <module> at 0xc99532080 file "<input>", line 1> != None
     @subTests('compiler', COMPILERS)
     def test_incomplete(self, compiler):
         ai = functools.partial(self.assertIncomplete, compiler=compiler)

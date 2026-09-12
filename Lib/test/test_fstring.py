@@ -630,7 +630,6 @@ x = (
                             ])
         self.assertRaises(SyntaxError, eval, "f'{" + "("*20 + "}'")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: No exception raised
     @unittest.skipIf(support.is_wasi, "exhausts limited stack on WASI")
     def test_fstring_nested_too_deeply(self):
         def raises_syntax_or_memory_error(txt):
@@ -1004,7 +1003,6 @@ x = (
         self.assertEqual(fr'\N{AMPERSAND}', '\\Nspam')
         self.assertEqual(f'\\\N{AMPERSAND}', '\\&')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_misformed_unicode_character_name(self):
         # These test are needed because unicode names are parsed
         # differently inside f-strings.
@@ -1073,7 +1071,6 @@ x = (
         self.assertEqual(rf'''{3+
 4}''', '7')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "f-string: expecting a valid expression after '{'" does not match "invalid syntax (<string>, line 1)"
     def test_lambda(self):
         x = 5
         self.assertEqual(f'{(lambda y:x*y)("8")!r}', "'88888'")
@@ -1284,7 +1281,6 @@ x = (
         self.assertEqual(f'{f"{0}"*3}', '000')
         self.assertEqual(f'{f"{y}"*3}', '555')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_string_prefixes(self):
         single_quote_cases = ["fu''",
                              "uf''",
@@ -1729,7 +1725,6 @@ x = (
                                     "f-string: expecting a valid expression after '{'"):
             compile("f'{**a}'", "?", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; -
     def test_not_closing_quotes(self):
         self.assertAllRaise(SyntaxError, "unterminated f-string literal", ['f"', "f'"])
         self.assertAllRaise(SyntaxError, "unterminated triple-quoted f-string literal",

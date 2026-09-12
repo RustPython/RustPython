@@ -35,6 +35,8 @@ pub struct ParseError {
     pub source_path: String,
     /// Set when the error is an unclosed bracket (converted from EOF).
     pub is_unclosed_bracket: bool,
+    /// Set when a string is still open at EOF and more input could close it.
+    pub is_unclosed_string: bool,
 }
 
 impl ::core::fmt::Display for ParseError {
@@ -71,6 +73,7 @@ impl CompileError {
             end_location: diagnostic.end_location,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: diagnostic.is_unclosed_bracket,
+            is_unclosed_string: diagnostic.is_unclosed_string,
         })
     }
 
@@ -87,6 +90,7 @@ impl CompileError {
             end_location,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
+            is_unclosed_string: diagnostic.is_unclosed_string,
         })
     }
 
@@ -160,6 +164,7 @@ struct NormalizedParseDiagnostic {
     location: SourceLocation,
     end_location: SourceLocation,
     is_unclosed_bracket: bool,
+    is_unclosed_string: bool,
 }
 
 impl NormalizedParseDiagnostic {
@@ -173,6 +178,7 @@ impl NormalizedParseDiagnostic {
             location,
             end_location,
             is_unclosed_bracket: false,
+            is_unclosed_string: false,
         }
     }
 
@@ -182,11 +188,13 @@ impl NormalizedParseDiagnostic {
             diagnostic.range.start(),
             diagnostic.range.end(),
         );
-        Self::new(
+        let mut diagnostic_out = Self::new(
             parser::ParseErrorType::OtherError(diagnostic.message),
             location,
             end_location,
-        )
+        );
+        diagnostic_out.is_unclosed_string = diagnostic.is_unclosed_string;
+        diagnostic_out
     }
 
     const fn with_unclosed_bracket(mut self, is_unclosed_bracket: bool) -> Self {
@@ -202,6 +210,7 @@ impl NormalizedParseDiagnostic {
 struct CpythonDiagnostic {
     message: String,
     range: ruff_text_size::TextRange,
+    is_unclosed_string: bool,
 }
 
 impl CpythonDiagnostic {
@@ -216,7 +225,13 @@ impl CpythonDiagnostic {
                 TextSize::new(start as u32),
                 TextSize::new(end as u32),
             ),
+            is_unclosed_string: false,
         }
+    }
+
+    const fn with_unclosed_string(mut self) -> Self {
+        self.is_unclosed_string = true;
+        self
     }
 }
 
@@ -237,6 +252,8 @@ fn cpython_parse_diagnostic_override(
 
     source_error!(invalid_number_literal_error(source_text));
     source_error!(invalid_legacy_statement_error(source_text));
+    source_error!(incompatible_string_prefix_error(source_text));
+    source_error!(malformed_unicode_n_escape_error(source_text));
     source_error!(non_printable_character_error(source_text));
     source_error!(invalid_interpolated_string_error(source_text));
     source_error!(mixed_tstring_literal_error(error, source_text));
@@ -763,6 +780,20 @@ fn number_literal_end(bytes: &[u8], start: usize) -> Option<(&'static str, usize
         return Some(("imaginary", index + 1));
     }
     Some(("decimal", index))
+}
+
+fn quoted_string_is_closed(bytes: &[u8], start: usize) -> bool {
+    let quote = bytes[start];
+    let triple = bytes.get(start + 1) == Some(&quote) && bytes.get(start + 2) == Some(&quote);
+    let end = skip_quoted_string(bytes, start);
+    if triple {
+        end >= start + 6
+            && bytes[end - 3] == quote
+            && bytes[end - 2] == quote
+            && bytes[end - 1] == quote
+    } else {
+        end > start + 1 && bytes[end - 1] == quote
+    }
 }
 
 fn skip_quoted_string(bytes: &[u8], mut index: usize) -> usize {
@@ -1578,7 +1609,7 @@ fn invalid_parameter_list_slice_error(
                         name_end,
                     ));
                 }
-                index = name_end;
+                index = param_end;
             }
             b'(' if level == 0 => {
                 let close = matching_delimiter(bytes, index, b')')
@@ -3920,7 +3951,7 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
                         return Some(error);
                     }
                     let detected_line = if quote_size == 3 { line } else { start_line };
-                    return Some(CpythonDiagnostic::new(
+                    let diagnostic = CpythonDiagnostic::new(
                         unterminated_string_message(
                             detected_line,
                             quote_size == 3,
@@ -3929,7 +3960,12 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
                         ),
                         start,
                         start,
-                    ));
+                    );
+                    return Some(if index >= bytes.len() {
+                        diagnostic.with_unclosed_string()
+                    } else {
+                        diagnostic
+                    });
                 }
             }
             _ => index += 1,
@@ -4121,6 +4157,98 @@ fn interpolated_string_prefix(bytes: &[u8], quote: usize) -> Option<&'static str
     } else {
         "t-string"
     })
+}
+
+const MAXFSTRINGLEVEL: usize = 150;
+
+fn skip_string_token(bytes: &[u8], quote_index: usize) -> usize {
+    if interpolated_string_prefix(bytes, quote_index).is_some() {
+        interpolated_string_end(bytes, quote_index).unwrap_or(bytes.len())
+    } else {
+        skip_quoted_string(bytes, quote_index)
+    }
+}
+
+fn interpolated_string_end(bytes: &[u8], quote_index: usize) -> Option<usize> {
+    let quote = bytes[quote_index];
+    let triple =
+        bytes.get(quote_index + 1) == Some(&quote) && bytes.get(quote_index + 2) == Some(&quote);
+    let quote_len = if triple { 3 } else { 1 };
+    let mut index = quote_index + quote_len;
+    let mut brace_depth = 0usize;
+    while index < bytes.len() {
+        if brace_depth == 0 {
+            if bytes[index] == b'\\' {
+                index = (index + 2).min(bytes.len());
+                continue;
+            }
+            if triple
+                && bytes.get(index) == Some(&quote)
+                && bytes.get(index + 1) == Some(&quote)
+                && bytes.get(index + 2) == Some(&quote)
+            {
+                return Some(index + 3);
+            }
+            if !triple && bytes[index] == quote {
+                return Some(index + 1);
+            }
+            if bytes[index] == b'{' {
+                if bytes.get(index + 1) == Some(&b'{') {
+                    index += 2;
+                } else {
+                    brace_depth = 1;
+                    index += 1;
+                }
+            } else if bytes[index] == b'}' && bytes.get(index + 1) == Some(&b'}') {
+                index += 2;
+            } else {
+                index += 1;
+            }
+        } else {
+            match bytes[index] {
+                quote_ch @ (b'\'' | b'"') => {
+                    if quoted_string_is_closed(bytes, index) {
+                        index = skip_string_token(bytes, index).max(index + 1);
+                    } else if !triple && quote_ch == quote {
+                        return Some(index + 1);
+                    } else {
+                        index = skip_string_token(bytes, index).max(index + 1);
+                    }
+                }
+                b'#' => {
+                    while index < bytes.len() && bytes[index] != b'\n' {
+                        index += 1;
+                    }
+                }
+                b'{' => {
+                    brace_depth += 1;
+                    index += 1;
+                }
+                b'}' => {
+                    brace_depth -= 1;
+                    index += 1;
+                }
+                b'\\' => index = (index + 2).min(bytes.len()),
+                _ => index += 1,
+            }
+        }
+    }
+    None
+}
+
+fn quote_len_at(bytes: &[u8], quote_index: usize) -> usize {
+    let quote = bytes[quote_index];
+    if bytes.get(quote_index + 1) == Some(&quote) && bytes.get(quote_index + 2) == Some(&quote) {
+        3
+    } else {
+        1
+    }
+}
+
+fn interpolated_string_content_range(bytes: &[u8], quote_index: usize) -> Option<(usize, usize)> {
+    let end = interpolated_string_end(bytes, quote_index)?;
+    let quote_len = quote_len_at(bytes, quote_index);
+    Some((quote_index + quote_len, end - quote_len))
 }
 
 fn quoted_string_content_range(
@@ -4446,6 +4574,16 @@ fn replacement_field_error(
         ));
     }
 
+    if let Some(lambda_at) = top_level_lambda(bytes, expr_start, expr_end)
+        && lambda_allowed_at_expression_position(bytes, expr_start, lambda_at)
+    {
+        return Some(CpythonDiagnostic::new(
+            format!("{prefix}: lambda expressions are not allowed without parentheses"),
+            lambda_at,
+            lambda_at + b"lambda".len(),
+        ));
+    }
+
     if bytes[separator] == b':'
         && replacement_expression_has_parse_error(bytes, expr_start, separator)
     {
@@ -4516,6 +4654,65 @@ fn unterminated_string_in_replacement_field(
     None
 }
 
+fn top_level_lambda(bytes: &[u8], mut index: usize, end: usize) -> Option<usize> {
+    let mut level = 0usize;
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'#' => index = skip_replacement_field_comment(bytes, index, end),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' if level > 0 => {
+                level -= 1;
+                index += 1;
+            }
+            _ if level == 0 && starts_identifier(bytes, index, b"lambda") => {
+                return Some(index);
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// Unparenthesized `lambda` is allowed in the same places a `lambdef` can appear:
+/// at the start of the field or after a top-level comma.
+fn lambda_allowed_at_expression_position(bytes: &[u8], mut index: usize, lambda_at: usize) -> bool {
+    let mut after_comma = true;
+    let mut level = 0usize;
+    while index < lambda_at {
+        match bytes[index] {
+            b'\'' | b'"' => {
+                after_comma = false;
+                index = skip_quoted_string(bytes, index);
+            }
+            b'#' => index = skip_replacement_field_comment(bytes, index, lambda_at),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                after_comma = false;
+                index += 1;
+            }
+            b')' | b']' | b'}' if level > 0 => {
+                level -= 1;
+                after_comma = false;
+                index += 1;
+            }
+            b',' if level == 0 => {
+                after_comma = true;
+                index += 1;
+            }
+            b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' => index += 1,
+            _ => {
+                after_comma = false;
+                index += 1;
+            }
+        }
+    }
+    after_comma
+}
+
 fn replacement_expression_has_parse_error(bytes: &[u8], start: usize, end: usize) -> bool {
     let Ok(expression) = ::core::str::from_utf8(&bytes[start..end]) else {
         return false;
@@ -4549,6 +4746,9 @@ fn invalid_replacement_expression_start(bytes: &[u8], index: usize, end: usize) 
 
     if matches!(bytes[index], b'+' | b'-' | b'~') {
         let operand = skip_ascii_whitespace(bytes, index + 1, end);
+        if starts_identifier(bytes, operand, b"lambda") {
+            return true;
+        }
         return !bytes.get(operand).is_some_and(|byte| {
             *byte >= 0x80
                 || *byte == b'_'
@@ -5633,6 +5833,268 @@ fn invalid_parenthesized_import_star_error(source: &str) -> Option<CpythonDiagno
     None
 }
 
+fn prefix_letters_before_quote(
+    bytes: &[u8],
+    quote_index: usize,
+) -> Option<(usize, [u8; 3], usize)> {
+    let mut letters = [0u8; 3];
+    let mut count = 0;
+    let mut index = quote_index;
+    while index > 0 && count < 3 {
+        let byte = bytes[index - 1];
+        if !matches!(
+            byte,
+            b'r' | b'R' | b'b' | b'B' | b'u' | b'U' | b'f' | b'F' | b't' | b'T'
+        ) {
+            break;
+        }
+        letters[count] = byte.to_ascii_lowercase();
+        count += 1;
+        index -= 1;
+    }
+    if count == 0 {
+        return None;
+    }
+    if index > 0 && (bytes[index - 1] == b'_' || bytes[index - 1].is_ascii_alphabetic()) {
+        return None;
+    }
+    letters[..count].reverse();
+    Some((index, letters, count))
+}
+
+fn incompatible_string_prefix_error(source: &str) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => {
+                if let Some((start, letters, count)) = prefix_letters_before_quote(bytes, index)
+                    && let Some(message) = incompatible_prefix_message(&letters[..count])
+                {
+                    return Some(CpythonDiagnostic::new(message, start, start + 1));
+                }
+                index = skip_string_token(bytes, index);
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn incompatible_prefix_message(letters: &[u8]) -> Option<String> {
+    if letters.len() < 2 {
+        return None;
+    }
+    let mut seen_r = false;
+    let mut seen_b = false;
+    let mut seen_u = false;
+    let mut seen_f = false;
+    let mut seen_t = false;
+    for &letter in letters {
+        match letter {
+            b'r' if seen_r => return None,
+            b'b' if seen_b => return None,
+            b'u' if seen_u => return None,
+            b'f' if seen_f => return None,
+            b't' if seen_t => return None,
+            b'r' => seen_r = true,
+            b'b' => seen_b = true,
+            b'u' => seen_u = true,
+            b'f' => seen_f = true,
+            b't' => seen_t = true,
+            _ => {}
+        }
+    }
+    let pair = if seen_u && seen_r {
+        ("u", "r")
+    } else if seen_u && seen_b {
+        ("u", "b")
+    } else if seen_u && seen_f {
+        ("u", "f")
+    } else if seen_u && seen_t {
+        ("u", "t")
+    } else if seen_b && seen_f {
+        ("b", "f")
+    } else if seen_b && seen_t {
+        ("b", "t")
+    } else if seen_f && seen_t {
+        ("f", "t")
+    } else {
+        return None;
+    };
+    Some(format!(
+        "'{}' and '{}' prefixes are incompatible",
+        pair.0, pair.1
+    ))
+}
+
+fn malformed_unicode_n_escape_error(source: &str) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => {
+                let quote_index = index;
+                let interpolated = interpolated_string_prefix(bytes, quote_index).is_some();
+                let Some((content_start, content_end)) =
+                    quoted_string_content_range(bytes, quote_index, bytes[quote_index])
+                else {
+                    index = skip_quoted_string(bytes, quote_index);
+                    continue;
+                };
+                if let Some(error) = malformed_unicode_n_in_content(
+                    bytes,
+                    content_start,
+                    content_end,
+                    quote_index,
+                    interpolated,
+                ) {
+                    return Some(error);
+                }
+                index = skip_string_token(bytes, quote_index);
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn malformed_unicode_n_in_content(
+    bytes: &[u8],
+    start: usize,
+    end: usize,
+    quote_index: usize,
+    interpolated: bool,
+) -> Option<CpythonDiagnostic> {
+    let mut index = start;
+    let mut brace_depth = 0usize;
+    while index + 1 < end {
+        if interpolated && brace_depth == 0 && bytes[index] == b'{' {
+            if bytes.get(index + 1) == Some(&b'{') {
+                index += 2;
+                continue;
+            }
+            brace_depth = 1;
+            index += 1;
+            continue;
+        }
+        if interpolated && brace_depth > 0 {
+            match bytes[index] {
+                b'\'' | b'"' => index = skip_string_token(bytes, index).max(index + 1),
+                b'{' => {
+                    brace_depth += 1;
+                    index += 1;
+                }
+                b'}' => {
+                    brace_depth -= 1;
+                    index += 1;
+                }
+                _ => index += 1,
+            }
+            continue;
+        }
+        if bytes[index] == b'\\' && bytes[index + 1] == b'N' {
+            let escape_start = index;
+            if bytes.get(index + 2) == Some(&b'{') {
+                let mut look = index + 3;
+                while look < end && bytes[look] != b'}' {
+                    look += 1;
+                }
+                if look >= end {
+                    return Some(unicode_n_diagnostic(escape_start, end, start, quote_index));
+                }
+                index = look + 1;
+                continue;
+            }
+            return Some(unicode_n_diagnostic(
+                escape_start,
+                escape_start + 2,
+                start,
+                quote_index,
+            ));
+        }
+        if interpolated && bytes[index] == b'}' && bytes.get(index + 1) == Some(&b'}') {
+            index += 2;
+            continue;
+        }
+        index += 1;
+    }
+    None
+}
+
+fn unicode_n_diagnostic(
+    escape_start: usize,
+    escape_end: usize,
+    content_start: usize,
+    quote_index: usize,
+) -> CpythonDiagnostic {
+    let start = escape_start - content_start;
+    let end = escape_end.saturating_sub(content_start).saturating_sub(1);
+    CpythonDiagnostic::new(
+        format!(
+            "(unicode error) 'unicodeescape' codec can't decode bytes in position {start}-{end}: malformed \\N character escape"
+        ),
+        quote_index,
+        quote_index + 1,
+    )
+}
+
+fn too_many_nested_interpolated_strings(source: &str) -> Option<CpythonDiagnostic> {
+    too_many_nested_interpolated_strings_in(source.as_bytes(), 0, source.len(), 0)
+}
+
+fn too_many_nested_interpolated_strings_in(
+    bytes: &[u8],
+    mut index: usize,
+    end: usize,
+    depth: usize,
+) -> Option<CpythonDiagnostic> {
+    while index < end {
+        match bytes[index] {
+            b'#' => {
+                while index < end && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => {
+                if interpolated_string_prefix(bytes, index).is_some() {
+                    if depth + 1 >= MAXFSTRINGLEVEL {
+                        return Some(CpythonDiagnostic::new(
+                            "too many nested f-strings or t-strings".to_owned(),
+                            index,
+                            index + 1,
+                        ));
+                    }
+                    if let Some((content_start, content_end)) =
+                        interpolated_string_content_range(bytes, index)
+                        && let Some(error) = too_many_nested_interpolated_strings_in(
+                            bytes,
+                            content_start,
+                            content_end,
+                            depth + 1,
+                        )
+                    {
+                        return Some(error);
+                    }
+                }
+                index = skip_string_token(bytes, index).max(index + 1);
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
 fn too_many_nested_parentheses_error(source: &str) -> Option<CpythonDiagnostic> {
     const MAXLEVEL: usize = 200;
 
@@ -5727,6 +6189,9 @@ fn post_parse_source_error(
         return Some(error);
     }
     if let Some(error) = too_many_nested_parentheses_error(source_file.source_text()) {
+        return Some(CompileError::from_source_error(source_file, error));
+    }
+    if let Some(error) = too_many_nested_interpolated_strings(source_file.source_text()) {
         return Some(CompileError::from_source_error(source_file, error));
     }
     if let Some(error) =
@@ -6468,6 +6933,26 @@ mod tests {
     }
 
     #[test]
+    fn too_many_nested_fstrings_match_tokenizer_limit() {
+        fn nested(n: usize) -> String {
+            if n == 0 {
+                return "1+1".to_owned();
+            }
+            format!("f\"{{{}}}\"", nested(n - 1))
+        }
+
+        compile(&nested(149), Mode::Eval, "<nest>", CompileOpts::default())
+            .expect("149 nested f-strings should compile");
+        let err = compile(&nested(150), Mode::Eval, "<nest>", CompileOpts::default())
+            .expect_err("150 nested f-strings should fail");
+        assert!(
+            err.to_string()
+                .contains("too many nested f-strings or t-strings"),
+            "got {err}"
+        );
+    }
+
+    #[test]
     fn interpolated_string_diagnostics_match_cpython() {
         for (source, expected) in [
             ("f'{'", "f-string: expecting '}'"),
@@ -6566,6 +7051,29 @@ mod tests {
             ),
             ("f'{=a}'", "f-string: valid expression required before '='"),
             ("f'{!}'", "f-string: valid expression required before '!'"),
+            (
+                "f'{lambda x:x}'",
+                "f-string: lambda expressions are not allowed without parentheses",
+            ),
+            (
+                "f'{1, lambda:x}'",
+                "f-string: lambda expressions are not allowed without parentheses",
+            ),
+            (
+                "f'{+ lambda:None}'",
+                "f-string: expecting a valid expression after '{'",
+            ),
+            ("fu''", "'u' and 'f' prefixes are incompatible"),
+            ("fb''", "'b' and 'f' prefixes are incompatible"),
+            ("ufr''", "'u' and 'r' prefixes are incompatible"),
+            (
+                r"'\N'",
+                "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
+            ),
+            (
+                r"f'\N{'",
+                "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-2: malformed \\N character escape",
+            ),
         ] {
             let err = compile(source, Mode::Eval, "<interp>", CompileOpts::default())
                 .expect_err("should not compile");
