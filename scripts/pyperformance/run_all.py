@@ -455,22 +455,28 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     current_fingerprint = executable_fingerprint(target_python)
     fingerprint_path = out_dir / ".executable-fingerprint"
+    catalog_json = out_dir / "catalog.json"
     stale = (
         fingerprint_path.exists()
         and fingerprint_path.read_text().strip() != current_fingerprint
     )
-    fingerprint_path.write_text(current_fingerprint + "\n")
 
     all_results: dict[str, dict] = {}
-    catalog_json = out_dir / "catalog.json"
     if stale:
         log(
             f"target executable for label {label!r} changed since the last run; "
             "ignoring the existing catalog and re-running all benchmarks"
         )
+        # Persist the invalidated (empty) catalog before recording the new
+        # fingerprint below -- otherwise a crash between the two writes would
+        # leave a fingerprint that matches the *new* executable pointing at a
+        # catalog.json still full of results measured against the old one.
+        write_catalog([], out_dir, label)
     elif catalog_json.exists():
         for r in json.loads(catalog_json.read_text()):
             all_results[r["benchmark"]] = r
+
+    fingerprint_path.write_text(current_fingerprint + "\n")
 
     for bench in benchmarks:
         if bench in all_results and not args.force:
