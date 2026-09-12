@@ -32,14 +32,29 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            if (!fs.existsSync('diff.md') || !fs.existsSync('pr_number.txt')) {
-              core.info('No diff.md/pr_number.txt in this run; nothing to comment.');
+            if (!fs.existsSync('diff.md')) {
+              core.info('No diff.md in this run; nothing to comment.');
               return;
             }
 
-            const prNumber = parseInt(fs.readFileSync('pr_number.txt', 'utf8').trim(), 10);
-            const body = fs.readFileSync('diff.md', 'utf8');
             const marker = '<!-- pyperformance-local-diff -->';
+            const run = context.payload.workflow_run;
+            let prNumber = (run.pull_requests || []).map((pr) => pr.number)[0];
+            if (!prNumber) {
+              const { data } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: run.head_sha,
+              });
+              prNumber = data.find((pr) => pr.state === 'open')?.number;
+            }
+            if (!prNumber) {
+              core.info(`No open pull request for ${run.head_sha}; nothing to comment.`);
+              return;
+            }
+
+            const raw = fs.readFileSync('diff.md', 'utf8').slice(0, 60000);
+            const body = `${marker}\n\n${raw.replace(/<!--/g, '<!-​-')}`;
 
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
