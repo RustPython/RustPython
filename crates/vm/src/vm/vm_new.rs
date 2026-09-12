@@ -921,8 +921,7 @@ impl VirtualMachine {
         }
 
         let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;
-        let unterminated_triple_quoted_string =
-            msg.starts_with("unterminated triple-quoted string literal");
+        let unterminated_triple_quoted_string = msg.starts_with("unterminated triple-quoted");
         let unexpected_eof_error = msg == "unexpected EOF while parsing";
         if unterminated_triple_quoted_string
             && let Some(statement) = statement.as_mut()
