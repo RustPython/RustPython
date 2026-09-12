@@ -2,13 +2,13 @@
 
 */
 
-use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
+use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyIntRef, PyStrRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     frame::{FrameObject, FrameObjectRef, FrameOwner},
     function::PySetterValue,
-    types::Representable,
+    types::{Destructor, Representable},
 };
 use core::sync::atomic::Ordering::Relaxed;
 use num_traits::Zero;
@@ -780,10 +780,19 @@ impl Py<FrameObject> {
             FrameOwner::Generator => {
                 // Generator frame: check if suspended (lasti > 0 means
                 // FRAME_SUSPENDED). lasti == 0 means FRAME_CREATED and
-                // can be cleared.
+                // can be cleared. Finalize the owner so a never-started
+                // coroutine emits its never-awaited warning.
                 if self.lasti() != 0 {
                     return Err(vm.new_runtime_error("cannot clear a suspended frame"));
                 }
+                if let Some(owner) = self.iframe().generator.to_owned() {
+                    if let Some(coro) = owner.downcast_ref::<PyCoroutine>() {
+                        let _ = PyCoroutine::del(coro, vm);
+                    } else if let Some(async_gen) = owner.downcast_ref::<PyAsyncGen>() {
+                        let _ = PyAsyncGen::del(async_gen, vm);
+                    }
+                }
+                return Ok(());
             }
             FrameOwner::Thread => {
                 // Thread-owned frame: always executing, cannot clear.
