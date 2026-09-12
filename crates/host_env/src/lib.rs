@@ -93,6 +93,8 @@ pub mod overlapped;
 #[cfg(windows)]
 pub mod testconsole;
 #[cfg(windows)]
+pub mod uuid;
+#[cfg(windows)]
 pub mod winapi;
 #[cfg(windows)]
 pub mod winreg;

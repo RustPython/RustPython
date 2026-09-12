@@ -828,8 +828,6 @@ class CodecCallbackTest(unittest.TestCase):
                 self.assertEqual(exc.end, 2)
                 self.assertEqual(exc.object, input)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encode_unencodable_replacement(self):
         def unencrepl(exc):
             if isinstance(exc, UnicodeEncodeError):
@@ -1063,7 +1061,6 @@ class CodecCallbackTest(unittest.TestCase):
                 decoded = input.decode(enc, "test.bug36819")
                 self.assertEqual(decoded, 'abcdx' * 51)
 
-    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON")
     def test_encodehelper_bug36819(self):
         handler = RepeatedPosReturn()
         codecs.register_error("test.bug36819", handler.handle)
@@ -1133,8 +1130,6 @@ class CodecCallbackTest(unittest.TestCase):
             text = 'abc<def>ghi'*n
             text.translate(charmap)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mutatingdecodehandler(self):
         baddata = [
             ("ascii", b"\xff"),
@@ -1171,8 +1166,6 @@ class CodecCallbackTest(unittest.TestCase):
             self.assertEqual(data.decode(encoding, "test.mutating"), "\u4242")
 
     # issue32583
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_crashing_decode_handler(self):
         # better generating one more character to fill the extra space slot
         # so in debug build it can steadily fail
