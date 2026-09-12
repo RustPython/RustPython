@@ -163,6 +163,13 @@ impl Destructor for PyCoroutine {
             return Ok(());
         }
         if zelf.inner.frame().lasti() == 0 {
+            let name = zelf.inner.qualname();
+            let msg = format!("coroutine '{name}' was never awaited");
+            if let Err(e) =
+                crate::stdlib::_warnings::warn(vm.ctx.exceptions.runtime_warning, msg, 1, vm)
+            {
+                vm.run_unraisable(e, None, zelf.as_object().to_owned());
+            }
             zelf.inner.closed.store(true);
             return Ok(());
         }
