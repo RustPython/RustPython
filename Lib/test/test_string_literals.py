@@ -105,7 +105,6 @@ class TestLiterals(unittest.TestCase):
         self.assertRaises(SyntaxError, eval, r""" '\U000000' """)
         self.assertRaises(SyntaxError, eval, r""" '\U0000000' """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_eval_str_invalid_escape(self):
         for b in range(1, 128):
             if b in b"""\n\r"'01234567NU\\abfnrtuvx""":
@@ -147,7 +146,6 @@ class TestLiterals(unittest.TestCase):
         self.assertRegex(str(w[0].message), 'invalid escape sequence')
         self.assertEqual(w[0].filename, '<string>')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_eval_str_invalid_octal_escape(self):
         for i in range(0o400, 0o1000):
             with self.assertWarns(SyntaxWarning):
@@ -253,7 +251,6 @@ class TestLiterals(unittest.TestCase):
         self.assertEqual(exc.filename, '<string>')
         self.assertEqual(exc.lineno, 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_eval_bytes_invalid_octal_escape(self):
         for i in range(0o400, 0o1000):
             with self.assertWarns(SyntaxWarning):
