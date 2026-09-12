@@ -194,10 +194,11 @@ where
                     out.push_wtf8(replace.as_ref());
                     continue;
                 }
-                if surrogate != 0 && decode_direct(ch) {
-                    if let Some(cp) = CodePoint::from_u32(surrogate) {
-                        out.push(cp);
-                    }
+                if surrogate != 0
+                    && decode_direct(ch)
+                    && let Some(cp) = CodePoint::from_u32(surrogate)
+                {
+                    out.push(cp);
                 }
                 surrogate = 0;
                 if ch == b'-' {

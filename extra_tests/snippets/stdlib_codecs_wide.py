@@ -3,7 +3,7 @@
 assert "hi".encode("utf-16-le") == b"h\x00i\x00"
 assert "hi".encode("utf-16-be") == b"\x00h\x00i"
 assert b"h\x00i\x00".decode("utf-16-le") == "hi"
-assert b"\x00h\x00i\x00".decode("utf-16-be") == "hi"
+assert b"\x00h\x00i".decode("utf-16-be") == "hi"
 
 # BOM form: native utf-16 writes a BOM and decodes it back.
 assert "hi".encode("utf-16").decode("utf-16") == "hi"
