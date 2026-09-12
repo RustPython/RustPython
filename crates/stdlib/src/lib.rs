@@ -12,6 +12,8 @@ extern crate alloc;
 pub(crate) mod macros;
 
 mod _asyncio;
+#[path = "_decimal.rs"]
+mod _decimal;
 mod _remote_debugging;
 pub mod array;
 mod binascii;
@@ -22,6 +24,7 @@ mod cmath;
 mod compression; // internal module
 mod contextvars;
 mod csv;
+mod elementtree;
 
 mod lzma;
 
@@ -55,6 +58,7 @@ mod mmap;
 
 mod _heapq;
 mod _queue;
+mod pickle;
 mod pyexpat;
 mod pystruct;
 mod random;
@@ -188,6 +192,8 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         cmath::module_def(ctx),
         contextvars::module_def(ctx),
         csv::module_def(ctx),
+        _decimal::module_def(ctx),
+        elementtree::module_def(ctx),
         #[cfg(feature = "host_env")]
         faulthandler::module_def(ctx),
         #[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
@@ -231,6 +237,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             not(target_os = "android")
         ))]
         posixshmem::module_def(ctx),
+        pickle::module_def(ctx),
         pyexpat::module_def(ctx),
         pystruct::module_def(ctx),
         _heapq::module_def(ctx),

@@ -75,6 +75,9 @@ mod intern;
 pub mod iter;
 pub mod object;
 
+#[cfg(feature = "opcode-histogram")]
+pub mod opcode_histogram;
+
 #[cfg(feature = "host_env")]
 pub mod ospath;
 

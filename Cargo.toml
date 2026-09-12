@@ -11,7 +11,8 @@ license.workspace = true
 
 [features]
 capi = ["dep:rustpython-capi", "threading"]
-default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env"]
+default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env", "mimalloc"]
+mimalloc = ["dep:mimalloc"]
 host_env = ["rustpython-vm/host_env", "rustpython-stdlib?/host_env"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
@@ -20,6 +21,7 @@ stdlib = ["rustpython-stdlib", "rustpython-pylib", "encodings"]
 flame-it = ["rustpython-vm/flame-it", "rustpython-stdlib/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
+opcode-histogram = ["rustpython-vm/opcode-histogram"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 sqlite = ["rustpython-stdlib/sqlite"]
 ssl = ["host_env"]
@@ -55,6 +57,7 @@ libc = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = { workspace = true }
+mimalloc = { version = "0.1", optional = true, default-features = false }
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -170,6 +173,7 @@ rustpython-compiler-core = { path = "crates/compiler-core", version = "0.5.0" }
 rustpython-compiler = { path = "crates/compiler", version = "0.5.0" }
 rustpython-codegen = { path = "crates/codegen", version = "0.5.0" }
 rustpython-common = { path = "crates/common", version = "0.5.0" }
+rustpython-decimal = { path = "crates/decimal", version = "0.5.0" }
 rustpython-host_env = { path = "crates/host_env", version = "0.5.0" }
 rustpython-derive = { path = "crates/derive", version = "0.5.0" }
 rustpython-derive-impl = { path = "crates/derive-impl", version = "0.5.0" }

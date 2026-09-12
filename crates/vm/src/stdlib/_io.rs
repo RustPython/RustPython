@@ -611,7 +611,7 @@ mod _io {
     impl IterNext for _IOBase {
         fn slot_iternext(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let line = vm.call_method(zelf, "readline", ())?;
-            Ok(if !line.clone().try_to_bool(vm)? {
+            Ok(if !line.try_to_bool(vm)? {
                 PyIterReturn::StopIteration(None)
             } else {
                 PyIterReturn::Return(line)
@@ -2296,7 +2296,7 @@ mod _io {
         fn isatty(&self, vm: &VirtualMachine) -> PyResult {
             // read.isatty() or write.isatty()
             let res = self.read.isatty(vm)?;
-            if res.clone().try_to_bool(vm)? {
+            if res.try_to_bool(vm)? {
                 Ok(res)
             } else {
                 self.write.isatty(vm)
@@ -4146,7 +4146,7 @@ mod _io {
 
             let line = vm.call_method(zelf, "readline", ())?;
 
-            if !line.clone().try_to_bool(vm)? {
+            if !line.try_to_bool(vm)? {
                 // Restore telling on StopIteration
                 let mut textio = textio_ref.lock(vm)?;
                 textio.snapshot = None;

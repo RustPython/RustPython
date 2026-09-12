@@ -61,12 +61,18 @@ dictbytype
 DICTFLAG
 dictoffset
 distpoint
+dpower
 dynload
+echar
 elts
+Emax
+Emin
 eooh
 eofs
 EOOH
 esize
+Etiny
+Etop
 evalloop
 excepthandler
 exceptiontable
@@ -105,6 +111,7 @@ heaptype
 hexdigit
 HIGHRES
 ialloc
+iexp
 IFUNC
 IMMUTABLETYPE
 INCREF
@@ -114,6 +121,7 @@ inpos
 ioffset
 isbytecode
 ishidden
+islogical
 ismine
 ISPOINTER
 isoctal
@@ -127,6 +135,7 @@ kwonlyargs
 kwonlydefaults
 lasti
 libffi
+libmpdec
 linearise
 lineful
 lineiterator
@@ -145,6 +154,7 @@ mbstreamreader
 mbstreamwriter
 metavars
 miscompiles
+mshift
 mult
 multibytecodec
 mystricmp
@@ -223,6 +233,7 @@ retarget
 Rshift
 SA_ONSTACK
 saveall
+scaleb
 scls
 setdict
 setfunc
@@ -244,6 +255,7 @@ storefast
 stringlib
 stringized
 structseq
+strxc
 subkwargs
 subparams
 subscr
@@ -259,6 +271,7 @@ threadstate
 ticketer
 tmptype
 tok_oldval
+torot
 tstate
 tvars
 typeobject
@@ -294,3 +307,4 @@ xibufferview
 xstat
 XXPRIME
 ENOTCAPABLE
+yshift

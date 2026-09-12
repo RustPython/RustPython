@@ -552,7 +552,6 @@ class ElementTreeTest(unittest.TestCase):
                 '   <empty-element />\n'
                 '</root>')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parseliteral(self):
         element = ET.XML("<html><body>text</body></html>")
         self.assertEqual(ET.tostring(element, encoding='unicode'),
@@ -1587,7 +1586,6 @@ class XMLPullParserTest(unittest.TestCase):
         self.assertEqual([(action, elem.tag) for action, elem in events],
                          expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_xml(self, chunk_size=None, flush=False):
         parser = ET.XMLPullParser()
         self.assert_event_tags(parser, [])
@@ -1609,19 +1607,23 @@ class XMLPullParserTest(unittest.TestCase):
         self.assert_event_tags(parser, [('end', 'root')])
         self.assertIsNone(parser.close())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_xml_chunk_1(self):
+        self._skip_pure_python_flush()
         self.test_simple_xml(chunk_size=1, flush=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_xml_chunk_5(self):
+        self._skip_pure_python_flush()
         self.test_simple_xml(chunk_size=5, flush=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def _skip_pure_python_flush(self):
+        if is_python_implementation():
+            # TODO: RUSTPYTHON; the pure-Python XMLParser.flush() drives
+            # pyexpat's reparse deferral, which this pyexpat lacks.
+            self.skipTest("TODO: RUSTPYTHON")
+
     def test_simple_xml_chunk_22(self):
         self.test_simple_xml(chunk_size=22)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_feed_while_iterating(self):
         parser = ET.XMLPullParser()
         it = parser.read_events()
@@ -1634,7 +1636,6 @@ class XMLPullParserTest(unittest.TestCase):
         with self.assertRaises(StopIteration):
             next(it)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_xml_with_ns(self):
         parser = ET.XMLPullParser()
         self.assert_event_tags(parser, [])
@@ -1724,7 +1725,6 @@ class XMLPullParserTest(unittest.TestCase):
             ('end-ns', None),
         ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_events(self):
         parser = ET.XMLPullParser(events=())
         self._feed(parser, "<root/>\n")
@@ -1771,7 +1771,6 @@ class XMLPullParserTest(unittest.TestCase):
         self._feed(parser, "</root>")
         self.assertIsNone(parser.close())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_events_comment(self):
         parser = ET.XMLPullParser(events=('start', 'comment', 'end'))
         self._feed(parser, "<!-- text here -->\n")
@@ -2490,9 +2489,13 @@ class BugsTest(unittest.TestCase):
         self.assertIsInstance(e[0].tail, str)
         self.assertEqual(e[0].tail, 'changed')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lost_elem(self):
         # Issue #25902: Borrowed element can disappear
+        if is_python_implementation():
+            # TODO: RUSTPYTHON; only the _elementtree accelerator keeps the
+            # borrowed element alive here.
+            self.skipTest("TODO: RUSTPYTHON")
+
         class Tag:
             def __eq__(self, other):
                 e[0] = ET.Element('changed')
@@ -3150,13 +3153,17 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         self.assertEqual([c.tag for c in children[3:]],
                          [a.tag, b.tag, a.tag, b.tag])
 
-    @unittest.skip("TODO: RUSTPYTHON; stack overflow")
     @support.skip_if_unlimited_stack_size
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()
     def test_deeply_nested_deepcopy(self):
         # This should raise a RecursionError and not crash.
         # See https://github.com/python/cpython/issues/148801.
+        if is_python_implementation():
+            # TODO: RUSTPYTHON; only the _elementtree accelerator charges the
+            # copy to the recursion budget, so the pure-Python one still
+            # overflows the stack.
+            self.skipTest("TODO: RUSTPYTHON")
         root = cur = ET.Element('s')
         for _ in range(500_000):
             cur = ET.SubElement(cur, 'u')

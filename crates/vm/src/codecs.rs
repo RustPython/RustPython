@@ -325,6 +325,13 @@ impl CodecsRegistry {
         errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesRef> {
+        if let Some(b) =
+            Self::encode_fast(&obj, encoding, errors.as_deref(), vm).inspect_err(|exc| {
+                Self::add_codec_note(exc, "encoding", encoding, vm);
+            })?
+        {
+            return Ok(b);
+        }
         let codec = self._lookup_text_encoding(encoding, "codecs.encode()", vm)?;
         codec
             .encode(obj.into(), errors, vm)
@@ -372,6 +379,13 @@ impl CodecsRegistry {
         errors: Option<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
+        if let Some(s) =
+            Self::decode_fast(&obj, encoding, errors.as_deref(), vm).inspect_err(|exc| {
+                Self::add_codec_note(exc, "decoding", encoding, vm);
+            })?
+        {
+            return Ok(s);
+        }
         let codec = self._lookup_text_encoding(encoding, "codecs.decode()", vm)?;
         codec
             .decode(obj, errors, vm)
@@ -387,6 +401,90 @@ impl CodecsRegistry {
                     obj.class().name(),
                 ))
             })
+    }
+
+    /// Fast path for decoding with the "utf-8", "ascii" or "latin-1"
+    /// encodings (and their common aliases), used by `bytes.decode()` /
+    /// `str(bytes, encoding)`.
+    ///
+    /// CPython's `PyUnicode_Decode` special-cases a handful of built-in
+    /// encoding names -- these among them -- and decodes them directly in C
+    /// without ever consulting the codec registry, so a `codecs.register()`
+    /// override does not affect `str(b"...", "utf-8")` there either. This
+    /// mirrors that behavior, skipping the registry lookup, the
+    /// `_is_text_encoding` attribute probe, and the round trip through the
+    /// pure-Python `encodings.*.decode` wrapper and its 2-tuple result.
+    fn decode_fast(
+        obj: &PyObjectRef,
+        encoding: &str,
+        errors: Option<&Py<PyUtf8Str>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyStrRef>> {
+        let Some(fast) = FastCodec::classify(encoding) else {
+            return Ok(None);
+        };
+        let Ok(data) = ArgBytesLike::try_from_object(vm, obj.clone()) else {
+            return Ok(None);
+        };
+        let errors_handler = ErrorsHandler::new(errors, vm);
+        let (decoded, _consumed) = match fast {
+            FastCodec::Utf8 => {
+                let ctx = PyDecodeContext::new(DEFAULT_ENCODING, &data, vm);
+                crate::common::encodings::utf8::decode(ctx, &errors_handler, true)?
+            }
+            FastCodec::Ascii => {
+                let ctx =
+                    PyDecodeContext::new(crate::common::encodings::ascii::ENCODING_NAME, &data, vm);
+                crate::common::encodings::ascii::decode(ctx, &errors_handler)?
+            }
+            FastCodec::Latin1 => {
+                let ctx = PyDecodeContext::new(
+                    crate::common::encodings::latin_1::ENCODING_NAME,
+                    &data,
+                    vm,
+                );
+                crate::common::encodings::latin_1::decode(ctx, &errors_handler)?
+            }
+        };
+        Ok(Some(vm.ctx.new_str(decoded)))
+    }
+
+    /// Fast path for encoding with the "utf-8", "ascii" or "latin-1"
+    /// encodings (and their common aliases), used by `str.encode()` /
+    /// `bytes(s, encoding)`. See [`Self::decode_fast`] for the rationale.
+    fn encode_fast(
+        obj: &Py<PyStr>,
+        encoding: &str,
+        errors: Option<&Py<PyUtf8Str>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyBytesRef>> {
+        let Some(fast) = FastCodec::classify(encoding) else {
+            return Ok(None);
+        };
+        if fast == FastCodec::Utf8 && obj.is_utf8() {
+            // No surrogates in the string, so encoding is just its existing
+            // (already UTF-8) bytes, whatever the error handler is: it can
+            // never be reached since there's nothing to fail to encode.
+            return Ok(Some(vm.ctx.new_bytes(obj.as_bytes().to_vec())));
+        }
+        let errors_handler = ErrorsHandler::new(errors, vm);
+        let encoded = match fast {
+            FastCodec::Utf8 => {
+                let ctx = PyEncodeContext::new(DEFAULT_ENCODING, obj, vm);
+                crate::common::encodings::utf8::encode(ctx, &errors_handler)?
+            }
+            FastCodec::Ascii => {
+                let ctx =
+                    PyEncodeContext::new(crate::common::encodings::ascii::ENCODING_NAME, obj, vm);
+                crate::common::encodings::ascii::encode(ctx, &errors_handler)?
+            }
+            FastCodec::Latin1 => {
+                let ctx =
+                    PyEncodeContext::new(crate::common::encodings::latin_1::ENCODING_NAME, obj, vm);
+                crate::common::encodings::latin_1::encode(ctx, &errors_handler)?
+            }
+        };
+        Ok(Some(vm.ctx.new_bytes(encoded)))
     }
 
     fn add_codec_note(
@@ -429,6 +527,72 @@ impl CodecsRegistry {
     pub fn lookup_error(&self, name: &str, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         self.lookup_error_opt(name)
             .ok_or_else(|| vm.new_lookup_error(format!("unknown error handler name '{name}'")))
+    }
+}
+
+/// Encodings recognized by [`CodecsRegistry::decode_fast`] and
+/// [`CodecsRegistry::encode_fast`], covering the built-in encodings whose
+/// native (de)coders are cheap to call directly, bypassing the codec
+/// registry round trip. Matches the alias sets in `Lib/encodings/aliases.py`.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum FastCodec {
+    Utf8,
+    Ascii,
+    Latin1,
+}
+
+impl FastCodec {
+    fn classify(encoding: &str) -> Option<Self> {
+        const UTF8_ALIASES: &[&str] = &[
+            "utf_8",
+            "utf8",
+            "u8",
+            "utf",
+            "utf8_ucs2",
+            "utf8_ucs4",
+            "cp65001",
+        ];
+        const ASCII_ALIASES: &[&str] = &[
+            "ascii",
+            "646",
+            "ansi_x3.4_1968",
+            "ansi_x3_4_1968",
+            "ansi_x3.4_1986",
+            "cp367",
+            "csascii",
+            "ibm367",
+            "iso646_us",
+            "iso_646.irv_1991",
+            "iso_ir_6",
+            "us",
+            "us_ascii",
+        ];
+        const LATIN1_ALIASES: &[&str] = &[
+            "latin_1",
+            "8859",
+            "cp819",
+            "csisolatin1",
+            "ibm819",
+            "iso8859",
+            "iso8859_1",
+            "iso_8859_1",
+            "iso_8859_1_1987",
+            "iso_ir_100",
+            "l1",
+            "latin",
+            "latin1",
+        ];
+        let normalized = normalize_encoding_name(encoding);
+        let normalized = normalized.as_ref();
+        if UTF8_ALIASES.contains(&normalized) {
+            Some(Self::Utf8)
+        } else if ASCII_ALIASES.contains(&normalized) {
+            Some(Self::Ascii)
+        } else if LATIN1_ALIASES.contains(&normalized) {
+            Some(Self::Latin1)
+        } else {
+            None
+        }
     }
 }
 

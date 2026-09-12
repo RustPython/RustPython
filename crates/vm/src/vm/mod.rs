@@ -39,7 +39,7 @@ use crate::{
     frozen::FrozenModule,
     function::{ArgMapping, FuncArgs, PySetterValue},
     import,
-    protocol::PyIterIter,
+    protocol::{PyIterIter, PyIterReturn},
     scope::Scope,
     signal::{self, SignalHandlers},
     stdlib,
@@ -130,6 +130,19 @@ pub struct VirtualMachine {
     /// `SuspendedFrame`. Uses UnsafeCell because the VM is per-thread and this
     /// field is only accessed on the owning thread.
     pending_tailcall_owner: core::cell::UnsafeCell<Option<PyObjectRef>>,
+    /// Side channel for GenResume, the counterpart of `pending_tailcall_*`:
+    /// the bytecode loop parks the generator to resume, the value to send it
+    /// and what to do with its outcome here before returning
+    /// `ExecutionResult::GenResume`.
+    pending_gen_resume: core::cell::UnsafeCell<Option<PendingGenResume>>,
+    /// Reusable backing store for the trampoline's suspended-frame stack.
+    /// Trampoline invocations nest strictly LIFO, so each one owns the region
+    /// above the length it found on entry and truncates back to it on the way
+    /// out; reusing one allocation keeps a trampoline entry free of malloc,
+    /// which matters because a generator body enters one per resume.
+    /// UnsafeCell because the VM is per-thread and no reference into the Vec
+    /// is held across anything that could push to it.
+    trampoline_stack: core::cell::UnsafeCell<Vec<SuspendedFrame>>,
 }
 
 /// Non-owning frame pointer for the non-unix threading frames stack.
@@ -335,6 +348,7 @@ impl StopTheWorldState {
                     Err(THREAD_ATTACHED) => {
                         // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
                         slot.stop_requested.store(true, Ordering::Release);
+                        crate::signal::set_stop_bit();
                         // Raced with a thread re-attaching; it will self-suspend.
                         attached_seen = attached_seen.saturating_add(1);
                     }
@@ -355,6 +369,7 @@ impl StopTheWorldState {
             } else if state == THREAD_ATTACHED {
                 // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
                 slot.stop_requested.store(true, Ordering::Release);
+                crate::signal::set_stop_bit();
                 // Thread is in bytecode — it will see `requested` and self-suspend
                 attached_seen = attached_seen.saturating_add(1);
             }
@@ -538,6 +553,12 @@ impl StopTheWorldState {
         drop(registry);
         self.thread_countdown.store(0, Ordering::Release);
         self.requester.store(0, Ordering::Relaxed);
+        // Every non-requester thread's `stop_requested` was just cleared
+        // above, so the shared fast-path bit can be cleared too. Safe here
+        // (and only here / `reset_after_fork`) because both run under the
+        // single stop-the-world exclusion, released below, so no new
+        // requester can be setting the bit concurrently.
+        crate::signal::clear_stop_bit();
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_detached(state);
         // Release the exclusion last, ending the stop→start span so the next
@@ -553,6 +574,9 @@ impl StopTheWorldState {
         crate::common::lock::set_world_stopped(false);
         self.requester.store(0, Ordering::Relaxed);
         self.thread_countdown.store(0, Ordering::Relaxed);
+        // Only one thread survives fork; any stop-the-world bit inherited
+        // from the parent is stale.
+        crate::signal::clear_stop_bit();
         // The surviving child thread inherited the exclusion taken by the
         // pre-fork `stop_the_world`; release it (no start_the_world runs here).
         self.release_exclusion();
@@ -905,6 +929,13 @@ impl Clone for PendingFrame {
 unsafe impl Send for PendingFrame {}
 unsafe impl Sync for PendingFrame {}
 
+/// Saved state from `gen_frame_link`, needed by `gen_frame_unlink` to
+/// restore the previous frame chain and the frame's owner.
+pub(crate) struct GenFrameLink {
+    old_chain: *const crate::frame::InterpreterFrame,
+    old_owner: i8,
+}
+
 /// Saved state from `enter_iframe`, needed by `exit_iframe` to restore
 /// the previous frame chain and exception state.
 pub(crate) struct IframeEntryState {
@@ -914,21 +945,111 @@ pub(crate) struct IframeEntryState {
     pub(crate) save_exc: bool,
 }
 
+/// A generator or coroutine the bytecode loop asked the trampoline to resume.
+struct PendingGenResume {
+    /// The generator or coroutine object; an exact builtin one, neither
+    /// running nor closed when it was parked.
+    jen: PyObjectRef,
+    /// The value its `yield` produces.
+    value: PyObjectRef,
+    /// What the parking frame does with the outcome.
+    cont: crate::frame::GenCont,
+}
+
+/// Where a frame running under the trampoline came from, and therefore what
+/// the trampoline owes it when it finishes.
+///
+/// The trampoline is entered with one frame already running — `Entry` or
+/// `GenEntry` — and pushes one record per frame it enters itself.
+enum FrameKind {
+    /// The frame `run_frame_fast` was called with. Its caller allocated the
+    /// data stack storage and releases it, but the `enter_iframe`
+    /// bookkeeping is the trampoline's to undo.
+    Entry(IframeEntryState),
+    /// The body of a generator or coroutine, entered from `run_gen_frame`.
+    /// `resume_gen_frame` already linked it into the frame chain and will
+    /// unlink it, so the trampoline touches neither the bookkeeping nor the
+    /// storage; a `Yield` out of it is the trampoline's own result.
+    GenEntry,
+    /// A data stack frame the trampoline itself entered for a `TailCall`.
+    Callee(IframeEntryState),
+    /// A generator or coroutine frame the trampoline itself resumed for a
+    /// `GenResume`.
+    Gen(crate::coroutine::FlatResume),
+}
+
+impl FrameKind {
+    /// What a frame of this kind may hand back to the trampoline.
+    #[inline]
+    const fn flatten(&self) -> crate::frame::Flatten {
+        match self {
+            Self::Entry(_) | Self::Callee(_) => crate::frame::Flatten::CallAndGenResume,
+            Self::GenEntry | Self::Gen(_) => crate::frame::Flatten::GenResume,
+        }
+    }
+}
+
 /// Caller frame suspended by a TailCall in the trampoline.
 struct SuspendedFrame {
     iframe: *mut crate::frame::InterpreterFrame,
-    entry_state: IframeEntryState,
+    kind: FrameKind,
     /// Function that owns the callee's raw pointers (code, globals, builtins,
     /// closure, and func_obj). Moved from `vm.pending_tailcall_owner` when the
     /// callee's TailCall is consumed.
     /// Dropped as soon as this SuspendedFrame is popped — the callee has
     /// returned or raised and its frame is already released by then.
-    callee_owner: PyObjectRef,
-    /// True for the initial frame passed into the trampoline by the caller.
-    /// The caller owns the datastack allocation for the entry frame, so the
-    /// trampoline must NOT release it — only callee-allocated frames are
-    /// released here.
-    is_entry: bool,
+    callee_owner: Option<PyObjectRef>,
+    /// What this frame does with the outcome of the frame it entered.
+    /// `GenCont::NONE` for an ordinary call, whose return value is simply
+    /// pushed.
+    cont: crate::frame::GenCont,
+}
+
+// SAFETY: the VM is per-thread, and a suspended-frame record is pushed, read
+// and popped only on the thread that created it. The pointers it holds address
+// that thread's data stack or objects it keeps alive, and the shared stack is
+// empty whenever no trampoline is running on the thread — so a VM handed to
+// another thread carries no frame pointers with it.
+unsafe impl Send for SuspendedFrame {}
+// SAFETY: as above; no two threads ever reach the same record.
+unsafe impl Sync for SuspendedFrame {}
+
+/// What a finished frame hands back to the frame that entered it.
+enum Outcome {
+    /// A returned value, to push onto the caller's stack.
+    Value(PyObjectRef),
+    /// A resumed generator came to an end, with the `StopIteration` value it
+    /// ended on.
+    GenStop(Option<PyObjectRef>),
+    /// An exception, to feed into the caller's exception table.
+    Raise(PyBaseExceptionRef),
+}
+
+/// How a trampoline invocation begins.
+enum TrampolineStart {
+    /// The entry frame ran and handed this back.
+    Ran(PyResult<crate::frame::ExecutionResult>),
+    /// The entry frame is parked at a `yield from`; its delegate runs in its
+    /// place, and `cont` says what to do with what the delegate produces.
+    Delegating {
+        delegate: PyObjectRef,
+        value: PyObjectRef,
+        cont: crate::frame::GenCont,
+    },
+}
+
+/// What `trampoline_resume_gen` ended up with.
+enum GenEntered {
+    /// The generator at the bottom of the chain ran and produced `result`;
+    /// `state` and `iframe` are its own.
+    Ran {
+        iframe: *mut crate::frame::InterpreterFrame,
+        state: crate::coroutine::FlatResume,
+        result: PyResult<crate::frame::ExecutionResult>,
+    },
+    /// Nothing was entered: the generator was exhausted, or the resume itself
+    /// failed. The outcome belongs to the frame that asked for the resume.
+    Failed(Outcome),
 }
 
 /// Whether a sequence being built asks the iterable it was handed how much room
@@ -1086,6 +1207,8 @@ impl VirtualMachine {
             audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(None),
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
+            pending_gen_resume: core::cell::UnsafeCell::new(None),
+            trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -1560,6 +1683,60 @@ impl VirtualMachine {
             .expect("TailCall without pending owner")
     }
 
+    /// Park a generator for the trampoline to resume, along with the value
+    /// to send it and what this frame does with the outcome. The bytecode
+    /// loop then returns `ExecutionResult::GenResume`.
+    #[inline]
+    pub(crate) fn set_pending_gen_resume(
+        &self,
+        jen: PyObjectRef,
+        value: PyObjectRef,
+        cont: crate::frame::GenCont,
+    ) {
+        // SAFETY: per-thread VM; the slot is written here and taken by the
+        // trampoline before anything else can run.
+        let slot = unsafe { &mut *self.pending_gen_resume.get() };
+        debug_assert!(slot.is_none(), "pending GenResume was not consumed");
+        *slot = Some(PendingGenResume { jen, value, cont });
+    }
+
+    /// Take the parked generator resume, resetting the side channel.
+    #[inline]
+    fn take_pending_gen_resume(&self) -> PendingGenResume {
+        // SAFETY: per-thread VM; see `set_pending_gen_resume`.
+        unsafe { &mut *self.pending_gen_resume.get() }
+            .take()
+            .expect("GenResume without a parked generator")
+    }
+
+    /// Suspend a frame on the trampoline's shared stack.
+    #[inline]
+    fn trampoline_push(&self, frame: SuspendedFrame) {
+        // SAFETY: per-thread VM; no reference into the Vec outlives this call.
+        unsafe { (*self.trampoline_stack.get()).push(frame) }
+    }
+
+    /// Take back the innermost frame this trampoline invocation suspended, or
+    /// `None` once it has taken back all of them.
+    #[inline]
+    fn trampoline_pop(&self, base: usize) -> Option<SuspendedFrame> {
+        // SAFETY: per-thread VM; no reference into the Vec outlives this call.
+        let stack = unsafe { &mut *self.trampoline_stack.get() };
+        if stack.len() > base {
+            stack.pop()
+        } else {
+            None
+        }
+    }
+
+    /// How many frames the trampoline's shared stack holds; the base a nested
+    /// invocation must not pop below.
+    #[inline]
+    fn trampoline_depth(&self) -> usize {
+        // SAFETY: per-thread VM; no reference into the Vec outlives this call.
+        unsafe { (*self.trampoline_stack.get()).len() }
+    }
+
     /// Take the pending tailcall frame pointer, resetting the side channel.
     #[inline(always)]
     fn take_pending_tailcall(&self) -> *mut crate::frame::InterpreterFrame {
@@ -1570,23 +1747,33 @@ impl VirtualMachine {
             .as_ptr()
     }
 
-    #[inline(always)]
     /// Run a stack-allocated InterpreterFrame without heap allocation.
     /// Uses a trampoline loop to flatten Python-to-Python calls: when the
     /// bytecode loop returns `TailCall`, the trampoline swaps to the new
     /// frame without adding a Rust stack frame.
+    #[inline(always)]
     pub fn run_frame_fast(&self, iframe: &mut crate::frame::InterpreterFrame) -> PyResult {
         use crate::frame::ExecutionResult;
 
         let entry_state = self.enter_iframe(iframe)?;
-        let result = crate::frame::run_iframe(iframe, self);
+        let result =
+            crate::frame::run_iframe(iframe, crate::frame::Flatten::CallAndGenResume, self);
 
         match result {
             Ok(ExecutionResult::Return(value)) => {
                 self.exit_iframe(entry_state);
                 Ok(value)
             }
-            Ok(ExecutionResult::TailCall) => self.run_frame_fast_trampoline(iframe, entry_state),
+            Ok(first @ (ExecutionResult::TailCall | ExecutionResult::GenResume)) => {
+                match self.run_trampoline(
+                    iframe,
+                    FrameKind::Entry(entry_state),
+                    TrampolineStart::Ran(Ok(first)),
+                )? {
+                    ExecutionResult::Return(value) => Ok(value),
+                    _ => panic!("non-return result from a plain call frame"),
+                }
+            }
             Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
             Err(exc) => {
                 self.exit_iframe(entry_state);
@@ -1595,250 +1782,372 @@ impl VirtualMachine {
         }
     }
 
-    /// Cold path: at least one TailCall was issued. Run the trampoline.
+    /// Run the body of a generator or coroutine whose frame is already linked
+    /// into the frame chain (see `resume_gen_frame`), flattening the ordinary
+    /// Python calls it makes through the same trampoline `run_frame_fast`
+    /// uses.
+    ///
+    /// The frame is heap-resident and its resume bookkeeping belongs to the
+    /// caller, so the trampoline neither enters nor exits it and hands back
+    /// its `Yield` unchanged.
+    #[inline(always)]
+    pub(crate) fn run_gen_frame(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+    ) -> PyResult<ExecutionResult> {
+        match crate::frame::run_iframe(iframe, crate::frame::Flatten::GenResume, self) {
+            Ok(first @ (ExecutionResult::TailCall | ExecutionResult::GenResume)) => {
+                self.run_trampoline(iframe, FrameKind::GenEntry, TrampolineStart::Ran(Ok(first)))
+            }
+            result => result,
+        }
+    }
+
+    /// Resume a generator body that is itself parked at a `yield from`, by
+    /// running its delegate in its place — the same collapse the trampoline
+    /// applies to the levels below, extended to the outermost one, which is
+    /// where every `Coro::send` from Rust (asyncio's task step, `next()`)
+    /// enters a chain.
+    #[inline(always)]
+    pub(crate) fn run_gen_frame_delegating(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        delegate: PyObjectRef,
+        value: PyObjectRef,
+        cont: crate::frame::GenCont,
+    ) -> PyResult<ExecutionResult> {
+        self.run_trampoline(
+            iframe,
+            FrameKind::GenEntry,
+            TrampolineStart::Delegating {
+                delegate,
+                value,
+                cont,
+            },
+        )
+    }
+
+    /// Run a frame under the trampoline the way its kind calls for: an
+    /// ordinary frame may tail-call, a generator body may not.
+    #[inline(always)]
+    fn trampoline_run(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        kind: &FrameKind,
+    ) -> PyResult<ExecutionResult> {
+        crate::frame::run_iframe(iframe, kind.flatten(), self)
+    }
+
+    /// Free a callee frame's data stack storage, if it still owns any.
+    #[inline]
+    fn release_trampoline_callee(&self, iframe: *mut crate::frame::InterpreterFrame) {
+        // SAFETY: the callee has finished; its storage is the top of this
+        // thread's data stack because frames are released in LIFO order.
+        unsafe {
+            if let Some((base, size)) = (*iframe).release_datastack_frame() {
+                self.datastack_pop_frame(base, size);
+            }
+        }
+    }
+
+    /// Resume a generator parked for the trampoline, walking straight down a
+    /// `yield from` / `await` chain: every frame it finds suspended at a
+    /// `yield from` whose delegate can be resumed is parked without running an
+    /// instruction of its own, and the value is handed a level further down.
+    ///
+    /// Each level is still claimed, linked and (later) unlinked exactly as a
+    /// recursive `Coro::send` would, so `gi_running`, `f_back`, `gi_frame`,
+    /// tracebacks and `sys._getframe` see the same chain; only the frames'
+    /// `SEND`/`YIELD_VALUE`/`RESUME`/`JUMP_BACKWARD` dispatch is skipped,
+    /// which is what [`crate::frame::yield_from_delegate`] proves redundant.
+    fn trampoline_resume_gen(&self, jen: PyObjectRef, value: PyObjectRef) -> GenEntered {
+        use crate::coroutine::FlatEnter;
+
+        let mut jen = jen;
+        let mut value = value;
+        loop {
+            let (state, sent) = match crate::coroutine::flat_resume_enter(jen, value, self) {
+                Ok(FlatEnter::Entered { state, value }) => (state, value),
+                Ok(FlatEnter::Exhausted) => {
+                    return GenEntered::Failed(Outcome::GenStop(None));
+                }
+                Err(exc) => return GenEntered::Failed(Outcome::Raise(exc)),
+            };
+            let iframe = state.iframe_ptr();
+            // SAFETY: the frame is linked and claimed, so this thread is its
+            // only executor for as long as the record below lives.
+            let frame = unsafe { &mut *iframe };
+            if let Some(sent) = sent {
+                if let Some((delegate, cont)) = crate::frame::yield_from_delegate(frame, self)
+                    && crate::frame::gen_collapse_allowed(self)
+                {
+                    crate::frame::park_at_send(frame, cont);
+                    self.trampoline_push(SuspendedFrame {
+                        iframe,
+                        kind: FrameKind::Gen(state),
+                        callee_owner: None,
+                        cont,
+                    });
+                    jen = delegate;
+                    value = sent;
+                    continue;
+                }
+                frame.localsplus.push_stack(sent);
+            }
+            return GenEntered::Ran {
+                iframe,
+                state,
+                result: crate::frame::run_iframe(frame, crate::frame::Flatten::GenResume, self),
+            };
+        }
+    }
+
+    /// Unlink a generator frame that has finished a resume and turn what it
+    /// produced into the outcome its caller is waiting for.
+    fn trampoline_finish_gen(
+        &self,
+        state: crate::coroutine::FlatResume,
+        result: PyResult<ExecutionResult>,
+    ) -> Outcome {
+        match crate::coroutine::flat_resume_exit(state, result, self) {
+            Ok(PyIterReturn::Return(value)) => Outcome::Value(value),
+            Ok(PyIterReturn::StopIteration(value)) => Outcome::GenStop(value),
+            Err(exc) => Outcome::Raise(exc),
+        }
+    }
+
+    /// Cold path: the entry frame handed something to the trampoline. Run it.
     /// All frame dispatch happens in this single loop — no mutual recursion
     /// between helper functions, so C stack depth is bounded.
     #[cold]
     #[inline(never)]
-    fn run_frame_fast_trampoline(
+    fn run_trampoline(
         &self,
-        iframe: &mut crate::frame::InterpreterFrame,
-        entry_state: IframeEntryState,
-    ) -> PyResult {
+        iframe: *mut crate::frame::InterpreterFrame,
+        kind: FrameKind,
+        start: TrampolineStart,
+    ) -> PyResult<ExecutionResult> {
         use crate::frame::ExecutionResult;
 
-        let mut frame_stack: Vec<SuspendedFrame> = Vec::with_capacity(8);
-
-        // What we need to do next.
+        /// What the loop does next. Deliberately small, and holding no frame
+        /// state: every ordinary Python-to-Python call passes through here.
         enum Action {
-            /// Enter and run a new callee frame (pointer from pending_tailcall_frame).
+            /// Enter and run the data stack frame a `TailCall` prepared.
             EnterCallee(*mut crate::frame::InterpreterFrame),
-            /// Push a return value onto the next caller and re-enter it.
-            ReturnValue(PyObjectRef),
-            /// Propagate an exception through suspended callers.
-            Unwind(PyBaseExceptionRef),
+            /// Resume the generator a `GenResume` parked, walking down its
+            /// `yield from` chain.
+            ResumeGen {
+                jen: PyObjectRef,
+                value: PyObjectRef,
+            },
+            /// Hand an outcome to the frame on top of the trampoline's stack.
+            Deliver(Outcome),
         }
 
-        let initial_ptr = self.take_pending_tailcall();
-        let initial_owner = self.take_pending_tailcall_owner();
-        frame_stack.push(SuspendedFrame {
-            iframe: iframe as *mut crate::frame::InterpreterFrame,
-            entry_state,
-            callee_owner: initial_owner,
-            is_entry: true,
-        });
-        let mut action = Action::EnterCallee(initial_ptr);
+        // Frames this invocation suspends live above `base` on the VM's
+        // shared trampoline stack, reused across invocations so that entering
+        // the trampoline — which a generator body does on every resume —
+        // costs no allocation. Every exit below has already popped them.
+        let base = self.trampoline_depth();
 
-        loop {
-            match action {
-                Action::EnterCallee(callee_ptr) => {
-                    let callee = unsafe { &mut *callee_ptr };
-                    let callee_entry = match self.enter_iframe_unchecked(callee) {
-                        Ok(state) => state,
-                        Err(exc) => {
-                            unsafe {
-                                if let Some((base, size)) = callee.release_datastack_frame() {
-                                    self.datastack_pop_frame(base, size);
-                                }
-                            }
-                            action = Action::Unwind(exc);
-                            continue;
-                        }
-                    };
-
-                    let result = crate::frame::run_iframe(callee, self);
-                    match result {
-                        Ok(ExecutionResult::TailCall) => {
-                            let callee_owner = self.take_pending_tailcall_owner();
-                            frame_stack.push(SuspendedFrame {
-                                iframe: callee_ptr,
-                                entry_state: callee_entry,
-                                callee_owner,
-                                is_entry: false,
-                            });
-                            action = Action::EnterCallee(self.take_pending_tailcall());
-                        }
-                        Ok(ExecutionResult::Return(value)) => {
-                            self.exit_iframe(callee_entry);
-                            unsafe {
-                                if let Some((base, size)) = callee.release_datastack_frame() {
-                                    self.datastack_pop_frame(base, size);
-                                }
-                            }
-                            action = Action::ReturnValue(value);
-                        }
-                        Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
-                        Err(exc) => {
-                            self.exit_iframe(callee_entry);
-                            unsafe {
-                                if let Some((base, size)) = callee.release_datastack_frame() {
-                                    self.datastack_pop_frame(base, size);
-                                }
-                            }
-                            action = Action::Unwind(exc);
-                        }
+        // Turn what a frame produced into the next `Action`, suspending the
+        // frame if it wants to enter another and unlinking it if it is done.
+        // A finished entry frame returns out of the trampoline.
+        macro_rules! dispatch {
+            ($iframe:expr, $kind:expr, $result:expr) => {{
+                let iframe = $iframe;
+                let kind = $kind;
+                match $result {
+                    Ok(ExecutionResult::TailCall) => {
+                        let callee_owner = self.take_pending_tailcall_owner();
+                        let callee_ptr = self.take_pending_tailcall();
+                        self.trampoline_push(SuspendedFrame {
+                            iframe,
+                            kind,
+                            callee_owner: Some(callee_owner),
+                            cont: crate::frame::GenCont::NONE,
+                        });
+                        Action::EnterCallee(callee_ptr)
                     }
-                }
-
-                Action::ReturnValue(value) => {
-                    let Some(caller) = frame_stack.pop() else {
-                        // All frames consumed — this is the final return.
-                        return Ok(value);
-                    };
-                    let SuspendedFrame {
-                        iframe: caller_iframe_ptr,
-                        entry_state: caller_entry,
-                        callee_owner,
-                        is_entry: caller_is_entry,
-                    } = caller;
-                    // The callee's frame was released before this action was
-                    // formed, and a materialized frame object holds its own
-                    // references, so nothing borrows the callee's function any
-                    // more. Release it here, at the callee's return, rather than
-                    // holding it across the caller's next stretch of bytecode.
-                    drop(callee_owner);
-                    let caller_iframe = unsafe { &mut *caller_iframe_ptr };
-                    caller_iframe.localsplus.push_stack(value);
-
-                    let result = crate::frame::run_iframe(caller_iframe, self);
-                    match result {
-                        Ok(ExecutionResult::TailCall) => {
-                            let next_callee_owner = self.take_pending_tailcall_owner();
-                            frame_stack.push(SuspendedFrame {
-                                iframe: caller_iframe_ptr,
-                                entry_state: caller_entry,
-                                callee_owner: next_callee_owner,
-                                is_entry: caller_is_entry,
-                            });
-                            action = Action::EnterCallee(self.take_pending_tailcall());
-                        }
-                        Ok(ExecutionResult::Return(value)) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
-                            }
-                            action = Action::ReturnValue(value);
-                        }
-                        Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
-                        Err(exc) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
-                            }
-                            action = Action::Unwind(exc);
-                        }
+                    Ok(ExecutionResult::GenResume) => {
+                        let PendingGenResume { jen, value, cont } = self.take_pending_gen_resume();
+                        // The generator owns its own frame and everything the
+                        // frame borrows, so this record needs no callee owner.
+                        self.trampoline_push(SuspendedFrame {
+                            iframe,
+                            kind,
+                            callee_owner: None,
+                            cont,
+                        });
+                        Action::ResumeGen { jen, value }
                     }
-                }
-
-                Action::Unwind(exc) => {
-                    let Some(caller) = frame_stack.pop() else {
-                        return Err(exc);
-                    };
-                    let SuspendedFrame {
-                        iframe: caller_iframe_ptr,
-                        entry_state: caller_entry,
-                        callee_owner,
-                        is_entry: caller_is_entry,
-                    } = caller;
-                    // Released at the callee's return, for the same reason as
-                    // in `ReturnValue`: the exception carries owned references
-                    // through its traceback, not borrows into the callee frame.
-                    drop(callee_owner);
-                    let caller_iframe = unsafe { &mut *caller_iframe_ptr };
-
-                    let handled =
-                        crate::frame::trampoline_handle_exception(caller_iframe, &exc, self);
-
-                    match handled {
-                        Ok(None) => {
-                            // Handler found — resume the caller's dispatch loop.
-                            let result = crate::frame::run_iframe(caller_iframe, self);
+                    // The frame is done; undo the entry bookkeeping its kind
+                    // calls for and hand its outcome on.
+                    result => match kind {
+                        FrameKind::GenEntry => {
+                            debug_assert_eq!(self.trampoline_depth(), base);
+                            return result;
+                        }
+                        FrameKind::Entry(state) => {
+                            debug_assert_eq!(self.trampoline_depth(), base);
+                            self.exit_iframe(state);
+                            return match result {
+                                Ok(ExecutionResult::Yield(_)) => {
+                                    panic!("Yield in non-generator frame")
+                                }
+                                result => result,
+                            };
+                        }
+                        FrameKind::Callee(state) => {
+                            self.exit_iframe(state);
+                            self.release_trampoline_callee(iframe);
                             match result {
-                                Ok(ExecutionResult::TailCall) => {
-                                    let next_callee_owner = self.take_pending_tailcall_owner();
-                                    frame_stack.push(SuspendedFrame {
-                                        iframe: caller_iframe_ptr,
-                                        entry_state: caller_entry,
-                                        callee_owner: next_callee_owner,
-                                        is_entry: caller_is_entry,
-                                    });
-                                    action = Action::EnterCallee(self.take_pending_tailcall());
-                                }
                                 Ok(ExecutionResult::Return(value)) => {
-                                    self.exit_iframe(caller_entry);
-                                    if !caller_is_entry {
-                                        unsafe {
-                                            if let Some((base, size)) =
-                                                caller_iframe.release_datastack_frame()
-                                            {
-                                                self.datastack_pop_frame(base, size);
-                                            }
-                                        }
-                                    }
-                                    action = Action::ReturnValue(value);
+                                    Action::Deliver(Outcome::Value(value))
                                 }
                                 Ok(ExecutionResult::Yield(_)) => {
                                     panic!("Yield in non-generator frame")
                                 }
-                                Err(new_exc) => {
-                                    self.exit_iframe(caller_entry);
-                                    if !caller_is_entry {
-                                        unsafe {
-                                            if let Some((base, size)) =
-                                                caller_iframe.release_datastack_frame()
-                                            {
-                                                self.datastack_pop_frame(base, size);
-                                            }
-                                        }
-                                    }
-                                    action = Action::Unwind(new_exc);
-                                }
+                                Ok(_) => unreachable!("unfinished frame result"),
+                                Err(exc) => Action::Deliver(Outcome::Raise(exc)),
                             }
                         }
-                        Ok(Some(ExecutionResult::Return(value))) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
-                            }
-                            action = Action::ReturnValue(value);
+                        FrameKind::Gen(state) => {
+                            Action::Deliver(self.trampoline_finish_gen(state, result))
                         }
-                        Ok(Some(_)) => {
-                            panic!("Unexpected execution result in trampoline unwind")
+                    },
+                }
+            }};
+        }
+
+        let mut action = match start {
+            TrampolineStart::Ran(result) => dispatch!(iframe, kind, result),
+            TrampolineStart::Delegating {
+                delegate,
+                value,
+                cont,
+            } => {
+                self.trampoline_push(SuspendedFrame {
+                    iframe,
+                    kind,
+                    callee_owner: None,
+                    cont,
+                });
+                Action::ResumeGen {
+                    jen: delegate,
+                    value,
+                }
+            }
+        };
+
+        loop {
+            action = match action {
+                Action::EnterCallee(callee_ptr) => {
+                    // SAFETY: the callee frame was just allocated on this
+                    // thread's data stack, and nothing has popped it.
+                    let callee = unsafe { &mut *callee_ptr };
+                    match self.enter_iframe_unchecked(callee) {
+                        Ok(state) => {
+                            let result = crate::frame::run_iframe(
+                                callee,
+                                crate::frame::Flatten::CallAndGenResume,
+                                self,
+                            );
+                            dispatch!(callee_ptr, FrameKind::Callee(state), result)
                         }
-                        Err(new_exc) => {
-                            self.exit_iframe(caller_entry);
-                            if !caller_is_entry {
-                                unsafe {
-                                    if let Some((base, size)) =
-                                        caller_iframe.release_datastack_frame()
-                                    {
-                                        self.datastack_pop_frame(base, size);
-                                    }
-                                }
-                            }
-                            action = Action::Unwind(new_exc);
+                        Err(exc) => {
+                            self.release_trampoline_callee(callee_ptr);
+                            Action::Deliver(Outcome::Raise(exc))
                         }
                     }
                 }
-            }
+
+                Action::ResumeGen { jen, value } => match self.trampoline_resume_gen(jen, value) {
+                    GenEntered::Ran {
+                        iframe,
+                        state,
+                        result,
+                    } => dispatch!(iframe, FrameKind::Gen(state), result),
+                    GenEntered::Failed(outcome) => Action::Deliver(outcome),
+                },
+
+                Action::Deliver(outcome) => {
+                    // Every frame the trampoline enters is entered from a
+                    // frame it has already suspended, so an outcome always has
+                    // a caller waiting for it.
+                    let SuspendedFrame {
+                        iframe,
+                        kind,
+                        callee_owner,
+                        cont,
+                    } = self
+                        .trampoline_pop(base)
+                        .expect("trampoline outcome with no frame to deliver it to");
+                    // The callee's frame was released before this outcome was
+                    // formed, and a materialized frame object holds its own
+                    // references, so nothing borrows the callee's function any
+                    // more. Release it here, at the callee's return, rather
+                    // than holding it across the caller's next stretch of
+                    // bytecode.
+                    drop(callee_owner);
+                    // SAFETY: a suspended caller's frame stays alive and
+                    // unmoved until it is resumed here.
+                    let frame = unsafe { &mut *iframe };
+                    match outcome {
+                        // A frame parked mid `yield from` re-yields what its
+                        // delegate produced, running no instruction of its own.
+                        Outcome::Value(value)
+                            if cont.is_some() && crate::frame::gen_collapse_allowed(self) =>
+                        {
+                            crate::frame::park_after_yield_from(frame, cont.resumed_at);
+                            match kind {
+                                FrameKind::Gen(state) => {
+                                    Action::Deliver(self.trampoline_finish_gen(
+                                        state,
+                                        Ok(ExecutionResult::Yield(value)),
+                                    ))
+                                }
+                                // The entry frame re-yields the same way, which
+                                // ends this invocation: its resume bookkeeping
+                                // is its caller's, not the trampoline's.
+                                kind => {
+                                    debug_assert!(matches!(kind, FrameKind::GenEntry));
+                                    debug_assert_eq!(self.trampoline_depth(), base);
+                                    return Ok(ExecutionResult::Yield(value));
+                                }
+                            }
+                        }
+                        Outcome::Value(value) => {
+                            frame.localsplus.push_stack(value);
+                            let result = self.trampoline_run(frame, &kind);
+                            dispatch!(iframe, kind, result)
+                        }
+                        Outcome::GenStop(value) => {
+                            debug_assert!(
+                                cont.is_some(),
+                                "a generator finished with no continuation to apply"
+                            );
+                            let result =
+                                match crate::frame::trampoline_gen_stop(frame, value, cont, self) {
+                                    Ok(()) => self.trampoline_run(frame, &kind),
+                                    Err(exc) => Err(exc),
+                                };
+                            dispatch!(iframe, kind, result)
+                        }
+                        Outcome::Raise(exc) => {
+                            let result = match crate::frame::trampoline_handle_exception(
+                                frame, &exc, self,
+                            ) {
+                                // Handler found — resume the caller's loop.
+                                Ok(None) => self.trampoline_run(frame, &kind),
+                                Ok(Some(result)) => Ok(result),
+                                Err(exc) => Err(exc),
+                            };
+                            dispatch!(iframe, kind, result)
+                        }
+                    }
+                }
+            };
         }
     }
 
@@ -2473,24 +2782,37 @@ impl VirtualMachine {
         }
     }
 
-    /// FrameObject execution for generator/coroutine resume.
-    /// Pushes a new exc_info slot (gi_exc_state) onto the chain,
-    /// linking the generator's saved handled-exception.
-    pub fn resume_gen_frame<R, F: FnOnce(&Py<FrameObject>) -> PyResult<R>>(
+    /// Push a generator or coroutine frame onto this thread's frame chain,
+    /// the half of a resume that runs before the frame does.
+    ///
+    /// In order: the recursion and C-stack checks, the thread-frames entry,
+    /// the current-frame and `previous` links, an extra handled-exception
+    /// slot (`gi_exc_state`) holding `exc`, and the owner swap to `Thread`.
+    /// `gen_frame_unlink` undoes exactly these, in reverse.
+    ///
+    /// Two callers drive this pair: `resume_gen_frame`, which brackets a
+    /// recursive `ExecutingFrame::run`, and the trampoline, which resumes a
+    /// generator inside the delegating frame's own eval loop and so calls the
+    /// halves one step apart (see `coroutine::flat_resume_enter`). Anything
+    /// added here has to hold for both, so keep the two calls balanced and
+    /// leave the rest of a resume — the running claim, the sent value, the
+    /// closed flag — to `Coro`, which is where it is shared.
+    #[inline(always)]
+    pub(crate) fn gen_frame_link(
         &self,
-        frame: &FrameObjectRef,
+        frame: &Py<FrameObject>,
         exc: Option<PyBaseExceptionRef>,
-        f: F,
-    ) -> PyResult<R> {
+    ) -> PyResult<GenFrameLink> {
         self.check_recursive_call("")?;
         if self.check_c_stack_overflow() {
             return Err(self.new_recursion_error(String::new()));
         }
         self.recursion_depth.update(|d| d + 1);
 
-        // SAFETY: frame (&FrameObjectRef) stays alive for the duration, so NonNull is valid until pop.
+        // SAFETY: the caller holds the frame alive for as long as it is
+        // linked, so NonNull is valid until the matching unlink pops it.
         #[cfg(all(not(unix), feature = "threading"))]
-        crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
+        crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(frame)));
         let iframe = frame.iframe() as *const crate::frame::InterpreterFrame;
         let old_chain = crate::vm::thread::set_current_frame(iframe);
         {
@@ -2507,27 +2829,66 @@ impl VirtualMachine {
             crate::frame::FrameOwner::Thread as i8,
             core::sync::atomic::Ordering::AcqRel,
         );
+        Ok(GenFrameLink {
+            old_chain,
+            old_owner,
+        })
+    }
 
-        // Ensure cleanup on panic: restore owner, pop exc_info slot, frame chain,
-        // frames Vec, and recursion depth.
-        scopeguard::defer! {
-            frame.iframe().owner.store(old_owner, core::sync::atomic::Ordering::Release);
-            self.pop_exception();
-            // Clear previous before popping — it may point to a stack-allocated
-            // iframe that will be freed when the caller releases its frame.
-            {
-                #[allow(unused_imports)]
-                use rustpython_common::atomic::Radium;
-                frame.iframe().previous.store(0, core::sync::atomic::Ordering::Relaxed);
-            }
-            let _ = crate::vm::thread::set_current_frame(old_chain);
-            #[cfg(all(not(unix), feature = "threading"))]
-            crate::vm::thread::pop_thread_frame();
-
-            self.recursion_depth.update(|d| d - 1);
+    /// Pop a generator or coroutine frame off this thread's frame chain,
+    /// undoing `gen_frame_link` step for step.
+    #[inline(always)]
+    pub(crate) fn gen_frame_unlink(&self, frame: &Py<FrameObject>, link: GenFrameLink) {
+        frame
+            .iframe()
+            .owner
+            .store(link.old_owner, core::sync::atomic::Ordering::Release);
+        self.pop_exception();
+        // Clear previous before popping — it may point to a stack-allocated
+        // iframe that will be freed when the caller releases its frame.
+        {
+            #[allow(unused_imports)]
+            use rustpython_common::atomic::Radium;
+            frame
+                .iframe()
+                .previous
+                .store(0, core::sync::atomic::Ordering::Relaxed);
         }
+        let _ = crate::vm::thread::set_current_frame(link.old_chain);
+        #[cfg(all(not(unix), feature = "threading"))]
+        crate::vm::thread::pop_thread_frame();
+        self.recursion_depth.update(|d| d - 1);
+    }
 
-        self.dispatch_traced_frame(frame, |frame| f(frame))
+    /// FrameObject execution for generator/coroutine resume.
+    /// Pushes a new exc_info slot (gi_exc_state) onto the chain,
+    /// linking the generator's saved handled-exception.
+    pub fn resume_gen_frame<R, F: FnOnce(&Py<FrameObject>) -> PyResult<R>>(
+        &self,
+        frame: &FrameObjectRef,
+        exc: Option<PyBaseExceptionRef>,
+        f: F,
+    ) -> PyResult<R> {
+        let link = self.gen_frame_link(frame, exc)?;
+        // Guard only the recursion-depth decrement against a panic unwinding
+        // through Python code (matches `with_frame`); the state restored
+        // below (owner/previous/exc slot/current-frame) is not similarly
+        // guarded there either, since a panic in this codebase is a bug, not
+        // a control-flow path any Python-level construct can observe or
+        // resume from.
+        let _depth_guard = scopeguard::guard((), |()| {
+            self.recursion_depth.update(|d| d.saturating_sub(1))
+        });
+
+        let result = self.dispatch_traced_frame(frame, |frame| f(frame));
+
+        // Restore owner, pop exc_info slot, frame chain and frames Vec on
+        // every normal exit (Ok or Err) — captured above rather than
+        // propagated with `?`, so this always runs.
+        scopeguard::ScopeGuard::into_inner(_depth_guard);
+        self.gen_frame_unlink(frame, link);
+
+        result
     }
 
     /// Fire trace/profile 'call' and 'return' events around a frame body.
@@ -2549,7 +2910,17 @@ impl VirtualMachine {
         // Fire 'call' trace event. current_frame() now returns the callee.
         let trace_result = self.trace_event(TraceEvent::Call, None)?;
         if let Some(local_trace) = trace_result {
+            let was_unset = frame.iframe().cold().trace.lock().is_none();
             *frame.iframe().cold().trace.lock() = Some(local_trace);
+            if was_unset {
+                // For a fresh frame this is a no-op (lasti is still 0 here,
+                // before the frame body below has run). For a generator
+                // resumed mid-body, `lasti` already reflects the suspended
+                // position, so `prev_line` -- stale from before tracing was
+                // installed -- must be synced again or the very next
+                // instruction fires a spurious 'line' event.
+                frame.iframe().sync_prev_line_from_lasti();
+            }
         }
 
         let result = f(frame);
@@ -2684,6 +3055,13 @@ impl VirtualMachine {
         from_list: &Py<PyTuple<PyStrRef>>,
         level: usize,
     ) -> PyResult {
+        if level == 0
+            && from_list.as_slice().is_empty()
+            && let Some(cached) = self.try_import_cached(module)?
+        {
+            return Ok(cached);
+        }
+
         let import_func = self
             .builtins
             .get_attr(identifier!(self, __import__), self)
@@ -2704,6 +3082,54 @@ impl VirtualMachine {
         import_func
             .call((module.to_owned(), globals, locals, from_list, level), self)
             .inspect_err(|exc| import::remove_importlib_frames(self, exc))
+    }
+
+    /// Fast path equivalent to CPython's `PyImport_ImportModuleLevelObject`
+    /// cache hit: for a plain absolute import with no from-list, if
+    /// `builtins.__import__` is still the original import function (i.e.
+    /// nobody has monkey-patched it) and the module -- or, for a dotted
+    /// name, its top-level package -- is already present and fully
+    /// initialized in `sys.modules`, hand it back directly instead of going
+    /// through `__import__`'s `FuncArgs`/`ImportArgs::from_args` dispatch
+    /// and `import_module_level`. Returns `Ok(None)` whenever the slow path
+    /// needs to run instead (uncached, initializing, or `__import__`
+    /// overridden), never an error for those cases.
+    fn try_import_cached(&self, module: &Py<PyStr>) -> PyResult<Option<PyObjectRef>> {
+        let current_import = self
+            .builtins
+            .get_attr(identifier!(self, __import__), self)
+            .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
+        if !current_import.is(&self.import_func) {
+            // `builtins.__import__` was replaced by user code; must go
+            // through it so overrides (test_import, test_importlib,
+            // test_builtin) still take effect.
+            return Ok(None);
+        }
+
+        // Surrogate-containing names can't be looked up as a `&str`; let the
+        // slow path (which keys `sys.modules` with the `PyStr` itself) handle it.
+        let Some(name_str) = module.to_str() else {
+            return Ok(None);
+        };
+        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        let Ok(found) = sys_modules.get_item(name_str, self) else {
+            return Ok(None);
+        };
+        if self.is_none(&found) || import::is_module_initializing(&found, self)? {
+            return Ok(None);
+        }
+
+        let Some(dot) = name_str.find('.') else {
+            return Ok(Some(found));
+        };
+        // Dotted name with an empty from-list: like CPython, the top-level
+        // package is what gets returned (and bound by `import a.b.c`), not
+        // the submodule itself.
+        let top_name = &name_str[..dot];
+        match sys_modules.get_item(top_name, self) {
+            Ok(top) if !self.is_none(&top) => Ok(Some(top)),
+            _ => Ok(None),
+        }
     }
 
     pub fn extract_elements_with<T, F>(&self, value: &PyObject, func: F) -> PyResult<Vec<T>>
@@ -2986,26 +3412,28 @@ impl VirtualMachine {
         self.get_method(obj, method_name)
     }
 
+    /// Single relaxed load of the shared eval-breaker word, folding in every
+    /// condition that used to require its own check: pending signals, QSBR
+    /// reclamation, scheduled GC, and (under `threading`) finalization and
+    /// stop-the-world. Finalizing sets `FINALIZING_BIT` and any per-thread
+    /// `stop_requested` store also sets `STOP_BIT` (see signal.rs), so this
+    /// no longer needs to read `state.finalizing` or the
+    /// `CURRENT_STOP_REQUESTED` thread-local itself — both are folded into
+    /// the same atomic word `eval_breaker_pending` already loads for
+    /// signals/QSBR/GC. The slow path (`check_signals`) re-derives the exact
+    /// per-thread answer (this thread's own `stop_requested`, `finalizing` +
+    /// `is_main_thread`) once it is taken, so semantics are unchanged; only
+    /// the common (nothing pending) case gets cheaper.
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
-        #[cfg(feature = "threading")]
-        if self.state.finalizing.load(Ordering::Relaxed) && !self.is_main_thread() {
-            return true;
-        }
-
-        #[cfg(feature = "threading")]
-        if thread::stop_requested_for_current_thread() {
-            return true;
-        }
-
-        // Signal and QSBR bits share one word: a single relaxed load per
-        // instruction covers both.
         #[cfg(not(target_arch = "wasm32"))]
-        if crate::signal::eval_breaker_pending() {
-            return true;
+        {
+            crate::signal::eval_breaker_pending()
         }
-
-        false
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
     }
 
     #[inline]
@@ -3048,13 +3476,28 @@ impl VirtualMachine {
     }
 
     /// Push a new exc_info slot (for generator/coroutine resume).
+    ///
+    /// `topmost_exception()` skips `None` slots when searching for the
+    /// visible exception, so pushing `None` can never change what it
+    /// returns -- the thread-local mirror update (TLS lookup + atomic ref
+    /// swap) is safe to skip in that common case (e.g. resuming a
+    /// generator with no saved exception state).
     pub(crate) fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
+        #[cfg(feature = "threading")]
+        let may_change_top = exc.is_some();
         self.exceptions.borrow_mut().stack.push(exc);
         #[cfg(feature = "threading")]
-        thread::update_thread_exception(self.topmost_exception());
+        if may_change_top {
+            thread::update_thread_exception(self.topmost_exception());
+        }
     }
 
     /// Pop the topmost exc_info slot (generator/coroutine yield/return).
+    ///
+    /// Symmetric with `push_exception`: popping a `None` slot cannot change
+    /// what `topmost_exception()` reports (it was already skipped while
+    /// searching down the stack), so the thread-local mirror update is
+    /// skipped in that case.
     pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
         let exc = self
             .exceptions
@@ -3063,7 +3506,9 @@ impl VirtualMachine {
             .pop()
             .expect("pop_exception() without nested exc stack");
         #[cfg(feature = "threading")]
-        thread::update_thread_exception(self.topmost_exception());
+        if exc.is_some() {
+            thread::update_thread_exception(self.topmost_exception());
+        }
         exc
     }
 

@@ -404,6 +404,55 @@ impl GcState {
         self.counts[0].fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Track a freshly allocated object (add to gen0) as owned by `owner`.
+    ///
+    /// Like [`Self::track_object`], but for the hot allocation path only:
+    /// `obj`'s `gc_bits` must still hold its freshly-initialized value of `0`
+    /// (true right after `PyInner::new` or a freelist pop, both of which zero
+    /// it), so the tracked bit can go in with a plain store instead of the
+    /// `fetch_or` `set_gc_tracked()` needs to be safe for the general case
+    /// (e.g. re-tracking a resurrected object, whose bits are not zero — it
+    /// may carry `FINALIZED`). A plain relaxed store compiles to a single
+    /// store instruction; `fetch_or` is a read-modify-write that, even
+    /// without contention, is measurably pricier on a hot per-allocation path.
+    ///
+    /// # Safety
+    /// obj must be a valid pointer to a PyObject whose `gc_bits` is still `0`.
+    unsafe fn track_object_fresh(&self, obj: NonNull<PyObject>, owner: GcOwner) {
+        let obj_ref = unsafe { obj.as_ref() };
+        obj_ref.init_gc_tracked_bit();
+        obj_ref.set_gc_generation(0);
+        obj_ref.set_gc_owner(owner);
+
+        self.generation_lists[0].write().push_front(obj);
+        self.counts[0].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Track two freshly allocated objects as one push under one list lock.
+    ///
+    /// Like [`Self::track_object_fresh`] twice over, for a pair that is always
+    /// born together: a generator and the frame it owns. Doing it in one go
+    /// saves the second lock round trip on a path that runs per generator.
+    ///
+    /// # Safety
+    /// Both must be valid pointers to PyObjects whose `gc_bits` is still `0`.
+    unsafe fn track_pair_fresh(&self, a: NonNull<PyObject>, b: NonNull<PyObject>, owner: GcOwner) {
+        debug_assert_ne!(a, b);
+        for obj in [a, b] {
+            let obj_ref = unsafe { obj.as_ref() };
+            obj_ref.init_gc_tracked_bit();
+            obj_ref.set_gc_generation(0);
+            obj_ref.set_gc_owner(owner);
+        }
+
+        {
+            let mut list = self.generation_lists[0].write();
+            list.push_front(a);
+            list.push_front(b);
+        }
+        self.counts[0].fetch_add(2, Ordering::Relaxed);
+    }
+
     /// Untrack an object (remove from GC lists).
     /// O(1) — intrusive linked list remove by node pointer.
     ///
@@ -1374,12 +1423,31 @@ pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
     let Some(gc) = crate::vm::thread::current_gc_state() else {
         // No interpreter is running: the shared context builds its own objects
         // this way. They are left unowned, so every interpreter collects them.
-        unsafe { state.track_object(obj, GC_NO_OWNER) };
+        unsafe { state.track_object_fresh(obj, GC_NO_OWNER) };
         return;
     };
     // SAFETY: as in `current_owner`.
     let gc = unsafe { gc.as_ref() };
-    unsafe { state.track_object(obj, gc.owner) };
+    unsafe { state.track_object_fresh(obj, gc.owner) };
+    state.maybe_collect(gc);
+}
+
+/// Track a generator (or coroutine, or async generator) together with the
+/// frame it owns, and let the pair collect if it pushed gen0 past its
+/// threshold.
+///
+/// # Safety
+/// Both must be valid pointers to distinct PyObjects that are not already
+/// tracked and whose `gc_bits` is still `0`.
+pub(crate) unsafe fn track_new_pair(obj: NonNull<PyObject>, frame: NonNull<PyObject>) {
+    let state = gc_state();
+    let Some(gc) = crate::vm::thread::current_gc_state() else {
+        unsafe { state.track_pair_fresh(obj, frame, GC_NO_OWNER) };
+        return;
+    };
+    // SAFETY: as in `current_owner`.
+    let gc = unsafe { gc.as_ref() };
+    unsafe { state.track_pair_fresh(obj, frame, gc.owner) };
     state.maybe_collect(gc);
 }
 

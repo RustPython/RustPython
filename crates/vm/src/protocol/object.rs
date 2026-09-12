@@ -300,6 +300,20 @@ impl PyObject {
         self.call_set_attr(vm, attr_name, PySetterValue::Delete)
     }
 
+    /// `PyObject_RichCompare` over two references the caller does not own.
+    ///
+    /// The eval loop reaches this through borrowed stack entries, so taking
+    /// `&self` here is what keeps `COMPARE_OP` free of reference counting.
+    #[inline(always)]
+    pub fn rich_compare(
+        &self,
+        other: &Self,
+        op_id: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self._cmp(other, op_id, vm).map(|res| res.to_pyobject(vm))
+    }
+
     // Perform a comparison, raising TypeError when the requested comparison
     // operator is not supported.
     // see: PyObject_RichCompare / do_richcompare

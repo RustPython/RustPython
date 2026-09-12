@@ -1,6 +1,6 @@
 use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     coroutine::{Coro, warn_deprecated_throw_signature},
     frame::FrameObjectRef,
@@ -25,6 +25,11 @@ unsafe impl Traverse for PyCoroutine {
 }
 
 impl PyPayload for PyCoroutine {
+    // Tracked in `make_generator_or_coro`, together with the frame the object
+    // is born owning, so the pair costs one trip through the GC's gen0 list
+    // instead of two.
+    const NEW_REF_UNTRACKED: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.coroutine_type
@@ -259,7 +264,25 @@ impl Drop for PyCoroutine {
     }
 }
 
+/// Fast, VM-free check mirroring the read-only-state branches of
+/// `<PyCoroutine as Destructor>::del`: an already-closed or currently
+/// running coroutine needs no `close()`-style cleanup, so `del` is a
+/// documented no-op. Skipping the call avoids attaching to a VM (`with_vm`)
+/// on every coroutine drop for the common case of a coroutine driven to
+/// completion (e.g. `await`ed to a `return`).
+fn coroutine_del_needed(zelf: &PyObject) -> bool {
+    let zelf: &Py<PyCoroutine> = zelf
+        .downcast_ref()
+        .expect("del_needed is only installed on the coroutine type");
+    !(zelf.inner.closed() || zelf.inner.running())
+}
+
 pub(crate) fn init(ctx: &'static Context) {
     PyCoroutine::extend_class(ctx, ctx.types.coroutine_type);
     PyCoroutineWrapper::extend_class(ctx, ctx.types.coroutine_wrapper_type);
+    ctx.types
+        .coroutine_type
+        .slots
+        .del_needed
+        .store(Some(coroutine_del_needed));
 }

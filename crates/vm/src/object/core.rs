@@ -1927,6 +1927,27 @@ impl PyObject {
         self.set_gc_bit(GcBits::TRACKED);
     }
 
+    /// Like [`Self::set_gc_tracked`], but for an object whose `gc_bits` is
+    /// still known to be `0` (right after allocation or a freelist pop, both
+    /// of which zero it). Writes the tracked bit with a plain relaxed store
+    /// instead of `set_gc_tracked`'s `fetch_or`: on the per-allocation hot
+    /// path, a read-modify-write is measurably pricier than a store even
+    /// with no contention.
+    ///
+    /// # Safety (debug-checked)
+    /// Caller must ensure `gc_bits` is currently `0`.
+    #[inline]
+    pub(crate) fn init_gc_tracked_bit(&self) {
+        debug_assert_eq!(
+            self.0.gc_bits.load(Ordering::Relaxed),
+            0,
+            "init_gc_tracked_bit called on an object with non-zero gc_bits"
+        );
+        self.0
+            .gc_bits
+            .store(GcBits::TRACKED.bits(), Ordering::Relaxed);
+    }
+
     /// _PyObject_GC_UNTRACK
     #[inline]
     pub(crate) fn clear_gc_tracked(&self) {
@@ -1976,8 +1997,20 @@ impl PyObject {
         if let Some(slot_del) = del
             && !self.gc_finalized()
         {
-            self.set_gc_finalized();
-            call_slot_del(self, slot_del)?;
+            // Skip the (comparatively expensive) VM attach in `call_slot_del`
+            // when the type says its `del` is a documented no-op for this
+            // object right now — e.g. a generator/coroutine that already
+            // ran to completion. See `PyTypeSlots::del_needed`.
+            let needs_del = self
+                .class()
+                .slots
+                .del_needed
+                .load()
+                .is_none_or(|check| check(self));
+            if needs_del {
+                self.set_gc_finalized();
+                call_slot_del(self, slot_del)?;
+            }
         }
 
         // Clear weak refs AFTER __del__.
@@ -1999,13 +2032,47 @@ impl PyObject {
     }
 
     /// # Safety
-    /// This call will make the object live forever.
+    /// This call will make the object live forever: it marks the object both
+    /// interned and immortal (see [`Self::make_immortal`]), so no `__del__`
+    /// and no weakref callback will ever run for it.
     pub(crate) unsafe fn mark_intern(&self) {
         self.0.ref_count.leak();
     }
 
     pub(crate) fn is_interned(&self) -> bool {
         self.0.ref_count.is_leaked()
+    }
+
+    /// Make this object live for the whole process (PEP 683).
+    ///
+    /// Every later reference operation on it becomes a relaxed load and a
+    /// branch instead of an atomic read-modify-write — and a decref in
+    /// particular stops paying for a `Release` store, which is the expensive
+    /// half of the pair on a weakly ordered target. `RefCount`'s `IMMORTAL`
+    /// documents the full invariant; the parts that bind a caller:
+    ///
+    /// * The object is never deallocated, so its `__del__` and its weakref
+    ///   callbacks never run. Only grant this to something an owner already
+    ///   keeps for the whole process — a `static_cell`, the [`Context`], the
+    ///   string pool.
+    /// * [`Self::strong_count`] reports a number far past any real total, so
+    ///   the object stays out of every `strong_count() == 1` in-place-mutation
+    ///   fast path and the cycle collector reads it as a permanent root.
+    ///
+    /// This is *not* interning: [`Self::is_interned`] answers from a separate
+    /// bit and keeps meaning "this string is the pool's copy".
+    ///
+    /// [`Context`]: crate::vm::Context
+    #[inline]
+    pub fn make_immortal(&self) {
+        self.0.ref_count.make_immortal();
+    }
+
+    /// Whether this object lives for the whole process.
+    #[inline(always)]
+    #[must_use]
+    pub fn is_immortal(&self) -> bool {
+        self.0.ref_count.is_immortal()
     }
 
     pub(crate) fn get_slot(&self, offset: usize) -> Option<PyObjectRef> {
@@ -2039,6 +2106,12 @@ impl PyObject {
         let del = self.class().slots.del.load();
         if let Some(slot_del) = del
             && !self.gc_finalized()
+            && self
+                .class()
+                .slots
+                .del_needed
+                .load()
+                .is_none_or(|check| check(self))
         {
             // Mark as finalized BEFORE calling __del__ to prevent double-call
             // This ensures drop_slow_inner() won't call __del__ again
@@ -2221,6 +2294,34 @@ const STACKREF_BORROW_TAG: usize = 1;
 ///
 /// Uses `NonZeroUsize` so that `Option<PyStackRef>` has the same size as
 /// `PyStackRef` via niche optimization (matching `Option<PyObjectRef>`).
+///
+/// # The borrow invariant
+///
+/// A borrowed entry keeps no strong count of its own, so something else has to
+/// keep the object alive for as long as the entry sits on the value stack.
+/// Two producers create them, each with its own reason:
+///
+/// * `LOAD_SMALL_INT` and friends borrow objects the `Context` owns for the
+///   whole life of the interpreter, so nothing can free them.
+/// * `LOAD_FAST_BORROW` borrows the object in a fastlocals slot of the frame
+///   that is executing. The slot holds the strong count. The codegen pass
+///   `optimize_load_fast` (`crates/codegen/src/ir.rs`, a port of CPython's
+///   `flowgraph.c`) only rewrites `LOAD_FAST` into `LOAD_FAST_BORROW` when it
+///   can prove, over the basic block, that the pushed entry is consumed before
+///   anything stores to or deletes that local, and before the entry could be
+///   stored into the local itself.
+///
+/// Three rules keep the runtime side of that bargain:
+///
+/// 1. Anything that makes a borrowed entry outlive the block it was pushed in
+///    must promote it first (`LocalsPlus::promote_stack`, run at every yield
+///    point). A frame that suspends keeps its own fastlocals, so this is
+///    belt-and-braces, but a stack that is copied out of the frame is not.
+/// 2. The cycle collector must not count a borrowed entry as an edge; see
+///    `Traverse for PyStackRef`.
+/// 3. Anything that overwrites a fastlocals slot from outside the eval loop --
+///    `frame.f_locals` write-back -- must keep the displaced value alive
+///    (`f_overwritten_fast_locals`) rather than dropping it in place.
 #[repr(transparent)]
 pub struct PyStackRef {
     bits: NonZeroUsize,

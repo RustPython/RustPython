@@ -508,7 +508,10 @@ impl CodeFlags {
         .union(Self::FUTURE_ANNOTATIONS);
 }
 
-#[repr(C)]
+/// `align(2)` so that the whole unit can be read with one aligned
+/// `AtomicU16` access (see `CodeUnits::read_unit`) without relying on the
+/// allocator to happen to align the instruction array.
+#[repr(C, align(2))]
 #[derive(Copy, Clone, Debug)]
 pub struct CodeUnit {
     pub op: Instruction,
@@ -516,6 +519,7 @@ pub struct CodeUnit {
 }
 
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
+const _: () = assert!(mem::align_of::<CodeUnit>() == 2);
 
 /// Adaptive specialization: number of executions before attempting specialization.
 ///
@@ -752,6 +756,55 @@ impl CodeUnits {
         let byte = unsafe { &*ptr }.load(Ordering::Acquire);
         // SAFETY: Only valid Instruction values are stored via replace_op/compare_exchange_op.
         unsafe { mem::transmute::<u8, Instruction>(byte) }
+    }
+
+    /// Base pointer of the instruction array.
+    ///
+    /// The array is allocated once when the code object is built and is never
+    /// reallocated -- specialization only rewrites units in place -- so the
+    /// pointer stays valid for as long as this `CodeUnits` does and the eval
+    /// loop may hoist it out of the dispatch loop.
+    #[inline(always)]
+    #[must_use]
+    pub fn units_ptr(&self) -> *const CodeUnit {
+        unsafe { &*self.units.get() }.as_ptr()
+    }
+
+    /// `read_unit` from a base pointer previously obtained with `units_ptr`.
+    ///
+    /// # Safety
+    /// `base` must come from `units_ptr` on a live `CodeUnits`, and `index`
+    /// must be within that array (the dispatch loop only ever reads indices
+    /// the code object itself produced).
+    #[inline(always)]
+    #[must_use]
+    pub unsafe fn read_unit_from(base: *const CodeUnit, index: usize) -> CodeUnit {
+        let ptr = base.wrapping_add(index) as *const AtomicU16;
+        let [op, arg] = unsafe { &*ptr }.load(Ordering::Acquire).to_ne_bytes();
+        // SAFETY: only valid Instruction values are ever stored into the
+        // instruction array (see `read_op`).
+        CodeUnit {
+            op: unsafe { mem::transmute::<u8, Instruction>(op) },
+            arg: OpArgByte::from(arg),
+        }
+    }
+
+    /// Atomically read the opcode and its arg byte at `index` as a single
+    /// Acquire-ordered 16-bit load.
+    ///
+    /// Equivalent to `read_op` followed by `read_arg`, but the one access
+    /// keeps the eval loop from re-loading the instruction array pointer
+    /// across the acquire barrier, and it is what the dispatch loop uses.
+    /// Acquire pairs with `replace_op` (Release) exactly as `read_op` does.
+    ///
+    /// `to_ne_bytes` yields the bytes in memory order, so `[0]` is the `op`
+    /// field and `[1]` the `arg` field of the `repr(C)` unit on either
+    /// endianness.
+    #[inline(always)]
+    #[must_use]
+    pub fn read_unit(&self, index: usize) -> CodeUnit {
+        // SAFETY: `index` is in bounds for every caller of this method.
+        unsafe { Self::read_unit_from(self.units_ptr(), index) }
     }
 
     /// Atomically read the arg byte at `index` with Relaxed ordering.

@@ -1,6 +1,6 @@
 use super::{PyCode, PyGenerator, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
     class::PyClassImpl,
     common::lock::PyMutex,
@@ -34,6 +34,11 @@ unsafe impl Traverse for PyAsyncGen {
 type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
 impl PyPayload for PyAsyncGen {
+    // Tracked in `make_generator_or_coro`, together with the frame the object
+    // is born owning, so the pair costs one trip through the GC's gen0 list
+    // instead of two.
+    const NEW_REF_UNTRACKED: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.async_generator
@@ -818,10 +823,27 @@ impl Drop for PyAsyncGen {
     }
 }
 
+/// Fast, VM-free check mirroring `<PyAsyncGen as Destructor>::del` (which in
+/// turn mirrors `call_finalizer`): closed, or no finalizer hook installed
+/// (the common case — `sys.set_asyncgen_hooks` is rarely used), means `del`
+/// is a no-op. Skipping the call avoids attaching to a VM (`with_vm`) on
+/// every async generator drop.
+fn asyncgen_del_needed(zelf: &PyObject) -> bool {
+    let zelf: &Py<PyAsyncGen> = zelf
+        .downcast_ref()
+        .expect("del_needed is only installed on the async_generator type");
+    !zelf.inner.closed.load() && zelf.ag_finalizer.lock().is_some()
+}
+
 pub(crate) fn init(ctx: &'static Context) {
     PyAsyncGen::extend_class(ctx, ctx.types.async_generator);
     PyAsyncGenASend::extend_class(ctx, ctx.types.async_generator_asend);
     PyAsyncGenAThrow::extend_class(ctx, ctx.types.async_generator_athrow);
     PyAnextAwaitable::extend_class(ctx, ctx.types.anext_awaitable);
     PyAsyncGenWrappedValue::extend_class(ctx, ctx.types.async_generator_wrapped_value);
+    ctx.types
+        .async_generator
+        .slots
+        .del_needed
+        .store(Some(asyncgen_del_needed));
 }

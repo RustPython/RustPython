@@ -792,7 +792,6 @@ class OtherTest(unittest.TestCase):
         gc.collect()
         self.assertIsNone(wr())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'pickle' has no attribute 'PickleBuffer'
     def test_picklebuffer_reference_loop(self):
         pb = pickle.PickleBuffer(memoryview(b'abc'))
         o = MyObject()

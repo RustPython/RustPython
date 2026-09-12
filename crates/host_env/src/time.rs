@@ -264,6 +264,9 @@ impl ClockId {
         target_os = "wasi",
     )))]
     pub const CLOCK_THREAD_CPUTIME_ID: Self = Self(libc::CLOCK_THREAD_CPUTIME_ID);
+
+    #[cfg(target_vendor = "apple")]
+    pub const CLOCK_UPTIME_RAW: Self = Self(libc::CLOCK_UPTIME_RAW);
 }
 
 #[cfg(unix)]

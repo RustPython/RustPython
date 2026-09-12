@@ -1,0 +1,220 @@
+on:
+  pull_request:
+    types: [labeled, opened, synchronize, reopened]
+  workflow_dispatch:
+
+name: pyperformance
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  CI: true
+  # Pure-Python benchmarks only: anything whose workload needs a real C
+  # extension cannot install under RustPython at all, and the async/SSL ones
+  # are far too slow here to be worth a runner's time. Keep this list short --
+  # every entry is paid for three times (CPython, base, head) in one job.
+  BENCHMARKS: >-
+    chaos,comprehensions,coroutines,deepcopy,deltablue,fannkuch,float,
+    generators,go,hexiom,json_dumps,json_loads,logging,mdp,nbody,nqueens,
+    pickle_pure_python,raytrace,regex_compile,regex_v8,richards,scimark,
+    spectral_norm,telco,typing_runtime_protocols,unpack_sequence,
+    unpickle_pure_python,xml_etree
+  # A benchmark that needs longer than this on the base commit is one this
+  # comparison cannot afford to wait for; it shows up as a failure in the
+  # table, which is itself the interesting signal.
+  BENCH_TIMEOUT: 300
+
+jobs:
+  compare:
+    # `skip:ci` mirrors the other workflows; `run:pyperformance` opts a PR in,
+    # because the job costs well over an hour and most PRs do not need it.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (!contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
+       contains(github.event.pull_request.labels.*.name, 'run:pyperformance'))
+    name: base vs. head vs. CPython
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      # Honoured for a pull request opened from this repo, which is then
+      # commented on directly by the last step; a fork's run is handed
+      # read-only whatever is asked for here and goes the artifact route.
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Both the third interpreter under test and the host pyperformance
+      # itself runs on (it only runs under a real CPython; RustPython is just
+      # the `--python` target it drives).
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: cpython
+        with:
+          python-version: "3.14"
+
+      - name: Restore cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: pyperformance-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: pyperformance-
+        continue-on-error: true
+
+      # The base commit may predate these scripts, and `git checkout <base>`
+      # below would then delete them; run them from a copy outside the tree.
+      - name: Copy the benchmark scripts out of the checkout
+        run: cp -r scripts/pyperformance "${RUNNER_TEMP}/pyperformance-scripts"
+
+      # Each build is copied aside with the stdlib of its own commit, so the
+      # second does not overwrite the first and a PR that touches `Lib/` is
+      # still compared against the base commit's `Lib/`. A binary moved away
+      # from its checkout finds the stdlib only through RUSTPYTHONPATH, which
+      # `run_all.py` forwards through pyperf into the venv it builds.
+      - name: Build head
+        run: |
+          cargo build --release --locked
+          mkdir -p "${RUNNER_TEMP}/head"
+          cp target/release/rustpython "${RUNNER_TEMP}/head/rustpython"
+          cp -r Lib "${RUNNER_TEMP}/head/Lib"
+
+      - name: Build base
+        continue-on-error: true # a base that cannot build leaves head vs. CPython
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git checkout --quiet "${BASE_SHA}" --
+          cargo build --release --locked
+          mkdir -p "${RUNNER_TEMP}/base"
+          cp target/release/rustpython "${RUNNER_TEMP}/base/rustpython"
+          cp -r Lib "${RUNNER_TEMP}/base/Lib"
+
+      - name: Restore head checkout
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git checkout --quiet "${HEAD_SHA}" --
+
+      - name: Save cache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: pyperformance-${{ hashFiles('**/Cargo.lock') }}
+        continue-on-error: true
+
+      # The three runs are deliberately adjacent, with no build between them,
+      # so nothing but the interpreter differs across the comparison.
+      - name: Measure CPython
+        env:
+          CPYTHON: ${{ steps.cpython.outputs.python-path }}
+        run: |
+          python3 "${RUNNER_TEMP}/pyperformance-scripts/run_all.py" \
+            --python "${CPYTHON}" \
+            --label cpython --no-psutil-stub \
+            --benchmarks "${BENCHMARKS//[$'\n' ]/}" \
+            --timeout "${BENCH_TIMEOUT}" --out "${RUNNER_TEMP}/pyperf-results"
+
+      - name: Measure base
+        continue-on-error: true # as above: the table falls back to head alone
+        env:
+          RUSTPYTHONPATH: ${{ runner.temp }}/base/Lib
+        run: |
+          python3 "${RUNNER_TEMP}/pyperformance-scripts/run_all.py" \
+            --python "${RUNNER_TEMP}/base/rustpython" \
+            --label base \
+            --benchmarks "${BENCHMARKS//[$'\n' ]/}" \
+            --timeout "${BENCH_TIMEOUT}" --out "${RUNNER_TEMP}/pyperf-results"
+
+      - name: Measure head
+        env:
+          RUSTPYTHONPATH: ${{ runner.temp }}/head/Lib
+        run: |
+          python3 "${RUNNER_TEMP}/pyperformance-scripts/run_all.py" \
+            --python "${RUNNER_TEMP}/head/rustpython" \
+            --label head \
+            --benchmarks "${BENCHMARKS//[$'\n' ]/}" \
+            --timeout "${BENCH_TIMEOUT}" --out "${RUNNER_TEMP}/pyperf-results"
+
+      - name: Render the comparison
+        env:
+          CPYTHON_VERSION: ${{ steps.cpython.outputs.python-version }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 "${RUNNER_TEMP}/pyperformance-scripts/pr_diff.py" \
+            --results-dir "${RUNNER_TEMP}/pyperf-results" \
+            --cpython-version "CPython ${CPYTHON_VERSION}" \
+            --md diff.md --json diff.json
+          echo "${PR_NUMBER}" > pr_number.txt
+
+      # A `pull_request` run triggered from a fork carries a read-only token no
+      # matter what this workflow grants, so the comment is posted from
+      # `pyperformance-comment.yaml`, which `workflow_run` runs in the base
+      # repo's context. This artifact is the hand-off.
+      - name: Upload the comparison
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pyperformance-diff
+          path: |
+            diff.md
+            diff.json
+            pr_number.txt
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # A pull request opened from this repo can be commented on from here,
+      # which puts the table on the PR in the same run instead of waiting for
+      # the companion workflow. Forks fall through to that workflow instead.
+      - name: Post or update the PR comment
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('diff.md', 'utf8');
+            const marker = '<!-- pyperformance-local-diff -->';
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body,
+              });
+            }

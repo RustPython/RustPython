@@ -1,5 +1,5 @@
 use crate::{
-    PyObject, PyResult, VirtualMachine,
+    AsObject, PyObject, PyResult, VirtualMachine,
     builtins::{
         PyByteArray, PyBytes, PyCapsule, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
         PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr,
@@ -328,7 +328,7 @@ impl Context {
                     None,
                 )
             })
-            .collect();
+            .collect::<Vec<PyIntRef>>();
 
         let string_pool = StringPool::default();
 
@@ -364,6 +364,37 @@ impl Context {
         );
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
+
+        // Everything above is created once and kept by this `Context` for the
+        // life of the process, so none of it can ever be deallocated. Saying
+        // so in the refcount word turns every reference operation on a
+        // singleton — the `True`/`False` a `TO_BOOL` pushes and a
+        // `POP_JUMP_IF_*` pops, the `None` behind every bare `return`, the
+        // small ints a `LOAD_CONST` hands out — from an atomic
+        // read-modify-write into a branch.
+        for obj in [
+            none.as_object(),
+            ellipsis.as_object(),
+            not_implemented.as_object(),
+            typing_no_default.as_object(),
+            true_value.as_object(),
+            false_value.as_object(),
+            empty_tuple.as_object(),
+            empty_frozenset.as_object(),
+            empty_bytes.as_object(),
+            empty_str.as_object(),
+        ] {
+            obj.make_immortal();
+        }
+        for int in &int_cache_pool {
+            int.as_object().make_immortal();
+        }
+        // The interned one-character strings. `StringPool::intern` already
+        // immortalized these; stating it here keeps the singletons from
+        // depending on that.
+        for s in &latin1_char_cache {
+            s.as_object().make_immortal();
+        }
 
         // GC callbacks and garbage lists
 

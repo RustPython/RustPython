@@ -1039,6 +1039,20 @@ mod platform {
         rustpython_host_env::time::clock_gettime(clk_id).map_err(|e| e.into_pyexception(vm))
     }
 
+    // On Apple platforms, `CLOCK_MONOTONIC` keeps advancing while the system is
+    // asleep, unlike CPython's `time.monotonic()`/`time.perf_counter()`, which are
+    // backed by `mach_absolute_time()` (equivalent to `CLOCK_UPTIME_RAW`) and stop
+    // during sleep. Use `CLOCK_UPTIME_RAW` there to match CPython's behavior.
+    #[cfg(target_vendor = "apple")]
+    fn monotonic_clock_id() -> ClockId {
+        ClockId::CLOCK_UPTIME_RAW
+    }
+
+    #[cfg(not(target_vendor = "apple"))]
+    fn monotonic_clock_id() -> ClockId {
+        ClockId::CLOCK_MONOTONIC
+    }
+
     #[pyfunction]
     fn clock_gettime(clk_id: ClockId, vm: &VirtualMachine) -> PyResult<f64> {
         get_clock_time(clk_id, vm).map(|d| d.as_secs_f64())
@@ -1086,11 +1100,19 @@ mod platform {
     #[pyfunction]
     fn get_clock_info(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
         let (adj, imp, mono, res) = match name.as_str() {
+            #[cfg(target_vendor = "apple")]
+            "monotonic" | "perf_counter" => (
+                false,
+                "mach_absolute_time()",
+                true,
+                clock_getres(monotonic_clock_id(), vm)?,
+            ),
+            #[cfg(not(target_vendor = "apple"))]
             "monotonic" | "perf_counter" => (
                 false,
                 "time.clock_gettime(CLOCK_MONOTONIC)",
                 true,
-                clock_getres(ClockId::CLOCK_MONOTONIC, vm)?,
+                clock_getres(monotonic_clock_id(), vm)?,
             ),
             "process_time" => (
                 false,
@@ -1136,11 +1158,11 @@ mod platform {
     }
 
     pub(super) fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+        get_clock_time(monotonic_clock_id(), vm)
     }
 
     pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+        get_clock_time(monotonic_clock_id(), vm)
     }
 
     #[cfg(not(any(

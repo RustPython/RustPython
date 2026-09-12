@@ -694,11 +694,13 @@ impl Py<PyFunction> {
             !frame.localsplus_is_datastack_backed(),
             "generator frame is data-stack-backed"
         );
-        // SAFETY: the frame is alive (held by `frame`) and untracked.
+        // Both halves are alive (held by `obj` and `frame`), untracked --
+        // generator types and frames both opt out of tracking at allocation --
+        // and enter the GC together.
         unsafe {
-            crate::gc_state::gc_state().track_object(
+            crate::gc_state::track_new_pair(
+                core::ptr::NonNull::from(obj.as_object()),
                 core::ptr::NonNull::from(frame.as_object()),
-                crate::gc_state::current_owner(),
             );
         }
         frame.set_generator(&obj);
@@ -815,6 +817,65 @@ impl Py<PyFunction> {
         frame
     }
 
+    /// Build the generator/coroutine a generator-like function returns, with
+    /// the call's positional arguments bound straight into the new frame's
+    /// fastlocals.
+    ///
+    /// The counterpart of `prepare_exact_args_frame` for the one call shape it
+    /// refuses. Same preconditions as `can_specialize_call`: every parameter is
+    /// positional and this call fills each of them exactly once, so none of
+    /// what `fill_locals_from_args_inner` exists for -- varargs packing,
+    /// keyword matching, defaults -- can apply, and the `FuncArgs` those need
+    /// is never built.
+    pub(crate) fn make_generator_exact_args(
+        &self,
+        args: impl ExactSizeIterator<Item = PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
+        let code: PyRef<PyCode> = (*self.code).to_owned();
+
+        debug_assert_eq!(args.len(), code.arg_count as usize);
+        debug_assert!(code.flags.contains(bytecode::CodeFlags::OPTIMIZED));
+        debug_assert!(
+            !code
+                .flags
+                .intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
+        );
+        debug_assert_eq!(code.kwonlyarg_count, 0);
+        debug_assert!(code.flags.intersects(
+            bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+                | bytecode::CodeFlags::ASYNC_GENERATOR,
+        ));
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            None
+        } else {
+            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+        };
+
+        // Heap-backed: the frame outlives the call that made it.
+        let frame = FrameObject::new_ref(
+            code,
+            Scope::new(locals, self.globals.clone()),
+            self.builtins.clone(),
+            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            Some(self.to_owned().into()),
+            false,
+            vm,
+        );
+
+        {
+            // SAFETY: the frame was just created and is not executing.
+            let fastlocals = unsafe { frame.fastlocals_mut() };
+            for (slot, arg) in fastlocals.iter_mut().zip(args) {
+                *slot = Some(arg);
+            }
+        }
+
+        self.make_generator_or_coro(frame, vm)
+    }
+
     pub(crate) fn invoke_prepared_exact_args(
         &self,
         args: impl ExactSizeIterator<Item = PyObjectRef>,
@@ -865,10 +926,10 @@ impl Py<PyFunction> {
         debug_assert_eq!(args.len(), self.code.arg_count as usize);
 
         // Generator/coroutine code objects are SIMPLE_FUNCTION in call
-        // specialization classification, but their call path must still
-        // go through invoke() to produce generator/coroutine objects.
+        // specialization classification, but calling one produces a
+        // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            return self.invoke(FuncArgs::from(args), vm);
+            return Ok(self.make_generator_exact_args(args.into_iter(), vm));
         }
         self.invoke_prepared_exact_args(args.into_iter(), vm)
     }
@@ -887,11 +948,10 @@ impl Py<PyFunction> {
             .iter_mut()
             .map(|slot| slot.take().expect("arg slot must be filled"));
         // Generator/coroutine code objects are SIMPLE_FUNCTION in call
-        // specialization classification, but their call path must still
-        // go through invoke() to produce generator/coroutine objects.
+        // specialization classification, but calling one produces a
+        // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            let args: Vec<PyObjectRef> = taken.collect();
-            return self.invoke(FuncArgs::from(args), vm);
+            return Ok(self.make_generator_exact_args(taken, vm));
         }
         self.invoke_prepared_exact_args(taken, vm)
     }
@@ -1637,6 +1697,84 @@ impl Representable for PyCell {
     }
 }
 
+/// Largest keyword count the in-place fast path below handles with a
+/// stack-allocated scratch buffer. Calls with more keywords than this simply
+/// fall back to the slow path (extremely rare in practice).
+const MAX_INLINE_KW: usize = 16;
+
+/// Try to resolve every keyword in `kwnames` to a distinct fastlocals slot in
+/// `posonlyarg_count..arg_count` that isn't already filled by a positional
+/// argument, without allocating an `IndexMap`, a `Vec`, or cloning any
+/// keyword name.
+///
+/// On success, `args` is reordered into positional order in place (ready for
+/// [`PyFunction::prepare_exact_args_frame`]) and returned as `Ok`. On any
+/// mismatch (too many keywords, unknown keyword, positional/keyword overlap,
+/// non-str/non-UTF8 name) `args` is hand back completely untouched as `Err`
+/// so the caller can fall back to the slow path, which reproduces CPython's
+/// exact error messages.
+///
+/// Only called when `nargs + kwnames.len() == code.arg_count`, i.e. every
+/// parameter is exactly filled by the call with no defaults needed. That
+/// invariant means the keyword values, initially at `args[nargs..]`, are
+/// exactly the values for slots `nargs..arg_count` in some order — so the
+/// whole reorder happens by draining that suffix into a small on-stack
+/// buffer and pushing it back in the resolved order. `args`'s original
+/// allocation is reused; no new allocation is needed.
+fn try_reorder_simple_kwargs(
+    code: &Py<PyCode>,
+    mut args: Vec<PyObjectRef>,
+    nargs: usize,
+    kwnames: &[PyObjectRef],
+) -> Result<Vec<PyObjectRef>, Vec<PyObjectRef>> {
+    let arg_count = code.arg_count as usize;
+    let posonly = code.posonlyarg_count as usize;
+    let kw_count = kwnames.len();
+    if kw_count > MAX_INLINE_KW {
+        return Err(args);
+    }
+
+    // Resolve target slots (relative to `nargs`) first, without touching
+    // `args`, so a mismatch can bail out leaving `args` untouched.
+    let mut rel_positions = [0usize; MAX_INLINE_KW];
+    for (i, name_obj) in kwnames.iter().enumerate() {
+        let Some(name_str) = name_obj.downcast_ref::<PyStr>().and_then(|s| s.to_str()) else {
+            return Err(args);
+        };
+        let Some(pos) = code.varnames[posonly..arg_count]
+            .iter()
+            .position(|v| v.as_str() == name_str)
+            .map(|p| p + posonly)
+        else {
+            // Unexpected keyword argument; let the slow path report it.
+            return Err(args);
+        };
+        let rel = match pos.checked_sub(nargs) {
+            // Positional/keyword overlap; let the slow path report the
+            // exact "multiple values for argument" error.
+            None => return Err(args),
+            Some(rel) => rel,
+        };
+        if rel_positions[..i].contains(&rel) {
+            // Duplicate keyword landing on the same slot.
+            return Err(args);
+        }
+        rel_positions[i] = rel;
+    }
+
+    // Every keyword maps to a distinct free slot in nargs..arg_count.
+    // Drain the keyword values into a stack buffer ordered by slot, then
+    // push them back — reusing `args`'s own allocation, no heap Vec needed.
+    let mut buf: [Option<PyObjectRef>; MAX_INLINE_KW] = [const { None }; MAX_INLINE_KW];
+    for (i, value) in args.drain(nargs..nargs + kw_count).enumerate() {
+        buf[rel_positions[i]] = Some(value);
+    }
+    for slot in buf.iter_mut().take(kw_count) {
+        args.push(slot.take().unwrap());
+    }
+    Ok(args)
+}
+
 /// Vectorcall implementation for PyFunction (PEP 590).
 /// Takes owned args to avoid cloning when filling fastlocals.
 pub(crate) fn vectorcall_function(
@@ -1660,18 +1798,30 @@ pub(crate) fn vectorcall_function(
         return zelf.invoke(func_args, vm);
     }
 
-    let is_simple = !has_kwargs
-        && code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
+    // Positional-only signature that a call can fill exactly, whether or not
+    // the body is a generator: the two differ only in what the frame is for.
+    let positional_only = code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
         && !code.flags.contains(bytecode::CodeFlags::VARARGS)
         && !code.flags.contains(bytecode::CodeFlags::VARKEYWORDS)
-        && code.kwonlyarg_count == 0
-        && !code.flags.intersects(
-            bytecode::CodeFlags::GENERATOR
-                | bytecode::CodeFlags::COROUTINE
-                | bytecode::CodeFlags::ASYNC_GENERATOR,
-        );
+        && code.kwonlyarg_count == 0;
+    let is_generator_like = code.flags.intersects(
+        bytecode::CodeFlags::GENERATOR
+            | bytecode::CodeFlags::COROUTINE
+            | bytecode::CodeFlags::ASYNC_GENERATOR,
+    );
+    let base_simple = positional_only && !is_generator_like;
 
-    if is_simple && nargs == code.arg_count as usize {
+    if !has_kwargs && positional_only && is_generator_like && nargs == code.arg_count as usize {
+        // FAST PATH: generator/coroutine call, exact arg count. Binds the
+        // arguments into the new frame and hands back the generator without
+        // building a `FuncArgs`. This is the shape every generator expression
+        // is called in, and a fresh `MAKE_FUNCTION` each time keeps those out
+        // of the call-site specialization that would otherwise catch it.
+        args.truncate(nargs);
+        return Ok(zelf.make_generator_exact_args(args.into_iter(), vm));
+    }
+
+    if !has_kwargs && base_simple && nargs == code.arg_count as usize {
         // FAST PATH: simple positional-only call, exact arg count.
         // Move owned args directly into fastlocals — no clone needed.
         args.truncate(nargs);
@@ -1680,6 +1830,28 @@ pub(crate) fn vectorcall_function(
         let result = vm.run_frame(frame.clone());
         crate::frame::release_datastack_frame(&frame, vm);
         return result;
+    }
+
+    if has_kwargs
+        && base_simple
+        && let Some(kwnames) = kwnames
+        && nargs + kwnames.len() == code.arg_count as usize
+    {
+        // FAST PATH: plain function, no *args/**kwargs/kwonly, every
+        // parameter filled exactly by this call. Reorder into positional
+        // order with no IndexMap/Wtf8Buf allocation; any mismatch falls
+        // through to the slow path below with `args` untouched.
+        match try_reorder_simple_kwargs(code, args, nargs, kwnames) {
+            Ok(ordered) => {
+                let frame = zelf.prepare_exact_args_frame(ordered.into_iter(), vm);
+                let result = vm.run_frame(frame.clone());
+                crate::frame::release_datastack_frame(&frame, vm);
+                return result;
+            }
+            Err(restored) => {
+                args = restored;
+            }
+        }
     }
 
     // SLOW PATH: construct FuncArgs from owned Vec and delegate to invoke()
