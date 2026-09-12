@@ -1520,7 +1520,7 @@ mod _sqlite3 {
             let filter: PyObjectRef = args
                 .filter
                 .map_or_else(|| vm.ctx.none(), |filter| filter.into());
-            let kwargs = std::iter::once(("filter", filter)).collect::<KwArgs>();
+            let kwargs = core::iter::once(("filter", filter)).collect::<KwArgs>();
             func.call(FuncArgs::new(vec![zelf.into()], kwargs), vm)
         }
 
