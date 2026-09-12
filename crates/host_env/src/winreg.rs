@@ -517,3 +517,25 @@ pub fn expand_environment_strings(
     let len = out.iter().position(|&c| c == 0).unwrap_or(out.len());
     String::from_utf16(&out[..len]).map_err(ExpandEnvironmentStringsError::Utf16)
 }
+
+/// Same walk as [`expand_environment_strings`], keeping unpaired surrogates.
+pub fn expand_environment_strings_wide(
+    wide_input: &widestring::WideCStr,
+) -> Result<Vec<u16>, ExpandEnvironmentStringsError> {
+    let required_size = unsafe {
+        Environment::ExpandEnvironmentStringsW(wide_input.as_ptr(), core::ptr::null_mut(), 0)
+    };
+    if required_size == 0 {
+        return Err(ExpandEnvironmentStringsError::Os);
+    }
+    let mut out = vec![0u16; required_size as usize];
+    let written = unsafe {
+        Environment::ExpandEnvironmentStringsW(wide_input.as_ptr(), out.as_mut_ptr(), required_size)
+    };
+    if written == 0 {
+        return Err(ExpandEnvironmentStringsError::Os);
+    }
+    let end = out.iter().position(|&unit| unit == 0).unwrap_or(out.len());
+    out.truncate(end);
+    Ok(out)
+}
