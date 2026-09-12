@@ -246,12 +246,10 @@ mod _codecs {
     }
 
     fn wide_order(byteorder: i32) -> encodings::utf16::ByteOrder {
-        if byteorder < 0 {
-            encodings::utf16::ByteOrder::Little
-        } else if byteorder > 0 {
-            encodings::utf16::ByteOrder::Big
-        } else {
-            encodings::utf16::ByteOrder::Native
+        match byteorder.cmp(&0) {
+            core::cmp::Ordering::Less => encodings::utf16::ByteOrder::Little,
+            core::cmp::Ordering::Greater => encodings::utf16::ByteOrder::Big,
+            core::cmp::Ordering::Equal => encodings::utf16::ByteOrder::Native,
         }
     }
 
@@ -287,9 +285,9 @@ mod _codecs {
     }
 
     #[pyfunction]
-    fn escape_encode(args: EscapeEncodeArgs, _vm: &VirtualMachine) -> EncodeResult {
+    fn escape_encode(args: EscapeEncodeArgs, _vm: &VirtualMachine) -> (Vec<u8>, usize) {
         let encoded = encodings::escape::encode(args.data.as_bytes());
-        Ok((encoded, args.data.len()))
+        (encoded, args.data.len())
     }
 
     #[derive(FromArgs)]
@@ -345,14 +343,36 @@ mod _codecs {
     fn unicode_escape_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
         args.encode(
             encodings::unicode_escape::ENCODING_NAME,
-            |ctx, errors| encodings::unicode_escape::encode(ctx, errors),
+            encodings::unicode_escape::encode,
             vm,
         )
     }
 
+    #[derive(FromArgs)]
+    struct EscapeTextDecodeArgs {
+        #[pyarg(positional)]
+        data: PyObjectRef,
+        #[pyarg(positional, optional)]
+        errors: Option<PyUtf8StrRef>,
+        #[pyarg(positional, default = true)]
+        final_decode: bool,
+    }
+
+    impl EscapeTextDecodeArgs {
+        fn bytes(&self, vm: &VirtualMachine) -> PyResult<ArgBytesLike> {
+            if let Ok(s) = self.data.clone().downcast::<crate::builtins::PyStr>() {
+                let bytes = vm.ctx.new_bytes(s.as_bytes().to_vec());
+                ArgBytesLike::try_from_object(vm, bytes.into())
+            } else {
+                ArgBytesLike::try_from_object(vm, self.data.clone())
+            }
+        }
+    }
+
     #[pyfunction]
-    fn unicode_escape_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
-        let ctx = PyDecodeContext::new(encodings::unicode_escape::ENCODING_NAME, &args.data, vm);
+    fn unicode_escape_decode(args: EscapeTextDecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let data = args.bytes(vm)?;
+        let ctx = PyDecodeContext::new(encodings::unicode_escape::ENCODING_NAME, &data, vm);
         let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
         let (text, consumed, note) =
             encodings::unicode_escape::decode(ctx, &errors, args.final_decode)?;
@@ -364,26 +384,22 @@ mod _codecs {
     fn raw_unicode_escape_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
         args.encode(
             encodings::raw_unicode_escape::ENCODING_NAME,
-            |ctx, errors| encodings::raw_unicode_escape::encode(ctx, errors),
+            encodings::raw_unicode_escape::encode,
             vm,
         )
     }
 
     #[pyfunction]
-    fn raw_unicode_escape_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
-        let ctx =
-            PyDecodeContext::new(encodings::raw_unicode_escape::ENCODING_NAME, &args.data, vm);
+    fn raw_unicode_escape_decode(args: EscapeTextDecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let data = args.bytes(vm)?;
+        let ctx = PyDecodeContext::new(encodings::raw_unicode_escape::ENCODING_NAME, &data, vm);
         let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
         encodings::raw_unicode_escape::decode(ctx, &errors, args.final_decode)
     }
 
     #[pyfunction]
     fn utf_7_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
-        args.encode(
-            encodings::utf7::ENCODING_NAME,
-            |ctx, errors| encodings::utf7::encode(ctx, errors),
-            vm,
-        )
+        args.encode(encodings::utf7::ENCODING_NAME, encodings::utf7::encode, vm)
     }
 
     #[pyfunction]
