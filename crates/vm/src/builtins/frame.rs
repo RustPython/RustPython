@@ -2,7 +2,7 @@
 
 */
 
-use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyIntRef, PyStrRef};
+use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyIntRef, PyStrRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -790,9 +790,10 @@ impl Py<FrameObject> {
                         let _ = PyCoroutine::del(coro, vm);
                     } else if let Some(async_gen) = owner.downcast_ref::<PyAsyncGen>() {
                         let _ = PyAsyncGen::del(async_gen, vm);
+                    } else if let Some(generator) = owner.downcast_ref::<PyGenerator>() {
+                        let _ = PyGenerator::del(generator, vm);
                     }
                 }
-                return Ok(());
             }
             FrameOwner::Thread => {
                 // Thread-owned frame: always executing, cannot clear.

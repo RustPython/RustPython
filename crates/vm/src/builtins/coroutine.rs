@@ -96,7 +96,9 @@ impl PyCoroutine {
         if self.inner.closed() {
             None
         } else {
-            Some(self.inner.frame())
+            let frame = self.inner.frame();
+            frame.mark_escaped();
+            Some(frame)
         }
     }
     #[pygetset]

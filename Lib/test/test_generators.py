@@ -302,7 +302,6 @@ class GeneratorTest(unittest.TestCase):
 
         self.assertEqual([1, 2], list(i for i in C()))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_close_clears_frame(self):
         # gh-142766: Test that closing a generator clears its frame
         class DetectDelete:
@@ -721,7 +720,6 @@ class GeneratorCloseTest(unittest.TestCase):
 
 # See https://github.com/python/cpython/issues/125723
 class GeneratorDeallocTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; frame uses shared Arc, no ownership transfer
     def test_frame_outlives_generator(self):
         def g1():
             a = 42

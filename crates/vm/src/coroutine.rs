@@ -291,7 +291,7 @@ impl Coro {
         let result = self.run_claimed(&claim, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
         self.maybe_close(&result, &claim);
         drop(claim);
-        Ok(result?.into_iter_return(vm))
+        self.finalize_send_result(result, jen, vm)
     }
 
     pub fn close(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
@@ -303,9 +303,11 @@ impl Coro {
         if self.closed.load() {
             return Ok(vm.ctx.none());
         }
-        // If generator hasn't started (FRAME_CREATED), just mark as closed
+        // If generator hasn't started (FRAME_CREATED), mark as closed and
+        // drop frame locals so argument objects can be collected.
         if self.frame.lasti() == 0 {
             self.closed.store(true);
+            self.clear_frame_locals_on_close();
             return Ok(vm.ctx.none());
         }
         let result = self.run_claimed(&claim, vm, |f| {

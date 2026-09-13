@@ -74,7 +74,9 @@ impl PyGenerator {
         if self.inner.closed() {
             None
         } else {
-            Some(self.inner.frame())
+            let frame = self.inner.frame();
+            frame.mark_escaped();
+            Some(frame)
         }
     }
 
@@ -159,12 +161,6 @@ impl Destructor for PyGenerator {
         if zelf.inner.closed() || zelf.inner.running() {
             return Ok(());
         }
-        // Generator was never started, just mark as closed
-        if zelf.inner.frame().lasti() == 0 {
-            zelf.inner.closed.store(true);
-            return Ok(());
-        }
-        // Throw GeneratorExit to run finally blocks
         if let Err(e) = zelf.inner.close(zelf.as_object(), vm) {
             vm.run_unraisable(e, None, zelf.as_object().to_owned());
         }

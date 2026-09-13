@@ -139,7 +139,9 @@ impl PyAsyncGen {
         if self.inner.closed() {
             None
         } else {
-            Some(self.inner.frame())
+            let frame = self.inner.frame();
+            frame.mark_escaped();
+            Some(frame)
         }
     }
     #[pygetset]
@@ -149,6 +151,10 @@ impl PyAsyncGen {
     #[pygetset]
     fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.frame().iframe().code().to_owned()
+    }
+    #[pygetset]
+    fn ag_suspended(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.suspended()
     }
 
     #[pyclassmethod]
