@@ -98,6 +98,9 @@ pub fn div_pow10(n: &BigUint, e: u64) -> BigUint {
     if n.is_zero() || e == 0 {
         return n.clone();
     }
+    if e >= digit_count(n) as u64 {
+        return BigUint::zero();
+    }
     n / pow10(e)
 }
 
@@ -108,6 +111,9 @@ pub fn split_pow10(n: &BigUint, e: u64) -> (BigUint, BigUint) {
     }
     if n.is_zero() {
         return (BigUint::zero(), BigUint::zero());
+    }
+    if e >= digit_count(n) as u64 {
+        return (BigUint::zero(), n.clone());
     }
     let p = pow10(e);
     let q = n / &p;

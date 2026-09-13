@@ -398,22 +398,14 @@ impl Decimal {
                 return Err(ParseError::Syntax);
             }
             i = rest.len();
+            // Clamp rather than reject: any exponent this large is already
+            // out of every context's Emin/Emax, so `fix` still reports it.
             let mut acc: i64 = 0;
-            let mut overflowed = false;
             for &d in digits {
-                if overflowed {
-                    continue;
-                }
-                match acc
+                acc = acc
                     .checked_mul(10)
                     .and_then(|v| v.checked_add(i64::from(d - b'0')))
-                {
-                    Some(v) => acc = v,
-                    None => overflowed = true,
-                }
-            }
-            if overflowed {
-                return Err(ParseError::Range);
+                    .unwrap_or(i64::MAX);
             }
             if neg { -acc } else { acc }
         } else {
@@ -427,10 +419,7 @@ impl Decimal {
         all.extend_from_slice(int_part);
         all.extend_from_slice(frac_part);
         let coeff = bigops::from_ascii_digits(&all);
-        let exp = match exp.checked_sub(frac_part.len() as i64) {
-            Some(v) => v,
-            None => return Err(ParseError::Range),
-        };
+        let exp = exp.saturating_sub(frac_part.len() as i64);
         Ok(Self::new_finite(sign, coeff, exp))
     }
 

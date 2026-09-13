@@ -1854,6 +1854,7 @@ mod _decimal {
             || context.is(&extended_context(vm))
         {
             context = context.copy(vm);
+            context.state.lock().status = 0;
         }
         let var = context_var(vm)?;
         vm.call_method(&var, "set", (context,))?;
@@ -2672,13 +2673,7 @@ mod _decimal {
             let context = current_context(vm)?;
             let ctx = context.dec_context();
             let mut status = 0;
-            let value = dec::ops::arith::quantize(
-                &self.value,
-                &exp,
-                dec::RoundMode::HalfEven,
-                &ctx,
-                &mut status,
-            );
+            let value = dec::ops::arith::quantize(&self.value, &exp, ctx.round, &ctx, &mut status);
             context.add_status(status, vm)?;
             Ok(Self::new_ref(value, vm).into())
         }

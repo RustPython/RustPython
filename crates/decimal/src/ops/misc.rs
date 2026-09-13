@@ -195,52 +195,6 @@ pub fn scaleb(a: &Decimal, b: &Decimal, ctx: &Context, status: &mut u32) -> Deci
     ops::fix(&d, ctx, status)
 }
 
-/// One signed operand of `exact_add_signed`: a coefficient at a given
-/// exponent, with its own sign.
-struct SignedTerm<'a> {
-    sign: u8,
-    exp: i64,
-    coeff: &'a BigUint,
-}
-
-/// Exact signed decimal addition `a + b`, with no context applied: the worker
-/// inside `Decimal.__add__` before the final `_fix`. Used instead of calling
-/// into `ops::arith` (off-limits here) for the exact single-ulp step in
-/// `next_plus`/`next_minus`. `round` only matters to pick the sign of an
-/// exact zero, per `__add__`'s `negativezero` rule.
-fn exact_add_signed(round: RoundMode, prec: i64, a: SignedTerm<'_>, b: SignedTerm<'_>) -> Decimal {
-    let exp = a.exp.min(b.exp);
-    let negativezero = round == RoundMode::Floor && a.sign != b.sign;
-    let a_zero = a.coeff.is_zero();
-    let b_zero = b.coeff.is_zero();
-
-    if a_zero && b_zero {
-        let sign = if negativezero { 1 } else { a.sign.min(b.sign) };
-        return Decimal::zero(sign, exp);
-    }
-    if a_zero {
-        let target = exp.max(b.exp.saturating_sub(prec).saturating_sub(1));
-        let shift = (b.exp - target) as u64;
-        return Decimal::new_finite(b.sign, bigops::mul_pow10(b.coeff, shift), target);
-    }
-    if b_zero {
-        let target = exp.max(a.exp.saturating_sub(prec).saturating_sub(1));
-        let shift = (a.exp - target) as u64;
-        return Decimal::new_finite(a.sign, bigops::mul_pow10(a.coeff, shift), target);
-    }
-
-    let a_scaled = bigops::mul_pow10(a.coeff, (a.exp - exp) as u64);
-    let b_scaled = bigops::mul_pow10(b.coeff, (b.exp - exp) as u64);
-    if a.sign == b.sign {
-        return Decimal::new_finite(a.sign, &a_scaled + &b_scaled, exp);
-    }
-    match a_scaled.cmp(&b_scaled) {
-        Ordering::Equal => Decimal::zero(u8::from(negativezero), exp),
-        Ordering::Greater => Decimal::new_finite(a.sign, &a_scaled - &b_scaled, exp),
-        Ordering::Less => Decimal::new_finite(b.sign, &b_scaled - &a_scaled, exp),
-    }
-}
-
 /// `Decimal.next_minus`.
 pub fn next_minus(a: &Decimal, ctx: &Context, status: &mut u32) -> Decimal {
     if let Some(nan) = ops::check_nans(a, None, ctx, status) {
@@ -268,22 +222,8 @@ pub fn next_minus(a: &Decimal, ctx: &Context, status: &mut u32) -> Decimal {
         return new_a;
     }
     let unit_exp = scratch_ctx.etiny() - 1;
-    let unit = BigUint::one();
-    let raw = exact_add_signed(
-        scratch_ctx.round,
-        scratch_ctx.prec,
-        SignedTerm {
-            sign: a.sign(),
-            exp: a.exponent(),
-            coeff: a.coefficient(),
-        },
-        SignedTerm {
-            sign: 1,
-            exp: unit_exp,
-            coeff: &unit,
-        },
-    );
-    ops::fix(&raw, &scratch_ctx, &mut scratch_status)
+    let unit = Decimal::new_finite(1, BigUint::one(), unit_exp);
+    super::arith::add(a, &unit, &scratch_ctx, &mut scratch_status)
 }
 
 /// `Decimal.next_plus`.
@@ -313,22 +253,8 @@ pub fn next_plus(a: &Decimal, ctx: &Context, status: &mut u32) -> Decimal {
         return new_a;
     }
     let unit_exp = scratch_ctx.etiny() - 1;
-    let unit = BigUint::one();
-    let raw = exact_add_signed(
-        scratch_ctx.round,
-        scratch_ctx.prec,
-        SignedTerm {
-            sign: a.sign(),
-            exp: a.exponent(),
-            coeff: a.coefficient(),
-        },
-        SignedTerm {
-            sign: 0,
-            exp: unit_exp,
-            coeff: &unit,
-        },
-    );
-    ops::fix(&raw, &scratch_ctx, &mut scratch_status)
+    let unit = Decimal::new_finite(0, BigUint::one(), unit_exp);
+    super::arith::add(a, &unit, &scratch_ctx, &mut scratch_status)
 }
 
 /// `Decimal.next_toward`.
