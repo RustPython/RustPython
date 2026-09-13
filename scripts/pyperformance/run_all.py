@@ -302,7 +302,13 @@ def run_one_benchmark(
 def write_catalog(results: list[dict], out_dir: Path, label: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     catalog_json = out_dir / "catalog.json"
-    catalog_json.write_text(json.dumps(results, indent=2, sort_keys=False) + "\n")
+    # Write-then-rename rather than truncate-in-place: this is called after
+    # every single benchmark, so an interruption mid-write must not leave
+    # catalog.json half-written -- that would both lose every earlier result
+    # in the file and make the next run's json.loads() fail outright.
+    tmp_path = out_dir / "catalog.json.tmp"
+    tmp_path.write_text(json.dumps(results, indent=2, sort_keys=False) + "\n")
+    tmp_path.replace(catalog_json)
 
     ok = [r for r in results if r["status"] == "ok"]
     fail = [r for r in results if r["status"] == "fail"]
