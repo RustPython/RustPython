@@ -2321,7 +2321,8 @@ mod _decimal {
             if self.value.is_infinite() {
                 return Err(vm.new_overflow_error("cannot convert Infinity to integer ratio"));
             }
-            let (num, den) = decimal_as_ratio(&self.value);
+            let (num, den) = decimal_as_ratio(&self.value)
+                .ok_or_else(|| vm.new_memory_error("not enough memory for decimal operation"))?;
             Ok(vm
                 .ctx
                 .new_tuple(vec![
@@ -3131,10 +3132,11 @@ mod _decimal {
         dec::bigops::div_pow10(coeff, shift)
     }
 
-    /// `Decimal.as_integer_ratio`, in lowest terms.
-    fn decimal_as_ratio(value: &dec::Decimal) -> (BigInt, BigInt) {
+    /// `Decimal.as_integer_ratio`, in lowest terms. `None` if the denominator
+    /// (a power of five reduced from the exponent) is too wide to build.
+    fn decimal_as_ratio(value: &dec::Decimal) -> Option<(BigInt, BigInt)> {
         if value.is_zero() {
-            return (BigInt::from(0), BigInt::from(1));
+            return Some((BigInt::from(0), BigInt::from(1)));
         }
         let mut n = value.coefficient().clone();
         let den = if value.exponent() >= 0 {
@@ -3156,17 +3158,17 @@ mod _decimal {
                 n >>= shift;
                 twos -= shift;
             }
-            five.pow(u32::try_from(fives).expect("scale fits in a u32")) << twos
+            five.pow(u32::try_from(fives).ok()?) << twos
         };
         let sign = if value.sign() == 0 {
             Sign::Plus
         } else {
             Sign::Minus
         };
-        (
+        Some((
             BigInt::from_biguint(sign, n),
             BigInt::from_biguint(Sign::Plus, den),
-        )
+        ))
     }
 
     /// `float(self)`.

@@ -590,6 +590,11 @@ pub fn format(
     // Find digits before and after the decimal point, and get the exponent.
     let digits = value.coeff_digits();
     let ndigits = digits.len() as i64;
+    if -dotplace > MAX_FORMAT_LENGTH || dotplace - ndigits > MAX_FORMAT_LENGTH {
+        return Err(FormatError(String::from(
+            "format specification exceeds internal limits of _decimal",
+        )));
+    }
     let (intpart, fracpart): (Vec<u8>, Vec<u8>) = if dotplace < 0 {
         let mut frac = vec![b'0'; (-dotplace) as usize];
         frac.extend_from_slice(&digits);
