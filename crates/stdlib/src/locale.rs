@@ -82,18 +82,53 @@ mod _locale {
 
     #[pyfunction]
     fn strcoll(string1: PyUtf8StrRef, string2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
-        let cstr1 = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
-        let cstr2 = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
-        Ok(vm.new_pyobj(host_locale::strcoll(&cstr1, &cstr2)))
+        #[cfg(windows)]
+        {
+            let w1: Vec<u16> = string1.as_str().encode_utf16().chain([0]).collect();
+            let w2: Vec<u16> = string2.as_str().encode_utf16().chain([0]).collect();
+            return Ok(vm.new_pyobj(host_locale::wcscoll(&w1, &w2)));
+        }
+        #[cfg(not(windows))]
+        {
+            let cstr1 = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
+            let cstr2 = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
+            Ok(vm.new_pyobj(host_locale::strcoll(&cstr1, &cstr2)))
+        }
     }
 
     #[pyfunction]
     fn strxfrm(string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
-        // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
-        let n1 = string.byte_len() + 1;
-        let cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
-        let buff = host_locale::strxfrm(&cstr, n1);
-        Ok(vm.new_pyobj(String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string")))
+        #[cfg(windows)]
+        {
+            let wide: Vec<u16> = string.as_str().encode_utf16().chain([0]).collect();
+            let transformed = host_locale::wcsxfrm(&wide);
+            return Ok(vm.new_pyobj(String::from_utf16_lossy(&transformed)));
+        }
+        #[cfg(not(windows))]
+        {
+            // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
+            let n1 = string.byte_len() + 1;
+            let cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
+            let buff = host_locale::strxfrm(&cstr, n1);
+            Ok(vm
+                .new_pyobj(String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string")))
+        }
+    }
+
+    /// Windows `_locale._getdefaultlocale` — `(lang_COUNTRY, cpN)` or
+    /// `(None, cpN)` when the ISO names are missing.
+    #[cfg(windows)]
+    #[pyfunction]
+    fn _getdefaultlocale(vm: &VirtualMachine) -> PyResult {
+        let lcid = host_locale::user_default_lcid();
+        let language = host_locale::locale_info(lcid, host_locale::LOCALE_SISO639LANGNAME);
+        let territory = host_locale::locale_info(lcid, host_locale::LOCALE_SISO3166CTRYNAME);
+        let locale = match (language, territory) {
+            (Some(language), Some(territory)) => vm.new_pyobj(format!("{language}_{territory}")),
+            _ => vm.ctx.none(),
+        };
+        let encoding = vm.new_pyobj(format!("cp{}", host_locale::acp()));
+        Ok(vm.ctx.new_tuple(vec![locale, encoding]).into())
     }
 
     #[pyfunction]

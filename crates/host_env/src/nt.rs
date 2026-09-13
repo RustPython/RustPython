@@ -2141,6 +2141,7 @@ pub fn spawnve(
     argv: &[&widestring::WideCStr],
     envp: &[&widestring::WideCStr],
 ) -> io::Result<intptr_t> {
+    crate::os::ensure_drive_current_directory();
     let argv_ptrs = null_terminated_ptrs(argv);
     let envp_ptrs = null_terminated_ptrs(envp);
     let result = unsafe {
@@ -2176,6 +2177,7 @@ pub fn execve(
     argv: &[&widestring::WideCStr],
     envp: &[&widestring::WideCStr],
 ) -> io::Result<()> {
+    crate::os::ensure_drive_current_directory();
     let argv_ptrs = null_terminated_ptrs(argv);
     let envp_ptrs = null_terminated_ptrs(envp);
     let result = unsafe {
