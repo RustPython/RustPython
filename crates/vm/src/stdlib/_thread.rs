@@ -25,6 +25,7 @@ pub(crate) mod _thread {
             PyUtf8StrRef,
         },
         common::{lock::PyMutex, wtf8::Wtf8Buf},
+        convert::ToPyException,
         frame::FrameObjectRef,
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
         object::{Traverse, TraverseFn},
@@ -419,11 +420,35 @@ pub(crate) mod _thread {
         let _ = name;
     }
 
-    /// Get OS-level thread ID (pthread_self on Unix)
+    /// Get the name of the current thread
+    #[pyfunction]
+    fn get_name(vm: &VirtualMachine) -> PyResult {
+        #[cfg(windows)]
+        {
+            let units =
+                host_thread::current_thread_name_wide().map_err(|e| e.to_pyexception(vm))?;
+            return Ok(vm.ctx.new_str(String::from_utf16_lossy(&units)).into());
+        }
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let bytes = host_thread::current_thread_name(64).map_err(|e| e.to_pyexception(vm))?;
+            return Ok(vm
+                .ctx
+                .new_str(String::from_utf8_lossy(&bytes).into_owned())
+                .into());
+        }
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+        {
+            let _ = vm;
+            Ok(vm.ctx.new_str("").into())
+        }
+    }
+
+    /// Get OS-level thread ID (pthread_self on Unix, GetCurrentThreadId on Windows)
     /// This is important for fork compatibility - the ID must remain stable after fork
     fn current_thread_id() -> u64 {
         cfg_select! {
-            unix => host_thread::current_thread_id(),
+            any(unix, windows) => host_thread::current_thread_id(),
             _ => thread_to_rust_id(&thread::current()),
         }
     }
