@@ -542,6 +542,10 @@ pub unsafe extern "C" fn PyLongWriter_Create(
     digits: *mut *mut c_void,
 ) -> *mut PyLongWriter {
     with_vm::<PyResult<*mut c_void>, _>(|vm| {
+        unsafe {
+            *digits = core::ptr::null_mut();
+        }
+
         if ndigits <= 0 {
             return Err(vm.new_value_error("ndigits must be greater than 0"));
         }
