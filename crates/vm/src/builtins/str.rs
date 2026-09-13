@@ -613,20 +613,34 @@ impl PyStr {
             .map(|x| Self::from(unsafe { Wtf8Buf::from_bytes_unchecked(x) }).into_ref(&vm.ctx))
     }
 
+    pub fn as_utf8(&self) -> Option<&PyUtf8Str> {
+        if self.is_utf8() {
+            // SAFETY: is_utf8() guarantees the PyUtf8Str invariant.
+            Some(unsafe { &*(self as *const Self as *const PyUtf8Str) })
+        } else {
+            None
+        }
+    }
+
     pub fn try_as_utf8<'a>(&'a self, vm: &VirtualMachine) -> PyResult<&'a PyUtf8Str> {
-        // Check if the string contains surrogates
-        self.ensure_valid_utf8(vm)?;
-        // If no surrogates, we can safely cast to PyStr
-        Ok(unsafe { &*(self as *const _ as *const PyUtf8Str) })
+        self.as_utf8()
+            .ok_or_else(|| self.ensure_valid_utf8(vm).unwrap_err())
     }
 }
 
 impl Py<PyStr> {
+    pub fn as_utf8(&self) -> Option<&Py<PyUtf8Str>> {
+        if self.is_utf8() {
+            // SAFETY: is_utf8() guarantees the PyUtf8Str invariant.
+            Some(unsafe { &*(self as *const Self as *const Py<PyUtf8Str>) })
+        } else {
+            None
+        }
+    }
+
     pub fn try_as_utf8<'a>(&'a self, vm: &VirtualMachine) -> PyResult<&'a Py<PyUtf8Str>> {
-        // Check if the string contains surrogates
-        self.ensure_valid_utf8(vm)?;
-        // If no surrogates, we can safely cast to PyStr
-        Ok(unsafe { &*(self as *const _ as *const Py<PyUtf8Str>) })
+        self.as_utf8()
+            .ok_or_else(|| self.ensure_valid_utf8(vm).unwrap_err())
     }
 }
 

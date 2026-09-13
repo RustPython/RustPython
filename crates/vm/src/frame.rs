@@ -7767,10 +7767,10 @@ impl ExecutingFrame<'_> {
         // fallback to importing '{module.__name__}.{name}' from sys.modules
         let fallback_module = (|| {
             let mod_name = module.get_attr(identifier!(vm, __name__), vm).ok()?;
-            let mod_name = mod_name.downcast_ref::<PyStr>()?;
-            let full_mod_name = format!("{mod_name}.{name}");
+            let mod_name = mod_name.downcast_ref::<PyUtf8Str>()?;
+            let full_mod_name = vm.ctx.new_utf8_str(format!("{}.{name}", mod_name.as_str()));
             let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
-            sys_modules.get_item(&full_mod_name, vm).ok()
+            sys_modules.get_item(&*full_mod_name, vm).ok()
         })();
 
         if let Some(sub_module) = fallback_module {
@@ -7783,10 +7783,10 @@ impl ExecutingFrame<'_> {
 
         // Get module name for the error message
         let mod_name_obj = module.get_attr(identifier!(vm, __name__), vm).ok();
-        let mod_name_str = mod_name_obj
+        let mod_name = mod_name_obj
             .as_ref()
-            .and_then(|n| n.downcast_ref::<PyUtf8Str>().map(|s| s.as_str().to_owned()));
-        let module_name = mod_name_str.as_deref().unwrap_or("<unknown module name>");
+            .and_then(|n| n.downcast_ref::<PyUtf8Str>());
+        let module_name = mod_name.map_or("<unknown module name>", |s| s.as_str());
 
         let spec = module
             .get_attr("__spec__", vm)
@@ -7843,7 +7843,13 @@ impl ExecutingFrame<'_> {
                 format!("cannot import name '{name}' from '{module_name}' (unknown location)")
             }
         };
-        let err = vm.new_import_error(msg, vm.ctx.new_utf8_str(module_name));
+        let err = vm.new_import_error(
+            msg,
+            match mod_name {
+                Some(s) => s.to_owned().into_wtf8(),
+                None => vm.ctx.new_utf8_str("<unknown module name>").into_wtf8(),
+            },
+        );
 
         if let Some(ref path) = origin {
             let _ignore = err

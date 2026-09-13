@@ -309,7 +309,7 @@ pub mod sys {
         vm.ctx.new_tuple(
             module_names
                 .into_iter()
-                .map(|n| vm.ctx.new_str(n).into())
+                .map(|n| vm.ctx.new_utf8_str(n).into())
                 .collect(),
         )
     }
