@@ -105,7 +105,7 @@ Verify that parenthesis are required in a statement
 
 Verify that parenthesis are required when used as a keyword argument value
 
-    >>> dict(a = i for i in range(10))  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> dict(a = i for i in range(10))
     Traceback (most recent call last):
        ...
     SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?

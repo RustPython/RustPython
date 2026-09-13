@@ -1264,22 +1264,22 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: cannot assign to __debug__
 
-   >>> if x = 3:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if x = 3:
    ...    pass
    Traceback (most recent call last):
    SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
 
-   >>> while x = 3:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> while x = 3:
    ...    pass
    Traceback (most recent call last):
    SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
 
-   >>> if x.a = 3:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if x.a = 3:
    ...    pass
    Traceback (most recent call last):
    SyntaxError: cannot assign to attribute here. Maybe you meant '==' instead of '='?
 
-   >>> while x.a = 3:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> while x.a = 3:
    ...    pass
    Traceback (most recent call last):
    SyntaxError: cannot assign to attribute here. Maybe you meant '==' instead of '='?
@@ -1885,19 +1885,19 @@ Traceback (most recent call last):
    ...
 SyntaxError: keyword argument repeated: a
 
->>> {1, 2, 3} = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> {1, 2, 3} = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to set display here. Maybe you meant '==' instead of '='?
 
->>> {1: 2, 3: 4} = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> {1: 2, 3: 4} = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to dict literal here. Maybe you meant '==' instead of '='?
 
->>> f'{x}' = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f'{x}' = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to f-string expression here. Maybe you meant '==' instead of '='?
 
->>> f'{x}-{y}' = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> f'{x}-{y}' = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to f-string expression here. Maybe you meant '==' instead of '='?
 
@@ -1973,11 +1973,11 @@ SyntaxError: 'u' and 'b' prefixes are incompatible
 Traceback (most recent call last):
 SyntaxError: 'b' and 'f' prefixes are incompatible
 
->>> t'{x}' = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> t'{x}' = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to t-string expression here. Maybe you meant '==' instead of '='?
 
->>> t'{x}-{y}' = 42  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> t'{x}-{y}' = 42
 Traceback (most recent call last):
 SyntaxError: cannot assign to t-string expression here. Maybe you meant '==' instead of '='?
 

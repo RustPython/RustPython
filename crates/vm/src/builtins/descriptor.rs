@@ -884,7 +884,16 @@ impl PyWrapper {
 
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
-        self.doc
+        let doc = self.doc?;
+        type_::get_doc_from_internal_doc(self.name.as_str(), doc)
+    }
+
+    #[pygetset]
+    fn __text_signature__(&self) -> Option<String> {
+        self.doc.and_then(|doc| {
+            type_::get_text_signature_from_internal_doc(self.name.as_str(), doc)
+                .map(|signature| signature.to_string())
+        })
     }
 }
 
@@ -1004,10 +1013,14 @@ impl Representable for PyMethodWrapper {
 }
 
 impl Hashable for PyMethodWrapper {
-    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let obj_hash = zelf.obj.hash(vm)?;
-        let wrapper_hash = zelf.wrapper.as_object().get_id() as PyHash;
-        Ok(obj_hash ^ wrapper_hash)
+    fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
+        // wrapperobject_hash: pointer hash of descr xor self
+        let mut hash =
+            (zelf.wrapper.as_object().get_id() as PyHash) ^ (zelf.obj.get_id() as PyHash);
+        if hash == -1 {
+            hash = -2;
+        }
+        Ok(hash)
     }
 }
 
@@ -1016,11 +1029,11 @@ impl Comparable for PyMethodWrapper {
         zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
-        vm: &VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> PyResult<crate::function::PyComparisonValue> {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
-            let eq = zelf.wrapper.is(&other.wrapper) && vm.bool_eq(&zelf.obj, &other.obj)?;
+            let eq = zelf.wrapper.is(&other.wrapper) && zelf.obj.is(&other.obj);
             Ok(eq.into())
         })
     }

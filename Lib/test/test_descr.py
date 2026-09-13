@@ -4654,7 +4654,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             a >= b
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_method_wrapper(self):
         # Testing method-wrapper objects...
         # <type 'method-wrapper'> did not support any reflection before 2.5
