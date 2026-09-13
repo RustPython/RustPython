@@ -32,7 +32,8 @@ pub mod locale;
 #[cfg(feature = "native-certs")]
 pub mod native_certs;
 pub mod readline;
-#[cfg(feature = "ssl")]
+/// rustls-free `_ssl` surface (MemoryBIO, constants, OID, ALPN/hostname).
+/// The rustls engine is compiled only with the `ssl` feature.
 pub mod ssl;
 
 #[cfg(windows)]
