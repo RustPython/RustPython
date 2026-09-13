@@ -18,6 +18,7 @@ mod winreg {
     use crossbeam_utils::atomic::AtomicCell;
     use malachite_bigint::Sign;
     use num_traits::ToPrimitive;
+    use rustpython_common::wtf8::Wtf8Buf;
     use rustpython_host_env::windows::ToWideString;
     use rustpython_host_env::winreg as host_winreg;
     use widestring::{WideCString, WideString};
@@ -869,8 +870,11 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn ExpandEnvironmentStrings(i: String, vm: &VirtualMachine) -> PyResult<String> {
-        let i = WideCString::from_str(i).map_err(|err| err.to_pyexception(vm))?;
-        host_winreg::expand_environment_strings(&i).map_err(|err| err.to_pyexception(vm))
+    fn ExpandEnvironmentStrings(i: PyRef<PyStr>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+        let i = WideCString::from_vec(i.as_wtf8().encode_wide().collect::<Vec<_>>())
+            .map_err(|_| nul_char_error(vm))?;
+        let expanded = host_winreg::expand_environment_strings_wide(&i)
+            .map_err(|err| err.to_pyexception(vm))?;
+        Ok(vm.ctx.new_str(Wtf8Buf::from_wide(&expanded)))
     }
 }

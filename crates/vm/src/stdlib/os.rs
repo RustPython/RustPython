@@ -1634,7 +1634,7 @@ pub(super) mod _os {
             Ok(())
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
         {
             let src_path = match follow_symlinks.into_option() {
                 Some(true) => {
@@ -1646,6 +1646,26 @@ pub(super) mod _os {
                     // Default or explicit no-follow: native hard_link behavior
                     PathBuf::from(src.path.clone())
                 }
+            };
+            // CreateHardLinkW(new, existing)
+            let src_wide = src_path
+                .to_wide_cstring()
+                .map_err(|err| err.into_pyexception(vm))?;
+            let dst_wide = dst.to_wide_cstring(vm)?;
+            rustpython_host_env::winapi::create_hard_link(&dst_wide, &src_wide).map_err(|err| {
+                let builder = err.to_os_error_builder(vm);
+                let builder = builder.filename(src.filename(vm));
+                let builder = builder.filename2(dst.filename(vm));
+                builder.build(vm).upcast()
+            })
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let src_path = match follow_symlinks.into_option() {
+                Some(true) => crate::host_env::fs::canonicalize(&src.path)
+                    .unwrap_or_else(|_| PathBuf::from(src.path.clone())),
+                Some(false) | None => PathBuf::from(src.path.clone()),
             };
 
             fs::hard_link(&src_path, &dst.path).map_err(|err| {
