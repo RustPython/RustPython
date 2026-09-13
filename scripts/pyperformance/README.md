@@ -1,11 +1,25 @@
 # Running upstream pyperformance against RustPython
 
-[pyperformance](https://github.com/python/pyperformance) cannot be installed
-as-is on RustPython: its dependency `pyperf` hard-depends on `psutil`, a
-C-extension package, and RustPython has no CPython C-API / extension-module
-loading support (`_imp.create_dynamic` / `_imp.exec_dynamic` are not
-implemented, and `_sysconfigdata` doesn't provide a full compiler config, so
-even building a C extension from source fails).
+Two different interpreters are involved whenever
+[pyperformance](https://github.com/python/pyperformance) is pointed at
+RustPython, and only one of them is RustPython itself:
+
+- **The `pyperformance` CLI** (`pyperformance run --python <target>`) is the
+  *host* process -- it parses arguments, decides which benchmarks to run, and
+  collects results. It always runs under a real CPython, regardless of what
+  `--python` points at; RustPython never has to run this command.
+- **The benchmark being measured** runs as the `--python` target instead.
+  `pyperf`'s `Runner` re-execs that target as a subprocess to actually run the
+  timing loop, and the benchmark script that subprocess runs does
+  `import pyperf` itself to call the measurement API. So it's RustPython, as
+  that subprocess, that needs to import `pyperf` -- not run `pyperformance`.
+
+`pyperf` hard-depends on `psutil`, a C-extension package, and RustPython has
+no CPython C-API / extension-module loading support (`_imp.create_dynamic` /
+`_imp.exec_dynamic` are not implemented, and `_sysconfigdata` doesn't provide
+a full compiler config, so even building a C extension from source fails).
+That's what breaks: not "installing the pyperformance CLI on RustPython" --
+RustPython importing `pyperf` as a benchmark subprocess.
 
 Workaround: `pyperf` already disables psutil usage on interpreters that
 report `Py_GIL_DISABLED=1` in `sysconfig` (see `pyperf._utils.USE_PSUTIL`) --
