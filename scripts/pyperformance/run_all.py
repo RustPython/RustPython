@@ -355,7 +355,7 @@ def write_catalog(results: list[dict], out_dir: Path, label: str) -> None:
     log(f"wrote {catalog_json} and {catalog_md}")
 
 
-def main() -> None:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -422,56 +422,32 @@ def main() -> None:
         action="store_true",
         help="re-run benchmarks even if already present in an existing catalog.json",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    target_python = shutil.which(str(args.python)) or str(args.python)
+
+def resolve_target_python(python_arg: Path) -> Path:
+    target_python = shutil.which(str(python_arg)) or str(python_arg)
     target_python = Path(target_python)
     if not target_python.exists():
         raise SystemExit(
-            f"Python executable not found: {args.python} "
+            f"Python executable not found: {python_arg} "
             "(for RustPython, build it first, e.g. `cargo build --release --features ssl`)"
         )
-    target_python = target_python.resolve()
-    label = args.label or target_python.name
+    return target_python.resolve()
 
-    # Every benchmark subprocess runs with cwd=work_dir (below); a relative
-    # --out or --cache-dir would then resolve against that directory instead
-    # of the one this script was invoked from.
-    args.out = args.out.resolve()
-    args.cache_dir = args.cache_dir.resolve()
 
-    out_dir = args.out / label
-
-    extra_args = ["--rigorous"] if args.rigorous else ["--fast"]
-
-    host_venv = ensure_host_venv(args.cache_dir)
-    stub_pkgs_dir = (
-        None
-        if args.no_psutil_stub
-        else ensure_stub_psutil_wheel(host_venv, args.cache_dir)
-    )
-    pyperformance_bin = host_venv / "bin" / "pyperformance"
-
-    benchmarks = (
-        [b.strip() for b in args.benchmarks.split(",") if b.strip()]
-        if args.benchmarks
-        else list_benchmarks(host_venv)
-    )
-    log(f"{len(benchmarks)} benchmarks to run against {label} ({target_python})")
-
-    work_dir = args.cache_dir / "work" / label
-    work_dir.mkdir(parents=True, exist_ok=True)
-
-    # `all_results` starts as *every* benchmark previously recorded (not just the
-    # ones in this invocation's --benchmarks subset), so a partial/targeted re-run
-    # never drops earlier results from catalog.json/CATALOG.md -- it only updates
-    # the entries it actually re-ran. But those results are only trustworthy if
-    # they were measured against this same executable: a local rebuild or a
-    # target swap under the same --label must not let resume reuse stale times.
+def load_resumable_catalog(
+    out_dir: Path, target_python: Path, label: str
+) -> dict[str, dict]:
+    """Load catalog.json to resume from, keyed by benchmark name -- unless
+    the target executable (or the stdlib RUSTPYTHONPATH points it at) has
+    changed since that catalog was written, in which case it is invalidated
+    (and every benchmark re-run) instead of trusted.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
-    current_fingerprint = executable_fingerprint(target_python)
     fingerprint_path = out_dir / ".executable-fingerprint"
     catalog_json = out_dir / "catalog.json"
+    current_fingerprint = executable_fingerprint(target_python)
     stale = (
         fingerprint_path.exists()
         and fingerprint_path.read_text().strip() != current_fingerprint
@@ -493,6 +469,49 @@ def main() -> None:
             all_results[r["benchmark"]] = r
 
     fingerprint_path.write_text(current_fingerprint + "\n")
+    return all_results
+
+
+def main() -> None:
+    args = parse_args()
+
+    target_python = resolve_target_python(args.python)
+    label = args.label or target_python.name
+
+    # Every benchmark subprocess runs with cwd=work_dir (below); a relative
+    # --out, --cache-dir, or RUSTPYTHONPATH would then resolve against that
+    # directory instead of the one this script was invoked from.
+    args.out = args.out.resolve()
+    args.cache_dir = args.cache_dir.resolve()
+    if "RUSTPYTHONPATH" in os.environ:
+        os.environ["RUSTPYTHONPATH"] = str(Path(os.environ["RUSTPYTHONPATH"]).resolve())
+
+    out_dir = args.out / label
+    extra_args = ["--rigorous"] if args.rigorous else ["--fast"]
+
+    host_venv = ensure_host_venv(args.cache_dir)
+    stub_pkgs_dir = (
+        None
+        if args.no_psutil_stub
+        else ensure_stub_psutil_wheel(host_venv, args.cache_dir)
+    )
+    pyperformance_bin = host_venv / "bin" / "pyperformance"
+
+    benchmarks = (
+        [b.strip() for b in args.benchmarks.split(",") if b.strip()]
+        if args.benchmarks
+        else list_benchmarks(host_venv)
+    )
+    log(f"{len(benchmarks)} benchmarks to run against {label} ({target_python})")
+
+    work_dir = args.cache_dir / "work" / label
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    # Starts as *every* benchmark previously recorded (not just this
+    # invocation's --benchmarks subset), so a partial/targeted re-run never
+    # drops earlier results from catalog.json/CATALOG.md -- it only updates
+    # the entries it actually re-ran.
+    all_results = load_resumable_catalog(out_dir, target_python, label)
 
     for bench in benchmarks:
         if bench in all_results and not args.force:
