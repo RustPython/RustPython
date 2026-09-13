@@ -79,12 +79,19 @@ bitflags! {
 }
 
 impl AsNativeBytesFlags {
+    const ENDIAN_MASK: c_int = 0b11;
+
+    #[inline]
+    fn is_native_endian(self) -> bool {
+        (self.bits() & Self::ENDIAN_MASK) == Self::NATIVE_ENDIAN.bits()
+    }
+
     #[inline]
     fn is_little_endian(self) -> bool {
-        if self.contains(Self::NATIVE_ENDIAN) {
+        if self.is_native_endian() {
             cfg!(target_endian = "little")
         } else {
-            self.contains(Self::LITTLE_ENDIAN)
+            (self.bits() & Self::ENDIAN_MASK) == Self::LITTLE_ENDIAN.bits()
         }
     }
 
@@ -96,8 +103,8 @@ impl AsNativeBytesFlags {
 
         let flags = Self::from_bits(raw_flags)
             .ok_or_else(|| vm.new_value_error("Invalid NativeBytes flags"))?;
-        if flags.contains(Self::LITTLE_ENDIAN) & flags.contains(Self::NATIVE_ENDIAN) {
-            Err(vm.new_value_error("Cannot specify both LITTLE_ENDIAN and NATIVE_ENDIAN"))
+        if (flags.bits() & Self::ENDIAN_MASK) == 0b10 {
+            Err(vm.new_value_error("Passing 2 is reserved"))
         } else {
             Ok(flags)
         }
@@ -159,15 +166,66 @@ pub unsafe extern "C" fn PyLong_FromUnsignedNativeBytes(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsNativeBytes(
-    _obj: *mut PyObject,
-    _buffer: *mut c_void,
-    _n_bytes: isize,
-    _flags: c_int,
+    obj: *mut PyObject,
+    buffer: *mut c_void,
+    n_bytes: isize,
+    flags: c_int,
 ) -> isize {
     with_vm::<PyResult<isize>, _>(|vm| {
-        Err(vm.new_not_implemented_error(
-            "PyLong_AsNativeBytes is not implemented",
-        ))
+        if n_bytes < 0 {
+            return Err(vm.new_value_error("n_bytes must not be negative"));
+        }
+
+        let flags = AsNativeBytesFlags::from_bits_or_default(vm, flags)?;
+        let value = if flags.contains(AsNativeBytesFlags::ALLOW_INDEX) {
+            unsafe { &*obj }.to_owned().try_index(vm)?
+        } else {
+            unsafe { &*obj }.try_downcast_ref::<PyInt>(vm)?.to_owned()
+        };
+        let bigint = value.as_bigint();
+
+        if flags.contains(AsNativeBytesFlags::REJECT_NEGATIVE) && bigint.sign() == Sign::Minus {
+            return Err(vm.new_value_error("cannot convert negative int to unsigned"));
+        }
+
+        let little_endian = flags.is_little_endian();
+        let unsigned_buffer = flags.contains(AsNativeBytesFlags::UNSIGNED_BUFFER);
+        let is_negative = bigint.sign() == Sign::Minus;
+
+        let bytes = if is_negative || !unsigned_buffer {
+            if little_endian {
+                bigint.to_signed_bytes_le()
+            } else {
+                bigint.to_signed_bytes_be()
+            }
+        } else if little_endian {
+            bigint.to_bytes_le().1
+        } else {
+            bigint.to_bytes_be().1
+        };
+
+        let required_size = bytes.len().max(1);
+        let out_len =
+            usize::try_from(n_bytes).map_err(|_| vm.new_overflow_error("n_bytes out of range"))?;
+
+        if out_len > 0 {
+            if buffer.is_null() {
+                return Err(vm.new_system_error("buffer must not be NULL when n_bytes > 0"));
+            }
+            let out = unsafe { core::slice::from_raw_parts_mut(buffer.cast::<u8>(), out_len) };
+            let fill = if is_negative { 0xff } else { 0x00 };
+            out.fill(fill);
+
+            let copy_len = out_len.min(bytes.len());
+            if little_endian {
+                out[..copy_len].copy_from_slice(&bytes[..copy_len]);
+            } else {
+                out[out_len - copy_len..].copy_from_slice(&bytes[bytes.len() - copy_len..]);
+            }
+        }
+
+        isize::try_from(required_size)
+            .map_err(|_| vm.new_overflow_error("required size too large for Py_ssize_t"))
     })
 }
 
@@ -554,7 +612,9 @@ pub unsafe extern "C" fn PyLongWriter_Discard(writer: *mut PyLongWriter) {
 
 #[cfg(test)]
 mod tests {
+    use pyo3::ffi;
     use pyo3::prelude::*;
+    use pyo3::types::PyBool;
     use pyo3::types::PyInt;
 
     #[test]
@@ -581,6 +641,55 @@ mod tests {
             let value = 1u128 << 100;
             let number = PyInt::new(py, value);
             assert_eq!(number.extract::<u128>().unwrap(), value);
+        })
+    }
+
+    #[test]
+    fn as_native_bytes_defaults_unsigned_size_and_copy() {
+        Python::attach(|py| unsafe {
+            let obj: Bound<'_, PyInt> = 128.into_pyobject(py).unwrap();
+
+            let required = ffi::PyLong_AsNativeBytes(obj.as_ptr(), core::ptr::null_mut(), 0, -1);
+            assert_eq!(required, 1);
+
+            let mut out = [0xAAu8; 1];
+            let written = ffi::PyLong_AsNativeBytes(obj.as_ptr(), out.as_mut_ptr().cast(), 1, -1);
+            assert_eq!(written, 1);
+            assert_eq!(out, [0x80]);
+        })
+    }
+
+    #[test]
+    fn as_native_bytes_sign_extends_when_signed() {
+        Python::attach(|py| unsafe {
+            let obj: Bound<'_, PyInt> = (-1).into_pyobject(py).unwrap();
+
+            let mut out = [0u8; 4];
+            let written = ffi::PyLong_AsNativeBytes(obj.as_ptr(), out.as_mut_ptr().cast(), 4, 0);
+            assert_eq!(written, 1);
+            assert_eq!(out, [0xFF, 0xFF, 0xFF, 0xFF]);
+        })
+    }
+
+    #[test]
+    fn as_native_bytes_reject_negative() {
+        Python::attach(|py| unsafe {
+            let obj: Bound<'_, PyInt> = (-7).into_pyobject(py).unwrap();
+
+            let rc = ffi::PyLong_AsNativeBytes(obj.as_ptr(), core::ptr::null_mut(), 0, 8);
+            assert_eq!(rc, -1);
+            assert!(PyErr::take(py).is_some());
+        })
+    }
+
+    #[test]
+    fn as_native_bytes_allow_index() {
+        Python::attach(|py| unsafe {
+            let instance = PyBool::new(py, true);
+            let mut out = [0u8; 2];
+            let rc = ffi::PyLong_AsNativeBytes(instance.as_ptr(), out.as_mut_ptr().cast(), 2, 17);
+            assert_eq!(rc, 1);
+            assert_eq!(out, [1, 0]);
         })
     }
 }
