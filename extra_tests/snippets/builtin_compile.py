@@ -144,6 +144,65 @@ except _IncompleteInputError as exc:
 else:
     raise AssertionError("expected _IncompleteInputError")
 
+
+def _expect_incomplete(source, mode):
+    try:
+        compile(source, "<test>", mode, flags=PY_CF_ALLOW_INCOMPLETE_INPUT)
+    except _IncompleteInputError:
+        return
+    raise AssertionError(f"expected _IncompleteInputError for {source!r} {mode}")
+
+
+def _expect_syntax(source, mode):
+    try:
+        compile(source, "<test>", mode, flags=PY_CF_ALLOW_INCOMPLETE_INPUT)
+    except _IncompleteInputError:
+        raise AssertionError(f"unexpected _IncompleteInputError for {source!r} {mode}")
+    except SyntaxError:
+        return
+    raise AssertionError(f"expected SyntaxError for {source!r} {mode}")
+
+
+# eval/single treat empty input as incomplete; exec accepts an empty module.
+_expect_incomplete("", "eval")
+_expect_incomplete("", "single")
+_expect_incomplete("\n", "eval")
+_expect_incomplete("\n", "single")
+compile("", "<test>", "exec", flags=PY_CF_ALLOW_INCOMPLETE_INPUT)
+
+# A plain string still open at EOF is incomplete, except in exec, which
+# appends a newline and so sees an unescaped newline instead.
+_expect_incomplete("'abc", "eval")
+_expect_incomplete("'abc", "single")
+_expect_syntax("'abc", "exec")
+# A final `\` eats exec's implicit newline, so the string is still open at EOF.
+_expect_incomplete("a = 'a\\", "exec")
+_expect_incomplete("a = 'a\\", "single")
+_expect_syntax("a = 'a\\", "eval")
+_expect_incomplete("'''abc", "eval")
+_expect_incomplete("'''abc", "exec")
+
+# Single-quoted f/t-strings never set E_EOLS.
+_expect_syntax("f'", "eval")
+_expect_syntax("f'", "exec")
+_expect_syntax("f'", "single")
+_expect_syntax("f'{1+'", "eval")
+# An unclosed `{` in the field is EOF (`E_EOF`), so it is incomplete.
+_expect_incomplete("f'{", "eval")
+_expect_incomplete("f'{1", "eval")
+_expect_incomplete("f'''", "eval")
+_expect_incomplete("f'''", "exec")
+
+# exec turns a final `\` into a continuation then EOF; single/eval do not.
+_expect_syntax("9+ \\", "eval")
+_expect_syntax("9+ \\", "single")
+_expect_incomplete("9+ \\", "exec")
+
+# Non-tokenizer whitespace is a hard error, not blank input.
+_expect_syntax("\xa0", "eval")
+_expect_syntax("\xa0", "exec")
+_expect_syntax("\x0b", "eval")
+
 # The source is encoded before it is parsed, so a lone surrogate has to be
 # reported rather than assumed away.
 with assert_raises(UnicodeEncodeError):
