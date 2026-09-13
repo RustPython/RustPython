@@ -242,7 +242,7 @@ Check that generator attributes are present
     True
 
     >>> from test.support import HAVE_DOCSTRINGS
-    >>> print(g.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> print(g.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')
     Implement next(self).
     >>> import types
     >>> isinstance(g, types.GeneratorType)
