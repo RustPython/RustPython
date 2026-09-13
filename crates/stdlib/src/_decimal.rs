@@ -21,7 +21,7 @@ mod _decimal {
             static_cell,
             str::transform_decimal_and_space_to_ascii,
         },
-        function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
+        function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
         stdlib::_warnings,
         types::{
@@ -521,6 +521,87 @@ mod _decimal {
         fn copy(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let word = self.word(vm)?;
             Ok(signal_word_as_dict(word, vm))
+        }
+
+        #[pymethod]
+        fn setdefault(
+            &self,
+            key: PyObjectRef,
+            default: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
+            match self.__getitem__(&key, vm) {
+                Ok(value) => Ok(value),
+                Err(err) if err.fast_isinstance(vm.ctx.exceptions.key_error) => {
+                    let value = default.unwrap_or_none(vm);
+                    self.__setitem__(&key, Some(value.clone()), vm)?;
+                    Ok(value)
+                }
+                Err(err) => Err(err),
+            }
+        }
+
+        #[pymethod]
+        fn update(
+            &self,
+            other: OptionalArg<PyObjectRef>,
+            kwargs: KwArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            if let OptionalArg::Present(other) = other {
+                match other.get_attr(vm.ctx.intern_str("keys"), vm) {
+                    Ok(keys_method) => {
+                        let keys = keys_method.call((), vm)?;
+                        for key in keys.get_iter(vm)?.iter::<PyObjectRef>(vm)? {
+                            let key = key?;
+                            let value = other.get_item(&*key, vm)?;
+                            self.__setitem__(&key, Some(value), vm)?;
+                        }
+                    }
+                    Err(err) if err.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
+                        for item in other.get_iter(vm)?.iter::<PyObjectRef>(vm)? {
+                            let item = item?;
+                            let pair = item
+                                .get_iter(vm)?
+                                .iter::<PyObjectRef>(vm)?
+                                .collect::<PyResult<Vec<_>>>()?;
+                            let [key, value] = pair.as_slice() else {
+                                return Err(vm.new_value_error("update() argument must be a pair"));
+                            };
+                            self.__setitem__(key, Some(value.clone()), vm)?;
+                        }
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+            for (key, value) in kwargs {
+                let key: PyObjectRef = vm.ctx.new_str(key).into();
+                self.__setitem__(&key, Some(value), vm)?;
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn pop(
+            &self,
+            _key: PyObjectRef,
+            _default: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
+            self.word(vm)?;
+            Err(vm.new_value_error("signal keys cannot be deleted"))
+        }
+
+        #[pymethod]
+        fn popitem(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+            self.word(vm)?;
+            Err(vm.new_value_error("signal keys cannot be deleted"))
+        }
+
+        #[pymethod]
+        fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
+            self.word(vm)?;
+            Err(vm.new_value_error("signal keys cannot be deleted"))
         }
     }
 
