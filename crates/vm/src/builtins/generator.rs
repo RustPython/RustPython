@@ -74,9 +74,7 @@ impl PyGenerator {
         if self.inner.closed() {
             None
         } else {
-            let frame = self.inner.frame();
-            frame.mark_escaped();
-            Some(frame)
+            Some(self.inner.frame())
         }
     }
 

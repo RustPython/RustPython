@@ -885,9 +885,6 @@ pub struct InterpreterFrame {
     /// Used by `frame.clear()` to reject clearing an executing frame,
     /// even when called from a different thread.
     pub(crate) owner: atomic::AtomicI8,
-    /// Durable Python-level reference escaped (gi_frame, f_locals proxy,
-    /// sys._getframe). Kept on the iframe so mark/has do not allocate cold data.
-    pub(crate) escaped: atomic::AtomicBool,
     /// Base pointer of the datastack allocation when this frame and its
     /// localsplus are bump-allocated together. Null for heap-backed frames.
     pub(crate) datastack_base: *mut u8,
@@ -975,7 +972,6 @@ impl InterpreterFrame {
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(owner as i8),
-            escaped: atomic::AtomicBool::new(false),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::new(),
@@ -1242,7 +1238,6 @@ impl InterpreterFrame {
             // an executing frame"; `attached_tid` carries the "still running"
             // half of that state instead, so the owner field does not have to.
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
-            escaped: atomic::AtomicBool::new(true),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::from(Box::new(FrameColdData {
@@ -1323,7 +1318,6 @@ impl InterpreterFrame {
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
-            escaped: atomic::AtomicBool::new(true),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::new(),
@@ -1693,6 +1687,38 @@ impl FrameObject {
         frame
     }
 
+    /// Empty frame husk that keeps only the executable after take_ownership
+    /// moves the live locals onto an independently owned frame object.
+    pub(crate) fn husk_from(src: &Py<Self>, vm: &VirtualMachine) -> FrameObjectRef {
+        let code = src.iframe().code().to_owned();
+        let globals = src.iframe().globals().to_owned();
+        let builtins = src.iframe().builtins().to_owned();
+        let func_obj = src.iframe().func_obj().map(|o| o.to_owned());
+        let nlocalsplus = code.localspluskinds.len();
+        let max_stackdepth = code.max_stackdepth as usize;
+        let localsplus = LocalsPlus::new(nlocalsplus, max_stackdepth);
+        let iframe = InterpreterFrame::new(
+            &code,
+            &globals,
+            &builtins,
+            func_obj.as_deref(),
+            localsplus,
+            FrameLocals::lazy(),
+            &[],
+            FrameOwner::Generator,
+        );
+        let frame = Self {
+            owned_code: Some(code),
+            owned_globals: Some(globals),
+            owned_builtins: Some(builtins),
+            owned_func_obj: func_obj,
+            iframe: FrameUnsafeCell::new(Some(iframe)),
+        }
+        .into_ref(&vm.ctx);
+        Self::init_iframe_ptrs(&frame);
+        frame
+    }
+
     /// Access fastlocals immutably.
     ///
     /// # Safety
@@ -1846,16 +1872,6 @@ impl FrameObject {
             cur = iframe.previous.load(atomic::Ordering::Relaxed) as *const InterpreterFrame;
         }
         core::ptr::null()
-    }
-
-    /// Record that a durable Python-level reference to this frame escaped.
-    pub(crate) fn mark_escaped(&self) {
-        self.iframe().escaped.store(true, atomic::Ordering::Release);
-    }
-
-    /// Whether a durable reference to this frame has escaped.
-    pub(crate) fn has_escaped(&self) -> bool {
-        self.iframe().escaped.load(atomic::Ordering::Acquire)
     }
 
     pub fn lasti(&self) -> u32 {
