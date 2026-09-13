@@ -43,6 +43,21 @@ pub unsafe extern "C" fn PyTuple_FromArray(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyTuple_Pack(len: isize, mut args: ...) -> *mut PyObject {
+    with_vm(|vm| {
+        let items = core::iter::repeat_with(|| unsafe {
+            args.next_arg::<*mut PyObject>()
+                .assume_borrowed()
+                .to_owned()
+        })
+        .take(len as usize)
+        .collect::<Vec<_>>();
+
+        vm.new_tuple(items)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyTuple_SetItem(
     _tuple: *mut PyObject,
     _pos: isize,
