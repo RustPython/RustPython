@@ -1,10 +1,6 @@
 use rustpython_wtf8::Wtf8;
-use std::{
-    ffi::{OsStr, OsString},
-    io,
-    os::windows::ffi::OsStringExt,
-};
-use widestring::WideCString;
+use std::{ffi::OsStr, io};
+use widestring::{WideCStr, WideCString};
 use windows_sys::{
     Win32::{
         Foundation::{
@@ -27,6 +23,8 @@ use windows_sys::{
     },
     w,
 };
+
+const NUL_ERROR: &str = "embedded null character";
 
 /// _MAX_ENV from Windows CRT stdlib.h - maximum environment variable size
 pub const _MAX_ENV: usize = 32767;
@@ -218,18 +216,12 @@ pub fn get_windows_version() -> io::Result<WindowsVersionInfo> {
     }
     .check_win32_bool()?;
 
-    let service_pack = {
-        let (last, _) = version
-            .szCSDVersion
-            .iter()
-            .take_while(|&x| x != &0)
-            .enumerate()
-            .last()
-            .unwrap_or((0, &0));
-        let sp = OsString::from_wide(&version.szCSDVersion[..last]);
-        sp.into_string()
-            .map_err(|_| io::Error::other("service pack is not ASCII"))?
-    };
+    // szCSDVersion is at most 128 wide chars and represented as slice so overflow is impossible.
+    let service_pack = WideCStr::from_slice_truncate(&version.szCSDVersion)
+        .map_err(|_| io::Error::other(NUL_ERROR))?
+        .to_string()
+        .map_err(|_| io::Error::other("service pack is not ASCII"))?;
+
     let (major, minor, build) = get_kernel32_version()?;
     Ok(WindowsVersionInfo {
         major,
@@ -413,7 +405,7 @@ where
     T: AsRef<OsStr>,
 {
     fn to_wide_cstring(&self) -> Result<WideCString, io::Error> {
-        WideCString::from_os_str(self).map_err(|_| io::Error::other("embedded null character"))
+        WideCString::from_os_str(self).map_err(|_| io::Error::other(NUL_ERROR))
     }
 }
 
@@ -426,11 +418,11 @@ impl ToWideString for Wtf8 {
         //
         // For the sake of that behavior, fail on trailing NUL.
         if self.as_bytes().last().is_some_and(|&b| b == 0) {
-            return Err(io::Error::other("embedded null character"));
+            return Err(io::Error::other(NUL_ERROR));
         }
 
         let mut buf = Vec::with_capacity(self.len() + 1);
         buf.extend(self.encode_wide());
-        WideCString::from_vec(buf).map_err(|_| io::Error::other("embedded null character"))
+        WideCString::from_vec(buf).map_err(|_| io::Error::other(NUL_ERROR))
     }
 }
