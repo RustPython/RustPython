@@ -1901,75 +1901,75 @@ SyntaxError: cannot assign to f-string expression here. Maybe you meant '==' ins
 Traceback (most recent call last):
 SyntaxError: cannot assign to f-string expression here. Maybe you meant '==' instead of '='?
 
->>> ub''  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ub''
 Traceback (most recent call last):
 SyntaxError: 'u' and 'b' prefixes are incompatible
 
->>> bu"привет"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> bu"привет"
 Traceback (most recent call last):
 SyntaxError: 'u' and 'b' prefixes are incompatible
 
->>> ur''  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ur''
 Traceback (most recent call last):
 SyntaxError: 'u' and 'r' prefixes are incompatible
 
->>> ru"\t"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ru"\t"
 Traceback (most recent call last):
 SyntaxError: 'u' and 'r' prefixes are incompatible
 
->>> uf'{1 + 1}'  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> uf'{1 + 1}'
 Traceback (most recent call last):
 SyntaxError: 'u' and 'f' prefixes are incompatible
 
->>> fu""  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> fu""
 Traceback (most recent call last):
 SyntaxError: 'u' and 'f' prefixes are incompatible
 
->>> ut'{1}'  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ut'{1}'
 Traceback (most recent call last):
 SyntaxError: 'u' and 't' prefixes are incompatible
 
->>> tu"234"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> tu"234"
 Traceback (most recent call last):
 SyntaxError: 'u' and 't' prefixes are incompatible
 
->>> bf'{x!r}'  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> bf'{x!r}'
 Traceback (most recent call last):
 SyntaxError: 'b' and 'f' prefixes are incompatible
 
->>> fb"text"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> fb"text"
 Traceback (most recent call last):
 SyntaxError: 'b' and 'f' prefixes are incompatible
 
->>> bt"text"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> bt"text"
 Traceback (most recent call last):
 SyntaxError: 'b' and 't' prefixes are incompatible
 
->>> tb''  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> tb''
 Traceback (most recent call last):
 SyntaxError: 'b' and 't' prefixes are incompatible
 
->>> tf"{0.3:.02f}"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> tf"{0.3:.02f}"
 Traceback (most recent call last):
 SyntaxError: 'f' and 't' prefixes are incompatible
 
->>> ft'{x=}'  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ft'{x=}'
 Traceback (most recent call last):
 SyntaxError: 'f' and 't' prefixes are incompatible
 
->>> tfu"{x=}"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> tfu"{x=}"
 Traceback (most recent call last):
 SyntaxError: 'u' and 'f' prefixes are incompatible
 
->>> turf"{x=}"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> turf"{x=}"
 Traceback (most recent call last):
 SyntaxError: 'u' and 'r' prefixes are incompatible
 
->>> burft"{x=}"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> burft"{x=}"
 Traceback (most recent call last):
 SyntaxError: 'u' and 'b' prefixes are incompatible
 
->>> brft"{x=}"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> brft"{x=}"
 Traceback (most recent call last):
 SyntaxError: 'b' and 'f' prefixes are incompatible
 

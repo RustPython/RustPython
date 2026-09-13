@@ -139,6 +139,7 @@ Lshift
 lslpp
 lsprof
 MAXBLOCKS
+MAXFSTRINGLEVEL
 maxdepth
 mbiencoder
 mbstreamreader

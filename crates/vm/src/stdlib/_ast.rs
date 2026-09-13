@@ -1027,6 +1027,7 @@ fn type_comment_parse_error(
         end_location: source_range.end.to_source_location(),
         source_path: source_file.name().to_owned(),
         is_unclosed_bracket: false,
+        is_unclosed_string: false,
     }
     .into()
 }
@@ -1756,6 +1757,7 @@ fn ipython_escape_command_syntax_error(
             end_location: source_range.end.to_source_location(),
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
+            is_unclosed_string: false,
         }
         .into(),
     )
@@ -1831,6 +1833,7 @@ pub(crate) fn parse(
             end_location: range.end.to_source_location(),
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
+            is_unclosed_string: false,
         }
         .into());
     }
@@ -1860,6 +1863,7 @@ pub(crate) fn parse(
             end_location: range.end.to_source_location(),
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
+            is_unclosed_string: false,
         }
         .into());
     }
@@ -1969,6 +1973,7 @@ pub(crate) fn parse_func_type(
             end_location: SourceLocation::default(),
             source_path: filename.to_owned(),
             is_unclosed_bracket: false,
+            is_unclosed_string: false,
         }
         .into()
     };
@@ -1997,6 +2002,7 @@ pub(crate) fn parse_func_type(
             end_location: SourceLocation::default(),
             source_path: filename.to_owned(),
             is_unclosed_bracket: false,
+            is_unclosed_string: false,
         }
         .into());
     };
@@ -2017,6 +2023,7 @@ pub(crate) fn parse_func_type(
                 end_location: range.end.to_source_location(),
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
+                is_unclosed_string: false,
             }
         })?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {
@@ -2048,6 +2055,7 @@ pub(crate) fn parse_func_type(
                 end_location: range.end.to_source_location(),
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
+                is_unclosed_string: false,
             }
         })?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {
