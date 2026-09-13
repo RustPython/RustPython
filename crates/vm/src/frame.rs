@@ -3404,7 +3404,7 @@ impl ExecutingFrame<'_> {
                                 .repr(vm)
                                 .ok()
                                 .map(|r| format!("Exception ignored while closing generator {r}"));
-                            vm.run_unraisable(e, msg, jen.to_owned());
+                            vm.run_unraisable(e, msg, vm.ctx.none());
                             Ok(())
                         }
                     }

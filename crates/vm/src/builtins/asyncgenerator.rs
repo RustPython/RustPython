@@ -501,12 +501,11 @@ impl PyAsyncGenAThrow {
 
                 let (ty, val, tb) = self.value.clone();
                 let ret = self.ag.inner.throw(self.ag.as_object(), ty, val, tb, vm);
+                if self.aclose && self.ignored_close(&ret) {
+                    return Err(self.yield_close(vm));
+                }
                 let ret = if self.aclose {
-                    if self.ignored_close(&ret) {
-                        Err(self.yield_close(vm))
-                    } else {
-                        ret.and_then(|o| o.into_async_pyresult(vm))
-                    }
+                    ret.and_then(|o| o.into_async_pyresult(vm))
                 } else {
                     PyAsyncGenWrappedValue::unbox(&self.ag, ret, vm)
                 };
@@ -572,12 +571,11 @@ impl PyAsyncGenAThrow {
             exc_tb.unwrap_or_none(vm),
             vm,
         );
+        if self.aclose && self.ignored_close(&ret) {
+            return Err(self.yield_close(vm));
+        }
         let res = if self.aclose {
-            if self.ignored_close(&ret) {
-                Err(self.yield_close(vm))
-            } else {
-                ret.and_then(|o| o.into_async_pyresult(vm))
-            }
+            ret.and_then(|o| o.into_async_pyresult(vm))
         } else {
             PyAsyncGenWrappedValue::unbox(&self.ag, ret, vm)
         };
@@ -836,7 +834,7 @@ impl Destructor for PyAsyncGen {
             return Ok(());
         }
         if let Err(e) = zelf.inner.close(zelf.as_object(), vm) {
-            crate::coroutine::unraisable_while_closing(zelf.as_object(), e, vm);
+            crate::coroutine::unraisable_while_closing(zelf.as_object(), &zelf.inner, e, vm);
         }
         Ok(())
     }

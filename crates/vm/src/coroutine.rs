@@ -87,6 +87,7 @@ fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
 impl Coro {
     pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         let code = frame.iframe().code().to_owned();
+        frame.as_object().mark_cache_published();
         Self {
             frame: Some(frame).into(),
             code,
@@ -330,16 +331,7 @@ impl Coro {
         drop(claim);
         match result {
             Ok(ExecutionResult::Yield(_)) => {
-                let err =
-                    vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm)));
-                if let Some(frame) = self.frame_opt() {
-                    let lasti = frame.lasti().saturating_mul(2);
-                    let lineno = rustpython_compiler_core::OneIndexed::new(frame.f_lineno().max(1))
-                        .unwrap_or(rustpython_compiler_core::OneIndexed::MIN);
-                    let tb = PyTraceback::new(None, frame, lasti, lineno);
-                    err.set_traceback_typed(Some(tb.into_ref(&vm.ctx)));
-                }
-                Err(err)
+                Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm))))
             }
             Err(e) if !is_gen_exit(&e, vm) => Err(e),
             Ok(ExecutionResult::Return(value)) => Ok(value),
@@ -495,14 +487,26 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
 
 pub(crate) fn unraisable_while_closing(
     jen: &PyObject,
+    coro: &Coro,
     e: crate::builtins::PyBaseExceptionRef,
     vm: &VirtualMachine,
 ) {
+    // Explicit close() leaves the traceback to the caller frame.
+    // Finalize has no caller frame, so attach the generator site here.
+    if e.__traceback__().is_none()
+        && let Some(frame) = coro.frame_opt()
+    {
+        let lasti = frame.lasti().saturating_mul(2);
+        let lineno = rustpython_compiler_core::OneIndexed::new(frame.f_lineno().max(1))
+            .unwrap_or(rustpython_compiler_core::OneIndexed::MIN);
+        let tb = PyTraceback::new(None, frame, lasti, lineno);
+        e.set_traceback_typed(Some(tb.into_ref(&vm.ctx)));
+    }
     let msg = jen
         .repr(vm)
         .ok()
         .map(|r| format!("Exception ignored while closing generator {r}"));
-    vm.run_unraisable(e, msg, jen.to_owned());
+    vm.run_unraisable(e, msg, vm.ctx.none());
 }
 
 /// Emit DeprecationWarning for the deprecated 3-argument throw() signature.
