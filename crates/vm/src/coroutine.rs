@@ -8,6 +8,7 @@ use crate::{
     object::{PyAtomicRef, Traverse, TraverseFn},
     protocol::PyIterReturn,
 };
+use core::sync::atomic::Ordering;
 use crossbeam_utils::atomic::AtomicCell;
 
 impl ExecutionResult {
@@ -97,30 +98,21 @@ impl Coro {
         }
     }
 
-    /// `_PyFrame_ClearExceptCode`. Clear locals unless another reference
-    /// still holds the frame object; then take_ownership instead.
+    /// `_PyFrame_ClearExceptCode`. Steal the frame slot first, then
+    /// clear locals only if this was the last reference.
     fn clear_except_code(&self) {
-        let Some(frame) = self.frame.deref() else {
-            return;
-        };
-        if frame.as_object().strong_count() == 1 {
-            frame.clear_locals_and_stack();
-        } else {
-            self.take_ownership();
-        }
-    }
-
-    /// Steal the iframe's `frame_obj` pointer (`take_ownership`). The live
-    /// locals stay on that frame object; this generator no longer roots it.
-    fn take_ownership(&self) {
         let Some(frame) = (unsafe { self.frame.swap(None) }) else {
             return;
         };
-        frame.iframe().owner.store(
-            FrameOwner::FrameObject as i8,
-            core::sync::atomic::Ordering::Release,
-        );
         frame.clear_generator();
+        if frame.as_object().strong_count() == 1 {
+            frame.clear_locals_and_stack();
+        } else {
+            frame.iframe().owner.store(
+                FrameOwner::FrameObject as i8,
+                core::sync::atomic::Ordering::Release,
+            );
+        }
     }
 
     /// Retire the generator if the frame it just ran came to an end. The claim
@@ -331,6 +323,10 @@ impl Coro {
                 vm.ctx.none(),
             )
         });
+        if !matches!(&result, Ok(ExecutionResult::Yield(_))) {
+            self.closed.store(true);
+            self.clear_except_code();
+        }
         drop(claim);
         match result {
             Ok(ExecutionResult::Yield(_)) => {
@@ -345,15 +341,9 @@ impl Coro {
                 }
                 Err(err)
             }
-            other => {
-                self.closed.store(true);
-                self.clear_except_code();
-                match other {
-                    Err(e) if !is_gen_exit(&e, vm) => Err(e),
-                    Ok(ExecutionResult::Return(value)) => Ok(value),
-                    _ => Ok(vm.ctx.none()),
-                }
-            }
+            Err(e) if !is_gen_exit(&e, vm) => Err(e),
+            Ok(ExecutionResult::Return(value)) => Ok(value),
+            _ => Ok(vm.ctx.none()),
         }
     }
 
@@ -376,7 +366,7 @@ impl Coro {
     }
 
     pub fn frame_opt(&self) -> Option<FrameObjectRef> {
-        self.frame.to_owned()
+        self.frame.try_to_owned(Ordering::Acquire)
     }
 
     pub fn code(&self) -> PyRef<PyCode> {
