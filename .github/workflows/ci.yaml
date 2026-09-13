@@ -23,9 +23,8 @@ env:
   CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env
   # Crates excluded from workspace builds:
   # - rustpython_wasm: requires wasm target
-  # - rustpython-compiler-source: deprecated
   # - rustpython-venvlauncher: Windows-only
-  WORKSPACE_EXCLUDES: --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
+  WORKSPACE_EXCLUDES: --exclude rustpython_wasm --exclude rustpython-venvlauncher
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
   CARGO_INCREMENTAL: 0

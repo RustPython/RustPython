@@ -3297,14 +3297,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustpython-compiler-source"
-version = "0.4.1+deprecated"
-dependencies = [
- "rustpython-ruff_source_file",
- "rustpython-ruff_text_size",
-]
-
-[[package]]
 name = "rustpython-derive"
 version = "0.5.0"
 dependencies = [
