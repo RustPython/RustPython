@@ -543,22 +543,33 @@ pub unsafe extern "C" fn PyLongWriter_Create(
 ) -> *mut PyLongWriter {
     with_vm::<PyResult<*mut c_void>, _>(|vm| {
         if ndigits <= 0 {
-            return Err(vm.new_value_error("PyLongWriter_Create: ndigits must be greater than 0"));
+            return Err(vm.new_value_error("ndigits must be greater than 0"));
         }
         if digits.is_null() {
-            return Err(vm.new_system_error("PyLongWriter_Create: digits must not be null"));
+            return Err(vm.new_system_error("digits must not be null"));
         }
         if negative != 0 && negative != 1 {
-            return Err(vm.new_value_error("PyLongWriter_Create: negative must be 0 or 1"));
+            return Err(vm.new_value_error("negative must be 0 or 1"));
         }
 
         let ndigits = ndigits
             .try_into()
-            .map_err(|_| vm.new_overflow_error("PyLongWriter_Create: ndigits out of range"))?;
+            .map_err(|_| vm.new_overflow_error("ndigits out of range"))?;
+
+        let max_ndigits = (isize::MAX as usize) / core::mem::size_of::<u32>();
+        if ndigits > max_ndigits {
+            return Err(vm.new_overflow_error("too many digits in integer"));
+        }
+
+        let mut digits_vec = Vec::new();
+        digits_vec
+            .try_reserve_exact(ndigits)
+            .map_err(|_| vm.new_memory_error("could not allocate digit storage"))?;
+        digits_vec.resize(ndigits, 0);
 
         let mut writer = Box::new(PyLongWriter {
             negative: negative == 1,
-            digits: vec![0; ndigits],
+            digits: digits_vec,
         });
 
         unsafe {
@@ -612,7 +623,8 @@ pub unsafe extern "C" fn PyLongWriter_Discard(writer: *mut PyLongWriter) {
 
 #[cfg(test)]
 mod tests {
-    use super::PyLong_AsNativeBytes;
+    use super::*;
+    use pyo3::exceptions::PyOverflowError;
     use pyo3::prelude::*;
     use pyo3::types::PyBool;
     use pyo3::types::PyInt;
@@ -690,6 +702,17 @@ mod tests {
             let rc = PyLong_AsNativeBytes(instance.as_ptr().cast(), out.as_mut_ptr().cast(), 2, 17);
             assert_eq!(rc, 1);
             assert_eq!(out, [1, 0]);
+        })
+    }
+
+    #[test]
+    fn longwriter_create_ndigits_capacity_overflow() {
+        Python::attach(|py| unsafe {
+            let mut digits = core::ptr::null_mut();
+            let writer = PyLongWriter_Create(0, isize::MAX, &mut digits);
+            assert!(writer.is_null());
+            let err = PyErr::take(py).expect("expected an error");
+            assert!(err.is_instance_of::<PyOverflowError>(py));
         })
     }
 }
