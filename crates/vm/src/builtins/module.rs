@@ -1,4 +1,4 @@
-use super::{PyDict, PyDictRef, PyNamespace, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDict, PyDictRef, PyNamespace, PyStr, PyStrRef, PyType, PyTypeRef, PyUtf8Str};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyStrInterned, pystr::AsPyStr},

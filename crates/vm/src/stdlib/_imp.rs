@@ -177,7 +177,7 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 mod _imp {
     use crate::{
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
+        builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef, ModuleCreate,},
         function::OptionalArg,
         import, version,
     };
