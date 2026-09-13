@@ -2603,7 +2603,13 @@ mod _decimal {
             {
                 let context = current_context(vm)?;
                 let value = decimal_from_object(&number, &context, true, vm)?;
-                return Self { value }.into_ref_with_type(vm, cls).map(Into::into);
+                let exact: PyObjectRef = Self::new_ref(value, vm).into();
+                if cls.is(Self::class(&vm.ctx)) {
+                    return Ok(exact);
+                }
+                // A subclass builds through its own constructor, so that its
+                // `__init__` runs on the converted value.
+                return cls.as_object().call((exact,), vm);
             }
             Err(vm.new_type_error(format!(
                 "argument must be int, float or Decimal, not {}",

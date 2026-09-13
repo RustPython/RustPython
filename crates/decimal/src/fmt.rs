@@ -552,7 +552,18 @@ pub fn format(
     if let Some(precision) = spec.precision {
         match ty {
             'e' | 'E' => value = round_significant(&value, precision + 1, rounding),
-            'f' | 'F' | '%' => value = rescale(&value, -precision, rounding),
+            'f' | 'F' | '%' => {
+                let exp = -precision;
+                if value.is_nonzero()
+                    && value.exponent() >= exp
+                    && value.digits() + (value.exponent() - exp) > MAX_FORMAT_LENGTH
+                {
+                    return Err(FormatError(String::from(
+                        "format specification exceeds internal limits of _decimal",
+                    )));
+                }
+                value = rescale(&value, exp, rounding);
+            }
             'g' | 'G' if value.digits() > precision => {
                 value = round_significant(&value, precision, rounding)
             }
