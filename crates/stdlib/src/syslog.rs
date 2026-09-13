@@ -24,6 +24,10 @@ mod syslog {
     #[pyattr]
     use host_syslog::{LOG_AUTHPRIV, LOG_CRON, LOG_PERROR};
 
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use host_syslog::{LOG_FTP, LOG_INSTALL, LOG_LAUNCHD, LOG_NETINFO, LOG_RAS, LOG_REMOTEAUTH};
+
     fn get_argv(vm: &VirtualMachine) -> Option<PyStrRef> {
         if let Some(argv) = vm.state.config.settings.argv.first()
             && !argv.is_empty()

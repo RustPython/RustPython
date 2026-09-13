@@ -5,7 +5,7 @@
 import collections.abc
 import unittest
 from test import support
-from test.support import import_helper
+from test.support import import_helper, script_helper
 from test.support import os_helper
 from test.support import _2G
 from test.support import subTests
@@ -35,6 +35,11 @@ typecodes = 'uwbBhHiIlLfdqQ'
 
 class MiscTest(unittest.TestCase):
 
+    def test_array_type_importable(self):
+        from array import ArrayType
+
+        self.assertIs(array.array, ArrayType)
+
     def test_array_is_sequence(self):
         self.assertIsInstance(array.array("B"), collections.abc.MutableSequence)
         self.assertIsInstance(array.array("B"), collections.abc.Reversible)
@@ -44,6 +49,23 @@ class MiscTest(unittest.TestCase):
         self.assertRaises(TypeError, array.array, spam=42)
         self.assertRaises(TypeError, array.array, 'xx')
         self.assertRaises(ValueError, array.array, 'x')
+
+    @support.cpython_only
+    def test_does_not_crash_on_broken_imports(self):
+        # gh-153210
+        code = """if 1:
+            import collections.abc
+
+            del collections.abc.MutableSequence
+
+            try:
+                import array  # it used to crash before
+            except AttributeError:
+                pass
+            else:
+                raise AssertionError('AttributeError was not raised')
+        """
+        script_helper.assert_python_ok('-c', code)
 
     @support.cpython_only
     def test_disallow_instantiation(self):
@@ -1198,7 +1220,6 @@ class BaseTest:
         a = array.array('B', b"")
         self.assertRaises(BufferError, _testcapi.getbuffer_with_null_view, a)
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, array.array,
                                            (self.typecode,))
@@ -1686,7 +1707,6 @@ class LargeArrayTest(unittest.TestCase):
     # when the index conversion mutates the array.
     # See: https://github.com/python/cpython/issues/142555.
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     @subTests("dtype", ["b", "B", "h", "H", "i", "l", "q", "I", "L", "Q"])
     def test_setitem_use_after_clear_with_int_data(self, dtype):
         victim = array.array(dtype, list(range(64)))
@@ -1699,7 +1719,6 @@ class LargeArrayTest(unittest.TestCase):
         self.assertRaises(IndexError, victim.__setitem__, 1, Index())
         self.assertEqual(len(victim), 0)
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     def test_setitem_use_after_shrink_with_int_data(self):
         victim = array.array('b', [1, 2, 3])
 
@@ -1711,7 +1730,6 @@ class LargeArrayTest(unittest.TestCase):
 
         self.assertRaises(IndexError, victim.__setitem__, 1, Index())
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     @subTests("dtype", ["f", "d"])
     def test_setitem_use_after_clear_with_float_data(self, dtype):
         victim = array.array(dtype, [1.0, 2.0, 3.0])

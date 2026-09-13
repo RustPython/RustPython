@@ -211,21 +211,34 @@ mod gc {
             stack_frames.insert(obj as *const crate::PyObject as usize);
         });
 
+        let refers_to_target = |obj: &crate::PyObject| -> bool {
+            let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
+            referent_ptrs
+                .iter()
+                .any(|child_ptr| targets.contains(&(child_ptr.as_ptr() as usize)))
+        };
+
         let mut result = Vec::new();
 
         // Scan all tracked objects across all generations
         let all_objects = vm.state.gc.get_objects(None);
         for obj in all_objects {
             let obj_ptr = obj.as_ref() as *const crate::PyObject as usize;
+            // Generator/coroutine frames are embedded in their owner, so
+            // locals show up as referents of the owner rather than the frame.
+            if let Some(frame) = obj.downcast_ref::<crate::frame::FrameObject>()
+                && let Some(owner) = frame.iframe().generator.to_owned()
+            {
+                if refers_to_target(obj.as_ref()) {
+                    result.push(owner);
+                }
+                continue;
+            }
             if stack_frames.contains(&obj_ptr) {
                 continue;
             }
-            let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
-            for child_ptr in referent_ptrs {
-                if targets.contains(&(child_ptr.as_ptr() as usize)) {
-                    result.push(obj.clone());
-                    break;
-                }
+            if refers_to_target(obj.as_ref()) {
+                result.push(obj.clone());
             }
         }
 

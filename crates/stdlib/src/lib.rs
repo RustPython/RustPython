@@ -17,12 +17,12 @@ pub mod array;
 mod binascii;
 mod bisect;
 mod bz2;
+mod cjkcodecs;
 mod cmath;
 mod compression; // internal module
 mod contextvars;
 mod csv;
 
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 mod lzma;
 
 mod zlib;
@@ -171,6 +171,13 @@ use crate::vm::{Context, builtins};
 pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> {
     vec![
         _asyncio::module_def(ctx),
+        cjkcodecs::_codecs_cn::module_def(ctx),
+        cjkcodecs::_codecs_hk::module_def(ctx),
+        cjkcodecs::_codecs_iso2022::module_def(ctx),
+        cjkcodecs::_codecs_jp::module_def(ctx),
+        cjkcodecs::_codecs_kr::module_def(ctx),
+        cjkcodecs::_codecs_tw::module_def(ctx),
+        cjkcodecs::multibytecodec::module_def(ctx),
         _opcode::module_def(ctx),
         _remote_debugging::module_def(ctx),
         array::module_def(ctx),
@@ -198,7 +205,6 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             not(any(target_os = "ios", target_arch = "wasm32"))
         ))]
         locale::module_def(ctx),
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         lzma::module_def(ctx),
         math::module_def(ctx),
         md5::module_def(ctx),

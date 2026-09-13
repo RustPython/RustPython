@@ -2554,6 +2554,7 @@ class SubinterpImportTests(unittest.TestCase):
         self.assertIsNot(excsnap, None)
 
     @requires_subinterpreters
+    @unittest.skip("TODO: RUSTPYTHON; test requires _testsinglephase module")
     def test_pyinit_function_raises_exception(self):
         # gh-144601: PyInit functions that raised exceptions would cause a
         # crash when imported from a subinterpreter.

@@ -90,7 +90,7 @@ pub use traceback::PyTraceback;
 pub(crate) mod tuple;
 pub use tuple::{PyTuple, PyTupleRef};
 pub(crate) mod weakproxy;
-pub use weakproxy::PyWeakProxy;
+pub use weakproxy::{PyWeakCallableProxy, PyWeakProxy};
 pub(crate) mod weakref;
 pub use weakref::PyWeak;
 pub(crate) mod zip;

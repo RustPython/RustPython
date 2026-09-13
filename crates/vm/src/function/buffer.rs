@@ -66,7 +66,7 @@ impl ArgBytesLike {
         }
         let mut copy = Vec::new();
         copy.try_reserve_exact(borrowed.len())
-            .map_err(|_| vm.new_memory_error(""))?;
+            .map_err(|_| vm.no_memory_error())?;
         copy.extend_from_slice(&borrowed);
         Ok(UnlockedBuf::Copied(copy))
     }

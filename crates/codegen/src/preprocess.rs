@@ -257,7 +257,7 @@ pub fn checked_future_features_in_body(
                             future_features.insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS)
                         }
                         FutureFeature::BarryAsFLUFL => {
-                            // We do not support Barry-as-BDFL parser mode yet. This is a nop for now.
+                            future_features.insert(bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
                         }
                         FutureFeature::AbsoluteImport
                         | FutureFeature::Division
@@ -392,6 +392,7 @@ impl Transformer for AstPreprocessor {
 
     fn visit_expr(&self, expr: &mut Expr) {
         transformer::walk_expr(self, expr);
+        widen_implicit_call_generator_range(expr);
         if self.constant_folding {
             if let Some(optimized) = optimize_format(expr) {
                 *expr = optimized;
@@ -399,6 +400,24 @@ impl Transformer for AstPreprocessor {
                 *expr = optimized;
             }
         }
+    }
+}
+
+/// Give a generator expression written straight into a call's parentheses the
+/// range of those parentheses.
+///
+/// `genexp` is a grammar rule of its own that consumes the parentheses it is
+/// written in, so every position taken from the node covers them. The parser
+/// here leaves the node spanning only the element through the last iterable.
+fn widen_implicit_call_generator_range(expr: &mut Expr) {
+    let Expr::Call(call) = expr else {
+        return;
+    };
+    let [Expr::Generator(generator)] = &mut *call.arguments.args else {
+        return;
+    };
+    if !generator.parenthesized {
+        generator.range = call.arguments.range;
     }
 }
 

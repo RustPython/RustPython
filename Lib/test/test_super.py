@@ -90,7 +90,6 @@ class TestSuper(unittest.TestCase):
 
         self.assertEqual(E().f(), 'AE')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_various___class___pathologies(self):
         # See issue #12370
         class X(A):

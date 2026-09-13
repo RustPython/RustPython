@@ -27,7 +27,6 @@ def isolated_context(func):
 
 
 class ContextTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_context_var_new_1(self):
         with self.assertRaisesRegex(TypeError, 'takes exactly 1'):
             contextvars.ContextVar()
@@ -85,7 +84,6 @@ class ContextTest(unittest.TestCase):
             class MyToken(contextvars.Token):
                 pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_context_new_1(self):
         with self.assertRaisesRegex(TypeError, 'any arguments'):
             contextvars.Context(1)
@@ -95,7 +93,6 @@ class ContextTest(unittest.TestCase):
             contextvars.Context(a=1)
         contextvars.Context(**{})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_context_new_unhashable_str_subclass(self):
         # gh-132002: it used to crash on unhashable str subtypes.
         class weird_str(str):
@@ -105,7 +102,6 @@ class ContextTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, 'unhashable type'):
             contextvars.ContextVar(weird_str())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_context_typerrors_1(self):
         ctx = contextvars.Context()
 
@@ -120,7 +116,6 @@ class ContextTest(unittest.TestCase):
         ctx = contextvars.copy_context()
         self.assertIsInstance(ctx, contextvars.Context)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_context_run_1(self):
         ctx = contextvars.Context()
 
@@ -168,7 +163,6 @@ class ContextTest(unittest.TestCase):
         with self.assertRaises(ZeroDivisionError):
             ctx.run(func, 1, 2, a=123)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @isolated_context
     def test_context_run_4(self):
         ctx1 = contextvars.Context()
@@ -380,7 +374,6 @@ class ContextTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(callable(getattr(ctx, name)))
 
-    @unittest.skipIf(sys.platform == "darwin", "TODO: RUSTPYTHON; Flaky on Mac, self.assertEqual(cvar.get(), num + i) AssertionError: 8 != 12")
     @isolated_context
     @threading_helper.requires_working_threading()
     def test_context_threads_1(self):

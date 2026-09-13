@@ -53,7 +53,8 @@ pub struct ThreadSlot {
     pub top_iframe: AtomicUsize,
     /// Raw frame pointers, valid while the owning thread's call stack is active.
     /// Readers must hold the Mutex and convert to FrameObjectRef inside the lock.
-    /// Used on non-unix threading builds, which have no stop-the-world.
+    /// Stands in for `top_frame` where that field is not built, so a reader
+    /// that finds no `top_iframe` still has the frames to answer from.
     #[cfg(not(unix))]
     pub frames: parking_lot::Mutex<Vec<FramePtr>>,
     pub exception: crate::PyAtomicRef<Option<crate::exceptions::types::PyBaseException>>,
@@ -602,6 +603,82 @@ pub fn allow_threads<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 #[cfg(not(feature = "threading"))]
 pub fn allow_threads<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     f()
+}
+
+/// Run `f` with this thread attached, then return it to where it was.
+///
+/// The inverse of [`allow_threads`], for a callback that has to run Python from
+/// inside a call the thread detached for — a handshake callback reaching a
+/// Python `sni_callback`, say. Running that detached would execute Python on a
+/// thread a stop-the-world requester counts as parked. `PyGILState_Ensure` and
+/// `PyGILState_Release` bracket such a callback for the same reason.
+///
+/// A thread already attached, or one with no interpreter to attach to, just
+/// runs `f`. A thread a stop-the-world has already moved to SUSPENDED parks
+/// here until the world starts again, because [`attach_thread`] treats that
+/// state as the wait it is; that is the point of routing through it rather than
+/// testing for DETACHED alone.
+#[cfg(feature = "threading")]
+pub fn attach_for_callback<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+    let should_transition = CURRENT_THREAD_SLOT.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|s| s.state.load(Ordering::Acquire) != THREAD_ATTACHED)
+    });
+    if !should_transition {
+        return f();
+    }
+
+    attach_thread(vm);
+    // Detach again even if `f` unwinds, so the `allow_threads` this is nested
+    // inside still finds the state it left behind.
+    let redetach_guard = scopeguard::guard((), |()| detach_thread());
+    let result = f();
+    drop(redetach_guard);
+    result
+}
+
+/// No-op on non-threading builds.
+#[cfg(not(feature = "threading"))]
+pub fn attach_for_callback<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+    f()
+}
+
+/// Wait for a lock the way a blocking call waits: detached, so a
+/// stop-the-world requester never has to wait for this thread to reach a
+/// safepoint it cannot reach while blocked.
+///
+/// Threads with no interpreter to leave — a native thread, or one whose
+/// locals are already being destroyed — simply block.
+///
+/// Detaching cannot park the one thread that can start the world again:
+/// [`park_detached_threads`](super::StopTheWorldState) skips the requester's
+/// slot outright, by thread id, and [`suspend_if_needed`] keys off a stop bit
+/// never set for it. That exemption is wider than the one `_PyEval_StopTheWorld`
+/// gives, where only an ATTACHED requester is skipped and a DETACHED one is
+/// suspended like any other thread — so this rests on a local invariant rather
+/// than on the reference behavior.
+#[cfg(feature = "threading")]
+fn wait_detached_from_interpreter(wait: &dyn Fn()) {
+    // Read the VM out before waiting: attaching afterwards reaches for the
+    // same thread locals, which must not still be borrowed here.
+    let current = VM_STACK
+        .try_with(|vms| vms.try_borrow().ok()?.last().copied())
+        .ok()
+        .flatten();
+    match current {
+        // SAFETY: entries in VM_STACK either borrow a VM for the dynamic
+        // scope of a set_current_vm()/enter_vm() call or point at GILSTATE_VM.
+        Some(vm) => allow_threads(unsafe { vm.as_ref() }, wait),
+        None => wait(),
+    }
+}
+
+/// Teach the lock types how to detach this thread. Idempotent, so every
+/// interpreter can call it while initializing.
+#[cfg(feature = "threading")]
+pub(crate) fn install_blocking_wait_hook() {
+    rustpython_common::lock::set_blocking_wait_hook(wait_detached_from_interpreter);
 }
 
 /// Called from check_signals when stop-the-world is requested.

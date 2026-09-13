@@ -4,6 +4,11 @@ rules:
       # pull_request_target is needed to label and assign PRs from forks with issues: write.
       # The workflow does not check out or execute pull request code.
       - oscca-pr.yml:3
+      # workflow_run is needed to post a PR comment from a fork's run, which is
+      # handed a read-only token however the triggering workflow is configured.
+      # The workflow does not check out or execute pull request code: it reads
+      # one artifact and writes a comment.
+      - pyperformance-comment.yaml:1
   excessive-permissions:
     ignore:
       # pull_request_target is needed to post PR comments with pull-requests: write.

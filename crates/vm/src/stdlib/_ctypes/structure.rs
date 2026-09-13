@@ -626,7 +626,6 @@ impl SetAttr for PyCStructType {
             // Set the _fields_ attribute on the type
             pytype
                 .attributes
-                .write()
                 .insert(vm.ctx.intern_str("_fields_"), fields_value);
             return Ok(());
         }
@@ -644,9 +643,9 @@ impl SetAttr for PyCStructType {
 
         // Store in type's attributes dict
         if let PySetterValue::Assign(value) = value {
-            pytype.attributes.write().insert(attr_name_interned, value);
+            pytype.attributes.set(attr_name_interned, value);
         } else {
-            let prev = pytype.attributes.write().shift_remove(attr_name_interned);
+            let prev = pytype.attributes.remove(attr_name_interned);
             if prev.is_none() {
                 return Err(vm.new_attribute_error(format!(
                     "type object '{}' has no attribute '{}'",

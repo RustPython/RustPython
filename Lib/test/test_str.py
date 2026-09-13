@@ -2606,7 +2606,6 @@ class StrTest(string_tests.StringLikeTest,
         self.assertTrue(astral >= bmp2)
         self.assertFalse(astral >= astral2)
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, str)
         if not support.Py_GIL_DISABLED:

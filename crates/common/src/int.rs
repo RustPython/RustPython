@@ -48,6 +48,9 @@ pub fn bytes_to_int(
     if base != 0 && !(2..=36).contains(&base) {
         return Err(BytesToIntError::InvalidBase);
     }
+    // A rejected literal names the base that was asked for, not the one a
+    // base of 0 turned out to mean.
+    let requested_base = base;
 
     let mut buf = buf.trim_ascii();
 
@@ -55,7 +58,11 @@ pub fn bytes_to_int(
     let sign = match buf.first() {
         Some(b'+') => Some(Sign::Plus),
         Some(b'-') => Some(Sign::Minus),
-        None => return Err(BytesToIntError::InvalidLiteral { base }),
+        None => {
+            return Err(BytesToIntError::InvalidLiteral {
+                base: requested_base,
+            });
+        }
         _ => None,
     };
 
@@ -67,6 +74,9 @@ pub fn bytes_to_int(
     if base == 0 {
         match (buf.first(), buf.get(1)) {
             (Some(v), _) if *v != b'0' => base = 10,
+            // A sign on its own leaves nothing to read, which is not the
+            // old octal form either.
+            (None, _) => base = 10,
             (_, Some(b'x' | b'X')) => base = 16,
             (_, Some(b'o' | b'O')) => base = 8,
             (_, Some(b'b' | b'B')) => base = 2,
@@ -82,7 +92,9 @@ pub fn bytes_to_int(
         if let [_first, others @ .., last] = buf {
             let is_zero = *last == b'0' && others.iter().all(|&c| c == b'0' || c == b'_');
             if !is_zero {
-                return Err(BytesToIntError::InvalidLiteral { base });
+                return Err(BytesToIntError::InvalidLiteral {
+                    base: requested_base,
+                });
             }
         }
         return Ok(BigInt::zero());
@@ -104,13 +116,15 @@ pub fn bytes_to_int(
     }
 
     // Reject empty strings
-    let mut prev = *buf
-        .first()
-        .ok_or(BytesToIntError::InvalidLiteral { base })?;
+    let mut prev = *buf.first().ok_or(BytesToIntError::InvalidLiteral {
+        base: requested_base,
+    })?;
 
     // Leading underscore not allowed
     if prev == b'_' || !prev.is_ascii_alphanumeric() {
-        return Err(BytesToIntError::InvalidLiteral { base });
+        return Err(BytesToIntError::InvalidLiteral {
+            base: requested_base,
+        });
     }
 
     // Verify all characters are digits and underscores
@@ -119,12 +133,16 @@ pub fn bytes_to_int(
         if cur == b'_' {
             // Double underscore not allowed
             if prev == b'_' {
-                return Err(BytesToIntError::InvalidLiteral { base });
+                return Err(BytesToIntError::InvalidLiteral {
+                    base: requested_base,
+                });
             }
         } else if cur.is_ascii_alphanumeric() {
             digits += 1;
         } else {
-            return Err(BytesToIntError::InvalidLiteral { base });
+            return Err(BytesToIntError::InvalidLiteral {
+                base: requested_base,
+            });
         }
 
         prev = cur;
@@ -132,7 +150,9 @@ pub fn bytes_to_int(
 
     // Trailing underscore not allowed
     if prev == b'_' {
-        return Err(BytesToIntError::InvalidLiteral { base });
+        return Err(BytesToIntError::InvalidLiteral {
+            base: requested_base,
+        });
     }
 
     if digit_limit > 0 && !base.is_power_of_two() && digits > digit_limit {
@@ -142,7 +162,9 @@ pub fn bytes_to_int(
         });
     }
 
-    let uint = BigUint::parse_bytes(buf, base).ok_or(BytesToIntError::InvalidLiteral { base })?;
+    let uint = BigUint::parse_bytes(buf, base).ok_or(BytesToIntError::InvalidLiteral {
+        base: requested_base,
+    })?;
     Ok(BigInt::from_biguint(sign.unwrap_or(Sign::Plus), uint))
 }
 
@@ -180,9 +202,11 @@ mod tests {
     #[test]
     fn bytes_to_int_invalid_literal() {
         for ((buf, base), expected) in [
-            (("09_99", 0), BytesToIntError::InvalidLiteral { base: 10 }),
-            (("0_", 0), BytesToIntError::InvalidLiteral { base: 10 }),
+            (("09_99", 0), BytesToIntError::InvalidLiteral { base: 0 }),
+            (("0_", 0), BytesToIntError::InvalidLiteral { base: 0 }),
             (("0_", 2), BytesToIntError::InvalidLiteral { base: 2 }),
+            (("-", 0), BytesToIntError::InvalidLiteral { base: 0 }),
+            (("+", 0), BytesToIntError::InvalidLiteral { base: 0 }),
         ] {
             assert_eq!(
                 bytes_to_int(buf.as_bytes(), base, DIGIT_LIMIT),

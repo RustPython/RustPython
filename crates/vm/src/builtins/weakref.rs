@@ -48,13 +48,11 @@ impl Constructor for PyWeak {
         let mut positional = args.args.into_iter();
         let referent = positional
             .next()
-            .ok_or_else(|| vm.new_type_error("__new__ expected at least 1 argument, got 0"))?;
+            .ok_or_else(|| vm.new_arity_type_error("__new__", 1..=2, 0))?;
         let callback = positional.next().filter(|callback| !vm.is_none(callback));
         if let Some(_extra) = positional.next() {
             let got = positional.count() + 3;
-            return Err(
-                vm.new_type_error(format!("__new__ expected at most 2 arguments, got {got}"))
-            );
+            return Err(vm.new_arity_type_error("__new__", 1..=2, got));
         }
         let weak = referent.downgrade_with_typ(callback, cls, vm)?;
         Ok(weak.into())

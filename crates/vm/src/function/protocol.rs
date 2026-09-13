@@ -57,9 +57,10 @@ impl From<ArgCallable> for PyObjectRef {
 impl TryFromObject for ArgCallable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let Some(callable) = obj.to_callable() else {
-            return Err(
-                vm.new_type_error(format!("'{}' object is not callable", obj.class().name()))
-            );
+            return Err(vm.new_type_error(format!(
+                "'{}' object is not callable",
+                obj.class().slot_name()
+            )));
         };
         let call = callable.call;
         Ok(Self { obj, call })
@@ -91,16 +92,30 @@ impl<T> ArgIterable<T> {
         &self.iterable
     }
 
-    /// Returns an iterator over this sequence of objects.
+    /// This object's iterator.
+    ///
+    /// This operation may fail if an exception is raised while invoking the
+    /// `__iter__` method of the iterable object.
+    fn get_iter(&self, vm: &VirtualMachine) -> PyResult<PyIter> {
+        Ok(PyIter::new(match self.iter_fn {
+            Some(f) => f(self.iterable.clone(), vm)?,
+            None => PySequenceIterator::new(self.iterable.clone(), vm)?.into_pyobject(vm),
+        }))
+    }
+
+    /// Returns an iterator over this sequence of objects. See [`PyIter::iter`]
+    /// for why it does not ask how long the iterator is.
     ///
     /// This operation may fail if an exception is raised while invoking the
     /// `__iter__` method of the iterable object.
     pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterIter<'a, T>> {
-        let iter = PyIter::new(match self.iter_fn {
-            Some(f) => f(self.iterable.clone(), vm)?,
-            None => PySequenceIterator::new(self.iterable.clone(), vm)?.into_pyobject(vm),
-        });
-        iter.into_iter(vm)
+        Ok(self.get_iter(vm)?.into_iter(vm))
+    }
+
+    /// [`Self::iter`] for a caller that fills a sized container from the
+    /// iterator, the way `PySequence_Fast()` does.
+    pub fn iter_sized<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterIter<'a, T>> {
+        self.get_iter(vm)?.into_iter_sized(vm)
     }
 }
 
@@ -112,7 +127,7 @@ where
         let cls = obj.class();
         let iter_fn = cls.slots.iter.load();
         if iter_fn.is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
-            return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.name())));
+            return Err(vm.new_type_error(format!("'{}' object is not iterable", cls.slot_name())));
         }
         Ok(Self {
             iterable: obj,

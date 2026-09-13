@@ -97,7 +97,7 @@ impl Jit {
         };
 
         builder.seal_all_blocks();
-        builder.finalize();
+        builder.finalize(self.module.target_config());
 
         self.module.define_function(id, &mut self.ctx)?;
 

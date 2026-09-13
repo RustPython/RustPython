@@ -46,7 +46,7 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
 
         // Check if attribute already exists in dict
         let attr_name = ctx.intern_str(def.name);
-        if class.attributes.read().contains_key(attr_name) {
+        if class.attributes.contains(attr_name) {
             continue;
         }
 
@@ -177,7 +177,7 @@ pub trait PyClassImpl: PyClassDef {
             // Only set __doc__ if it doesn't already exist (e.g., as a member descriptor)
             // This matches CPython's behavior in type_dict_set_doc
             let doc_attr_name = identifier!(ctx, __doc__);
-            if class.attributes.read().get(doc_attr_name).is_none() {
+            if class.attributes.get(doc_attr_name).is_none() {
                 class.set_attr(doc_attr_name, ctx.new_str(doc).into());
             }
         }
@@ -188,7 +188,6 @@ pub trait PyClassImpl: PyClassDef {
             // has an instance-level __module__ getset that should not be replaced)
             let has_getset = class
                 .attributes
-                .read()
                 .get(module_key)
                 .is_some_and(|v| v.downcastable::<crate::builtins::PyGetSet>());
             if !has_getset {

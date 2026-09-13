@@ -94,6 +94,47 @@ fn copy_grouping(ptr: *const libc::c_char) -> Vec<libc::c_char> {
     out
 }
 
+/// Every byte of a NUL-terminated C string, `CHAR_MAX` included.
+///
+/// `localeconv().grouping` spells a "repeat last group" / "stop" terminator
+/// as `CHAR_MAX`. Stopping at that value drops the distinction; this reader
+/// keeps it, the way a NUL-only C-string walk does.
+///
+/// # Safety
+///
+/// `ptr` must be null or point to a NUL-terminated C string that remains valid
+/// for the duration of the call.
+pub unsafe fn charp2bytes(ptr: *const libc::c_char) -> Vec<u8> {
+    let mut out = Vec::new();
+    if !ptr.is_null() {
+        let mut cur = ptr;
+        unsafe {
+            while *cur != 0 {
+                out.push(*cur as u8);
+                cur = cur.add(1);
+            }
+        }
+    }
+    out
+}
+
+/// Decimal point, thousands separator and grouping of the current locale,
+/// as the raw bytes `localeconv()` reports. Grouping keeps a `CHAR_MAX`
+/// terminator when the C locale spells one.
+pub fn localeconv_numeric() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+    let lc = unsafe { localeconv() };
+    if lc.is_null() {
+        return (b".".to_vec(), Vec::new(), Vec::new());
+    }
+    unsafe {
+        (
+            charp2bytes((*lc).decimal_point),
+            charp2bytes((*lc).thousands_sep),
+            charp2bytes((*lc).grouping),
+        )
+    }
+}
+
 pub fn localeconv_data() -> LocaleConv {
     let lc = unsafe { localeconv() };
     unsafe {

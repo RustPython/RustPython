@@ -19,6 +19,7 @@ fn invalid_syntax_error(vm: &VirtualMachine) -> crate::builtins::PyBaseException
     vm.new_syntax_error(
         &CompileError::Codegen(CodegenError {
             location: None,
+            end_location: None,
             error: CodegenErrorType::SyntaxError("invalid syntax".to_owned()),
             source_path: "<unknown>".to_owned(),
         }),
@@ -592,7 +593,10 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
         }
         ast::Expr::DictComp(dict) => {
             validate_comprehension(vm, &dict.generators)?;
-            validate_expr(vm, &dict.key, ast::ExprContext::Load)?;
+            let key = dict.key.as_deref().ok_or_else(|| {
+                vm.new_value_error("field 'key' is required for DictComp".to_owned())
+            })?;
+            validate_expr(vm, key, ast::ExprContext::Load)?;
             validate_expr(vm, &dict.value, ast::ExprContext::Load)
         }
         ast::Expr::Generator(generator) => {

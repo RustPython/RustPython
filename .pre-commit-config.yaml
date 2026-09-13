@@ -10,7 +10,7 @@ repos:
         priority: 0
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.2
+    rev: v0.16.4
     hooks:
       - id: ruff-format
         priority: 0
@@ -63,7 +63,7 @@ repos:
           - manual
 
   - repo: https://github.com/streetsidesoftware/cspell-cli
-    rev: v10.0.1
+    rev: v10.1.0
     hooks:
       - id: cspell
         types: [rust]

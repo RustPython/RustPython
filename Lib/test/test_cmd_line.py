@@ -985,7 +985,6 @@ class CmdLineTest(unittest.TestCase):
                 contents = file.read()
                 self.assertIn('Remaining objects', contents)
 
-    @unittest.expectedFailureIf(sys.platform == "darwin", "TODO: RUSTPYTHON")
     @unittest.skipUnless(sys.platform == 'darwin', 'PYTHONEXECUTABLE only works on macOS')
     def test_python_executable(self):
         code = 'import sys; print(sys.executable)'
@@ -1192,7 +1191,6 @@ class CmdLineTest(unittest.TestCase):
         code = template.replace('-', '\t').replace('+', ' ')
         assert_python_failure('-c', code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cpu_count(self):
         code = "import os; print(os.cpu_count(), os.process_cpu_count())"
         res = assert_python_ok('-X', 'cpu_count=4321', '-c', code)

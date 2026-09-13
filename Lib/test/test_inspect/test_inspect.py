@@ -7,6 +7,7 @@ import datetime
 import functools
 import gc
 import importlib
+import importlib.util
 import inspect
 import io
 import linecache
@@ -2273,7 +2274,6 @@ class TestGetcallargsFunctions(unittest.TestCase):
                                  '(4,[5,6])]), q=0, **collections.UserDict('
                                  'y=9, z=10)')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + <lambda>() got an unexpected keyword argument 'x'
     def test_errors(self):
         f0 = self.makeCallable('')
         f1 = self.makeCallable('a, b')
@@ -2860,16 +2860,13 @@ class TestGetCoroutineState(unittest.TestCase):
     def _coroutinestate(self):
         return inspect.getcoroutinestate(self.coroutine)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_created(self):
         self.assertEqual(self._coroutinestate(), inspect.CORO_CREATED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_suspended(self):
         self.coroutine.send(None)
         self.assertEqual(self._coroutinestate(), inspect.CORO_SUSPENDED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_closed_after_exhaustion(self):
         while True:
             try:
@@ -2879,13 +2876,11 @@ class TestGetCoroutineState(unittest.TestCase):
 
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_closed_after_immediate_exception(self):
         with self.assertRaises(RuntimeError):
             self.coroutine.throw(RuntimeError)
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'coroutine' object has no attribute 'cr_suspended'
     def test_closed_after_close(self):
         self.coroutine.close()
         self.assertEqual(self._coroutinestate(), inspect.CORO_CLOSED)
@@ -2935,17 +2930,14 @@ class TestGetAsyncGenState(unittest.IsolatedAsyncioTestCase):
     def _asyncgenstate(self):
         return inspect.getasyncgenstate(self.asyncgen)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'async_generator' object has no attribute 'ag_suspended'
     def test_created(self):
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_CREATED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'async_generator' object has no attribute 'ag_suspended'
     async def test_suspended(self):
         value = await anext(self.asyncgen)
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_SUSPENDED)
         self.assertEqual(value, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'async_generator' object has no attribute 'ag_suspended'
     async def test_closed_after_exhaustion(self):
         countdown = 7
         with self.assertRaises(StopAsyncIteration):
@@ -2954,13 +2946,11 @@ class TestGetAsyncGenState(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(countdown, 1)
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_CLOSED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'async_generator' object has no attribute 'ag_suspended'
     async def test_closed_after_immediate_exception(self):
         with self.assertRaises(RuntimeError):
             await self.asyncgen.athrow(RuntimeError)
         self.assertEqual(self._asyncgenstate(), inspect.AGEN_CLOSED)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'async_generator' object has no attribute 'ag_suspended'
     async def test_running(self):
         async def running_check_asyncgen():
             for number in range(5):
@@ -6443,6 +6433,19 @@ class TestUnwrap(unittest.TestCase):
 
 
 class TestMain(unittest.TestCase):
+    @staticmethod
+    def _expected_cached(module):
+        # assert_python_ok() runs the subprocess in isolated mode (-I), which
+        # ignores PYTHONPYCACHEPREFIX, so compute the expected cached path the
+        # same way (i.e. without any pycache prefix) to stay independent of the
+        # environment the test suite is run in.  Modules without a cached path
+        # (e.g. frozen modules such as ntpath/importlib.machinery on Windows)
+        # report None, so preserve that.
+        if module.__spec__.cached is None:
+            return None
+        with support.swap_attr(sys, 'pycache_prefix', None):
+            return importlib.util.cache_from_source(module.__spec__.origin)
+
     def test_only_source(self):
         module = importlib.import_module('unittest')
         rc, out, err = assert_python_ok('-m', 'inspect',
@@ -6482,13 +6485,13 @@ class TestMain(unittest.TestCase):
         rc, out, err = assert_python_ok(*args, '-m', 'inspect',
                                         'unittest', '--details')
         output = out.decode()
+        cached = self._expected_cached(module)
         # Just a quick sanity check on the output
         self.assertIn(module.__spec__.name, output)
         self.assertIn(module.__name__, output)
         self.assertIn(module.__spec__.origin, output)
         self.assertIn(module.__file__, output)
-        self.assertIn(module.__spec__.cached, output)
-        self.assertIn(module.__cached__, output)
+        self.assertIn(cached, output)
         self.assertEqual(err, b'')
 
 

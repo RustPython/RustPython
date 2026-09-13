@@ -137,7 +137,7 @@ pub(super) fn merge_function_call_arguments(
         node_index: Default::default(),
         range,
         args,
-        keywords: key_args.keywords,
+        keywords: key_args.keywords.into(),
         runtime_args,
         runtime_bases: None,
     }
@@ -173,7 +173,7 @@ pub(super) fn split_function_call_arguments(
     // debug_assert!(range.contains_range(keyword_arguments_range));
     let keyword_arguments = KeywordArguments {
         range: keyword_arguments_range,
-        keywords,
+        keywords: keywords.into(),
     };
 
     (positional_arguments, keyword_arguments)
@@ -214,7 +214,7 @@ pub(super) fn split_class_def_args(
     // debug_assert!(range.contains_range(keyword_arguments_range));
     let keyword_arguments = KeywordArguments {
         range: keyword_arguments_range,
-        keywords,
+        keywords: keywords.into(),
     };
 
     (Some(positional_arguments), Some(keyword_arguments))
@@ -243,7 +243,7 @@ pub(super) fn merge_class_def_args(
         node_index: Default::default(),
         range: Default::default(), // TODO
         args,
-        keywords,
+        keywords: keywords.into(),
         runtime_args: None,
         runtime_bases,
     }))

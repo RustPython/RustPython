@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "psutil"
+version = "999.0.0"
+description = "Stub psutil (pure Python, no C extension) used to unblock pip installs of pyperf on interpreters without CPython C-API support, such as RustPython"
+requires-python = ">=3.8"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

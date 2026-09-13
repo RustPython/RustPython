@@ -1881,7 +1881,6 @@ class ClassCreationTests(unittest.TestCase):
         D.__getitem__ = dict.__getitem__
         self.assertIs(d[None], None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'tuple'> != <class 'test.test_types.ClassCreationTests.test_tu[41 chars]ass'>
     def test_tuple_subclass_as_bases(self):
         # gh-132176: it used to crash on using
         # tuple subclass for as base classes.

@@ -858,7 +858,6 @@ class TestPyReplCompleter(TestCase):
         reader = ReadlineAlikeReader(console=console, config=config)
         return reader
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @patch("rlcompleter._readline_available", False)
     def test_simple_completion(self):
         events = code_to_events("os.getpid\t\n")
@@ -1522,7 +1521,6 @@ class TestPasteEvent(TestCase):
 
 @skipUnless(pty, "requires pty")
 class TestDumbTerminal(ReplTestCase):
-    @unittest.expectedFailureIf(sys.platform in ("darwin", "linux"), "TODO: RUSTPYTHON")
     def test_dumb_terminal_exits_cleanly(self):
         env = os.environ.copy()
         env.pop('PYTHON_BASIC_REPL', None)

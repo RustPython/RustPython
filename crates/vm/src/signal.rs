@@ -88,17 +88,23 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     let signal_handlers = vm
         .signal_handlers
         .get()
-        .expect("should never fail since we check above")
-        .borrow();
+        .expect("should never fail since we check above");
 
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
         let triggered = trigger.swap(false, Ordering::Relaxed);
+        if !triggered {
+            continue;
+        }
 
         // SAFETY: TRIGGERS has the same length as the signal_handlers
         let signum = unsafe { SignalNum::new_unchecked(signum as i32) };
 
-        if triggered
-            && let Some(handler) = &signal_handlers[signum]
+        // Read the handler out and drop the borrow before running it. A
+        // handler is free to call signal.signal(), which takes the same cell
+        // mutably, and a live read borrow turns that into a panic.
+        let handler = signal_handlers.borrow()[signum].clone();
+
+        if let Some(handler) = handler
             && let Some(callable) = handler.to_callable()
         {
             callable.invoke((signum.as_i32(), vm.ctx.none()), vm)?;

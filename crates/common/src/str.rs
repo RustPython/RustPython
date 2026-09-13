@@ -3,6 +3,7 @@ use crate::atomic::{OncePtr, PyAtomic, Radium};
 use crate::format::CharLen;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 use crate::wtf8_index::Wtf8Index;
+use alloc::borrow::Cow;
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 use core::fmt;
 use core::ops::{Bound, RangeBounds};
@@ -741,26 +742,31 @@ pub mod levenshtein {
 
 /// Replace all tabs in a string with spaces, using the given tab size.
 #[must_use]
-pub fn expandtabs(input: &str, tab_size: usize) -> String {
+pub fn expandtabs(input: &Wtf8, tab_size: usize) -> Wtf8Buf {
+    // A tab size of zero, which is also where a negative one lands, leaves no
+    // column for a tab to advance to: the tabs come out and nothing else moves.
+    // Going through the arithmetic anyway subtracts the current column from a
+    // tab stop of zero and underflows on the first tab, so the width asked for
+    // next is `usize::MAX`. The bytes version of this already returns here.
+    if tab_size == 0 {
+        return input.code_points().filter(|ch| *ch != '\t').collect();
+    }
+
     let tab_stop = tab_size;
-    let mut expanded_str = String::with_capacity(input.len());
+    let mut expanded_str = Wtf8Buf::with_capacity(input.len());
     let mut tab_size = tab_stop;
     let mut col_count = 0usize;
-    for ch in input.chars() {
-        match ch {
-            '\t' => {
-                let num_spaces = tab_size - col_count;
-                col_count += num_spaces;
-                let expand = " ".repeat(num_spaces);
-                expanded_str.push_str(&expand);
-            }
-            '\r' | '\n' => {
-                expanded_str.push(ch);
+    for ch in input.code_points() {
+        if ch == '\t' {
+            let num_spaces = tab_size - col_count;
+            col_count += num_spaces;
+            expanded_str.push_str(&" ".repeat(num_spaces));
+        } else {
+            expanded_str.push(ch);
+            if ch == '\r' || ch == '\n' {
                 col_count = 0;
                 tab_size = 0;
-            }
-            _ => {
-                expanded_str.push(ch);
+            } else {
                 col_count += 1;
             }
         }
@@ -835,9 +841,62 @@ pub fn char_to_decimal(ch: char) -> Option<u8> {
         .map(|i| (i % 10) as u8)
 }
 
+/// Replace Unicode decimal digits with their ASCII equivalents and any Unicode
+/// whitespace with a plain space, so the byte-oriented numeric parsers can read
+/// them. Mirrors CPython's `_PyUnicode_TransformDecimalAndSpaceToASCII`.
+///
+/// The result is always ASCII. Any other non-ASCII character cannot appear in a
+/// numeric literal, so it becomes a `?` and the rest of the string is dropped:
+/// `?` is rejected by every parser at every base, which leaves the caller — the
+/// one that knows the base and owns the original string — to raise the error.
+#[must_use]
+pub fn transform_decimal_and_space_to_ascii(s: &str) -> Cow<'_, str> {
+    if s.is_ascii() {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if (c as u32) < 127 {
+            out.push(c);
+        } else if c.is_whitespace() {
+            out.push(' ');
+        } else if let Some(n) = char_to_decimal(c) {
+            out.push(char::from_digit(n.into(), 10).unwrap());
+        } else {
+            out.push('?');
+            break;
+        }
+    }
+    debug_assert!(out.is_ascii());
+    Cow::Owned(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transform_decimal_and_space() {
+        // ASCII input is passed through untouched, without allocating.
+        assert!(matches!(
+            transform_decimal_and_space_to_ascii("123"),
+            Cow::Borrowed("123")
+        ));
+        // Decimal digits from any script fold to ASCII.
+        assert_eq!(transform_decimal_and_space_to_ascii("١٢٣"), "123");
+        assert_eq!(transform_decimal_and_space_to_ascii("１２३"), "123");
+        assert_eq!(transform_decimal_and_space_to_ascii("1٢3"), "123");
+        // Unicode whitespace folds to a plain space.
+        assert_eq!(transform_decimal_and_space_to_ascii("\u{3000}٣"), " 3");
+        // ASCII characters ride through untouched, whatever they are.
+        assert_eq!(transform_decimal_and_space_to_ascii("0x١f"), "0x1f");
+        assert_eq!(transform_decimal_and_space_to_ascii("-١_٢"), "-1_2");
+        // Anything else poisons the literal and truncates it, so the result stays
+        // ASCII and the caller's parser is guaranteed to reject it.
+        assert_eq!(transform_decimal_and_space_to_ascii("½가"), "?");
+        assert_eq!(transform_decimal_and_space_to_ascii("١٢가٣"), "12?");
+        assert_eq!(transform_decimal_and_space_to_ascii("١\u{7f}"), "1?");
+    }
 
     #[test]
     fn get_chars_basic() {
@@ -850,5 +909,33 @@ mod tests {
 
         let s = "0😀😃😄😁😆😅😂🤣9";
         assert_eq!(get_chars(s, 3..7), "😄😁😆😅");
+    }
+
+    fn expandtabs(input: &str, tab_size: usize) -> Wtf8Buf {
+        super::expandtabs(Wtf8::new(input), tab_size)
+    }
+
+    #[test]
+    fn expandtabs_with_zero_tab_size_drops_tabs() {
+        // A tab that follows a character used to subtract that column from a
+        // tab stop of zero, so the width of the run of spaces came out as
+        // `usize::MAX` and the allocation aborted the process.
+        assert_eq!(expandtabs("a\tb", 0), Wtf8Buf::from("ab"));
+        assert_eq!(expandtabs("ab\tcd\tef", 0), Wtf8Buf::from("abcdef"));
+        assert_eq!(expandtabs("a\nb\tc", 0), Wtf8Buf::from("a\nbc"));
+        assert_eq!(expandtabs("á\tb", 0), Wtf8Buf::from("áb"));
+        assert_eq!(expandtabs("\ta", 0), Wtf8Buf::from("a"));
+        assert_eq!(expandtabs("\t", 0), Wtf8Buf::from(""));
+        assert_eq!(expandtabs("", 0), Wtf8Buf::from(""));
+        assert_eq!(expandtabs("no tabs", 0), Wtf8Buf::from("no tabs"));
+    }
+
+    #[test]
+    fn expandtabs_with_a_real_tab_size_is_unchanged() {
+        assert_eq!(expandtabs("a\tb", 8), Wtf8Buf::from("a       b"));
+        assert_eq!(expandtabs("a\tb", 1), Wtf8Buf::from("a b"));
+        assert_eq!(expandtabs("abcd\te", 4), Wtf8Buf::from("abcd    e"));
+        assert_eq!(expandtabs("a\nb\tc", 4), Wtf8Buf::from("a\nb   c"));
+        assert_eq!(expandtabs("\ta", 4), Wtf8Buf::from("    a"));
     }
 }

@@ -362,6 +362,7 @@ impl ItemMeta for ClassItemMeta {
         "impl",
         "traverse",
         "clear", // tp_clear
+        "payload",
     ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
@@ -401,6 +402,10 @@ impl ClassItemMeta {
 
     pub(crate) fn ctx_name(&self) -> Result<Option<String>> {
         self.inner()._optional_str("ctx")
+    }
+
+    pub(crate) fn manual_payload(&self) -> Result<bool> {
+        Ok(self.inner()._optional_str("payload")?.as_deref() == Some("manual"))
     }
 
     pub(crate) fn base(&self) -> Result<Option<syn::Path>> {
@@ -473,6 +478,7 @@ impl ItemMeta for ExceptionItemMeta {
         "ctx",
         "impl",
         "traverse",
+        "payload",
     ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
@@ -732,13 +738,24 @@ where
 
 // Best effort attempt to generate a template from which a
 // __text_signature__ can be created.
-pub(crate) fn text_signature(sig: &Signature, name: &str) -> String {
-    let signature = func_sig(sig);
-    if signature.starts_with("$self") {
+//
+// Unlike CPython, a `#[pyfunction]` doesn't take the module as an argument yet,
+// so there's no module to mark with `$module`.
+pub(crate) fn text_signature(
+    sig: &Signature,
+    name: &str,
+    implicit_self: Option<&str>,
+) -> Option<String> {
+    let signature = func_sig(sig, implicit_self)?;
+    // Arguments bind through `FuncArgs::take_positional`, which never consults
+    // the keyword map, so they are positional-only. `*args`/`**kwargs` cannot be
+    // followed by `/`, and an empty parameter list has nothing to mark.
+    let signature = if signature.is_empty() || signature.contains('*') {
         format!("{name}({signature})")
     } else {
-        format!("{}({}, {})", name, "$module", signature)
-    }
+        format!("{name}({signature}, /)")
+    };
+    Some(signature)
 }
 
 pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) -> TokenStream {
@@ -751,8 +768,9 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
         };
         let ty_tokens = &typed.ty;
         let ty = quote!(#ty_tokens).to_string().replace(' ', "");
-        // `vm: &VirtualMachine` is not a Python-level argument.
-        if ty.starts_with('&') && ty.ends_with("VirtualMachine") {
+        // The interpreter supplies `vm` and `callee`; a Python call never
+        // passes them.
+        if (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee") {
             continue;
         }
         typed_args.push(ty);
@@ -812,37 +830,51 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
     }
 }
 
-fn func_sig(sig: &Signature) -> String {
-    sig.inputs
-        .iter()
-        .filter_map(|arg| {
-            let arg = match arg {
-                FnArg::Typed(typed) => typed,
-                FnArg::Receiver(_) => return Some("$self".to_owned()),
-            };
-            let ty = arg.ty.as_ref();
-            let ty = quote!(#ty).to_string();
-            if ty == "FuncArgs" {
-                return Some("*args, **kwargs".to_owned());
+/// Returns None when an argument has no name to report, in which case no
+/// signature can be generated for the function.
+///
+/// `implicit_self` is the marker to report for a first argument that the call
+/// binds to without a `&self` receiver.
+fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> {
+    let mut params = Vec::new();
+    for arg in &sig.inputs {
+        let arg = match arg {
+            FnArg::Typed(typed) => typed,
+            FnArg::Receiver(_) => {
+                params.push("$self".to_owned());
+                continue;
             }
-            if ty.starts_with('&') && ty.ends_with("VirtualMachine") {
-                return None;
-            }
-            let ident = match arg.pat.as_ref() {
-                syn::Pat::Ident(p) => p.ident.to_string(),
-                // FIXME: other => unreachable!("function arg pattern must be ident but found `{}`", quote!(fn #ident(.. #other ..))),
-                other => quote!(#other).to_string(),
-            };
-            if ident == "zelf" {
-                return Some("$self".to_owned());
-            }
-            if ident == "vm" {
-                unreachable!("type &VirtualMachine(`{ty}`) must be filtered already");
-            }
-            Some(ident)
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
+        };
+        let ty = arg.ty.as_ref();
+        let ty = quote!(#ty).to_string();
+        if ty == "FuncArgs" {
+            // The bundle carries the receiver along with everything else, so
+            // report both rather than spending the marker on it.
+            params.extend(implicit_self.take().map(str::to_owned));
+            params.push("*args, **kwargs".to_owned());
+            continue;
+        }
+        if (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee") {
+            continue;
+        }
+        if let Some(marker) = implicit_self.take() {
+            params.push(marker.to_owned());
+            continue;
+        }
+        // An argument bound by a destructuring pattern, e.g.
+        // `fn round(RoundArgs { number, ndigits }: RoundArgs, ..)`, has no name
+        // to report. Stringifying the pattern would emit Rust syntax, which
+        // makes inspect.signature() raise "invalid signature".
+        let syn::Pat::Ident(pat) = arg.pat.as_ref() else {
+            return None;
+        };
+        let ident = pat.ident.to_string();
+        if ident == "vm" {
+            unreachable!("type &VirtualMachine(`{ty}`) must be filtered already");
+        }
+        params.push(ident);
+    }
+    Some(params.join(", "))
 }
 
 pub(crate) fn format_doc(sig: &str, doc: &str) -> String {

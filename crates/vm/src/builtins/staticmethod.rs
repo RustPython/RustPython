@@ -1,7 +1,7 @@
 use super::{PyGenericAlias, PyStr, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::lock::PyMutex,
     function::{FuncArgs, PySetterValue},
     types::{Callable, Constructor, GetDescriptor, Initializer, Representable},
@@ -48,7 +48,7 @@ impl Constructor for PyStaticMethod {
         // copying its attributes to `__init__` so that subclasses overriding
         // `__init__` without calling `super().__init__()` see `__func__` as
         // `None`, matching CPython.
-        let _: Self::Args = args.bind(vm)?;
+        let _: Self::Args = args.bind_for(vm, Self::NAME)?;
         let result = Self {
             callable: PyMutex::new(vm.ctx.none()),
         }

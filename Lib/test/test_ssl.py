@@ -762,7 +762,6 @@ class BasicSocketTests(unittest.TestCase):
             support.gc_collect()
         self.assertIn(r, str(cm.warning.args[0]))
 
-    @unittest.expectedFailureIf(sys.platform == "android", "TODO: RUSTPYTHON; TypeError: path should be string, bytes, os.PathLike or integer, not NoneType")
     def test_get_default_verify_paths(self):
         paths = ssl.get_default_verify_paths()
         self.assertEqual(len(paths), 6)
@@ -3060,7 +3059,6 @@ class ThreadedTests(unittest.TestCase):
                 'Cannot create a client socket with a PROTOCOL_TLS_SERVER context',
                 str(e.exception))
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @unittest.skipUnless(support.Py_GIL_DISABLED, "test is only useful if the GIL is disabled")
     def test_ssl_in_multiple_threads(self):
         # See GH-124984: OpenSSL is not thread safe.
@@ -4193,7 +4191,6 @@ class ThreadedTests(unittest.TestCase):
                 s.connect((HOST, server.port))
                 self.assertIn("ECDH", s.cipher()[0])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless("tls-unique" in ssl.CHANNEL_BINDING_TYPES,
                          "'tls-unique' channel binding not available")
     def test_tls_unique_channel_binding(self):
@@ -4456,7 +4453,6 @@ class ThreadedTests(unittest.TestCase):
         self.check_common_name(stats, SIGNED_CERTFILE_HOSTNAME)
         self.assertEqual(calls, [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + TLSV1_ALERT_ACCESS_DENIED
     def test_sni_callback_alert(self):
         # Returning a TLS alert is reflected to the connecting client
         server_context, other_context, client_context = self.sni_contexts()
@@ -4470,7 +4466,6 @@ class ThreadedTests(unittest.TestCase):
                                        sni_name='supermessage')
         self.assertEqual(cm.exception.reason, 'TLSV1_ALERT_ACCESS_DENIED')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sni_callback_raising(self):
         # Raising fails the connection with a TLS handshake failure alert.
         server_context, other_context, client_context = self.sni_contexts()
@@ -4490,7 +4485,6 @@ class ThreadedTests(unittest.TestCase):
             self.assertRegex(cm.exception.reason, regex)
             self.assertEqual(catch.unraisable.exc_type, ZeroDivisionError)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'SSLEOFError' object has no attribute 'reason'
     def test_sni_callback_wrong_return_type(self):
         # Returning the wrong return type terminates the TLS connection
         # with an internal error alert.
@@ -4764,7 +4758,6 @@ class ThreadedTests(unittest.TestCase):
             with client_context.wrap_socket(socket.socket()) as s:
                 s.connect((HOST, server.port))
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     def test_thread_recv_while_main_thread_sends(self):
         # GH-137583: Locking was added to calls to send() and recv() on SSL
         # socket objects. This seemed fine at the surface level because those
@@ -5227,7 +5220,6 @@ class TestSSLDebug(unittest.TestCase):
         with self.assertRaises(TypeError):
             client_context._msg_callback = object()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ('read', <TLSVersion.TLSv1_2: 771>, <_TLSContentType.HANDSHAKE: 22>, <_TLSMessageType.SERVER_KEY_EXCHANGE: 12>) not found in []
     def test_msg_callback_tls12(self):
         client_context, server_context, hostname = testing_context()
         client_context.maximum_version = ssl.TLSVersion.TLSv1_2

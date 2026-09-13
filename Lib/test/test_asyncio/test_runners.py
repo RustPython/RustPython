@@ -402,7 +402,6 @@ class RunnerTests(BaseTest):
 
             self.assertEqual(2, runner.run(get_context()).get(cvar))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - RuntimeWarning for unawaited coroutine not triggered
     def test_recursive_run(self):
         async def g():
             pass

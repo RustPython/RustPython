@@ -111,7 +111,6 @@ class FutureTest(unittest.TestCase):
         """
         self.assertSyntaxError(code, lineno=3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_future_import_with_extra_string(self):
         code = """
             '''Docstring'''
@@ -260,7 +259,6 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         )
         return scope
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "t'{a + b}'" != "t'{a    +  b}'"
     def test_annotations(self):
         eq = self.assertAnnotationEqual
         eq('...')

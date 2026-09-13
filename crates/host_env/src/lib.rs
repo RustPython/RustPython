@@ -30,7 +30,11 @@ pub mod fileutils;
 pub mod fs;
 #[cfg(any(unix, windows))]
 pub mod locale;
+#[cfg(all(feature = "native-certs", not(target_arch = "wasm32")))]
+pub mod native_certs;
 pub mod readline;
+#[cfg(feature = "ssl")]
+pub mod ssl;
 
 #[cfg(windows)]
 pub mod windows;
@@ -88,6 +92,8 @@ pub mod nt;
 pub mod overlapped;
 #[cfg(windows)]
 pub mod testconsole;
+#[cfg(windows)]
+pub mod uuid;
 #[cfg(windows)]
 pub mod winapi;
 #[cfg(windows)]

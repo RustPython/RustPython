@@ -10,6 +10,7 @@ use ruff_text_size::Ranged;
 use rustpython_vm::{
     Interpreter, PyObjectRef, PyRef, PyResult, Settings, VirtualMachine,
     builtins::PyWeak,
+    bytecode::CodeFlags,
     compiler::{self, Mode},
     function::ArgMapping,
     scope::Scope,
@@ -24,6 +25,7 @@ pub(crate) struct StoredVirtualMachine {
     /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
     /// as long as the StoredVM is alive
     held_objects: RefCell<Vec<PyObjectRef>>,
+    future_features: RefCell<CodeFlags>,
 }
 
 fn compile_err_to_js(vm: &VirtualMachine, err: VmCompileError) -> JsValue {
@@ -33,8 +35,17 @@ fn compile_err_to_js(vm: &VirtualMachine, err: VmCompileError) -> JsValue {
     }
 }
 
-fn statement_chunks(source: &str) -> Option<Vec<&str>> {
-    let module = compiler::parser::parse_module(source).ok()?.into_syntax();
+fn statement_chunks(source: &str, future_features: CodeFlags) -> Option<Vec<&str>> {
+    let parser_options = compiler::parser::ParseOptions::from(compiler::parser::Mode::Module);
+    let prepared = compiler::prepare_barry_as_flufl_source(
+        source,
+        parser_options.clone(),
+        future_features.contains(CodeFlags::FUTURE_BARRY_AS_BDFL),
+    );
+    let module = compiler::parser::parse(prepared.source(), parser_options)
+        .ok()?
+        .into_syntax()
+        .expect_module();
     module
         .body
         .iter()
@@ -99,6 +110,7 @@ impl StoredVirtualMachine {
             interp,
             scope,
             held_objects: RefCell::new(Vec::new()),
+            future_features: RefCell::new(CodeFlags::empty()),
         }
     }
 }
@@ -394,11 +406,24 @@ impl WASMVirtualMachine {
         source: &str,
         source_path: Option<String>,
     ) -> Result<JsValue, JsValue> {
-        self.with_vm(|vm, StoredVirtualMachine { scope, .. }| {
+        self.with_vm(|vm, stored| {
+            let scope = &stored.scope;
             let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
-            let Some(chunks) = statement_chunks(source) else {
-                let code = vm.compile(source, Mode::Single, source_path.as_str());
-                let code = code.map_err(|err| compile_err_to_js(vm, err))?;
+            let compile = |source: &str, mode: Mode| -> Result<_, JsValue> {
+                let future_features = *stored.future_features.borrow();
+                let opts = compiler::CompileOpts {
+                    future_features,
+                    ..vm.compile_opts()
+                };
+                let code = vm
+                    .compile_with_opts(source, mode, source_path.as_str(), opts)
+                    .map_err(|err| compile_err_to_js(vm, err))?;
+                *stored.future_features.borrow_mut() |= code.code.flags & CodeFlags::FUTURE_MASK;
+                Ok(code)
+            };
+            let future_features = *stored.future_features.borrow();
+            let Some(chunks) = statement_chunks(source, future_features) else {
+                let code = compile(source, Mode::Single)?;
                 let result = vm.run_code_obj(code, scope.clone());
                 return convert::pyresult_to_js_result(vm, result);
             };
@@ -413,8 +438,7 @@ impl WASMVirtualMachine {
                 .map_err(|_| TypeError::new("lost sys.displayhook"))?;
             let mut result = vm.ctx.none();
             for chunk in chunks {
-                let code = vm.compile(chunk, Mode::BlockExpr, source_path.as_str());
-                let code = code.map_err(|err| compile_err_to_js(vm, err))?;
+                let code = compile(chunk, Mode::BlockExpr)?;
                 result = vm.run_code_obj(code, scope.clone()).into_js(vm)?;
                 displayhook.call((result.clone(),), vm).into_js(vm)?;
             }

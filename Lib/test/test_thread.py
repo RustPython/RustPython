@@ -323,7 +323,6 @@ class ThreadRunningTests(BasicThreadTest):
         with self.assertRaisesRegex(RuntimeError, "thread not started"):
             handle._set_done()
 
-    @unittest.skipIf(__import__("sys").platform == "linux", "TODO: RUSTPYTHON; panic")
     def test_start_duplicate_handle(self):
         lock = thread.allocate_lock()
         lock.acquire()
@@ -339,7 +338,6 @@ class ThreadRunningTests(BasicThreadTest):
             lock.release()
             handle.join()
 
-    @unittest.skipIf(__import__("sys").platform == "linux", "TODO: RUSTPYTHON; panic")
     def test_start_with_none_handle(self):
         def func():
             pass

@@ -111,8 +111,9 @@ pub use self::object::{
 };
 pub use self::vm::runtime;
 pub use self::vm::{
-    Context, Interpreter, InterpreterBuilder, InterpreterInfo, InterpreterWhence,
-    MAIN_INTERPRETER_ID, Settings, VirtualMachine,
+    Context, InterpFeatureFlags, Interpreter, InterpreterBuilder, InterpreterConfig,
+    InterpreterGil, InterpreterInfo, InterpreterWhence, MAIN_INTERPRETER_ID, Settings,
+    VirtualMachine,
 };
 
 pub use rustpython_common as common;

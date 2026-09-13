@@ -28,9 +28,10 @@ impl PyObject {
     /// PyObject_Call
     pub fn call_with_args(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let Some(callable) = self.to_callable() else {
-            return Err(
-                vm.new_type_error(format!("'{}' object is not callable", self.class().name()))
-            );
+            return Err(vm.new_type_error(format!(
+                "'{}' object is not callable",
+                self.class().slot_name()
+            )));
         };
         vm_trace!("Invoke: {:?} {:?}", callable, args);
         callable.invoke(args, vm)
@@ -47,9 +48,10 @@ impl PyObject {
         vm: &VirtualMachine,
     ) -> PyResult {
         let Some(callable) = self.to_callable() else {
-            return Err(
-                vm.new_type_error(format!("'{}' object is not callable", self.class().name()))
-            );
+            return Err(vm.new_type_error(format!(
+                "'{}' object is not callable",
+                self.class().slot_name()
+            )));
         };
         callable.invoke_vectorcall(args, nargs, kwnames, vm)
     }

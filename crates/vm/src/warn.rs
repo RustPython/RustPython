@@ -305,6 +305,42 @@ pub fn warn(
     warn_with_skip(message, category, stack_level, source, None, vm)
 }
 
+/// Warn that `coro` was never awaited.
+///
+/// Prefer `warnings._warn_unawaited_coroutine` so origin tracking can
+/// format the creation traceback. If that helper is missing, broken, or
+/// not a RuntimeWarning-as-error, fall back to a plain RuntimeWarning.
+/// Never raises; leftover exceptions become unraisable.
+pub fn warn_unawaited_coroutine(coro: &PyObject, qualname: &PyStrRef, vm: &VirtualMachine) {
+    let unraisable_msg = format!(
+        "Exception ignored while finalizing coroutine {}",
+        coro.repr(vm)
+            .map_or_else(|_| String::new(), |s| s.to_string())
+    );
+    let mut warned = false;
+    if let Some(helper) =
+        get_warnings_attr(vm, vm.ctx.intern_str("_warn_unawaited_coroutine"), true)
+    {
+        match helper.call((coro.to_owned(),), vm) {
+            Ok(_) => warned = true,
+            Err(e) => {
+                if e.fast_isinstance(vm.ctx.exceptions.runtime_warning) {
+                    warned = true;
+                }
+                vm.run_unraisable(e, Some(unraisable_msg.clone()), coro.to_owned());
+            }
+        }
+    }
+    if !warned {
+        let msg = format!("coroutine '{qualname}' was never awaited");
+        if let Err(e) =
+            crate::stdlib::_warnings::warn(vm.ctx.exceptions.runtime_warning, msg, 1, vm)
+        {
+            vm.run_unraisable(e, Some(unraisable_msg), coro.to_owned());
+        }
+    }
+}
+
 /// do_warn: resolve context via setup_context, then call warn_explicit.
 pub fn warn_with_skip(
     message: PyObjectRef,

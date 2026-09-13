@@ -1,8 +1,10 @@
-use self::types::{PyBaseException, PyBaseExceptionRef};
+use self::types::{PyBaseException, PyBaseExceptionRef, PyException, PyMemoryError};
+pub use super::exception_group::exception_group;
 use crate::common::lock::PyRwLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
     builtins::{
         PyList, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         traceback::{PyTraceback, PyTracebackRef},
@@ -20,9 +22,8 @@ use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 #[cfg(feature = "host_env")]
 use std::io::{BufRead, BufReader};
+use std::sync::Mutex;
 use std::{collections::HashSet, io};
-
-pub use super::exception_group::exception_group;
 
 unsafe impl Traverse for PyBaseException {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
@@ -40,10 +41,56 @@ impl core::fmt::Debug for PyBaseException {
     }
 }
 
+const MEMORY_ERROR_FREELIST_SIZE: usize = 16;
+
+struct MemoryErrorHusk(*mut PyObject);
+unsafe impl Send for MemoryErrorHusk {}
+
+static MEMORY_ERROR_FREELIST: Mutex<[Option<MemoryErrorHusk>; MEMORY_ERROR_FREELIST_SIZE]> =
+    Mutex::new([const { None }; MEMORY_ERROR_FREELIST_SIZE]);
+
 impl PyPayload for PyBaseException {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.exceptions.base_exception_type
+    }
+}
+
+impl PyPayload for PyMemoryError {
+    const PAYLOAD_TYPE_ID: core::any::TypeId = <PyException as PyPayload>::PAYLOAD_TYPE_ID;
+    const HAS_FREELIST: bool = true;
+    const MAX_FREELIST: usize = MEMORY_ERROR_FREELIST_SIZE;
+
+    #[inline]
+    unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
+        obj.class()
+            .fast_issubclass(<Self as StaticType>::static_type())
+    }
+
+    fn class(_ctx: &Context) -> &'static Py<PyType> {
+        <Self as StaticType>::static_type()
+    }
+
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        let Ok(mut list) = MEMORY_ERROR_FREELIST.lock() else {
+            return false;
+        };
+        match list.iter_mut().find(|element| element.is_none()) {
+            Some(element) => {
+                *element = Some(MemoryErrorHusk(obj));
+                true
+            }
+            None => false,
+        }
+    }
+
+    unsafe fn freelist_pop(_payload: &Self) -> Option<core::ptr::NonNull<PyObject>> {
+        let husk = MEMORY_ERROR_FREELIST
+            .lock()
+            .ok()?
+            .iter_mut()
+            .find_map(|element| element.take())?;
+        core::ptr::NonNull::new(husk.0)
     }
 }
 
@@ -1251,7 +1298,14 @@ impl<C> ToPyException for widestring::error::ContainsNul<C> {
 #[cfg(windows)]
 impl ToPyException for widestring::error::MissingNulTerminator {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_value_error(self.to_string())
+        nul_char_error(vm)
+    }
+}
+
+#[cfg(windows)]
+impl<C> ToPyException for widestring::error::NulError<C> {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        nul_char_error(vm)
     }
 }
 
@@ -1278,6 +1332,9 @@ pub(crate) fn errno_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<&'sta
         errors::EINTR => Some(excs.interrupted_error),
         errors::EACCES => Some(excs.permission_error),
         errors::EPERM => Some(excs.permission_error),
+        // A process without the capability to reach a resource.
+        #[cfg(target_vendor = "apple")]
+        errors::ENOTCAPABLE => Some(excs.permission_error),
         errors::ESRCH => Some(excs.process_lookup_error),
         errors::ETIMEDOUT => Some(excs.timeout_error),
         _ => None,
@@ -1609,6 +1666,7 @@ impl ToPyException for rustpython_host_env::multiprocessing::SemError {
 }
 
 pub(super) mod types {
+    use crate::class::PyClassDef;
     use crate::common::lock::PyRwLock;
     use crate::object::{Traverse, TraverseFn};
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
@@ -1869,9 +1927,10 @@ pub(super) mod types {
 
             // Reject unknown kwargs
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_type_error(format!(
-                    "AttributeError() got an unexpected keyword argument '{invalid_key}'"
-                )));
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some(Self::NAME),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Pass args without kwargs to BaseException_init
@@ -1909,11 +1968,11 @@ pub(super) mod types {
     #[pyexception(with(Initializer))]
     impl PyImportError {
         #[pymethod]
-        fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
-            let obj = exc.as_object().to_owned();
-            let args: PyObjectRef = match exc.get_arg(0) {
+        fn __reduce__(zelf: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
+            let obj = zelf.as_object().to_owned();
+            let args: PyObjectRef = match zelf.get_arg(0) {
                 Some(arg) => vm.new_tuple((arg,)).into(),
-                None => exc.args().into(),
+                None => zelf.args().into(),
             };
             let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into(), args];
 
@@ -2001,10 +2060,37 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = PyException, ctx = "memory_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "memory_error", impl, payload = "manual", traverse = "manual")]
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyMemoryError(PyException);
+
+    impl PyMemoryError {
+        pub(crate) fn empty(vm: &VirtualMachine) -> Self {
+            Self(PyException(PyBaseException::new(vec![], vm)))
+        }
+    }
+
+    unsafe impl Traverse for PyMemoryError {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.0.0.traverse(tracer_fn);
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            let base = &mut self.0.0;
+            if let Some(traceback) = base.traceback.get_mut().take() {
+                out.push(traceback.into());
+            }
+
+            if let Some(cause) = base.cause.get_mut().take() {
+                out.push(cause.into());
+            }
+
+            if let Some(context) = base.context.get_mut().take() {
+                out.push(context.into());
+            }
+        }
+    }
 
     #[pyexception(name, base = PyException, ctx = "name_error")]
     #[derive(Debug)]
@@ -2024,9 +2110,10 @@ pub(super) mod types {
 
             // Reject unknown kwargs
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_type_error(format!(
-                    "NameError() got an unexpected keyword argument '{invalid_key}'"
-                )));
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some(Self::NAME),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Pass args without kwargs to BaseException_init
@@ -2212,8 +2299,10 @@ pub(super) mod types {
                     {
                         exc.written.store(n);
                         set_filename = false;
-                        // Clear filename that was set in py_new
+                        // The count leaves neither filename taken, so both are
+                        // put back the way `py_new` found them.
                         let _ = unsafe { exc.filename.swap(None) };
+                        let _ = unsafe { exc.filename2.swap(None) };
                     }
                     if set_filename {
                         let _ = unsafe { exc.filename.swap(Some(third_arg.clone())) };
@@ -2237,19 +2326,21 @@ pub(super) mod types {
                         new_args.args[0] = errno_obj;
                     }
                 }
-                if len == 5 {
-                    let _ = unsafe { exc.filename2.swap(new_args.args.get(4).cloned()) };
-                }
             }
 
-            // args are truncated to 2 for compatibility (only when 2-5 args and filename is not None)
-            // truncation happens inside "if (filename && filename != Py_None)" block
+            // A second filename, and the two arguments the rest are cut back
+            // to, both follow the filename itself having been taken.
             let has_filename = exc
                 .filename
                 .to_owned()
                 .as_ref()
                 .is_some_and(|f| !vm.is_none(f));
             if (3..=5).contains(&len) && has_filename {
+                if let Some(filename2) = new_args.args.get(4)
+                    && !vm.is_none(filename2)
+                {
+                    let _ = unsafe { exc.filename2.swap(Some(filename2.clone())) };
+                }
                 new_args.args.truncate(2);
             }
             PyBaseException::slot_init(zelf, new_args, vm)
@@ -2353,15 +2444,15 @@ pub(super) mod types {
         }
 
         #[pymethod]
-        fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
-            let args = exc.args();
-            let obj = exc.as_object().to_owned();
+        fn __reduce__(zelf: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
+            let args = zelf.args();
+            let obj = zelf.as_object().to_owned();
             let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into()];
 
             if args.len() >= 2 && args.len() <= 5 {
                 // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
-                let errno = exc.get_arg(0).unwrap();
-                let msg = exc.get_arg(1).unwrap();
+                let errno = zelf.get_arg(0).unwrap();
+                let msg = zelf.get_arg(1).unwrap();
 
                 if let Ok(filename) = obj.get_attr("filename", vm) {
                     if !vm.is_none(&filename) {
@@ -2698,15 +2789,20 @@ pub(super) mod types {
                 let location_tup_len = location_tuple.len();
 
                 match location_tup_len {
-                    4 | 6 => {}
+                    4 | 6 | 7 => {}
                     5 => {
                         return Err(vm.new_type_error(
                             "end_offset must be provided when end_lineno is provided",
                         ));
                     }
-                    _ => {
+                    given if given < 4 => {
                         return Err(vm.new_type_error(format!(
-                            "function takes exactly 4 or 6 arguments ({location_tup_len} given)"
+                            "function takes at least 4 arguments ({given} given)"
+                        )));
+                    }
+                    given => {
+                        return Err(vm.new_type_error(format!(
+                            "function takes at most 7 arguments ({given} given)"
                         )));
                     }
                 }
@@ -2774,6 +2870,18 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyValueError(PyException);
 
+    /// Check the fixed arity expected by the tuple parser before converting
+    /// any of the values it was given.
+    fn parse_tuple_arity(args: &FuncArgs, count: usize, vm: &VirtualMachine) -> PyResult<()> {
+        let given = args.args.len();
+        if given == count {
+            return Ok(());
+        }
+        Err(vm.new_type_error(format!(
+            "function takes exactly {count} arguments ({given} given)"
+        )))
+    }
+
     #[pyexception(name, base = PyValueError, ctx = "unicode_error", impl)]
     #[derive(Debug)]
     #[repr(transparent)]
@@ -2820,6 +2928,7 @@ pub(super) mod types {
         type Args = FuncArgs;
 
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            parse_tuple_arity(&args, 5, vm)?;
             type Args = (PyStrRef, ArgBytesLike, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
             set_attrs!(zelf, vm,
@@ -2879,6 +2988,7 @@ pub(super) mod types {
         type Args = FuncArgs;
 
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            parse_tuple_arity(&args, 5, vm)?;
             type Args = (PyStrRef, PyStrRef, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
             set_attrs!(zelf, vm,
@@ -2936,6 +3046,7 @@ pub(super) mod types {
         type Args = FuncArgs;
 
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            parse_tuple_arity(&args, 4, vm)?;
             type Args = (PyStrRef, isize, isize, PyStrRef);
             let (object, start, end, reason): Args = args.bind(vm)?;
             set_attrs!(zelf, vm,

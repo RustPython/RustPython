@@ -4,6 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod append_log;
+pub use append_log::AppendLog;
+
 pub fn open(path: impl AsRef<Path>) -> io::Result<File> {
     File::open(path)
 }
@@ -34,6 +37,18 @@ pub fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
 
 pub fn metadata(path: impl AsRef<Path>) -> io::Result<Metadata> {
     fs::metadata(path)
+}
+
+pub fn exists(path: impl AsRef<Path>) -> bool {
+    metadata(path).is_ok()
+}
+
+pub fn is_file(path: impl AsRef<Path>) -> bool {
+    metadata(path).is_ok_and(|metadata| metadata.is_file())
+}
+
+pub fn is_dir(path: impl AsRef<Path>) -> bool {
+    metadata(path).is_ok_and(|metadata| metadata.is_dir())
 }
 
 pub fn symlink_metadata(path: impl AsRef<Path>) -> io::Result<Metadata> {

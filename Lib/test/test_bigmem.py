@@ -10,11 +10,6 @@ high memory limit to regrtest, with the -M option.
 
 from test import support
 from test.support import bigmemtest, _1G, _2G, _4G, import_helper
-# _testcapi = import_helper.import_module('_testcapi')
-try:  # TODO: RUSTPYTHON
-    import _testcapi
-except ImportError:
-    _testcapi = None
 
 import unittest
 import operator
@@ -1268,6 +1263,7 @@ class ImmortalityTest(unittest.TestCase):
     def test_stickiness(self, size):
         """Check that immortality is "sticky", so that
            once an object is immortal it remains so."""
+        _testcapi = import_helper.import_module('_testcapi')
         if size < _2G:
             # Not enough memory to cause immortality on overflow
             return

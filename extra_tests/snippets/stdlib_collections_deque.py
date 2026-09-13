@@ -108,3 +108,46 @@ if sys.implementation.name == "rustpython":
     # until the allocator gives up, so it is left out of this check.
     with assert_raises(MemoryError):
         deque([0]) * sys.maxsize
+
+
+# maxlen=0 keeps nothing, whichever end the item arrives at.
+d = deque(maxlen=0)
+d.append(1)
+d.appendleft(2)
+assert list(d) == []
+assert len(d) == 0
+assert d.maxlen == 0
+
+d = deque(maxlen=0)
+d.extend("abc")
+d.extendleft("abc")
+d += "abc"
+assert list(d) == []
+
+assert list(deque("abc", maxlen=0)) == []
+assert list(deque("ab", maxlen=0) * 3) == []
+assert list(deque("ab", maxlen=0) + deque("cd")) == []
+
+d = deque("abc", maxlen=0)
+d.rotate(1)
+assert list(d) == []
+
+assert_raises(IndexError, deque(maxlen=0).insert, 0, 1)
+
+
+# A bounded deque still drops from the far end, and only once it is full.
+d = deque(maxlen=1)
+d.append(1)
+assert list(d) == [1]
+d.append(2)
+assert list(d) == [2]
+d.appendleft(3)
+assert list(d) == [3]
+
+d = deque("ab", maxlen=3)
+d.append("c")
+assert list(d) == ["a", "b", "c"]
+d.append("d")
+assert list(d) == ["b", "c", "d"]
+d.appendleft("z")
+assert list(d) == ["z", "b", "c"]

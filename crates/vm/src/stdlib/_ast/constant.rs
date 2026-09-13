@@ -2,6 +2,7 @@ use super::*;
 use crate::builtins::{PyComplex, PyFrozenSet, PyTuple};
 use ast::str_prefix::StringLiteralPrefix;
 use rustpython_codegen::compile::ruff_int_to_bigint;
+use rustpython_common::wtf8::Wtf8Buf;
 use rustpython_compiler_core::{SourceFile, bytecode::ConstantData};
 
 #[derive(Debug)]
@@ -14,7 +15,7 @@ pub(super) struct Constant {
 
 impl Constant {
     pub(super) fn new_str(
-        value: impl Into<Box<str>>,
+        value: impl Into<Wtf8Buf>,
         prefix: StringLiteralPrefix,
         range: TextRange,
     ) -> Self {
@@ -112,7 +113,7 @@ pub(crate) enum ConstantLiteral {
     None,
     Bool(bool),
     Str {
-        value: Box<str>,
+        value: Wtf8Buf,
         prefix: StringLiteralPrefix,
     },
     Bytes(Box<[u8]>),
@@ -199,7 +200,7 @@ fn constant_literal_to_constant_data(value: &ConstantLiteral) -> ConstantData {
         ConstantLiteral::None => ConstantData::None,
         ConstantLiteral::Bool(value) => ConstantData::Boolean { value: *value },
         ConstantLiteral::Str { value, .. } => ConstantData::Str {
-            value: value.as_ref().into(),
+            value: value.clone(),
         },
         ConstantLiteral::Bytes(value) => ConstantData::Bytes {
             value: value.to_vec(),
@@ -548,7 +549,11 @@ impl Node for ConstantLiteral {
             })
         } else if cls.is(vm.ctx.types.str_type) {
             Self::Str {
-                value: value_object.try_to_value::<String>(vm)?.into(),
+                value: value_object
+                    .downcast_ref::<crate::builtins::PyStr>()
+                    .expect("AST value field was checked to be a str")
+                    .as_wtf8()
+                    .to_owned(),
                 prefix: StringLiteralPrefix::Empty,
             }
         } else if cls.is(vm.ctx.types.bytes_type) {
@@ -650,7 +655,8 @@ pub(super) fn string_literal_to_object(
         .iter()
         .next()
         .map_or(StringLiteralPrefix::Empty, |part| part.flags.prefix());
-    let c = Constant::new_str(value.to_str(), prefix, range);
+    let value = rustpython_codegen::string_literal_value(source_file, &value);
+    let c = Constant::new_str(value, prefix, range);
     c.ast_to_object(vm, source_file)
 }
 

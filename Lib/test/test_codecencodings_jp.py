@@ -6,7 +6,6 @@
 from test import multibytecodec_support
 import unittest
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: cp932")
 class Test_CP932(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'cp932'
     tstring = multibytecodec_support.load_teststring('shift_jis')
@@ -40,7 +39,6 @@ euc_commontests = (
     (b"\x8eXY", "replace", "\ufffdXY"),
 )
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: euc_jis_2004")
 class Test_EUC_JIS_2004(multibytecodec_support.TestBase,
                         unittest.TestCase):
     encoding = 'euc_jis_2004'
@@ -51,7 +49,6 @@ class Test_EUC_JIS_2004(multibytecodec_support.TestBase,
         b"\xa9\xa8&real;\xa9\xb2 = &lang;&#4660;&rang;"
     )
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: euc_jisx0213")
 class Test_EUC_JISX0213(multibytecodec_support.TestBase,
                         unittest.TestCase):
     encoding = 'euc_jisx0213'
@@ -62,7 +59,6 @@ class Test_EUC_JISX0213(multibytecodec_support.TestBase,
         b"\xa9\xa8&real;\xa9\xb2 = &lang;&#4660;&rang;"
     )
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: euc_jp")
 class Test_EUC_JP_COMPAT(multibytecodec_support.TestBase,
                          unittest.TestCase):
     encoding = 'euc_jp'
@@ -78,7 +74,6 @@ shiftjis_commonenctests = (
     (b"abc\x80\x80\x82\x84def", "ignore",  "abc\uff44def"),
 )
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: shift_jis")
 class Test_SJIS_COMPAT(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'shift_jis'
     tstring = multibytecodec_support.load_teststring('shift_jis')
@@ -93,7 +88,6 @@ class Test_SJIS_COMPAT(multibytecodec_support.TestBase, unittest.TestCase):
         (b"abc\xFF\x58", "replace",  "abc\ufffdX"),
     )
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: shift_jis_2004")
 class Test_SJIS_2004(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'shift_jis_2004'
     tstring = multibytecodec_support.load_teststring('shift_jis')
@@ -112,7 +106,6 @@ class Test_SJIS_2004(multibytecodec_support.TestBase, unittest.TestCase):
         b"\x85G&real;\x85Q = &lang;&#4660;&rang;"
     )
 
-@unittest.skip("TODO: RUSTPYTHON; unknown encoding: shift_jisx0213")
 class Test_SJISX0213(multibytecodec_support.TestBase, unittest.TestCase):
     encoding = 'shift_jisx0213'
     tstring = multibytecodec_support.load_teststring('shift_jisx0213')

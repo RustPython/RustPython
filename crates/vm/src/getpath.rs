@@ -115,15 +115,13 @@ pub fn init_path_config(settings: &Settings) -> Paths {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    // Step 1: Check for __PYVENV_LAUNCHER__ environment variable
-    // When launched from a venv launcher, __PYVENV_LAUNCHER__ contains the venv's python.exe path
-    // In this case:
-    //   - sys.executable should be the launcher path (where user invoked Python)
-    //   - sys._base_executable should be the real Python executable
-    let exe_dir = if let Ok(launcher) = crate::host_env::os::var("__PYVENV_LAUNCHER__") {
-        paths.executable.clone_from(&launcher);
+    // Step 1: Check for PYTHONEXECUTABLE / __PYVENV_LAUNCHER__
+    // When set, these are used as sys.executable and when searching for venvs.
+    // The argv0 path is kept as the base executable for prefix calculation.
+    let exe_dir = if let Some(override_exe) = env_executable_override() {
+        paths.executable.clone_from(&override_exe);
         paths.base_executable = real_executable;
-        PathBuf::from(&launcher).parent().map(PathBuf::from)
+        PathBuf::from(&override_exe).parent().map(PathBuf::from)
     } else {
         paths.executable = real_executable;
         executable
@@ -165,7 +163,7 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     };
     paths.base_exec_prefix.clone_from(&paths.base_prefix);
 
-    // Step 7: Calculate base_executable (if not already set by __PYVENV_LAUNCHER__)
+    // Step 7: Calculate base_executable (if not already set by an env override)
     if paths.base_executable.is_empty() {
         paths.base_executable = calculate_base_executable(executable.as_ref(), home_dir.as_ref());
     }
@@ -365,6 +363,19 @@ fn build_module_search_paths(settings: &Settings, prefix: &str, exec_prefix: &st
     }
 
     paths
+}
+
+/// `PYTHONEXECUTABLE` takes precedence over `__PYVENV_LAUNCHER__`.
+/// An empty value is ignored.
+fn env_executable_override() -> Option<String> {
+    for name in ["PYTHONEXECUTABLE", "__PYVENV_LAUNCHER__"] {
+        if let Ok(value) = crate::host_env::os::var(name)
+            && !value.is_empty()
+        {
+            return Some(value);
+        }
+    }
+    None
 }
 
 /// Get the current executable path

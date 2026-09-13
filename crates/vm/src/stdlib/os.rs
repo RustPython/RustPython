@@ -7,6 +7,7 @@ use crate::{
     convert::{IntoPyException, ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
     host_env::{crt_fd, posix::RawMode},
+    ospath::OsPath,
 };
 use core::marker::PhantomData;
 use std::{io, path::Path};
@@ -124,6 +125,18 @@ impl<const AVAILABLE: usize, KW: DirFdKeyword> FromArgs for DirFd<'_, AVAILABLE,
 }
 
 #[derive(FromArgs)]
+pub(crate) struct SymlinkArgs<'fd> {
+    pub src: OsPath,
+    pub dst: OsPath,
+    #[cfg_attr(any(unix, target_os = "wasi"), expect(unused))]
+    #[pyarg(flatten)]
+    pub target_is_directory: TargetIsDirectory,
+    #[cfg_attr(not(unix), expect(unused))]
+    #[pyarg(flatten)]
+    pub dir_fd: DirFd<'fd, { _os::SYMLINK_DIR_FD as usize }>,
+}
+
+#[derive(FromArgs)]
 pub(super) struct FollowSymlinks(
     #[pyarg(named, name = "follow_symlinks", default = true)] pub bool,
 );
@@ -198,6 +211,7 @@ pub(super) mod _os {
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
+        class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
@@ -218,7 +232,8 @@ pub(super) mod _os {
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::Wtf8Buf;
     #[cfg(windows)]
-    use rustpython_host_env::nt as host_nt;
+    use rustpython_host_env::{nt as host_nt, windows::ToWideString};
+
     #[cfg(all(any(unix, target_os = "wasi"), not(target_os = "redox")))]
     use rustpython_host_env::posix as host_posix;
     use std::{fs, io, path::PathBuf, time::SystemTime};
@@ -228,7 +243,7 @@ pub(super) mod _os {
     const STAT_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const UTIME_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
-    pub(crate) const UNLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    pub(crate) const UNLINK_DIR_FD: bool = cfg!(not(windows));
     const RENAME_DIR_FD: bool = cfg!(any(unix, target_os = "wasi"));
     const RMDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const SCANDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
@@ -327,7 +342,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn read(fd: crt_fd::Borrowed<'_>, n: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        let mut buffer = vec![0u8; n];
+        let mut buffer = vm.new_zeroed_bytes(n)?;
         loop {
             match vm.allow_threads(|| crt_fd::read(fd, &mut buffer)) {
                 Ok(n) => {
@@ -343,24 +358,47 @@ pub(super) mod _os {
         }
     }
 
+    /// `read(2)` into `buf`, retrying on EINTR (PEP 475).
+    fn read_into_slice(
+        fd: crt_fd::Borrowed<'_>,
+        buf: &mut [u8],
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        loop {
+            match vm.allow_threads(|| crt_fd::read(fd, buf)) {
+                Ok(n) => return Ok(n),
+                Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(e) => return Err(e.into_pyexception(vm)),
+            }
+        }
+    }
+
     #[pyfunction]
     fn readinto(
         fd: crt_fd::Borrowed<'_>,
         buffer: ArgMemoryBuffer,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        buffer.with_ref(|buf| {
-            loop {
-                match vm.allow_threads(|| crt_fd::read(fd, buf)) {
-                    Ok(n) => return Ok(n),
-                    Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
-                        vm.check_signals()?;
-                        continue;
-                    }
-                    Err(e) => return Err(e.into_pyexception(vm)),
-                }
-            }
-        })
+        if rustpython_host_env::io::reads_without_waiting(fd) {
+            // The read answers from the file itself, so it returns without
+            // waiting on anyone; write where the caller asked directly.
+            return buffer.with_ref(|buf| read_into_slice(fd, buf, vm));
+        }
+
+        // A pipe, socket or terminal answers only when the other end writes,
+        // which may be never. Holding the export for the whole call is what
+        // keeps the target from being resized meanwhile; but reaching its
+        // bytes takes a lock that every other thread touching the same object
+        // waits on, and a thread waiting on a lock never reaches a safepoint,
+        // so holding that one across the wait stops the world from being
+        // stopped at all. Read aside and take the lock for the copy.
+        let mut scratch = vm.new_zeroed_bytes(buffer.len())?;
+        let n = read_into_slice(fd, &mut scratch, vm)?;
+        buffer.borrow_buf_mut()[..n].copy_from_slice(&scratch[..n]);
+        Ok(n)
     }
 
     #[pyfunction]
@@ -873,7 +911,9 @@ pub(super) mod _os {
         #[cfg(windows)]
         #[pymethod]
         fn is_junction(&self, _vm: &VirtualMachine) -> bool {
-            host_nt::test_file_type_by_name(&self.pathval, host_nt::TestType::Junction)
+            self.pathval.to_wide_cstring().is_ok_and(|path| {
+                host_nt::test_file_type_by_name(&path, host_nt::TestType::Junction)
+            })
         }
 
         #[pymethod]
@@ -1007,8 +1047,8 @@ pub(super) mod _os {
                             #[cfg(windows)]
                             let lstat = {
                                 let cell = OnceCell::new();
-                                if let Ok(stat_struct) =
-                                    host_nt::win32_xstat(pathval.as_os_str(), false)
+                                if let Ok(wide) = pathval.as_os_str().to_wide_cstring()
+                                    && let Ok(stat_struct) = host_nt::win32_xstat(&wide, false)
                                 {
                                     let stat_obj =
                                         StatResultData::from_stat(&stat_struct, vm).to_pyobject(vm);
@@ -1319,7 +1359,7 @@ pub(super) mod _os {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let result = crate::types::struct_sequence_new(
                 cls.clone(),
-                args.bind(vm)?,
+                args.bind_for(vm, Self::NAME)?,
                 StatResultData::OPTIONAL_FIELD_NAMES,
                 vm,
             )?;
@@ -1350,7 +1390,10 @@ pub(super) mod _os {
     ) -> io::Result<Option<StatStruct>> {
         let [] = dir_fd.0;
         match file {
-            OsPathOrFd::Path(path) => host_nt::win32_xstat(&path.path, follow_symlinks.0),
+            OsPathOrFd::Path(path) => {
+                let path = path.path.to_wide_cstring()?;
+                host_nt::win32_xstat(&path, follow_symlinks.0)
+            }
             OsPathOrFd::Fd(fd) => crate::host_env::fileutils::fstat(fd),
         }
         .map(Some)
@@ -1378,6 +1421,9 @@ pub(super) mod _os {
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult {
+        if matches!(file, OsPathOrFd::Fd(_)) && !follow_symlinks.0 {
+            return Err(vm.new_value_error("stat: cannot use fd and follow_symlinks together"));
+        }
         let stat = stat_inner(file.clone(), dir_fd, follow_symlinks)
             .map_err(|err| OSErrorBuilder::with_filename(&err, file, vm))?
             .ok_or_else(|| crate::exceptions::nul_char_error(vm))?;
@@ -1505,6 +1551,11 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn cpu_count(vm: &VirtualMachine) -> PyObjectRef {
+        // A count the configuration names is answered with, over the one the
+        // host reports. = os_cpu_count_impl
+        if let Some(configured) = vm.state.config.settings.cpu_count {
+            return vm.ctx.new_int(configured.get()).into();
+        }
         let cpu_count = crate::host_env::os::cpu_count();
         vm.ctx.new_int(cpu_count).into()
     }
@@ -1583,7 +1634,7 @@ pub(super) mod _os {
             Ok(())
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
         {
             let src_path = match follow_symlinks.into_option() {
                 Some(true) => {
@@ -1595,6 +1646,26 @@ pub(super) mod _os {
                     // Default or explicit no-follow: native hard_link behavior
                     PathBuf::from(src.path.clone())
                 }
+            };
+            // CreateHardLinkW(new, existing)
+            let src_wide = src_path
+                .to_wide_cstring()
+                .map_err(|err| err.into_pyexception(vm))?;
+            let dst_wide = dst.to_wide_cstring(vm)?;
+            rustpython_host_env::winapi::create_hard_link(&dst_wide, &src_wide).map_err(|err| {
+                let builder = err.to_os_error_builder(vm);
+                let builder = builder.filename(src.filename(vm));
+                let builder = builder.filename2(dst.filename(vm));
+                builder.build(vm).upcast()
+            })
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let src_path = match follow_symlinks.into_option() {
+                Some(true) => crate::host_env::fs::canonicalize(&src.path)
+                    .unwrap_or_else(|_| PathBuf::from(src.path.clone())),
+                Some(false) | None => PathBuf::from(src.path.clone()),
             };
 
             fs::hard_link(&src_path, &dst.path).map_err(|err| {
@@ -1973,7 +2044,7 @@ pub(super) mod _os {
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             crate::types::struct_sequence_new(
                 cls,
-                args.bind(vm)?,
+                args.bind_for(vm, Self::NAME)?,
                 StatvfsResultData::OPTIONAL_FIELD_NAMES,
                 vm,
             )
@@ -2129,7 +2200,7 @@ pub(crate) fn envobj_to_dict(
     }
     let keys = vm.call_method(obj, "keys", ())?;
     let dict = vm.ctx.new_dict();
-    for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm)? {
+    for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {
         let key = key?;
         let val = obj.get_item(&*key, vm)?;
         dict.set_item(&*key, val, vm)?;

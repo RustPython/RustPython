@@ -734,10 +734,6 @@ class CFutureTests(BaseFutureTests, test_utils.TestCase):
         fut.remove_done_callback(f2)
         self.assertIsNone(fut._callbacks)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.get_referents not implemented
-    def test_future_iter_get_referents_segfault(self):
-        return super().test_future_iter_get_referents_segfault()
-
 
 @unittest.skipUnless(hasattr(futures, '_CFuture'),
                      'requires the C _asyncio module')

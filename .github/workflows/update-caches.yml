@@ -20,7 +20,7 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
   # Keep feature list in sync with CI's release build in .github/workflows/ci.yaml.
-  CARGO_ARGS: --workspace --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,threading,jit --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
+  CARGO_ARGS: --workspace --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,threading,jit --exclude rustpython_wasm --exclude rustpython-venvlauncher
 
 jobs:
   build-caches:
@@ -52,19 +52,26 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           target: ${{ matrix.target }}
 
+      - name: Use a short Cargo home on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CARGO_HOME=$env:RUNNER_TEMP\c" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
+
       - name: Install macos dependencies
         uses: ./.github/actions/install-macos-deps
         with:
           openssl: true
 
       - name: Build dev cache # dev profile used by check & doc
-        run: cargo build --profile dev ${{ env.CARGO_ARGS }}
+        run: cargo build --locked --profile dev ${{ env.CARGO_ARGS }}
 
       - name: Build test cache
-        run: cargo build --profile test ${{ env.CARGO_ARGS }}
+        run: cargo build --locked --profile test ${{ env.CARGO_ARGS }}
 
       - name: Build release cache
-        run: cargo build --profile release ${{ env.CARGO_ARGS }}
+        run: cargo build --locked --profile release ${{ env.CARGO_ARGS }}
 
       - name: Save cache
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -74,5 +81,8 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ${{ runner.temp }}/c/registry/index/
+            ${{ runner.temp }}/c/registry/cache/
+            ${{ runner.temp }}/c/git/db/
             target/
           key: ${{ runner.os }}-${{ matrix.toolchain }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}

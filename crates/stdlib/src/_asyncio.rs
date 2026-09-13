@@ -1876,15 +1876,11 @@ pub(crate) mod _asyncio {
             {
                 if let Some(loop_obj) = loop_obj.clone() {
                     let context = PyDict::default().into_ref(&vm.ctx);
-                    let task_repr = zelf
-                        .as_object()
-                        .repr(vm)
-                        .unwrap_or_else(|_| vm.ctx.new_str("<Task>"));
-                    let message =
-                        format!("Task was destroyed but it is pending!\ntask: {task_repr}");
                     context.set_item(
                         vm.ctx.intern_str("message"),
-                        vm.ctx.new_str(message).into(),
+                        vm.ctx
+                            .new_str("Task was destroyed but it is pending!")
+                            .into(),
                         vm,
                     )?;
                     context.set_item(vm.ctx.intern_str("task"), zelf.to_owned().into(), vm)?;

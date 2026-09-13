@@ -1,4 +1,5 @@
 import types
+import warnings
 
 from testutils import assert_raises
 
@@ -717,3 +718,28 @@ for owner in (NarrowSlots(), NoSlots()):
             owner.borrowed = 1
         with assert_raises(TypeError):
             del owner.borrowed
+
+
+# A str subclass names an attribute the same way a str does, and interning the
+# key is what makes it reachable at all.
+class StrKey(str):
+    pass
+
+
+subclass_key = type("SubclassKey", (), {StrKey("attr"): 7})
+assert subclass_key.attr == 7
+
+# A key that is not a string at all cannot become an attribute. CPython keeps it
+# in the class dict and warns once; the class is built either way.
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    non_string_key = type("NonStringKey", (), {"kept": 1, 2: 3, 4: 5})
+
+assert non_string_key.kept == 1
+assert [w.category for w in caught] == [RuntimeWarning], [w.category for w in caught]
+assert "NonStringKey" in str(caught[0].message), str(caught[0].message)
+
+with warnings.catch_warnings():
+    warnings.simplefilter("error")
+    with assert_raises(RuntimeWarning):
+        type("NonStringKeyRaises", (), {6: 7})

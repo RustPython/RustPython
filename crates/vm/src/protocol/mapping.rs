@@ -83,7 +83,10 @@ impl PyObject {
         if mapping.check() {
             Ok(mapping)
         } else {
-            Err(vm.new_type_error(format!("{} is not a mapping object", self.class())))
+            Err(vm.new_type_error(format!(
+                "{} is not a mapping object",
+                self.class().slot_name()
+            )))
         }
     }
 }
@@ -123,12 +126,24 @@ impl PyMapping<'_> {
         self.slots().length.load().map(|f| f(self, vm))
     }
 
+    // Py_ssize_t PyMapping_Size(PyObject *o)
     pub fn length(self, vm: &VirtualMachine) -> PyResult<usize> {
         self.length_opt(vm).ok_or_else(|| {
-            vm.new_type_error(format!(
-                "object of type '{}' has no len() or not a mapping",
-                self.obj.class()
-            ))
+            let name = self.obj.class().slot_name();
+            // Something that measures itself as a sequence is no mapping at all.
+            let msg = if self
+                .obj
+                .sequence_unchecked()
+                .slots()
+                .length
+                .load()
+                .is_some()
+            {
+                format!("{name} is not a mapping")
+            } else {
+                format!("object of type '{name}' has no len()")
+            };
+            vm.new_type_error(msg)
         })?
     }
 
@@ -146,10 +161,9 @@ impl PyMapping<'_> {
     }
 
     fn _subscript(self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let f =
-            self.slots().subscript.load().ok_or_else(|| {
-                vm.new_type_error(format!("{} is not a mapping", self.obj.class()))
-            })?;
+        let f = self.slots().subscript.load().ok_or_else(|| {
+            vm.new_type_error(format!("{} is not a mapping", self.obj.class().slot_name()))
+        })?;
         f(self, needle, vm)
     }
 
@@ -162,7 +176,7 @@ impl PyMapping<'_> {
         let f = self.slots().ass_subscript.load().ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object does not support item assignment",
-                self.obj.class()
+                self.obj.class().slot_name()
             ))
         })?;
         f(self, needle, value, vm)
@@ -205,9 +219,9 @@ impl PyMapping<'_> {
         let iter = meth_output.get_iter(vm).map_err(|_| {
             vm.new_type_error(format!(
                 "{}.{}() returned a non-iterable (type {})",
-                self.obj.class(),
+                self.obj.class().slot_name(),
                 method_name.as_str(),
-                meth_output.class()
+                meth_output.class().slot_name()
             ))
         })?;
 

@@ -13,6 +13,9 @@ pub use libc::{
 #[cfg(not(target_os = "redox"))]
 pub use libc::{LOG_AUTHPRIV, LOG_CRON, LOG_PERROR};
 
+#[cfg(target_vendor = "apple")]
+pub use libc::{LOG_FTP, LOG_INSTALL, LOG_LAUNCHD, LOG_NETINFO, LOG_RAS, LOG_REMOTEAUTH};
+
 #[derive(Debug)]
 enum GlobalIdent {
     Explicit(Box<CStr>),

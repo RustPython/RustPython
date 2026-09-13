@@ -363,12 +363,10 @@ pub(crate) mod typevar {
             let default = kwargs.swap_remove("default");
 
             // Check for unexpected keyword arguments
-            if !kwargs.is_empty() {
-                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
-                return Err(vm.new_type_error(format!(
-                    "TypeVar() got unexpected keyword argument(s): {}",
-                    unexpected_keys.join(", ")
-                )));
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(
+                    vm.new_unexpected_keyword_type_error(Some("typevar"), &invalid_key.to_string())
+                );
             }
 
             // Check for invalid combinations
@@ -646,12 +644,11 @@ pub(crate) mod typevar {
             let default = kwargs.swap_remove("default");
 
             // Check for unexpected keyword arguments
-            if !kwargs.is_empty() {
-                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
-                return Err(vm.new_type_error(format!(
-                    "ParamSpec() got unexpected keyword argument(s): {}",
-                    unexpected_keys.join(", ")
-                )));
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some("paramspec"),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Check for invalid combinations
@@ -840,12 +837,11 @@ pub(crate) mod typevar {
             let default = kwargs.swap_remove("default");
 
             // Check for unexpected keyword arguments
-            if !kwargs.is_empty() {
-                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
-                return Err(vm.new_type_error(format!(
-                    "TypeVarTuple() got unexpected keyword argument(s): {}",
-                    unexpected_keys.join(", ")
-                )));
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some("typevartuple"),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Handle default value

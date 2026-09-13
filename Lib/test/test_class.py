@@ -691,7 +691,6 @@ class ClassTests(unittest.TestCase):
         with self.assertRaisesRegex(AttributeError, error_msg):
             del A.x
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testObjectAttributeAccessErrorMessages(self):
         class A:
             pass

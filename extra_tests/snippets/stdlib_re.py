@@ -82,3 +82,47 @@ assert re.fullmatch(r"([0-9]++(?:\.[0-9]+)*+)", "1.25.38").group(0) == "1.25.38"
 
 # Combining characters; issue #7518
 assert not re.match(r"\w", "\u0345"), r"\w should not match U+0345 (category Mn)"
+
+
+def test_findall_group_that_did_not_participate():
+    # findall returns the matched text, not a match object, so a group that
+    # took no part in the match stands in as an empty value of the type the
+    # pattern works on. One group used to come back as None, and a bytes
+    # pattern used to mix str into its results.
+    assert re.findall(r"(a)?b", "b ab") == ["", "a"]
+    assert re.findall(r"(x)?", "a") == ["", ""]
+    assert re.findall(r"(a|b)?c", "c ac bc") == ["", "a", "b"]
+    assert re.findall(r"(?P<g>a)?b", "b ab") == ["", "a"]
+    assert re.compile(r"(a)?b").findall("b ab") == ["", "a"]
+
+    assert re.findall(rb"(a)?b", b"b ab") == [b"", b"a"]
+    assert re.findall(rb"(x)?", b"a") == [b"", b""]
+
+    # Two or more groups give a tuple per match, with the same stand-in.
+    assert re.findall(r"(a)|(b)", "ab") == [("a", ""), ("", "b")]
+    assert re.findall(rb"(a)|(b)", b"ab") == [(b"a", b""), (b"", b"b")]
+    assert re.findall(rb"(a)(b)?", b"a ab") == [(b"a", b""), (b"a", b"b")]
+
+    # The type is the pattern's, never the other one.
+    assert [type(x) for x in re.findall(r"(a)?b", "b ab")] == [str, str]
+    assert [type(x) for x in re.findall(rb"(a)?b", b"b ab")] == [bytes, bytes]
+    assert [type(y) for x in re.findall(rb"(a)|(b)", b"ab") for y in x] == [
+        bytes,
+        bytes,
+        bytes,
+        bytes,
+    ]
+
+    # A group that does participate, and no group at all, are unchanged.
+    assert re.findall(r"(a)", "aa") == ["a", "a"]
+    assert re.findall(r"a", "aa") == ["a", "a"]
+    assert re.findall(rb"a", b"aa") == [b"a", b"a"]
+
+    # A match object still reports None, which is where the difference lies.
+    assert re.match(r"(a)?b", "b").groups() == (None,)
+    assert re.match(r"(a)?b", "b").group(1) is None
+    assert [m.groups() for m in re.finditer(r"(a)?b", "b ab")] == [(None,), ("a",)]
+    assert re.split(r"(a)|(b)", "xaybz") == ["x", "a", None, "y", None, "b", "z"]
+
+
+test_findall_group_that_did_not_participate()
