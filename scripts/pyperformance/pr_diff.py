@@ -51,7 +51,7 @@ def fmt_change(base: float | None, head: float | None) -> str:
     return f"{change * 100:+.1f}%"
 
 
-def main() -> None:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -71,19 +71,26 @@ def main() -> None:
         default="CPython",
         help="version string to label the CPython column with",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    cpython = load_catalog(args.results_dir, args.cpython)
-    head = load_catalog(args.results_dir, args.head)
-    # The base commit is the column that makes this a review aid rather than a
-    # status report, but it is also the one that can go missing: it may fail to
-    # build, or predate something the benchmarks now need. Rather than fail the
-    # whole comparison, fall back to head against CPython alone.
+
+def load_base_catalog(results_dir: Path, label: str) -> tuple[dict, bool]:
+    """Load the base-commit catalog, if any.
+
+    The base commit is the column that makes this a review aid rather than a
+    status report, but it is also the one that can go missing: it may fail to
+    build, or predate something the benchmarks now need. The caller falls
+    back to head against CPython alone when nothing here produced a usable
+    time, rather than failing the whole comparison.
+    """
     base = {}
-    if (args.results_dir / args.base / "catalog.json").exists():
-        base = load_catalog(args.results_dir, args.base)
+    if (results_dir / label / "catalog.json").exists():
+        base = load_catalog(results_dir, label)
     have_base = any(parse_mean_seconds(r.get("mean")) for r in base.values())
+    return base, have_base
 
+
+def build_rows(cpython: dict, base: dict, head: dict) -> list[dict]:
     rows = []
     for name in sorted(set(cpython) | set(base) | set(head)):
         c = parse_mean_seconds((cpython.get(name) or {}).get("mean"))
@@ -102,13 +109,43 @@ def main() -> None:
                 "head_vs_base": (h / b) if (h and b) else None,
             }
         )
+    return rows
 
-    both = [r for r in rows if r["head_vs_base"]]
-    # Restricted to benchmarks with a valid ratio on *both* sides: comparing
-    # medians computed over different populations (e.g. base's ratios minus
-    # whatever newly failed on head) can make a side look faster or slower
-    # purely because its slowest survivor changed, not because anything got
-    # measurably quicker.
+
+def render_intro(have_base: bool, cpython_version: str) -> list[str]:
+    if have_base:
+        return [
+            "All three interpreters were measured back to back in this one job, "
+            "so they share the exact same CPU and kernel. Ratios are "
+            f"`time / {cpython_version} time` -- lower is better. A "
+            f"head/base difference smaller than {NOISE:.0%} is shown as `~`; CI "
+            "runners are not quiet enough to read more into it than that."
+        ]
+    return [
+        "No usable result for the base commit -- it did not build, or none "
+        "of its benchmarks produced a time -- so this is head against "
+        f"{cpython_version} alone, both measured back to back in this "
+        "one job. Ratios are `time / {} time`; lower is better.".format(cpython_version)
+    ]
+
+
+def render_summary_panel(
+    rows: list[dict], have_base: bool, cpython_version: str
+) -> list[str]:
+    """The "| | base | head |" mini-table: pass counts, the median slowdown
+    vs. CPython, and the head/base geometric mean.
+
+    Each row is independently gated on having the data it needs: the two
+    medians are restricted to benchmarks with a valid ratio on *both* sides,
+    so a benchmark that regressed to failure on only one side can't drop out
+    of only that side's population and skew the comparison; "Benchmarks
+    passed" and the geometric mean don't depend on CPython at all, so they
+    must not disappear just because no benchmark had a usable CPython
+    comparison.
+    """
+    if not have_base:
+        return []
+
     common_vs_cpython = [
         r for r in rows if r["base_vs_cpython"] and r["head_vs_cpython"]
     ]
@@ -116,67 +153,37 @@ def main() -> None:
     head_ratios = [r["head_vs_cpython"] for r in common_vs_cpython]
     base_passed = sum(1 for r in rows if r["base_status"] == "ok")
     head_passed = sum(1 for r in rows if r["head_status"] == "ok")
+    both = [r for r in rows if r["head_vs_base"]]
 
-    title = (
-        "base vs. head vs. CPython (same runner)"
-        if have_base
-        else "head vs. CPython (same runner)"
-    )
-    out = [MARKER, f"### pyperformance: {title}", ""]
-    if have_base:
+    out = ["| | base | head |", "| --- | ---: | ---: |"]
+    if base_ratios and head_ratios:
         out.append(
-            "All three interpreters were measured back to back in this one job, "
-            "so they share the exact same CPU and kernel. Ratios are "
-            f"`time / {args.cpython_version} time` -- lower is better. A "
-            f"head/base difference smaller than {NOISE:.0%} is shown as `~`; CI "
-            "runners are not quiet enough to read more into it than that."
+            f"| Median slowdown vs. {cpython_version} "
+            f"({len(common_vs_cpython)} common) "
+            f"| {statistics.median(base_ratios):.2f}x "
+            f"| {statistics.median(head_ratios):.2f}x |"
         )
-    else:
-        out.append(
-            "No usable result for the base commit -- it did not build, or none "
-            "of its benchmarks produced a time -- so this is head against "
-            f"{args.cpython_version} alone, both measured back to back in this "
-            "one job. Ratios are `time / {} time`; lower is better.".format(
-                args.cpython_version
-            )
-        )
+    out.append(f"| Benchmarks passed | {base_passed} | {head_passed} |")
+    if both:
+        geo = statistics.geometric_mean([r["head_vs_base"] for r in both])
+        out.append(f"| Geometric mean, head/base ({len(both)} common) | | {geo:.3f} |")
     out.append("")
+    return out
 
-    # Neither the pass counts nor the head/base geometric mean need a CPython
-    # comparison at all -- gating the whole panel on one made both vanish
-    # whenever no benchmark had a valid ratio on all three interpreters, even
-    # with a perfectly good head-vs-base comparison to show.
-    if have_base:
-        out.append("| | base | head |")
-        out.append("| --- | ---: | ---: |")
-        if base_ratios and head_ratios:
-            out.append(
-                f"| Median slowdown vs. {args.cpython_version} "
-                f"({len(common_vs_cpython)} common) "
-                f"| {statistics.median(base_ratios):.2f}x "
-                f"| {statistics.median(head_ratios):.2f}x |"
-            )
-        out.append(f"| Benchmarks passed | {base_passed} | {head_passed} |")
-        if both:
-            geo = statistics.geometric_mean([r["head_vs_base"] for r in both])
-            out.append(
-                f"| Geometric mean, head/base ({len(both)} common) | | {geo:.3f} |"
-            )
-        out.append("")
 
+def render_table(rows: list[dict], have_base: bool, cpython_version: str) -> list[str]:
     if have_base:
-        out.append(
-            f"| Benchmark | {args.cpython_version} | base | head "
-            f"| base/{args.cpython_version} | head/{args.cpython_version} "
-            "| head vs. base |"
-        )
-        out.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+        out = [
+            f"| Benchmark | {cpython_version} | base | head "
+            f"| base/{cpython_version} | head/{cpython_version} "
+            "| head vs. base |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
     else:
-        out.append(
-            f"| Benchmark | {args.cpython_version} | head "
-            f"| head/{args.cpython_version} |"
-        )
-        out.append("| --- | ---: | ---: | ---: |")
+        out = [
+            f"| Benchmark | {cpython_version} | head | head/{cpython_version} |",
+            "| --- | ---: | ---: | ---: |",
+        ]
 
     for r in sorted(rows, key=lambda r: r["head_vs_base"] or r["head_vs_cpython"] or 0):
         # A row with no mean on either side but a fail/timeout status is still
@@ -199,22 +206,52 @@ def main() -> None:
             f"| {fmt_ratio(r['base_vs_cpython'])} | {fmt_ratio(r['head_vs_cpython'])} "
             f"| {fmt_change(1.0, r['head_vs_base'])} |"
         )
+    return out
 
-    # A transition claim needs an actual result on the other side too -- a
-    # benchmark "missing" from a catalog (never attempted, e.g. a partial
-    # --benchmarks run) isn't a regression or a fix, just no data point.
+
+def find_transitions(rows: list[dict]) -> tuple[list[str], list[str]]:
+    """Benchmarks whose pass/fail status flipped between base and head.
+
+    A transition claim needs an actual *fail/timeout* status on the other
+    side, not just a missing entry: a benchmark never attempted there (e.g.
+    a partial --benchmarks run) isn't a regression or a fix, just no data
+    point. This intentionally doesn't gate on `have_base` (whether *any*
+    base benchmark produced a timing) -- a benchmark can still validly flip
+    from failing to passing even when every other base benchmark failed too.
+    """
     only_head = [
         r["benchmark"]
         for r in rows
-        if have_base
-        and r["head_status"] == "ok"
-        and r["base_status"] in ("fail", "timeout")
+        if r["head_status"] == "ok" and r["base_status"] in ("fail", "timeout")
     ]
     only_base = [
         r["benchmark"]
         for r in rows
         if r["base_status"] == "ok" and r["head_status"] in ("fail", "timeout")
     ]
+    return only_head, only_base
+
+
+def main() -> None:
+    args = parse_args()
+
+    cpython = load_catalog(args.results_dir, args.cpython)
+    head = load_catalog(args.results_dir, args.head)
+    base, have_base = load_base_catalog(args.results_dir, args.base)
+    rows = build_rows(cpython, base, head)
+
+    title = (
+        "base vs. head vs. CPython (same runner)"
+        if have_base
+        else "head vs. CPython (same runner)"
+    )
+    out = [MARKER, f"### pyperformance: {title}", ""]
+    out += render_intro(have_base, args.cpython_version)
+    out.append("")
+    out += render_summary_panel(rows, have_base, args.cpython_version)
+    out += render_table(rows, have_base, args.cpython_version)
+
+    only_head, only_base = find_transitions(rows)
     if only_head:
         out += ["", f"Newly passing on head: {', '.join(only_head)}."]
     if only_base:
