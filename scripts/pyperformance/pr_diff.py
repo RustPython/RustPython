@@ -142,15 +142,20 @@ def main() -> None:
         )
     out.append("")
 
-    if have_base and base_ratios and head_ratios:
+    # Neither the pass counts nor the head/base geometric mean need a CPython
+    # comparison at all -- gating the whole panel on one made both vanish
+    # whenever no benchmark had a valid ratio on all three interpreters, even
+    # with a perfectly good head-vs-base comparison to show.
+    if have_base:
         out.append("| | base | head |")
         out.append("| --- | ---: | ---: |")
-        out.append(
-            f"| Median slowdown vs. {args.cpython_version} "
-            f"({len(common_vs_cpython)} common) "
-            f"| {statistics.median(base_ratios):.2f}x "
-            f"| {statistics.median(head_ratios):.2f}x |"
-        )
+        if base_ratios and head_ratios:
+            out.append(
+                f"| Median slowdown vs. {args.cpython_version} "
+                f"({len(common_vs_cpython)} common) "
+                f"| {statistics.median(base_ratios):.2f}x "
+                f"| {statistics.median(head_ratios):.2f}x |"
+            )
         out.append(f"| Benchmarks passed | {base_passed} | {head_passed} |")
         if both:
             geo = statistics.geometric_mean([r["head_vs_base"] for r in both])
