@@ -483,7 +483,7 @@ def main() -> None:
     # directory instead of the one this script was invoked from.
     args.out = args.out.resolve()
     args.cache_dir = args.cache_dir.resolve()
-    if "RUSTPYTHONPATH" in os.environ:
+    if os.environ.get("RUSTPYTHONPATH"):
         os.environ["RUSTPYTHONPATH"] = str(Path(os.environ["RUSTPYTHONPATH"]).resolve())
 
     out_dir = args.out / label
