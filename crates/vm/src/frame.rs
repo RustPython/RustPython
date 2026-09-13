@@ -3420,7 +3420,7 @@ impl ExecutingFrame<'_> {
                     }
 
                     self.push_value(vm.ctx.none());
-                    vm.contextualize_exception(&err);
+                    vm.chain_stack_item(&err);
                     return match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
                         Ok(None) => {
                             self.prev_line.set(0);
@@ -3465,7 +3465,7 @@ impl ExecutingFrame<'_> {
                         }
 
                         self.push_value(vm.ctx.none());
-                        vm.contextualize_exception(&err);
+                        vm.chain_stack_item(&err);
                         match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
                             Ok(None) => {
                                 self.prev_line.set(0);
@@ -3529,9 +3529,9 @@ impl ExecutingFrame<'_> {
             }
         };
 
-        // when raising an exception, set __context__ to the current exception
-        // This is done in _PyErr_SetObject
-        vm.contextualize_exception(&exception);
+        // PyErr_Restore: do not touch __context__. Chain only when this
+        // generator's own exc_info slot is occupied (_PyErr_ChainStackItem).
+        vm.chain_stack_item(&exception);
 
         // always pushes Py_None before calling gen_send_ex with exc=1
         // This is needed for exception handler to have correct stack state

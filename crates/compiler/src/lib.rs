@@ -426,6 +426,10 @@ fn invalid_assignment_target_diagnostic(
             ast::Expr::BinOp(_) => "cannot assign to expression".into(),
             ast::Expr::If(_) => "cannot assign to conditional expression".into(),
             ast::Expr::Generator(_) => "cannot assign to generator expression".into(),
+            ast::Expr::Yield(_) | ast::Expr::YieldFrom(_) => {
+                "cannot assign to yield expression here. Maybe you meant '==' instead of '='?"
+                    .into()
+            }
             ast::Expr::FString(_) => "invalid syntax".into(),
             ast::Expr::StringLiteral(_)
             | ast::Expr::BytesLiteral(_)
@@ -2684,6 +2688,30 @@ fn parenthesized_single_starred_delete_target(bytes: &[u8], start: usize, end: u
     false
 }
 
+fn assignment_target_expr_range(source: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    let bytes = source.as_bytes();
+    let (target_start, target_end) = trim_target_range(bytes, start, end);
+    if target_start >= target_end {
+        return None;
+    }
+    if parser::parse(
+        &source[target_start..target_end],
+        parser::Mode::Expression.into(),
+    )
+    .is_ok()
+    {
+        return Some((target_start, target_end));
+    }
+    // `def f(): (yield bar)` — skip the suite header so the remaining
+    // text is the assignment target expression.
+    let colon = top_level_colon(bytes, target_start, target_end)?;
+    let after = skip_horizontal_whitespace(bytes, colon + 1);
+    if after >= target_end {
+        return None;
+    }
+    Some((after, target_end))
+}
+
 fn trim_target_range(bytes: &[u8], mut start: usize, mut end: usize) -> (usize, usize) {
     while start < end
         && matches!(
@@ -2718,10 +2746,7 @@ fn assignment_target_error_for_slice(
     end: usize,
 ) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
-    let (target_start, target_end) = trim_target_range(bytes, start, end);
-    if target_start >= target_end {
-        return None;
-    }
+    let (target_start, target_end) = assignment_target_expr_range(source, start, end)?;
     if starts_identifier(bytes, target_start, b"yield") {
         return Some(CpythonDiagnostic::new(
             "assignment to yield expression not possible".to_owned(),
@@ -2758,6 +2783,8 @@ fn assignment_target_error_for_slice(
             | ast::Expr::StringLiteral(_)
             | ast::Expr::BytesLiteral(_)
             | ast::Expr::EllipsisLiteral(_)
+            | ast::Expr::Yield(_)
+            | ast::Expr::YieldFrom(_)
     );
     Some(CpythonDiagnostic::new(
         invalid_assignment_message(name, top_level && bitwise_like),
@@ -2960,10 +2987,7 @@ fn top_level_augassign_offset(bytes: &[u8]) -> Option<(usize, usize)> {
 fn invalid_augassign_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let (operator, _) = top_level_augassign_offset(bytes)?;
-    let (target_start, target_end) = trim_target_range(bytes, 0, operator);
-    if target_start >= target_end {
-        return None;
-    }
+    let (target_start, target_end) = assignment_target_expr_range(source, 0, operator)?;
     let target_text = &source[target_start..target_end];
     let Ok(parsed) = parser::parse(target_text, parser::Mode::Expression.into()) else {
         return None;
@@ -5298,6 +5322,14 @@ fn missing_comma_expression_error(source: &str) -> Option<CpythonDiagnostic> {
                     index = identifier_end(bytes, index, bytes.len());
                 }
                 byte if !stack.is_empty() && expression_atom_start_byte(byte) => {
+                    // `yield x` / `await x` are prefix expressions, not two
+                    // adjacent atoms missing a comma.
+                    if starts_identifier(bytes, index, b"yield")
+                        || starts_identifier(bytes, index, b"await")
+                    {
+                        index = identifier_end(bytes, index, bytes.len());
+                        continue;
+                    }
                     let atom_end = adjacent_atom_end(bytes, index).unwrap_or(index + 1);
                     let next = skip_ascii_whitespace(bytes, atom_end, bytes.len());
                     if next > atom_end
@@ -7350,6 +7382,36 @@ mod tests {
         assert_eq!(span("(\u{3b1} b)"), (2, 5));
         // Other bracket kinds take the same path.
         assert_eq!(span("[\u{3b1} \u{3b2}]"), (2, 5));
+    }
+
+    #[test]
+    fn parenthesized_yield_assignment_uses_invalid_target_message() {
+        let err = compile(
+            "def f(): (yield bar) = y\n",
+            Mode::Exec,
+            "<yield>",
+            CompileOpts::default(),
+        )
+        .expect_err("parenthesized yield is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to yield expression here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn parenthesized_yield_augassign_uses_illegal_expression_message() {
+        let err = compile(
+            "def f(): (yield bar) += y\n",
+            Mode::Exec,
+            "<yield>",
+            CompileOpts::default(),
+        )
+        .expect_err("parenthesized yield is not an augmented assignment target");
+        assert_eq!(
+            err.to_string(),
+            "'yield expression' is an illegal expression for augmented assignment"
+        );
     }
 
     #[test]

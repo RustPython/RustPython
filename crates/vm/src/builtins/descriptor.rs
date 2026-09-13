@@ -954,6 +954,25 @@ impl PyMethodWrapper {
         self.wrapper.typ.to_owned()
     }
 
+    #[pygetset]
+    fn __qualname__(&self) -> String {
+        format!("{}.{}", self.wrapper.typ.name(), self.wrapper.name)
+    }
+
+    #[pygetset]
+    fn __doc__(&self) -> Option<&'static str> {
+        let doc = self.wrapper.doc?;
+        type_::get_doc_from_internal_doc(self.wrapper.name.as_str(), doc)
+    }
+
+    #[pygetset]
+    fn __text_signature__(&self) -> Option<String> {
+        self.wrapper.doc.and_then(|doc| {
+            type_::get_text_signature_from_internal_doc(self.wrapper.name.as_str(), doc)
+                .map(|signature| signature.to_string())
+        })
+    }
+
     #[pymethod]
     fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;

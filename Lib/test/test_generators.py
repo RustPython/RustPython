@@ -1369,7 +1369,7 @@ From the Iterators list, about the types of these things.
 >>> [s for s in dir(i) if not s.startswith('_')]
 ['close', 'gi_code', 'gi_frame', 'gi_running', 'gi_suspended', 'gi_yieldfrom', 'send', 'throw']
 >>> from test.support import HAVE_DOCSTRINGS
->>> print(i.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> print(i.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')
 Implement next(self).
 >>> iter(i) is i
 True
@@ -2526,12 +2526,12 @@ Traceback (most recent call last):
   ...
 SyntaxError: assignment to yield expression not possible
 
->>> def f(): (yield bar) = y  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> def f(): (yield bar) = y
 Traceback (most recent call last):
   ...
 SyntaxError: cannot assign to yield expression here. Maybe you meant '==' instead of '='?
 
->>> def f(): (yield bar) += y  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> def f(): (yield bar) += y
 Traceback (most recent call last):
   ...
 SyntaxError: 'yield expression' is an illegal expression for augmented assignment
