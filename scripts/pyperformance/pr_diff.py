@@ -104,8 +104,18 @@ def main() -> None:
         )
 
     both = [r for r in rows if r["head_vs_base"]]
-    base_ratios = [r["base_vs_cpython"] for r in rows if r["base_vs_cpython"]]
-    head_ratios = [r["head_vs_cpython"] for r in rows if r["head_vs_cpython"]]
+    # Restricted to benchmarks with a valid ratio on *both* sides: comparing
+    # medians computed over different populations (e.g. base's ratios minus
+    # whatever newly failed on head) can make a side look faster or slower
+    # purely because its slowest survivor changed, not because anything got
+    # measurably quicker.
+    common_vs_cpython = [
+        r for r in rows if r["base_vs_cpython"] and r["head_vs_cpython"]
+    ]
+    base_ratios = [r["base_vs_cpython"] for r in common_vs_cpython]
+    head_ratios = [r["head_vs_cpython"] for r in common_vs_cpython]
+    base_passed = sum(1 for r in rows if r["base_status"] == "ok")
+    head_passed = sum(1 for r in rows if r["head_status"] == "ok")
 
     title = (
         "base vs. head vs. CPython (same runner)"
@@ -137,10 +147,11 @@ def main() -> None:
         out.append("| --- | ---: | ---: |")
         out.append(
             f"| Median slowdown vs. {args.cpython_version} "
+            f"({len(common_vs_cpython)} common) "
             f"| {statistics.median(base_ratios):.2f}x "
             f"| {statistics.median(head_ratios):.2f}x |"
         )
-        out.append(f"| Benchmarks passed | {len(base_ratios)} | {len(head_ratios)} |")
+        out.append(f"| Benchmarks passed | {base_passed} | {head_passed} |")
         if both:
             geo = statistics.geometric_mean([r["head_vs_base"] for r in both])
             out.append(
