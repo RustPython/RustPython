@@ -223,7 +223,9 @@ pub fn next_minus(a: &Decimal, ctx: &Context, status: &mut u32) -> Decimal {
     }
     let unit_exp = scratch_ctx.etiny() - 1;
     let unit = Decimal::new_finite(1, BigUint::one(), unit_exp);
-    super::arith::add(a, &unit, &scratch_ctx, &mut scratch_status)
+    let ans = super::arith::add(a, &unit, &scratch_ctx, &mut scratch_status);
+    *status |= scratch_status & status::MALLOC_ERROR;
+    ans
 }
 
 /// `Decimal.next_plus`.
@@ -254,7 +256,9 @@ pub fn next_plus(a: &Decimal, ctx: &Context, status: &mut u32) -> Decimal {
     }
     let unit_exp = scratch_ctx.etiny() - 1;
     let unit = Decimal::new_finite(0, BigUint::one(), unit_exp);
-    super::arith::add(a, &unit, &scratch_ctx, &mut scratch_status)
+    let ans = super::arith::add(a, &unit, &scratch_ctx, &mut scratch_status);
+    *status |= scratch_status & status::MALLOC_ERROR;
+    ans
 }
 
 /// `Decimal.next_toward`.

@@ -283,8 +283,12 @@ pub fn fix(d: &Decimal, ctx: &Context, status: &mut u32) -> Decimal {
 
     if ctx.clamp && d.exponent() > etop {
         *status |= status::CLAMPED;
-        let shift = (d.exponent() - etop) as u64;
-        let coeff = bigops::mul_pow10(d.coefficient(), shift);
+        let shift = d.exponent() - etop;
+        if d.digits().saturating_add(shift) > MAX_MATERIALIZABLE_DIGITS {
+            *status |= status::MALLOC_ERROR;
+            return Decimal::nan(0, BigUint::zero(), false);
+        }
+        let coeff = bigops::mul_pow10(d.coefficient(), shift as u64);
         return Decimal::new_finite(d.sign(), coeff, etop);
     }
 
