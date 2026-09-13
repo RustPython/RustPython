@@ -127,6 +127,8 @@ mod select;
 ))]
 mod openssl;
 
+// Full rustls `_ssl` stays native. wasm implements against the rustls-free
+// `rustpython_host_env::ssl` surface (MemoryBIO, constants, OID, ALPN).
 #[cfg(all(
     feature = "host_env",
     feature = "__ssl-rustls",
