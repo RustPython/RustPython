@@ -1687,38 +1687,6 @@ impl FrameObject {
         frame
     }
 
-    /// Empty frame husk that keeps only the executable after take_ownership
-    /// moves the live locals onto an independently owned frame object.
-    pub(crate) fn husk_from(src: &Py<Self>, vm: &VirtualMachine) -> FrameObjectRef {
-        let code = src.iframe().code().to_owned();
-        let globals = src.iframe().globals().to_owned();
-        let builtins = src.iframe().builtins().to_owned();
-        let func_obj = src.iframe().func_obj().map(|o| o.to_owned());
-        let nlocalsplus = code.localspluskinds.len();
-        let max_stackdepth = code.max_stackdepth as usize;
-        let localsplus = LocalsPlus::new(nlocalsplus, max_stackdepth);
-        let iframe = InterpreterFrame::new(
-            &code,
-            &globals,
-            &builtins,
-            func_obj.as_deref(),
-            localsplus,
-            FrameLocals::lazy(),
-            &[],
-            FrameOwner::Generator,
-        );
-        let frame = Self {
-            owned_code: Some(code),
-            owned_globals: Some(globals),
-            owned_builtins: Some(builtins),
-            owned_func_obj: func_obj,
-            iframe: FrameUnsafeCell::new(Some(iframe)),
-        }
-        .into_ref(&vm.ctx);
-        Self::init_iframe_ptrs(&frame);
-        frame
-    }
-
     /// Access fastlocals immutably.
     ///
     /// # Safety
@@ -4158,7 +4126,11 @@ impl ExecutingFrame<'_> {
 
                 // Check if coroutine is already being awaited
                 if let Some(coro) = iter.downcast_ref::<PyCoroutine>()
-                    && coro.as_coro().frame().yield_from_target().is_some()
+                    && coro
+                        .as_coro()
+                        .frame_opt()
+                        .and_then(|f| f.yield_from_target())
+                        .is_some()
                 {
                     return Err(vm.new_runtime_error("coroutine is being awaited already"));
                 }

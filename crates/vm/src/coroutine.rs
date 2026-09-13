@@ -1,6 +1,6 @@
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyStrRef, PyTupleRef},
+    AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyCode, PyStrRef, PyTupleRef},
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
     frame::{ExecutionResult, FrameObject, FrameObjectRef, FrameOwner, InterpreterFrame},
@@ -30,10 +30,13 @@ impl ExecutionResult {
 
 #[derive(Debug)]
 pub struct Coro {
-    frame: PyMutex<FrameObjectRef>,
+    /// Generator iframe, like `gi_iframe`. Cleared to `None` by take_ownership
+    /// the same way `frame_obj` is stolen from the iframe.
+    frame: PyAtomicRef<Option<FrameObject>>,
+    /// `f_executable`; survives `_PyFrame_ClearExceptCode`.
+    code: PyRef<PyCode>,
     pub closed: AtomicCell<bool>, // TODO: https://github.com/RustPython/RustPython/pull/3183#discussion_r720560652
     running: AtomicCell<bool>,
-    // code
     // _weakreflist
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
@@ -42,7 +45,10 @@ pub struct Coro {
 
 unsafe impl Traverse for Coro {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.frame.lock().traverse(tracer_fn);
+        if let Some(frame) = self.frame.deref() {
+            tracer_fn(frame.as_object());
+        }
+        self.code.traverse(tracer_fn);
         self.name.traverse(tracer_fn);
         self.qualname.traverse(tracer_fn);
         if let Some(exc) = self.exception.deref() {
@@ -79,8 +85,10 @@ fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
 
 impl Coro {
     pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
+        let code = frame.iframe().code().to_owned();
         Self {
-            frame: PyMutex::new(frame),
+            frame: Some(frame).into(),
+            code,
             closed: AtomicCell::new(false),
             running: AtomicCell::new(false),
             exception: PyAtomicRef::from(None),
@@ -91,46 +99,38 @@ impl Coro {
 
     /// `_PyFrame_ClearExceptCode`. Clear locals unless another reference
     /// still holds the frame object; then take_ownership instead.
-    fn clear_except_code(&self, jen: &PyObject, vm: &VirtualMachine) {
-        let unique = self.frame.lock().as_object().strong_count() == 1;
-        if unique {
-            self.frame.lock().clear_locals_and_stack();
+    fn clear_except_code(&self) {
+        let Some(frame) = self.frame.deref() else {
+            return;
+        };
+        if frame.as_object().strong_count() == 1 {
+            frame.clear_locals_and_stack();
         } else {
-            self.take_ownership(jen, vm);
+            self.take_ownership();
         }
     }
 
-    /// Move the live iframe onto the independently owned frame object and
-    /// leave the generator holding only an empty husk (`take_ownership`).
-    fn take_ownership(&self, jen: &PyObject, vm: &VirtualMachine) {
-        let current = self.frame.lock().clone();
-        current.iframe().owner.store(
+    /// Steal the iframe's `frame_obj` pointer (`take_ownership`). The live
+    /// locals stay on that frame object; this generator no longer roots it.
+    fn take_ownership(&self) {
+        let Some(frame) = (unsafe { self.frame.swap(None) }) else {
+            return;
+        };
+        frame.iframe().owner.store(
             FrameOwner::FrameObject as i8,
             core::sync::atomic::Ordering::Release,
         );
-        current.clear_generator();
-        let husk = FrameObject::husk_from(&current, vm);
-        husk.set_generator(jen);
-        let _old = {
-            let mut guard = self.frame.lock();
-            core::mem::replace(&mut *guard, husk)
-        };
+        frame.clear_generator();
     }
 
     /// Retire the generator if the frame it just ran came to an end. The claim
     /// is still held, so a thread waiting for it cannot resume a frame that has
     /// already finished.
-    fn maybe_close(
-        &self,
-        res: &PyResult<ExecutionResult>,
-        jen: &PyObject,
-        vm: &VirtualMachine,
-        _claim: &RunningGuard<'_>,
-    ) {
+    fn maybe_close(&self, res: &PyResult<ExecutionResult>, _claim: &RunningGuard<'_>) {
         match res {
             Ok(ExecutionResult::Return(_)) | Err(_) => {
                 self.closed.store(true);
-                self.clear_except_code(jen, vm);
+                self.clear_except_code();
             }
             Ok(ExecutionResult::Yield(_)) => {}
             Ok(ExecutionResult::TailCall) => unreachable!("TailCall in generator/coroutine"),
@@ -210,13 +210,13 @@ impl Coro {
         if self.closed.load() {
             return Self::send_when_closed(jen, vm);
         }
-        let value = if self.frame().lasti() > 0 {
+        let value = if self.frame_opt().is_some_and(|f| f.lasti() > 0) {
             Some(vm.ctx.none())
         } else {
             None
         };
         let result = self.run_claimed(&claim, vm, |f| f.resume(value, vm));
-        self.maybe_close(&result, jen, vm, &claim);
+        self.maybe_close(&result, &claim);
         drop(claim);
         self.finalize_send_result(result, jen, vm)
     }
@@ -257,7 +257,7 @@ impl Coro {
         if self.closed.load() {
             return Self::send_when_closed(jen, vm);
         }
-        let value = if self.frame().lasti() > 0 {
+        let value = if self.frame_opt().is_some_and(|f| f.lasti() > 0) {
             Some(value)
         } else if !vm.is_none(&value) {
             return Err(vm.new_type_error(format!(
@@ -268,7 +268,7 @@ impl Coro {
             None
         };
         let result = self.run_claimed(&claim, vm, |f| f.resume(value, vm));
-        self.maybe_close(&result, jen, vm, &claim);
+        self.maybe_close(&result, &claim);
         drop(claim);
         self.finalize_send_result(result, jen, vm)
     }
@@ -303,7 +303,7 @@ impl Coro {
             return Self::throw_when_closed(jen, exc_type, exc_val, exc_tb, vm);
         }
         let result = self.run_claimed(&claim, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
-        self.maybe_close(&result, jen, vm, &claim);
+        self.maybe_close(&result, &claim);
         drop(claim);
         self.finalize_send_result(result, jen, vm)
     }
@@ -318,9 +318,9 @@ impl Coro {
             return Ok(vm.ctx.none());
         }
         // FRAME_CREATED: mark finished and clear the iframe.
-        if self.frame().lasti() == 0 {
+        if self.frame_opt().is_none_or(|f| f.lasti() == 0) {
             self.closed.store(true);
-            self.clear_except_code(jen, vm);
+            self.clear_except_code();
             return Ok(vm.ctx.none());
         }
         let result = self.run_claimed(&claim, vm, |f| {
@@ -338,7 +338,7 @@ impl Coro {
             }
             other => {
                 self.closed.store(true);
-                self.clear_except_code(jen, vm);
+                self.clear_except_code();
                 match other {
                     Err(e) if !is_gen_exit(&e, vm) => Err(e),
                     Ok(ExecutionResult::Return(value)) => Ok(value),
@@ -349,7 +349,9 @@ impl Coro {
     }
 
     pub fn suspended(&self) -> bool {
-        !self.closed.load() && !self.running.load() && self.frame().lasti() > 0
+        !self.closed.load()
+            && !self.running.load()
+            && self.frame_opt().is_some_and(|f| f.lasti() > 0)
     }
 
     pub fn running(&self) -> bool {
@@ -361,7 +363,15 @@ impl Coro {
     }
 
     pub fn frame(&self) -> FrameObjectRef {
-        self.frame.lock().clone()
+        self.frame_opt().expect("generator frame")
+    }
+
+    pub fn frame_opt(&self) -> Option<FrameObjectRef> {
+        self.frame.to_owned()
+    }
+
+    pub fn code(&self) -> PyRef<PyCode> {
+        self.code.clone()
     }
 
     pub fn name(&self) -> PyStrRef {
@@ -451,8 +461,6 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
     if obj.downcastable::<PyCoroutine>()
         || obj.downcast_ref::<PyGenerator>().is_some_and(|g| {
             g.as_coro()
-                .frame()
-                .iframe()
                 .code()
                 .flags
                 .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
@@ -467,8 +475,6 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
         if result.downcastable::<PyCoroutine>()
             || result.downcast_ref::<PyGenerator>().is_some_and(|g| {
                 g.as_coro()
-                    .frame()
-                    .iframe()
                     .code()
                     .flags
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)

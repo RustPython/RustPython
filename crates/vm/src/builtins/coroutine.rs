@@ -89,14 +89,14 @@ impl PyCoroutine {
 
     #[pygetset]
     fn cr_await(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.inner.frame().yield_from_target()
+        self.inner.frame_opt().and_then(|f| f.yield_from_target())
     }
     #[pygetset]
     fn cr_frame(&self, _vm: &VirtualMachine) -> Option<FrameObjectRef> {
         if self.inner.closed() {
             None
         } else {
-            Some(self.inner.frame())
+            self.inner.frame_opt()
         }
     }
     #[pygetset]
@@ -105,7 +105,7 @@ impl PyCoroutine {
     }
     #[pygetset]
     fn cr_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().iframe().code().to_owned()
+        self.inner.code()
     }
     #[pygetset]
     fn cr_origin(&self, _vm: &VirtualMachine) -> Option<PyTupleRef> {
@@ -179,7 +179,7 @@ impl Destructor for PyCoroutine {
         if zelf.inner.closed() || zelf.inner.running() {
             return Ok(());
         }
-        if zelf.inner.frame().lasti() == 0 {
+        if zelf.inner.frame_opt().is_none_or(|f| f.lasti() == 0) {
             crate::warn::warn_unawaited_coroutine(zelf.as_object(), &zelf.inner.qualname(), vm);
             zelf.inner.closed.store(true);
             return Ok(());
@@ -266,7 +266,9 @@ impl IterNext for PyCoroutineWrapper {
 
 impl Drop for PyCoroutine {
     fn drop(&mut self) {
-        self.inner.frame().clear_generator();
+        if let Some(frame) = self.inner.frame_opt() {
+            frame.clear_generator();
+        }
     }
 }
 

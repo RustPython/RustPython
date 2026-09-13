@@ -74,7 +74,7 @@ impl PyGenerator {
         if self.inner.closed() {
             None
         } else {
-            Some(self.inner.frame())
+            self.inner.frame_opt()
         }
     }
 
@@ -85,12 +85,12 @@ impl PyGenerator {
 
     #[pygetset]
     fn gi_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().iframe().code().to_owned()
+        self.inner.code()
     }
 
     #[pygetset]
     fn gi_yieldfrom(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.inner.frame().yield_from_target()
+        self.inner.frame_opt().and_then(|f| f.yield_from_target())
     }
 
     #[pygetset]
@@ -168,7 +168,9 @@ impl Destructor for PyGenerator {
 
 impl Drop for PyGenerator {
     fn drop(&mut self) {
-        self.inner.frame().clear_generator();
+        if let Some(frame) = self.inner.frame_opt() {
+            frame.clear_generator();
+        }
     }
 }
 
