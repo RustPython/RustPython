@@ -19,7 +19,7 @@ pub mod array {
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat,
                 PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType,
-                PyTypeRef, PyUtf8StrRef, builtins_iter,
+                PyTypeRef, PyUtf8StrRef, builtins_iter, locked_next,
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
@@ -417,7 +417,7 @@ pub mod array {
                         $(ArrayContentType::$n(v) => {
                             // MemoryError instead Overflow Error, hard to says it is right
                             // but it is how cpython doing right now
-                            let elements = v.mul(vm, value).map_err(|_| vm.new_memory_error("".to_owned()))?;
+                            let elements = v.mul(vm, value).map_err(|_| vm.no_memory_error())?;
                             Ok(ArrayContentType::$n(elements))
                         })*
                     }
@@ -428,7 +428,7 @@ pub mod array {
                         $(ArrayContentType::$n(v) => {
                             // MemoryError instead Overflow Error, hard to says it is right
                             // but it is how cpython doing right now
-                            v.imul(vm, value).map_err(|_| vm.new_memory_error("".to_owned()))
+                            v.imul(vm, value).map_err(|_| vm.no_memory_error())
                         })*
                     }
                 }
@@ -670,7 +670,7 @@ pub mod array {
 
     #[pyattr]
     #[pyattr(name = "ArrayType")]
-    #[pyclass(name = "array")]
+    #[pyclass(name = "array", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub struct PyArray {
         array: PyRwLock<ArrayContentType>,
@@ -1517,7 +1517,7 @@ pub mod array {
 
     impl IterNext for PyArrayIter {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            zelf.internal.lock().next(|array, pos| {
+            locked_next(&zelf.internal, |array, pos| {
                 let value = array.read().get(pos, vm);
                 Ok(if let Some(item) = value {
                     PyIterReturn::Return(item?)

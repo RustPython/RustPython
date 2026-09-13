@@ -28,9 +28,11 @@ fn main() {
 
     #[cfg(feature = "ssl-openssl")]
     {
+        // Cargo `DEP_*` metadata from openssl-sys, not process host environment.
         #[allow(
+            clippy::disallowed_methods,
             clippy::unusual_byte_groupings,
-            reason = "OpenSSL version number is parsed with grouped hex fields"
+            reason = "build scripts read Cargo DEP_* vars; OpenSSL version hex is grouped by field"
         )]
         if let Ok(v) = std::env::var("DEP_OPENSSL_VERSION_NUMBER") {
             println!("cargo:rustc-env=OPENSSL_API_VERSION={v}");
@@ -42,6 +44,10 @@ fn main() {
                 }
             }
         }
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "build scripts read Cargo DEP_* vars"
+        )]
         if let Ok(v) = std::env::var("DEP_OPENSSL_CONF") {
             for conf in v.split(',') {
                 println!("cargo:rustc-cfg=osslconf=\"{conf}\"");
@@ -49,6 +55,10 @@ fn main() {
         }
         // it's possible for openssl-sys to link against the system openssl under certain conditions,
         // so let the ssl module know to only perform a probe if we're actually vendored
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "build scripts read Cargo DEP_* vars"
+        )]
         if std::env::var("DEP_OPENSSL_VENDORED").is_ok_and(|s| s == "1") {
             println!("cargo::rustc-cfg=openssl_vendored")
         }

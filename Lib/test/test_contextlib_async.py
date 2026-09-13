@@ -130,7 +130,6 @@ class AsyncContextManagerTestCase(unittest.TestCase):
                 raise ZeroDivisionError()
         self.assertEqual(state, [1, 42, 999])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @_async_test
     async def test_contextmanager_traceback(self):
         @asynccontextmanager

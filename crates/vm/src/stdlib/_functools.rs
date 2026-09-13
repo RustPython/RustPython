@@ -32,7 +32,7 @@ mod _functools {
             iterator,
             initial,
         } = args;
-        let mut iter = iterator.iter_without_hint(vm)?;
+        let mut iter = iterator.iter(vm)?;
         // OptionalOption distinguishes between:
         // - Missing: no argument provided → use first element from iterator
         // - Present(None): explicitly passed None → use None as initial value

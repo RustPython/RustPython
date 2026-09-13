@@ -8,6 +8,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub struct CodegenError {
     pub location: Option<SourceLocation>,
+    pub end_location: Option<SourceLocation>,
     #[source]
     pub error: CodegenErrorType,
     pub source_path: String,

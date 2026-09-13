@@ -1301,7 +1301,6 @@ class StringLikeTest(BaseTest):
         self.checkequal(False, 'asd', '__contains__', 'asdf')
         self.checkequal(False, '', '__contains__', 'asdf')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_subscript(self):
         self.checkequal('a', 'abc', '__getitem__', 0)
         self.checkequal('c', 'abc', '__getitem__', -1)
@@ -1556,7 +1555,6 @@ class StringLikeTest(BaseTest):
         self.checkequal(True, s, 'startswith', 'h', None, -2)
         self.checkequal(False, s, 'startswith', 'x', None, None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_find_etc_raise_correct_error_messages(self):
         # issue 11828
         s = 'hello'

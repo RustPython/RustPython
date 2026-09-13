@@ -33,9 +33,18 @@ fn install_default_tls_provider(_vm: &mut crate::VirtualMachine) {
     use rustls::crypto::aws_lc_rs;
     use rustpython_stdlib::ssl::providers::CryptoExt;
 
+    #[cfg(feature = "ssl-rustls-aws-lc-fips")]
+    let (all_cipher_suites, all_kx_groups) = (None, None);
+    #[cfg(not(feature = "ssl-rustls-aws-lc-fips"))]
+    let (all_cipher_suites, all_kx_groups) = (
+        Some(aws_lc_rs::ALL_CIPHER_SUITES),
+        Some(aws_lc_rs::ALL_KX_GROUPS),
+    );
+
     let ext = CryptoExt {
-        all_cipher_suites: Some(aws_lc_rs::ALL_CIPHER_SUITES),
-        all_kx_groups: Some(aws_lc_rs::ALL_KX_GROUPS),
+        all_cipher_suites,
+        default_cipher_suites: Some(aws_lc_rs::DEFAULT_CIPHER_SUITES),
+        all_kx_groups,
         any_supported_key: Some(aws_lc_rs::sign::any_supported_type),
         ticketer: aws_lc_rs::Ticketer::new,
     };

@@ -1,7 +1,7 @@
 use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::hash::PyHash,
     convert::ToPyObject,
     function::{FuncArgs, PyComparisonValue},
@@ -41,7 +41,7 @@ impl Constructor for PyNone {
     type Args = ();
 
     fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let _: () = args.bind(vm)?;
+        let _: () = args.bind_for(vm, Self::NAME)?;
         Ok(vm.ctx.none.clone().into())
     }
 
@@ -110,7 +110,7 @@ impl Constructor for PyNotImplemented {
     type Args = ();
 
     fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let _: () = args.bind(vm)?;
+        let _: () = args.bind_for(vm, Self::NAME)?;
         Ok(vm.ctx.not_implemented.clone().into())
     }
 

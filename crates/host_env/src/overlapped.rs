@@ -15,7 +15,9 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-use crate::windows::{CheckWin32Bool, CheckWin32Handle};
+use crate::windows::{CheckWin32Bool, CheckWin32Handle, ToWideString};
+use rustpython_wtf8::Wtf8;
+use widestring::WideCStr;
 use windows_sys::Win32::{
     Foundation::{CloseHandle, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS, HANDLE},
     Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6},
@@ -1020,7 +1022,10 @@ pub fn bind_local(socket: isize, family: i32) -> io::Result<()> {
     }
 }
 
-pub fn parse_address_v4_wide(host_wide: &[u16], port: u16) -> io::Result<(Vec<u8>, i32)> {
+pub fn parse_address_v4_wide(
+    host_wide: &widestring::WideCStr,
+    port: u16,
+) -> io::Result<(Vec<u8>, i32)> {
     use windows_sys::Win32::Networking::WinSock::{WSAGetLastError, WSAStringToAddressW};
 
     let mut addr: SOCKADDR_IN = unsafe { core::mem::zeroed() };
@@ -1028,6 +1033,7 @@ pub fn parse_address_v4_wide(host_wide: &[u16], port: u16) -> io::Result<(Vec<u8
 
     let mut addr_len = core::mem::size_of::<SOCKADDR_IN>() as i32;
 
+    // SAFETY: host_wide is nul capped and doesn't have interior nuls
     let ret = unsafe {
         WSAStringToAddressW(
             host_wide.as_ptr(),
@@ -1056,7 +1062,7 @@ pub fn parse_address_v4_wide(host_wide: &[u16], port: u16) -> io::Result<(Vec<u8
 }
 
 pub fn parse_address_v4(host: &str, port: u16) -> io::Result<(Vec<u8>, i32)> {
-    let host_wide: Vec<u16> = host.encode_utf16().chain([0]).collect();
+    let host_wide = Wtf8::new(host).to_wide_cstring()?;
     parse_address_v4_wide(&host_wide, port)
 }
 
@@ -1066,12 +1072,12 @@ pub fn parse_address_v6(
     flowinfo: u32,
     scope_id: u32,
 ) -> io::Result<(Vec<u8>, i32)> {
-    let host_wide: Vec<u16> = host.encode_utf16().chain([0]).collect();
+    let host_wide = Wtf8::new(host).to_wide_cstring()?;
     parse_address_v6_wide(&host_wide, port, flowinfo, scope_id)
 }
 
 pub fn parse_address_v6_wide(
-    host_wide: &[u16],
+    host_wide: &WideCStr,
     port: u16,
     flowinfo: u32,
     scope_id: u32,
@@ -1083,6 +1089,7 @@ pub fn parse_address_v6_wide(
 
     let mut addr_len = core::mem::size_of::<SOCKADDR_IN6>() as i32;
 
+    // SAFETY: host_wide is nul capped and doesn't have interior nuls
     let ret = unsafe {
         WSAStringToAddressW(
             host_wide.as_ptr(),

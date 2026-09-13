@@ -7,7 +7,10 @@ pub(super) use _socket::{PySocket, SockWaitKind, sock_wait, timeout_error_msg};
 
 #[pymodule]
 mod _socket {
-    use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
+    use crate::common::{
+        inet,
+        lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard},
+    };
     #[cfg(all(unix, not(target_os = "redox")))]
     use crate::vm::convert::ToPyException;
     use crate::vm::{
@@ -122,6 +125,14 @@ mod _socket {
     #[cfg(target_os = "freebsd")]
     #[pyattr]
     use c::SO_SETFIB;
+
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use c::{
+        IP_ADD_SOURCE_MEMBERSHIP, IP_BLOCK_SOURCE, IP_DROP_SOURCE_MEMBERSHIP, IP_PKTINFO,
+        IP_RECVTTL, IP_UNBLOCK_SOURCE, IPPROTO_MAX, IPPROTO_SCTP, MSG_NOSIGNAL,
+        TCP_CONNECTION_INFO,
+    };
 
     #[cfg(target_os = "linux")]
     #[pyattr]
@@ -1591,7 +1602,7 @@ mod _socket {
             let mut buffer = Vec::new();
             buffer
                 .try_reserve_exact(bufsize)
-                .map_err(|_| vm.new_memory_error(""))?;
+                .map_err(|_| vm.no_memory_error())?;
             let sock = self.sock()?;
             let n = self.sock_op(vm, SockWaitKind::Read, || {
                 sock.recv_with_flags(buffer.spare_capacity_mut(), flags)
@@ -1644,7 +1655,7 @@ mod _socket {
             let mut buffer = Vec::new();
             buffer
                 .try_reserve_exact(bufsize)
-                .map_err(|_| vm.new_memory_error(""))?;
+                .map_err(|_| vm.no_memory_error())?;
             let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
                 self.sock()?
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
@@ -2329,19 +2340,17 @@ mod _socket {
 
     #[pyfunction]
     fn inet_aton(ip_string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        ip_string
-            .as_str()
-            .parse::<Ipv4Addr>()
-            .map(|ip_addr| Vec::<u8>::from(ip_addr.octets()))
-            .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton"))
+        inet::aton(ip_string.as_str().as_bytes())
+            .map(Vec::from)
+            .ok_or_else(|| vm.new_os_error("illegal IP address string passed to inet_aton"))
     }
 
     #[pyfunction]
     fn inet_ntoa(packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let packed_ip = packed_ip.borrow_buf();
-        let packed_ip = <&[u8; 4]>::try_from(&*packed_ip)
+        let packed_ip = <[u8; 4]>::try_from(&*packed_ip)
             .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa"))?;
-        Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
+        Ok(vm.ctx.new_str(inet::ntoa(packed_ip)))
     }
 
     fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const core::ffi::c_char {
@@ -2403,7 +2412,7 @@ mod _socket {
         let mut scratch = Vec::new();
         scratch
             .try_reserve_exact(len)
-            .map_err(|_| vm.new_memory_error(""))?;
+            .map_err(|_| vm.no_memory_error())?;
         Ok(scratch)
     }
 
@@ -2747,40 +2756,34 @@ mod _socket {
 
     #[pyfunction]
     fn inet_pton(af_inet: i32, ip_string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        static ERROR_MSG: &str = "illegal IP address string passed to inet_pton";
-        let ip_addr = match af_inet {
-            c::AF_INET => ip_string
-                .as_str()
-                .parse::<Ipv4Addr>()
-                .map_err(|_| vm.new_os_error(ERROR_MSG.to_owned()))?
-                .octets()
-                .to_vec(),
-            c::AF_INET6 => ip_string
-                .as_str()
-                .parse::<Ipv6Addr>()
-                .map_err(|_| vm.new_os_error(ERROR_MSG.to_owned()))?
-                .octets()
-                .to_vec(),
-            _ => return Err(vm.new_os_error("Address family not supported by protocol")),
+        let text = ip_string.as_str().as_bytes();
+        let packed = match af_inet {
+            c::AF_INET => inet::pton_v4(text).map(Vec::from),
+            c::AF_INET6 => inet::pton_v6(text).map(Vec::from),
+            // What the host would report for an address family it has no
+            // converter for.
+            _ => {
+                let unsupported = rustpython_host_env::errno::errors::EAFNOSUPPORT;
+                return Err(io::Error::from_raw_os_error(unsupported).into_pyexception(vm));
+            }
         };
-        Ok(ip_addr)
+        packed.ok_or_else(|| vm.new_os_error("illegal IP address string passed to inet_pton"))
     }
 
     #[pyfunction]
     fn inet_ntop(af_inet: i32, packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult<String> {
         let packed_ip = packed_ip.borrow_buf();
+        let wrong_length = || vm.new_value_error("invalid length of packed IP address string");
         match af_inet {
             c::AF_INET => {
-                let packed_ip = <&[u8; 4]>::try_from(&*packed_ip).map_err(|_| {
-                    vm.new_value_error("invalid length of packed IP address string")
-                })?;
-                Ok(Ipv4Addr::from(*packed_ip).to_string())
+                let packed_ip = <[u8; 4]>::try_from(&*packed_ip).map_err(|_| wrong_length())?;
+                Ok(inet::ntoa(packed_ip))
             }
             c::AF_INET6 => {
-                let packed_ip = <&[u8; 16]>::try_from(&*packed_ip).map_err(|_| {
-                    vm.new_value_error("invalid length of packed IP address string")
-                })?;
-                Ok(get_ipv6_addr_str(Ipv6Addr::from(*packed_ip)))
+                if packed_ip.len() != 16 {
+                    return Err(wrong_length());
+                }
+                Ok(inet::ntop_v6(&packed_ip))
             }
             _ => Err(vm.new_value_error(format!("unknown address family {af_inet}"))),
         }
@@ -3097,16 +3100,6 @@ mod _socket {
     }
     pub(crate) fn timeout_error_msg(vm: &VirtualMachine, msg: String) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(timeout(vm), None, msg)
-    }
-
-    fn get_ipv6_addr_str(ipv6: Ipv6Addr) -> String {
-        match ipv6.to_ipv4() {
-            // instead of "::0.0.ddd.ddd" it's "::xxxx"
-            Some(v4) if !ipv6.is_unspecified() && matches!(v4.octets(), [0, 0, _, _]) => {
-                format!("::{:x}", u32::from(v4))
-            }
-            _ => ipv6.to_string(),
-        }
     }
 
     pub(crate) struct Deadline {

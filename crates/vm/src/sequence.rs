@@ -101,15 +101,15 @@ where
         let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
 
         if n > 1 && core::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
-            return Err(vm.new_memory_error(""));
+            return Err(vm.no_memory_error());
         }
 
         let total = n
             .checked_mul(self.as_ref().len())
-            .ok_or_else(|| vm.new_memory_error(""))?;
+            .ok_or_else(|| vm.no_memory_error())?;
         let mut v = Vec::new();
         v.try_reserve_exact(total)
-            .map_err(|_| vm.new_memory_error(""))?;
+            .map_err(|_| vm.no_memory_error())?;
         for _ in 0..n {
             v.extend_from_slice(self.as_ref());
         }
@@ -130,20 +130,19 @@ where
 
         if n > 1 && core::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
             // TODO: make a global static NoMemory shared exc object and return its reference.
-            return Err(vm.new_memory_error(""));
+            return Err(vm.no_memory_error());
         }
 
         if n == 0 {
             self.as_vec_mut().clear();
         } else if n != 1 {
-            let mut sample = self.as_vec_mut().clone();
-            if n != 2 {
-                self.as_vec_mut().reserve(sample.len() * (n - 1));
-                for _ in 0..n - 2 {
-                    self.as_vec_mut().extend_from_slice(&sample);
-                }
+            let len = self.as_ref().len();
+            let v = self.as_vec_mut();
+            v.try_reserve_exact(len * (n - 1))
+                .map_err(|_| vm.no_memory_error())?;
+            for _ in 1..n {
+                v.extend_from_within(..len);
             }
-            self.as_vec_mut().append(&mut sample);
         }
         Ok(())
     }

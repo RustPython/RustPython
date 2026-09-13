@@ -444,8 +444,18 @@ try:
 except ValueError:
     pass
 else:
-    assert False, "slice assignment accepted an unbounded iterable"
+    raise AssertionError("slice assignment accepted an unbounded iterable")
 array3[0:3] = [7, 8, 9]
 assert list(array3) == [7, 8, 9]
+
+
+# An array type carries the size of its buffer, so one too large to allocate
+# must raise instead of aborting.
+try:
+    (ctypes.c_char * (2**60))()
+except MemoryError:
+    pass
+else:
+    raise AssertionError("an unallocatable array was created")
 
 print("done")

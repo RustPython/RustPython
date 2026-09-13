@@ -6,6 +6,7 @@ Lib/*.py    text working-tree-encoding=UTF-8 eol=LF
 crates/vm/src/stdlib/ast/gen.rs    linguist-generated -merge
 crates/doc/src/data.inc.rs                              generated
 crates/compiler-core/src/bytecode/opcode_metadata.rs    generated
+crates/common/src/encodings/cjk/mappings_*.rs           generated
 
 .github/workflows/*.lock.yml linguist-generated=true merge=ours
 

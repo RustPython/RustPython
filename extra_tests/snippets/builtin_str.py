@@ -915,3 +915,103 @@ def test_huge_width():
 
 
 test_huge_width()
+
+
+def test_replace_empty_pattern():
+    # An empty pattern matches at every code point boundary, and only there.
+    # Matching it byte by byte instead put the replacement inside a multi-byte
+    # character, so what came back was no longer the text that went in.
+    assert "abc".replace("", "-") == "-a-b-c-"
+    assert "ábç".replace("", "#") == "#á#b#ç#"
+    assert "😀".replace("", "-") == "-😀-"
+    assert "".replace("", "-") == "-"
+    assert "abc".replace("", "") == "abc"
+
+    # The count is a number of insertions, and the one after the last
+    # character only happens if the count reaches that far.
+    assert "abc".replace("", "-", 0) == "abc"
+    assert "abc".replace("", "-", 1) == "-abc"
+    assert "abc".replace("", "-", 3) == "-a-b-c"
+    assert "abc".replace("", "-", 4) == "-a-b-c-"
+    assert "abc".replace("", "-", 99) == "-a-b-c-"
+    assert "ábç".replace("", "#", 2) == "#á#bç"
+
+    # The result has to stay readable as text afterwards.
+    spread = "á".replace("", "-")
+    assert len(spread) == 3
+    assert list(spread) == ["-", "á", "-"]
+    assert spread[1] == "á"
+    assert spread.upper() == "-Á-"
+    assert spread.encode("utf-8") == b"-\xc3\xa1-"
+
+    # A pattern that is not empty was already fine and stays that way.
+    assert "ábç".replace("b", "#") == "á#ç"
+    assert "ábç".replace("á", "#") == "#bç"
+    assert "aaa".replace("a", "b", 2) == "bba"
+
+
+test_replace_empty_pattern()
+
+
+def test_expandtabs_zero_tabsize():
+    # With no width to advance to, the tabs come out and nothing else moves.
+    # A tab that followed a character used to ask for a run of usize::MAX
+    # spaces and take the interpreter down with it.
+    for tabsize in (0, -1, -8):
+        assert "a\tb".expandtabs(tabsize) == "ab"
+        assert "ab\tcd\tef".expandtabs(tabsize) == "abcdef"
+        assert "a\nb\tc".expandtabs(tabsize) == "a\nbc"
+        assert "a\r\nb\tc".expandtabs(tabsize) == "a\r\nbc"
+        assert "á\tb".expandtabs(tabsize) == "áb"
+        assert "😀\tb".expandtabs(tabsize) == "😀b"
+        assert "\ta".expandtabs(tabsize) == "a"
+        assert "\t".expandtabs(tabsize) == ""
+        assert "".expandtabs(tabsize) == ""
+        assert "no tabs".expandtabs(tabsize) == "no tabs"
+        assert b"a\tb".expandtabs(tabsize) == b"ab"
+        assert bytearray(b"a\tb").expandtabs(tabsize) == bytearray(b"ab")
+
+    # A tab size that is actually there keeps working.
+    assert "a\tb".expandtabs(8) == "a       b"
+    assert "a\tb".expandtabs(1) == "a b"
+    assert "abcd\te".expandtabs(4) == "abcd    e"
+    assert "a\nb\tc".expandtabs(4) == "a\nb   c"
+
+
+test_expandtabs_zero_tabsize()
+
+
+def test_concat_error_message():
+    # CPython falls back to str's sequence concatenation once a reflected
+    # __radd__ declines, so the message names the concatenation, not the
+    # generic binary operation. Types that define __radd__ (every number)
+    # used to take the generic path here.
+    def message(other):
+        try:
+            "a" + other
+        except TypeError as err:
+            return str(err)
+        raise AssertionError("TypeError was not raised")
+
+    assert message(1) == 'can only concatenate str (not "int") to str'
+    assert message(1.5) == 'can only concatenate str (not "float") to str'
+    assert message(True) == 'can only concatenate str (not "bool") to str'
+    assert message([]) == 'can only concatenate str (not "list") to str'
+    assert message(None) == 'can only concatenate str (not "NoneType") to str'
+    assert message(b"b") == 'can only concatenate str (not "bytes") to str'
+
+    class Declines:
+        def __radd__(self, other):
+            return NotImplemented
+
+    assert message(Declines()) == 'can only concatenate str (not "Declines") to str'
+
+    # A __radd__ that returns a value still wins.
+    class Accepts:
+        def __radd__(self, other):
+            return "from-radd"
+
+    assert "a" + Accepts() == "from-radd"
+
+
+test_concat_error_message()

@@ -387,7 +387,6 @@ class AbstractMemoryTests:
         m = self._view(b)
         self.assertRaises(ValueError, hash, m)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; re-entrant buffer release not detected
     def test_hash_use_after_free(self):
         # Prevent crash in memoryview(v).__hash__ with re-entrant v.__hash__.
         # Regression test for https://github.com/python/cpython/issues/142664.
@@ -457,7 +456,6 @@ class AbstractMemoryTests:
         self.assertEqual(c.format, "H")
         self.assertEqual(d.format, "H")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; re-entrant buffer release not detected
     def test_hex_use_after_free(self):
         # Prevent UAF in memoryview.hex(sep) with re-entrant sep.__len__.
         # Regression test for https://github.com/python/cpython/issues/143195.
@@ -566,10 +564,6 @@ class BytesMemoryviewTest(unittest.TestCase,
             self.assertRaises(TypeError, memoryview, argument=ob)
             self.assertRaises(TypeError, memoryview, ob, argument=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : <test.test_memoryview.MyObject object at 0x84ecb1920>
-    def test_gc(self):
-        return super().test_gc()
-
 class ArrayMemoryviewTest(unittest.TestCase,
     BaseMemoryviewTests, BaseArrayMemoryTests):
 
@@ -608,10 +602,6 @@ class BytesMemorySliceTest(unittest.TestCase,
     BaseMemorySliceTests, BaseBytesMemoryTests):
     pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : <test.test_memoryview.MyObject object at 0x84ecb13e0>
-    def test_gc(self):
-        return super().test_gc()
-
 class ArrayMemorySliceTest(unittest.TestCase,
     BaseMemorySliceTests, BaseArrayMemoryTests):
     pass
@@ -619,10 +609,6 @@ class ArrayMemorySliceTest(unittest.TestCase,
 class BytesMemorySliceSliceTest(unittest.TestCase,
     BaseMemorySliceSliceTests, BaseBytesMemoryTests):
     pass
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : <test.test_memoryview.MyObject object at 0x84ddca1c0>
-    def test_gc(self):
-        return super().test_gc()
 
 class ArrayMemorySliceSliceTest(unittest.TestCase,
     BaseMemorySliceSliceTests, BaseArrayMemoryTests):
@@ -694,7 +680,6 @@ class OtherTest(unittest.TestCase):
             with self.assertRaises(TypeError):
                 pickle.dumps(m, proto)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
     def test_use_released_memory(self):
         # gh-92888: Previously it was possible to use a memoryview even after
         # backing buffer is freed in certain cases. This tests that those

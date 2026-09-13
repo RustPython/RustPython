@@ -249,7 +249,7 @@ pub(crate) mod _signal {
         signal::check_signals(vm)?;
 
         unsafe { host_signal::install_handler(signalnum.into(), sig_handler) }
-            .map_err(|_| vm.new_os_error("Failed to set signal"))?;
+            .map_err(|err| err.into_pyexception(vm))?;
 
         let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
         let old_handler = signal_handlers.borrow_mut()[signalnum].replace(handler);
@@ -337,10 +337,6 @@ pub(crate) mod _signal {
         }
 
         #[cfg(windows)]
-        #[expect(
-            clippy::std_instead_of_core,
-            reason = "false positive: core::io::ErrorKind is unstable (core_io)"
-        )]
         let is_socket = if fd != INVALID_WAKEUP {
             host_signal::wakeup_fd_is_socket(fd).map_err(|err| {
                 if err.kind() == std::io::ErrorKind::InvalidInput {

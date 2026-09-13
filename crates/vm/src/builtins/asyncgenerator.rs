@@ -14,6 +14,14 @@ use crate::{
 
 use crossbeam_utils::atomic::AtomicCell;
 
+fn warn_unawaited_asyncgen_method(ag: &Py<PyAsyncGen>, method: &str, vm: &VirtualMachine) {
+    let name = ag.as_coro().qualname();
+    let msg = format!("coroutine method '{method}' of '{name}' was never awaited");
+    if let Err(e) = crate::stdlib::_warnings::warn(vm.ctx.exceptions.runtime_warning, msg, 1, vm) {
+        vm.run_unraisable(e, None, ag.as_object().to_owned());
+    }
+}
+
 #[pyclass(name = "async_generator", module = false, traverse = "manual")]
 #[derive(Debug)]
 pub struct PyAsyncGen {
@@ -124,14 +132,14 @@ impl PyAsyncGen {
 
     #[pygetset]
     fn ag_await(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.inner.frame().yield_from_target()
+        self.inner.frame_opt().and_then(|f| f.yield_from_target())
     }
     #[pygetset]
     fn ag_frame(&self, _vm: &VirtualMachine) -> Option<FrameObjectRef> {
         if self.inner.closed() {
             None
         } else {
-            Some(self.inner.frame())
+            self.inner.frame_opt()
         }
     }
     #[pygetset]
@@ -140,7 +148,11 @@ impl PyAsyncGen {
     }
     #[pygetset]
     fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().iframe().code().to_owned()
+        self.inner.code()
+    }
+    #[pygetset]
+    fn ag_suspended(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.suspended()
     }
 
     #[pyclassmethod]
@@ -303,7 +315,7 @@ impl PyPayload for PyAsyncGenASend {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
+#[pyclass(with(IterNext, Iterable, Destructor))]
 impl PyAsyncGenASend {
     #[pymethod(name = "__await__")]
     const fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
@@ -420,6 +432,15 @@ impl IterNext for PyAsyncGenASend {
     }
 }
 
+impl Destructor for PyAsyncGenASend {
+    fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        if matches!(zelf.state.load(), AwaitableState::Init) {
+            warn_unawaited_asyncgen_method(&zelf.ag, "asend", vm);
+        }
+        Ok(())
+    }
+}
+
 #[pyclass(module = false, name = "async_generator_athrow", traverse = "manual")]
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenAThrow {
@@ -443,7 +464,7 @@ impl PyPayload for PyAsyncGenAThrow {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
+#[pyclass(with(IterNext, Iterable, Destructor))]
 impl PyAsyncGenAThrow {
     #[pymethod(name = "__await__")]
     const fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
@@ -621,6 +642,16 @@ impl IterNext for PyAsyncGenAThrow {
     }
 }
 
+impl Destructor for PyAsyncGenAThrow {
+    fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        if matches!(zelf.state.load(), AwaitableState::Init) {
+            let method = if zelf.aclose { "aclose" } else { "athrow" };
+            warn_unawaited_asyncgen_method(&zelf.ag, method, vm);
+        }
+        Ok(())
+    }
+}
+
 /// Awaitable wrapper for anext() builtin with default value.
 /// When StopAsyncIteration is raised, it converts it to StopIteration(default).
 #[pyclass(module = false, name = "anext_awaitable", traverse = "manual")]
@@ -691,8 +722,6 @@ impl PyAnextAwaitable {
             if let Some(generator) = wrapped.downcast_ref::<PyGenerator>()
                 && generator
                     .as_coro()
-                    .frame()
-                    .iframe()
                     .code()
                     .flags
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
@@ -814,7 +843,9 @@ impl Destructor for PyAsyncGen {
 
 impl Drop for PyAsyncGen {
     fn drop(&mut self) {
-        self.inner.frame().clear_generator();
+        if let Some(frame) = self.inner.frame_opt() {
+            frame.clear_generator();
+        }
     }
 }
 

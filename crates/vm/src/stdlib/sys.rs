@@ -309,7 +309,7 @@ pub mod sys {
         vm.ctx.new_tuple(
             module_names
                 .into_iter()
-                .map(|n| vm.ctx.new_str(n).into())
+                .map(|n| vm.ctx.new_utf8_str(n).into())
                 .collect(),
         )
     }
@@ -953,7 +953,7 @@ pub mod sys {
 
     #[derive(FromArgs)]
     struct GetsizeofArgs {
-        obj: PyObjectRef,
+        object: PyObjectRef,
         #[pyarg(any, optional)]
         default: Option<PyObjectRef>,
     }
@@ -961,7 +961,7 @@ pub mod sys {
     #[pyfunction]
     fn getsizeof(args: GetsizeofArgs, vm: &VirtualMachine) -> PyResult {
         let sizeof = || -> PyResult<usize> {
-            let res = vm.call_special_method(&args.obj, identifier!(vm, __sizeof__), ())?;
+            let res = vm.call_special_method(&args.object, identifier!(vm, __sizeof__), ())?;
             let res = res.try_index(vm)?.try_to_primitive::<usize>(vm)?;
             Ok(res + core::mem::size_of::<PyObject>())
         };
@@ -990,8 +990,6 @@ pub mod sys {
         let offset = offset.into_option().unwrap_or(0);
         let frame_ref = crate::frame::frame_at_offset(offset, vm)
             .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;
-        frame_ref.mark_escaped();
-
         if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
             audit.call((vm.ctx.new_str("sys._getframe"), frame_ref.to_owned()), vm)?;
         }
@@ -1222,6 +1220,12 @@ pub mod sys {
         PyIntInfo::from_data(IntInfoData::INFO, vm)
     }
 
+    /// Private function for getting PyConfig.cpu_count
+    #[pyfunction]
+    fn _get_cpu_count_config(vm: &VirtualMachine) -> i32 {
+        vm.state.config.settings.cpu_count.map_or(-1, |n| n.get())
+    }
+
     #[pyfunction]
     fn get_int_max_str_digits(vm: &VirtualMachine) -> usize {
         vm.state.int_max_str_digits.load()
@@ -1333,15 +1337,11 @@ pub mod sys {
             return Err(vm.new_type_error("argument is immutable"));
         }
 
-        let mut attributes = type_obj.attributes.write();
-
         // Remove __dict__ descriptor if present
-        attributes.swap_remove(identifier!(vm, __dict__));
+        type_obj.attributes.remove(identifier!(vm, __dict__));
 
         // Remove __weakref__ descriptor if present
-        attributes.swap_remove(identifier!(vm, __weakref__));
-
-        drop(attributes);
+        type_obj.attributes.remove(identifier!(vm, __weakref__));
 
         // Update slots to notify subclasses and recalculate cached values
         type_obj.update_slot::<true>(identifier!(vm, __dict__), &vm.ctx);

@@ -2,14 +2,14 @@ use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::common::lock::LazyLock;
 use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::hash::PyHash,
     function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySetterValue},
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     stdlib::builtins::reversed,
     types::{
-        AsMapping, AsNumber, AsSequence, Comparable, Constructor, GetAttr, Hashable, IterNext,
-        Iterable, PyComparisonOp, Representable, SetAttr,
+        AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, GetAttr, Hashable,
+        IterNext, Iterable, PyComparisonOp, Representable, SetAttr,
     },
 };
 
@@ -48,7 +48,7 @@ impl Constructor for PyWeakProxy {
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let _ = cls;
-        let Self::Args { referent, callback } = args.bind(vm)?;
+        let Self::Args { referent, callback } = args.bind_for(vm, Self::NAME)?;
         let callback = callback
             .into_option()
             .filter(|callback| !vm.is_none(callback));
@@ -67,13 +67,39 @@ impl PyWeakProxy {
         callback: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PyWeak>> {
-        let typ = vm.ctx.types.weakproxy_type.to_owned();
+        let typ = if referent.is_callable() {
+            vm.ctx.types.weakcallableproxy_type.to_owned()
+        } else {
+            vm.ctx.types.weakproxy_type.to_owned()
+        };
         referent.downgrade_with_typ(callback, typ, vm)
     }
 
     #[must_use]
     pub fn get_weak(&self) -> &PyWeak {
         &self.0
+    }
+}
+
+#[pyclass(
+    module = false,
+    name = "weakcallableproxy",
+    base = PyWeakProxy,
+    ctx = "weakcallableproxy_type",
+    unhashable = true
+)]
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct PyWeakCallableProxy(PyWeakProxy);
+
+#[pyclass(with(Callable))]
+impl PyWeakCallableProxy {}
+
+impl Callable for PyWeakCallableProxy {
+    type Args = FuncArgs;
+
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        zelf.0.try_upgrade(vm)?.call(args, vm)
     }
 }
 
@@ -371,6 +397,7 @@ impl Representable for PyWeakProxy {
 
 pub(crate) fn init(context: &'static Context) {
     PyWeakProxy::extend_class(context, context.types.weakproxy_type);
+    PyWeakCallableProxy::extend_class(context, context.types.weakcallableproxy_type);
 }
 
 impl Hashable for PyWeakProxy {

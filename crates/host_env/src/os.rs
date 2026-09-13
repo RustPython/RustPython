@@ -25,9 +25,7 @@ use {
     std::{os::windows::io::AsRawHandle, path::Path},
     windows_sys::Win32::{
         Foundation::FILETIME,
-        Storage::FileSystem::{
-            FILE_FLAG_BACKUP_SEMANTICS, INVALID_SET_FILE_POINTER, SetFilePointer, SetFileTime,
-        },
+        Storage::FileSystem::{FILE_FLAG_BACKUP_SEMANTICS, SetFilePointerEx, SetFileTime},
         System::SystemInformation::{GetSystemInfo, SYSTEM_INFO},
     },
 };
@@ -109,32 +107,76 @@ pub unsafe fn remove_var(key: impl AsRef<OsStr>) {
     unsafe { env::remove_var(key) };
 }
 
+/// Publish the working directory as `=X:` for the drive it is on.
+///
+/// CRT `_wspawnve` / `_wexecve` walk the environment for the first `=X:`
+/// entry with no bound; a process that was not started by cmd.exe has none
+/// and that walk runs off the block. A UNC-like path is on no drive and
+/// publishes nothing.
+#[cfg(windows)]
+pub fn publish_drive_current_directory() -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
+
+    let mut cwd_wide: Vec<u16> = env::current_dir()?.as_os_str().encode_wide().collect();
+    let unc_like = cwd_wide.len() >= 2
+        && ((cwd_wide[0] == b'\\' as u16 && cwd_wide[1] == b'\\' as u16)
+            || (cwd_wide[0] == b'/' as u16 && cwd_wide[1] == b'/' as u16));
+    if unc_like || cwd_wide.is_empty() {
+        return Ok(());
+    }
+    let env_name = [b'=' as u16, cwd_wide[0], b':' as u16, 0];
+    cwd_wide.push(0);
+    let ok = unsafe { SetEnvironmentVariableW(env_name.as_ptr(), cwd_wide.as_ptr()) };
+    if ok == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// Whether the process environment already has an `=X:` drive-cwd entry.
+#[cfg(windows)]
+pub fn environment_has_drive_current_directory() -> bool {
+    use windows_sys::Win32::System::Environment::{
+        FreeEnvironmentStringsW, GetEnvironmentStringsW,
+    };
+
+    let block = unsafe { GetEnvironmentStringsW() };
+    if block.is_null() {
+        return false;
+    }
+    let mut present = false;
+    let mut entry = block;
+    unsafe {
+        while *entry != 0 {
+            if *entry == b'=' as u16 {
+                present = true;
+                break;
+            }
+            while *entry != 0 {
+                entry = entry.add(1);
+            }
+            entry = entry.add(1);
+        }
+        FreeEnvironmentStringsW(block);
+    }
+    present
+}
+
+/// Publish `=X:` when the process environment has none, so a later
+/// `_wspawnv` / `_wexecv` walk has a first entry.
+#[cfg(windows)]
+pub fn ensure_drive_current_directory() {
+    if !environment_has_drive_current_directory() {
+        let _ = publish_drive_current_directory();
+    }
+}
+
 pub fn set_current_dir(path: impl AsRef<std::path::Path>) -> io::Result<()> {
     env::set_current_dir(&path)?;
-
     #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::System::Environment::SetEnvironmentVariableW;
-
-        if let Ok(cwd) = env::current_dir() {
-            let cwd_str = cwd.as_os_str();
-            let mut cwd_wide: Vec<u16> = cwd_str.encode_wide().collect();
-
-            let is_unc_like_path = cwd_wide.len() >= 2
-                && ((cwd_wide[0] == b'\\' as u16 && cwd_wide[1] == b'\\' as u16)
-                    || (cwd_wide[0] == b'/' as u16 && cwd_wide[1] == b'/' as u16));
-
-            if !is_unc_like_path {
-                let env_name: [u16; 4] = [b'=' as u16, cwd_wide[0], b':' as u16, 0];
-                cwd_wide.push(0);
-                unsafe {
-                    SetEnvironmentVariableW(env_name.as_ptr(), cwd_wide.as_ptr());
-                }
-            }
-        }
-    }
-
+    publish_drive_current_directory()?;
     Ok(())
 }
 
@@ -292,22 +334,24 @@ pub fn seek_fd(
     position: crt_fd::Offset,
     how: i32,
 ) -> io::Result<crt_fd::Offset> {
+    use crate::windows::CheckWin32Bool;
+
     let handle = crt_fd::as_handle(fd)?;
-    let mut distance_to_move: [i32; 2] = unsafe { core::mem::transmute(position) };
-    let ret = unsafe {
-        SetFilePointer(
+    // `SetFilePointer` returns the low half of the new position and reports
+    // failure with the value a position four gigabytes in also has, so the two
+    // are only told apart through the error code. The `Ex` form answers with
+    // the whole position and a success flag of its own.
+    let mut new_position = 0;
+    unsafe {
+        SetFilePointerEx(
             handle.as_raw_handle(),
-            distance_to_move[0],
-            &mut distance_to_move[1],
+            position,
+            &mut new_position,
             how as _,
         )
-    };
-    if ret == INVALID_SET_FILE_POINTER {
-        Err(io::Error::last_os_error())
-    } else {
-        distance_to_move[0] = ret as _;
-        Ok(unsafe { core::mem::transmute::<[i32; 2], i64>(distance_to_move) })
     }
+    .check_win32_bool()?;
+    Ok(new_position)
 }
 
 #[cfg(any(unix, target_os = "wasi"))]

@@ -848,7 +848,6 @@ class HashLibTestCase(unittest.TestCase):
                 outer.update(keyed.digest())
         return outer.hexdigest()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; add to constructor const value
     @requires_blake2
     def test_blake2b(self):
         self.check_blake2(hashlib.blake2b, 16, 16, 64, 64, (1<<64)-1)
@@ -870,7 +869,6 @@ class HashLibTestCase(unittest.TestCase):
           "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d1"+
           "7d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; implement all blake2 fields
     @requires_blake2
     def test_case_blake2b_all_parameters(self):
         # This checks that all the parameters work in general, and also that
@@ -889,14 +887,12 @@ class HashLibTestCase(unittest.TestCase):
           inner_size=7,
           last_node=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; blake2 key parameter not supported
     @requires_blake2
     def test_blake2b_vectors(self):
         for msg, key, md in read_vectors('blake2b'):
             key = bytes.fromhex(key)
             self.check('blake2b', msg, md, key=key)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; add to constructor const value
     @requires_blake2
     def test_blake2s(self):
         self.check_blake2(hashlib.blake2s, 8, 8, 32, 32, (1<<48)-1)
@@ -916,7 +912,6 @@ class HashLibTestCase(unittest.TestCase):
         self.check('blake2s', b"abc",
           "508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; implement all blake2 fields
     @requires_blake2
     def test_case_blake2s_all_parameters(self):
         # This checks that all the parameters work in general, and also that
@@ -935,7 +930,6 @@ class HashLibTestCase(unittest.TestCase):
           inner_size=7,
           last_node=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; blake2 key parameter not supported
     @requires_blake2
     def test_blake2s_vectors(self):
         for msg, key, md in read_vectors('blake2s'):

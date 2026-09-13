@@ -180,7 +180,10 @@ mod decl {
 
     #[cfg(unix)]
     #[pyattr]
-    use host_select::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI};
+    use host_select::{
+        PIPE_BUF, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI, POLLRDBAND, POLLRDNORM,
+        POLLWRBAND, POLLWRNORM,
+    };
 
     #[cfg(unix)]
     pub(super) mod poll {

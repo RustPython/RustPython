@@ -556,8 +556,8 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
 
 pub fn exec_query(query_str: &str) -> Result<String, ExecQueryError> {
     let query = WideCString::from_str(query_str)
-        .map_err(|_| ExecQueryError::Code(ERROR_INVALID_NAME))?
-        .into();
+        .map(WideCString::into_vec_with_nul)
+        .map_err(|_| ExecQueryError::Code(ERROR_INVALID_NAME))?;
 
     let mut h_thread: HANDLE = null_mut();
     let mut err: u32 = 0;

@@ -166,7 +166,6 @@ SyntaxError: duplicate argument 'x' in function definition"""
         self.assertFalse(result)
         self.assertEqual(f.getvalue(), "{'x': 'int'}\n")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_future_barry_as_flufl(self):
         console = InteractiveColoredConsole()
         f = io.StringIO()

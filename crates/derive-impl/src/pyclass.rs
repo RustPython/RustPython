@@ -712,7 +712,9 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
 
     // Generate PyPayload impl based on whether base exists
     #[allow(clippy::collapsible_else_if)]
-    let impl_payload = if let Some(base_type) = &base {
+    let impl_payload = if class_meta.manual_payload()? {
+        quote! {}
+    } else if let Some(base_type) = &base {
         let class_fn = if let Some(ctx_type_name) = class_meta.ctx_name()? {
             let ctx_type_ident = Ident::new(&ctx_type_name, ident.span());
             quote! { ctx.types.#ctx_type_ident }
@@ -803,8 +805,13 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
         None => quote! {},
     };
 
+    let payload_attr = match class_meta.inner()._optional_str("payload")? {
+        Some(value) => quote! { , payload = #value },
+        None => quote! {},
+    };
+
     let ret = quote! {
-        #[pyclass(module = false, name = #class_name, base = #base_class_name #traverse_attr)]
+        #[pyclass(module = false, name = #class_name, base = #base_class_name #traverse_attr #payload_attr)]
         #item
         #impl_pyclass
     };
@@ -1077,16 +1084,25 @@ where
         }
 
         let raw = item_meta.raw()?;
-        let sig_doc = text_signature(func.sig(), &py_name);
         let has_receiver = func
             .sig()
             .inputs
             .iter()
             .any(|arg| matches!(arg, syn::FnArg::Receiver(_)));
-        let drop_first_typed = match self.inner.attr_name {
-            AttrName::Method | AttrName::ClassMethod if !has_receiver && !raw => 1,
-            _ => 0,
+        // Without a `&self` receiver the first argument is the one the call
+        // binds to, and CPython names it $self for a method and $type for a
+        // classmethod.
+        let implicit_self = if has_receiver || raw {
+            None
+        } else {
+            match self.inner.attr_name {
+                AttrName::Method => Some("$self"),
+                AttrName::ClassMethod => Some("$type"),
+                _ => None,
+            }
         };
+        let drop_first_typed = usize::from(implicit_self.is_some());
+        let sig_doc = text_signature(func.sig(), &py_name, implicit_self);
         let call_flags = infer_native_call_flags(func.sig(), drop_first_typed);
 
         // Add #[allow(non_snake_case)] for setter methods like set___name__
@@ -1096,7 +1112,11 @@ where
             args.attrs.push(allow_attr);
         }
 
-        let doc = args.attrs.doc().map(|doc| format_doc(&sig_doc, &doc));
+        let doc = match (sig_doc, args.attrs.doc()) {
+            (Some(sig_doc), Some(doc)) => Some(format_doc(&sig_doc, &doc)),
+            (Some(sig_doc), None) => Some(format_doc(&sig_doc, "")),
+            (None, doc) => doc,
+        };
         args.context.method_items.add_item(MethodNurseryItem {
             py_name,
             cfgs: args.cfgs.to_vec(),
@@ -1132,9 +1152,14 @@ where
             args.attrs.push(allow_attr);
         }
 
-        args.context
-            .getset_items
-            .add_item(&py_name, args.cfgs.to_vec(), kind, ident.clone())?;
+        let doc = args.attrs.doc();
+        args.context.getset_items.add_item(
+            &py_name,
+            args.cfgs.to_vec(),
+            kind,
+            ident.clone(),
+            doc,
+        )?;
         Ok(())
     }
 }
@@ -1402,9 +1427,15 @@ impl ToTokens for MethodNursery {
 }
 
 #[derive(Default)]
-#[allow(clippy::type_complexity)]
+struct GetSetEntry {
+    getter: Option<Ident>,
+    setter: Option<Ident>,
+    doc: Option<String>,
+}
+
+#[derive(Default)]
 struct GetSetNursery {
-    map: HashMap<(String, Vec<Attribute>), (Option<Ident>, Option<Ident>)>,
+    map: HashMap<(String, Vec<Attribute>), GetSetEntry>,
     validated: bool,
 }
 
@@ -1421,14 +1452,15 @@ impl GetSetNursery {
         cfgs: Vec<Attribute>,
         kind: GetSetItemKind,
         item_ident: Ident,
+        doc: Option<String>,
     ) -> Result<()> {
         assert!(!self.validated, "new item is not allowed after validation");
         // Note: Both getter and setter can have #[cfg], but they must have matching cfgs
         // since the map key is (name, cfgs). This ensures getter and setter are paired correctly.
         let entry = self.map.entry((name.to_string(), cfgs)).or_default();
         let func = match kind {
-            GetSetItemKind::Get => &mut entry.0,
-            GetSetItemKind::Set => &mut entry.1,
+            GetSetItemKind::Get => &mut entry.getter,
+            GetSetItemKind::Set => &mut entry.setter,
         };
         if func.is_some() {
             bail_span!(
@@ -1438,6 +1470,11 @@ impl GetSetNursery {
             );
         }
         *func = Some(item_ident);
+        if matches!(kind, GetSetItemKind::Get)
+            && let Some(doc) = doc
+        {
+            entry.doc = Some(doc);
+        }
         Ok(())
     }
 
@@ -1448,10 +1485,10 @@ impl GetSetNursery {
             clippy::iter_over_hash_type,
             reason = "Iteration order doesn't matter here"
         )]
-        for ((name, _cfgs), (getter, setter)) in &self.map {
-            if getter.is_none() {
+        for ((name, _cfgs), entry) in &self.map {
+            if entry.getter.is_none() {
                 errors.push(err_span!(
-                    setter.as_ref().unwrap(),
+                    entry.setter.as_ref().unwrap(),
                     "GetSet '{}' is missing a getter",
                     name
                 ));
@@ -1467,9 +1504,14 @@ impl GetSetNursery {
 impl ToTokens for GetSetNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         assert!(self.validated, "Call `validate()` before token generation");
-        let properties = self.map.iter().map(|((name, cfgs), (getter, setter))| {
-            let setter = match setter {
+        let properties = self.map.iter().map(|((name, cfgs), entry)| {
+            let getter = entry.getter.as_ref().unwrap();
+            let setter = match &entry.setter {
                 Some(setter) => quote_spanned! { setter.span() => .with_set(Self::#setter)},
+                None => quote! {},
+            };
+            let doc = match &entry.doc {
+                Some(doc) => quote! { .with_doc(#doc) },
                 None => quote! {},
             };
             quote_spanned! { getter.span() =>
@@ -1479,7 +1521,8 @@ impl ToTokens for GetSetNursery {
                     ::rustpython_vm::PyRef::new_ref(
                         ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class)
                             .with_get(Self::#getter)
-                            #setter,
+                            #setter
+                            #doc,
                             ctx.types.getset_type.to_owned(), None),
                     ctx
                 );

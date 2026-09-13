@@ -1,31 +1,23 @@
-// spell-checker:ignore usedforsecurity HASHXOF hashopenssl dklen
-// NOTE: Function names like `openssl_md5` match CPython's `_hashopenssl.c` interface
-// for compatibility, but the implementation uses pure Rust crates (md5, sha2, etc.),
-// not OpenSSL.
+// spell-checker:ignore usedforsecurity HASHXOF hashopenssl dklen fanout maxmem scrypt blake2b blake2s
+// NOTE: Function names like `openssl_md5` match `_hashopenssl.c` interface
+// for compatibility, but the implementation uses the rustpython-common
+// hashlib engine.
 
 pub(crate) use _hashlib::module_def;
 
 #[pymodule]
 pub(crate) mod _hashlib {
-    use crate::common::lock::PyRwLock;
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyBytes, PyFrozenSet, PyStr, PyTypeRef, PyUtf8StrRef, PyValueError,
         },
         class::StaticType,
-        function::{ArgBytesLike, ArgStrOrBytesLike, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, ArgPrimitiveIndex, ArgStrOrBytesLike, FuncArgs, OptionalArg},
         types::{Constructor, Representable},
     };
-    use blake2::{Blake2b512, Blake2s256};
-    use digest::{DynDigest, ExtendableOutput, OutputSizeUser, Update, block_api::BlockSizeUser};
-    use dyn_clone::{DynClone, clone_trait_object};
-    use hmac::{Hmac, KeyInit, Mac, SimpleHmac};
-    use md5::Md5;
-    use sha1::Sha1;
-    use sha2::{Sha224, Sha256, Sha384, Sha512};
-    use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
-    use shake::{Shake128, Shake256};
+    use core::mem::MaybeUninit;
+    use rustpython_common::hashlib as backend;
 
     const HASH_ALGORITHMS: &[&str] = &[
         "md5",
@@ -92,20 +84,32 @@ pub(crate) mod _hashlib {
     pub(crate) struct BlakeHashArgs {
         #[pyarg(any, optional)]
         pub data: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional)]
+        digest_size: OptionalArg<ArgPrimitiveIndex<i64>>,
+        #[pyarg(named, optional)]
+        key: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional)]
+        salt: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional)]
+        person: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional)]
+        fanout: OptionalArg<ArgPrimitiveIndex<i64>>,
+        #[pyarg(named, optional)]
+        depth: OptionalArg<ArgPrimitiveIndex<i64>>,
+        #[pyarg(named, optional)]
+        leaf_size: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        node_offset: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        node_depth: OptionalArg<ArgPrimitiveIndex<i64>>,
+        #[pyarg(named, optional)]
+        inner_size: OptionalArg<ArgPrimitiveIndex<i64>>,
+        #[pyarg(named, default = false)]
+        last_node: bool,
         #[pyarg(named, default = true)]
         usedforsecurity: bool,
         #[pyarg(named, optional)]
         pub string: OptionalArg<ArgBytesLike>,
-    }
-
-    impl From<NewHashArgs> for BlakeHashArgs {
-        fn from(args: NewHashArgs) -> Self {
-            Self {
-                data: args.data,
-                usedforsecurity: args.usedforsecurity,
-                string: args.string,
-            }
-        }
     }
 
     #[derive(FromArgs, Debug)]
@@ -159,7 +163,7 @@ pub(crate) mod _hashlib {
     }
 
     impl XofDigestArgs {
-        // Match CPython's SHAKE output guard in Modules/sha3module.c.
+        // Match SHAKE output guard in Modules/sha3module.c.
         const MAX_SHAKE_OUTPUT_LENGTH: usize = 1 << 29;
 
         fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -234,24 +238,6 @@ pub(crate) mod _hashlib {
         ))
     }
 
-    fn hash_digest_size(name: &str) -> Option<usize> {
-        match name {
-            "md5" => Some(16),
-            "sha1" => Some(20),
-            "sha224" => Some(28),
-            "sha256" => Some(32),
-            "sha384" => Some(48),
-            "sha512" => Some(64),
-            "sha3_224" => Some(28),
-            "sha3_256" => Some(32),
-            "sha3_384" => Some(48),
-            "sha3_512" => Some(64),
-            "blake2b" => Some(64),
-            "blake2s" => Some(32),
-            _ => None,
-        }
-    }
-
     fn unsupported_hash(name: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception_msg(
             UnsupportedDigestmodError::static_type().to_owned(),
@@ -259,30 +245,204 @@ pub(crate) mod _hashlib {
         )
     }
 
-    // Object-safe HMAC trait for type-erased dispatch
-    trait DynHmac: Send + Sync {
-        fn dyn_update(&mut self, data: &[u8]);
-        fn dyn_finalize(&self) -> Vec<u8>;
-        fn dyn_clone(&self) -> Box<dyn DynHmac>;
+    fn shake_block_size(name: &str) -> Option<usize> {
+        // SHAKE128: 1344 / 8 = 168
+        // SHAKE256: 1088 / 8 = 136
+        match name {
+            "shake_128" => Some(168),
+            "shake_256" => Some(136),
+            _ => None,
+        }
     }
 
-    struct TypedHmac<D>(D);
+    fn hasher_block_size(name: &str) -> usize {
+        shake_block_size(name)
+            .or_else(|| backend::digest_block_size(name))
+            .unwrap_or(0)
+    }
 
-    impl<D> DynHmac for TypedHmac<D>
-    where
-        D: Mac + Clone + Send + Sync + 'static,
-    {
-        fn dyn_update(&mut self, data: &[u8]) {
-            Mac::update(&mut self.0, data);
+    #[repr(C, align(16))]
+    #[repr(align(16))]
+    struct RawHashState {
+        words: [MaybeUninit<usize>; backend::HASH_STATE_STORAGE_WORDS],
+    }
+
+    const _: () = assert!(align_of::<RawHashState>() >= backend::HASH_STATE_STORAGE_ALIGN);
+
+    struct HashCtx {
+        raw: Box<RawHashState>,
+    }
+
+    // SAFETY: `raw` holds a `Mutex<HashState>` written by `state_init`.
+    unsafe impl Send for HashCtx {}
+    unsafe impl Sync for HashCtx {}
+
+    impl HashCtx {
+        fn new(name: &str) -> Option<Self> {
+            let mut raw = Box::new(RawHashState {
+                words: [MaybeUninit::uninit(); backend::HASH_STATE_STORAGE_WORDS],
+            });
+            let ok = unsafe {
+                backend::state_init(
+                    raw.words.as_mut_ptr().cast(),
+                    backend::HASH_STATE_STORAGE_WORDS,
+                    name,
+                )
+            };
+            ok.then(|| Self { raw })
         }
 
-        fn dyn_finalize(&self) -> Vec<u8> {
-            self.0.clone().finalize().into_bytes().to_vec()
+        #[allow(clippy::too_many_arguments)]
+        fn new_blake2(
+            name: &str,
+            digest_size: usize,
+            key: &[u8],
+            salt: &[u8],
+            person: &[u8],
+            fanout: u8,
+            depth: u8,
+            leaf_size: u32,
+            node_offset: u64,
+            node_depth: u8,
+            inner_size: usize,
+            last_node: bool,
+        ) -> Option<Self> {
+            let mut raw = Box::new(RawHashState {
+                words: [MaybeUninit::uninit(); backend::HASH_STATE_STORAGE_WORDS],
+            });
+            let ok = unsafe {
+                backend::state_init_blake2(
+                    raw.words.as_mut_ptr().cast(),
+                    backend::HASH_STATE_STORAGE_WORDS,
+                    name,
+                    digest_size,
+                    key,
+                    salt,
+                    person,
+                    fanout,
+                    depth,
+                    leaf_size,
+                    node_offset,
+                    node_depth,
+                    inner_size,
+                    last_node,
+                )
+            };
+            ok.then(|| Self { raw })
         }
 
-        fn dyn_clone(&self) -> Box<dyn DynHmac> {
-            Box::new(Self(self.0.clone()))
+        fn ptr(&self) -> *mut usize {
+            self.raw.words.as_ptr().cast_mut().cast()
         }
+
+        fn update(&self, data: &[u8]) {
+            unsafe {
+                backend::state_update(self.ptr(), backend::HASH_STATE_STORAGE_WORDS, data);
+            }
+        }
+
+        fn digest(&self, length: usize) -> Vec<u8> {
+            unsafe { backend::state_digest(self.ptr(), backend::HASH_STATE_STORAGE_WORDS, length) }
+        }
+
+        fn copy(&self) -> Self {
+            let mut dst = Box::new(RawHashState {
+                words: [MaybeUninit::uninit(); backend::HASH_STATE_STORAGE_WORDS],
+            });
+            unsafe {
+                backend::state_copy(
+                    self.ptr(),
+                    dst.words.as_mut_ptr().cast(),
+                    backend::HASH_STATE_STORAGE_WORDS,
+                );
+            }
+            Self { raw: dst }
+        }
+    }
+
+    impl Drop for HashCtx {
+        fn drop(&mut self) {
+            unsafe {
+                backend::state_drop(self.ptr(), backend::HASH_STATE_STORAGE_WORDS);
+            }
+        }
+    }
+
+    #[repr(C, align(16))]
+    #[repr(align(16))]
+    struct RawHmacState {
+        words: [MaybeUninit<usize>; backend::HMAC_STATE_STORAGE_WORDS],
+    }
+
+    const _: () = assert!(align_of::<RawHmacState>() >= backend::HMAC_STATE_STORAGE_ALIGN);
+
+    struct HmacCtx {
+        raw: Box<RawHmacState>,
+    }
+
+    // SAFETY: `raw` holds a `Mutex<HmacState>` written by `hmac_state_init`.
+    unsafe impl Send for HmacCtx {}
+    unsafe impl Sync for HmacCtx {}
+
+    impl HmacCtx {
+        fn new(name: &str, key: &[u8]) -> Option<Self> {
+            let mut raw = Box::new(RawHmacState {
+                words: [MaybeUninit::uninit(); backend::HMAC_STATE_STORAGE_WORDS],
+            });
+            let ok = unsafe {
+                backend::hmac_state_init(
+                    raw.words.as_mut_ptr().cast(),
+                    backend::HMAC_STATE_STORAGE_WORDS,
+                    name,
+                    key,
+                )
+            };
+            ok.then(|| Self { raw })
+        }
+
+        fn ptr(&self) -> *mut usize {
+            self.raw.words.as_ptr().cast_mut().cast()
+        }
+
+        fn update(&self, data: &[u8]) {
+            unsafe {
+                backend::hmac_state_update(self.ptr(), backend::HMAC_STATE_STORAGE_WORDS, data);
+            }
+        }
+
+        fn digest(&self) -> Vec<u8> {
+            unsafe { backend::hmac_state_digest(self.ptr(), backend::HMAC_STATE_STORAGE_WORDS) }
+        }
+
+        fn copy(&self) -> Self {
+            let mut dst = Box::new(RawHmacState {
+                words: [MaybeUninit::uninit(); backend::HMAC_STATE_STORAGE_WORDS],
+            });
+            unsafe {
+                backend::hmac_state_copy(
+                    self.ptr(),
+                    dst.words.as_mut_ptr().cast(),
+                    backend::HMAC_STATE_STORAGE_WORDS,
+                );
+            }
+            Self { raw: dst }
+        }
+    }
+
+    impl Drop for HmacCtx {
+        fn drop(&mut self) {
+            unsafe {
+                backend::hmac_state_drop(self.ptr(), backend::HMAC_STATE_STORAGE_WORDS);
+            }
+        }
+    }
+
+    fn hash_ctx_from_data(name: &str, data: OptionalArg<ArgBytesLike>) -> Option<HashCtx> {
+        let ctx = HashCtx::new(name)?;
+        if let OptionalArg::Present(d) = data {
+            d.with_ref(|bytes| ctx.update(bytes));
+        }
+        Some(ctx)
     }
 
     #[pyattr]
@@ -292,7 +452,7 @@ pub(crate) mod _hashlib {
         algo_name: String,
         digest_size: usize,
         block_size: usize,
-        ctx: PyRwLock<Box<dyn DynHmac>>,
+        ctx: HmacCtx,
     }
 
     impl core::fmt::Debug for PyHmac {
@@ -325,17 +485,17 @@ pub(crate) mod _hashlib {
 
         #[pymethod]
         fn update(&self, msg: ArgBytesLike) {
-            msg.with_ref(|bytes| self.ctx.write().dyn_update(bytes));
+            msg.with_ref(|bytes| self.ctx.update(bytes));
         }
 
         #[pymethod]
         fn digest(&self) -> PyBytes {
-            self.ctx.read().dyn_finalize().into()
+            self.ctx.digest().into()
         }
 
         #[pymethod]
         fn hexdigest(&self) -> String {
-            hex::encode(self.ctx.read().dyn_finalize())
+            hex::encode(self.ctx.digest())
         }
 
         #[pymethod]
@@ -344,7 +504,7 @@ pub(crate) mod _hashlib {
                 algo_name: self.algo_name.clone(),
                 digest_size: self.digest_size,
                 block_size: self.block_size,
-                ctx: PyRwLock::new(self.ctx.read().dyn_clone()),
+                ctx: self.ctx.copy(),
             }
         }
     }
@@ -363,7 +523,8 @@ pub(crate) mod _hashlib {
     #[derive(PyPayload)]
     pub(crate) struct PyHasher {
         pub name: String,
-        pub ctx: PyRwLock<HashWrapper>,
+        digest_size: usize,
+        ctx: HashCtx,
     }
 
     impl core::fmt::Debug for PyHasher {
@@ -374,10 +535,11 @@ pub(crate) mod _hashlib {
 
     #[pyclass(with(Representable), flags(IMMUTABLETYPE))]
     impl PyHasher {
-        fn new(name: &str, d: HashWrapper) -> Self {
+        fn new(name: &str, ctx: HashCtx, digest_size: usize) -> Self {
             Self {
                 name: name.to_owned(),
-                ctx: PyRwLock::new(d),
+                digest_size,
+                ctx,
             }
         }
 
@@ -393,17 +555,17 @@ pub(crate) mod _hashlib {
 
         #[pygetset]
         fn digest_size(&self) -> usize {
-            self.ctx.read().digest_size()
+            self.digest_size
         }
 
         #[pygetset]
         fn block_size(&self) -> usize {
-            self.ctx.read().block_size()
+            hasher_block_size(&self.name)
         }
 
         #[pygetset]
         fn _capacity_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
-            let block_size = self.ctx.read().block_size();
+            let block_size = hasher_block_size(&self.name);
             match keccak_capacity_bits(&self.name, block_size) {
                 Some(capacity) => Ok(capacity),
                 None => missing_hash_attribute(vm, "HASH", "_capacity_bits"),
@@ -412,7 +574,7 @@ pub(crate) mod _hashlib {
 
         #[pygetset]
         fn _rate_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
-            let block_size = self.ctx.read().block_size();
+            let block_size = hasher_block_size(&self.name);
             match keccak_rate_bits(&self.name, block_size) {
                 Some(rate) => Ok(rate),
                 None => missing_hash_attribute(vm, "HASH", "_rate_bits"),
@@ -429,22 +591,22 @@ pub(crate) mod _hashlib {
 
         #[pymethod]
         fn update(&self, data: ArgBytesLike) {
-            data.with_ref(|bytes| self.ctx.write().update(bytes));
+            data.with_ref(|bytes| self.ctx.update(bytes));
         }
 
         #[pymethod]
         fn digest(&self) -> PyBytes {
-            self.ctx.read().finalize().into()
+            self.ctx.digest(self.digest_size).into()
         }
 
         #[pymethod]
         fn hexdigest(&self) -> String {
-            hex::encode(self.ctx.read().finalize())
+            hex::encode(self.ctx.digest(self.digest_size))
         }
 
         #[pymethod]
         fn copy(&self) -> Self {
-            Self::new(&self.name, self.ctx.read().clone())
+            Self::new(&self.name, self.ctx.copy(), self.digest_size)
         }
     }
 
@@ -462,7 +624,7 @@ pub(crate) mod _hashlib {
     #[derive(PyPayload)]
     pub(crate) struct PyHasherXof {
         name: String,
-        ctx: PyRwLock<HashXofWrapper>,
+        ctx: HashCtx,
     }
 
     impl core::fmt::Debug for PyHasherXof {
@@ -473,10 +635,10 @@ pub(crate) mod _hashlib {
 
     #[pyclass(with(Representable), flags(IMMUTABLETYPE))]
     impl PyHasherXof {
-        fn new(name: &str, d: HashXofWrapper) -> Self {
+        fn new(name: &str, ctx: HashCtx) -> Self {
             Self {
                 name: name.to_owned(),
-                ctx: PyRwLock::new(d),
+                ctx,
             }
         }
 
@@ -497,12 +659,12 @@ pub(crate) mod _hashlib {
 
         #[pygetset]
         fn block_size(&self) -> usize {
-            self.ctx.read().block_size()
+            hasher_block_size(&self.name)
         }
 
         #[pygetset]
         fn _capacity_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
-            let block_size = self.ctx.read().block_size();
+            let block_size = hasher_block_size(&self.name);
             match keccak_capacity_bits(&self.name, block_size) {
                 Some(capacity) => Ok(capacity),
                 None => missing_hash_attribute(vm, "HASHXOF", "_capacity_bits"),
@@ -511,7 +673,7 @@ pub(crate) mod _hashlib {
 
         #[pygetset]
         fn _rate_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
-            let block_size = self.ctx.read().block_size();
+            let block_size = hasher_block_size(&self.name);
             match keccak_rate_bits(&self.name, block_size) {
                 Some(rate) => Ok(rate),
                 None => missing_hash_attribute(vm, "HASHXOF", "_rate_bits"),
@@ -528,22 +690,22 @@ pub(crate) mod _hashlib {
 
         #[pymethod]
         fn update(&self, data: ArgBytesLike) {
-            data.with_ref(|bytes| self.ctx.write().update(bytes));
+            data.with_ref(|bytes| self.ctx.update(bytes));
         }
 
         #[pymethod]
         fn digest(&self, args: XofDigestArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
-            Ok(self.ctx.read().finalize_xof(args.length(vm)?).into())
+            Ok(self.ctx.digest(args.length(vm)?).into())
         }
 
         #[pymethod]
         fn hexdigest(&self, args: XofDigestArgs, vm: &VirtualMachine) -> PyResult<String> {
-            Ok(hex::encode(self.ctx.read().finalize_xof(args.length(vm)?)))
+            Ok(hex::encode(self.ctx.digest(args.length(vm)?)))
         }
 
         #[pymethod]
         fn copy(&self) -> Self {
-            Self::new(&self.name, self.ctx.read().clone())
+            Self::new(&self.name, self.ctx.copy())
         }
     }
 
@@ -556,50 +718,39 @@ pub(crate) mod _hashlib {
         }
     }
 
+    fn new_fixed_hasher(name: &'static str, data: OptionalArg<ArgBytesLike>) -> PyHasher {
+        PyHasher::new(
+            name,
+            hash_ctx_from_data(name, data).expect("canonical digest name"),
+            backend::digest_output_size(name).unwrap_or(0),
+        )
+    }
+
+    fn new_xof_hasher(name: &'static str, data: OptionalArg<ArgBytesLike>) -> PyHasherXof {
+        PyHasherXof::new(
+            name,
+            hash_ctx_from_data(name, data).expect("canonical digest name"),
+        )
+    }
+
     #[pyfunction(name = "new")]
     fn hashlib_new(args: NewHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let data = resolve_data(args.data, args.string, vm)?;
         match args.name.as_str().to_lowercase().as_str() {
-            "md5" => Ok(PyHasher::new("md5", HashWrapper::new::<Md5>(data)).into_pyobject(vm)),
-            "sha1" => Ok(PyHasher::new("sha1", HashWrapper::new::<Sha1>(data)).into_pyobject(vm)),
-            "sha224" => {
-                Ok(PyHasher::new("sha224", HashWrapper::new::<Sha224>(data)).into_pyobject(vm))
-            }
-            "sha256" => {
-                Ok(PyHasher::new("sha256", HashWrapper::new::<Sha256>(data)).into_pyobject(vm))
-            }
-            "sha384" => {
-                Ok(PyHasher::new("sha384", HashWrapper::new::<Sha384>(data)).into_pyobject(vm))
-            }
-            "sha512" => {
-                Ok(PyHasher::new("sha512", HashWrapper::new::<Sha512>(data)).into_pyobject(vm))
-            }
-            "sha3_224" => {
-                Ok(PyHasher::new("sha3_224", HashWrapper::new::<Sha3_224>(data)).into_pyobject(vm))
-            }
-            "sha3_256" => {
-                Ok(PyHasher::new("sha3_256", HashWrapper::new::<Sha3_256>(data)).into_pyobject(vm))
-            }
-            "sha3_384" => {
-                Ok(PyHasher::new("sha3_384", HashWrapper::new::<Sha3_384>(data)).into_pyobject(vm))
-            }
-            "sha3_512" => {
-                Ok(PyHasher::new("sha3_512", HashWrapper::new::<Sha3_512>(data)).into_pyobject(vm))
-            }
-            "shake_128" => Ok(
-                PyHasherXof::new("shake_128", HashXofWrapper::new_shake_128(data))
-                    .into_pyobject(vm),
-            ),
-            "shake_256" => Ok(
-                PyHasherXof::new("shake_256", HashXofWrapper::new_shake_256(data))
-                    .into_pyobject(vm),
-            ),
-            "blake2b" => Ok(
-                PyHasher::new("blake2b", HashWrapper::new::<Blake2b512>(data)).into_pyobject(vm),
-            ),
-            "blake2s" => Ok(
-                PyHasher::new("blake2s", HashWrapper::new::<Blake2s256>(data)).into_pyobject(vm),
-            ),
+            "md5" => Ok(new_fixed_hasher("md5", data).into_pyobject(vm)),
+            "sha1" => Ok(new_fixed_hasher("sha1", data).into_pyobject(vm)),
+            "sha224" => Ok(new_fixed_hasher("sha224", data).into_pyobject(vm)),
+            "sha256" => Ok(new_fixed_hasher("sha256", data).into_pyobject(vm)),
+            "sha384" => Ok(new_fixed_hasher("sha384", data).into_pyobject(vm)),
+            "sha512" => Ok(new_fixed_hasher("sha512", data).into_pyobject(vm)),
+            "sha3_224" => Ok(new_fixed_hasher("sha3_224", data).into_pyobject(vm)),
+            "sha3_256" => Ok(new_fixed_hasher("sha3_256", data).into_pyobject(vm)),
+            "sha3_384" => Ok(new_fixed_hasher("sha3_384", data).into_pyobject(vm)),
+            "sha3_512" => Ok(new_fixed_hasher("sha3_512", data).into_pyobject(vm)),
+            "shake_128" => Ok(new_xof_hasher("shake_128", data).into_pyobject(vm)),
+            "shake_256" => Ok(new_xof_hasher("shake_256", data).into_pyobject(vm)),
+            "blake2b" => Ok(new_fixed_hasher("blake2b", data).into_pyobject(vm)),
+            "blake2s" => Ok(new_fixed_hasher("blake2s", data).into_pyobject(vm)),
             other => Err(vm.new_value_error(format!("Unknown hashing algorithm: {other}"))),
         }
     }
@@ -607,109 +758,305 @@ pub(crate) mod _hashlib {
     #[pyfunction(name = "openssl_md5")]
     pub(crate) fn local_md5(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new("md5", HashWrapper::new::<Md5>(data)))
+        Ok(new_fixed_hasher("md5", data))
     }
 
     #[pyfunction(name = "openssl_sha1")]
     pub(crate) fn local_sha1(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new("sha1", HashWrapper::new::<Sha1>(data)))
+        Ok(new_fixed_hasher("sha1", data))
     }
 
     #[pyfunction(name = "openssl_sha224")]
     pub(crate) fn local_sha224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new("sha224", HashWrapper::new::<Sha224>(data)))
+        Ok(new_fixed_hasher("sha224", data))
     }
 
     #[pyfunction(name = "openssl_sha256")]
     pub(crate) fn local_sha256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new("sha256", HashWrapper::new::<Sha256>(data)))
+        Ok(new_fixed_hasher("sha256", data))
     }
 
     #[pyfunction(name = "openssl_sha384")]
     pub(crate) fn local_sha384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new("sha384", HashWrapper::new::<Sha384>(data)))
+        Ok(new_fixed_hasher("sha384", data))
     }
 
     #[pyfunction(name = "openssl_sha512")]
     pub(crate) fn local_sha512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new("sha512", HashWrapper::new::<Sha512>(data)))
+        Ok(new_fixed_hasher("sha512", data))
     }
 
     #[pyfunction(name = "openssl_sha3_224")]
     pub(crate) fn local_sha3_224(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new(
-            "sha3_224",
-            HashWrapper::new::<Sha3_224>(data),
-        ))
+        Ok(new_fixed_hasher("sha3_224", data))
     }
 
     #[pyfunction(name = "openssl_sha3_256")]
     pub(crate) fn local_sha3_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new(
-            "sha3_256",
-            HashWrapper::new::<Sha3_256>(data),
-        ))
+        Ok(new_fixed_hasher("sha3_256", data))
     }
 
     #[pyfunction(name = "openssl_sha3_384")]
     pub(crate) fn local_sha3_384(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new(
-            "sha3_384",
-            HashWrapper::new::<Sha3_384>(data),
-        ))
+        Ok(new_fixed_hasher("sha3_384", data))
     }
 
     #[pyfunction(name = "openssl_sha3_512")]
     pub(crate) fn local_sha3_512(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new(
-            "sha3_512",
-            HashWrapper::new::<Sha3_512>(data),
-        ))
+        Ok(new_fixed_hasher("sha3_512", data))
     }
 
     #[pyfunction(name = "openssl_shake_128")]
     pub(crate) fn local_shake_128(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasherXof::new(
-            "shake_128",
-            HashXofWrapper::new_shake_128(data),
-        ))
+        Ok(new_xof_hasher("shake_128", data))
     }
 
     #[pyfunction(name = "openssl_shake_256")]
     pub(crate) fn local_shake_256(args: HashArgs, vm: &VirtualMachine) -> PyResult<PyHasherXof> {
         let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasherXof::new(
-            "shake_256",
-            HashXofWrapper::new_shake_256(data),
-        ))
+        Ok(new_xof_hasher("shake_256", data))
+    }
+
+    fn parse_unsigned_int(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<u64> {
+        let value = obj.try_index(vm)?;
+        if value.as_bigint().sign() == malachite_bigint::Sign::Minus {
+            return Err(vm.new_value_error("Cannot convert negative int"));
+        }
+        value.try_to_primitive(vm)
+    }
+
+    struct Blake2Limits {
+        name: &'static str,
+        display: &'static str,
+        default_digest_size: i64,
+        max_digest_size: usize,
+        max_key_size: usize,
+        max_salt_size: usize,
+        max_person_size: usize,
+        max_node_offset: u64,
+    }
+
+    pub(crate) struct Blake2Hash {
+        name: &'static str,
+        digest_size: usize,
+        ctx: HashCtx,
+    }
+
+    impl Blake2Hash {
+        pub(crate) fn name(&self) -> &'static str {
+            self.name
+        }
+
+        pub(crate) fn digest_size(&self) -> usize {
+            self.digest_size
+        }
+
+        pub(crate) fn block_size(&self) -> usize {
+            hasher_block_size(self.name)
+        }
+
+        pub(crate) fn update(&self, data: &[u8]) {
+            self.ctx.update(data);
+        }
+
+        pub(crate) fn digest(&self) -> Vec<u8> {
+            self.ctx.digest(self.digest_size)
+        }
+
+        pub(crate) fn hexdigest(&self) -> String {
+            hex::encode(self.digest())
+        }
+
+        pub(crate) fn copy(&self) -> Self {
+            Self {
+                name: self.name,
+                digest_size: self.digest_size,
+                ctx: self.ctx.copy(),
+            }
+        }
+
+        fn into_hasher(self) -> PyHasher {
+            PyHasher::new(self.name, self.ctx, self.digest_size)
+        }
+    }
+
+    fn blake2_hasher(
+        limits: Blake2Limits,
+        args: BlakeHashArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<Blake2Hash> {
+        let Blake2Limits {
+            name,
+            display,
+            default_digest_size,
+            max_digest_size,
+            max_key_size,
+            max_salt_size,
+            max_person_size,
+            max_node_offset,
+        } = limits;
+        let data = resolve_data(args.data, args.string, vm)?;
+        let digest_size = args.digest_size.map_or(default_digest_size, |v| v.value);
+        if digest_size < 1 || digest_size as u64 > max_digest_size as u64 {
+            return Err(vm.new_value_error(format!(
+                "digest_size for {display} must be between 1 and {max_digest_size} bytes, here it is {digest_size}"
+            )));
+        }
+        let digest_size = digest_size as usize;
+
+        let empty: &[u8] = &[];
+        let key_buf;
+        let salt_buf;
+        let person_buf;
+        let key = match args.key {
+            OptionalArg::Present(ref buf) => {
+                key_buf = buf.borrow_buf();
+                &*key_buf
+            }
+            OptionalArg::Missing => empty,
+        };
+        let salt = match args.salt {
+            OptionalArg::Present(ref buf) => {
+                salt_buf = buf.borrow_buf();
+                &*salt_buf
+            }
+            OptionalArg::Missing => empty,
+        };
+        let person = match args.person {
+            OptionalArg::Present(ref buf) => {
+                person_buf = buf.borrow_buf();
+                &*person_buf
+            }
+            OptionalArg::Missing => empty,
+        };
+
+        if salt.len() > max_salt_size {
+            return Err(vm.new_value_error(format!("maximum salt length is {max_salt_size} bytes")));
+        }
+        if person.len() > max_person_size {
+            return Err(
+                vm.new_value_error(format!("maximum person length is {max_person_size} bytes"))
+            );
+        }
+
+        let fanout = args.fanout.map_or(1, |v| v.value);
+        if !(0..=255).contains(&fanout) {
+            return Err(vm.new_value_error("fanout must be between 0 and 255"));
+        }
+        let depth = args.depth.map_or(1, |v| v.value);
+        if !(1..=255).contains(&depth) {
+            return Err(vm.new_value_error("depth must be between 1 and 255"));
+        }
+
+        let leaf_size = match args.leaf_size.into_option() {
+            Some(obj) => {
+                let value = parse_unsigned_int(obj, vm)?;
+                u32::try_from(value).map_err(|_| vm.new_overflow_error("leaf_size is too large"))?
+            }
+            None => 0,
+        };
+        let node_offset = match args.node_offset.into_option() {
+            Some(obj) => {
+                let value = parse_unsigned_int(obj, vm)?;
+                if value > max_node_offset {
+                    return Err(vm.new_overflow_error("node_offset is too large"));
+                }
+                value
+            }
+            None => 0,
+        };
+
+        let node_depth = args.node_depth.map_or(0, |v| v.value);
+        if !(0..=255).contains(&node_depth) {
+            return Err(vm.new_value_error("node_depth must be between 0 and 255"));
+        }
+        let inner_size = args.inner_size.map_or(0, |v| v.value);
+        if inner_size < 0 || inner_size as u64 > max_digest_size as u64 {
+            return Err(vm.new_value_error(format!(
+                "inner_size must be between 0 and is {max_digest_size}"
+            )));
+        }
+        if key.len() > max_key_size {
+            return Err(vm.new_value_error(format!("maximum key length is {max_key_size} bytes")));
+        }
+
+        let ctx = HashCtx::new_blake2(
+            name,
+            digest_size,
+            key,
+            salt,
+            person,
+            fanout as u8,
+            depth as u8,
+            leaf_size,
+            node_offset,
+            node_depth as u8,
+            inner_size as usize,
+            args.last_node,
+        )
+        .ok_or_else(|| vm.new_value_error(format!("failed to initialize {name}")))?;
+        if let OptionalArg::Present(d) = data {
+            d.with_ref(|bytes| ctx.update(bytes));
+        }
+        Ok(Blake2Hash {
+            name,
+            digest_size,
+            ctx,
+        })
+    }
+
+    pub(crate) fn local_blake2b(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<Blake2Hash> {
+        blake2_hasher(
+            Blake2Limits {
+                name: "blake2b",
+                display: "Blake2b",
+                default_digest_size: 64,
+                max_digest_size: 64,
+                max_key_size: 64,
+                max_salt_size: 16,
+                max_person_size: 16,
+                max_node_offset: u64::MAX,
+            },
+            args,
+            vm,
+        )
+    }
+
+    pub(crate) fn local_blake2s(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<Blake2Hash> {
+        blake2_hasher(
+            Blake2Limits {
+                name: "blake2s",
+                display: "Blake2s",
+                default_digest_size: 32,
+                max_digest_size: 32,
+                max_key_size: 32,
+                max_salt_size: 8,
+                max_person_size: 8,
+                max_node_offset: (1 << 48) - 1,
+            },
+            args,
+            vm,
+        )
     }
 
     #[pyfunction(name = "openssl_blake2b")]
-    pub(crate) fn local_blake2b(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new(
-            "blake2b",
-            HashWrapper::new::<Blake2b512>(data),
-        ))
+    fn openssl_blake2b(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+        Ok(local_blake2b(args, vm)?.into_hasher())
     }
 
     #[pyfunction(name = "openssl_blake2s")]
-    pub(crate) fn local_blake2s(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
-        let data = resolve_data(args.data, args.string, vm)?;
-        Ok(PyHasher::new(
-            "blake2s",
-            HashWrapper::new::<Blake2s256>(data),
-        ))
+    fn openssl_blake2s(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult<PyHasher> {
+        Ok(local_blake2s(args, vm)?.into_hasher())
     }
 
     #[pyfunction]
@@ -755,6 +1102,28 @@ pub(crate) mod _hashlib {
         digestmod: OptionalArg<PyObjectRef>,
     }
 
+    fn new_hmac(
+        name: String,
+        key: &[u8],
+        msg: Option<&ArgBytesLike>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyHmac> {
+        let digest_size =
+            backend::digest_output_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?;
+        let block_size =
+            backend::digest_block_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?;
+        let ctx = HmacCtx::new(&name, key).ok_or_else(|| unsupported_hash(&name, vm))?;
+        if let Some(m) = msg {
+            m.with_ref(|bytes| ctx.update(bytes));
+        }
+        Ok(PyHmac {
+            algo_name: name,
+            digest_size,
+            block_size,
+            ctx,
+        })
+    }
+
     #[pyfunction]
     fn hmac_new(args: NewHMACHashArgs, vm: &VirtualMachine) -> PyResult<PyHmac> {
         let digestmod = args
@@ -762,70 +1131,19 @@ pub(crate) mod _hashlib {
             .into_option()
             .ok_or_else(|| vm.new_type_error("Missing required parameter 'digestmod'."))?;
         let name = resolve_digestmod(&digestmod, vm)?;
-
         let key_buf = args.key.borrow_buf();
         let msg_data = args.msg.flatten();
-
-        macro_rules! make_hmac {
-            ($hmac:ty, $hash_ty:ty) => {{
-                let mut mac = <$hmac>::new_from_slice(&key_buf)
-                    .map_err(|_| vm.new_value_error("invalid key length".to_owned()))?;
-                if let Some(ref m) = msg_data {
-                    m.with_ref(|bytes| Mac::update(&mut mac, bytes));
-                }
-                Ok(PyHmac {
-                    algo_name: name,
-                    digest_size: <$hash_ty as OutputSizeUser>::output_size(),
-                    block_size: <$hash_ty as BlockSizeUser>::block_size(),
-                    ctx: PyRwLock::new(Box::new(TypedHmac(mac))),
-                })
-            }};
-        }
-
-        match name.as_str() {
-            "md5" => make_hmac!(Hmac<Md5>, Md5),
-            "sha1" => make_hmac!(Hmac<Sha1>, Sha1),
-            "sha224" => make_hmac!(Hmac<Sha224>, Sha224),
-            "sha256" => make_hmac!(Hmac<Sha256>, Sha256),
-            "sha384" => make_hmac!(Hmac<Sha384>, Sha384),
-            "sha512" => make_hmac!(Hmac<Sha512>, Sha512),
-            "sha3_224" => make_hmac!(SimpleHmac<Sha3_224>, Sha3_224),
-            "sha3_256" => make_hmac!(SimpleHmac<Sha3_256>, Sha3_256),
-            "sha3_384" => make_hmac!(SimpleHmac<Sha3_384>, Sha3_384),
-            "sha3_512" => make_hmac!(SimpleHmac<Sha3_512>, Sha3_512),
-            _ => Err(unsupported_hash(&name, vm)),
-        }
+        new_hmac(name, &key_buf, msg_data.as_ref(), vm)
     }
 
     #[pyfunction]
     fn hmac_digest(args: HmacDigestArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
         let name = resolve_digestmod(&args.digest, vm)?;
-
         let key_buf = args.key.borrow_buf();
         let msg_buf = args.msg.borrow_buf();
-
-        macro_rules! do_hmac {
-            ($hmac:ty) => {{
-                let mut mac = <$hmac>::new_from_slice(&key_buf)
-                    .map_err(|_| vm.new_value_error("invalid key length".to_owned()))?;
-                Mac::update(&mut mac, &msg_buf);
-                Ok(mac.finalize().into_bytes().to_vec().into())
-            }};
-        }
-
-        match name.as_str() {
-            "md5" => do_hmac!(Hmac<Md5>),
-            "sha1" => do_hmac!(Hmac<Sha1>),
-            "sha224" => do_hmac!(Hmac<Sha224>),
-            "sha256" => do_hmac!(Hmac<Sha256>),
-            "sha384" => do_hmac!(Hmac<Sha384>),
-            "sha512" => do_hmac!(Hmac<Sha512>),
-            "sha3_224" => do_hmac!(SimpleHmac<Sha3_224>),
-            "sha3_256" => do_hmac!(SimpleHmac<Sha3_256>),
-            "sha3_384" => do_hmac!(SimpleHmac<Sha3_384>),
-            "sha3_512" => do_hmac!(SimpleHmac<Sha3_512>),
-            _ => Err(unsupported_hash(&name, vm)),
-        }
+        let ctx = HmacCtx::new(&name, &key_buf).ok_or_else(|| unsupported_hash(&name, vm))?;
+        ctx.update(&msg_buf);
+        Ok(ctx.digest().into())
     }
 
     #[pyfunction]
@@ -835,12 +1153,12 @@ pub(crate) mod _hashlib {
         if args.iterations < 1 {
             return Err(vm.new_value_error("iteration value must be greater than 0."));
         }
-        let rounds = u32::try_from(args.iterations)
+        let rounds = usize::try_from(args.iterations)
             .map_err(|_| vm.new_overflow_error("iteration value is too great."))?;
 
         let dklen: usize = match args.dklen.into_option() {
             Some(obj) if vm.is_none(&obj) => {
-                hash_digest_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?
+                backend::digest_output_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?
             }
             Some(obj) => {
                 let len: i64 = obj.try_into_value(vm)?;
@@ -850,132 +1168,107 @@ pub(crate) mod _hashlib {
                 i32::try_from(len).map_err(|_| vm.new_overflow_error("key length is too great."))?
                     as usize
             }
-            None => hash_digest_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?,
+            None => {
+                backend::digest_output_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?
+            }
         };
 
         let password_buf = args.password.borrow_buf();
         let salt_buf = args.salt.borrow_buf();
-        let mut dk = vm.new_zeroed_bytes(dklen)?;
-
-        macro_rules! do_pbkdf2 {
-            ($hash_ty:ty) => {{
-                pbkdf2::pbkdf2_hmac::<$hash_ty>(&password_buf, &salt_buf, rounds, &mut dk);
-                Ok(dk.into())
-            }};
-        }
-
-        macro_rules! do_pbkdf2_sha3 {
-            ($hash_ty:ty) => {{
-                pbkdf2::pbkdf2::<SimpleHmac<$hash_ty>>(&password_buf, &salt_buf, rounds, &mut dk)
-                    .map_err(|_| vm.new_value_error("invalid key length."))?;
-                Ok(dk.into())
-            }};
-        }
-
-        match name.as_str() {
-            "md5" => do_pbkdf2!(Md5),
-            "sha1" => do_pbkdf2!(Sha1),
-            "sha224" => do_pbkdf2!(Sha224),
-            "sha256" => do_pbkdf2!(Sha256),
-            "sha384" => do_pbkdf2!(Sha384),
-            "sha512" => do_pbkdf2!(Sha512),
-            "sha3_224" => do_pbkdf2_sha3!(Sha3_224),
-            "sha3_256" => do_pbkdf2_sha3!(Sha3_256),
-            "sha3_384" => do_pbkdf2_sha3!(Sha3_384),
-            "sha3_512" => do_pbkdf2_sha3!(Sha3_512),
-            _ => Err(unsupported_hash(&name, vm)),
-        }
+        let derived = backend::compute_pbkdf2_hmac(&name, &password_buf, &salt_buf, rounds, dklen)
+            .ok_or_else(|| unsupported_hash(&name, vm))?;
+        Ok(derived.into())
     }
 
-    pub trait ThreadSafeDynDigest: DynClone + DynDigest + Sync + Send {}
-    impl<T> ThreadSafeDynDigest for T where T: DynClone + DynDigest + Sync + Send {}
-
-    clone_trait_object!(ThreadSafeDynDigest);
-
-    #[derive(Clone)]
-    pub(crate) struct HashWrapper {
-        block_size: usize,
-        inner: Box<dyn ThreadSafeDynDigest>,
+    #[derive(FromArgs)]
+    struct ScryptArgs {
+        #[pyarg(positional)]
+        password: ArgBytesLike,
+        #[pyarg(named)]
+        salt: ArgBytesLike,
+        #[pyarg(named)]
+        n: ArgPrimitiveIndex<i64>,
+        #[pyarg(named)]
+        r: ArgPrimitiveIndex<i64>,
+        #[pyarg(named)]
+        p: ArgPrimitiveIndex<i64>,
+        #[pyarg(named, default = 0)]
+        maxmem: i64,
+        #[pyarg(named, default = 64)]
+        dklen: i64,
     }
 
-    impl HashWrapper {
-        pub(crate) fn new<D>(data: OptionalArg<ArgBytesLike>) -> Self
-        where
-            D: ThreadSafeDynDigest + BlockSizeUser + Default + 'static,
-        {
-            let mut h = Self {
-                block_size: D::block_size(),
-                inner: Box::<D>::default(),
-            };
-            if let OptionalArg::Present(d) = data {
-                d.with_ref(|bytes| h.update(bytes));
-            }
-            h
+    #[pyfunction]
+    fn scrypt(args: ScryptArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        const INT_MAX: i64 = i32::MAX as i64;
+        const OPENSSL_DEFAULT_SCRYPT_MAXMEM: usize = 32 * 1024 * 1024;
+
+        let password = args.password.borrow_buf();
+        let salt = args.salt.borrow_buf();
+        if password.len() > i32::MAX as usize {
+            return Err(vm.new_overflow_error("password is too long."));
+        }
+        if salt.len() > i32::MAX as usize {
+            return Err(vm.new_overflow_error("salt is too long."));
         }
 
-        fn update(&mut self, data: &[u8]) {
-            self.inner.update(data);
+        let n = u64::try_from(args.n.value).unwrap_or(0);
+        if n < 2 || !n.is_power_of_two() {
+            return Err(vm.new_value_error("n must be a power of 2."));
+        }
+        let log_n = u8::try_from(n.trailing_zeros()).map_err(|_| {
+            vm.new_value_error("Invalid parameter combination for n, r, p, maxmem.")
+        })?;
+
+        let r = u32::try_from(args.r.value)
+            .ok()
+            .filter(|&value| value > 0)
+            .ok_or_else(|| {
+                vm.new_value_error("Invalid parameter combination for n, r, p, maxmem.")
+            })?;
+        let p = u32::try_from(args.p.value)
+            .ok()
+            .filter(|&value| value > 0)
+            .ok_or_else(|| {
+                vm.new_value_error("Invalid parameter combination for n, r, p, maxmem.")
+            })?;
+
+        let maxmem = args.maxmem;
+        if !(0..=INT_MAX).contains(&maxmem) {
+            return Err(vm.new_value_error(format!(
+                "maxmem must be positive and smaller than {INT_MAX}"
+            )));
+        }
+        let dklen = args.dklen;
+        if !(1..=INT_MAX).contains(&dklen) {
+            return Err(vm.new_value_error(format!(
+                "dklen must be greater than 0 and smaller than {INT_MAX}"
+            )));
+        }
+        let dklen = dklen as usize;
+
+        let memory = usize::try_from(n)
+            .ok()
+            .and_then(|n| n.checked_mul(r as usize))
+            .and_then(|v| v.checked_mul(128))
+            .and_then(|v| v.checked_add((p as usize).checked_mul(r as usize)?.checked_mul(128)?))
+            .and_then(|v| v.checked_add((r as usize).checked_mul(256)?))
+            .ok_or_else(|| {
+                vm.new_value_error("Invalid parameter combination for n, r, p, maxmem.")
+            })?;
+        let effective_maxmem = if maxmem == 0 {
+            OPENSSL_DEFAULT_SCRYPT_MAXMEM
+        } else {
+            maxmem as usize
+        };
+        if memory > effective_maxmem {
+            return Err(vm.new_value_error("[digital envelope routines] memory limit exceeded"));
         }
 
-        const fn block_size(&self) -> usize {
-            self.block_size
-        }
-
-        fn digest_size(&self) -> usize {
-            self.inner.output_size()
-        }
-
-        fn finalize(&self) -> Vec<u8> {
-            let cloned = self.inner.box_clone();
-            cloned.finalize().into_vec()
-        }
-    }
-
-    #[derive(Clone)]
-    pub(crate) enum HashXofWrapper {
-        Shake128(Shake128),
-        Shake256(Shake256),
-    }
-
-    impl HashXofWrapper {
-        pub(crate) fn new_shake_128(data: OptionalArg<ArgBytesLike>) -> Self {
-            let mut h = Self::Shake128(Shake128::default());
-            if let OptionalArg::Present(d) = data {
-                d.with_ref(|bytes| h.update(bytes));
-            }
-            h
-        }
-
-        pub(crate) fn new_shake_256(data: OptionalArg<ArgBytesLike>) -> Self {
-            let mut h = Self::Shake256(Shake256::default());
-            if let OptionalArg::Present(d) = data {
-                d.with_ref(|bytes| h.update(bytes));
-            }
-            h
-        }
-
-        fn update(&mut self, data: &[u8]) {
-            match self {
-                Self::Shake128(h) => h.update(data),
-                Self::Shake256(h) => h.update(data),
-            }
-        }
-
-        const fn block_size(&self) -> usize {
-            // https://en.wikipedia.org/wiki/SHA-3#Instances
-            // SHAKE128: 1344 / 8 = 168
-            // SHAKE256: 1088 / 8 = 136
-            match self {
-                Self::Shake128(_) => 168,
-                Self::Shake256(_) => 136,
-            }
-        }
-
-        fn finalize_xof(&self, length: usize) -> Vec<u8> {
-            match self {
-                Self::Shake128(h) => h.clone().finalize_boxed(length).into_vec(),
-                Self::Shake256(h) => h.clone().finalize_boxed(length).into_vec(),
-            }
-        }
+        let derived =
+            backend::compute_scrypt(&password, &salt, log_n, r, p, dklen).ok_or_else(|| {
+                vm.new_value_error("Invalid parameter combination for n, r, p, maxmem.")
+            })?;
+        Ok(derived.into())
     }
 }

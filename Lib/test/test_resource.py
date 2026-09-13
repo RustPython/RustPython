@@ -106,7 +106,6 @@ class ResourceTest(unittest.TestCase):
         except (OverflowError, ValueError):
             pass
 
-    @unittest.skipIf(sys.platform == "darwin", "TODO: RUSTPYTHON; crash")
     @unittest.skipIf(sys.platform == "vxworks",
                      "setting RLIMIT_FSIZE is not supported on VxWorks")
     @unittest.skipUnless(hasattr(resource, 'RLIMIT_FSIZE'), 'requires resource.RLIMIT_FSIZE')
@@ -197,7 +196,6 @@ class ResourceTest(unittest.TestCase):
 
         resource.setrlimit(resource.RLIMIT_CPU, BadSequence())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; module 'resource' has no attribute 'getpagesize'
     def test_pagesize(self):
         pagesize = resource.getpagesize()
         self.assertIsInstance(pagesize, int)

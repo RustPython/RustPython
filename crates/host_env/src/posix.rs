@@ -82,6 +82,15 @@ pub enum PosixSpawnFileAction {
     },
 }
 
+#[cfg(all(
+    any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+    not(target_env = "musl")
+))]
+pub struct PosixSpawnScheduler {
+    pub policy: Option<i32>,
+    pub param: libc::sched_param,
+}
+
 #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
 pub struct PosixSpawnConfig<'a> {
     pub path: &'a CStr,
@@ -94,6 +103,11 @@ pub struct PosixSpawnConfig<'a> {
     pub setsid: bool,
     pub setsigmask: Option<&'a [i32]>,
     pub spawnp: bool,
+    #[cfg(all(
+        any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+        not(target_env = "musl")
+    ))]
+    pub scheduler: Option<PosixSpawnScheduler>,
 }
 
 pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> std::io::Result<()> {
@@ -141,16 +155,6 @@ pub fn symlink(src: &CStr, dst: &CStr) -> std::io::Result<()> {
 #[cfg(not(target_os = "redox"))]
 pub fn chroot(path: &Path) -> std::io::Result<()> {
     nix::unistd::chroot(path).map_err(std::io::Error::from)
-}
-
-#[cfg(not(target_os = "redox"))]
-pub fn unlinkat(dir_fd: i32, path: &CStr) -> std::io::Result<()> {
-    let ret = unsafe { libc::unlinkat(dir_fd, path.as_ptr(), 0) };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
@@ -807,11 +811,15 @@ pub fn setpgid_if_needed(pgid_to_set: libc::pid_t) -> nix::Result<()> {
     Ok(())
 }
 
-pub fn setgroups_if_needed(_groups: Option<&[u32]>) -> nix::Result<()> {
-    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
-    if let Some(groups) = _groups {
-        let groups = groups.iter().copied().map(gid_from_raw).collect::<Vec<_>>();
-        nix::unistd::setgroups(&groups)?;
+pub fn setgroups_if_needed(groups: Option<&[u32]>) -> nix::Result<()> {
+    #[cfg(not(any(target_os = "ios", target_os = "redox")))]
+    if let Some(groups) = groups {
+        // The caller prepares this array before fork.  Call libc directly so
+        // macOS performs the requested operation too, and so the child does
+        // not allocate a second array between fork and exec.
+        let ret =
+            unsafe { libc::setgroups(groups.len() as _, groups.as_ptr().cast::<libc::gid_t>()) };
+        nix::Error::result(ret)?;
     }
     Ok(())
 }
@@ -947,6 +955,20 @@ pub fn waitpid(pid: libc::pid_t, status: &mut i32, opt: i32) -> std::io::Result<
 
 pub fn kill(pid: i32, sig: i32) -> std::io::Result<()> {
     let ret = unsafe { libc::kill(pid, sig) };
+    if ret == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// `killpg(2)`: signal every process in a process group.
+///
+/// Not `kill(-pgid, sig)`: that spelling reads a negative pid, and `kill`
+/// takes its argument from Python where a caller can already pass one, so the
+/// two are not interchangeable at this layer.
+pub fn killpg(pgid: i32, sig: i32) -> std::io::Result<()> {
+    let ret = unsafe { libc::killpg(pgid, sig) };
     if ret == -1 {
         Err(std::io::Error::last_os_error())
     } else {
@@ -1406,10 +1428,6 @@ fn build_posix_spawn_attrs(
             target_os = "illumos",
             target_os = "hurd",
         )))]
-        #[expect(
-            clippy::std_instead_of_core,
-            reason = "false positive: core::io::ErrorKind is unstable (core_io); expect is co-gated with the usage so it is not left unfulfilled on platforms where this block is compiled out"
-        )]
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -1422,6 +1440,32 @@ fn build_posix_spawn_attrs(
         let set = build_sigset(sigs);
         attrp.set_sigmask(&set).map_err(std::io::Error::from)?;
         flags.insert(nix::spawn::PosixSpawnFlags::POSIX_SPAWN_SETSIGMASK);
+    }
+
+    #[cfg(all(
+        any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+        not(target_env = "musl")
+    ))]
+    if let Some(scheduler) = &config.scheduler {
+        // nix does not wrap these yet; the attr type is transparent over
+        // posix_spawnattr_t.
+        let attr_ptr = (&raw mut attrp).cast::<libc::posix_spawnattr_t>();
+        if let Some(policy) = scheduler.policy {
+            let err = unsafe { libc::posix_spawnattr_setschedpolicy(attr_ptr, policy) };
+            if err != 0 {
+                return Err(std::io::Error::from_raw_os_error(err));
+            }
+            flags.insert(nix::spawn::PosixSpawnFlags::from_bits_retain(
+                libc::POSIX_SPAWN_SETSCHEDULER,
+            ));
+        }
+        let err = unsafe { libc::posix_spawnattr_setschedparam(attr_ptr, &scheduler.param) };
+        if err != 0 {
+            return Err(std::io::Error::from_raw_os_error(err));
+        }
+        flags.insert(nix::spawn::PosixSpawnFlags::from_bits_retain(
+            libc::POSIX_SPAWN_SETSCHEDPARAM,
+        ));
     }
 
     if !flags.is_empty() {

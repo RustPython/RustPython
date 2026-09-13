@@ -153,13 +153,11 @@ class CmdLineTest(unittest.TestCase):
             print('Expected output: %r' % expected_msg)
         self.assertIn(expected_msg.encode('utf-8'), err)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dash_c_loader(self):
         rc, out, err = assert_python_ok("-c", "print(__loader__)")
         expected = repr(importlib.machinery.BuiltinImporter).encode("utf-8")
         self.assertIn(expected, out)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_stdin_loader(self):
         # Unfortunately, there's no way to automatically test the fully
         # interactive REPL, since that code path only gets executed when
@@ -234,7 +232,6 @@ class CmdLineTest(unittest.TestCase):
                                importlib.machinery.SourceFileLoader,
                                expected_cwd=script_dir)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_script_abspath(self):
         # pass the script using the relative path, expect the absolute path
         # in __file__
@@ -390,7 +387,6 @@ class CmdLineTest(unittest.TestCase):
                    "be directly executed")
             self._check_import_error(["-m", "test_pkg"], msg, cwd=script_dir)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_issue8202(self):
         # Make sure package __init__ modules see "-m" in sys.argv0 while
         # searching for the module to execute
@@ -659,7 +655,6 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntaxerror_invalid_escape_sequence_multi_line(self):
         script = 'foo = """\\q"""\n'
         with os_helper.temp_dir() as script_dir:
@@ -676,7 +671,6 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntaxerror_null_bytes(self):
         script = "x = '\0' nothing to see here\n';import os;os.system('echo pwnd')\n"
         with os_helper.temp_dir() as script_dir:
@@ -689,7 +683,6 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntaxerror_null_bytes_in_multiline_string(self):
         scripts = ["\n'''\nmultilinestring\0\n'''", "\nf'''\nmultilinestring\0\n'''"] # Both normal and f-strings
         with os_helper.temp_dir() as script_dir:
@@ -791,7 +784,6 @@ class CmdLineTest(unittest.TestCase):
             traceback_lines = stderr.decode().splitlines()
             self.assertIn("No module named script_pkg", traceback_lines[-1])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_nonexisting_script(self):
         # bpo-34783: "./python script.py" must not crash
         # if the script file doesn't exist.
@@ -807,7 +799,6 @@ class CmdLineTest(unittest.TestCase):
         self.assertIn(": can't open file ", err)
         self.assertNotEqual(proc.returncode, 0)
 
-    @unittest.skipIf(sys.platform.startswith("darwin"), "TODO: RUSTPYTHON; Problems with Mac os descriptor")
     @unittest.skipUnless(os.path.exists('/dev/fd/0'), 'requires /dev/fd platform')
     @unittest.skipIf(sys.platform.startswith("freebsd") and
                      os.stat("/dev").st_dev == os.stat("/dev/fd").st_dev,

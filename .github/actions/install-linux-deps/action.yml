@@ -50,14 +50,26 @@ runs:
         GCC_AARCH64_LINUX_GNU: ${{ inputs.gcc-aarch64-linux-gnu }}
         GCC_MINGW_W64_X86_64: ${{ inputs.gcc-mingw-w64-x86-64 }}
       run: |
-        if ! sudo apt-get update; then
-          echo "::warning::apt-get update failed; disabling nonessential Microsoft apt sources and retrying"
+        # `apt-get update` has no deadline of its own, so a source that takes
+        # the connection and then stops answering holds the job rather than
+        # failing it, and the retry below never runs. Bound each attempt and
+        # give the transports a timeout to fail on.
+        apt_update() {
+          sudo timeout 300 apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20 \
+            -o Acquire::https::Timeout=20 \
+            update
+        }
+
+        if ! apt_update; then
+          echo "::warning::apt-get update did not finish; disabling nonessential Microsoft apt sources and retrying"
           for source in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure-cli*; do
             if [ -e "$source" ]; then
               sudo mv "$source" "$source.disabled"
             fi
           done
-          sudo apt-get update
+          apt_update
         fi
 
         packages=()

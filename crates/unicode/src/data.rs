@@ -19,13 +19,20 @@ use icu_properties::props::{
 };
 use rustpython_wtf8::CodePoint;
 
-include!(concat!(env!("OUT_DIR"), "/generated/unicode_3_2.rs"));
-include!(concat!(env!("OUT_DIR"), "/generated/unicode_latest.rs"));
-include!(concat!(env!("OUT_DIR"), "/generated/unicode_num_type.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/algo_names.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/name_lookups.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/bidi_class_3_2.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/binary_props_3_2.rs"));
 include!(concat!(
     env!("OUT_DIR"),
-    "/generated/unicode_numeric_value.rs"
+    "/generated/combining_class_3_2.rs"
 ));
+include!(concat!(env!("OUT_DIR"), "/generated/decomp.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/eaw_3_2.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/gen_cat_3_2.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/membership_3_2.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/numeric_value_3_2.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/num_type_3_2.rs"));
 
 #[derive(Clone, Copy)]
 enum DecompositionType {
@@ -70,7 +77,80 @@ impl DecompositionType {
     }
 }
 
-fn lookup_property<T: Copy>(table: &[(u32, u32, T)], ch: char) -> Option<T> {
+#[derive(Clone, Copy, PartialEq)]
+enum AlgorithmicName {
+    TangutIdeograph,
+}
+
+impl AlgorithmicName {
+    const fn name_base(self) -> &'static str {
+        match self {
+            Self::TangutIdeograph => "TANGUT IDEOGRAPH",
+        }
+    }
+
+    fn to_name(self, ch: char) -> String {
+        match self {
+            Self::TangutIdeograph => format!("{}-{:0X}", self.name_base(), ch as u32),
+        }
+    }
+
+    fn check_name(search_name: &str) -> Option<char> {
+        // CPython compares derived-name prefixes case-insensitively
+        // (`PyOS_strnicmp` in `_getcode`).
+        let folded: String = search_name
+            .chars()
+            .map(|c| c.to_ascii_uppercase())
+            .collect();
+        if let Some(without_base) = folded.strip_prefix(Self::TangutIdeograph.name_base()) {
+            // `parse_hex_code` does not skip spaces around the digits.
+            let hex = without_base.strip_prefix('-')?;
+            // `_getcode` / `parse_hex_code`: 4–6 digits, no leading zero.
+            if hex.len() < 4 || hex.len() > 6 || hex.starts_with('0') {
+                return None;
+            }
+            let cp = u32::from_str_radix(hex, 16).ok()?;
+            let ch = char::from_u32(cp)?;
+            if lookup_table(ALGO_NAMES, ch)? == Self::TangutIdeograph {
+                return Some(ch);
+            }
+        }
+
+        None
+    }
+}
+
+/// Result of `unicodedata.lookup`.
+///
+/// A named sequence is several characters; `\N{...}` only accepts a
+/// single character, so `lookup_character` drops `Sequence`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LookupResult {
+    Character(char),
+    Sequence(&'static str),
+}
+
+fn fold_lookup_name(name: &str) -> String {
+    name.chars().map(|c| c.to_ascii_uppercase()).collect()
+}
+
+fn lookup_alias(name: &str) -> Option<char> {
+    let key = fold_lookup_name(name);
+    NAME_ALIASES
+        .binary_search_by_key(&key.as_str(), |(n, _)| *n)
+        .ok()
+        .map(|i| NAME_ALIASES[i].1)
+}
+
+fn lookup_named_sequence(name: &str) -> Option<&'static str> {
+    let key = fold_lookup_name(name);
+    NAMED_SEQUENCES
+        .binary_search_by_key(&key.as_str(), |(n, _)| *n)
+        .ok()
+        .map(|i| NAMED_SEQUENCES[i].1)
+}
+
+fn lookup_table<T: Copy>(table: &[(u32, u32, T)], ch: char) -> Option<T> {
     let ch = ch as u32;
     table
         .binary_search_by(|&(start, end, _)| {
@@ -86,25 +166,37 @@ fn lookup_property<T: Copy>(table: &[(u32, u32, T)], ch: char) -> Option<T> {
         .map(|i| table[i].2)
 }
 
-fn lookup_numeric_val(ch: char, modern: bool) -> Option<f64> {
+#[cold]
+#[inline(never)]
+#[must_use]
+pub fn membership_3_2(ch: u32) -> bool {
+    MEMBERSHIP_3_2
+        .binary_search_by(|&(start, end)| {
+            if ch > end {
+                Ordering::Less
+            } else if ch < start {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            }
+        })
+        .is_ok()
+}
+
+fn lookup_property_diff<T: Copy>(
+    table: &[(u32, u32, T)],
+    diff: &[(u32, u32, T)],
+    ch: char,
+    modern: bool,
+) -> Option<T> {
     if modern {
-        lookup_property(NUMERIC_VALUES, ch)
+        lookup_table(table, ch)
     } else {
         cold_path();
-        lookup_property(NUMERIC_VALUES_DIFF, ch).or_else(|| {
-            NUMERIC_VAL_EXISTS_32
-                .binary_search_by(|&(start, end)| {
-                    let ch = ch as u32;
-                    if ch > end {
-                        Ordering::Less
-                    } else if ch < start {
-                        Ordering::Greater
-                    } else {
-                        Ordering::Equal
-                    }
-                })
-                .ok()
-                .and_then(|_| lookup_property(NUMERIC_VALUES, ch))
+        lookup_table(diff, ch).or_else(|| {
+            membership_3_2(ch as u32)
+                .then(|| lookup_table(table, ch))
+                .flatten()
         })
     }
 }
@@ -121,13 +213,32 @@ pub fn unicode_version() -> String {
     )
 }
 
-/// Look up a character by its Unicode name (`unicodedata.lookup`).
-pub use unicode_names2::character as lookup_character;
+/// Look up a name in the latest UCD (`unicodedata.lookup`).
+///
+/// Named sequences are included; `\N{...}` should use [`lookup_character`]
+/// so a sequence is reported as unknown.
+#[must_use]
+pub fn lookup_name(search_name: &str) -> Option<LookupResult> {
+    Ucd::new(true).lookup(search_name)
+}
+
+/// Look up a single character by its Unicode name (`\N{...}`).
+///
+/// Named sequences are not characters and so do not resolve.
+#[must_use]
+pub fn lookup_character(search_name: &str) -> Option<char> {
+    match lookup_name(search_name) {
+        Some(LookupResult::Character(ch)) => Some(ch),
+        Some(LookupResult::Sequence(_)) | None => None,
+    }
+}
 
 /// The Unicode name of `ch` (`unicodedata.name`), if any.
 #[must_use]
 pub fn character_name(ch: char) -> Option<String> {
-    unicode_names2::name(ch).map(|name| name.to_string())
+    unicode_names2::name(ch)
+        .map(|name| name.to_string())
+        .or_else(|| lookup_table(ALGO_NAMES, ch).map(|v| v.to_name(ch)))
 }
 
 /// A view over the Unicode character database at a fixed version.
@@ -146,6 +257,37 @@ impl Ucd {
     }
 
     #[must_use]
+    pub fn membership(self, ch: char) -> bool {
+        if !self.modern {
+            cold_path();
+            membership_3_2(ch as u32)
+        } else {
+            // Rust chars always "exist" for modern Unicode or else they wouldn't be chars.
+            true
+        }
+    }
+
+    /// Look up `name` in this UCD view.
+    ///
+    /// Unicode 3.2.0 has no name aliases and no named sequences
+    /// (`unicodedata.ucd_3_2_0.lookup`).
+    #[must_use]
+    pub fn lookup(self, search_name: &str) -> Option<LookupResult> {
+        if let Some(ch) = unicode_names2::character(search_name)
+            .or_else(|| AlgorithmicName::check_name(search_name))
+        {
+            return self.membership(ch).then_some(LookupResult::Character(ch));
+        }
+        if !self.modern {
+            return None;
+        }
+        if let Some(ch) = lookup_alias(search_name) {
+            return Some(LookupResult::Character(ch));
+        }
+        lookup_named_sequence(search_name).map(LookupResult::Sequence)
+    }
+
+    #[must_use]
     pub fn category(&self, c: CodePoint) -> &'static str {
         let Some(c) = c.to_char() else {
             return GeneralCategory::Surrogate.short_name();
@@ -154,7 +296,7 @@ impl Ucd {
             Some(GeneralCategory::for_char(c))
         } else {
             cold_path();
-            lookup_property(GENERAL_CATEGORY, c)
+            lookup_table(GENERAL_CATEGORY, c)
         }
         .unwrap_or(GeneralCategory::Unassigned)
         .short_name()
@@ -168,11 +310,13 @@ impl Ucd {
                     Some(BidiClass::for_char(c))
                 } else {
                     cold_path();
-                    lookup_property(BIDI_CLASS, c)
+                    lookup_table(BIDI_CLASS_DIFF, c)
+                        .or_else(|| membership_3_2(c as u32).then(|| BidiClass::for_char(c)))
                 }
             })
-            .unwrap_or(BidiClass::LeftToRight)
-            .short_name()
+            .as_ref()
+            .map(BidiClass::short_name)
+            .unwrap_or_default()
     }
 
     #[must_use]
@@ -192,7 +336,7 @@ impl Ucd {
                     //
                     // Currently, this implementation is incomplete because I can't figure
                     // out what CPython is doing.
-                    lookup_property(EAST_ASIAN_WIDTH, c)
+                    lookup_table(EAST_ASIAN_WIDTH, c)
                 }
             })
             .unwrap_or(EastAsianWidth::Neutral)
@@ -230,7 +374,7 @@ impl Ucd {
                     Some(CanonicalCombiningClass::for_char(c))
                 } else {
                     cold_path();
-                    lookup_property(COMBINING_CLASS, c)
+                    lookup_table(COMBINING_CLASS, c)
                 }
             })
             .unwrap_or(CanonicalCombiningClass::NotReordered)
@@ -296,7 +440,7 @@ impl Ucd {
             NumericType::for_char(ch)
         } else {
             cold_path();
-            lookup_property(NUMERIC_TYPE_DIFF, ch).unwrap_or_else(|| NumericType::for_char(ch))
+            lookup_table(NUMERIC_TYPE_DIFF, ch).unwrap_or_else(|| NumericType::for_char(ch))
         };
 
         expected.contains(&actual).then_some(ch)
@@ -307,7 +451,7 @@ impl Ucd {
     pub fn digit(&self, c: CodePoint) -> Option<u64> {
         let expected = [NumericType::Decimal, NumericType::Digit];
         self.numeric_type_matches(c, &expected).and_then(|ch| {
-            let value = lookup_numeric_val(ch, true)?;
+            let value = lookup_property_diff(NUMERIC_VALUES, &[], ch, true)?;
             let int = value as u64;
             (int as f64 == value).then_some(int)
         })
@@ -318,7 +462,7 @@ impl Ucd {
     pub fn decimal(&self, c: CodePoint) -> Option<u64> {
         let expected = [NumericType::Decimal];
         self.numeric_type_matches(c, &expected).and_then(|ch| {
-            let value = lookup_numeric_val(ch, self.modern)?;
+            let value = lookup_property_diff(NUMERIC_VALUES, NUMERIC_VALUES_DIFF, ch, self.modern)?;
             let int = value as u64;
             (int as f64 == value).then_some(int)
         })
@@ -328,8 +472,9 @@ impl Ucd {
     #[must_use]
     pub fn numeric(&self, c: CodePoint) -> Option<f64> {
         let expected = &NumericType::ALL_VALUES[1..];
-        self.numeric_type_matches(c, expected)
-            .and_then(|ch| lookup_numeric_val(ch, self.modern))
+        self.numeric_type_matches(c, expected).and_then(|ch| {
+            lookup_property_diff(NUMERIC_VALUES, NUMERIC_VALUES_DIFF, ch, self.modern)
+        })
     }
 
     #[must_use]
@@ -346,7 +491,7 @@ impl Ucd {
 mod tests {
     use rustpython_wtf8::CodePoint;
 
-    use super::{Ucd, character_name, lookup_character};
+    use super::{LookupResult, Ucd, character_name, lookup_character, lookup_name};
 
     fn cp(ch: char) -> CodePoint {
         CodePoint::from(ch)
@@ -361,13 +506,65 @@ mod tests {
         assert_eq!(character_name('☃').as_deref(), Some("SNOWMAN"));
         assert_eq!(ucd.decimal(cp('५')), Some(5));
         assert_eq!(ucd.digit(cp('²')), Some(2));
-        let third = ucd.numeric(cp('⅓')).unwrap();
-        assert!((third - 1.0 / 3.0).abs() < 1e-6, "got {third}");
+        assert_eq!(ucd.numeric(cp('⅓')), Some(1.0 / 3.0));
+        assert_eq!(ucd.numeric(cp('⅐')), Some(1.0 / 7.0));
     }
 
     #[test]
     fn ucd_3_2_0_view_differs_from_modern() {
         let legacy = Ucd::new(false);
         assert_eq!(legacy.unidata_version(), "3.2.0");
+    }
+
+    #[test]
+    fn name_aliases_resolve_and_do_not_replace_the_official_name() {
+        assert_eq!(
+            lookup_character("LATIN CAPITAL LETTER GHA"),
+            Some('\u{01A2}')
+        );
+        assert_eq!(
+            lookup_character("latin capital letter gha"),
+            Some('\u{01A2}')
+        );
+        assert_eq!(
+            character_name('\u{01A2}').as_deref(),
+            Some("LATIN CAPITAL LETTER OI")
+        );
+        assert_eq!(Ucd::new(false).lookup("LATIN CAPITAL LETTER GHA"), None);
+    }
+
+    #[test]
+    fn named_sequences_resolve_only_on_the_modern_view() {
+        assert_eq!(
+            lookup_name("LATIN SMALL LETTER R WITH TILDE"),
+            Some(LookupResult::Sequence("r\u{0303}"))
+        );
+        assert_eq!(
+            lookup_name("KEYCAP NUMBER SIGN"),
+            Some(LookupResult::Sequence("#\u{FE0F}\u{20E3}"))
+        );
+        assert_eq!(lookup_character("LATIN SMALL LETTER R WITH TILDE"), None);
+        assert_eq!(
+            Ucd::new(false).lookup("LATIN SMALL LETTER R WITH TILDE"),
+            None
+        );
+    }
+
+    #[test]
+    fn tangut_derived_names_are_case_insensitive() {
+        assert_eq!(
+            lookup_character("TANGUT IDEOGRAPH-17000"),
+            Some('\u{17000}')
+        );
+        assert_eq!(
+            lookup_character("tangut ideograph-18d08"),
+            Some('\u{18D08}')
+        );
+        assert_eq!(
+            character_name('\u{17000}').as_deref(),
+            Some("TANGUT IDEOGRAPH-17000")
+        );
+        assert_eq!(lookup_character("TANGUT IDEOGRAPH- 17000"), None);
+        assert_eq!(lookup_character("TANGUT IDEOGRAPH-17000 "), None);
     }
 }

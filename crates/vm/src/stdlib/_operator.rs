@@ -5,6 +5,7 @@ mod _operator {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
+        class::PyClassDef,
         common::wtf8::{Wtf8, Wtf8Buf},
         function::{ArgBytesLike, Either, FuncArgs, OptionalArg},
         protocol::PyIter,
@@ -178,7 +179,7 @@ mod _operator {
     #[pyfunction(name = "countOf")]
     fn count_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
-        for element in a.iter_without_hint::<PyObjectRef>(vm)? {
+        for element in a.iter::<PyObjectRef>(vm)? {
             let element = element?;
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 count += 1;
@@ -199,7 +200,7 @@ mod _operator {
 
     #[pyfunction(name = "indexOf")]
     fn index_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        for (index, element) in a.iter_without_hint::<PyObjectRef>(vm)?.enumerate() {
+        for (index, element) in a.iter::<PyObjectRef>(vm)?.enumerate() {
             let element = element?;
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 return Ok(index);
@@ -400,7 +401,7 @@ mod _operator {
                 return Err(vm.new_type_error("attrgetter() takes no keyword arguments"));
             }
             if n_attr == 0 {
-                return Err(vm.new_type_error("attrgetter expected 1 argument, got 0."));
+                return Err(vm.new_arity_type_error(Self::NAME, 1..=1, 0));
             }
             let mut attrs = Vec::with_capacity(n_attr);
             for o in args.args {
@@ -486,7 +487,7 @@ mod _operator {
                 return Err(vm.new_type_error("itemgetter() takes no keyword arguments"));
             }
             if args.args.is_empty() {
-                return Err(vm.new_type_error("itemgetter expected 1 argument, got 0."));
+                return Err(vm.new_arity_type_error(Self::NAME, 1..=1, 0));
             }
             Ok(Self { items: args.args })
         }

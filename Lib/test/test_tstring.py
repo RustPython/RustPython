@@ -150,7 +150,6 @@ class TestTString(unittest.TestCase, TStringBaseCase):
         t = tr"{path}\Documents"
         self.assertTStringEqual(t, ("", r"\Documents"), [(path, "path")])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "can only concatenate string.templatelib.Template \(not "str"\) to string.templatelib.Template" does not match "can only concatenate Template (not 'str') to Template"
     def test_template_concatenation(self):
         # Test template + template
         t1 = t"Hello, "
@@ -197,7 +196,6 @@ class TestTString(unittest.TestCase, TStringBaseCase):
         self.assertEqual(t_interp.conversion, None)
         self.assertEqual(t_interp.format_spec, "")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON multiple instances of AssertionError
     def test_syntax_errors(self):
         for case, err in (
             ("t'", "unterminated t-string literal"),
@@ -232,7 +230,6 @@ class TestTString(unittest.TestCase, TStringBaseCase):
         with self.assertRaises(NameError):
             eval("t'Hello, {name}'")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_literal_concatenation(self):
         # Test concatenation of t-string literals
         t = t"Hello, " t"world"

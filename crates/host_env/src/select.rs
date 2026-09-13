@@ -2,7 +2,10 @@ use core::mem::MaybeUninit;
 use std::io;
 
 #[cfg(unix)]
-pub use libc::{EINTR, FD_SETSIZE, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI};
+pub use libc::{
+    EINTR, FD_SETSIZE, PIPE_BUF, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI, POLLRDBAND,
+    POLLRDNORM, POLLWRBAND, POLLWRNORM,
+};
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
 pub use libc::{

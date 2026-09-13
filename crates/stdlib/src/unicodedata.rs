@@ -101,9 +101,12 @@ mod unicodedata {
         #[pymethod]
         fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
             if let Some(name_str) = name.to_str()
-                && let Some(character) = unicode_core::lookup_character(name_str)
+                && let Some(found) = self.inner.lookup(name_str)
             {
-                return Ok(character.to_string());
+                return Ok(match found {
+                    unicode_core::LookupResult::Character(ch) => ch.to_string(),
+                    unicode_core::LookupResult::Sequence(seq) => seq.to_string(),
+                });
             }
             Err(vm.new_key_error(
                 vm.ctx
@@ -119,11 +122,12 @@ mod unicodedata {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            if let Some(name) = self
-                .extract_char(character, vm)?
-                .to_char()
-                .and_then(unicode_core::character_name)
-            {
+            if let Some(name) = self.extract_char(character, vm)?.to_char().and_then(|ch| {
+                self.inner
+                    .membership(ch)
+                    .then(|| unicode_core::character_name(ch))
+                    .flatten()
+            }) {
                 return Ok(vm.ctx.new_str(name).into());
             }
             default.ok_or_else(|| vm.new_value_error("no such name"))

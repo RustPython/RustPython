@@ -2942,10 +2942,6 @@ class CTask_CFuture_Tests(BaseTaskTests, SetMethodsTest,
         with self.assertRaises(AttributeError):
             del task._log_destroy_pending
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Actual: not called.
-    def test_log_destroyed_pending_task(self):
-        return super().test_log_destroyed_pending_task()
-
 
 @unittest.skipUnless(hasattr(futures, '_CFuture') and
                      hasattr(tasks, '_CTask'),
@@ -2958,10 +2954,6 @@ class CTask_CFuture_SubclassTests(BaseTaskTests, test_utils.TestCase):
     all_tasks = getattr(tasks, '_c_all_tasks', None)
     current_task = staticmethod(getattr(tasks, '_c_current_task', None))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Actual: not called.
-    def test_log_destroyed_pending_task(self):
-        return super().test_log_destroyed_pending_task()
-
 
 @unittest.skipUnless(hasattr(tasks, '_CTask'),
                      'requires the C _asyncio module')
@@ -2972,10 +2964,6 @@ class CTaskSubclass_PyFuture_Tests(BaseTaskTests, test_utils.TestCase):
     Future = futures._PyFuture
     all_tasks = getattr(tasks, '_c_all_tasks', None)
     current_task = staticmethod(getattr(tasks, '_c_current_task', None))
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Actual: not called.
-    def test_log_destroyed_pending_task(self):
-        return super().test_log_destroyed_pending_task()
 
 
 @unittest.skipUnless(hasattr(futures, '_CFuture'),
@@ -2997,10 +2985,6 @@ class CTask_PyFuture_Tests(BaseTaskTests, test_utils.TestCase):
     Future = futures._PyFuture
     all_tasks = getattr(tasks, '_c_all_tasks', None)
     current_task = staticmethod(getattr(tasks, '_c_current_task', None))
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Actual: not called.
-    def test_log_destroyed_pending_task(self):
-        return super().test_log_destroyed_pending_task()
 
 
 @unittest.skipUnless(hasattr(futures, '_CFuture'),

@@ -6,6 +6,7 @@ pub use rustpython_host_env::posix::set_inheritable;
 
 #[pymodule(name = "posix", with(
     super::os::_os,
+    super::posix_unix_like::_posix_unix_like,
     #[cfg(any(
         target_os = "linux",
         target_os = "netbsd",
@@ -17,14 +18,13 @@ pub use rustpython_host_env::posix::set_inheritable;
 pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyTupleRef, PyUtf8Str},
+        builtins::{PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
         function::{ArgMapping, Either, KwArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
-            _os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata,
-            warn_if_bool_fd,
+            _os, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata, warn_if_bool_fd,
         },
     };
     #[cfg(any(
@@ -384,18 +384,6 @@ pub mod module {
             .map_err(|err| err.to_pyexception(vm))
     }
 
-    #[pyattr]
-    fn environ(vm: &VirtualMachine) -> PyDictRef {
-        let environ = vm.ctx.new_dict();
-        for (key, value) in crate::host_env::os::vars_os() {
-            let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
-            let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
-            environ.set_item(&*key, value, vm).unwrap();
-        }
-
-        environ
-    }
-
     #[pyfunction]
     fn _create_environ(vm: &VirtualMachine) -> PyDictRef {
         let environ = vm.ctx.new_dict();
@@ -405,16 +393,6 @@ pub mod module {
             environ.set_item(&*key, value, vm).unwrap();
         }
         environ
-    }
-
-    #[derive(FromArgs)]
-    pub(super) struct SymlinkArgs<'fd> {
-        src: OsPath,
-        dst: OsPath,
-        #[pyarg(flatten)]
-        _target_is_directory: TargetIsDirectory,
-        #[pyarg(flatten)]
-        dir_fd: DirFd<'fd, { _os::SYMLINK_DIR_FD as usize }>,
     }
 
     #[pyfunction]
@@ -431,25 +409,6 @@ pub mod module {
             let [] = args.dir_fd.0;
             rustpython_host_env::posix::symlink(&src, &dst).map_err(|err| err.into_pyexception(vm))
         }
-    }
-
-    #[pyfunction]
-    #[pyfunction(name = "unlink")]
-    fn remove(
-        path: OsPath,
-        dir_fd: DirFd<'_, { _os::UNLINK_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        #[cfg(not(target_os = "redox"))]
-        if let Some(fd) = dir_fd.raw_opt() {
-            let c_path = path.clone().into_cstring(vm)?;
-            return rustpython_host_env::posix::unlinkat(fd, &c_path)
-                .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm));
-        }
-        #[cfg(target_os = "redox")]
-        let [] = dir_fd.0;
-        crate::host_env::fs::remove_file(&path)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -866,6 +825,11 @@ pub mod module {
                 "can't fork at interpreter shutdown".into(),
             ));
         }
+        if !vm.state.allow_fork() {
+            return Err(
+                vm.new_runtime_error("fork not supported for isolated subinterpreters".to_owned())
+            );
+        }
 
         // RustPython does not yet have C-level audit hooks; call sys.audit()
         // to preserve Python-visible behavior and failure semantics.
@@ -1085,6 +1049,11 @@ pub mod module {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
@@ -1109,6 +1078,11 @@ pub mod module {
         env: ArgMapping,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
@@ -1490,7 +1464,7 @@ pub mod module {
         #[pyarg(named, default)]
         setsigmask: Option<crate::function::ArgIterable<i32>>,
         #[pyarg(named, default)]
-        scheduler: Option<PyTupleRef>,
+        scheduler: Option<PyObjectRef>,
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1500,6 +1474,58 @@ pub mod module {
         Open,
         Close,
         Dup2,
+    }
+
+    #[cfg(all(
+        any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+        not(target_env = "musl")
+    ))]
+    fn parse_posix_spawn_scheduler(
+        scheduler: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<rustpython_host_env::posix::PosixSpawnScheduler>> {
+        let Some(obj) = scheduler else {
+            return Ok(None);
+        };
+        if obj.is(&vm.ctx.none()) {
+            return Ok(None);
+        }
+        let Some(tuple) = obj.downcast_ref::<PyTuple>() else {
+            return Err(vm.new_type_error("scheduler must be a tuple or None"));
+        };
+        if tuple.len() != 2 {
+            return Err(vm.new_type_error("A scheduler tuple must have two elements"));
+        }
+        let policy = if tuple[0].is(&vm.ctx.none()) {
+            None
+        } else {
+            Some(i32::try_from_object(vm, tuple[0].clone())?)
+        };
+        let param = super::posix_sched::convert_sched_param(&tuple[1], vm)?;
+        Ok(Some(rustpython_host_env::posix::PosixSpawnScheduler {
+            policy,
+            param,
+        }))
+    }
+
+    #[cfg(any(target_os = "macos", target_env = "musl"))]
+    fn parse_posix_spawn_scheduler(
+        scheduler: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let Some(obj) = scheduler else {
+            return Ok(());
+        };
+        if obj.is(&vm.ctx.none()) {
+            return Ok(());
+        }
+        let Some(tuple) = obj.downcast_ref::<PyTuple>() else {
+            return Err(vm.new_type_error("scheduler must be a tuple or None"));
+        };
+        if tuple.len() != 2 {
+            return Err(vm.new_type_error("A scheduler tuple must have two elements"));
+        }
+        Err(vm.new_not_implemented_error("The scheduler option is not supported in this system."))
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1581,13 +1607,13 @@ pub mod module {
 
             let setsigdef = self.setsigdef.map(&collect_signals).transpose()?;
 
-            if let Some(_scheduler) = self.scheduler {
-                // TODO: Implement scheduler parameter handling
-                // This requires platform-specific sched_param struct handling
-                return Err(
-                    vm.new_not_implemented_error("scheduler parameter is not yet implemented")
-                );
-            }
+            #[cfg(all(
+                any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+                not(target_env = "musl")
+            ))]
+            let scheduler = parse_posix_spawn_scheduler(self.scheduler, vm)?;
+            #[cfg(any(target_os = "macos", target_env = "musl"))]
+            parse_posix_spawn_scheduler(self.scheduler, vm)?;
 
             if self.setsid && !rustpython_host_env::posix::supports_posix_spawn_setsid() {
                 return Err(vm.new_not_implemented_error(
@@ -1629,6 +1655,11 @@ pub mod module {
                 setsid: self.setsid,
                 setsigmask: setsigmask.as_deref(),
                 spawnp,
+                #[cfg(all(
+                    any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+                    not(target_env = "musl")
+                ))]
+                scheduler,
             })
             .map_err(|err| OSErrorBuilder::with_filename(&err, self.path, vm))
         }
@@ -1722,6 +1753,11 @@ pub mod module {
     #[pyfunction]
     fn kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
         rustpython_host_env::posix::kill(pid, sig as i32).map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[pyfunction]
+    fn killpg(pgid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::killpg(pgid, sig as i32).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -2420,6 +2456,7 @@ mod posix_sched {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyTupleRef,
+        class::PyClassDef,
         convert::{IntoPyException, ToPyObject},
         function::FuncArgs,
         types::PyStructSequence,
@@ -2449,7 +2486,7 @@ mod posix_sched {
             vm: &VirtualMachine,
         ) -> PyResult {
             use crate::PyPayload;
-            let SchedParamArgs { sched_priority } = args.bind(vm)?;
+            let SchedParamArgs { sched_priority } = args.bind_for(vm, Self::NAME)?;
             let items = vec![sched_priority];
             crate::builtins::PyTuple::new_unchecked(items.into_boxed_slice())
                 .into_ref_with_type(vm, cls)
@@ -2480,7 +2517,10 @@ mod posix_sched {
     }
 
     #[cfg(not(target_env = "musl"))]
-    fn convert_sched_param(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<libc::sched_param> {
+    pub(super) fn convert_sched_param(
+        obj: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<libc::sched_param> {
         use crate::{
             builtins::{PyInt, PyTuple},
             class::StaticType,

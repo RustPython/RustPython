@@ -8,6 +8,10 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[features]
+native-certs = ["dep:rustls-native-certs"]
+ssl = ["dep:rustls", "dep:rustls-pemfile", "dep:rustls-webpki", "dep:x509-parser", "dep:der", "dep:pkcs8", "dep:sha2"]
+
 [dependencies]
 rustpython-wtf8 = { workspace = true }
 
@@ -18,6 +22,13 @@ num-traits = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 widestring = { workspace = true }
+rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+rustls-webpki = { workspace = true, optional = true }
+x509-parser = { workspace = true, optional = true }
+der = { workspace = true, optional = true }
+pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
+sha2 = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
@@ -35,6 +46,7 @@ mac_address = { workspace = true }
 dns-lookup = { workspace = true }
 gethostname = { workspace = true }
 rustyline = { workspace = true }
+rustls-native-certs = { workspace = true, optional = true }
 socket2 = { workspace = true, features = ["all"] }
 which = { workspace = true }
 
@@ -76,6 +88,7 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Pipes",
     "Win32_System_Performance",
     "Win32_System_Registry",
+    "Win32_System_Rpc",
     "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_System_Threading",
@@ -84,6 +97,9 @@ windows-sys = { workspace = true, features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rustls = { workspace = true, features = ["aws_lc_rs"] }
 
 [build-dependencies]
 cc = "1"

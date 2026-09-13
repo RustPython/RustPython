@@ -19,18 +19,18 @@ sqlite = ["dep:libsqlite3-sys"]
 # SSL backends
 ssl = ["host_env"]
 ssl-rustls = ["__ssl-rustls", "rustls/custom-provider"]
-ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
+ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "rustpython-host_env/native-certs"]
 ssl-openssl-vendor = ["ssl-openssl", "openssl/vendored"]
 tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
 flame-it = ["flame"]
 
-__ssl-rustls = ["ssl", "rustls", "rustls-native-certs", "rustls-pemfile", "rustls-platform-verifier", "x509-cert", "x509-parser", "der", "pem-rfc7468", "webpki-roots", "oid-registry", "pkcs8"]
+__ssl-rustls = ["ssl", "rustpython-host_env/ssl", "rustpython-host_env/native-certs", "rustls", "rustls-pemfile", "x509-parser", "pem-rfc7468", "webpki-roots"]
 
 [dependencies]
 # rustpython crates
 rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
-rustpython-common = { workspace = true }
+rustpython-common = { workspace = true, features = ["binascii", "bz2", "cjk-codecs", "hashlib", "inet", "json", "lzma", "zlib"] }
 rustpython-host_env = { workspace = true }
 rustpython-unicode = { workspace = true }
 
@@ -56,9 +56,7 @@ rapidhash = { workspace = true }
 scopeguard = { workspace = true }
 
 memchr = { workspace = true }
-base64 = { workspace = true }
 csv-core = { workspace = true }
-dyn-clone = { workspace = true }
 pymath = { workspace = true }
 xml = { workspace = true }
 
@@ -67,26 +65,12 @@ rand = { workspace = true }
 mt19937 = { workspace = true }
 
 # Crypto:
-digest = { workspace = true }
-md-5 = { workspace = true }
-sha1 = { workspace = true }
-sha2 = { workspace = true }
-sha3 = { workspace = true }
-shake = { workspace = true }
-blake2 = { workspace = true }
-hmac = { workspace = true }
-pbkdf2 = { workspace = true, features = ["hmac"] }
 constant_time_eq = { workspace = true }
 
 # compression
 adler32 = { workspace = true }
-crc32fast = { workspace = true }
-flate2 = { workspace = true, features = ["zlib-rs"] }
-libz-rs-sys = { workspace = true }
-bzip2 = { workspace = true }
 
 # tkinter
-jiff = { workspace = true }
 tk-sys = { workspace = true, optional = true }
 tcl-sys = { workspace = true, optional = true }
 widestring = { workspace = true, optional = true }
@@ -101,26 +85,17 @@ uuid = { workspace = true, features = ["v1"] }
 # OpenSSL dependencies (optional, for ssl-openssl feature)
 openssl = { workspace = true, optional = true }
 openssl-sys = { workspace = true, optional = true }
-openssl-probe = { workspace = true, optional = true }
 foreign-types-shared = { workspace = true, optional = true }
 
 # Rustls dependencies (optional, for ssl-rustls feature)
 rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
-rustls-native-certs = { workspace = true, optional = true }
 rustls-pemfile = { workspace = true, optional = true }
-rustls-platform-verifier = { workspace = true, optional = true }
-x509-cert = { workspace = true, features = ["pem", "builder"], optional = true }
 x509-parser = { workspace = true, optional = true }
-der = { workspace = true, optional = true }
 pem-rfc7468 = { workspace = true, features = ["alloc"], optional = true }
 webpki-roots = { workspace = true, optional = true }
-oid-registry = { workspace = true, features = ["x509", "pkcs1", "nist_algs"], optional = true }
-pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 libsqlite3-sys = { workspace = true, features = ["bundled"], optional = true }
-xz = { workspace = true }
-xz-sys = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 paste = { workspace = true }
@@ -129,6 +104,9 @@ widestring = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 rustpython-pylib = { workspace = true, features = [ "freeze-stdlib" ] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rustls = { workspace = true, features = ["aws_lc_rs"] }
 
 [lints]
 workspace = true
