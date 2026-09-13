@@ -73,11 +73,21 @@ def log(msg: str) -> None:
 
 
 def executable_fingerprint(path: Path) -> str:
-    """Hash of the target executable's contents, used to invalidate a resumed
+    """Hash of the target executable's contents -- and, when RUSTPYTHONPATH
+    points it at a stdlib copy, that stdlib's contents too, since that's the
+    other half of what pyperf actually runs. Used to invalidate a resumed
     catalog when a local rebuild (or a different target under the same
-    --label) replaces the binary the earlier results were measured against.
+    --label) replaces either one from under the earlier results.
     """
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256()
+    digest.update(path.read_bytes())
+    rustpythonpath = os.environ.get("RUSTPYTHONPATH")
+    if rustpythonpath:
+        for file in sorted(Path(rustpythonpath).rglob("*")):
+            if file.is_file():
+                digest.update(str(file.relative_to(rustpythonpath)).encode())
+                digest.update(file.read_bytes())
+    return digest.hexdigest()
 
 
 def find_host_python() -> str:
