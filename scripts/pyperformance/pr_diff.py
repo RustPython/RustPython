@@ -163,7 +163,11 @@ def main() -> None:
         out.append("| --- | ---: | ---: | ---: |")
 
     for r in sorted(rows, key=lambda r: r["head_vs_base"] or r["head_vs_cpython"] or 0):
-        if not r["base_mean"] and not r["head_mean"]:
+        # A row with no mean on either side but a fail/timeout status is still
+        # worth showing -- e.g. a C-extension gap that fails identically on
+        # base and head. Only a benchmark never attempted on either commit
+        # (no entry in that catalog at all) has nothing to report.
+        if r["base_status"] == "missing" and r["head_status"] == "missing":
             continue
         head_cell = r["head_mean"] or "({})".format(r["head_status"])
         if not have_base:
