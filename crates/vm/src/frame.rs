@@ -820,7 +820,6 @@ pub(crate) struct FrameColdData {
     /// `PyEval_GetLocals()` C API. It is populated only by that adapter.
     pub f_locals_cache: PyMutex<Option<PyDictRef>>,
     pub f_overwritten_fast_locals: PyMutex<Vec<PyObjectRef>>,
-    pub escaped: atomic::AtomicBool,
     pub retained_back: PyMutex<Option<FrameObjectRef>>,
     pub pending_stack_pops: PyAtomic<u32>,
     pub pending_unwind_from_stack: PyAtomic<i64>,
@@ -842,7 +841,6 @@ impl Default for FrameColdData {
             f_extra_locals: PyMutex::new(None),
             f_locals_cache: PyMutex::new(None),
             f_overwritten_fast_locals: PyMutex::new(Vec::new()),
-            escaped: atomic::AtomicBool::new(false),
             retained_back: PyMutex::new(None),
             pending_stack_pops: Default::default(),
             pending_unwind_from_stack: Default::default(),
@@ -1243,7 +1241,6 @@ impl InterpreterFrame {
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::from(Box::new(FrameColdData {
-                escaped: atomic::AtomicBool::new(true),
                 attached_tid: atomic::AtomicU64::new(current_thread_ident()),
                 ..FrameColdData::default()
             })),
@@ -1323,10 +1320,7 @@ impl InterpreterFrame {
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
-            cold: OnceCell::from(Box::new(FrameColdData {
-                escaped: atomic::AtomicBool::new(true),
-                ..FrameColdData::default()
-            })),
+            cold: OnceCell::new(),
         };
 
         let frame_obj = FrameObject {
@@ -1770,18 +1764,13 @@ impl FrameObject {
                 .filter_map(Option::take)
                 .collect::<Vec<_>>()
         };
-        let cold = self.iframe().cold();
-        let extra_locals = {
-            let mut guard = cold.f_extra_locals.lock();
-            guard.take()
-        };
-        let locals_cache = {
-            let mut guard = cold.f_locals_cache.lock();
-            guard.take()
-        };
-        let overwritten = {
-            let mut guard = cold.f_overwritten_fast_locals.lock();
-            core::mem::take(&mut *guard)
+        let (extra_locals, locals_cache, overwritten) = match self.iframe().cold_opt() {
+            Some(cold) => (
+                cold.f_extra_locals.lock().take(),
+                cold.f_locals_cache.lock().take(),
+                core::mem::take(&mut *cold.f_overwritten_fast_locals.lock()),
+            ),
+            None => (None, None, Vec::new()),
         };
         drop((fastlocals, extra_locals, locals_cache, overwritten));
     }
@@ -1851,21 +1840,6 @@ impl FrameObject {
             cur = iframe.previous.load(atomic::Ordering::Relaxed) as *const InterpreterFrame;
         }
         core::ptr::null()
-    }
-
-    /// Record that a durable Python-level reference to this frame escaped.
-    pub(crate) fn mark_escaped(&self) {
-        self.iframe()
-            .cold()
-            .escaped
-            .store(true, atomic::Ordering::Release);
-    }
-
-    /// Whether a durable reference to this frame has escaped.
-    pub(crate) fn has_escaped(&self) -> bool {
-        self.iframe()
-            .cold_opt()
-            .is_some_and(|c| c.escaped.load(atomic::Ordering::Acquire))
     }
 
     pub fn lasti(&self) -> u32 {
@@ -4152,7 +4126,11 @@ impl ExecutingFrame<'_> {
 
                 // Check if coroutine is already being awaited
                 if let Some(coro) = iter.downcast_ref::<PyCoroutine>()
-                    && coro.as_coro().frame().yield_from_target().is_some()
+                    && coro
+                        .as_coro()
+                        .frame_opt()
+                        .and_then(|f| f.yield_from_target())
+                        .is_some()
                 {
                     return Err(vm.new_runtime_error("coroutine is being awaited already"));
                 }

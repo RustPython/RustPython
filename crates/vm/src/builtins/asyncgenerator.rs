@@ -132,14 +132,14 @@ impl PyAsyncGen {
 
     #[pygetset]
     fn ag_await(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.inner.frame().yield_from_target()
+        self.inner.frame_opt().and_then(|f| f.yield_from_target())
     }
     #[pygetset]
     fn ag_frame(&self, _vm: &VirtualMachine) -> Option<FrameObjectRef> {
         if self.inner.closed() {
             None
         } else {
-            Some(self.inner.frame())
+            self.inner.frame_opt()
         }
     }
     #[pygetset]
@@ -148,7 +148,11 @@ impl PyAsyncGen {
     }
     #[pygetset]
     fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().iframe().code().to_owned()
+        self.inner.code()
+    }
+    #[pygetset]
+    fn ag_suspended(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.suspended()
     }
 
     #[pyclassmethod]
@@ -718,8 +722,6 @@ impl PyAnextAwaitable {
             if let Some(generator) = wrapped.downcast_ref::<PyGenerator>()
                 && generator
                     .as_coro()
-                    .frame()
-                    .iframe()
                     .code()
                     .flags
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
@@ -841,7 +843,9 @@ impl Destructor for PyAsyncGen {
 
 impl Drop for PyAsyncGen {
     fn drop(&mut self) {
-        self.inner.frame().clear_generator();
+        if let Some(frame) = self.inner.frame_opt() {
+            frame.clear_generator();
+        }
     }
 }
 

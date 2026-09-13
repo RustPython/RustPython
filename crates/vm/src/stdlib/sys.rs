@@ -990,8 +990,6 @@ pub mod sys {
         let offset = offset.into_option().unwrap_or(0);
         let frame_ref = crate::frame::frame_at_offset(offset, vm)
             .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;
-        frame_ref.mark_escaped();
-
         if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
             audit.call((vm.ctx.new_str("sys._getframe"), frame_ref.to_owned()), vm)?;
         }
