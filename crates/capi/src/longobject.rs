@@ -612,7 +612,7 @@ pub unsafe extern "C" fn PyLongWriter_Discard(writer: *mut PyLongWriter) {
 
 #[cfg(test)]
 mod tests {
-    use pyo3::ffi;
+    use super::PyLong_AsNativeBytes;
     use pyo3::prelude::*;
     use pyo3::types::PyBool;
     use pyo3::types::PyInt;
@@ -649,11 +649,11 @@ mod tests {
         Python::attach(|py| unsafe {
             let obj: Bound<'_, PyInt> = 128.into_pyobject(py).unwrap();
 
-            let required = ffi::PyLong_AsNativeBytes(obj.as_ptr(), core::ptr::null_mut(), 0, -1);
+            let required = PyLong_AsNativeBytes(obj.as_ptr().cast(), core::ptr::null_mut(), 0, -1);
             assert_eq!(required, 1);
 
             let mut out = [0xAAu8; 1];
-            let written = ffi::PyLong_AsNativeBytes(obj.as_ptr(), out.as_mut_ptr().cast(), 1, -1);
+            let written = PyLong_AsNativeBytes(obj.as_ptr().cast(), out.as_mut_ptr().cast(), 1, -1);
             assert_eq!(written, 1);
             assert_eq!(out, [0x80]);
         })
@@ -665,7 +665,7 @@ mod tests {
             let obj: Bound<'_, PyInt> = (-1).into_pyobject(py).unwrap();
 
             let mut out = [0u8; 4];
-            let written = ffi::PyLong_AsNativeBytes(obj.as_ptr(), out.as_mut_ptr().cast(), 4, 0);
+            let written = PyLong_AsNativeBytes(obj.as_ptr().cast(), out.as_mut_ptr().cast(), 4, 0);
             assert_eq!(written, 1);
             assert_eq!(out, [0xFF, 0xFF, 0xFF, 0xFF]);
         })
@@ -676,7 +676,7 @@ mod tests {
         Python::attach(|py| unsafe {
             let obj: Bound<'_, PyInt> = (-7).into_pyobject(py).unwrap();
 
-            let rc = ffi::PyLong_AsNativeBytes(obj.as_ptr(), core::ptr::null_mut(), 0, 8);
+            let rc = PyLong_AsNativeBytes(obj.as_ptr().cast(), core::ptr::null_mut(), 0, 8);
             assert_eq!(rc, -1);
             assert!(PyErr::take(py).is_some());
         })
@@ -687,7 +687,7 @@ mod tests {
         Python::attach(|py| unsafe {
             let instance = PyBool::new(py, true);
             let mut out = [0u8; 2];
-            let rc = ffi::PyLong_AsNativeBytes(instance.as_ptr(), out.as_mut_ptr().cast(), 2, 17);
+            let rc = PyLong_AsNativeBytes(instance.as_ptr().cast(), out.as_mut_ptr().cast(), 2, 17);
             assert_eq!(rc, 1);
             assert_eq!(out, [1, 0]);
         })
