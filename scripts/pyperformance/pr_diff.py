@@ -195,12 +195,21 @@ def main() -> None:
             f"| {fmt_change(1.0, r['head_vs_base'])} |"
         )
 
+    # A transition claim needs an actual result on the other side too -- a
+    # benchmark "missing" from a catalog (never attempted, e.g. a partial
+    # --benchmarks run) isn't a regression or a fix, just no data point.
     only_head = [
         r["benchmark"]
         for r in rows
-        if have_base and r["head_mean"] and not r["base_mean"]
+        if have_base
+        and r["head_status"] == "ok"
+        and r["base_status"] in ("fail", "timeout")
     ]
-    only_base = [r["benchmark"] for r in rows if r["base_mean"] and not r["head_mean"]]
+    only_base = [
+        r["benchmark"]
+        for r in rows
+        if r["base_status"] == "ok" and r["head_status"] in ("fail", "timeout")
+    ]
     if only_head:
         out += ["", f"Newly passing on head: {', '.join(only_head)}."]
     if only_base:
