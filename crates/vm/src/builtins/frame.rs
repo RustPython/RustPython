@@ -2,7 +2,7 @@
 
 */
 
-use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyIntRef, PyStrRef};
+use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyIntRef, PyStrRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -778,10 +778,8 @@ impl Py<FrameObject> {
         );
         match owner {
             FrameOwner::Generator => {
-                // Generator frame: check if suspended (lasti > 0 means
-                // FRAME_SUSPENDED). lasti == 0 means FRAME_CREATED and
-                // can be cleared. Finalize the owner so a never-started
-                // coroutine emits its never-awaited warning.
+                // FRAME_SUSPENDED (lasti > 0) cannot be cleared. FRAME_CREATED
+                // and finished frames go through the owner finalizer.
                 if self.lasti() != 0 {
                     return Err(vm.new_runtime_error("cannot clear a suspended frame"));
                 }
@@ -790,17 +788,16 @@ impl Py<FrameObject> {
                         let _ = PyCoroutine::del(coro, vm);
                     } else if let Some(async_gen) = owner.downcast_ref::<PyAsyncGen>() {
                         let _ = PyAsyncGen::del(async_gen, vm);
+                    } else if let Some(generator) = owner.downcast_ref::<PyGenerator>() {
+                        let _ = PyGenerator::del(generator, vm);
                     }
                 }
                 return Ok(());
             }
             FrameOwner::Thread => {
-                // Thread-owned frame: always executing, cannot clear.
                 return Err(vm.new_runtime_error("cannot clear an executing frame"));
             }
             FrameOwner::FrameObject => {
-                // Check if this materialized frame is backed by a live
-                // stack-allocated iframe — if so, the frame is executing.
                 if !self.find_live_source_iframe().is_null() {
                     return Err(vm.new_runtime_error("cannot clear an executing frame"));
                 }
@@ -822,27 +819,17 @@ impl Py<FrameObject> {
         // Clear the evaluation stack and cell references
         self.clear_stack_and_cells();
 
-        let cold = self.iframe().cold();
-        let temporary_refs = {
-            let mut guard = cold.temporary_refs.lock();
-            core::mem::take(&mut *guard)
-        };
-        let extra_locals = {
-            let mut guard = cold.f_extra_locals.lock();
-            guard.take()
-        };
-        let locals_cache = {
-            let mut guard = cold.f_locals_cache.lock();
-            guard.take()
-        };
-        let overwritten = {
-            let mut guard = cold.f_overwritten_fast_locals.lock();
-            core::mem::take(&mut *guard)
-        };
-        let retained_back = {
-            let mut guard = cold.retained_back.lock();
-            guard.take()
-        };
+        let (temporary_refs, extra_locals, locals_cache, overwritten, retained_back) =
+            match self.iframe().cold_opt() {
+                Some(cold) => (
+                    core::mem::take(&mut *cold.temporary_refs.lock()),
+                    cold.f_extra_locals.lock().take(),
+                    cold.f_locals_cache.lock().take(),
+                    core::mem::take(&mut *cold.f_overwritten_fast_locals.lock()),
+                    cold.retained_back.lock().take(),
+                ),
+                None => (Vec::new(), None, None, Vec::new(), None),
+            };
         drop((
             fastlocals,
             temporary_refs,
@@ -858,7 +845,6 @@ impl Py<FrameObject> {
     #[pygetset]
     fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
         if self.uses_locals_proxy(vm)? {
-            self.mark_escaped();
             let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
             Ok(proxy.into_ref(&vm.ctx).into())
         } else {
@@ -895,7 +881,6 @@ impl Py<FrameObject> {
                 // Check retained_back for frames whose callers have returned
                 let retained = self.iframe().cold().retained_back.lock().clone();
                 if let Some(frame) = retained {
-                    frame.mark_escaped();
                     return Some(frame);
                 }
                 return None;
@@ -911,7 +896,6 @@ impl Py<FrameObject> {
                 if core::ptr::eq(cur, prev) {
                     let iframe_ref = unsafe { &*cur };
                     let fo = iframe_ref.materialize(vm);
-                    fo.mark_escaped();
                     return Some(fo.to_owned());
                 }
                 cur = unsafe { (*cur).previous() };
@@ -921,7 +905,6 @@ impl Py<FrameObject> {
         // The caller already returned — check retained_back
         let retained = self.iframe().cold().retained_back.lock().clone();
         if let Some(frame) = retained {
-            frame.mark_escaped();
             return Some(frame);
         }
 
@@ -936,13 +919,11 @@ impl Py<FrameObject> {
             let prev_ref = unsafe { &*prev };
             // Fast path: already materialized.
             if let Some(fo) = prev_ref.frame_obj() {
-                fo.mark_escaped();
                 return Some(fo.to_owned());
             }
             // Slow path: copy the whole chain, linked through retained_back.
             // SAFETY: the world is stopped, so the owning thread is parked.
             let fo = unsafe { prev_ref.materialize_detached_chain(vm) };
-            fo.mark_escaped();
             return Some(fo);
         }
 
