@@ -3390,13 +3390,24 @@ impl ExecutingFrame<'_> {
             };
 
             if is_gen_exit {
-                // gen_close_iter: close the sub-iterator
+                // gen_close_iter: close the sub-iterator. A failed
+                // lookup of close is unraisable; a failed close()
+                // call is raised into this generator.
                 let close_result = if let Some(coro) = self.builtin_coro(jen) {
                     coro.close(jen, vm).map(|_| ())
-                } else if let Some(close_meth) = vm.get_attribute_opt(jen.to_owned(), "close")? {
-                    close_meth.call((), vm).map(|_| ())
                 } else {
-                    Ok(())
+                    match vm.get_attribute_opt(jen.to_owned(), "close") {
+                        Ok(Some(close_meth)) => close_meth.call((), vm).map(|_| ()),
+                        Ok(None) => Ok(()),
+                        Err(e) => {
+                            let msg = jen
+                                .repr(vm)
+                                .ok()
+                                .map(|r| format!("Exception ignored while closing generator {r}"));
+                            vm.run_unraisable(e, msg, jen.to_owned());
+                            Ok(())
+                        }
+                    }
                 };
                 if let Err(err) = close_result {
                     let idx = self.lasti().saturating_sub(1) as usize;

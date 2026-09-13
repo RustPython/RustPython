@@ -1,6 +1,6 @@
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyCode, PyStrRef, PyTupleRef},
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyCode, PyStrRef, PyTraceback, PyTupleRef},
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
     frame::{ExecutionResult, FrameObject, FrameObjectRef, FrameOwner, InterpreterFrame},
@@ -334,7 +334,16 @@ impl Coro {
         drop(claim);
         match result {
             Ok(ExecutionResult::Yield(_)) => {
-                Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm))))
+                let err =
+                    vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm)));
+                if let Some(frame) = self.frame_opt() {
+                    let lasti = frame.lasti().saturating_mul(2);
+                    let lineno = rustpython_compiler_core::OneIndexed::new(frame.f_lineno().max(1))
+                        .unwrap_or(rustpython_compiler_core::OneIndexed::MIN);
+                    let tb = PyTraceback::new(None, frame, lasti, lineno);
+                    err.set_traceback_typed(Some(tb.into_ref(&vm.ctx)));
+                }
+                Err(err)
             }
             other => {
                 self.closed.store(true);
@@ -492,6 +501,18 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
     }
 
     Err(vm.new_type_error(format!("'{}' object can't be awaited", obj.class().name())))
+}
+
+pub(crate) fn unraisable_while_closing(
+    jen: &PyObject,
+    e: crate::builtins::PyBaseExceptionRef,
+    vm: &VirtualMachine,
+) {
+    let msg = jen
+        .repr(vm)
+        .ok()
+        .map(|r| format!("Exception ignored while closing generator {r}"));
+    vm.run_unraisable(e, msg, jen.to_owned());
 }
 
 /// Emit DeprecationWarning for the deprecated 3-argument throw() signature.
