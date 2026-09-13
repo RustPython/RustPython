@@ -820,7 +820,6 @@ pub(crate) struct FrameColdData {
     /// `PyEval_GetLocals()` C API. It is populated only by that adapter.
     pub f_locals_cache: PyMutex<Option<PyDictRef>>,
     pub f_overwritten_fast_locals: PyMutex<Vec<PyObjectRef>>,
-    pub escaped: atomic::AtomicBool,
     pub retained_back: PyMutex<Option<FrameObjectRef>>,
     pub pending_stack_pops: PyAtomic<u32>,
     pub pending_unwind_from_stack: PyAtomic<i64>,
@@ -842,7 +841,6 @@ impl Default for FrameColdData {
             f_extra_locals: PyMutex::new(None),
             f_locals_cache: PyMutex::new(None),
             f_overwritten_fast_locals: PyMutex::new(Vec::new()),
-            escaped: atomic::AtomicBool::new(false),
             retained_back: PyMutex::new(None),
             pending_stack_pops: Default::default(),
             pending_unwind_from_stack: Default::default(),
@@ -887,6 +885,9 @@ pub struct InterpreterFrame {
     /// Used by `frame.clear()` to reject clearing an executing frame,
     /// even when called from a different thread.
     pub(crate) owner: atomic::AtomicI8,
+    /// Durable Python-level reference escaped (gi_frame, f_locals proxy,
+    /// sys._getframe). Kept on the iframe so mark/has do not allocate cold data.
+    pub(crate) escaped: atomic::AtomicBool,
     /// Base pointer of the datastack allocation when this frame and its
     /// localsplus are bump-allocated together. Null for heap-backed frames.
     pub(crate) datastack_base: *mut u8,
@@ -974,6 +975,7 @@ impl InterpreterFrame {
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(owner as i8),
+            escaped: atomic::AtomicBool::new(false),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::new(),
@@ -1240,10 +1242,10 @@ impl InterpreterFrame {
             // an executing frame"; `attached_tid` carries the "still running"
             // half of that state instead, so the owner field does not have to.
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            escaped: atomic::AtomicBool::new(true),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::from(Box::new(FrameColdData {
-                escaped: atomic::AtomicBool::new(true),
                 attached_tid: atomic::AtomicU64::new(current_thread_ident()),
                 ..FrameColdData::default()
             })),
@@ -1321,12 +1323,10 @@ impl InterpreterFrame {
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            escaped: atomic::AtomicBool::new(true),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
-            cold: OnceCell::from(Box::new(FrameColdData {
-                escaped: atomic::AtomicBool::new(true),
-                ..FrameColdData::default()
-            })),
+            cold: OnceCell::new(),
         };
 
         let frame_obj = FrameObject {
@@ -1770,18 +1770,13 @@ impl FrameObject {
                 .filter_map(Option::take)
                 .collect::<Vec<_>>()
         };
-        let cold = self.iframe().cold();
-        let extra_locals = {
-            let mut guard = cold.f_extra_locals.lock();
-            guard.take()
-        };
-        let locals_cache = {
-            let mut guard = cold.f_locals_cache.lock();
-            guard.take()
-        };
-        let overwritten = {
-            let mut guard = cold.f_overwritten_fast_locals.lock();
-            core::mem::take(&mut *guard)
+        let (extra_locals, locals_cache, overwritten) = match self.iframe().cold_opt() {
+            Some(cold) => (
+                cold.f_extra_locals.lock().take(),
+                cold.f_locals_cache.lock().take(),
+                core::mem::take(&mut *cold.f_overwritten_fast_locals.lock()),
+            ),
+            None => (None, None, Vec::new()),
         };
         drop((fastlocals, extra_locals, locals_cache, overwritten));
     }
@@ -1855,17 +1850,12 @@ impl FrameObject {
 
     /// Record that a durable Python-level reference to this frame escaped.
     pub(crate) fn mark_escaped(&self) {
-        self.iframe()
-            .cold()
-            .escaped
-            .store(true, atomic::Ordering::Release);
+        self.iframe().escaped.store(true, atomic::Ordering::Release);
     }
 
     /// Whether a durable reference to this frame has escaped.
     pub(crate) fn has_escaped(&self) -> bool {
-        self.iframe()
-            .cold_opt()
-            .is_some_and(|c| c.escaped.load(atomic::Ordering::Acquire))
+        self.iframe().escaped.load(atomic::Ordering::Acquire)
     }
 
     pub fn lasti(&self) -> u32 {

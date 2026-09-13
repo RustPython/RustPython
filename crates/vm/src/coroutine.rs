@@ -103,18 +103,23 @@ impl Coro {
         }
     }
 
+    /// Mark the wrapper closed and hand the frame to FrameObject so
+    /// `frame.clear()` no longer treats it as a live generator frame.
+    fn mark_closed(&self) {
+        self.closed.store(true);
+        self.frame.iframe().owner.store(
+            FrameOwner::FrameObject as i8,
+            core::sync::atomic::Ordering::Release,
+        );
+    }
+
     /// Retire the generator if the frame it just ran came to an end. The claim
     /// is still held, so a thread waiting for it cannot resume a frame that has
     /// already finished.
     fn maybe_close(&self, res: &PyResult<ExecutionResult>, _claim: &RunningGuard<'_>) {
         match res {
             Ok(ExecutionResult::Return(_)) | Err(_) => {
-                self.closed.store(true);
-                // FrameObject is no longer suspended; allow frame.clear() to succeed.
-                self.frame.iframe().owner.store(
-                    FrameOwner::FrameObject as i8,
-                    core::sync::atomic::Ordering::Release,
-                );
+                self.mark_closed();
                 // Completed generators/coroutines should not keep their locals
                 // alive while the wrapper object itself remains referenced.
                 self.clear_frame_locals_on_close();
@@ -306,7 +311,7 @@ impl Coro {
         // If generator hasn't started (FRAME_CREATED), mark as closed and
         // drop frame locals so argument objects can be collected.
         if self.frame.lasti() == 0 {
-            self.closed.store(true);
+            self.mark_closed();
             self.clear_frame_locals_on_close();
             return Ok(vm.ctx.none());
         }
@@ -318,7 +323,7 @@ impl Coro {
                 vm.ctx.none(),
             )
         });
-        self.closed.store(true);
+        self.mark_closed();
         // Release frame locals and stack to free references held by the
         // closed generator, matching gen_send_ex2 with close_on_completion.
         self.clear_frame_locals_on_close();

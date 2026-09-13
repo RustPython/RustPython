@@ -823,27 +823,17 @@ impl Py<FrameObject> {
         // Clear the evaluation stack and cell references
         self.clear_stack_and_cells();
 
-        let cold = self.iframe().cold();
-        let temporary_refs = {
-            let mut guard = cold.temporary_refs.lock();
-            core::mem::take(&mut *guard)
-        };
-        let extra_locals = {
-            let mut guard = cold.f_extra_locals.lock();
-            guard.take()
-        };
-        let locals_cache = {
-            let mut guard = cold.f_locals_cache.lock();
-            guard.take()
-        };
-        let overwritten = {
-            let mut guard = cold.f_overwritten_fast_locals.lock();
-            core::mem::take(&mut *guard)
-        };
-        let retained_back = {
-            let mut guard = cold.retained_back.lock();
-            guard.take()
-        };
+        let (temporary_refs, extra_locals, locals_cache, overwritten, retained_back) =
+            match self.iframe().cold_opt() {
+                Some(cold) => (
+                    core::mem::take(&mut *cold.temporary_refs.lock()),
+                    cold.f_extra_locals.lock().take(),
+                    cold.f_locals_cache.lock().take(),
+                    core::mem::take(&mut *cold.f_overwritten_fast_locals.lock()),
+                    cold.retained_back.lock().take(),
+                ),
+                None => (Vec::new(), None, None, Vec::new(), None),
+            };
         drop((
             fastlocals,
             temporary_refs,
