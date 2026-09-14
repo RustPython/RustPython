@@ -131,7 +131,7 @@ jobs:
           INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
       - name: run rust tests
-        run: cargo test --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }} --all-targets
+        run: cargo test --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }} --lib --bins --tests
         env:
           INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
@@ -147,7 +147,7 @@ jobs:
 
       - name: run c-api tests
         working-directory: crates/capi
-        run: cargo test --locked --all-targets
+        run: cargo test --locked --lib --bins --tests
         if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
 
       - name: Run c-api doctests
