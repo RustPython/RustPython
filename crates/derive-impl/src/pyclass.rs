@@ -168,6 +168,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 itemsize,
             } = extract_impl_attrs(attr, &impl_ty)?;
             let payload_ty = attr_payload.unwrap_or(payload_guess);
+            context.getset_items.type_name = Some(payload_ty.to_string());
+            context.member_items.type_name = Some(payload_ty.to_string());
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
             let member_impl = &context.member_items;
@@ -265,6 +267,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 ..
             } = extract_impl_attrs(attr, &trai.ident)?;
 
+            context.getset_items.type_name = Some(trai.ident.to_string());
+            context.member_items.type_name = Some(trai.ident.to_string());
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
             let member_impl = &context.member_items;
@@ -413,6 +417,21 @@ fn type_matches_path(ty: &syn::Type, path: &syn::Path) -> bool {
         return false;
     };
     type_last.ident == path_last.ident
+}
+
+fn cpython_attr_doc(rust_type: &str, attr: &str) -> Option<String> {
+    let stripped = rust_type.strip_prefix("Py").unwrap_or(rust_type);
+    let lower = stripped.to_ascii_lowercase();
+    let underscored = format!("_{stripped}");
+    let class_names = [rust_type, stripped, lower.as_str(), underscored.as_str()];
+    for (key, doc) in &DB {
+        if class_names.iter().any(|class| {
+            *key == format!("{class}.{attr}") || key.ends_with(&format!(".{class}.{attr}"))
+        }) {
+            return Some((*doc).to_owned());
+        }
+    }
+    None
 }
 
 fn generate_class_def(
@@ -1448,6 +1467,7 @@ struct GetSetEntry {
 struct GetSetNursery {
     map: HashMap<(String, Vec<Attribute>), GetSetEntry>,
     validated: bool,
+    type_name: Option<String>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1521,7 +1541,12 @@ impl ToTokens for GetSetNursery {
                 Some(setter) => quote_spanned! { setter.span() => .with_set(Self::#setter)},
                 None => quote! {},
             };
-            let doc = match &entry.doc {
+            let doc = entry.doc.clone().or_else(|| {
+                self.type_name
+                    .as_deref()
+                    .and_then(|ty| cpython_attr_doc(ty, name))
+            });
+            let doc = match &doc {
                 Some(doc) => quote! { .with_doc(#doc) },
                 None => quote! {},
             };
@@ -1551,6 +1576,7 @@ type MemberKindStr = Option<String>;
 struct MemberNursery {
     map: HashMap<String, MemberNurseryEntry>,
     validated: bool,
+    type_name: Option<String>,
 }
 
 struct MemberNurseryEntry {
@@ -1644,7 +1670,12 @@ impl ToTokens for MemberNursery {
                 }
             };
             let getter = entry.getter.as_ref().unwrap();
-            let doc = match &entry.doc {
+            let doc = entry.doc.clone().or_else(|| {
+                self.type_name
+                    .as_deref()
+                    .and_then(|ty| cpython_attr_doc(ty, name))
+            });
+            let doc = match &doc {
                 Some(doc) => quote! { Some(#doc) },
                 None => quote! { None },
             };

@@ -539,14 +539,12 @@ impl PyComplex {
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyComplex {
-    /// the real part of a complex number
     #[pymember]
     fn real(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: &Py<Self> = zelf.try_to_value(vm)?;
         Ok(vm.ctx.new_float(zelf.value.re).into())
     }
 
-    /// the imaginary part of a complex number
     #[pymember]
     fn imag(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: &Py<Self> = zelf.try_to_value(vm)?;
