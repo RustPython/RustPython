@@ -90,13 +90,19 @@ jobs:
             ':Cargo.lock' \
             ':rust-toolchain.toml' \
             ':.cargo/**' \
-            ':.github/workflows/ci.yaml'
+            ':.github/workflows/ci.yaml' \
+            ':**/posix*.rs' \
+            ':**/nt.rs' \
+            ':**/signal.rs' \
+            ':**/_signal.rs' \
+            ':**/windows.rs'
           then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          platform_re='target_os|target_arch|target_family|target_env|target_vendor|target_pointer_width|target_endian|cfg\(windows\)|cfg\(unix\)|cfg\(wasi|not\(windows|not\(unix|\[target\.'
+          # Platform cfg, or FFI crates that only exist on some targets.
+          platform_re='target_os|target_arch|target_family|target_env|target_vendor|target_pointer_width|target_endian|cfg\(windows\)|cfg\(unix\)|cfg\(wasi|not\(windows|not\(unix|\[target\.|\blibc::|\bnix::|windows_sys|winapi::|rustix::|std::os::'
 
           if ! git diff -G "${platform_re}" --quiet "${MERGE_BASE}...HEAD"; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
