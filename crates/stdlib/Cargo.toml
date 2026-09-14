@@ -43,6 +43,7 @@ ascii = { workspace = true }
 crossbeam-utils = { workspace = true }
 flame = { workspace = true, optional = true }
 hex = { workspace = true }
+getrandom = { workspace = true }
 itertools = { workspace = true }
 indexmap = { workspace = true }
 libc = { workspace = true }

@@ -4028,6 +4028,7 @@ dependencies = [
  "csv-core",
  "flame",
  "foreign-types-shared",
+ "getrandom 0.4.3",
  "hex",
  "indexmap",
  "insta",

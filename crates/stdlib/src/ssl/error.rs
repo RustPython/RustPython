@@ -101,6 +101,7 @@ pub(crate) mod ssl_error {
     pub(crate) struct PySSLCertVerificationError(PySSLError);
 
     // Helper functions to create SSL exceptions with proper errno attribute
+    #[cfg_attr(target_arch = "wasm32", expect(dead_code))]
     pub(crate) fn create_ssl_want_read_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
             PySSLWantReadError::class(&vm.ctx).to_owned(),
@@ -109,6 +110,7 @@ pub(crate) mod ssl_error {
         )
     }
 
+    #[cfg_attr(target_arch = "wasm32", expect(dead_code))]
     pub(crate) fn create_ssl_want_write_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
             PySSLWantWriteError::class(&vm.ctx).to_owned(),
@@ -117,6 +119,7 @@ pub(crate) mod ssl_error {
         )
     }
 
+    #[cfg_attr(target_arch = "wasm32", expect(dead_code))]
     pub(crate) fn create_ssl_eof_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
             PySSLEOFError::class(&vm.ctx).to_owned(),
@@ -126,7 +129,10 @@ pub(crate) mod ssl_error {
     }
 
     #[cfg_attr(
-        all(feature = "ssl-openssl", not(feature = "ssl-rustls")),
+        any(
+            target_arch = "wasm32",
+            all(feature = "ssl-openssl", not(feature = "ssl-rustls"))
+        ),
         expect(dead_code)
     )]
     pub(crate) fn create_ssl_zero_return_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
@@ -138,7 +144,10 @@ pub(crate) mod ssl_error {
     }
 
     #[cfg_attr(
-        all(feature = "ssl-openssl", not(feature = "ssl-rustls")),
+        any(
+            target_arch = "wasm32",
+            all(feature = "ssl-openssl", not(feature = "ssl-rustls"))
+        ),
         expect(dead_code)
     )]
     pub(crate) fn create_ssl_syscall_error(

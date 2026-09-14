@@ -136,6 +136,10 @@ mod openssl;
 ))]
 pub mod ssl;
 
+#[cfg(target_arch = "wasm32")]
+#[path = "ssl_wasm.rs"]
+pub mod ssl;
+
 #[cfg(all(feature = "ssl-openssl", feature = "__ssl-rustls", not(clippy)))]
 compile_error!(r#"features "ssl-openssl" and "ssl-rustls" are mutually exclusive"#);
 
@@ -260,6 +264,8 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             feature = "__ssl-rustls",
             any(not(target_arch = "wasm32"), target_os = "wasi"),
         ))]
+        ssl::module_def(ctx),
+        #[cfg(target_arch = "wasm32")]
         ssl::module_def(ctx),
         statistics::module_def(ctx),
         suggestions::module_def(ctx),
