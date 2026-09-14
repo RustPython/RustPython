@@ -4164,11 +4164,7 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.4.3",
  "js-sys",
- "parking_lot",
- "pem-rfc7468 1.0.0",
- "phf 0.14.0",
  "rustls",
- "rustls-pemfile",
  "rustls-pki-types",
  "rustls-rustcrypto",
  "rustpython-common",
@@ -4182,8 +4178,6 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "webpki-roots",
- "x509-parser",
 ]
 
 [[package]]

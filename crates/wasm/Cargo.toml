@@ -15,9 +15,6 @@ crate-type = ["cdylib", "rlib"]
 default = ["freeze-stdlib"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib", "rustpython-stdlib"]
 no-start-func = []
-# Declared so the rustls `_ssl` sources' feature cfgs are expected.
-ssl-rustls = []
-ssl-openssl = []
 
 [dependencies]
 rustpython-common = { workspace = true }
@@ -48,16 +45,10 @@ web-sys = { workspace = true, features = [
 [target.'cfg(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")))'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
 getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
-parking_lot = { workspace = true }
-pem-rfc7468 = { workspace = true, features = ["alloc"] }
-phf = { workspace = true, default-features = true, features = ["macros"] }
 rustls = { workspace = true, default-features = false, features = ["std", "tls12", "custom-provider"] }
-rustls-pemfile = { workspace = true }
 rustls-pki-types = { version = "1", default-features = false, features = ["alloc", "std", "web"] }
 rustls-rustcrypto = "0.0.2-alpha"
-rustpython-host_env = { workspace = true, features = ["ssl", "native-certs"] }
-webpki-roots = { workspace = true }
-x509-parser = { workspace = true }
+rustpython-host_env = { workspace = true, features = ["ssl"] }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false#["-O1"]
@@ -66,17 +57,4 @@ wasm-opt = false#["-O1"]
 workspace = true
 
 [package.metadata.cargo-shear]
-# serde is used via derive. The rest are required by the rustls `_ssl`
-# sources compiled through the ssl.rs symlink, or enable wasm rustls
-# feature unification (getrandom / rustls-pki-types).
-ignored = [
-    "serde",
-    "getrandom",
-    "parking_lot",
-    "pem-rfc7468",
-    "phf",
-    "rustls-pemfile",
-    "rustls-pki-types",
-    "webpki-roots",
-    "x509-parser",
-]
+ignored = ["serde", "getrandom", "rustls-pki-types"]
