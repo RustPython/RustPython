@@ -126,27 +126,33 @@ jobs:
         uses: ./.github/actions/install-macos-deps
 
       - name: Build rust tests
-        run: |
-          cargo test --no-run --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
-          cargo test --doc --no-run --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+        run: cargo test --no-run --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
         env:
           INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
       - name: run rust tests
-        run: cargo test --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+        run: cargo test --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }} --all-targets
+        env:
+          INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+
+      - name: Run rust doctests
+        run: cargo test --doc --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
         env:
           INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
       - name: Build c-api tests
         working-directory: crates/capi
-        run: |
-          cargo test --no-run --locked
-          cargo test --doc --no-run --locked
+        run: cargo test --no-run --locked
         if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
 
       - name: run c-api tests
         working-directory: crates/capi
-        run: cargo test --locked
+        run: cargo test --locked --all-targets
+        if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
+
+      - name: Run c-api doctests
+        working-directory: crates/capi
+        run: cargo test --doc --locked
         if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
 
       - name: check compilation without host_env (sandbox mode)
