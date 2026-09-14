@@ -23,7 +23,7 @@ jobs:
     name: Collect code coverage data
     runs-on: ubuntu-latest
     # Disable this scheduled job when running on a fork.
-    if: ${{ github.event_name != 'pull_request' && (github.repository == 'RustPython/RustPython' || github.event_name != 'schedule') }}
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     env:
       INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
     steps:
@@ -162,7 +162,7 @@ jobs:
     name: Collect benchmark data
     runs-on: ubuntu-latest
     # Disable this scheduled job when running on a fork.
-    if: ${{ github.event_name != 'pull_request' && (github.repository == 'RustPython/RustPython' || github.event_name != 'schedule') }}
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
