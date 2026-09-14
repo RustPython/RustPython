@@ -89,7 +89,7 @@ impl CompileError {
             location,
             end_location,
             source_path: source_file.name().to_owned(),
-            is_unclosed_bracket: false,
+            is_unclosed_bracket: diagnostic.is_unclosed_bracket,
             is_unclosed_string: diagnostic.is_unclosed_string,
         })
     }
@@ -194,6 +194,7 @@ impl NormalizedParseDiagnostic {
             end_location,
         );
         diagnostic_out.is_unclosed_string = diagnostic.is_unclosed_string;
+        diagnostic_out.is_unclosed_bracket = diagnostic.is_unclosed_bracket;
         diagnostic_out
     }
 
@@ -211,6 +212,7 @@ struct CpythonDiagnostic {
     message: String,
     range: ruff_text_size::TextRange,
     is_unclosed_string: bool,
+    is_unclosed_bracket: bool,
 }
 
 impl CpythonDiagnostic {
@@ -226,11 +228,17 @@ impl CpythonDiagnostic {
                 TextSize::new(end as u32),
             ),
             is_unclosed_string: false,
+            is_unclosed_bracket: false,
         }
     }
 
     const fn with_unclosed_string(mut self) -> Self {
         self.is_unclosed_string = true;
+        self
+    }
+
+    const fn with_unclosed_bracket(mut self) -> Self {
+        self.is_unclosed_bracket = true;
         self
     }
 }
@@ -269,9 +277,11 @@ fn cpython_parse_diagnostic_override(
         &error.error,
         parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
     ) {
-        // Only a backslash at the end of the source is an EOF error.
+        // exec input gets an implicit trailing newline, so a final `\` is a
+        // continuation that then hits EOF (`E_EOF`). single/eval see `\` at
+        // EOF as `E_LINECONT` instead.
         let terminal_backslash = source_text.len().checked_sub(1);
-        if !matches!(mode, Mode::Eval)
+        if matches!(mode, Mode::Exec)
             && terminal_backslash == Some(error.location.start().to_usize())
         {
             let loc = source_line_end_location(source_file, error.location.start());
@@ -289,7 +299,7 @@ fn cpython_parse_diagnostic_override(
         ));
     }
 
-    source_error!(unterminated_string_error(source_text));
+    source_error!(unterminated_string_error(source_text, mode));
     source_error!(expected_indented_block_error(error, source_text));
 
     if matches!(
@@ -492,6 +502,23 @@ fn is_missing_comma_between_literals(error: &parser::ParseError) -> bool {
 
 fn is_ascii_identifier_char(byte: u8) -> bool {
     byte == b'_' || byte.is_ascii_alphanumeric()
+}
+
+fn identifier_continue_before(bytes: &[u8], index: usize) -> bool {
+    if index == 0 {
+        return false;
+    }
+    if bytes[index - 1].is_ascii() {
+        return is_ascii_identifier_char(bytes[index - 1]);
+    }
+    let mut start = index - 1;
+    while start > 0 && bytes[start] & 0b1100_0000 == 0b1000_0000 {
+        start -= 1;
+    }
+    ::core::str::from_utf8(&bytes[start..index])
+        .ok()
+        .and_then(|text| text.chars().next_back())
+        .is_some_and(|ch| ch == '_' || ch.is_alphanumeric())
 }
 
 fn numeric_keyword_suffix(rest: &[u8]) -> bool {
@@ -3894,7 +3921,7 @@ fn non_printable_character_error(source: &str) -> Option<CpythonDiagnostic> {
     None
 }
 
-fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
+fn unterminated_string_error(source: &str, mode: Mode) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     let mut line = 1usize;
@@ -3921,6 +3948,7 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
                 };
                 index += quote_size;
                 let mut has_escaped_quote = false;
+                let mut ended_with_escape = false;
                 let mut closed = false;
                 while index < bytes.len() {
                     let c = bytes[index];
@@ -3952,6 +3980,7 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
                         if bytes.get(index + 1) == Some(&quote) {
                             has_escaped_quote = true;
                         }
+                        ended_with_escape = index + 1 >= bytes.len();
                         index = (index + 2).min(bytes.len());
                     } else {
                         index += 1;
@@ -3964,17 +3993,30 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
                         return Some(error);
                     }
                     let detected_line = if quote_size == 3 { line } else { start_line };
+                    let interpolated = interpolated_string_prefix(bytes, start);
                     let diagnostic = CpythonDiagnostic::new(
                         unterminated_string_message(
                             detected_line,
                             quote_size == 3,
                             has_escaped_quote,
-                            interpolated_string_prefix(bytes, start),
+                            interpolated,
                         ),
                         start,
                         start,
                     );
-                    return Some(if index >= bytes.len() {
+                    // E_EOLS is only for a plain single-quoted string at EOF.
+                    // Single-quoted f/t-strings never set it. exec input appends a
+                    // newline, so a single-quoted literal becomes the newline case
+                    // unless a final `\` consumes that newline.
+                    let exec_implicit_newline =
+                        matches!(mode, Mode::Exec) && quote_size == 1 && !ended_with_escape;
+                    let eval_assignment =
+                        matches!(mode, Mode::Eval) && eval_has_assignment_before(bytes, start);
+                    let continuable = index >= bytes.len()
+                        && !(interpolated.is_some() && quote_size == 1)
+                        && !exec_implicit_newline
+                        && !eval_assignment;
+                    return Some(if continuable {
                         diagnostic.with_unclosed_string()
                     } else {
                         diagnostic
@@ -3985,6 +4027,50 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
         }
     }
     None
+}
+
+fn eval_has_assignment_before(bytes: &[u8], end: usize) -> bool {
+    let mut index = 0;
+    let mut level = 0usize;
+    let mut in_lambda_params = false;
+    while index < end {
+        match bytes[index] {
+            b'#' => {
+                while index < end && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                level = level.saturating_sub(1);
+                index += 1;
+            }
+            b':' if level == 0 => {
+                in_lambda_params = false;
+                index += 1;
+            }
+            b'=' if level == 0
+                && !in_lambda_params
+                && bytes.get(index + 1) != Some(&b'=')
+                && !matches!(
+                    bytes.get(index.saturating_sub(1)),
+                    Some(b':' | b'!' | b'<' | b'>')
+                ) =>
+            {
+                return true;
+            }
+            _ if level == 0 && starts_identifier(bytes, index, b"lambda") => {
+                in_lambda_params = true;
+                index += b"lambda".len();
+            }
+            _ => index += 1,
+        }
+    }
+    false
 }
 
 fn invalid_interpolated_string_error(source: &str) -> Option<CpythonDiagnostic> {
@@ -4161,7 +4247,7 @@ fn interpolated_string_prefix(bytes: &[u8], quote: usize) -> Option<&'static str
         return None;
     };
 
-    if prefix_start > 0 && is_ascii_identifier_char(bytes[prefix_start - 1]) {
+    if prefix_start > 0 && identifier_continue_before(bytes, prefix_start) {
         return None;
     }
 
@@ -4424,11 +4510,10 @@ fn replacement_field_comment_error(
             }
             b'#' => {
                 if !bytes[index..literal_end].contains(&b'\n') {
-                    return Some(CpythonDiagnostic::new(
-                        "'{' was never closed".to_owned(),
-                        open,
-                        open + 1,
-                    ));
+                    return Some(
+                        CpythonDiagnostic::new("'{' was never closed".to_owned(), open, open + 1)
+                            .with_unclosed_bracket(),
+                    );
                 }
                 index = skip_replacement_field_comment(bytes, index, end);
                 continue;
@@ -5482,6 +5567,7 @@ fn unclosed_replacement_field_error(
             position,
             position + 1,
         )
+        .with_unclosed_bracket()
     })
 }
 
@@ -6173,6 +6259,49 @@ fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<Cpyth
     None
 }
 
+/// Horizontal and vertical space the tokenizer skips, not `str::trim()`.
+const fn is_ascii_tokenizer_whitespace(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0c')
+}
+
+/// True when every line is empty or a comment after tokenizer whitespace.
+#[doc(hidden)]
+#[must_use]
+pub fn is_blank_python_source(source: &str) -> bool {
+    source.lines().all(|line| {
+        let trimmed = line.trim_matches(is_ascii_tokenizer_whitespace);
+        trimmed.is_empty() || trimmed.starts_with('#')
+    })
+}
+
+fn single_mode_blank_source_error(source_file: &SourceFile) -> Option<CompileError> {
+    let source = source_file.source_text();
+    if !is_blank_python_source(source) {
+        return None;
+    }
+    let has_indent_only_line = source.lines().any(|line| {
+        line.trim_matches(is_ascii_tokenizer_whitespace).is_empty()
+            && line.chars().any(|c| matches!(c, ' ' | '\t'))
+    });
+    if has_indent_only_line {
+        let (location, end_location) =
+            source_locations(source_file, TextSize::new(0), TextSize::new(0));
+        return Some(CompileError::Parse(ParseError {
+            error: parser::ParseErrorType::UnexpectedIndentation,
+            raw_location: ruff_text_size::TextRange::new(TextSize::new(0), TextSize::new(0)),
+            location,
+            end_location,
+            source_path: source_file.name().to_owned(),
+            is_unclosed_bracket: false,
+            is_unclosed_string: false,
+        }));
+    }
+    Some(CompileError::from_source_error(
+        source_file,
+        CpythonDiagnostic::new("invalid syntax".to_owned(), 0, 0),
+    ))
+}
+
 /// The byte-order mark is only stripped while decoding source bytes, so one
 /// that survives into the text is just a non-printable character. The tokenizer
 /// rejects it everywhere except at the very start of the text, which is where
@@ -6590,6 +6719,11 @@ fn _compile_with_syntax_warning_handler<'a>(
     }
     let parsed =
         parsed.map_err(|err| CompileError::from_ruff_parse_error(err, &source_file, mode))?;
+    if matches!(mode, Mode::Single)
+        && let Some(error) = single_mode_blank_source_error(&source_file)
+    {
+        return Err(error);
+    }
     if opts.dont_imply_dedent
         && matches!(mode, Mode::Single)
         && let Some(error) = dont_imply_dedent_source_error(&source_file)
