@@ -16,12 +16,19 @@ ssl = ["dep:rustls", "dep:rustls-pemfile", "dep:rustls-webpki", "dep:x509-parser
 rustpython-wtf8 = { workspace = true }
 
 bitflags = { workspace = true }
+der = { workspace = true, optional = true }
 getrandom = { workspace = true }
 libc = { workspace = true }
 num-traits = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
+pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
+rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+rustls-webpki = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 widestring = { workspace = true }
+x509-parser = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
@@ -31,13 +38,6 @@ rustix = { workspace = true }
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1.17.0"
-rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
-rustls-pemfile = { workspace = true, optional = true }
-rustls-webpki = { workspace = true, optional = true }
-x509-parser = { workspace = true, optional = true }
-der = { workspace = true, optional = true }
-pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
-sha2 = { workspace = true, optional = true }
 
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
 mac_address = { workspace = true }

@@ -308,7 +308,17 @@ fn cpython_parse_diagnostic_override(
         consider_override(&mut earliest, diagnostic);
     }
     if let Some(bracket) = bracket_syntax_error(source_text) {
-        consider_override_bracket(&mut earliest, bracket.diagnostic, bracket.unclosed);
+        // Unclosed openers are reported at the opener and only become errors
+        // at EOF. A later token-time diagnostic (invalid number, prefix, …)
+        // must keep winning, matching parser-first CPython. Mismatched
+        // closers stay in the positional ranking.
+        if bracket.unclosed {
+            if earliest.is_none() {
+                consider_override_bracket(&mut earliest, bracket.diagnostic, true);
+            }
+        } else {
+            consider_override_bracket(&mut earliest, bracket.diagnostic, false);
+        }
     }
     if let Some(override_diag) = earliest {
         return Some(
@@ -7545,6 +7555,7 @@ mod tests {
                 "closing parenthesis ']' does not match opening parenthesis '('",
             ),
             ("0x\nbu'x'", "invalid hexadecimal literal"),
+            ("(0x", "invalid hexadecimal literal"),
             (
                 r"'\N'",
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",

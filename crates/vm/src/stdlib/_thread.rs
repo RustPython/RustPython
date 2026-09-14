@@ -467,7 +467,7 @@ pub(crate) mod _thread {
         {
             let units =
                 host_thread::current_thread_name_wide().map_err(|e| e.to_pyexception(vm))?;
-            Ok(vm.ctx.new_str(String::from_utf16_lossy(&units)).into())
+            Ok(vm.ctx.new_str(Wtf8Buf::from_wide(&units)).into())
         }
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
