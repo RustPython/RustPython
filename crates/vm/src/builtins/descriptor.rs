@@ -762,16 +762,12 @@ impl SlotFunc {
                 func(&other, &obj, vm) // Swapped: other op obj
             }
             Self::NumTernary(func) => {
-                let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
-                    args.bind(vm)?;
-                let z = z.unwrap_or_else(|| vm.ctx.none());
+                let (y, z) = pow_args(args, vm)?;
                 func(&obj, &y, &z, vm)
             }
             Self::NumTernaryRight(func) => {
-                let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
-                    args.bind(vm)?;
-                let z = z.unwrap_or_else(|| vm.ctx.none());
-                func(&y, &obj, &z, vm) // Swapped: y ** obj % z
+                let (y, z) = pow_args(args, vm)?;
+                func(&y, &obj, &z, vm)
             }
             // Buffer protocol
             Self::GetBuffer(func) => {
@@ -790,6 +786,24 @@ impl SlotFunc {
             }
         }
     }
+}
+
+/// wrap_ternaryfunc / check_pow_args
+fn pow_args(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+    if let Some(err) = args.check_kwargs_empty(vm) {
+        return Err(err);
+    }
+    let size = args.args.len();
+    if !(1..=2).contains(&size) {
+        return Err(vm.new_type_error(format!("expected 1 or 2 arguments, got {size}")));
+    }
+    let y = args.args[0].clone();
+    let z = if size == 2 {
+        args.args[1].clone()
+    } else {
+        vm.ctx.none()
+    };
+    Ok((y, z))
 }
 
 /// Parse the `flags` argument of `__buffer__`. wrap_buffer
@@ -884,7 +898,16 @@ impl PyWrapper {
 
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
-        self.doc
+        let doc = self.doc?;
+        type_::get_doc_from_internal_doc(self.name.as_str(), doc)
+    }
+
+    #[pygetset]
+    fn __text_signature__(&self) -> Option<String> {
+        self.doc.and_then(|doc| {
+            type_::get_text_signature_from_internal_doc(self.name.as_str(), doc)
+                .map(|signature| signature.to_string())
+        })
     }
 }
 
@@ -954,6 +977,25 @@ impl PyMethodWrapper {
         self.wrapper.typ.to_owned()
     }
 
+    #[pygetset]
+    fn __qualname__(&self) -> String {
+        format!("{}.{}", self.wrapper.typ.name(), self.wrapper.name)
+    }
+
+    #[pygetset]
+    fn __doc__(&self) -> Option<&'static str> {
+        let doc = self.wrapper.doc?;
+        type_::get_doc_from_internal_doc(self.wrapper.name.as_str(), doc)
+    }
+
+    #[pygetset]
+    fn __text_signature__(&self) -> Option<String> {
+        self.wrapper.doc.and_then(|doc| {
+            type_::get_text_signature_from_internal_doc(self.wrapper.name.as_str(), doc)
+                .map(|signature| signature.to_string())
+        })
+    }
+
     #[pymethod]
     fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
@@ -985,10 +1027,14 @@ impl Representable for PyMethodWrapper {
 }
 
 impl Hashable for PyMethodWrapper {
-    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let obj_hash = zelf.obj.hash(vm)?;
-        let wrapper_hash = zelf.wrapper.as_object().get_id() as PyHash;
-        Ok(obj_hash ^ wrapper_hash)
+    fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
+        // wrapperobject_hash: pointer hash of descr xor self
+        let mut hash =
+            (zelf.wrapper.as_object().get_id() as PyHash) ^ (zelf.obj.get_id() as PyHash);
+        if hash == -1 {
+            hash = -2;
+        }
+        Ok(hash)
     }
 }
 
@@ -997,11 +1043,11 @@ impl Comparable for PyMethodWrapper {
         zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
-        vm: &VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> PyResult<crate::function::PyComparisonValue> {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
-            let eq = zelf.wrapper.is(&other.wrapper) && vm.bool_eq(&zelf.obj, &other.obj)?;
+            let eq = zelf.wrapper.is(&other.wrapper) && zelf.obj.is(&other.obj);
             Ok(eq.into())
         })
     }

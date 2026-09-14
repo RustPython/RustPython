@@ -144,7 +144,7 @@ impl PyAsyncGen {
     }
     #[pygetset]
     fn ag_running(&self, _vm: &VirtualMachine) -> bool {
-        self.inner.running()
+        self.running_async.load()
     }
     #[pygetset]
     fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
@@ -501,12 +501,11 @@ impl PyAsyncGenAThrow {
 
                 let (ty, val, tb) = self.value.clone();
                 let ret = self.ag.inner.throw(self.ag.as_object(), ty, val, tb, vm);
+                if self.aclose && self.ignored_close(&ret) {
+                    return Err(self.yield_close(vm));
+                }
                 let ret = if self.aclose {
-                    if self.ignored_close(&ret) {
-                        Err(self.yield_close(vm))
-                    } else {
-                        ret.and_then(|o| o.into_async_pyresult(vm))
-                    }
+                    ret.and_then(|o| o.into_async_pyresult(vm))
                 } else {
                     PyAsyncGenWrappedValue::unbox(&self.ag, ret, vm)
                 };
@@ -572,12 +571,11 @@ impl PyAsyncGenAThrow {
             exc_tb.unwrap_or_none(vm),
             vm,
         );
+        if self.aclose && self.ignored_close(&ret) {
+            return Err(self.yield_close(vm));
+        }
         let res = if self.aclose {
-            if self.ignored_close(&ret) {
-                Err(self.yield_close(vm))
-            } else {
-                ret.and_then(|o| o.into_async_pyresult(vm))
-            }
+            ret.and_then(|o| o.into_async_pyresult(vm))
         } else {
             PyAsyncGenWrappedValue::unbox(&self.ag, ret, vm)
         };
@@ -616,7 +614,6 @@ impl PyAsyncGenAThrow {
     }
     fn yield_close(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         self.ag.running_async.store(false);
-        self.ag.inner.closed.store(true);
         self.state.store(AwaitableState::Closed);
         vm.new_runtime_error("async generator ignored GeneratorExit")
     }
@@ -829,14 +826,16 @@ impl IterNext for PyAnextAwaitable {
 /// _PyGen_Finalize for async generators
 impl Destructor for PyAsyncGen {
     fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-        // Generator is already closed, nothing to do
-        if zelf.inner.closed.load() {
+        if zelf.inner.closed() {
             return Ok(());
         }
-
-        // Call the async generator finalizer hook if set.
-        Self::call_finalizer(zelf, vm);
-
+        if zelf.ag_finalizer.lock().clone().is_some() {
+            Self::call_finalizer(zelf, vm);
+            return Ok(());
+        }
+        if let Err(e) = zelf.inner.close(zelf.as_object(), vm) {
+            crate::coroutine::unraisable_while_closing(zelf.as_object(), &zelf.inner, e, vm);
+        }
         Ok(())
     }
 }

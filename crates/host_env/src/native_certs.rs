@@ -42,6 +42,7 @@ pub fn default_verify_paths() -> (String, String) {
     (cafile, capath)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load() -> LoadResult {
     let result = rustls_native_certs::load_native_certs();
     LoadResult {
@@ -55,6 +56,14 @@ pub fn load() -> LoadResult {
             .into_iter()
             .map(|error| error.to_string())
             .collect(),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn load() -> LoadResult {
+    LoadResult {
+        certs: Vec::new(),
+        errors: vec!["native certificate store is unavailable".to_owned()],
     }
 }
 

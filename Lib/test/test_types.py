@@ -635,7 +635,6 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(object.__lt__, types.WrapperDescriptorType)
         self.assertIsInstance(int.__lt__, types.WrapperDescriptorType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: no signature found for builtin <method-wrapper '__get__' of wrapper_descriptor object
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_dunder_get_signature(self):

@@ -42,6 +42,14 @@ web-sys = { workspace = true, features = [
     "Response"
 ] }
 
+[target.'cfg(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")))'.dependencies]
+getrandom = { workspace = true, features = ["wasm_js"] }
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+rustls = { workspace = true, default-features = false, features = ["std", "tls12", "custom-provider"] }
+rustls-pki-types = { version = "1", default-features = false, features = ["alloc", "std", "web"] }
+rustls-rustcrypto = "0.0.2-alpha"
+rustpython-host_env = { workspace = true, features = ["ssl"] }
+
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false#["-O1"]
 
@@ -49,4 +57,4 @@ wasm-opt = false#["-O1"]
 workspace = true
 
 [package.metadata.cargo-shear]
-ignored = ["serde"]
+ignored = ["serde", "getrandom", "rustls-pki-types"]

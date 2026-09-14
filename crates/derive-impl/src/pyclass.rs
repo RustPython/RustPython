@@ -168,6 +168,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 itemsize,
             } = extract_impl_attrs(attr, &impl_ty)?;
             let payload_ty = attr_payload.unwrap_or(payload_guess);
+            context.getset_items.type_name = Some(payload_ty.to_string());
+            context.member_items.type_name = Some(payload_ty.to_string());
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
             let member_impl = &context.member_items;
@@ -265,6 +267,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 ..
             } = extract_impl_attrs(attr, &trai.ident)?;
 
+            context.getset_items.type_name = Some(trai.ident.to_string());
+            context.member_items.type_name = Some(trai.ident.to_string());
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
             let member_impl = &context.member_items;
@@ -413,6 +417,21 @@ fn type_matches_path(ty: &syn::Type, path: &syn::Path) -> bool {
         return false;
     };
     type_last.ident == path_last.ident
+}
+
+fn cpython_attr_doc(rust_type: &str, attr: &str) -> Option<String> {
+    let stripped = rust_type.strip_prefix("Py").unwrap_or(rust_type);
+    let lower = stripped.to_ascii_lowercase();
+    let underscored = format!("_{stripped}");
+    let class_names = [rust_type, stripped, lower.as_str(), underscored.as_str()];
+    for (key, doc) in &DB {
+        if class_names.iter().any(|class| {
+            *key == format!("{class}.{attr}") || key.ends_with(&format!(".{class}.{attr}"))
+        }) {
+            return Some((*doc).to_owned());
+        }
+    }
+    None
 }
 
 fn generate_class_def(
@@ -978,10 +997,12 @@ where
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.method_name()?;
+        let coexist = item_meta.coexist()?;
 
         // Disallow slot methods - they should be defined via trait implementations
         // These are exposed as wrapper_descriptor via add_operators from SLOT_DEFS
-        if !args.context.is_trait {
+        // unless the method is METH_COEXIST.
+        if !args.context.is_trait && !coexist {
             const FORBIDDEN_SLOT_METHODS: &[(&str, &str)] = &[
                 // Constructor/Initializer traits
                 ("__new__", "Constructor"),
@@ -1123,6 +1144,7 @@ where
             ident: ident.to_owned(),
             doc,
             raw,
+            coexist,
             attr_name: self.inner.attr_name,
             call_flags,
         });
@@ -1328,11 +1350,13 @@ where
             args.attrs.push(allow_attr);
         }
 
+        let doc = args.attrs.doc();
         args.context.member_items.add_item(
             &py_name,
             member_item_kind,
             member_kind,
             ident.clone(),
+            doc,
         )?;
         Ok(())
     }
@@ -1348,6 +1372,7 @@ struct MethodNurseryItem {
     cfgs: Vec<Attribute>,
     ident: Ident,
     raw: bool,
+    coexist: bool,
     doc: Option<String>,
     attr_name: AttrName,
     call_flags: TokenStream,
@@ -1394,9 +1419,14 @@ impl ToTokens for MethodNursery {
                 _ => unreachable!(),
             };
             let call_flags = &item.call_flags;
+            let coexist_flags = if item.coexist {
+                quote! { | rustpython_vm::function::PyMethodFlags::COEXIST.bits() }
+            } else {
+                quote! {}
+            };
             let flags = quote! {
                 rustpython_vm::function::PyMethodFlags::from_bits_retain(
-                    (#binding_flags).bits() | (#call_flags).bits()
+                    (#binding_flags).bits() | (#call_flags).bits() #coexist_flags
                 )
             };
             // TODO: intern
@@ -1437,6 +1467,7 @@ struct GetSetEntry {
 struct GetSetNursery {
     map: HashMap<(String, Vec<Attribute>), GetSetEntry>,
     validated: bool,
+    type_name: Option<String>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1510,7 +1541,12 @@ impl ToTokens for GetSetNursery {
                 Some(setter) => quote_spanned! { setter.span() => .with_set(Self::#setter)},
                 None => quote! {},
             };
-            let doc = match &entry.doc {
+            let doc = entry.doc.clone().or_else(|| {
+                self.type_name
+                    .as_deref()
+                    .and_then(|ty| cpython_attr_doc(ty, name))
+            });
+            let doc = match &doc {
                 Some(doc) => quote! { .with_doc(#doc) },
                 None => quote! {},
             };
@@ -1540,12 +1576,14 @@ type MemberKindStr = Option<String>;
 struct MemberNursery {
     map: HashMap<String, MemberNurseryEntry>,
     validated: bool,
+    type_name: Option<String>,
 }
 
 struct MemberNurseryEntry {
     kind: MemberKindStr,
     getter: Option<Ident>,
     setter: Option<Ident>,
+    doc: Option<String>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1561,6 +1599,7 @@ impl MemberNursery {
         kind: MemberItemKind,
         member_kind: MemberKindStr,
         item_ident: Ident,
+        doc: Option<String>,
     ) -> Result<()> {
         assert!(!self.validated, "new item is not allowed after validation");
         let entry = self
@@ -1570,6 +1609,7 @@ impl MemberNursery {
                 kind: member_kind,
                 getter: None,
                 setter: None,
+                doc: None,
             });
         let func = match kind {
             MemberItemKind::Get => &mut entry.getter,
@@ -1579,6 +1619,11 @@ impl MemberNursery {
             bail_span!(item_ident, "Multiple member accessors with name '{}'", name);
         }
         *func = Some(item_ident);
+        if matches!(kind, MemberItemKind::Get)
+            && let Some(doc) = doc
+        {
+            entry.doc = Some(doc);
+        }
         Ok(())
     }
 
@@ -1625,10 +1670,19 @@ impl ToTokens for MemberNursery {
                 }
             };
             let getter = entry.getter.as_ref().unwrap();
+            let doc = entry.doc.clone().or_else(|| {
+                self.type_name
+                    .as_deref()
+                    .and_then(|ty| cpython_attr_doc(ty, name))
+            });
+            let doc = match &doc {
+                Some(doc) => quote! { Some(#doc) },
+                None => quote! { None },
+            };
             quote_spanned! { getter.span() =>
                 class.set_str_attr(
                     #name,
-                    ctx.new_member(#name, #member_kind, Self::#getter, #setter, class),
+                    ctx.new_member(#name, #member_kind, Self::#getter, #setter, class, #doc),
                     ctx,
                 );
             }
@@ -1640,7 +1694,7 @@ impl ToTokens for MemberNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "coexist"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1654,6 +1708,10 @@ impl ItemMeta for MethodItemMeta {
 impl MethodItemMeta {
     fn raw(&self) -> Result<bool> {
         self.inner()._bool("raw")
+    }
+
+    fn coexist(&self) -> Result<bool> {
+        self.inner()._bool("coexist")
     }
 
     fn method_name(&self) -> Result<String> {

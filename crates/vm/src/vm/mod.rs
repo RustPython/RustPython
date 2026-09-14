@@ -3123,6 +3123,15 @@ impl VirtualMachine {
         }
     }
 
+    /// `_PyErr_ChainStackItem`: if the current `exc_info` slot is occupied,
+    /// set that handled exception as `__context__` of `exception`. A vacant
+    /// current slot must not walk to an outer frame's exception.
+    pub(crate) fn chain_stack_item(&self, exception: &Py<PyBaseException>) {
+        if self.current_exception().is_some() {
+            self.contextualize_exception(exception);
+        }
+    }
+
     pub(crate) fn contextualize_exception(&self, exception: &Py<PyBaseException>) {
         if let Some(context_exc) = self.topmost_exception()
             && !context_exc.is(exception)

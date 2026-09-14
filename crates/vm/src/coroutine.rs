@@ -1,6 +1,6 @@
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyCode, PyStrRef, PyTupleRef},
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyCode, PyStrRef, PyTraceback, PyTupleRef},
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
     frame::{ExecutionResult, FrameObject, FrameObjectRef, FrameOwner, InterpreterFrame},
@@ -8,6 +8,7 @@ use crate::{
     object::{PyAtomicRef, Traverse, TraverseFn},
     protocol::PyIterReturn,
 };
+use core::sync::atomic::Ordering;
 use crossbeam_utils::atomic::AtomicCell;
 
 impl ExecutionResult {
@@ -86,6 +87,7 @@ fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
 impl Coro {
     pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         let code = frame.iframe().code().to_owned();
+        frame.as_object().mark_cache_published();
         Self {
             frame: Some(frame).into(),
             code,
@@ -97,30 +99,21 @@ impl Coro {
         }
     }
 
-    /// `_PyFrame_ClearExceptCode`. Clear locals unless another reference
-    /// still holds the frame object; then take_ownership instead.
+    /// `_PyFrame_ClearExceptCode`. Steal the frame slot first, then
+    /// clear locals only if this was the last reference.
     fn clear_except_code(&self) {
-        let Some(frame) = self.frame.deref() else {
-            return;
-        };
-        if frame.as_object().strong_count() == 1 {
-            frame.clear_locals_and_stack();
-        } else {
-            self.take_ownership();
-        }
-    }
-
-    /// Steal the iframe's `frame_obj` pointer (`take_ownership`). The live
-    /// locals stay on that frame object; this generator no longer roots it.
-    fn take_ownership(&self) {
         let Some(frame) = (unsafe { self.frame.swap(None) }) else {
             return;
         };
-        frame.iframe().owner.store(
-            FrameOwner::FrameObject as i8,
-            core::sync::atomic::Ordering::Release,
-        );
         frame.clear_generator();
+        if frame.as_object().strong_count() == 1 {
+            frame.clear_locals_and_stack();
+        } else {
+            frame.iframe().owner.store(
+                FrameOwner::FrameObject as i8,
+                core::sync::atomic::Ordering::Release,
+            );
+        }
     }
 
     /// Retire the generator if the frame it just ran came to an end. The claim
@@ -331,20 +324,18 @@ impl Coro {
                 vm.ctx.none(),
             )
         });
+        if !matches!(&result, Ok(ExecutionResult::Yield(_))) {
+            self.closed.store(true);
+            self.clear_except_code();
+        }
         drop(claim);
         match result {
             Ok(ExecutionResult::Yield(_)) => {
                 Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm))))
             }
-            other => {
-                self.closed.store(true);
-                self.clear_except_code();
-                match other {
-                    Err(e) if !is_gen_exit(&e, vm) => Err(e),
-                    Ok(ExecutionResult::Return(value)) => Ok(value),
-                    _ => Ok(vm.ctx.none()),
-                }
-            }
+            Err(e) if !is_gen_exit(&e, vm) => Err(e),
+            Ok(ExecutionResult::Return(value)) => Ok(value),
+            _ => Ok(vm.ctx.none()),
         }
     }
 
@@ -367,7 +358,7 @@ impl Coro {
     }
 
     pub fn frame_opt(&self) -> Option<FrameObjectRef> {
-        self.frame.to_owned()
+        self.frame.try_to_owned(Ordering::Acquire)
     }
 
     pub fn code(&self) -> PyRef<PyCode> {
@@ -492,6 +483,30 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
     }
 
     Err(vm.new_type_error(format!("'{}' object can't be awaited", obj.class().name())))
+}
+
+pub(crate) fn unraisable_while_closing(
+    jen: &PyObject,
+    coro: &Coro,
+    e: crate::builtins::PyBaseExceptionRef,
+    vm: &VirtualMachine,
+) {
+    // Explicit close() leaves the traceback to the caller frame.
+    // Finalize has no caller frame, so attach the generator site here.
+    if e.__traceback__().is_none()
+        && let Some(frame) = coro.frame_opt()
+    {
+        let lasti = frame.lasti().saturating_mul(2);
+        let lineno = rustpython_compiler_core::OneIndexed::new(frame.f_lineno().max(1))
+            .unwrap_or(rustpython_compiler_core::OneIndexed::MIN);
+        let tb = PyTraceback::new(None, frame, lasti, lineno);
+        e.set_traceback_typed(Some(tb.into_ref(&vm.ctx)));
+    }
+    let msg = jen
+        .repr(vm)
+        .ok()
+        .map(|r| format!("Exception ignored while closing generator {r}"));
+    vm.run_unraisable(e, msg, vm.ctx.none());
 }
 
 /// Emit DeprecationWarning for the deprecated 3-argument throw() signature.

@@ -26,11 +26,10 @@ pub mod crt_fd;
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub mod fileutils;
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub mod fs;
 #[cfg(any(unix, windows))]
 pub mod locale;
-#[cfg(all(feature = "native-certs", not(target_arch = "wasm32")))]
+#[cfg(feature = "native-certs")]
 pub mod native_certs;
 pub mod readline;
 #[cfg(feature = "ssl")]

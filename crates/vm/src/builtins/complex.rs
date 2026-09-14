@@ -539,14 +539,16 @@ impl PyComplex {
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyComplex {
-    #[pygetset]
-    const fn real(&self) -> f64 {
-        self.value.re
+    #[pymember]
+    fn real(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(vm.ctx.new_float(zelf.value.re).into())
     }
 
-    #[pygetset]
-    const fn imag(&self) -> f64 {
-        self.value.im
+    #[pymember]
+    fn imag(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(vm.ctx.new_float(zelf.value.im).into())
     }
 
     #[pymethod]

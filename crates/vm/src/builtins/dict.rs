@@ -579,7 +579,9 @@ impl Py<PyDict> {
         Ok(PyArithmeticValue::Implemented(true))
     }
 
+    /// Return self[key].
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
+    #[pymethod(coexist)]
     fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.inner_getitem(&*key, vm)
     }

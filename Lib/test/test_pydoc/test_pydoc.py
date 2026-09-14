@@ -787,7 +787,6 @@ class PydocDocTest(unittest.TestCase):
         run_pydoc_for_request(pydoc.Helper.help, 'Help on function help in module pydoc:')
         # test for pydoc.Helper() instance skipped because it is always meant to be interactive
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'trace function introduces __locals__ unexpectedly')
     @requires_docstrings

@@ -3954,7 +3954,6 @@ class TestSignatureObject(unittest.TestCase):
                            ('b', ..., ..., "positional_or_keyword")),
                           ...))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_signature_on_class(self):
         class C:
             def __init__(self, a):

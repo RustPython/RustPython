@@ -105,7 +105,7 @@ Verify that parenthesis are required in a statement
 
 Verify that parenthesis are required when used as a keyword argument value
 
-    >>> dict(a = i for i in range(10))  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> dict(a = i for i in range(10))
     Traceback (most recent call last):
        ...
     SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
@@ -242,7 +242,7 @@ Check that generator attributes are present
     True
 
     >>> from test.support import HAVE_DOCSTRINGS
-    >>> print(g.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> print(g.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')
     Implement next(self).
     >>> import types
     >>> isinstance(g, types.GeneratorType)

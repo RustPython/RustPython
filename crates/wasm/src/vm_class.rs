@@ -86,9 +86,19 @@ impl StoredVirtualMachine {
                 .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB);
         }
 
-        // Add wasm-specific modules
+        // Add wasm-specific modules. Browser `_ssl` / `_socket` live here
+        // rather than rustpython-stdlib: there are no BSD sockets, and rustls
+        // is driven through MemoryBIO / wrap_bio.
         let js_def = js_module::module_def(&builder.ctx);
         builder = builder.add_native_module(js_def);
+
+        #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+        {
+            install_browser_tls_provider();
+            let ssl_def = crate::ssl::module_def(&builder.ctx);
+            let socket_def = crate::socket::module_def(&builder.ctx);
+            builder = builder.add_native_modules(&[ssl_def, socket_def]);
+        }
 
         if inject_browser_module {
             let window_def = _window::module_def(&builder.ctx);
@@ -113,6 +123,26 @@ impl StoredVirtualMachine {
             future_features: RefCell::new(CodeFlags::empty()),
         }
     }
+}
+
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+fn install_browser_tls_provider() {
+    use rustls::Error;
+    use rustpython_host_env::ssl::providers::CryptoExt;
+    use std::sync::Arc;
+
+    fn no_ticketer() -> Result<Arc<dyn rustls::server::ProducesTickets>, Error> {
+        Err(Error::General("TLS session tickets are unavailable".into()))
+    }
+
+    let ext = CryptoExt {
+        all_cipher_suites: None,
+        default_cipher_suites: None,
+        all_kx_groups: None,
+        any_supported_key: Some(rustls_rustcrypto::sign::any_supported_type),
+        ticketer: no_ticketer,
+    };
+    let _ = CryptoExt::set_provider(rustls_rustcrypto::provider(), ext);
 }
 
 // It's fine that it's thread local, since WASM doesn't even have threads yet. thread_local!

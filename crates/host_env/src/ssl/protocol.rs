@@ -2,7 +2,7 @@
 
 use rustls::version::{TLS12, TLS13};
 
-use super::constants::{OP_NO_TLSV1_2, OP_NO_TLSV1_3, PROTO_TLSV1_2, PROTO_TLSV1_3};
+use super::constants::{OP_NO_TLSV1_2, OP_NO_TLSV1_3, PROTO_TLSV1_2, PROTO_TLSV1_3, ProtoVersion};
 
 /// Why `server_hostname` was rejected.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,12 +52,12 @@ pub fn rustls_versions(
     static TLS12_ONLY: &[&rustls::SupportedProtocolVersion] = &[&TLS12];
     static TLS13_ONLY: &[&rustls::SupportedProtocolVersion] = &[&TLS13];
 
-    let min = if minimum == -2 {
+    let min = if minimum == ProtoVersion::MinSupported as i32 {
         PROTO_TLSV1_2
     } else {
         minimum
     };
-    let max = if maximum == -1 {
+    let max = if maximum == ProtoVersion::MaxSupported as i32 {
         PROTO_TLSV1_3
     } else {
         maximum
