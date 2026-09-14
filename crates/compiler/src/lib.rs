@@ -2784,13 +2784,25 @@ fn assignment_target_expr_range(source: &str, start: usize, end: usize) -> Optio
     }
     // `def f(): (yield bar)` — skip the suite header so the remaining
     // text is the assignment target expression. Other colons (`x: int += 1`)
-    // are not suite headers for this diagnostic.
+    // are not suite headers for this diagnostic. Grouping parentheses may
+    // wrap the yield expression.
     let colon = top_level_colon(bytes, target_start, target_end)?;
     let after = skip_horizontal_whitespace(bytes, colon + 1);
-    if after >= target_end || !starts_identifier(bytes, after, b"yield") {
+    let yield_at = skip_opening_parentheses(bytes, after, target_end);
+    if yield_at >= target_end || !starts_identifier(bytes, yield_at, b"yield") {
         return None;
     }
     Some((after, target_end))
+}
+
+fn skip_opening_parentheses(bytes: &[u8], mut index: usize, end: usize) -> usize {
+    loop {
+        index = skip_horizontal_whitespace(bytes, index);
+        if index >= end || bytes[index] != b'(' {
+            return index;
+        }
+        index += 1;
+    }
 }
 
 fn trim_target_range(bytes: &[u8], mut start: usize, mut end: usize) -> (usize, usize) {
