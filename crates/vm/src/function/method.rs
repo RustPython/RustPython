@@ -29,7 +29,7 @@ bitflags::bitflags! {
         // already filled the entry.  When defined, the flag allows a separate
         // method, "__contains__" for example, to coexist with a defined
         // slot like sq_contains.
-        // const COEXIST = 0x0040;
+        const COEXIST = 0x0040;
 
         // if not Py_LIMITED_API
         const FASTCALL = 0x0080;

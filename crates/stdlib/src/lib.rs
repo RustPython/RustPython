@@ -129,8 +129,8 @@ mod openssl;
 
 #[cfg(all(
     feature = "host_env",
-    not(target_arch = "wasm32"),
-    feature = "__ssl-rustls"
+    feature = "__ssl-rustls",
+    any(not(target_arch = "wasm32"), target_os = "wasi"),
 ))]
 pub mod ssl;
 
@@ -255,8 +255,8 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         _sqlite3::module_def(ctx),
         #[cfg(all(
             feature = "host_env",
-            not(target_arch = "wasm32"),
-            feature = "__ssl-rustls"
+            feature = "__ssl-rustls",
+            any(not(target_arch = "wasm32"), target_os = "wasi"),
         ))]
         ssl::module_def(ctx),
         statistics::module_def(ctx),

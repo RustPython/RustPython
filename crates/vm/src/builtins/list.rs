@@ -288,8 +288,10 @@ impl PyList {
         }
     }
 
-    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self._getitem(&needle, vm)
+    /// Return self[index].
+    #[pymethod(coexist)]
+    fn __getitem__(&self, index: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self._getitem(&index, vm)
     }
 
     fn _setitem(&self, needle: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {

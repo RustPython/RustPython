@@ -1014,7 +1014,6 @@ class TestBaseExitStack:
         else:
             self.fail("Expected KeyError, but no exception was raised")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exit_exception_with_correct_context(self):
         # http://bugs.python.org/issue20317
         @contextmanager

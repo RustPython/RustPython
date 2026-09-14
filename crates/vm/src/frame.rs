@@ -3390,13 +3390,24 @@ impl ExecutingFrame<'_> {
             };
 
             if is_gen_exit {
-                // gen_close_iter: close the sub-iterator
+                // gen_close_iter: close the sub-iterator. A failed
+                // lookup of close is unraisable; a failed close()
+                // call is raised into this generator.
                 let close_result = if let Some(coro) = self.builtin_coro(jen) {
                     coro.close(jen, vm).map(|_| ())
-                } else if let Some(close_meth) = vm.get_attribute_opt(jen.to_owned(), "close")? {
-                    close_meth.call((), vm).map(|_| ())
                 } else {
-                    Ok(())
+                    match vm.get_attribute_opt(jen.to_owned(), "close") {
+                        Ok(Some(close_meth)) => close_meth.call((), vm).map(|_| ()),
+                        Ok(None) => Ok(()),
+                        Err(e) => {
+                            let msg = jen
+                                .repr(vm)
+                                .ok()
+                                .map(|r| format!("Exception ignored while closing generator {r}"));
+                            vm.run_unraisable(e, msg, vm.ctx.none());
+                            Ok(())
+                        }
+                    }
                 };
                 if let Err(err) = close_result {
                     let idx = self.lasti().saturating_sub(1) as usize;
@@ -3409,7 +3420,7 @@ impl ExecutingFrame<'_> {
                     }
 
                     self.push_value(vm.ctx.none());
-                    vm.contextualize_exception(&err);
+                    vm.chain_stack_item(&err);
                     return match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
                         Ok(None) => {
                             self.prev_line.set(0);
@@ -3454,7 +3465,7 @@ impl ExecutingFrame<'_> {
                         }
 
                         self.push_value(vm.ctx.none());
-                        vm.contextualize_exception(&err);
+                        vm.chain_stack_item(&err);
                         match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
                             Ok(None) => {
                                 self.prev_line.set(0);
@@ -3518,9 +3529,9 @@ impl ExecutingFrame<'_> {
             }
         };
 
-        // when raising an exception, set __context__ to the current exception
-        // This is done in _PyErr_SetObject
-        vm.contextualize_exception(&exception);
+        // PyErr_Restore: do not touch __context__. Chain only when this
+        // generator's own exc_info slot is occupied (_PyErr_ChainStackItem).
+        vm.chain_stack_item(&exception);
 
         // always pushes Py_None before calling gen_send_ex with exc=1
         // This is needed for exception handler to have correct stack state

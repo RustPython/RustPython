@@ -15,6 +15,9 @@
 #[path = "../openssl/ssl_data_31.rs"]
 mod ssl_data;
 
+#[cfg(target_arch = "wasm32")]
+use super::sock_wait_stub::{SockWaitKind, timeout_error_msg};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::socket::{SockWaitKind, timeout_error_msg};
 use crate::vm::VirtualMachine;
 use rustpython_host_env::ssl::{TlsConnection, TlsError};

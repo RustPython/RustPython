@@ -1553,7 +1553,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         else:
             self.fail("finding the most derived metaclass should have failed")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_classmethods(self):
         # Testing class methods...
         class C(object):
@@ -1615,7 +1614,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         del cm.x
         self.assertNotHasAttr(cm, "x")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_classmethod_staticmethod_annotations(self):
         for deco in (classmethod, staticmethod):
             @deco
@@ -2355,7 +2353,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(r(), None)
         del r
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_properties(self):
         # Testing property...
         class C(object):
@@ -3329,7 +3326,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
                                          eval("x %s y" % op),
                                          "x=%d, y=%d" % (x, y))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_descrdoc(self):
         # Testing descriptor doc strings...
         from _io import FileIO
@@ -4084,7 +4080,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             y = x ** 2
         self.assertIn('unsupported operand type(s) for **', str(cm.exception))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pow_wrapper_error_messages(self):
         self.assertRaisesRegex(TypeError,
                                'expected 1 or 2 arguments, got 0',
@@ -4654,7 +4649,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             a >= b
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_method_wrapper(self):
         # Testing method-wrapper objects...
         # <type 'method-wrapper'> did not support any reflection before 2.5
@@ -4981,7 +4975,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertIn("cannot delete '__doc__' attribute of immutable type 'X'", str(cm.exception))
         self.assertEqual(X.__doc__, "banana")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_qualname(self):
         descriptors = [str.lower, complex.real, float.real, int.__add__]
         types = ['method', 'member', 'getset', 'wrapper']

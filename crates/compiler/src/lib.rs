@@ -326,29 +326,39 @@ fn cpython_parse_diagnostic_override(
     }
 
     source_error!(invalid_dict_error(source_text));
-    source_error!(invalid_collection_assignment_error(source_text));
+    if !matches!(mode, Mode::Eval) {
+        source_error!(invalid_collection_assignment_error(source_text));
+    }
     source_error!(invalid_group_error(source_text));
     source_error!(invalid_def_type_params_error(source_text));
     source_error!(invalid_expression_error(source_text));
     source_error!(invalid_named_expression_error(source_text));
-    source_error!(invalid_plain_assignment_error(source_text));
-    source_error!(expression_assignment_error(source_text));
-    source_error!(invalid_annotation_target_error(source_text));
-    source_error!(invalid_assignment_target_error(source_text));
-    source_error!(invalid_augassign_target_error(source_text));
-    source_error!(invalid_for_target_error(source_text));
-    source_error!(invalid_with_target_error(source_text));
-    source_error!(invalid_delete_target_error(source_text));
-    source_error!(invalid_standalone_except_error(source_text));
-    source_error!(invalid_import_statement_error(source_text));
-    source_error!(invalid_import_target_error(source_text));
-    source_error!(invalid_except_as_target_error(source_text));
-    source_error!(invalid_match_mapping_rest_wildcard_error(source_text));
-    source_error!(invalid_match_as_target_error(source_text));
-    source_error!(invalid_for_if_clause_error(source_text));
-    source_error!(invalid_if_expression_statement_error(source_text));
-    source_error!(invalid_else_elif_error(source_text));
-    source_error!(mixed_except_handlers_error(source_text));
+    // Assignment and other statements are not expressions. Eval keeps the
+    // generic parse error rather than a statement-target rewrite.
+    if !matches!(mode, Mode::Eval) {
+        source_error!(invalid_plain_assignment_error(source_text));
+        source_error!(expression_assignment_error(source_text));
+        source_error!(invalid_annotation_target_error(source_text));
+        source_error!(invalid_assignment_target_error(source_text));
+        source_error!(invalid_condition_assignment_error(
+            source_text,
+            error.location.start().to_usize()
+        ));
+        source_error!(invalid_augassign_target_error(source_text));
+        source_error!(invalid_for_target_error(source_text));
+        source_error!(invalid_with_target_error(source_text));
+        source_error!(invalid_delete_target_error(source_text));
+        source_error!(invalid_standalone_except_error(source_text));
+        source_error!(invalid_import_statement_error(source_text));
+        source_error!(invalid_import_target_error(source_text));
+        source_error!(invalid_except_as_target_error(source_text));
+        source_error!(invalid_match_mapping_rest_wildcard_error(source_text));
+        source_error!(invalid_match_as_target_error(source_text));
+        source_error!(invalid_for_if_clause_error(source_text));
+        source_error!(invalid_if_expression_statement_error(source_text));
+        source_error!(invalid_else_elif_error(source_text));
+        source_error!(mixed_except_handlers_error(source_text));
+    }
 
     if matches!(
         &error.error,
@@ -387,7 +397,11 @@ fn cpython_parse_diagnostic_override(
     // into the generic "invalid syntax" message. rustpython-vm's `vm_new.rs`
     // does this same collapse for its own callers; rustpython-compiler has no
     // vm dependency, so mirror it here.
-    if matches!(&error.error, parser::ParseErrorType::ExpectedExpression) {
+    if matches!(
+        &error.error,
+        parser::ParseErrorType::ExpectedExpression
+            | parser::ParseErrorType::UnexpectedExpressionToken
+    ) {
         let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
         return Some(NormalizedParseDiagnostic::new(
             parser::ParseErrorType::OtherError("invalid syntax".into()),
@@ -436,6 +450,10 @@ fn invalid_assignment_target_diagnostic(
             ast::Expr::BinOp(_) => "cannot assign to expression".into(),
             ast::Expr::If(_) => "cannot assign to conditional expression".into(),
             ast::Expr::Generator(_) => "cannot assign to generator expression".into(),
+            ast::Expr::Yield(_) | ast::Expr::YieldFrom(_) => {
+                "cannot assign to yield expression here. Maybe you meant '==' instead of '='?"
+                    .into()
+            }
             ast::Expr::FString(_) => "invalid syntax".into(),
             ast::Expr::StringLiteral(_)
             | ast::Expr::BytesLiteral(_)
@@ -1893,6 +1911,14 @@ fn invalid_call_argument_assignment_error(
         }
     }
     if is_simple_keyword_name(bytes, target_start, target_end) {
+        // NAME '=' expression for_if_clauses
+        if unparenthesized_comprehension(bytes, equal + 1) {
+            return Some(CpythonDiagnostic::new(
+                "invalid syntax. Maybe you meant '==' or ':=' instead of '='?".to_owned(),
+                target_start,
+                equal + 1,
+            ));
+        }
         return None;
     }
     Some(CpythonDiagnostic::new(
@@ -1900,6 +1926,37 @@ fn invalid_call_argument_assignment_error(
         target_start,
         equal,
     ))
+}
+
+fn unparenthesized_comprehension(bytes: &[u8], mut index: usize) -> bool {
+    index = next_non_horizontal_whitespace(bytes, index);
+    if index >= bytes.len() {
+        return false;
+    }
+    let start = index;
+    let mut level = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                if level == 0 {
+                    return false;
+                }
+                level -= 1;
+                index += 1;
+            }
+            b',' | b':' if level == 0 => return false,
+            _ if level == 0 && index > start && starts_identifier(bytes, index, b"for") => {
+                return true;
+            }
+            _ => index += 1,
+        }
+    }
+    false
 }
 
 fn invalid_call_star_expression_error(
@@ -2711,6 +2768,30 @@ fn parenthesized_single_starred_delete_target(bytes: &[u8], start: usize, end: u
     false
 }
 
+fn assignment_target_expr_range(source: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    let bytes = source.as_bytes();
+    let (target_start, target_end) = trim_target_range(bytes, start, end);
+    if target_start >= target_end {
+        return None;
+    }
+    if parser::parse(
+        &source[target_start..target_end],
+        parser::Mode::Expression.into(),
+    )
+    .is_ok()
+    {
+        return Some((target_start, target_end));
+    }
+    // `def f(): (yield bar)` — skip the suite header so the remaining
+    // text is the assignment target expression.
+    let colon = top_level_colon(bytes, target_start, target_end)?;
+    let after = skip_horizontal_whitespace(bytes, colon + 1);
+    if after >= target_end {
+        return None;
+    }
+    Some((after, target_end))
+}
+
 fn trim_target_range(bytes: &[u8], mut start: usize, mut end: usize) -> (usize, usize) {
     while start < end
         && matches!(
@@ -2745,10 +2826,7 @@ fn assignment_target_error_for_slice(
     end: usize,
 ) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
-    let (target_start, target_end) = trim_target_range(bytes, start, end);
-    if target_start >= target_end {
-        return None;
-    }
+    let (target_start, target_end) = assignment_target_expr_range(source, start, end)?;
     if starts_identifier(bytes, target_start, b"yield") {
         return Some(CpythonDiagnostic::new(
             "assignment to yield expression not possible".to_owned(),
@@ -2766,13 +2844,6 @@ fn assignment_target_error_for_slice(
     let invalid_target = invalid_assignment_target(&expression.body)?;
     let invalid_start = target_start + invalid_target.range().start().to_usize();
     let invalid_end = target_start + invalid_target.range().end().to_usize();
-    if matches!(invalid_target, ast::Expr::FString(_)) {
-        return Some(CpythonDiagnostic::new(
-            "invalid syntax".to_owned(),
-            invalid_start,
-            invalid_end,
-        ));
-    }
     let name = delete_target_expr_name(invalid_target);
     let top_level = invalid_target.range() == expression.body.range();
     let bitwise_like = matches!(
@@ -2785,6 +2856,12 @@ fn assignment_target_error_for_slice(
             | ast::Expr::StringLiteral(_)
             | ast::Expr::BytesLiteral(_)
             | ast::Expr::EllipsisLiteral(_)
+            | ast::Expr::Yield(_)
+            | ast::Expr::YieldFrom(_)
+            | ast::Expr::Set(_)
+            | ast::Expr::Dict(_)
+            | ast::Expr::FString(_)
+            | ast::Expr::TString(_)
     );
     Some(CpythonDiagnostic::new(
         invalid_assignment_message(name, top_level && bitwise_like),
@@ -2919,6 +2996,161 @@ fn top_level_plain_assignment_offsets(bytes: &[u8]) -> Vec<usize> {
     offsets
 }
 
+fn invalid_condition_assignment_error(
+    source: &str,
+    parse_error_offset: usize,
+) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let mut index = 0usize;
+    let mut line_start = 0usize;
+    let mut level = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' if level == 0 => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\n' => {
+                line_start = index + 1;
+                index += 1;
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                level = level.saturating_sub(1);
+                index += 1;
+            }
+            _ if level == 0
+                && index == skip_horizontal_whitespace(bytes, line_start)
+                && (starts_identifier(bytes, index, b"if")
+                    || starts_identifier(bytes, index, b"elif")
+                    || starts_identifier(bytes, index, b"while")) =>
+            {
+                let keyword_len = if starts_identifier(bytes, index, b"while") {
+                    5
+                } else if starts_identifier(bytes, index, b"elif") {
+                    4
+                } else {
+                    2
+                };
+                let cond_start = skip_horizontal_whitespace(bytes, index + keyword_len);
+                let Some(colon) = top_level_colon(bytes, cond_start, bytes.len()) else {
+                    index += keyword_len;
+                    continue;
+                };
+                if parse_error_offset < index || parse_error_offset > colon {
+                    index += keyword_len;
+                    continue;
+                }
+                let Some(equal) = condition_plain_assignment(bytes, cond_start, colon) else {
+                    index += keyword_len;
+                    continue;
+                };
+                let (target_start, target_end) = trim_target_range(bytes, cond_start, equal);
+                if target_start >= target_end {
+                    index += keyword_len;
+                    continue;
+                }
+                if is_simple_keyword_name(bytes, target_start, target_end) {
+                    return Some(CpythonDiagnostic::new(
+                        "invalid syntax. Maybe you meant '==' or ':=' instead of '='?".to_owned(),
+                        target_start,
+                        equal + 1,
+                    ));
+                }
+                if let Some((expr_name, start, end, _)) =
+                    expression_name_and_range(&source[target_start..target_end])
+                {
+                    return Some(CpythonDiagnostic::new(
+                        format!(
+                            "cannot assign to {expr_name} here. Maybe you meant '==' instead of '='?"
+                        ),
+                        target_start + start,
+                        target_start + end,
+                    ));
+                }
+                return Some(CpythonDiagnostic::new(
+                    "invalid syntax. Maybe you meant '==' or ':=' instead of '='?".to_owned(),
+                    target_start,
+                    equal + 1,
+                ));
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn condition_plain_assignment(bytes: &[u8], start: usize, end: usize) -> Option<usize> {
+    let mut index = start;
+    let mut nest = Vec::new();
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' => {
+                nest.push(if is_call_open(bytes, start, index) {
+                    b'c'
+                } else {
+                    b'g'
+                });
+                index += 1;
+            }
+            b'[' => {
+                nest.push(b'[');
+                index += 1;
+            }
+            b'{' => {
+                nest.push(b'{');
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                nest.pop();
+                index += 1;
+            }
+            b'=' if is_plain_assignment_operator(bytes, index) && !nest.contains(&b'c') => {
+                return Some(index);
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn is_call_open(bytes: &[u8], start: usize, open: usize) -> bool {
+    let mut index = open;
+    while index > start {
+        index -= 1;
+        match bytes[index] {
+            b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' => {}
+            b')' | b']' => return true,
+            byte if byte >= 0x80 || is_ascii_identifier_char(byte) => {
+                let mut ident_start = index;
+                while ident_start > start
+                    && bytes
+                        .get(ident_start - 1)
+                        .is_some_and(|b| *b >= 0x80 || is_ascii_identifier_char(*b))
+                {
+                    ident_start -= 1;
+                }
+                return !is_condition_keyword(&bytes[ident_start..=index]);
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn is_condition_keyword(word: &[u8]) -> bool {
+    matches!(
+        word,
+        b"not" | b"and" | b"or" | b"in" | b"is" | b"if" | b"elif" | b"while" | b"await" | b"lambda"
+    )
+}
+
 fn invalid_assignment_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let offsets = top_level_plain_assignment_offsets(bytes);
@@ -2987,10 +3219,7 @@ fn top_level_augassign_offset(bytes: &[u8]) -> Option<(usize, usize)> {
 fn invalid_augassign_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let (operator, _) = top_level_augassign_offset(bytes)?;
-    let (target_start, target_end) = trim_target_range(bytes, 0, operator);
-    if target_start >= target_end {
-        return None;
-    }
+    let (target_start, target_end) = assignment_target_expr_range(source, 0, operator)?;
     let target_text = &source[target_start..target_end];
     let Ok(parsed) = parser::parse(target_text, parser::Mode::Expression.into()) else {
         return None;
@@ -5383,6 +5612,20 @@ fn missing_comma_expression_error(source: &str) -> Option<CpythonDiagnostic> {
                     index = identifier_end(bytes, index, bytes.len());
                 }
                 byte if !stack.is_empty() && expression_atom_start_byte(byte) => {
+                    // `yield x` / `await x` are prefix expressions, not two
+                    // adjacent atoms missing a comma.
+                    if starts_identifier(bytes, index, b"yield") {
+                        index = identifier_end(bytes, index, bytes.len());
+                        let after_yield = skip_ascii_whitespace(bytes, index, bytes.len());
+                        if starts_identifier(bytes, after_yield, b"from") {
+                            index = identifier_end(bytes, after_yield, bytes.len());
+                        }
+                        continue;
+                    }
+                    if starts_identifier(bytes, index, b"await") {
+                        index = identifier_end(bytes, index, bytes.len());
+                        continue;
+                    }
                     let atom_end = adjacent_atom_end(bytes, index).unwrap_or(index + 1);
                     let next = skip_ascii_whitespace(bytes, atom_end, bytes.len());
                     if next > atom_end
@@ -7484,6 +7727,155 @@ mod tests {
         assert_eq!(span("(\u{3b1} b)"), (2, 5));
         // Other bracket kinds take the same path.
         assert_eq!(span("[\u{3b1} \u{3b2}]"), (2, 5));
+    }
+
+    #[test]
+    fn parenthesized_yield_assignment_uses_invalid_target_message() {
+        let err = compile(
+            "def f(): (yield bar) = y\n",
+            Mode::Exec,
+            "<yield>",
+            CompileOpts::default(),
+        )
+        .expect_err("parenthesized yield is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to yield expression here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn parenthesized_yield_augassign_uses_illegal_expression_message() {
+        let err = compile(
+            "def f(): (yield bar) += y\n",
+            Mode::Exec,
+            "<yield>",
+            CompileOpts::default(),
+        )
+        .expect_err("parenthesized yield is not an augmented assignment target");
+        assert_eq!(
+            err.to_string(),
+            "'yield expression' is an illegal expression for augmented assignment"
+        );
+    }
+
+    #[test]
+    fn kwarg_unparenthesized_genexp_uses_eq_or_walrus_message() {
+        let err = compile(
+            "dict(a = i for i in range(10))\n",
+            Mode::Exec,
+            "<kwarg>",
+            CompileOpts::default(),
+        )
+        .expect_err("unparenthesized genexp after '=' is invalid");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn eval_fstring_assignment_keeps_invalid_syntax() {
+        for source in ["f'' = 3", "f'{0}' = x", "f'{x}' = x"] {
+            let err = compile(source, Mode::Eval, "<eval>", CompileOpts::default())
+                .expect_err("assignment is invalid in eval");
+            assert_eq!(err.to_string(), "invalid syntax", "{source}");
+        }
+        let err = compile("f'' = 3", Mode::Exec, "<exec>", CompileOpts::default())
+            .expect_err("f-string is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to f-string expression here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn if_assignment_uses_eq_or_walrus_message() {
+        let err = compile(
+            "if x = 3: pass\n",
+            Mode::Exec,
+            "<if>",
+            CompileOpts::default(),
+        )
+        .expect_err("assignment in if condition is invalid");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn parenthesized_if_assignment_uses_eq_or_walrus_message() {
+        for source in [
+            "if (x = 3): pass\n",
+            "if ((x = 3)): pass\n",
+            "if (x = 3) and y: pass\n",
+        ] {
+            let err = compile(source, Mode::Exec, "<if>", CompileOpts::default())
+                .expect_err("parenthesized assignment in if condition is invalid");
+            assert_eq!(
+                err.to_string(),
+                "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
+            );
+        }
+    }
+
+    #[test]
+    fn earlier_syntax_error_is_not_replaced_by_later_condition() {
+        let err = compile(
+            "@@@\nif x = 3: pass\n",
+            Mode::Exec,
+            "<if>",
+            CompileOpts::default(),
+        )
+        .expect_err("the first invalid token is the syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location().0, 1);
+    }
+
+    #[test]
+    fn if_attribute_assignment_uses_invalid_target_hint() {
+        let err = compile(
+            "if x.a = 3: pass\n",
+            Mode::Exec,
+            "<if>",
+            CompileOpts::default(),
+        )
+        .expect_err("attribute assignment in if condition is invalid");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to attribute here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn parenthesized_yield_from_assignment_uses_invalid_target_message() {
+        let err = compile(
+            "def f(): (yield from value) = target\n",
+            Mode::Exec,
+            "<yield>",
+            CompileOpts::default(),
+        )
+        .expect_err("parenthesized yield from is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to yield expression here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn set_display_assignment_uses_invalid_target_hint() {
+        let err = compile(
+            "{1, 2, 3} = 42\n",
+            Mode::Exec,
+            "<set>",
+            CompileOpts::default(),
+        )
+        .expect_err("set display is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to set display here. Maybe you meant '==' instead of '='?"
+        );
     }
 
     #[test]

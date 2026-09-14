@@ -1,4 +1,9 @@
-use super::{PyGenericAlias, PyStr, PyType, PyTypeRef};
+use super::{
+    PyGenericAlias, PyStr, PyType, PyTypeRef,
+    classmethod::{
+        descriptor_get_wrapped_attribute, descriptor_set_wrapped_attribute, functools_wraps,
+    },
+};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::{PyClassDef, PyClassImpl},
@@ -80,10 +85,7 @@ impl Initializer for PyStaticMethod {
 
     fn init(zelf: PyRef<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         *zelf.callable.lock() = callable.clone();
-        if let Ok(doc) = callable.get_attr("__doc__", vm) {
-            zelf.as_object().set_attr("__doc__", doc, vm)?;
-        }
-        Ok(())
+        functools_wraps(zelf.as_object(), &callable, vm)
     }
 }
 
@@ -92,55 +94,68 @@ impl Initializer for PyStaticMethod {
     flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
 )]
 impl PyStaticMethod {
-    #[pygetset]
-    fn __func__(&self) -> PyObjectRef {
-        self.callable.lock().clone()
+    #[pymember]
+    fn __func__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(zelf.callable.lock().clone())
+    }
+
+    #[pymember]
+    fn __wrapped__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(zelf.callable.lock().clone())
     }
 
     #[pygetset]
-    fn __wrapped__(&self) -> PyObjectRef {
-        self.callable.lock().clone()
-    }
-
-    #[pygetset]
-    fn __module__(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.lock().get_attr("__module__", vm)
-    }
-
-    #[pygetset]
-    fn __qualname__(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.lock().get_attr("__qualname__", vm)
-    }
-
-    #[pygetset]
-    fn __name__(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.lock().get_attr("__name__", vm)
-    }
-
-    #[pygetset]
-    fn __annotations__(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.lock().get_attr("__annotations__", vm)
+    fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        let callable = zelf.callable.lock().clone();
+        descriptor_get_wrapped_attribute(
+            callable,
+            zelf.as_object(),
+            identifier!(vm.ctx, __annotations__),
+            vm,
+        )
     }
 
     #[pygetset(setter)]
-    fn set___annotations__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(v) => self.callable.lock().set_attr("__annotations__", v, vm),
-            PySetterValue::Delete => Ok(()), // Silently ignore delete like CPython
-        }
+    fn set___annotations__(
+        zelf: &Py<Self>,
+        value: PySetterValue,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        descriptor_set_wrapped_attribute(
+            zelf.as_object(),
+            identifier!(vm.ctx, __annotations__),
+            value,
+            "staticmethod",
+            vm,
+        )
     }
 
     #[pygetset]
-    fn __annotate__(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.lock().get_attr("__annotate__", vm)
+    fn __annotate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        let callable = zelf.callable.lock().clone();
+        descriptor_get_wrapped_attribute(
+            callable,
+            zelf.as_object(),
+            identifier!(vm.ctx, __annotate__),
+            vm,
+        )
     }
 
     #[pygetset(setter)]
-    fn set___annotate__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(v) => self.callable.lock().set_attr("__annotate__", v, vm),
-            PySetterValue::Delete => Ok(()), // Silently ignore delete like CPython
-        }
+    fn set___annotate__(
+        zelf: &Py<Self>,
+        value: PySetterValue,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        descriptor_set_wrapped_attribute(
+            zelf.as_object(),
+            identifier!(vm.ctx, __annotate__),
+            value,
+            "staticmethod",
+            vm,
+        )
     }
 
     #[pygetset]
