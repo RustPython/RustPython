@@ -2783,13 +2783,26 @@ fn assignment_target_expr_range(source: &str, start: usize, end: usize) -> Optio
         return Some((target_start, target_end));
     }
     // `def f(): (yield bar)` — skip the suite header so the remaining
-    // text is the assignment target expression.
+    // text is the assignment target expression. Other colons (`x: int += 1`)
+    // are not suite headers for this diagnostic. Grouping parentheses may
+    // wrap the yield expression.
     let colon = top_level_colon(bytes, target_start, target_end)?;
     let after = skip_horizontal_whitespace(bytes, colon + 1);
-    if after >= target_end {
+    let yield_at = skip_opening_parentheses(bytes, after, target_end);
+    if yield_at >= target_end || !starts_identifier(bytes, yield_at, b"yield") {
         return None;
     }
     Some((after, target_end))
+}
+
+fn skip_opening_parentheses(bytes: &[u8], mut index: usize, end: usize) -> usize {
+    loop {
+        index = skip_horizontal_whitespace(bytes, index);
+        if index >= end || bytes[index] != b'(' {
+            return index;
+        }
+        index += 1;
+    }
 }
 
 fn trim_target_range(bytes: &[u8], mut start: usize, mut end: usize) -> (usize, usize) {
@@ -3090,6 +3103,11 @@ fn condition_plain_assignment(bytes: &[u8], start: usize, end: usize) -> Option<
     let mut nest = Vec::new();
     while index < end {
         match bytes[index] {
+            b'#' => {
+                while index < end && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
             b'\'' | b'"' => index = skip_quoted_string(bytes, index),
             b'(' => {
                 nest.push(if is_call_open(bytes, start, index) {
@@ -3111,8 +3129,19 @@ fn condition_plain_assignment(bytes: &[u8], start: usize, end: usize) -> Option<
                 nest.pop();
                 index += 1;
             }
-            b'=' if is_plain_assignment_operator(bytes, index) && !nest.contains(&b'c') => {
+            b':' if nest.last() == Some(&b'l') => {
+                nest.pop();
+                index += 1;
+            }
+            b'=' if is_plain_assignment_operator(bytes, index)
+                && !nest.contains(&b'c')
+                && !nest.contains(&b'l') =>
+            {
                 return Some(index);
+            }
+            _ if starts_identifier(bytes, index, b"lambda") => {
+                nest.push(b'l');
+                index += 6;
             }
             _ => index += 1,
         }

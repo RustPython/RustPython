@@ -6,11 +6,11 @@ mod _socket {
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyType, PyTypeRef},
         common::lock::PyMutex,
-        function::{OptionalArg, OptionalOption},
+        function::{ArgIntoFloat, OptionalArg},
         types::{Constructor, Initializer},
     };
     use std::net::{Ipv4Addr, Ipv6Addr};
-    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 
     #[pyattr]
     const AF_UNSPEC: i32 = 0;
@@ -102,7 +102,7 @@ mod _socket {
     #[pyattr(name = "has_ipv6")]
     const HAS_IPV6: bool = true;
 
-    static DEFAULT_TIMEOUT: AtomicI32 = AtomicI32::new(-1);
+    static DEFAULT_TIMEOUT: AtomicU64 = AtomicU64::new(f64::to_bits(-1.0));
 
     fn unsupported(
         vm: &VirtualMachine,
@@ -229,18 +229,24 @@ mod _socket {
 
     #[pyfunction]
     fn getdefaulttimeout() -> Option<f64> {
-        let timeout = DEFAULT_TIMEOUT.load(Ordering::Relaxed);
-        (timeout >= 0).then_some(f64::from(timeout))
+        let timeout = f64::from_bits(DEFAULT_TIMEOUT.load(Ordering::Relaxed));
+        (timeout >= 0.0).then_some(timeout)
     }
 
     #[pyfunction]
-    fn setdefaulttimeout(timeout: OptionalOption<f64>, vm: &VirtualMachine) -> PyResult<()> {
-        match timeout.flatten() {
-            None => DEFAULT_TIMEOUT.store(-1, Ordering::Relaxed),
-            Some(value) if value >= 0.0 => {
-                DEFAULT_TIMEOUT.store(value as i32, Ordering::Relaxed);
+    fn setdefaulttimeout(timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+        match timeout {
+            None => DEFAULT_TIMEOUT.store((-1.0f64).to_bits(), Ordering::Relaxed),
+            Some(value) => {
+                let value = value.into_float();
+                if value.is_nan() {
+                    return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+                }
+                if value < 0.0 || !value.is_finite() {
+                    return Err(vm.new_value_error("Timeout value out of range"));
+                }
+                DEFAULT_TIMEOUT.store(value.to_bits(), Ordering::Relaxed);
             }
-            Some(_) => return Err(vm.new_value_error("Timeout value out of range")),
         }
         Ok(())
     }
@@ -327,11 +333,19 @@ mod _socket {
         }
 
         #[pymethod]
-        fn settimeout(&self, timeout: OptionalOption<f64>, vm: &VirtualMachine) -> PyResult<()> {
-            *self.timeout.lock() = match timeout.flatten() {
+        fn settimeout(&self, timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+            *self.timeout.lock() = match timeout {
                 None => None,
-                Some(value) if value >= 0.0 => Some(value),
-                Some(_) => return Err(vm.new_value_error("Timeout value out of range")),
+                Some(value) => {
+                    let value = value.into_float();
+                    if value.is_nan() {
+                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+                    }
+                    if value < 0.0 || !value.is_finite() {
+                        return Err(vm.new_value_error("Timeout value out of range"));
+                    }
+                    Some(value)
+                }
             };
             Ok(())
         }
@@ -449,8 +463,8 @@ mod _socket {
             zelf.kind.store(kind, Ordering::Relaxed);
             zelf.proto.store(proto, Ordering::Relaxed);
             *zelf.closed.lock() = false;
-            let default = DEFAULT_TIMEOUT.load(Ordering::Relaxed);
-            *zelf.timeout.lock() = (default >= 0).then_some(f64::from(default));
+            let default = f64::from_bits(DEFAULT_TIMEOUT.load(Ordering::Relaxed));
+            *zelf.timeout.lock() = (default >= 0.0).then_some(default);
             Ok(())
         }
     }

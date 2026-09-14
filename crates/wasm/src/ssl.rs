@@ -742,6 +742,15 @@ mod _ssl {
                 *context.maximum_version.read(),
                 *context.options.read(),
             );
+            if *context.verify_mode.read() != CERT_NONE {
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLCertVerificationError::class(&vm.ctx).to_owned(),
+                        Some(SSL_ERROR_SSL),
+                        "certificate verify failed: unable to get local issuer certificate",
+                    )
+                    .upcast());
+            }
             let mut builder =
                 ClientConfig::builder_with_provider(Arc::new(CryptoExt::get_provider().clone()))
                     .with_protocol_versions(versions)
@@ -766,9 +775,14 @@ mod _ssl {
             self.ensure_conn(vm)?;
             let mut connection = self.connection.lock();
             let conn = connection.as_mut().expect("connection created above");
-            let incoming = self.incoming.inner.lock().read(usize::MAX);
+            let (incoming, eof) = {
+                let mut bio = self.incoming.inner.lock();
+                (bio.read(usize::MAX), bio.eof())
+            };
             if !incoming.is_empty() {
                 conn.feed_tls(&incoming).map_err(|err| map_tls(vm, err))?;
+            } else if eof {
+                conn.feed_tls(&[]).map_err(|err| map_tls(vm, err))?;
             }
             conn.process_packets().map_err(|err| map_tls(vm, err))?;
             let outgoing = conn.drain_tls().map_err(|err| map_tls(vm, err))?;
@@ -887,8 +901,30 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn peer_certificate(&self, _binary: OptionalArg<bool>, vm: &VirtualMachine) -> PyObjectRef {
-            vm.ctx.none()
+        fn getpeercert(
+            &self,
+            binary_form: OptionalArg<bool>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<PyObjectRef>> {
+            let binary = binary_form.unwrap_or(false);
+            let der = {
+                let guard = self.connection.lock();
+                let Some(conn) = guard.as_ref() else {
+                    return Err(vm.new_value_error("handshake not done yet"));
+                };
+                if conn.is_handshaking() {
+                    return Err(vm.new_value_error("handshake not done yet"));
+                }
+                let Some(certs) = conn.peer_certificates() else {
+                    return Ok(None);
+                };
+                certs.first().map(|cert| cert.as_ref().to_vec())
+            };
+            match der {
+                None => Ok(None),
+                Some(der) if binary => Ok(Some(vm.ctx.new_bytes(der).into())),
+                Some(_) => Ok(Some(vm.ctx.new_dict().into())),
+            }
         }
 
         #[pymethod]
