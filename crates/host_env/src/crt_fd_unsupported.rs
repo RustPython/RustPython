@@ -96,7 +96,7 @@ impl Drop for Owned {
     fn drop(&mut self) {}
 }
 
-impl<'fd> Borrowed<'fd> {
+impl Borrowed<'_> {
     /// Create a `crt_fd::Borrowed` from a raw file descriptor.
     ///
     /// # Safety

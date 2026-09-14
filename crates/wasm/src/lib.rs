@@ -1,8 +1,26 @@
+#![allow(
+    unused_imports,
+    unreachable_pub,
+    reason = "ssl.rs is shared with rustpython-stdlib and re-exports host_env items"
+)]
+
 extern crate alloc;
+
+// Aliases so the rustls `_ssl` sources can resolve `crate::{common, vm, builtins}`.
+#[allow(unused_imports, reason = "used via crate:: paths from ssl.rs")]
+use rustpython_common as common;
+#[allow(unused_imports, reason = "used via crate:: paths from ssl.rs")]
+use rustpython_vm as vm;
+#[allow(unused_imports, reason = "used via crate:: paths from ssl.rs")]
+use rustpython_vm::builtins;
 
 pub mod browser_module;
 pub mod convert;
 pub mod js_module;
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+mod socket;
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+mod ssl;
 pub mod vm_class;
 pub mod wasm_builtins;
 
