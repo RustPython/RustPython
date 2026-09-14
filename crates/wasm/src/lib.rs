@@ -3,7 +3,11 @@ extern crate alloc;
 pub mod browser_module;
 pub mod convert;
 pub mod js_module;
-#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+#[cfg(all(
+    target_arch = "wasm32",
+    not(target_os = "wasi"),
+    not(feature = "freeze-stdlib")
+))]
 mod socket;
 #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
 mod ssl;
