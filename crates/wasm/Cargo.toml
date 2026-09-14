@@ -66,4 +66,17 @@ wasm-opt = false#["-O1"]
 workspace = true
 
 [package.metadata.cargo-shear]
-ignored = ["serde"]
+# serde is used via derive. The rest are required by the rustls `_ssl`
+# sources compiled through the ssl.rs symlink, or enable wasm rustls
+# feature unification (getrandom / rustls-pki-types).
+ignored = [
+    "serde",
+    "getrandom",
+    "parking_lot",
+    "pem-rfc7468",
+    "phf",
+    "rustls-pemfile",
+    "rustls-pki-types",
+    "webpki-roots",
+    "x509-parser",
+]
