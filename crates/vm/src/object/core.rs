@@ -1949,8 +1949,8 @@ impl PyObject {
                 // during __del__, preventing safe_inc from seeing 0.
                 zelf.0.ref_count.inc_by(2);
 
+                let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
                 if let Err(e) = slot_del(zelf, vm) {
-                    let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
                     let msg = del_method
                         .repr(vm)
                         .ok()
