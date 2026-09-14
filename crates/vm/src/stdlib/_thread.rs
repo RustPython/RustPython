@@ -21,8 +21,7 @@ pub(crate) mod _thread {
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef,
-            PyUtf8StrRef,
+            PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
         },
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::ToPyException,
@@ -411,12 +410,34 @@ pub(crate) mod _thread {
         vm.state.stop_the_world.reset_stats();
     }
 
+    #[cfg(any(unix, windows))]
+    #[pyattr]
+    const _NAME_MAXLEN: usize = host_thread::NAME_MAXLEN;
+
     #[pyfunction]
-    fn set_name(name: PyUtf8StrRef) {
-        #[cfg(any(unix, windows))]
-        host_thread::set_current_thread_name(name.as_str());
-        #[cfg(not(any(unix, windows)))]
-        let _ = name;
+    fn set_name(name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        #[cfg(windows)]
+        {
+            let mut units = Vec::new();
+            for unit in name.as_wtf8().encode_wide() {
+                if unit == 0 || units.len() >= host_thread::NAME_MAXLEN {
+                    break;
+                }
+                units.push(unit);
+            }
+            units.push(0);
+            host_thread::set_current_thread_name_wide(&units).map_err(|e| e.to_pyexception(vm))?;
+        }
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let os_name = vm.fsencode(&name)?;
+            host_thread::set_current_thread_name_bytes(os_name.as_encoded_bytes());
+        }
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+        {
+            let _ = (name, vm);
+        }
+        Ok(())
     }
 
     #[pyfunction(name = "_get_name")]
@@ -425,19 +446,18 @@ pub(crate) mod _thread {
         {
             let units =
                 host_thread::current_thread_name_wide().map_err(|e| e.to_pyexception(vm))?;
-            return Ok(vm.ctx.new_str(String::from_utf16_lossy(&units)).into());
+            Ok(vm.ctx.new_str(String::from_utf16_lossy(&units)).into())
         }
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            let bytes = host_thread::current_thread_name(64).map_err(|e| e.to_pyexception(vm))?;
-            return Ok(vm
-                .ctx
-                .new_str(String::from_utf8_lossy(&bytes).into_owned())
-                .into());
+            let bytes =
+                host_thread::current_thread_name(host_thread::NAME_MAXLEN.saturating_add(1))
+                    .map_err(|e| e.to_pyexception(vm))?;
+            let os = unsafe { std::ffi::OsString::from_encoded_bytes_unchecked(bytes) };
+            Ok(vm.fsdecode(os).into())
         }
         #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         {
-            let _ = vm;
             Ok(vm.ctx.new_str("").into())
         }
     }
