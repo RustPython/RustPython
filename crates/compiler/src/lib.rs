@@ -504,6 +504,23 @@ fn is_ascii_identifier_char(byte: u8) -> bool {
     byte == b'_' || byte.is_ascii_alphanumeric()
 }
 
+fn identifier_continue_before(bytes: &[u8], index: usize) -> bool {
+    if index == 0 {
+        return false;
+    }
+    if bytes[index - 1].is_ascii() {
+        return is_ascii_identifier_char(bytes[index - 1]);
+    }
+    let mut start = index - 1;
+    while start > 0 && bytes[start] & 0b1100_0000 == 0b1000_0000 {
+        start -= 1;
+    }
+    ::core::str::from_utf8(&bytes[start..index])
+        .ok()
+        .and_then(|text| text.chars().next_back())
+        .is_some_and(|ch| ch == '_' || ch.is_alphanumeric())
+}
+
 fn numeric_keyword_suffix(rest: &[u8]) -> bool {
     rest.starts_with(b"and")
         || rest.starts_with(b"else")
@@ -4015,6 +4032,7 @@ fn unterminated_string_error(source: &str, mode: Mode) -> Option<CpythonDiagnost
 fn eval_has_assignment_before(bytes: &[u8], end: usize) -> bool {
     let mut index = 0;
     let mut level = 0usize;
+    let mut in_lambda_params = false;
     while index < end {
         match bytes[index] {
             b'#' => {
@@ -4031,7 +4049,12 @@ fn eval_has_assignment_before(bytes: &[u8], end: usize) -> bool {
                 level = level.saturating_sub(1);
                 index += 1;
             }
+            b':' if level == 0 => {
+                in_lambda_params = false;
+                index += 1;
+            }
             b'=' if level == 0
+                && !in_lambda_params
                 && bytes.get(index + 1) != Some(&b'=')
                 && !matches!(
                     bytes.get(index.saturating_sub(1)),
@@ -4039,6 +4062,10 @@ fn eval_has_assignment_before(bytes: &[u8], end: usize) -> bool {
                 ) =>
             {
                 return true;
+            }
+            _ if level == 0 && starts_identifier(bytes, index, b"lambda") => {
+                in_lambda_params = true;
+                index += b"lambda".len();
             }
             _ => index += 1,
         }
@@ -4220,7 +4247,7 @@ fn interpolated_string_prefix(bytes: &[u8], quote: usize) -> Option<&'static str
         return None;
     };
 
-    if prefix_start > 0 && is_ascii_identifier_char(bytes[prefix_start - 1]) {
+    if prefix_start > 0 && identifier_continue_before(bytes, prefix_start) {
         return None;
     }
 
@@ -6252,7 +6279,11 @@ fn single_mode_blank_source_error(source_file: &SourceFile) -> Option<CompileErr
     if !is_blank_python_source(source) {
         return None;
     }
-    if source.chars().any(|c| matches!(c, ' ' | '\t')) {
+    let has_indent_only_line = source.lines().any(|line| {
+        line.trim_matches(is_ascii_tokenizer_whitespace).is_empty()
+            && line.chars().any(|c| matches!(c, ' ' | '\t'))
+    });
+    if has_indent_only_line {
         let (location, end_location) =
             source_locations(source_file, TextSize::new(0), TextSize::new(0));
         return Some(CompileError::Parse(ParseError {

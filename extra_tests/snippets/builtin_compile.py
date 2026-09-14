@@ -203,6 +203,22 @@ _expect_syntax("\xa0", "eval")
 _expect_syntax("\xa0", "exec")
 _expect_syntax("\x0b", "eval")
 
+# A lambda default `=` is not an assignment statement.
+_expect_incomplete("lambda x='abc", "eval")
+# A Unicode identifier plus a quote is a plain string, not an f-string.
+_expect_incomplete("éf'", "eval")
+# Comment-only single input is invalid syntax, not an indent error.
+try:
+    compile("# a", "<test>", "single")
+except IndentationError:
+    raise AssertionError("comment-only single input should not be IndentationError")
+except SyntaxError:
+    pass
+else:
+    raise AssertionError("expected SyntaxError for comment-only single input")
+_expect_incomplete("# a", "single")
+_expect_incomplete(" #x", "single")
+
 # The source is encoded before it is parsed, so a lone surrogate has to be
 # reported rather than assumed away.
 with assert_raises(UnicodeEncodeError):

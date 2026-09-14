@@ -1209,8 +1209,25 @@ fn interpolated_string_prefix_at(bytes: &[u8], quote: usize) -> bool {
     } else {
         return false;
     };
-    marker_index == 0
-        || !(bytes[marker_index - 1] == b'_' || bytes[marker_index - 1].is_ascii_alphabetic())
+    marker_index == 0 || !identifier_continue_before(bytes, marker_index)
+}
+
+#[cfg(feature = "parser")]
+fn identifier_continue_before(bytes: &[u8], index: usize) -> bool {
+    if index == 0 {
+        return false;
+    }
+    if bytes[index - 1].is_ascii() {
+        return bytes[index - 1] == b'_' || bytes[index - 1].is_ascii_alphanumeric();
+    }
+    let mut start = index - 1;
+    while start > 0 && bytes[start] & 0b1100_0000 == 0b1000_0000 {
+        start -= 1;
+    }
+    ::core::str::from_utf8(&bytes[start..index])
+        .ok()
+        .and_then(|text| text.chars().next_back())
+        .is_some_and(|ch| ch == '_' || ch.is_alphanumeric())
 }
 
 #[cfg(feature = "parser")]
