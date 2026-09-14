@@ -71,7 +71,8 @@ pub use shell::run_shell;
 
 #[cfg(all(
     feature = "ssl",
-    not(any(feature = "ssl-rustls", feature = "ssl-openssl"))
+    not(any(feature = "ssl-rustls", feature = "ssl-openssl")),
+    not(target_arch = "wasm32"),
 ))]
 compile_error!(
     "Feature \"ssl\" is now enabled by either \"ssl-rustls\" or \"ssl-openssl\". Do not manually pass \"ssl\" feature. To enable ssl-openssl, use --no-default-features to disable ssl-rustls*"

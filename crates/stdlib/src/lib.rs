@@ -127,8 +127,10 @@ mod select;
 ))]
 mod openssl;
 
-// Full rustls `_ssl` stays native. wasm implements against the rustls-free
-// `rustpython_host_env::ssl` surface (MemoryBIO, constants, OID, ALPN).
+// Full rustls `_ssl` stays native. All wasm targets (browser unknown and
+// WASI) bind the rustls-free `rustpython_host_env::ssl` surface (MemoryBIO,
+// constants, OID, ALPN). WASI still compiles the rustls engine inside
+// host_env; sockets are not available there yet.
 #[cfg(all(
     feature = "host_env",
     feature = "__ssl-rustls",
