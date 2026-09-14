@@ -9,7 +9,7 @@ use rustpython_compiler_core::SourceLocation;
 use core::ops::RangeInclusive;
 
 #[cfg(feature = "parser")]
-use rustpython_compiler::{CompileError, ParseError};
+use rustpython_compiler::{CompileError, ParseError, is_blank_python_source};
 
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -846,9 +846,12 @@ impl VirtualMachine {
                         self.ctx.exceptions.indentation_error
                     }
                 } else if allow_incomplete
-                    && source.is_some_and(|source| {
-                        raw_location.end().to_usize() >= source.len() && !source.ends_with('\n')
-                    })
+                    && (s == "incomplete input"
+                        || (s == "unexpected EOF while parsing"
+                            && source.is_some_and(|source| {
+                                raw_location.end().to_usize() >= source.len()
+                                    && !source.ends_with('\n')
+                            })))
                 {
                     self.ctx.exceptions.incomplete_input_error
                 } else {
@@ -1145,13 +1148,6 @@ impl VirtualMachine {
     define_exception_fn!(fn new_unbound_local_error, unbound_local_error, UnboundLocalError);
 }
 
-fn is_blank_python_source(source: &str) -> bool {
-    source.lines().all(|line| {
-        let trimmed = line.trim();
-        trimmed.is_empty() || trimmed.starts_with('#')
-    })
-}
-
 #[cfg(feature = "parser")]
 enum QuotedStringScan {
     Closed(usize),
@@ -1179,12 +1175,59 @@ fn unclosed_string_is_incomplete(source: &str) -> bool {
                 QuotedStringScan::Unclosed {
                     triple,
                     unescaped_newline,
-                } => return triple || !unescaped_newline,
+                } => {
+                    // Single-quoted f/t-strings never set E_EOLS.
+                    if !triple && interpolated_string_prefix_at(bytes, index) {
+                        return false;
+                    }
+                    return triple || !unescaped_newline;
+                }
             },
             _ => index += 1,
         }
     }
     false
+}
+
+#[cfg(feature = "parser")]
+fn interpolated_string_prefix_at(bytes: &[u8], quote: usize) -> bool {
+    let Some(&prev) = quote.checked_sub(1).and_then(|index| bytes.get(index)) else {
+        return false;
+    };
+    let lower = prev.to_ascii_lowercase();
+    let marker_index = if matches!(lower, b'f' | b't') {
+        if quote >= 2 && bytes[quote - 2].eq_ignore_ascii_case(&b'r') {
+            quote - 2
+        } else {
+            quote - 1
+        }
+    } else if lower == b'r'
+        && quote >= 2
+        && matches!(bytes[quote - 2].to_ascii_lowercase(), b'f' | b't')
+    {
+        quote - 2
+    } else {
+        return false;
+    };
+    marker_index == 0 || !identifier_continue_before(bytes, marker_index)
+}
+
+#[cfg(feature = "parser")]
+fn identifier_continue_before(bytes: &[u8], index: usize) -> bool {
+    if index == 0 {
+        return false;
+    }
+    if bytes[index - 1].is_ascii() {
+        return bytes[index - 1] == b'_' || bytes[index - 1].is_ascii_alphanumeric();
+    }
+    let mut start = index - 1;
+    while start > 0 && bytes[start] & 0b1100_0000 == 0b1000_0000 {
+        start -= 1;
+    }
+    ::core::str::from_utf8(&bytes[start..index])
+        .ok()
+        .and_then(|text| text.chars().next_back())
+        .is_some_and(|ch| ch == '_' || ch.is_alphanumeric())
 }
 
 #[cfg(feature = "parser")]
