@@ -325,7 +325,10 @@ fn cpython_parse_diagnostic_override(
     source_error!(expression_assignment_error(source_text));
     source_error!(invalid_annotation_target_error(source_text));
     source_error!(invalid_assignment_target_error(source_text));
-    source_error!(invalid_condition_assignment_error(source_text));
+    source_error!(invalid_condition_assignment_error(
+        source_text,
+        error.location.start().to_usize()
+    ));
     source_error!(invalid_augassign_target_error(source_text));
     source_error!(invalid_for_target_error(source_text));
     source_error!(invalid_with_target_error(source_text));
@@ -2956,7 +2959,10 @@ fn top_level_plain_assignment_offsets(bytes: &[u8]) -> Vec<usize> {
     offsets
 }
 
-fn invalid_condition_assignment_error(source: &str) -> Option<CpythonDiagnostic> {
+fn invalid_condition_assignment_error(
+    source: &str,
+    parse_error_offset: usize,
+) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0usize;
     let mut line_start = 0usize;
@@ -2999,15 +3005,14 @@ fn invalid_condition_assignment_error(source: &str) -> Option<CpythonDiagnostic>
                     index += keyword_len;
                     continue;
                 };
-                let Some((equal, _)) = top_level_augassign_or_assign(bytes, cond_start, colon)
-                else {
-                    index += keyword_len;
-                    continue;
-                };
-                if !is_plain_assignment_operator(bytes, equal) {
+                if parse_error_offset < index || parse_error_offset > colon {
                     index += keyword_len;
                     continue;
                 }
+                let Some(equal) = condition_plain_assignment(bytes, cond_start, colon) else {
+                    index += keyword_len;
+                    continue;
+                };
                 let (target_start, target_end) = trim_target_range(bytes, cond_start, equal);
                 if target_start >= target_end {
                     index += keyword_len;
@@ -3043,27 +3048,70 @@ fn invalid_condition_assignment_error(source: &str) -> Option<CpythonDiagnostic>
     None
 }
 
-fn top_level_augassign_or_assign(bytes: &[u8], start: usize, end: usize) -> Option<(usize, usize)> {
+fn condition_plain_assignment(bytes: &[u8], start: usize, end: usize) -> Option<usize> {
     let mut index = start;
-    let mut level = 0usize;
+    let mut nest = Vec::new();
     while index < end {
         match bytes[index] {
             b'\'' | b'"' => index = skip_quoted_string(bytes, index),
-            b'(' | b'[' | b'{' => {
-                level += 1;
+            b'(' => {
+                nest.push(if is_call_open(bytes, start, index) {
+                    b'c'
+                } else {
+                    b'g'
+                });
+                index += 1;
+            }
+            b'[' => {
+                nest.push(b'[');
+                index += 1;
+            }
+            b'{' => {
+                nest.push(b'{');
                 index += 1;
             }
             b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
+                nest.pop();
                 index += 1;
             }
-            b'=' if level == 0 && is_plain_assignment_operator(bytes, index) => {
-                return Some((index, 1));
+            b'=' if is_plain_assignment_operator(bytes, index) && !nest.contains(&b'c') => {
+                return Some(index);
             }
             _ => index += 1,
         }
     }
     None
+}
+
+fn is_call_open(bytes: &[u8], start: usize, open: usize) -> bool {
+    let mut index = open;
+    while index > start {
+        index -= 1;
+        match bytes[index] {
+            b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' => {}
+            b')' | b']' => return true,
+            byte if byte >= 0x80 || is_ascii_identifier_char(byte) => {
+                let mut ident_start = index;
+                while ident_start > start
+                    && bytes
+                        .get(ident_start - 1)
+                        .is_some_and(|b| *b >= 0x80 || is_ascii_identifier_char(*b))
+                {
+                    ident_start -= 1;
+                }
+                return !is_condition_keyword(&bytes[ident_start..=index]);
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn is_condition_keyword(word: &[u8]) -> bool {
+    matches!(
+        word,
+        b"not" | b"and" | b"or" | b"in" | b"is" | b"if" | b"elif" | b"while" | b"await" | b"lambda"
+    )
 }
 
 fn invalid_assignment_target_error(source: &str) -> Option<CpythonDiagnostic> {
@@ -7595,6 +7643,35 @@ mod tests {
             err.to_string(),
             "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
         );
+    }
+
+    #[test]
+    fn parenthesized_if_assignment_uses_eq_or_walrus_message() {
+        for source in [
+            "if (x = 3): pass\n",
+            "if ((x = 3)): pass\n",
+            "if (x = 3) and y: pass\n",
+        ] {
+            let err = compile(source, Mode::Exec, "<if>", CompileOpts::default())
+                .expect_err("parenthesized assignment in if condition is invalid");
+            assert_eq!(
+                err.to_string(),
+                "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
+            );
+        }
+    }
+
+    #[test]
+    fn earlier_syntax_error_is_not_replaced_by_later_condition() {
+        let err = compile(
+            "@@@\nif x = 3: pass\n",
+            Mode::Exec,
+            "<if>",
+            CompileOpts::default(),
+        )
+        .expect_err("the first invalid token is the syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location().0, 1);
     }
 
     #[test]

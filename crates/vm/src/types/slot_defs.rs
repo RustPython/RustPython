@@ -1499,7 +1499,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__bool__",
         accessor: SlotAccessor::NbBool,
         op: None,
-        doc: "__bool__($self, /)\n--\n\nReturn self != 0.",
+        doc: "__bool__($self, /)\n--\n\nTrue if self else False",
     },
     SlotDef {
         name: "__int__",

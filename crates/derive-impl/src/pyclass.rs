@@ -978,10 +978,12 @@ where
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.method_name()?;
+        let coexist = item_meta.coexist()?;
 
         // Disallow slot methods - they should be defined via trait implementations
         // These are exposed as wrapper_descriptor via add_operators from SLOT_DEFS
-        if !args.context.is_trait {
+        // unless the method is METH_COEXIST.
+        if !args.context.is_trait && !coexist {
             const FORBIDDEN_SLOT_METHODS: &[(&str, &str)] = &[
                 // Constructor/Initializer traits
                 ("__new__", "Constructor"),
@@ -1123,6 +1125,7 @@ where
             ident: ident.to_owned(),
             doc,
             raw,
+            coexist,
             attr_name: self.inner.attr_name,
             call_flags,
         });
@@ -1350,6 +1353,7 @@ struct MethodNurseryItem {
     cfgs: Vec<Attribute>,
     ident: Ident,
     raw: bool,
+    coexist: bool,
     doc: Option<String>,
     attr_name: AttrName,
     call_flags: TokenStream,
@@ -1396,9 +1400,14 @@ impl ToTokens for MethodNursery {
                 _ => unreachable!(),
             };
             let call_flags = &item.call_flags;
+            let coexist_flags = if item.coexist {
+                quote! { | rustpython_vm::function::PyMethodFlags::COEXIST.bits() }
+            } else {
+                quote! {}
+            };
             let flags = quote! {
                 rustpython_vm::function::PyMethodFlags::from_bits_retain(
-                    (#binding_flags).bits() | (#call_flags).bits()
+                    (#binding_flags).bits() | (#call_flags).bits() #coexist_flags
                 )
             };
             // TODO: intern
@@ -1654,7 +1663,7 @@ impl ToTokens for MemberNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "coexist"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1668,6 +1677,10 @@ impl ItemMeta for MethodItemMeta {
 impl MethodItemMeta {
     fn raw(&self) -> Result<bool> {
         self.inner()._bool("raw")
+    }
+
+    fn coexist(&self) -> Result<bool> {
+        self.inner()._bool("coexist")
     }
 
     fn method_name(&self) -> Result<String> {
