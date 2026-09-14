@@ -22,13 +22,6 @@ num-traits = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 widestring = { workspace = true }
-rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
-rustls-pemfile = { workspace = true, optional = true }
-rustls-webpki = { workspace = true, optional = true }
-x509-parser = { workspace = true, optional = true }
-der = { workspace = true, optional = true }
-pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
-sha2 = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
@@ -46,6 +39,13 @@ mac_address = { workspace = true }
 dns-lookup = { workspace = true }
 gethostname = { workspace = true }
 rustyline = { workspace = true }
+rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+rustls-webpki = { workspace = true, optional = true }
+x509-parser = { workspace = true, optional = true }
+der = { workspace = true, optional = true }
+pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
+sha2 = { workspace = true, optional = true }
 rustls-native-certs = { workspace = true, optional = true }
 socket2 = { workspace = true, features = ["all"] }
 which = { workspace = true }

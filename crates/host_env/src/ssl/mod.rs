@@ -1,59 +1,58 @@
 //! Shared `_ssl` surface.
 //!
-//! MemoryBIO, protocol constants, OID tables, hostname checks, and ALPN
-//! parsing compile without rustls so wasm and `not(ssl)` hosts can implement
-//! `_ssl` on the same types. The rustls engine stays behind the `ssl`
-//! feature.
+//! The `ssl` feature compiles this whole module. MemoryBIO, constants, OID,
+//! and ALPN do not use rustls. The rustls engine is native-only because
+//! rustls cannot build for `wasm32-unknown-unknown`.
 
 pub mod bio;
 pub mod constants;
 pub mod oid;
 pub mod protocol;
 
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod cert;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod chain;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod cipher;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod config;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod connection;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod error;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod handshake;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod keylog;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod msg;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod providers;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod session;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod verify;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod x509;
 
 pub use bio::{MemoryBio, MemoryBioError};
 pub use constants::*;
 pub use protocol::{AlpnError, HostnameError, parse_length_prefixed_alpn, validate_hostname};
 
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub use cert::{DecodedCertificate, decode_certificate, is_ca_certificate};
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub use connection::{
     RecordCursor, SSL3_RT_MAX_PACKET_SIZE, TLS_RECORD_HEADER_SIZE, TlsConnection,
 };
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub use error::TlsError;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub use protocol::rustls_versions;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub use providers::CryptoExt;
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 pub use session::{
     CapturingClientSessionStore, ClientSessionKind, SESSION_CACHE_SIZE, SessionCache, SessionData,
 };

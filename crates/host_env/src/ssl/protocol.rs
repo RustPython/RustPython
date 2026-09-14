@@ -39,7 +39,7 @@ pub fn validate_hostname(hostname: &str) -> Result<(), HostnameError> {
 }
 
 /// Convert PROTO/OP bits into the rustls version slice.
-#[cfg(feature = "ssl")]
+#[cfg(not(target_arch = "wasm32"))]
 #[must_use]
 pub fn rustls_versions(
     minimum: i32,
