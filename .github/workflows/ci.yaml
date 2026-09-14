@@ -125,14 +125,34 @@ jobs:
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
 
-      - name: run rust tests
-        run: cargo test --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+      - name: Build rust tests
+        run: cargo test --no-run --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
         env:
           INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
+      - name: run rust tests
+        run: cargo test --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }} --lib --bins --tests
+        env:
+          INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+
+      - name: Run rust doctests
+        run: cargo test --doc --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+        env:
+          INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+
+      - name: Build c-api tests
+        working-directory: crates/capi
+        run: cargo test --no-run --locked
+        if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
+
       - name: run c-api tests
         working-directory: crates/capi
-        run: cargo test --locked
+        run: cargo test --locked --lib --bins --tests
+        if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
+
+      - name: Run c-api doctests
+        working-directory: crates/capi
+        run: cargo test --doc --locked
         if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
 
       - name: check compilation without host_env (sandbox mode)
@@ -164,14 +184,24 @@ jobs:
       #   run: cargo build --features tkinter
       #   if: runner.os == 'Linux'
 
-      - name: Test example projects
+      - name: Build example projects
         run: |
-          cargo run --manifest-path example_projects/barebone/Cargo.toml
-          cargo run --manifest-path example_projects/frozen_stdlib/Cargo.toml
+          cargo build --manifest-path example_projects/barebone/Cargo.toml
+          cargo build --manifest-path example_projects/frozen_stdlib/Cargo.toml
+        if: runner.os == 'Linux'
+
+      - name: Run example projects
+        run: |
+          example_projects/barebone/target/debug/example-barebone
+          example_projects/frozen_stdlib/target/debug/example_frozen_stdlib
+        if: runner.os == 'Linux'
+
+      - name: Build rustpython for update_lib tests
+        run: cargo build --locked
         if: runner.os == 'Linux'
 
       - name: run update_lib tests
-        run: cargo run --locked -- -m unittest discover -s scripts/update_lib/tests -v
+        run: target/debug/rustpython -m unittest discover -s scripts/update_lib/tests -v
         env:
           PYTHONPATH: scripts
         if: runner.os == 'Linux'
@@ -487,7 +517,7 @@ jobs:
 
       - name: Check whats_left is not broken
         shell: bash
-        run: python -I scripts/whats_left.py ${{ env.CARGO_ARGS }} --features jit
+        run: python -I scripts/whats_left.py --rustpython target/release/rustpython
 
   clippy:
     # Named after the matrix entry rather than left to be named for it: a
@@ -681,6 +711,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-
 
+      - name: Build tests under miri
+        run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test --no-run --locked -p rustpython-vm -- miri_test
+        env:
+          MIRIFLAGS: "-Zmiri-ignore-leaks -Zmiri-permissive-provenance"
+
       - name: Run tests under miri
         run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test --locked -p rustpython-vm -- miri_test
         env:
@@ -769,15 +804,20 @@ jobs:
         with:
           wabt-version: "1.0.36"
 
-      - name: check wasm32-unknown without js
+      - name: Build wasm32-unknown without js
+        working-directory: example_projects/wasm32_without_js/rustpython-without-js
+        run: cargo build
+
+      - name: Build wasm-runtime
+        run: cargo build --release --manifest-path example_projects/wasm32_without_js/wasm-runtime/Cargo.toml
+
+      - name: Check wasm32-unknown without js
+        working-directory: example_projects/wasm32_without_js
         run: |
-          cd example_projects/wasm32_without_js/rustpython-without-js
-          cargo build
-          cd ..
           if wasm-objdump -xj Import rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm; then
             echo "ERROR: wasm32-unknown module expects imports from the host environment" >&2
           fi
-          cargo run --release --manifest-path wasm-runtime/Cargo.toml rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
+          wasm-runtime/target/release/wasm-runtime rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
 
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
