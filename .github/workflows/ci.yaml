@@ -91,11 +91,51 @@ jobs:
             ':rust-toolchain.toml' \
             ':.cargo/**' \
             ':.github/workflows/ci.yaml' \
-            ':**/posix*.rs' \
-            ':**/nt.rs' \
-            ':**/signal.rs' \
+            ':crates/host_env/**' \
+            ':crates/stdlib/src/openssl/**' \
+            ':crates/stdlib/src/ssl/**' \
             ':**/_signal.rs' \
-            ':**/windows.rs'
+            ':**/_testconsole.rs' \
+            ':**/_thread.rs' \
+            ':**/_winapi.rs' \
+            ':**/_wmi.rs' \
+            ':**/cert_store.rs' \
+            ':**/crt_fd*.rs' \
+            ':**/errno.rs' \
+            ':**/faulthandler.rs' \
+            ':**/fcntl.rs' \
+            ':**/fileutils.rs' \
+            ':**/grp.rs' \
+            ':**/locale.rs' \
+            ':**/mmap.rs' \
+            ':**/msvcrt.rs' \
+            ':**/multiprocessing.rs' \
+            ':**/native_certs.rs' \
+            ':**/nt.rs' \
+            ':**/openssl.rs' \
+            ':**/os.rs' \
+            ':**/overlapped.rs' \
+            ':**/posix*.rs' \
+            ':**/pwd.rs' \
+            ':**/resource.rs' \
+            ':**/scproxy.rs' \
+            ':**/select.rs' \
+            ':**/shm.rs' \
+            ':**/signal.rs' \
+            ':**/socket.rs' \
+            ':**/ssl.rs' \
+            ':**/syslog.rs' \
+            ':**/thread.rs' \
+            ':**/time.rs' \
+            ':**/termios.rs' \
+            ':**/testconsole.rs' \
+            ':**/tkinter.rs' \
+            ':**/uuid.rs' \
+            ':**/winapi.rs' \
+            ':**/windows.rs' \
+            ':**/winreg.rs' \
+            ':**/winsound.rs' \
+            ':**/wmi.rs'
           then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             exit 0
