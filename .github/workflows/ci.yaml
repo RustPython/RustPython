@@ -487,7 +487,7 @@ jobs:
 
       - name: Check whats_left is not broken
         shell: bash
-        run: python -I scripts/whats_left.py ${{ env.CARGO_ARGS }} --features jit
+        run: python -I scripts/whats_left.py --rustpython target/release/rustpython
 
   clippy:
     # Named after the matrix entry rather than left to be named for it: a
