@@ -22,6 +22,48 @@ use rustpython_host_env::ctypes::{
     wchar_array_field_value, write_cow_bytes_at_offset,
 };
 
+/// An address argument, which is dereferenced as a pointer.
+///
+/// CPython takes an exact integer here and does not consult `__index__`, so
+/// neither does this: an object that computes an address is not an address.
+pub(crate) struct ArgAddress(usize);
+
+impl ArgAddress {
+    pub(crate) fn get(&self) -> usize {
+        self.0
+    }
+}
+
+impl TryFromObject for ArgAddress {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let int = obj
+            .downcast_ref::<crate::builtins::PyInt>()
+            .ok_or_else(|| vm.new_type_error("integer expected"))?;
+        int.try_to_pointer(vm).map(Self)
+    }
+}
+
+/// A raw pointer or OS handle argument.
+///
+/// Strict for the same reason as [`ArgAddress`], with the message CPython uses
+/// for these entry points.
+pub(crate) struct ArgRawPointer(usize);
+
+impl ArgRawPointer {
+    pub(crate) fn get(&self) -> usize {
+        self.0
+    }
+}
+
+impl TryFromObject for ArgRawPointer {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let int = obj
+            .downcast_ref::<crate::builtins::PyInt>()
+            .ok_or_else(|| vm.new_type_error("an integer is required"))?;
+        int.try_to_pointer(vm).map(Self)
+    }
+}
+
 // StgInfo - Storage information for ctypes types
 // Stored in TypeDataSlot of heap types (PyType::init_type_data/get_type_data)
 
@@ -1163,7 +1205,11 @@ impl PyCData {
     }
 
     #[pyclassmethod]
-    pub(super) fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+    pub(super) fn from_address(
+        cls: PyTypeRef,
+        address: ArgAddress,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         let size = {
             let stg_info = cls.stg_info(vm)?;
             stg_info.size
@@ -1174,7 +1220,7 @@ impl PyCData {
         }
 
         // PyCData_AtAddress
-        let cdata = unsafe { Self::at_address(address as *const u8, size) };
+        let cdata = unsafe { Self::at_address(address.get() as *const u8, size) };
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 

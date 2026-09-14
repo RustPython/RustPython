@@ -338,9 +338,11 @@ mod _winapi {
             .get_item("handle_list", vm)
             .ok()
             .and_then(|obj| {
-                <Option<ArgSequence<usize>>>::try_from_object(vm, obj)
+                <Option<ArgSequence<WinHandle>>>::try_from_object(vm, obj)
                     .map(|s| match s {
-                        Some(s) if !s.is_empty() => Some(s.into_vec()),
+                        Some(s) if !s.is_empty() => {
+                            Some(s.into_vec().into_iter().map(WinHandle::as_usize).collect())
+                        }
                         _ => None,
                     })
                     .transpose()
@@ -364,16 +366,13 @@ mod _winapi {
 
     #[pyfunction]
     fn WaitForMultipleObjects(
-        handle_seq: ArgSequence<isize>,
+        handle_seq: ArgSequence<WinHandle>,
         wait_all: bool,
         milliseconds: u32,
         vm: &VirtualMachine,
     ) -> PyResult<u32> {
-        let handles: Vec<host_winapi::Handle> = handle_seq
-            .into_vec()
-            .into_iter()
-            .map(|h| h as host_winapi::Handle)
-            .collect();
+        let handles: Vec<host_winapi::Handle> =
+            handle_seq.into_vec().into_iter().map(|h| h.0).collect();
 
         if handles.is_empty() {
             return Err(vm.new_value_error("handle_seq must not be empty"));
@@ -436,10 +435,10 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetModuleFileName(handle: isize, vm: &VirtualMachine) -> PyResult<String> {
+    fn GetModuleFileName(handle: WinHandle, vm: &VirtualMachine) -> PyResult<String> {
         let mut path: Vec<u16> = vec![0; host_winapi::MAX_PATH_USIZE];
 
-        let length = host_winapi::get_module_file_name(handle as _, &mut path);
+        let length = host_winapi::get_module_file_name(handle.0, &mut path);
         if length == 0 {
             return Err(vm.new_runtime_error("GetModuleFileName failed"));
         }
@@ -927,12 +926,9 @@ mod _winapi {
         let milliseconds = milliseconds.unwrap_or(host_winapi::INFINITE_TIMEOUT);
 
         // Get handles from sequence
-        let seq = ArgSequence::<isize>::try_from_object(vm, handle_seq)?;
-        let handles: Vec<host_winapi::Handle> = seq
-            .into_vec()
-            .into_iter()
-            .map(|handle| handle as _)
-            .collect();
+        let seq = ArgSequence::<WinHandle>::try_from_object(vm, handle_seq)?;
+        let handles: Vec<host_winapi::Handle> =
+            seq.into_vec().into_iter().map(|handle| handle.0).collect();
         let nhandles = handles.len();
 
         if nhandles == 0 {

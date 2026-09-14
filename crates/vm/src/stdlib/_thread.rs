@@ -19,7 +19,7 @@ pub(crate) mod _thread {
     };
 
     use crate::{
-        AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef,
             PyUtf8StrRef,
@@ -788,14 +788,23 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn _make_thread_handle(ident: u64, vm: &VirtualMachine) -> PyRef<ThreadHandle> {
+    fn _make_thread_handle(
+        ident: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<ThreadHandle>> {
+        // CPython requires an exact integer here and does not consult
+        // `__index__`, so neither does this.
+        let ident = ident
+            .downcast_ref::<crate::builtins::PyInt>()
+            .ok_or_else(|| vm.new_type_error("ident must be an integer"))?
+            .try_to_primitive::<u64>(vm)?;
         let handle = ThreadHandle::new(vm);
         {
             let mut inner = handle.inner.lock();
             inner.ident = ident;
             inner.state = ThreadHandleState::Running;
         }
-        handle.into_ref(&vm.ctx)
+        Ok(handle.into_ref(&vm.ctx))
     }
 
     #[pyfunction]

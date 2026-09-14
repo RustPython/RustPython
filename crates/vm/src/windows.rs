@@ -66,8 +66,28 @@ type HandleInt = isize;
 
 impl TryFromObject for WinHandle {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let handle = HandleInt::try_from_object(vm, obj)?;
-        Ok(Self(handle as host_nt::Handle))
+        // CPython's `HANDLE` converter takes an exact integer and does not
+        // consult `__index__`, because the value is used as a handle rather
+        // than as a number.
+        let handle = obj
+            .downcast_ref::<crate::builtins::PyInt>()
+            .ok_or_else(|| vm.new_type_error("an integer is required"))?
+            .try_to_pointer(vm)?;
+        Ok(Self(handle as HandleInt as host_nt::Handle))
+    }
+}
+
+impl WinHandle {
+    /// The handle as the unsigned integer a Python caller passes it as.
+    #[must_use]
+    pub fn as_usize(self) -> usize {
+        self.0 as usize
+    }
+
+    /// The handle as the signed integer the CRT takes it as.
+    #[must_use]
+    pub fn as_isize(self) -> isize {
+        self.0 as HandleInt
     }
 }
 

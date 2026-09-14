@@ -9,6 +9,7 @@ mod msvcrt {
         builtins::{PyBytes, PyStrRef},
         convert::IntoPyException,
         host_env::crt_fd,
+        windows::WinHandle,
     };
     use itertools::Itertools;
     use rustpython_host_env::msvcrt as host_msvcrt;
@@ -119,8 +120,8 @@ mod msvcrt {
     }
 
     #[pyfunction]
-    fn open_osfhandle(handle: isize, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        host_msvcrt::open_osfhandle(handle, flags).map_err(|e| e.into_pyexception(vm))
+    fn open_osfhandle(handle: WinHandle, flags: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        host_msvcrt::open_osfhandle(handle.as_isize(), flags).map_err(|e| e.into_pyexception(vm))
     }
 
     #[pyfunction]

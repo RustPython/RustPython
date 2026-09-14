@@ -1,4 +1,4 @@
-use super::base::{CDATA_BUFFER_METHODS, PyCData, PyCField, StgInfo, StgInfoFlags};
+use super::base::{ArgAddress, CDATA_BUFFER_METHODS, PyCData, PyCField, StgInfo, StgInfoFlags};
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
 use crate::convert::ToPyObject;
 use crate::function::{FuncArgs, OptionalArg, PySetterValue};
@@ -168,7 +168,7 @@ impl PyCStructType {
     // CDataType methods - delegated to PyCData implementations
 
     #[pymethod]
-    fn from_address(zelf: PyObjectRef, address: isize, vm: &VirtualMachine) -> PyResult {
+    fn from_address(zelf: PyObjectRef, address: ArgAddress, vm: &VirtualMachine) -> PyResult {
         let cls: PyTypeRef = zelf
             .downcast()
             .map_err(|_| vm.new_type_error("expected a type"))?;
