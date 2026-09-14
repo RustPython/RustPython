@@ -411,7 +411,6 @@ pub(crate) mod _thread {
         vm.state.stop_the_world.reset_stats();
     }
 
-    /// Set the name of the current thread
     #[pyfunction]
     fn set_name(name: PyUtf8StrRef) {
         #[cfg(any(unix, windows))]
@@ -420,8 +419,7 @@ pub(crate) mod _thread {
         let _ = name;
     }
 
-    /// Get the name of the current thread
-    #[pyfunction]
+    #[pyfunction(name = "_get_name")]
     fn get_name(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
         {
@@ -491,7 +489,12 @@ pub(crate) mod _thread {
             handle.as_pthread_t() as _
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            host_thread::thread_id_from_handle(handle.as_raw_handle())
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             thread_to_rust_id(handle.thread())
         }

@@ -84,6 +84,9 @@ mod _locale {
     fn strcoll(string1: PyUtf8StrRef, string2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
         {
+            if string1.as_str().contains('\0') || string2.as_str().contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
             let w1: Vec<u16> = string1.as_str().encode_utf16().chain([0]).collect();
             let w2: Vec<u16> = string2.as_str().encode_utf16().chain([0]).collect();
             return Ok(vm.new_pyobj(host_locale::wcscoll(&w1, &w2)));
@@ -100,6 +103,9 @@ mod _locale {
     fn strxfrm(string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
         {
+            if string.as_str().contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
             let wide: Vec<u16> = string.as_str().encode_utf16().chain([0]).collect();
             let transformed = host_locale::wcsxfrm(&wide);
             return Ok(vm.new_pyobj(String::from_utf16_lossy(&transformed)));
@@ -115,8 +121,6 @@ mod _locale {
         }
     }
 
-    /// Windows `_locale._getdefaultlocale` — `(lang_COUNTRY, cpN)` or
-    /// `(None, cpN)` when the ISO names are missing.
     #[cfg(windows)]
     #[pyfunction]
     fn _getdefaultlocale(vm: &VirtualMachine) -> PyResult {
