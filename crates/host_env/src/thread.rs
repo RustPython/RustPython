@@ -30,6 +30,7 @@ pub fn current_thread_id() -> u64 {
 }
 
 #[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn thread_id_from_handle(handle: *mut core::ffi::c_void) -> u64 {
     unsafe { windows_sys::Win32::System::Threading::GetThreadId(handle) as u64 }
 }

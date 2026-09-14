@@ -215,13 +215,13 @@ pub fn locale_info(lcid: u32, lctype: u32) -> Option<String> {
 }
 
 #[cfg(windows)]
-fn wide_cstr(units: &[u16]) -> std::borrow::Cow<'_, [u16]> {
+fn wide_cstr(units: &[u16]) -> alloc::borrow::Cow<'_, [u16]> {
     if units.last() == Some(&0) {
-        std::borrow::Cow::Borrowed(units)
+        alloc::borrow::Cow::Borrowed(units)
     } else {
         let mut owned = units.to_vec();
         owned.push(0);
-        std::borrow::Cow::Owned(owned)
+        alloc::borrow::Cow::Owned(owned)
     }
 }
 

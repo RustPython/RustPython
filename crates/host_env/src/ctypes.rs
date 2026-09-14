@@ -2791,11 +2791,13 @@ pub fn free_library(module: windows_sys::Win32::Foundation::HMODULE) -> std::io:
 }
 
 #[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn sys_string_len(bstr: *const u16) -> usize {
     unsafe { windows_sys::Win32::Foundation::SysStringLen(bstr) as usize }
 }
 
 #[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn sys_free_string(bstr: *const u16) {
     unsafe { windows_sys::Win32::Foundation::SysFreeString(bstr) };
 }
@@ -2808,6 +2810,7 @@ pub fn sys_alloc_string_len(units: &[u16]) -> Option<*mut u16> {
 }
 
 #[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn co_task_mem_free(ptr: *mut core::ffi::c_void) {
     unsafe { windows_sys::Win32::System::Com::CoTaskMemFree(ptr) };
 }
@@ -2884,7 +2887,7 @@ pub fn lookup_data_symbol_addr(
     #[cfg(windows)]
     {
         drop(cache);
-        return lookup_raw_windows_symbol(handle, symbol_name);
+        lookup_raw_windows_symbol(handle, symbol_name)
     }
     #[cfg(not(windows))]
     Err(LookupSymbolError::LibraryNotFound)
@@ -2902,7 +2905,7 @@ pub fn lookup_function_symbol_addr(
     #[cfg(windows)]
     {
         drop(cache);
-        return lookup_raw_windows_symbol(handle, symbol_name);
+        lookup_raw_windows_symbol(handle, symbol_name)
     }
     #[cfg(not(windows))]
     Err(LookupSymbolError::LibraryNotFound)
@@ -2917,7 +2920,7 @@ fn lookup_raw_windows_symbol(
     let name = if let Ok(name) = CStr::from_bytes_with_nul(symbol_name) {
         name
     } else {
-        owned = std::ffi::CString::new(symbol_name)
+        owned = alloc::ffi::CString::new(symbol_name)
             .map_err(|err| LookupSymbolError::Load(err.to_string()))?;
         owned.as_c_str()
     };
