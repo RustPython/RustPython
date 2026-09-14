@@ -316,33 +316,39 @@ fn cpython_parse_diagnostic_override(
     }
 
     source_error!(invalid_dict_error(source_text));
-    source_error!(invalid_collection_assignment_error(source_text));
+    if !matches!(mode, Mode::Eval) {
+        source_error!(invalid_collection_assignment_error(source_text));
+    }
     source_error!(invalid_group_error(source_text));
     source_error!(invalid_def_type_params_error(source_text));
     source_error!(invalid_expression_error(source_text));
     source_error!(invalid_named_expression_error(source_text));
-    source_error!(invalid_plain_assignment_error(source_text));
-    source_error!(expression_assignment_error(source_text));
-    source_error!(invalid_annotation_target_error(source_text));
-    source_error!(invalid_assignment_target_error(source_text));
-    source_error!(invalid_condition_assignment_error(
-        source_text,
-        error.location.start().to_usize()
-    ));
-    source_error!(invalid_augassign_target_error(source_text));
-    source_error!(invalid_for_target_error(source_text));
-    source_error!(invalid_with_target_error(source_text));
-    source_error!(invalid_delete_target_error(source_text));
-    source_error!(invalid_standalone_except_error(source_text));
-    source_error!(invalid_import_statement_error(source_text));
-    source_error!(invalid_import_target_error(source_text));
-    source_error!(invalid_except_as_target_error(source_text));
-    source_error!(invalid_match_mapping_rest_wildcard_error(source_text));
-    source_error!(invalid_match_as_target_error(source_text));
-    source_error!(invalid_for_if_clause_error(source_text));
-    source_error!(invalid_if_expression_statement_error(source_text));
-    source_error!(invalid_else_elif_error(source_text));
-    source_error!(mixed_except_handlers_error(source_text));
+    // Assignment and other statements are not expressions. Eval keeps the
+    // generic parse error rather than a statement-target rewrite.
+    if !matches!(mode, Mode::Eval) {
+        source_error!(invalid_plain_assignment_error(source_text));
+        source_error!(expression_assignment_error(source_text));
+        source_error!(invalid_annotation_target_error(source_text));
+        source_error!(invalid_assignment_target_error(source_text));
+        source_error!(invalid_condition_assignment_error(
+            source_text,
+            error.location.start().to_usize()
+        ));
+        source_error!(invalid_augassign_target_error(source_text));
+        source_error!(invalid_for_target_error(source_text));
+        source_error!(invalid_with_target_error(source_text));
+        source_error!(invalid_delete_target_error(source_text));
+        source_error!(invalid_standalone_except_error(source_text));
+        source_error!(invalid_import_statement_error(source_text));
+        source_error!(invalid_import_target_error(source_text));
+        source_error!(invalid_except_as_target_error(source_text));
+        source_error!(invalid_match_mapping_rest_wildcard_error(source_text));
+        source_error!(invalid_match_as_target_error(source_text));
+        source_error!(invalid_for_if_clause_error(source_text));
+        source_error!(invalid_if_expression_statement_error(source_text));
+        source_error!(invalid_else_elif_error(source_text));
+        source_error!(mixed_except_handlers_error(source_text));
+    }
 
     if matches!(
         &error.error,
@@ -381,7 +387,11 @@ fn cpython_parse_diagnostic_override(
     // into the generic "invalid syntax" message. rustpython-vm's `vm_new.rs`
     // does this same collapse for its own callers; rustpython-compiler has no
     // vm dependency, so mirror it here.
-    if matches!(&error.error, parser::ParseErrorType::ExpectedExpression) {
+    if matches!(
+        &error.error,
+        parser::ParseErrorType::ExpectedExpression
+            | parser::ParseErrorType::UnexpectedExpressionToken
+    ) {
         let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
         return Some(NormalizedParseDiagnostic::new(
             parser::ParseErrorType::OtherError("invalid syntax".into()),
@@ -7627,6 +7637,21 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn eval_fstring_assignment_keeps_invalid_syntax() {
+        for source in ["f'' = 3", "f'{0}' = x", "f'{x}' = x"] {
+            let err = compile(source, Mode::Eval, "<eval>", CompileOpts::default())
+                .expect_err("assignment is invalid in eval");
+            assert_eq!(err.to_string(), "invalid syntax", "{source}");
+        }
+        let err = compile("f'' = 3", Mode::Exec, "<exec>", CompileOpts::default())
+            .expect_err("f-string is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to f-string expression here. Maybe you meant '==' instead of '='?"
         );
     }
 
