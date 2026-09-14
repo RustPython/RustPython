@@ -2878,10 +2878,16 @@ pub fn lookup_data_symbol_addr(
     symbol_name: &[u8],
 ) -> Result<usize, LookupSymbolError> {
     let cache = libcache().read();
-    cache
-        .get_lib(handle)
-        .ok_or(LookupSymbolError::LibraryNotFound)?
-        .lookup_data_symbol_addr(symbol_name)
+    if let Some(lib) = cache.get_lib(handle) {
+        return lib.lookup_data_symbol_addr(symbol_name);
+    }
+    #[cfg(windows)]
+    {
+        drop(cache);
+        return lookup_raw_windows_symbol(handle, symbol_name);
+    }
+    #[cfg(not(windows))]
+    Err(LookupSymbolError::LibraryNotFound)
 }
 
 #[cfg(any(unix, windows))]
@@ -2890,10 +2896,32 @@ pub fn lookup_function_symbol_addr(
     symbol_name: &[u8],
 ) -> Result<usize, LookupSymbolError> {
     let cache = libcache().read();
-    cache
-        .get_lib(handle)
-        .ok_or(LookupSymbolError::LibraryNotFound)?
-        .lookup_function_symbol_addr(symbol_name)
+    if let Some(lib) = cache.get_lib(handle) {
+        return lib.lookup_function_symbol_addr(symbol_name);
+    }
+    #[cfg(windows)]
+    {
+        drop(cache);
+        return lookup_raw_windows_symbol(handle, symbol_name);
+    }
+    #[cfg(not(windows))]
+    Err(LookupSymbolError::LibraryNotFound)
+}
+
+#[cfg(windows)]
+fn lookup_raw_windows_symbol(
+    handle: usize,
+    symbol_name: &[u8],
+) -> Result<usize, LookupSymbolError> {
+    let owned;
+    let name = if let Ok(name) = CStr::from_bytes_with_nul(symbol_name) {
+        name
+    } else {
+        owned = std::ffi::CString::new(symbol_name)
+            .map_err(|err| LookupSymbolError::Load(err.to_string()))?;
+        owned.as_c_str()
+    };
+    get_proc_address(handle as _, name).ok_or(LookupSymbolError::LibraryNotFound)
 }
 
 #[cfg(all(unix, not(target_os = "wasi")))]

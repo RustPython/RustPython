@@ -461,8 +461,9 @@ pub(crate) mod _ctypes {
 
     #[cfg(windows)]
     #[pyfunction(name = "FreeLibrary")]
-    fn free_library(handle: usize) {
-        let _ = rustpython_host_env::ctypes::free_library(handle as _);
+    fn free_library(handle: usize, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::ctypes::free_library(handle as _)
+            .map_err(|error| vm.new_os_error(error.to_string()))
     }
 
     #[cfg(not(windows))]

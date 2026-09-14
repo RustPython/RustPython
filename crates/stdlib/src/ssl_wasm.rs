@@ -581,7 +581,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_ca_certs(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn get_ca_certs(&self, args: GetCertArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let _ = args.binary_form;
             Ok(vm.ctx.new_list(Vec::new()).into())
         }
 
@@ -713,6 +714,12 @@ mod _ssl {
     }
 
     #[derive(FromArgs)]
+    struct GetCertArgs {
+        #[pyarg(any, optional)]
+        binary_form: OptionalArg<bool>,
+    }
+
+    #[derive(FromArgs)]
     struct LoadVerifyLocationsArgs {
         #[pyarg(any, optional)]
         cafile: OptionalArg<Option<PyObjectRef>>,
@@ -734,6 +741,9 @@ mod _ssl {
         server_hostname: OptionalArg<Option<PyUtf8StrRef>>,
         #[pyarg(named, optional)]
         #[allow(dead_code)]
+        owner: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        #[allow(dead_code)]
         session: OptionalArg<PyObjectRef>,
     }
 
@@ -751,10 +761,7 @@ mod _ssl {
             let mut bio = self.inner.lock();
             let read_len = match len {
                 OptionalArg::Present(n) if n >= 0 => n as usize,
-                OptionalArg::Present(n) => {
-                    return Err(vm.new_value_error(format!("negative read length: {n}")));
-                }
-                OptionalArg::Missing => bio.pending(),
+                OptionalArg::Present(_) | OptionalArg::Missing => bio.pending(),
             };
             Ok(vm.ctx.new_bytes(bio.read(read_len)))
         }

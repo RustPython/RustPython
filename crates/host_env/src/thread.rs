@@ -11,6 +11,11 @@ pub fn current_thread_id() -> u64 {
     unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() as u64 }
 }
 
+#[cfg(windows)]
+pub fn thread_id_from_handle(handle: *mut core::ffi::c_void) -> u64 {
+    unsafe { windows_sys::Win32::System::Threading::GetThreadId(handle) as u64 }
+}
+
 #[cfg(target_os = "linux")]
 pub fn set_current_thread_name(name: &str) {
     if CString::new(name).is_ok() {
@@ -79,6 +84,12 @@ pub fn current_thread_name_wide() -> std::io::Result<Vec<u16>> {
 pub fn set_current_thread_name_wide(name: &[u16]) -> std::io::Result<()> {
     use windows_sys::Win32::System::Threading::{GetCurrentThread, SetThreadDescription};
 
+    if name.last() != Some(&0) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "thread name must be NUL-terminated",
+        ));
+    }
     let status = unsafe { SetThreadDescription(GetCurrentThread(), name.as_ptr()) };
     if status < 0 {
         Err(std::io::Error::from_raw_os_error(status))
