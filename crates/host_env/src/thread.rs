@@ -1,6 +1,24 @@
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use alloc::ffi::CString;
 
+/// OS thread-name cap, matching CPython `_thread._NAME_MAXLEN`.
+pub const NAME_MAXLEN: usize = {
+    if cfg!(windows) {
+        100
+    } else if cfg!(target_os = "linux") {
+        15
+    } else if cfg!(target_os = "macos") {
+        63
+    } else {
+        16
+    }
+};
+
+fn truncate_thread_name_bytes(name: &[u8]) -> &[u8] {
+    let name = name.split(|&b| b == 0).next().unwrap_or(b"");
+    name.get(..NAME_MAXLEN.min(name.len())).unwrap_or(b"")
+}
+
 #[cfg(unix)]
 pub fn current_thread_id() -> u64 {
     unsafe { libc::pthread_self() as u64 }
@@ -16,30 +34,23 @@ pub fn thread_id_from_handle(handle: *mut core::ffi::c_void) -> u64 {
     unsafe { windows_sys::Win32::System::Threading::GetThreadId(handle) as u64 }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn set_current_thread_name(name: &str) {
-    if CString::new(name).is_ok() {
-        let truncated = if name.len() > 15 {
-            let mut end = 15;
-            while !name.is_char_boundary(end) {
-                end -= 1;
-            }
-            CString::new(&name[..end]).expect("slice of null-free string is null-free")
-        } else {
-            CString::new(name).expect("name was already checked for nul bytes")
-        };
-        unsafe {
-            libc::pthread_setname_np(libc::pthread_self(), truncated.as_ptr());
-        }
-    }
+    set_current_thread_name_bytes(name.as_bytes());
 }
 
-#[cfg(target_os = "macos")]
-pub fn set_current_thread_name(name: &str) {
-    if let Ok(c_name) = CString::new(name) {
-        unsafe {
-            libc::pthread_setname_np(c_name.as_ptr());
-        }
+/// Set the OS thread name from filesystem-encoded bytes (NUL-truncated).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub fn set_current_thread_name_bytes(name: &[u8]) {
+    let truncated = truncate_thread_name_bytes(name);
+    let Ok(c_name) = CString::new(truncated) else {
+        return;
+    };
+    unsafe {
+        #[cfg(target_os = "linux")]
+        libc::pthread_setname_np(libc::pthread_self(), c_name.as_ptr());
+        #[cfg(target_os = "macos")]
+        libc::pthread_setname_np(c_name.as_ptr());
     }
 }
 

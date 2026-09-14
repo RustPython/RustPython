@@ -930,7 +930,7 @@ pub fn uuid_from_string_w(wide: &widestring::WideCStr) -> Result<windows_sys::co
     if status == windows_sys::Win32::System::Rpc::RPC_S_OK {
         Ok(guid)
     } else {
-        Err(status)
+        Err(status as u32)
     }
 }
 
@@ -941,7 +941,7 @@ pub fn uuid_to_string_w(guid: &windows_sys::core::GUID) -> Result<String, u32> {
     let mut raw = core::ptr::null_mut();
     let status = unsafe { UuidToStringW(guid, &mut raw) };
     if status != RPC_S_OK {
-        return Err(status);
+        return Err(status as u32);
     }
     let mut len = 0usize;
     unsafe {

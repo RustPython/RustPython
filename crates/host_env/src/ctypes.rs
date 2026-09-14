@@ -2804,7 +2804,7 @@ pub fn sys_free_string(bstr: *const u16) {
 pub fn sys_alloc_string_len(units: &[u16]) -> Option<*mut u16> {
     let len = u32::try_from(units.len()).ok()?;
     let bstr = unsafe { windows_sys::Win32::Foundation::SysAllocStringLen(units.as_ptr(), len) };
-    (!bstr.is_null()).then_some(bstr)
+    (!bstr.is_null()).then_some(bstr as *mut u16)
 }
 
 #[cfg(windows)]
