@@ -243,6 +243,33 @@ impl CpythonDiagnostic {
     }
 }
 
+/// Parser-driven tokenization reports the first failure. A later prefix
+/// scan must not override an earlier number or bracket diagnostic.
+struct RankedOverride {
+    diagnostic: CpythonDiagnostic,
+    unclosed_bracket: bool,
+}
+
+fn consider_override(best: &mut Option<RankedOverride>, diagnostic: CpythonDiagnostic) {
+    consider_override_bracket(best, diagnostic, false);
+}
+
+fn consider_override_bracket(
+    best: &mut Option<RankedOverride>,
+    diagnostic: CpythonDiagnostic,
+    unclosed_bracket: bool,
+) {
+    if best
+        .as_ref()
+        .is_none_or(|current| diagnostic.range.start() < current.diagnostic.range.start())
+    {
+        *best = Some(RankedOverride {
+            diagnostic,
+            unclosed_bracket,
+        });
+    }
+}
+
 fn cpython_parse_diagnostic_override(
     error: &parser::ParseError,
     source_file: &SourceFile,
@@ -258,18 +285,35 @@ fn cpython_parse_diagnostic_override(
         };
     }
 
-    source_error!(invalid_number_literal_error(source_text));
-    source_error!(invalid_legacy_statement_error(source_text));
-    source_error!(incompatible_string_prefix_error(source_text));
-    source_error!(malformed_unicode_n_escape_error(source_text));
-    source_error!(non_printable_character_error(source_text));
-    source_error!(invalid_interpolated_string_error(source_text));
-    source_error!(mixed_tstring_literal_error(error, source_text));
-
+    let mut earliest: Option<RankedOverride> = None;
+    if let Some(diagnostic) = invalid_number_literal_error(source_text) {
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = invalid_legacy_statement_error(source_text) {
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = incompatible_string_prefix_error(source_text) {
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = non_printable_character_error(source_text) {
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
+        consider_override(&mut earliest, diagnostic);
+    }
     if let Some(bracket) = bracket_syntax_error(source_text) {
+        consider_override_bracket(&mut earliest, bracket.diagnostic, bracket.unclosed);
+    }
+    if let Some(override_diag) = earliest {
         return Some(
-            NormalizedParseDiagnostic::other(source_file, bracket.diagnostic)
-                .with_unclosed_bracket(bracket.unclosed),
+            NormalizedParseDiagnostic::other(source_file, override_diag.diagnostic)
+                .with_unclosed_bracket(override_diag.unclosed_bracket),
         );
     }
 
@@ -7496,6 +7540,11 @@ mod tests {
             ("fu''", "'u' and 'f' prefixes are incompatible"),
             ("fb''", "'b' and 'f' prefixes are incompatible"),
             ("ufr''", "'u' and 'r' prefixes are incompatible"),
+            (
+                "(]\nbu'x'",
+                "closing parenthesis ']' does not match opening parenthesis '('",
+            ),
+            ("0x\nbu'x'", "invalid hexadecimal literal"),
             (
                 r"'\N'",
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
