@@ -1,6 +1,8 @@
-use super::{PyBoundMethod, PyGenericAlias, PyStr, PyType, PyTypeRef};
+use super::{
+    PyBoundMethod, PyGenericAlias, PyStr, PyStrInterned, PyType, PyTypeRef, object_get_dict,
+};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::{PyClassDef, PyClassImpl},
     common::lock::PyMutex,
     function::{FuncArgs, PySetterValue},
@@ -88,20 +90,7 @@ impl Initializer for PyClassMethod {
 
     fn init(zelf: PyRef<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         *zelf.callable.lock() = callable.clone();
-        // Copy wrapper attributes from the callable, mirroring functools.wraps.
-        let dict = zelf.as_object().dict().expect("classmethod has __dict__");
-        for attr in [
-            identifier!(vm.ctx, __doc__),
-            identifier!(vm.ctx, __name__),
-            identifier!(vm.ctx, __qualname__),
-            identifier!(vm.ctx, __module__),
-            identifier!(vm.ctx, __annotations__),
-        ] {
-            if let Ok(value) = callable.get_attr(attr, vm) {
-                dict.set_item(attr, value, vm)?;
-            }
-        }
-        Ok(())
+        functools_wraps(zelf.as_object(), &callable, vm)
     }
 }
 
@@ -117,55 +106,68 @@ impl PyClassMethod {
     flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
 )]
 impl PyClassMethod {
-    #[pygetset]
-    fn __func__(&self) -> PyObjectRef {
-        self.callable.lock().clone()
+    #[pymember]
+    fn __func__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(zelf.callable.lock().clone())
+    }
+
+    #[pymember]
+    fn __wrapped__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(zelf.callable.lock().clone())
     }
 
     #[pygetset]
-    fn __wrapped__(&self) -> PyObjectRef {
-        self.callable.lock().clone()
-    }
-
-    #[pygetset]
-    fn __module__(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.lock().get_attr("__module__", vm)
-    }
-
-    #[pygetset]
-    fn __qualname__(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.lock().get_attr("__qualname__", vm)
-    }
-
-    #[pygetset]
-    fn __name__(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.lock().get_attr("__name__", vm)
-    }
-
-    #[pygetset]
-    fn __annotations__(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.lock().get_attr("__annotations__", vm)
+    fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        let callable = zelf.callable.lock().clone();
+        descriptor_get_wrapped_attribute(
+            callable,
+            zelf.as_object(),
+            identifier!(vm.ctx, __annotations__),
+            vm,
+        )
     }
 
     #[pygetset(setter)]
-    fn set___annotations__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(v) => self.callable.lock().set_attr("__annotations__", v, vm),
-            PySetterValue::Delete => Ok(()), // Silently ignore delete like CPython
-        }
+    fn set___annotations__(
+        zelf: &Py<Self>,
+        value: PySetterValue,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        descriptor_set_wrapped_attribute(
+            zelf.as_object(),
+            identifier!(vm.ctx, __annotations__),
+            value,
+            "classmethod",
+            vm,
+        )
     }
 
     #[pygetset]
-    fn __annotate__(&self, vm: &VirtualMachine) -> PyResult {
-        self.callable.lock().get_attr("__annotate__", vm)
+    fn __annotate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        let callable = zelf.callable.lock().clone();
+        descriptor_get_wrapped_attribute(
+            callable,
+            zelf.as_object(),
+            identifier!(vm.ctx, __annotate__),
+            vm,
+        )
     }
 
     #[pygetset(setter)]
-    fn set___annotate__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(v) => self.callable.lock().set_attr("__annotate__", v, vm),
-            PySetterValue::Delete => Ok(()), // Silently ignore delete like CPython
-        }
+    fn set___annotate__(
+        zelf: &Py<Self>,
+        value: PySetterValue,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        descriptor_set_wrapped_attribute(
+            zelf.as_object(),
+            identifier!(vm.ctx, __annotate__),
+            value,
+            "classmethod",
+            vm,
+        )
     }
 
     #[pygetset]
@@ -224,4 +226,59 @@ impl Representable for PyClassMethod {
 
 pub(crate) fn init(context: &'static Context) {
     PyClassMethod::extend_class(context, context.types.classmethod_type);
+}
+
+pub(crate) fn functools_wraps(
+    wrapper: &PyObject,
+    wrapped: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    for attr in [
+        identifier!(vm.ctx, __module__),
+        identifier!(vm.ctx, __name__),
+        identifier!(vm.ctx, __qualname__),
+        identifier!(vm.ctx, __doc__),
+    ] {
+        if let Some(value) = vm.get_attribute_opt(wrapped.to_owned(), attr)? {
+            wrapper.set_attr(attr, value, vm)?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn descriptor_get_wrapped_attribute(
+    wrapped: PyObjectRef,
+    obj: &PyObject,
+    name: &'static PyStrInterned,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let dict = object_get_dict(obj.to_owned(), vm)?;
+    if let Some(res) = dict.get_item_opt(name, vm)? {
+        return Ok(res);
+    }
+    let res = wrapped.get_attr(name, vm)?;
+    dict.set_item(name, res.clone(), vm)?;
+    Ok(res)
+}
+
+pub(crate) fn descriptor_set_wrapped_attribute(
+    obj: &PyObject,
+    name: &'static PyStrInterned,
+    value: PySetterValue,
+    type_name: &str,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let dict = object_get_dict(obj.to_owned(), vm)?;
+    match value {
+        PySetterValue::Delete => match dict.del_item(name, vm) {
+            Ok(()) => Ok(()),
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => Err(vm
+                .new_attribute_error(format!(
+                    "'{type_name}' object has no attribute '{}'",
+                    name.as_str()
+                ))),
+            Err(e) => Err(e),
+        },
+        PySetterValue::Assign(value) => dict.set_item(name, value, vm),
+    }
 }

@@ -762,16 +762,12 @@ impl SlotFunc {
                 func(&other, &obj, vm) // Swapped: other op obj
             }
             Self::NumTernary(func) => {
-                let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
-                    args.bind(vm)?;
-                let z = z.unwrap_or_else(|| vm.ctx.none());
+                let (y, z) = pow_args(args, vm)?;
                 func(&obj, &y, &z, vm)
             }
             Self::NumTernaryRight(func) => {
-                let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
-                    args.bind(vm)?;
-                let z = z.unwrap_or_else(|| vm.ctx.none());
-                func(&y, &obj, &z, vm) // Swapped: y ** obj % z
+                let (y, z) = pow_args(args, vm)?;
+                func(&y, &obj, &z, vm)
             }
             // Buffer protocol
             Self::GetBuffer(func) => {
@@ -790,6 +786,24 @@ impl SlotFunc {
             }
         }
     }
+}
+
+/// wrap_ternaryfunc / check_pow_args
+fn pow_args(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+    if let Some(err) = args.check_kwargs_empty(vm) {
+        return Err(err);
+    }
+    let size = args.args.len();
+    if !(1..=2).contains(&size) {
+        return Err(vm.new_type_error(format!("expected 1 or 2 arguments, got {size}")));
+    }
+    let y = args.args[0].clone();
+    let z = if size == 2 {
+        args.args[1].clone()
+    } else {
+        vm.ctx.none()
+    };
+    Ok((y, z))
 }
 
 /// Parse the `flags` argument of `__buffer__`. wrap_buffer

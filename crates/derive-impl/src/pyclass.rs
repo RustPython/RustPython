@@ -1328,11 +1328,13 @@ where
             args.attrs.push(allow_attr);
         }
 
+        let doc = args.attrs.doc();
         args.context.member_items.add_item(
             &py_name,
             member_item_kind,
             member_kind,
             ident.clone(),
+            doc,
         )?;
         Ok(())
     }
@@ -1546,6 +1548,7 @@ struct MemberNurseryEntry {
     kind: MemberKindStr,
     getter: Option<Ident>,
     setter: Option<Ident>,
+    doc: Option<String>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1561,6 +1564,7 @@ impl MemberNursery {
         kind: MemberItemKind,
         member_kind: MemberKindStr,
         item_ident: Ident,
+        doc: Option<String>,
     ) -> Result<()> {
         assert!(!self.validated, "new item is not allowed after validation");
         let entry = self
@@ -1570,6 +1574,7 @@ impl MemberNursery {
                 kind: member_kind,
                 getter: None,
                 setter: None,
+                doc: None,
             });
         let func = match kind {
             MemberItemKind::Get => &mut entry.getter,
@@ -1579,6 +1584,11 @@ impl MemberNursery {
             bail_span!(item_ident, "Multiple member accessors with name '{}'", name);
         }
         *func = Some(item_ident);
+        if matches!(kind, MemberItemKind::Get)
+            && let Some(doc) = doc
+        {
+            entry.doc = Some(doc);
+        }
         Ok(())
     }
 
@@ -1625,10 +1635,14 @@ impl ToTokens for MemberNursery {
                 }
             };
             let getter = entry.getter.as_ref().unwrap();
+            let doc = match &entry.doc {
+                Some(doc) => quote! { Some(#doc) },
+                None => quote! { None },
+            };
             quote_spanned! { getter.span() =>
                 class.set_str_attr(
                     #name,
-                    ctx.new_member(#name, #member_kind, Self::#getter, #setter, class),
+                    ctx.new_member(#name, #member_kind, Self::#getter, #setter, class, #doc),
                     ctx,
                 );
             }

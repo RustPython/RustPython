@@ -628,13 +628,14 @@ impl Context {
         getter: fn(&VirtualMachine, PyObjectRef) -> PyResult,
         setter: MemberSetterFunc,
         class: &'static Py<PyType>,
+        doc: Option<&str>,
     ) -> PyRef<PyMemberDescriptor> {
         let member_def = PyMemberDef {
             name: name.to_owned(),
             kind: member_kind,
             getter: MemberGetter::Getter(getter),
             setter: MemberSetter::Setter(setter),
-            doc: None,
+            doc: doc.map(str::to_owned),
         };
         let member_descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {

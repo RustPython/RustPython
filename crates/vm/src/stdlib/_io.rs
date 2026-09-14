@@ -5760,6 +5760,7 @@ mod fileio {
             exc
         }
 
+        /// True if the file is closed
         #[pygetset]
         fn closed(&self) -> bool {
             self.fd.load() < 0
@@ -6362,6 +6363,7 @@ mod winconsoleio {
             exc
         }
 
+        /// True if the file is closed
         #[pygetset]
         fn closed(&self) -> bool {
             self.fd.load() < 0
