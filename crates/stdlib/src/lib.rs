@@ -136,7 +136,7 @@ mod openssl;
 ))]
 pub mod ssl;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "ssl"))]
 #[path = "ssl_wasm.rs"]
 pub mod ssl;
 
@@ -265,7 +265,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             any(not(target_arch = "wasm32"), target_os = "wasi"),
         ))]
         ssl::module_def(ctx),
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(target_arch = "wasm32", feature = "ssl"))]
         ssl::module_def(ctx),
         statistics::module_def(ctx),
         suggestions::module_def(ctx),

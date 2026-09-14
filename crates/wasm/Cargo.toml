@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["freeze-stdlib"]
-freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib", "rustpython-stdlib"]
+freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib", "rustpython-stdlib", "rustpython-stdlib/ssl"]
 no-start-func = []
 
 [dependencies]
