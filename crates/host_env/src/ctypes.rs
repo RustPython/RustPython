@@ -2921,7 +2921,22 @@ fn lookup_raw_windows_symbol(
             .map_err(|err| LookupSymbolError::Load(err.to_string()))?;
         owned.as_c_str()
     };
-    get_proc_address(handle as _, name).ok_or(LookupSymbolError::LibraryNotFound)
+    match get_proc_address(handle as _, name) {
+        Some(addr) => Ok(addr),
+        None => {
+            // A valid LoadLibraryExW handle with no such export is a missing
+            // symbol, not a missing library. GetProcAddress sets
+            // ERROR_PROC_NOT_FOUND (127); invalid/unloaded modules typically
+            // set ERROR_INVALID_HANDLE (6) or ERROR_MOD_NOT_FOUND (126).
+            match std::io::Error::last_os_error().raw_os_error() {
+                Some(6 | 126) => Err(LookupSymbolError::LibraryNotFound),
+                _ => Err(LookupSymbolError::Load(format!(
+                    "function '{}' not found",
+                    name.to_string_lossy()
+                ))),
+            }
+        }
+    }
 }
 
 #[cfg(all(unix, not(target_os = "wasi")))]

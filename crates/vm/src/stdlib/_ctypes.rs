@@ -94,6 +94,8 @@ pub(crate) mod _ctypes {
     use super::{PyCArray, PyCData, PyCPointer, PyCSimple, PyCStructure, PyCUnion};
     use crate::builtins::{PyType, PyTypeRef};
     use crate::class::StaticType;
+    #[cfg(windows)]
+    use crate::convert::ToPyException;
     use crate::convert::ToPyObject;
     use crate::function::{Either, OptionalArg};
     use crate::types::Representable;
@@ -427,7 +429,7 @@ pub(crate) mod _ctypes {
         let flags = load_flags.unwrap_or(0) as u32;
         rustpython_host_env::ctypes::load_library_ex_w(&wide, flags)
             .map(|module| module as usize)
-            .map_err(|error| vm.new_os_error(error.to_string()))
+            .map_err(|error| error.to_pyexception(vm))
     }
 
     #[cfg(not(windows))]
@@ -463,7 +465,7 @@ pub(crate) mod _ctypes {
     #[pyfunction(name = "FreeLibrary")]
     fn free_library(handle: usize, vm: &VirtualMachine) -> PyResult<()> {
         rustpython_host_env::ctypes::free_library(handle as _)
-            .map_err(|error| vm.new_os_error(error.to_string()))
+            .map_err(|error| error.to_pyexception(vm))
     }
 
     #[cfg(not(windows))]
