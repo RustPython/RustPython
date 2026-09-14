@@ -410,22 +410,46 @@ pub(crate) mod _thread {
         vm.state.stop_the_world.reset_stats();
     }
 
-    #[cfg(any(unix, windows))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     #[pyattr]
     const _NAME_MAXLEN: usize = host_thread::NAME_MAXLEN;
 
+    /// Truncate a Windows thread name to `_NAME_MAXLEN` UTF-16 code units,
+    /// dropping a trailing non-BMP character that would not fit as a pair.
+    #[cfg(windows)]
+    fn truncate_thread_name_wide(name: &crate::common::wtf8::Wtf8) -> Vec<u16> {
+        let encoded: Vec<u16> = name.encode_wide().collect();
+        let mut units = Vec::new();
+        let mut i = 0;
+        while i < encoded.len() {
+            let unit = encoded[i];
+            if unit == 0 {
+                break;
+            }
+            let width = match encoded.get(i + 1) {
+                Some(&lo)
+                    if (0xD800..=0xDBFF).contains(&unit) && (0xDC00..=0xDFFF).contains(&lo) =>
+                {
+                    2
+                }
+                _ => 1,
+            };
+            if units.len() + width > host_thread::NAME_MAXLEN {
+                break;
+            }
+            units.extend_from_slice(&encoded[i..i + width]);
+            i += width;
+        }
+        units.push(0);
+        units
+    }
+
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     #[pyfunction]
     fn set_name(name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         #[cfg(windows)]
         {
-            let mut units = Vec::new();
-            for unit in name.as_wtf8().encode_wide() {
-                if unit == 0 || units.len() >= host_thread::NAME_MAXLEN {
-                    break;
-                }
-                units.push(unit);
-            }
-            units.push(0);
+            let units = truncate_thread_name_wide(name.as_wtf8());
             host_thread::set_current_thread_name_wide(&units).map_err(|e| e.to_pyexception(vm))?;
         }
         #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -433,13 +457,10 @@ pub(crate) mod _thread {
             let os_name = vm.fsencode(&name)?;
             host_thread::set_current_thread_name_bytes(os_name.as_encoded_bytes());
         }
-        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-        {
-            let _ = (name, vm);
-        }
         Ok(())
     }
 
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     #[pyfunction(name = "_get_name")]
     fn get_name(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
@@ -455,10 +476,6 @@ pub(crate) mod _thread {
                     .map_err(|e| e.to_pyexception(vm))?;
             let os = unsafe { std::ffi::OsString::from_encoded_bytes_unchecked(bytes) };
             Ok(vm.fsdecode(os).into())
-        }
-        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-        {
-            Ok(vm.ctx.new_str("").into())
         }
     }
 
