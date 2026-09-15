@@ -86,9 +86,8 @@ impl StoredVirtualMachine {
                 .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB);
         }
 
-        // Add wasm-specific modules. Browser `_ssl` / `_socket` live here
-        // rather than rustpython-stdlib: there are no BSD sockets, and rustls
-        // is driven through MemoryBIO / wrap_bio.
+        // Browser rustls `_ssl` overrides the rustls-free stdlib `_ssl`.
+        // `_socket` is rustpython-stdlib's wasm shim (`socket_wasm.rs`).
         let js_def = js_module::module_def(&builder.ctx);
         builder = builder.add_native_module(js_def);
 
@@ -96,8 +95,7 @@ impl StoredVirtualMachine {
         {
             install_browser_tls_provider();
             let ssl_def = crate::ssl::module_def(&builder.ctx);
-            let socket_def = crate::socket::module_def(&builder.ctx);
-            builder = builder.add_native_modules(&[ssl_def, socket_def]);
+            builder = builder.add_native_module(ssl_def);
         }
 
         if inject_browser_module {

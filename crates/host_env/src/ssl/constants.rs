@@ -67,6 +67,21 @@ pub const HOSTFLAG_NEVER_CHECK_SUBJECT: i32 = 0x20;
 pub const OP_NO_TLSV1_2: i32 = 0x0800_0000;
 pub const OP_NO_TLSV1_3: i32 = 0x2000_0000;
 
+pub const SSL3_RT_CHANGE_CIPHER_SPEC: i32 = 20;
+pub const SSL3_RT_ALERT: i32 = 21;
+pub const SSL3_RT_HANDSHAKE: i32 = 22;
+pub const SSL3_RT_APPLICATION_DATA: i32 = 23;
+pub const SSL3_RT_HEADER: i32 = 256;
+pub const SSL3_MT_CHANGE_CIPHER_SPEC: i32 = 0x0101;
+
+pub const TLS_ERROR_SSL: i32 = 1;
+pub const TLS_ERROR_WANT_READ: i32 = 2;
+pub const TLS_ERROR_WANT_WRITE: i32 = 3;
+pub const TLS_ERROR_ZERO_RETURN: i32 = 6;
+pub const TLS_ERROR_EOF: i32 = 8;
+pub const TLS_ERROR_NO_MEMORY: i32 = 9;
+pub const TLS_ERROR_CERT_VERIFY_BASE: i32 = 1_000;
+
 #[cfg(test)]
 mod tests {
     use super::*;

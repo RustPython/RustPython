@@ -208,6 +208,7 @@ impl NormalizedParseDiagnostic {
 /// column. These are reconstructed by re-scanning after ruff's parse has already failed, so they
 /// carry CPython's wording rather than a translation of ruff's own error, and they never reach
 /// ruff — `NormalizedParseDiagnostic` and `CompileError` are the only things that consume one.
+#[derive(Clone)]
 struct CpythonDiagnostic {
     message: String,
     range: ruff_text_size::TextRange,
@@ -243,6 +244,37 @@ impl CpythonDiagnostic {
     }
 }
 
+/// Lexer-class failures (invalid number, prefix, non-printable, unterminated
+/// string, mismatched closer) outrank parser-level hints. A decode or f-string
+/// diagnostic, even when it loses the positional ranking, still suppresses an
+/// unclosed opener: those tokens are produced before EOF. Within a class the
+/// earliest source offset wins.
+struct RankedOverride {
+    diagnostic: CpythonDiagnostic,
+    unclosed_bracket: bool,
+}
+
+fn consider_override(best: &mut Option<RankedOverride>, diagnostic: CpythonDiagnostic) {
+    let unclosed_bracket = diagnostic.is_unclosed_bracket;
+    consider_override_bracket(best, diagnostic, unclosed_bracket);
+}
+
+fn consider_override_bracket(
+    best: &mut Option<RankedOverride>,
+    diagnostic: CpythonDiagnostic,
+    unclosed_bracket: bool,
+) {
+    if best
+        .as_ref()
+        .is_none_or(|current| diagnostic.range.start() < current.diagnostic.range.start())
+    {
+        *best = Some(RankedOverride {
+            diagnostic,
+            unclosed_bracket,
+        });
+    }
+}
+
 fn cpython_parse_diagnostic_override(
     error: &parser::ParseError,
     source_file: &SourceFile,
@@ -258,18 +290,59 @@ fn cpython_parse_diagnostic_override(
         };
     }
 
-    source_error!(invalid_number_literal_error(source_text));
-    source_error!(invalid_legacy_statement_error(source_text));
-    source_error!(incompatible_string_prefix_error(source_text));
-    source_error!(malformed_unicode_n_escape_error(source_text));
-    source_error!(non_printable_character_error(source_text));
-    source_error!(invalid_interpolated_string_error(source_text));
-    source_error!(mixed_tstring_literal_error(error, source_text));
-
-    if let Some(bracket) = bracket_syntax_error(source_text) {
+    let mut earliest: Option<RankedOverride> = None;
+    if let Some(diagnostic) = invalid_number_literal_error(source_text) {
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = incompatible_string_prefix_error(source_text) {
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = non_printable_character_error(source_text) {
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = unterminated_string_error(source_text, mode) {
+        consider_override(&mut earliest, diagnostic);
+    }
+    let bracket = bracket_syntax_error(source_text);
+    if let Some(bracket) = bracket.as_ref() {
+        // Unclosed openers are reported at the opener and only become errors
+        // at EOF. A later token-time diagnostic (invalid number, prefix, …)
+        // must keep winning. Mismatched closers stay in the lexer-class
+        // positional ranking.
+        if !bracket.unclosed {
+            consider_override_bracket(&mut earliest, bracket.diagnostic.clone(), false);
+        }
+    }
+    // Decode and f-string tokens are produced while scanning, so they compete
+    // with lexer diagnostics by offset. A later unterminated quote or 0x must
+    // not hide an earlier unclosed field. Print stays out of that ranking:
+    // a later 0x still beats an earlier print hint.
+    let lexer_won = earliest.is_some();
+    let mut saw_decode = false;
+    if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
+        saw_decode = true;
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
+        saw_decode = true;
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
+        saw_decode = true;
+        consider_override(&mut earliest, diagnostic);
+    }
+    if !lexer_won {
+        if let Some(diagnostic) = invalid_legacy_statement_error(source_text) {
+            consider_override(&mut earliest, diagnostic);
+        }
+        if !saw_decode && let Some(bracket) = bracket.filter(|bracket| bracket.unclosed) {
+            consider_override_bracket(&mut earliest, bracket.diagnostic, true);
+        }
+    }
+    if let Some(override_diag) = earliest {
         return Some(
-            NormalizedParseDiagnostic::other(source_file, bracket.diagnostic)
-                .with_unclosed_bracket(bracket.unclosed),
+            NormalizedParseDiagnostic::other(source_file, override_diag.diagnostic)
+                .with_unclosed_bracket(override_diag.unclosed_bracket),
         );
     }
 
@@ -591,7 +664,11 @@ fn invalid_radix_literal_error(
     let mut has_digit = false;
     loop {
         let Some(&byte) = bytes.get(index) else {
-            return Some((format!("invalid {kind} literal"), start + 1));
+            return if has_digit {
+                None
+            } else {
+                Some((format!("invalid {kind} literal"), start + 1))
+            };
         };
         if byte == b'_' {
             let Some(&next) = bytes.get(index + 1) else {
@@ -5876,6 +5953,7 @@ fn expected_opening_bracket(closing: char) -> char {
 
 /// A bracket diagnostic, and whether it is an opener that was never closed. The caller needs
 /// that apart from the message because ruff reports the unclosed case as an EOF error.
+#[derive(Clone)]
 struct BracketError {
     diagnostic: CpythonDiagnostic,
     unclosed: bool,
@@ -7497,6 +7575,34 @@ mod tests {
             ("fb''", "'b' and 'f' prefixes are incompatible"),
             ("ufr''", "'u' and 'r' prefixes are incompatible"),
             (
+                "(]\nbu'x'",
+                "closing parenthesis ']' does not match opening parenthesis '('",
+            ),
+            ("0x\nbu'x'", "invalid hexadecimal literal"),
+            ("(0x", "invalid hexadecimal literal"),
+            ("print x; 0x", "invalid hexadecimal literal"),
+            ("exec x; 0x", "invalid hexadecimal literal"),
+            (
+                "print x; 0x1",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            (
+                "print x; (",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            ("print x; )", "unmatched ')'"),
+            (
+                "( '\\N'",
+                "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
+            ),
+            ("(print x", "'(' was never closed"),
+            (
+                "(print x; '\\N'",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            ("f'{x'; '", "f-string: expecting '}'"),
+            ("f'{x'; 0x", "f-string: expecting '}'"),
+            (
                 r"'\N'",
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
             ),
@@ -7512,6 +7618,23 @@ mod tests {
                 "{source:?}: expected {expected:?}, got {err}"
             );
         }
+    }
+
+    #[test]
+    fn unclosed_fstring_field_keeps_the_unclosed_bracket_flag() {
+        let err = compile("f'{", Mode::Eval, "<interp>", CompileOpts::default())
+            .expect_err("should not compile");
+        let crate::CompileError::Parse(parse) = err else {
+            panic!("expected a parse error, got {err}");
+        };
+        assert!(
+            parse.is_unclosed_bracket,
+            "unclosed f-string field must stay incomplete, got {parse}"
+        );
+        assert!(
+            parse.to_string().contains("'{' was never closed"),
+            "got {parse}"
+        );
     }
 
     #[test]

@@ -66,6 +66,10 @@ mod suggestions;
 #[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
 pub mod socket;
 
+#[cfg(target_arch = "wasm32")]
+#[path = "socket_wasm.rs"]
+pub mod socket;
+
 #[cfg(all(feature = "host_env", unix, not(target_os = "redox")))]
 mod syslog;
 
@@ -127,11 +131,24 @@ mod select;
 ))]
 mod openssl;
 
+// Full rustls `_ssl` stays native. All wasm targets (browser unknown and
+// WASI) bind the rustls-free `rustpython_host_env::ssl` surface (MemoryBIO,
+// constants, OID, ALPN). WASI still compiles the rustls engine inside
+// host_env. `_socket` on wasm is the rustls-free-style shim in
+// `socket_wasm.rs` so `Lib/ssl.py` can import.
 #[cfg(all(
     feature = "host_env",
     feature = "__ssl-rustls",
     any(not(target_arch = "wasm32"), target_os = "wasi"),
 ))]
+pub mod ssl;
+
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "ssl",
+    not(all(feature = "host_env", feature = "__ssl-rustls", target_os = "wasi")),
+))]
+#[path = "ssl_wasm.rs"]
 pub mod ssl;
 
 #[cfg(all(feature = "ssl-openssl", feature = "__ssl-rustls", not(clippy)))]
@@ -248,6 +265,8 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         sha512::module_def(ctx),
         #[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
         socket::module_def(ctx),
+        #[cfg(target_arch = "wasm32")]
+        socket::module_def(ctx),
         #[cfg(all(
             feature = "sqlite",
             not(any(target_os = "android", target_arch = "wasm32"))
@@ -257,6 +276,12 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             feature = "host_env",
             feature = "__ssl-rustls",
             any(not(target_arch = "wasm32"), target_os = "wasi"),
+        ))]
+        ssl::module_def(ctx),
+        #[cfg(all(
+            target_arch = "wasm32",
+            feature = "ssl",
+            not(all(feature = "host_env", feature = "__ssl-rustls", target_os = "wasi")),
         ))]
         ssl::module_def(ctx),
         statistics::module_def(ctx),

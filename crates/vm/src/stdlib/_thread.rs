@@ -21,10 +21,10 @@ pub(crate) mod _thread {
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef,
-            PyUtf8StrRef,
+            PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
         },
         common::{lock::PyMutex, wtf8::Wtf8Buf},
+        convert::ToPyException,
         frame::FrameObjectRef,
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
         object::{Traverse, TraverseFn},
@@ -410,26 +410,86 @@ pub(crate) mod _thread {
         vm.state.stop_the_world.reset_stats();
     }
 
-    /// Set the name of the current thread
-    #[pyfunction]
-    fn set_name(name: PyUtf8StrRef) {
-        #[cfg(any(unix, windows))]
-        host_thread::set_current_thread_name(name.as_str());
-        #[cfg(not(any(unix, windows)))]
-        let _ = name;
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[pyattr]
+    const _NAME_MAXLEN: usize = host_thread::NAME_MAXLEN;
+
+    /// Truncate a Windows thread name to `_NAME_MAXLEN` UTF-16 code units,
+    /// dropping a trailing non-BMP character that would not fit as a pair.
+    #[cfg(windows)]
+    fn truncate_thread_name_wide(name: &crate::common::wtf8::Wtf8) -> Vec<u16> {
+        let encoded: Vec<u16> = name.encode_wide().collect();
+        let mut units = Vec::new();
+        let mut i = 0;
+        while i < encoded.len() {
+            let unit = encoded[i];
+            if unit == 0 {
+                break;
+            }
+            let width = match encoded.get(i + 1) {
+                Some(&lo)
+                    if (0xD800..=0xDBFF).contains(&unit) && (0xDC00..=0xDFFF).contains(&lo) =>
+                {
+                    2
+                }
+                _ => 1,
+            };
+            if units.len() + width > host_thread::NAME_MAXLEN {
+                break;
+            }
+            units.extend_from_slice(&encoded[i..i + width]);
+            i += width;
+        }
+        units.push(0);
+        units
     }
 
-    /// Get OS-level thread ID (pthread_self on Unix)
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[pyfunction]
+    fn set_name(name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        #[cfg(windows)]
+        {
+            let units = truncate_thread_name_wide(name.as_wtf8());
+            host_thread::set_current_thread_name_wide(&units).map_err(|e| e.to_pyexception(vm))?;
+        }
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let os_name = vm.fsencode(&name)?;
+            host_thread::set_current_thread_name_bytes(os_name.as_encoded_bytes());
+        }
+        Ok(())
+    }
+
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[pyfunction(name = "_get_name")]
+    fn get_name(vm: &VirtualMachine) -> PyResult {
+        #[cfg(windows)]
+        {
+            let units =
+                host_thread::current_thread_name_wide().map_err(|e| e.to_pyexception(vm))?;
+            Ok(vm.ctx.new_str(Wtf8Buf::from_wide(&units)).into())
+        }
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let bytes =
+                host_thread::current_thread_name(host_thread::NAME_MAXLEN.saturating_add(1))
+                    .map_err(|e| e.to_pyexception(vm))?;
+            let os = unsafe { std::ffi::OsString::from_encoded_bytes_unchecked(bytes) };
+            Ok(vm.fsdecode(os).into())
+        }
+    }
+
+    /// Get OS-level thread ID (pthread_self on Unix, GetCurrentThreadId on Windows)
     /// This is important for fork compatibility - the ID must remain stable after fork
     fn current_thread_id() -> u64 {
         cfg_select! {
-            unix => host_thread::current_thread_id(),
+            any(unix, windows) => host_thread::current_thread_id(),
             _ => thread_to_rust_id(&thread::current()),
         }
     }
 
-    /// Convert Rust thread to ID (used for non-unix platforms)
-    #[cfg(not(unix))]
+    /// Convert Rust thread to ID (used when no native thread id exists)
+    #[cfg(not(any(unix, windows)))]
     fn thread_to_rust_id(t: &thread::Thread) -> u64 {
         use core::hash::{Hash, Hasher};
 
@@ -466,7 +526,12 @@ pub(crate) mod _thread {
             handle.as_pthread_t() as _
         }
 
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            host_thread::thread_id_from_handle(handle.as_raw_handle())
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             thread_to_rust_id(handle.thread())
         }

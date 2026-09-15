@@ -94,6 +94,8 @@ pub(crate) mod _ctypes {
     use super::{PyCArray, PyCData, PyCPointer, PyCSimple, PyCStructure, PyCUnion};
     use crate::builtins::{PyType, PyTypeRef};
     use crate::class::StaticType;
+    #[cfg(windows)]
+    use crate::convert::ToPyException;
     use crate::convert::ToPyObject;
     use crate::function::{Either, OptionalArg};
     use crate::types::Representable;
@@ -419,12 +421,15 @@ pub(crate) mod _ctypes {
     #[pyfunction(name = "LoadLibrary")]
     fn load_library_windows(
         name: String,
-        _load_flags: OptionalArg<i32>,
-        _vm: &VirtualMachine,
-    ) -> usize {
-        // TODO: audit functions first
-        // TODO: load_flags
-        rustpython_host_env::ctypes::open_library(&name).unwrap()
+        load_flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        let wide = widestring::WideCString::from_str(&name)
+            .map_err(|_| vm.new_value_error("embedded null character"))?;
+        let flags = load_flags.unwrap_or(0) as u32;
+        rustpython_host_env::ctypes::load_library_ex_w(&wide, flags)
+            .map(|module| module as usize)
+            .map_err(|error| error.to_pyexception(vm))
     }
 
     #[cfg(not(windows))]
@@ -456,6 +461,14 @@ pub(crate) mod _ctypes {
         }
     }
 
+    #[cfg(windows)]
+    #[pyfunction(name = "FreeLibrary")]
+    fn free_library(handle: usize, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::ctypes::free_library(handle as _)
+            .map_err(|error| error.to_pyexception(vm))
+    }
+
+    #[cfg(not(windows))]
     #[pyfunction(name = "FreeLibrary")]
     fn free_library(handle: usize) {
         rustpython_host_env::ctypes::drop_library(handle);

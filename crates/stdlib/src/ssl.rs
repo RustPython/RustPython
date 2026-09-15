@@ -4003,18 +4003,15 @@ mod _ssl {
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PyMemoryBIO {
         #[pymethod]
-        fn read(&self, len: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        fn read(&self, len: OptionalArg<i32>, vm: &VirtualMachine) -> PyBytesRef {
             let mut bio = self.inner.lock();
 
             let read_len = match len {
                 OptionalArg::Present(n) if n >= 0 => n as usize,
-                OptionalArg::Present(n) => {
-                    return Err(vm.new_value_error(format!("negative read length: {n}")));
-                }
-                OptionalArg::Missing => bio.pending(),
+                OptionalArg::Present(_) | OptionalArg::Missing => bio.pending(),
             };
 
-            Ok(vm.ctx.new_bytes(bio.read(read_len)))
+            vm.ctx.new_bytes(bio.read(read_len))
         }
 
         #[pymethod]

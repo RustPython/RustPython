@@ -1,9 +1,5 @@
 //! Protocol version, ALPN, and hostname helpers.
 
-use rustls::version::{TLS12, TLS13};
-
-use super::constants::{OP_NO_TLSV1_2, OP_NO_TLSV1_3, PROTO_TLSV1_2, PROTO_TLSV1_3, ProtoVersion};
-
 /// Why `server_hostname` was rejected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostnameError {
@@ -49,6 +45,12 @@ pub fn rustls_versions(
     maximum: i32,
     options: i32,
 ) -> &'static [&'static rustls::SupportedProtocolVersion] {
+    use rustls::version::{TLS12, TLS13};
+
+    use super::constants::{
+        OP_NO_TLSV1_2, OP_NO_TLSV1_3, PROTO_TLSV1_2, PROTO_TLSV1_3, ProtoVersion,
+    };
+
     static TLS12_ONLY: &[&rustls::SupportedProtocolVersion] = &[&TLS12];
     static TLS13_ONLY: &[&rustls::SupportedProtocolVersion] = &[&TLS13];
 
