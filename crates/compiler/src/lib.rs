@@ -208,6 +208,7 @@ impl NormalizedParseDiagnostic {
 /// column. These are reconstructed by re-scanning after ruff's parse has already failed, so they
 /// carry CPython's wording rather than a translation of ruff's own error, and they never reach
 /// ruff — `NormalizedParseDiagnostic` and `CompileError` are the only things that consume one.
+#[derive(Clone)]
 struct CpythonDiagnostic {
     message: String,
     range: ruff_text_size::TextRange,
@@ -243,8 +244,10 @@ impl CpythonDiagnostic {
     }
 }
 
-/// Parser-driven tokenization reports the first failure. A later prefix
-/// scan must not override an earlier number or bracket diagnostic.
+/// Lexer-class failures (invalid number, prefix, non-printable, unterminated
+/// string, mismatched closer) outrank parser-level hints (legacy print/exec,
+/// unclosed opener, decode and f-string). Within each class the earliest
+/// source offset wins, so a later prefix scan cannot hide an earlier number.
 struct RankedOverride {
     diagnostic: CpythonDiagnostic,
     unclosed_bracket: bool,
@@ -289,35 +292,42 @@ fn cpython_parse_diagnostic_override(
     if let Some(diagnostic) = invalid_number_literal_error(source_text) {
         consider_override(&mut earliest, diagnostic);
     }
-    if let Some(diagnostic) = invalid_legacy_statement_error(source_text) {
-        consider_override(&mut earliest, diagnostic);
-    }
     if let Some(diagnostic) = incompatible_string_prefix_error(source_text) {
-        consider_override(&mut earliest, diagnostic);
-    }
-    if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
         consider_override(&mut earliest, diagnostic);
     }
     if let Some(diagnostic) = non_printable_character_error(source_text) {
         consider_override(&mut earliest, diagnostic);
     }
-    if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
+    if let Some(diagnostic) = unterminated_string_error(source_text, mode) {
         consider_override(&mut earliest, diagnostic);
     }
-    if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
-        consider_override(&mut earliest, diagnostic);
-    }
-    if let Some(bracket) = bracket_syntax_error(source_text) {
+    let bracket = bracket_syntax_error(source_text);
+    if let Some(bracket) = bracket.as_ref() {
         // Unclosed openers are reported at the opener and only become errors
         // at EOF. A later token-time diagnostic (invalid number, prefix, …)
-        // must keep winning, matching parser-first CPython. Mismatched
-        // closers stay in the positional ranking.
-        if bracket.unclosed {
-            if earliest.is_none() {
+        // must keep winning. Mismatched closers stay in the lexer-class
+        // positional ranking.
+        if !bracket.unclosed {
+            consider_override_bracket(&mut earliest, bracket.diagnostic.clone(), false);
+        }
+    }
+    if earliest.is_none() {
+        if let Some(diagnostic) = invalid_legacy_statement_error(source_text) {
+            consider_override(&mut earliest, diagnostic);
+        }
+        if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
+            consider_override(&mut earliest, diagnostic);
+        }
+        if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
+            consider_override(&mut earliest, diagnostic);
+        }
+        if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
+            consider_override(&mut earliest, diagnostic);
+        }
+        if let Some(bracket) = bracket {
+            if bracket.unclosed {
                 consider_override_bracket(&mut earliest, bracket.diagnostic, true);
             }
-        } else {
-            consider_override_bracket(&mut earliest, bracket.diagnostic, false);
         }
     }
     if let Some(override_diag) = earliest {
@@ -645,7 +655,11 @@ fn invalid_radix_literal_error(
     let mut has_digit = false;
     loop {
         let Some(&byte) = bytes.get(index) else {
-            return Some((format!("invalid {kind} literal"), start + 1));
+            return if has_digit {
+                None
+            } else {
+                Some((format!("invalid {kind} literal"), start + 1))
+            };
         };
         if byte == b'_' {
             let Some(&next) = bytes.get(index + 1) else {
@@ -5930,6 +5944,7 @@ fn expected_opening_bracket(closing: char) -> char {
 
 /// A bracket diagnostic, and whether it is an opener that was never closed. The caller needs
 /// that apart from the message because ruff reports the unclosed case as an EOF error.
+#[derive(Clone)]
 struct BracketError {
     diagnostic: CpythonDiagnostic,
     unclosed: bool,
@@ -7556,6 +7571,17 @@ mod tests {
             ),
             ("0x\nbu'x'", "invalid hexadecimal literal"),
             ("(0x", "invalid hexadecimal literal"),
+            ("print x; 0x", "invalid hexadecimal literal"),
+            ("exec x; 0x", "invalid hexadecimal literal"),
+            (
+                "print x; 0x1",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            (
+                "print x; (",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            ("print x; )", "unmatched ')'"),
             (
                 r"'\N'",
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
