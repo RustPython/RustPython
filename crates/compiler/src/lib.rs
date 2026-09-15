@@ -245,22 +245,38 @@ impl CpythonDiagnostic {
 }
 
 /// Lexer-class failures (invalid number, prefix, non-printable, unterminated
-/// string, mismatched closer) outrank parser-level hints (legacy print/exec,
-/// unclosed opener, decode and f-string). Within each class the earliest
-/// source offset wins, so a later prefix scan cannot hide an earlier number.
+/// string, mismatched closer) outrank parser-level hints. Decode and f-string
+/// diagnostics outrank an unclosed opener even when the opener is earlier,
+/// because those tokens are produced before EOF. Within a class the earliest
+/// source offset wins.
 struct RankedOverride {
     diagnostic: CpythonDiagnostic,
     unclosed_bracket: bool,
+    blocks_unclosed_opener: bool,
 }
 
 fn consider_override(best: &mut Option<RankedOverride>, diagnostic: CpythonDiagnostic) {
-    consider_override_bracket(best, diagnostic, false);
+    consider_ranked(best, diagnostic, false);
+}
+
+fn consider_decode(best: &mut Option<RankedOverride>, diagnostic: CpythonDiagnostic) {
+    consider_ranked(best, diagnostic, true);
+}
+
+fn consider_ranked(
+    best: &mut Option<RankedOverride>,
+    diagnostic: CpythonDiagnostic,
+    blocks_unclosed_opener: bool,
+) {
+    let unclosed_bracket = diagnostic.is_unclosed_bracket;
+    consider_override_bracket(best, diagnostic, unclosed_bracket, blocks_unclosed_opener);
 }
 
 fn consider_override_bracket(
     best: &mut Option<RankedOverride>,
     diagnostic: CpythonDiagnostic,
     unclosed_bracket: bool,
+    blocks_unclosed_opener: bool,
 ) {
     if best
         .as_ref()
@@ -269,6 +285,7 @@ fn consider_override_bracket(
         *best = Some(RankedOverride {
             diagnostic,
             unclosed_bracket,
+            blocks_unclosed_opener,
         });
     }
 }
@@ -308,7 +325,7 @@ fn cpython_parse_diagnostic_override(
         // must keep winning. Mismatched closers stay in the lexer-class
         // positional ranking.
         if !bracket.unclosed {
-            consider_override_bracket(&mut earliest, bracket.diagnostic.clone(), false);
+            consider_override_bracket(&mut earliest, bracket.diagnostic.clone(), false, false);
         }
     }
     if earliest.is_none() {
@@ -316,18 +333,20 @@ fn cpython_parse_diagnostic_override(
             consider_override(&mut earliest, diagnostic);
         }
         if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
-            consider_override(&mut earliest, diagnostic);
+            consider_decode(&mut earliest, diagnostic);
         }
         if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
-            consider_override(&mut earliest, diagnostic);
+            consider_decode(&mut earliest, diagnostic);
         }
         if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
-            consider_override(&mut earliest, diagnostic);
+            consider_decode(&mut earliest, diagnostic);
         }
-        if let Some(bracket) = bracket {
-            if bracket.unclosed {
-                consider_override_bracket(&mut earliest, bracket.diagnostic, true);
-            }
+        if earliest
+            .as_ref()
+            .is_none_or(|current| !current.blocks_unclosed_opener)
+            && let Some(bracket) = bracket.filter(|bracket| bracket.unclosed)
+        {
+            consider_override_bracket(&mut earliest, bracket.diagnostic, true, false);
         }
     }
     if let Some(override_diag) = earliest {
@@ -7583,6 +7602,11 @@ mod tests {
             ),
             ("print x; )", "unmatched ')'"),
             (
+                "( '\\N'",
+                "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
+            ),
+            ("(print x", "'(' was never closed"),
+            (
                 r"'\N'",
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
             ),
@@ -7598,6 +7622,23 @@ mod tests {
                 "{source:?}: expected {expected:?}, got {err}"
             );
         }
+    }
+
+    #[test]
+    fn unclosed_fstring_field_keeps_the_unclosed_bracket_flag() {
+        let err = compile("f'{", Mode::Eval, "<interp>", CompileOpts::default())
+            .expect_err("should not compile");
+        let crate::CompileError::Parse(parse) = err else {
+            panic!("expected a parse error, got {err}");
+        };
+        assert!(
+            parse.is_unclosed_bracket,
+            "unclosed f-string field must stay incomplete, got {parse}"
+        );
+        assert!(
+            parse.to_string().contains("'{' was never closed"),
+            "got {parse}"
+        );
     }
 
     #[test]
