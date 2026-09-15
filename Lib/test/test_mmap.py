@@ -271,7 +271,6 @@ class MmapTests(unittest.TestCase):
                     self.assertRaises(TypeError, m.write_byte, 0)
                     m.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(os.name == 'nt', 'trackfd not present on Windows')
     def test_trackfd_parameter(self):
         size = 64
@@ -307,7 +306,6 @@ class MmapTests(unittest.TestCase):
                 self.assertEqual(m.closed, True)
                 self.assertEqual(os.stat(TESTFN).st_size, size)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(os.name == 'nt', 'trackfd not present on Windows')
     def test_trackfd_neg1(self):
         size = 64
