@@ -87,8 +87,7 @@ impl StoredVirtualMachine {
         }
 
         // Browser rustls `_ssl` overrides the rustls-free stdlib `_ssl`.
-        // `_socket` comes from rustpython-stdlib's wasm shim when freeze-stdlib
-        // is on; keep the same shim if stdlib is not linked.
+        // `_socket` is rustpython-stdlib's wasm shim (`socket_wasm.rs`).
         let js_def = js_module::module_def(&builder.ctx);
         builder = builder.add_native_module(js_def);
 
@@ -97,11 +96,6 @@ impl StoredVirtualMachine {
             install_browser_tls_provider();
             let ssl_def = crate::ssl::module_def(&builder.ctx);
             builder = builder.add_native_module(ssl_def);
-            #[cfg(not(feature = "freeze-stdlib"))]
-            {
-                let socket_def = crate::socket::module_def(&builder.ctx);
-                builder = builder.add_native_module(socket_def);
-            }
         }
 
         if inject_browser_module {
