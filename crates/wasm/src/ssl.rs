@@ -781,7 +781,7 @@ mod _ssl {
             };
             if !incoming.is_empty() {
                 conn.feed_tls(&incoming).map_err(|err| map_tls(vm, err))?;
-            } else if eof {
+            } else if eof && conn.pending_plaintext() == 0 {
                 conn.feed_tls(&[]).map_err(|err| map_tls(vm, err))?;
             }
             conn.process_packets().map_err(|err| map_tls(vm, err))?;
