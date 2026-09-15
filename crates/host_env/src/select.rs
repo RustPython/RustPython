@@ -330,3 +330,155 @@ pub mod epoll {
         }
     }
 }
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "dragonfly",
+))]
+pub mod kqueue {
+    use alloc::sync::{Arc, Weak};
+    use core::sync::atomic::{AtomicI32, Ordering};
+    use parking_lot::Mutex;
+    use std::io;
+    use std::os::fd::BorrowedFd;
+
+    pub use libc::{
+        EV_ADD, EV_CLEAR, EV_DELETE, EV_DISABLE, EV_ENABLE, EV_EOF, EV_ERROR, EV_FLAG1, EV_ONESHOT,
+        EV_SYSFLAGS, EVFILT_AIO, EVFILT_PROC, EVFILT_READ, EVFILT_SIGNAL, EVFILT_TIMER,
+        EVFILT_VNODE, EVFILT_WRITE, NOTE_ATTRIB, NOTE_CHILD, NOTE_DELETE, NOTE_EXEC, NOTE_EXIT,
+        NOTE_EXTEND, NOTE_FORK, NOTE_LINK, NOTE_LOWAT, NOTE_PCTRLMASK, NOTE_PDATAMASK, NOTE_RENAME,
+        NOTE_REVOKE, NOTE_TRACK, NOTE_TRACKERR, NOTE_WRITE,
+    };
+
+    #[derive(Copy, Clone, Debug)]
+    pub struct Event {
+        pub ident: usize,
+        pub filter: i16,
+        pub flags: u16,
+        pub fflags: u32,
+        pub data: isize,
+        pub udata: usize,
+    }
+
+    impl Event {
+        pub fn to_libc(self) -> libc::kevent {
+            libc::kevent {
+                ident: self.ident,
+                filter: self.filter,
+                flags: self.flags,
+                fflags: self.fflags,
+                data: self.data,
+                udata: self.udata as *mut libc::c_void,
+            }
+        }
+
+        pub fn from_libc(e: libc::kevent) -> Self {
+            Self {
+                ident: e.ident,
+                filter: e.filter,
+                flags: e.flags,
+                fflags: e.fflags,
+                data: e.data,
+                udata: e.udata as usize,
+            }
+        }
+    }
+
+    static OPEN: Mutex<Vec<Weak<AtomicI32>>> = Mutex::new(Vec::new());
+
+    fn register_open(cell: &Arc<AtomicI32>) {
+        let mut open = OPEN.lock();
+        open.retain(|w| w.strong_count() > 0);
+        open.push(Arc::downgrade(cell));
+    }
+
+    pub fn create() -> io::Result<Arc<AtomicI32>> {
+        let fd = unsafe { libc::kqueue() };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
+        if let Err(err) = crate::posix::set_inheritable(borrowed, false) {
+            let _ = unsafe { libc::close(fd) };
+            return Err(err);
+        }
+        let cell = Arc::new(AtomicI32::new(fd));
+        register_open(&cell);
+        Ok(cell)
+    }
+
+    pub fn from_fd(fd: i32) -> Arc<AtomicI32> {
+        let cell = Arc::new(AtomicI32::new(fd));
+        register_open(&cell);
+        cell
+    }
+
+    pub fn close(cell: &AtomicI32) -> io::Result<()> {
+        let fd = cell.swap(-1, Ordering::SeqCst);
+        if fd < 0 {
+            return Ok(());
+        }
+        let ret = unsafe { libc::close(fd) };
+        if ret < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn fd(cell: &AtomicI32) -> i32 {
+        cell.load(Ordering::SeqCst)
+    }
+
+    pub fn kevent(
+        kq: i32,
+        changelist: &[Event],
+        eventlist: &mut [Event],
+        timeout: Option<&libc::timespec>,
+    ) -> io::Result<usize> {
+        let chl: Vec<libc::kevent> = changelist.iter().copied().map(Event::to_libc).collect();
+        let mut evl = vec![
+            libc::kevent {
+                ident: 0,
+                filter: 0,
+                flags: 0,
+                fflags: 0,
+                data: 0,
+                udata: core::ptr::null_mut(),
+            };
+            eventlist.len()
+        ];
+        let timeout = timeout.map_or(core::ptr::null(), |t| t);
+        let ret = unsafe {
+            libc::kevent(
+                kq,
+                chl.as_ptr(),
+                chl.len() as _,
+                evl.as_mut_ptr(),
+                evl.len() as _,
+                timeout,
+            )
+        };
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let n = ret as usize;
+        for (dst, src) in eventlist.iter_mut().zip(evl.into_iter().take(n)) {
+            *dst = Event::from_libc(src);
+        }
+        Ok(n)
+    }
+
+    pub fn mark_closed_after_fork() {
+        let mut open = OPEN.lock();
+        for weak in open.drain(..) {
+            if let Some(cell) = weak.upgrade() {
+                cell.store(-1, Ordering::SeqCst);
+            }
+        }
+    }
+}

@@ -623,6 +623,16 @@ pub mod module {
         crate::signal::clear_after_fork();
         crate::stdlib::_signal::_signal::clear_wakeup_fd_after_fork();
 
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "dragonfly",
+        ))]
+        rustpython_host_env::select::kqueue::mark_closed_after_fork();
+
         // Reset weakref stripe locks that may have been held during fork.
         #[cfg(feature = "threading")]
         crate::object::reset_weakref_locks_after_fork();
