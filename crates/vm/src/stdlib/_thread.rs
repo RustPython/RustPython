@@ -488,8 +488,8 @@ pub(crate) mod _thread {
         }
     }
 
-    /// Convert Rust thread to ID (used for non-unix platforms)
-    #[cfg(not(unix))]
+    /// Convert Rust thread to ID (used when no native thread id exists)
+    #[cfg(not(any(unix, windows)))]
     fn thread_to_rust_id(t: &thread::Thread) -> u64 {
         use core::hash::{Hash, Hasher};
 
