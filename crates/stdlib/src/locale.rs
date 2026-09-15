@@ -89,7 +89,7 @@ mod _locale {
             }
             let w1: Vec<u16> = string1.as_str().encode_utf16().chain([0]).collect();
             let w2: Vec<u16> = string2.as_str().encode_utf16().chain([0]).collect();
-            return Ok(vm.new_pyobj(host_locale::wcscoll(&w1, &w2)));
+            Ok(vm.new_pyobj(host_locale::wcscoll(&w1, &w2)))
         }
         #[cfg(not(windows))]
         {
@@ -108,7 +108,7 @@ mod _locale {
             }
             let wide: Vec<u16> = string.as_str().encode_utf16().chain([0]).collect();
             let transformed = host_locale::wcsxfrm(&wide);
-            return Ok(vm.new_pyobj(String::from_utf16_lossy(&transformed)));
+            Ok(vm.new_pyobj(String::from_utf16_lossy(&transformed)))
         }
         #[cfg(not(windows))]
         {
@@ -123,7 +123,7 @@ mod _locale {
 
     #[cfg(windows)]
     #[pyfunction]
-    fn _getdefaultlocale(vm: &VirtualMachine) -> PyResult {
+    fn _getdefaultlocale(vm: &VirtualMachine) -> PyObjectRef {
         let lcid = host_locale::user_default_lcid();
         let language = host_locale::locale_info(lcid, host_locale::LOCALE_SISO639LANGNAME);
         let territory = host_locale::locale_info(lcid, host_locale::LOCALE_SISO3166CTRYNAME);
@@ -132,7 +132,7 @@ mod _locale {
             _ => vm.ctx.none(),
         };
         let encoding = vm.new_pyobj(format!("cp{}", host_locale::acp()));
-        Ok(vm.ctx.new_tuple(vec![locale, encoding]).into())
+        vm.ctx.new_tuple(vec![locale, encoding]).into()
     }
 
     #[pyfunction]
