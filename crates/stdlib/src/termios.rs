@@ -297,20 +297,17 @@ mod termios {
     }
 
     fn termios_error(err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_os_subtype_error(
+        vm.new_exception(
             error_type(vm),
-            Some(err.posix_errno()),
-            vm.ctx.new_str(err.to_string()),
+            vec![
+                vm.ctx.new_int(err.posix_errno()).into(),
+                vm.ctx.new_str(err.to_string()).into(),
+            ],
         )
-        .upcast()
     }
 
     #[pyattr(name = "error", once)]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_exception_type(
-            "termios",
-            "error",
-            Some(vec![vm.ctx.exceptions.os_error.to_owned()]),
-        )
+        vm.ctx.new_exception_type("termios", "error", None)
     }
 }

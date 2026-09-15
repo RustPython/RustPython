@@ -1095,7 +1095,7 @@ mod mmap {
             dist: isize,
             whence: OptionalArg<core::ffi::c_int>,
             vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        ) -> PyResult<usize> {
             let how = whence.unwrap_or(0);
             let size = self.__len__();
 
@@ -1125,7 +1125,7 @@ mod mmap {
 
             self.pos.store(new_pos as usize);
 
-            Ok(())
+            Ok(new_pos as usize)
         }
 
         #[cfg(unix)]

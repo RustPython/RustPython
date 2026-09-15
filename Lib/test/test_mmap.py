@@ -46,7 +46,6 @@ class MmapTests(unittest.TestCase):
         except OSError:
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'mmap' object has no attribute 'seekable'
     def test_basic(self):
         # Test mmap module on Unix systems and Windows
 

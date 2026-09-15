@@ -39,7 +39,7 @@ pub mod module {
     use rustpython_host_env::os::ffi::OsStringExt;
     use std::{
         fs, io,
-        os::fd::{BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
+        os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
     };
     use strum::IntoEnumIterator;
     use strum_macros::{EnumIter, EnumString};
@@ -1301,6 +1301,13 @@ pub mod module {
     #[pyfunction]
     fn setresuid(ruid: RawUid, euid: RawUid, suid: RawUid, vm: &VirtualMachine) -> PyResult<()> {
         rustpython_host_env::posix::setresuid(ruid.0, euid.0, suid.0)
+            .map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[cfg(not(target_os = "wasi"))]
+    #[pyfunction]
+    fn login_tty(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::login_tty(fd.as_raw_fd())
             .map_err(|err| err.into_pyexception(vm))
     }
 

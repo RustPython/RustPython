@@ -1013,6 +1013,16 @@ pub fn setresuid(ruid: u32, euid: u32, suid: u32) -> std::io::Result<()> {
         .map_err(std::io::Error::from)
 }
 
+#[cfg(not(target_os = "wasi"))]
+pub fn login_tty(fd: i32) -> std::io::Result<()> {
+    let ret = unsafe { libc::login_tty(fd) };
+    if ret < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(not(target_os = "redox"))]
 pub fn openpty() -> std::io::Result<(OwnedFd, OwnedFd)> {
     let pty = nix::pty::openpty(None, None).map_err(std::io::Error::from)?;
