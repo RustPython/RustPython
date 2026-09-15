@@ -113,3 +113,8 @@ cc = "1"
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-shear]
+# Feature-unification only: enables rustls-pki-types `web` so UnixTime::now
+# exists on wasm32-unknown-unknown. No rust source imports this crate.
+ignored = ["rustls-pki-types"]
