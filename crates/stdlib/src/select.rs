@@ -116,14 +116,6 @@ mod decl {
         let (wlist, mut w) = seq2set(&wlist)?;
         let (xlist, mut x) = seq2set(&xlist)?;
 
-        if rlist.is_empty() && wlist.is_empty() && xlist.is_empty() {
-            return Ok((
-                vm.ctx.new_list(vec![]),
-                vm.ctx.new_list(vec![]),
-                vm.ctx.new_list(vec![]),
-            ));
-        }
-
         let nfds = cfg_select! {
             windows => 0, // value is ignored on windows
 
@@ -199,7 +191,11 @@ mod decl {
             function::OptionalArg,
             stdlib::_io::Fildes,
         };
-        use core::{convert::TryFrom, time::Duration};
+        use core::{
+            convert::TryFrom,
+            sync::atomic::{AtomicBool, Ordering},
+            time::Duration,
+        };
         use num_traits::{Signed, ToPrimitive};
         use std::time::Instant;
 
@@ -218,7 +214,8 @@ mod decl {
                     if float.is_sign_negative() {
                         None
                     } else {
-                        let secs = if MILLIS { float * 1000.0 } else { float };
+                        // MILLIS: the Python timeout is in milliseconds.
+                        let secs = if MILLIS { float / 1e3 } else { float };
                         Some(Duration::from_secs_f64(secs))
                     }
                 } else if let Some(int) = obj.try_index_opt(vm).transpose()? {
@@ -250,6 +247,7 @@ mod decl {
         pub(crate) struct PyPoll {
             // keep sorted
             fds: PyMutex<Vec<host_select::PollFd>>,
+            poll_running: AtomicBool,
         }
 
         // new EventMask type
@@ -280,7 +278,7 @@ mod decl {
         const DEFAULT_EVENTS: i16 =
             host_select::POLLIN | host_select::POLLPRI | host_select::POLLOUT;
 
-        #[pyclass]
+        #[pyclass(flags(DISALLOW_INSTANTIATION))]
         impl PyPoll {
             #[pymethod]
             fn register(&self, Fildes(fd): Fildes, eventmask: OptionalArg<EventMask>) {
@@ -320,6 +318,17 @@ mod decl {
                 timeout: OptionalArg<TimeoutArg<true>>,
                 vm: &VirtualMachine,
             ) -> PyResult<Vec<PyObjectRef>> {
+                if self.poll_running.swap(true, Ordering::SeqCst) {
+                    return Err(vm.new_runtime_error("concurrent poll() invocation"));
+                }
+                struct ClearRunning<'a>(&'a AtomicBool);
+                impl Drop for ClearRunning<'_> {
+                    fn drop(&mut self) {
+                        self.0.store(false, Ordering::Release);
+                    }
+                }
+                let _running = ClearRunning(&self.poll_running);
+
                 // Poll a copy: the wait releases the GIL-equivalent and runs
                 // signal handlers, which can register or unregister on the same
                 // object, and a held lock would deadlock them.
