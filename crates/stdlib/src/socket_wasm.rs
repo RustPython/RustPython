@@ -426,7 +426,7 @@ mod _socket {
         }
 
         #[pymethod]
-        fn accept(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+        fn _accept(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
             self.ensure_open(vm)?;
             Err(unsupported(vm, "accept").into())
         }
