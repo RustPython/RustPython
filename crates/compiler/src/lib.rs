@@ -313,21 +313,26 @@ fn cpython_parse_diagnostic_override(
             consider_override_bracket(&mut earliest, bracket.diagnostic.clone(), false);
         }
     }
-    if earliest.is_none() {
+    // Decode and f-string tokens are produced while scanning, so they compete
+    // with lexer diagnostics by offset. A later unterminated quote or 0x must
+    // not hide an earlier unclosed field. Print stays out of that ranking:
+    // a later 0x still beats an earlier print hint.
+    let lexer_won = earliest.is_some();
+    let mut saw_decode = false;
+    if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
+        saw_decode = true;
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
+        saw_decode = true;
+        consider_override(&mut earliest, diagnostic);
+    }
+    if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
+        saw_decode = true;
+        consider_override(&mut earliest, diagnostic);
+    }
+    if !lexer_won {
         if let Some(diagnostic) = invalid_legacy_statement_error(source_text) {
-            consider_override(&mut earliest, diagnostic);
-        }
-        let mut saw_decode = false;
-        if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
-            saw_decode = true;
-            consider_override(&mut earliest, diagnostic);
-        }
-        if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
-            saw_decode = true;
-            consider_override(&mut earliest, diagnostic);
-        }
-        if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
-            saw_decode = true;
             consider_override(&mut earliest, diagnostic);
         }
         if !saw_decode && let Some(bracket) = bracket.filter(|bracket| bracket.unclosed) {
@@ -7595,6 +7600,8 @@ mod tests {
                 "(print x; '\\N'",
                 "Missing parentheses in call to 'print'. Did you mean print(...)?",
             ),
+            ("f'{x'; '", "f-string: expecting '}'"),
+            ("f'{x'; 0x", "f-string: expecting '}'"),
             (
                 r"'\N'",
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
