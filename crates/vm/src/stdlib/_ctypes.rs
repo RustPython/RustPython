@@ -91,6 +91,7 @@ pub(crate) use _ctypes::module_def;
 
 #[pymodule]
 pub(crate) mod _ctypes {
+    use super::base::ArgRawPointer;
     use super::{PyCArray, PyCData, PyCPointer, PyCSimple, PyCStructure, PyCUnion};
     use crate::builtins::{PyType, PyTypeRef};
     use crate::class::StaticType;
@@ -457,27 +458,27 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction(name = "FreeLibrary")]
-    fn free_library(handle: usize) {
-        rustpython_host_env::ctypes::drop_library(handle);
+    fn free_library(handle: ArgRawPointer) {
+        rustpython_host_env::ctypes::drop_library(handle.get());
     }
 
     #[cfg(not(windows))]
     #[pyfunction]
-    fn dlclose(handle: usize, _vm: &VirtualMachine) {
+    fn dlclose(handle: ArgRawPointer, _vm: &VirtualMachine) {
         // Remove from the host_env cache. The underlying library is closed on Drop.
-        rustpython_host_env::ctypes::drop_library(handle);
+        rustpython_host_env::ctypes::drop_library(handle.get());
     }
 
     #[cfg(not(windows))]
     #[pyfunction]
     fn dlsym(
-        handle: usize,
+        handle: ArgRawPointer,
         name: crate::builtins::PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let symbol_name = alloc::ffi::CString::new(name.as_str())
             .map_err(|_| vm.new_value_error("symbol name contains null byte"))?;
-        let ptr = rustpython_host_env::ctypes::dlsym_checked(handle, symbol_name.as_c_str())
+        let ptr = rustpython_host_env::ctypes::dlsym_checked(handle.get(), symbol_name.as_c_str())
             .map_err(|msg| vm.new_os_error(msg))?;
         Ok(ptr as usize)
     }
@@ -898,21 +899,21 @@ pub(crate) mod _ctypes {
     /// Call a function at the given address with the given arguments.
     #[pyfunction]
     fn call_function(
-        func_addr: usize,
+        func_addr: ArgRawPointer,
         args: crate::builtins::PyTupleRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        call_function_internal(func_addr, args, 0, vm)
+        call_function_internal(func_addr.get(), args, 0, vm)
     }
 
     /// Call a cdecl function at the given address with the given arguments.
     #[pyfunction]
     fn call_cdeclfunction(
-        func_addr: usize,
+        func_addr: ArgRawPointer,
         args: crate::builtins::PyTupleRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        call_function_internal(func_addr, args, FUNCFLAG_CDECL, vm)
+        call_function_internal(func_addr.get(), args, FUNCFLAG_CDECL, vm)
     }
 
     fn call_function_internal(
@@ -953,7 +954,8 @@ pub(crate) mod _ctypes {
 
     /// Convert a pointer (as integer) to a Python object.
     #[pyfunction(name = "PyObj_FromPtr")]
-    fn py_obj_from_ptr(ptr: usize, vm: &VirtualMachine) -> PyResult {
+    fn py_obj_from_ptr(ptr: ArgRawPointer, vm: &VirtualMachine) -> PyResult {
+        let ptr = ptr.get();
         if ptr == 0 {
             return Err(vm.new_value_error("NULL pointer access"));
         }

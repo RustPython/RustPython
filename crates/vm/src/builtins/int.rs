@@ -115,9 +115,10 @@ macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl<'a> TryFromBorrowedObject<'a> for $t {
             fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-                obj.try_value_with(|int: &PyInt| {
-                    int.try_to_primitive(vm)
-                }, vm)
+                // CPython's `i`/`n` argument converters go through `__index__`,
+                // so an object that defines it is accepted wherever an integer
+                // argument is expected.
+                obj.try_index(vm)?.try_to_primitive(vm)
             }
         }
     )*};
@@ -364,6 +365,22 @@ impl PyInt {
         }
 
         self.try_to_primitive_raw(vm)
+    }
+
+    /// Reads the value as a pointer or handle, the way `PyLong_AsVoidPtr` does:
+    /// either signedness is accepted, since such a value may be written as a
+    /// negative number or as one above `isize::MAX`.
+    pub fn try_to_pointer(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        let value = self.as_bigint();
+        match value.to_usize() {
+            Some(value) => Ok(value),
+            None => value
+                .to_isize()
+                .map(|value| value as usize)
+                // Not `try_to_primitive`, whose negative guard would report a
+                // `ValueError` where CPython reports the overflow.
+                .map_or_else(|| self.try_to_primitive_raw::<usize>(vm), Ok),
+        }
     }
 
     pub fn try_to_primitive_raw<'a, I>(&'a self, vm: &VirtualMachine) -> PyResult<I>
