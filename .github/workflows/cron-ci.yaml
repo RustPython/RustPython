@@ -77,7 +77,7 @@ jobs:
         run: cargo build --release --verbose
 
       - name: collect tests data
-        run: cargo run --release extra_tests/jsontests.py
+        run: target/release/rustpython extra_tests/jsontests.py
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
 
@@ -113,12 +113,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - name: build rustpython
-        run: cargo build --release --verbose
+        run: cargo build --release --verbose --features sqlite
 
       - name: Collect what is left data
-        run: |
-          chmod +x ./scripts/whats_left.py
-          ./scripts/whats_left.py --features "ssl,sqlite" > whats_left.temp
+        run: python -I scripts/whats_left.py --rustpython target/release/rustpython > whats_left.temp
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
 

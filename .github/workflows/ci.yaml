@@ -42,6 +42,9 @@ jobs:
     outputs:
       # Flag that is raised when any rust code is changed.
       rust_code: ${{ steps.check_rust_code.outputs.changed }}
+      # Cross-target cargo check is skipped unless the diff can change
+      # platform-specific compilation. Force with the run:cross-check label.
+      cross_target: ${{ steps.check_cross_target.outputs.changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,6 +77,90 @@ jobs:
           fi
         env:
           MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+
+      - name: Check if cross-target compilation can change
+        id: check_cross_target
+        run: |
+          if [ "${FORCE_CROSS_TARGET}" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! git diff --quiet "${MERGE_BASE}...HEAD" -- \
+            ':Cargo.lock' \
+            ':rust-toolchain.toml' \
+            ':.cargo/**' \
+            ':.github/workflows/ci.yaml' \
+            ':crates/host_env/**' \
+            ':crates/stdlib/src/openssl/**' \
+            ':crates/stdlib/src/ssl/**' \
+            ':**/_signal.rs' \
+            ':**/_testconsole.rs' \
+            ':**/_thread.rs' \
+            ':**/_winapi.rs' \
+            ':**/_wmi.rs' \
+            ':**/cert_store.rs' \
+            ':**/crt_fd*.rs' \
+            ':**/errno.rs' \
+            ':**/faulthandler.rs' \
+            ':**/fcntl.rs' \
+            ':**/fileutils.rs' \
+            ':**/grp.rs' \
+            ':**/locale.rs' \
+            ':**/mmap.rs' \
+            ':**/msvcrt.rs' \
+            ':**/multiprocessing.rs' \
+            ':**/native_certs.rs' \
+            ':**/nt.rs' \
+            ':**/openssl.rs' \
+            ':**/os.rs' \
+            ':**/overlapped.rs' \
+            ':**/posix*.rs' \
+            ':**/pwd.rs' \
+            ':**/resource.rs' \
+            ':**/scproxy.rs' \
+            ':**/select.rs' \
+            ':**/shm.rs' \
+            ':**/signal.rs' \
+            ':**/socket.rs' \
+            ':**/ssl.rs' \
+            ':**/syslog.rs' \
+            ':**/thread.rs' \
+            ':**/time.rs' \
+            ':**/termios.rs' \
+            ':**/testconsole.rs' \
+            ':**/tkinter.rs' \
+            ':**/uuid.rs' \
+            ':**/winapi.rs' \
+            ':**/windows.rs' \
+            ':**/winreg.rs' \
+            ':**/winsound.rs' \
+            ':**/wmi.rs'
+          then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Platform cfg, or FFI crates that only exist on some targets.
+          platform_re='target_os|target_arch|target_family|target_env|target_vendor|target_pointer_width|target_endian|cfg\(windows\)|cfg\(unix\)|cfg\(wasi|not\(windows|not\(unix|\[target\.|\blibc::|\bnix::|windows_sys|winapi::|rustix::|std::os::'
+
+          if ! git diff -G "${platform_re}" --quiet "${MERGE_BASE}...HEAD"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          while IFS= read -r file; do
+            [ -f "${file}" ] || continue
+            if grep -Eq "${platform_re}" "${file}"; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done < <(git diff --name-only "${MERGE_BASE}...HEAD" -- '*.rs')
+
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        env:
+          MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+          FORCE_CROSS_TARGET: ${{ contains(github.event.pull_request.labels.*.name, 'run:cross-check') }}
 
   rust_tests:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
@@ -217,7 +304,7 @@ jobs:
     if: |
       (
         !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
-        needs.determine_changes.outputs.rust_code == 'true'
+        needs.determine_changes.outputs.cross_target == 'true'
       ) || github.ref == 'refs/heads/main'
     strategy:
       matrix:
