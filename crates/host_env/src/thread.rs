@@ -14,6 +14,7 @@ pub const NAME_MAXLEN: usize = {
     }
 };
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn truncate_thread_name_bytes(name: &[u8]) -> &[u8] {
     let name = name.split(|&b| b == 0).next().unwrap_or(b"");
     name.get(..NAME_MAXLEN.min(name.len())).unwrap_or(b"")

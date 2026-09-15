@@ -2770,6 +2770,7 @@ pub fn load_library_ex_w(
 }
 
 #[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn get_proc_address(
     module: windows_sys::Win32::Foundation::HMODULE,
     name: &CStr,
@@ -2782,6 +2783,7 @@ pub fn get_proc_address(
 }
 
 #[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn free_library(module: windows_sys::Win32::Foundation::HMODULE) -> std::io::Result<()> {
     if unsafe { windows_sys::Win32::Foundation::FreeLibrary(module) } == 0 {
         Err(std::io::Error::last_os_error())
