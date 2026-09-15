@@ -24,5 +24,9 @@ rustpython-pylib = { workspace = true }
 [dev-dependencies]
 pyo3 = { workspace = true, features = ["auto-initialize", "abi3t"] }
 
+[features]
+# Enable PyObject_CallMethodObjArgs variadic function, which is only available on nightly Rust.
+nightly = []
+
 [lints]
 workspace = true

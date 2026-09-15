@@ -30,6 +30,17 @@ pub struct PyGetSetDef {
 }
 
 impl PyGetSetDef {
+    pub(crate) fn iter<'a>(mut defs: *const Self) -> impl Iterator<Item = &'a Self> {
+        core::iter::from_fn(move || {
+            let def = unsafe { &*defs };
+            if def.name.is_null() {
+                None
+            } else {
+                defs = unsafe { defs.add(1) };
+                Some(def)
+            }
+        })
+    }
     pub(crate) fn build(
         &self,
         ty: &'static Py<PyType>,
@@ -135,6 +146,18 @@ pub struct PyMemberDef {
 impl PyMemberDef {
     const PY_READONLY: c_int = 1;
     const PY_RELATIVE_OFFSET: c_int = 8;
+
+    pub(crate) fn iter<'a>(mut defs: *const Self) -> impl Iterator<Item = &'a Self> {
+        core::iter::from_fn(move || {
+            let def = unsafe { &*defs };
+            if def.name.is_null() {
+                None
+            } else {
+                defs = unsafe { defs.add(1) };
+                Some(def)
+            }
+        })
+    }
 
     pub(crate) fn build(
         &self,
