@@ -39,6 +39,11 @@ rustix = { workspace = true }
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1.17.0"
 
+# rustls-pki-types::UnixTime::now is gated off wasm32-unknown-unknown unless
+# the `web` feature is on. Browser rustls and Charon/LLBC both need it.
+[target.'cfg(all(target_arch = "wasm32", not(target_os = "wasi")))'.dependencies]
+rustls-pki-types = { version = "1", default-features = false, features = ["alloc", "std", "web"] }
+
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
 mac_address = { workspace = true }
 
