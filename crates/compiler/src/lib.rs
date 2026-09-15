@@ -245,38 +245,24 @@ impl CpythonDiagnostic {
 }
 
 /// Lexer-class failures (invalid number, prefix, non-printable, unterminated
-/// string, mismatched closer) outrank parser-level hints. Decode and f-string
-/// diagnostics outrank an unclosed opener even when the opener is earlier,
-/// because those tokens are produced before EOF. Within a class the earliest
-/// source offset wins.
+/// string, mismatched closer) outrank parser-level hints. A decode or f-string
+/// diagnostic, even when it loses the positional ranking, still suppresses an
+/// unclosed opener: those tokens are produced before EOF. Within a class the
+/// earliest source offset wins.
 struct RankedOverride {
     diagnostic: CpythonDiagnostic,
     unclosed_bracket: bool,
-    blocks_unclosed_opener: bool,
 }
 
 fn consider_override(best: &mut Option<RankedOverride>, diagnostic: CpythonDiagnostic) {
-    consider_ranked(best, diagnostic, false);
-}
-
-fn consider_decode(best: &mut Option<RankedOverride>, diagnostic: CpythonDiagnostic) {
-    consider_ranked(best, diagnostic, true);
-}
-
-fn consider_ranked(
-    best: &mut Option<RankedOverride>,
-    diagnostic: CpythonDiagnostic,
-    blocks_unclosed_opener: bool,
-) {
     let unclosed_bracket = diagnostic.is_unclosed_bracket;
-    consider_override_bracket(best, diagnostic, unclosed_bracket, blocks_unclosed_opener);
+    consider_override_bracket(best, diagnostic, unclosed_bracket);
 }
 
 fn consider_override_bracket(
     best: &mut Option<RankedOverride>,
     diagnostic: CpythonDiagnostic,
     unclosed_bracket: bool,
-    blocks_unclosed_opener: bool,
 ) {
     if best
         .as_ref()
@@ -285,7 +271,6 @@ fn consider_override_bracket(
         *best = Some(RankedOverride {
             diagnostic,
             unclosed_bracket,
-            blocks_unclosed_opener,
         });
     }
 }
@@ -325,28 +310,28 @@ fn cpython_parse_diagnostic_override(
         // must keep winning. Mismatched closers stay in the lexer-class
         // positional ranking.
         if !bracket.unclosed {
-            consider_override_bracket(&mut earliest, bracket.diagnostic.clone(), false, false);
+            consider_override_bracket(&mut earliest, bracket.diagnostic.clone(), false);
         }
     }
     if earliest.is_none() {
         if let Some(diagnostic) = invalid_legacy_statement_error(source_text) {
             consider_override(&mut earliest, diagnostic);
         }
+        let mut saw_decode = false;
         if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
-            consider_decode(&mut earliest, diagnostic);
+            saw_decode = true;
+            consider_override(&mut earliest, diagnostic);
         }
         if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
-            consider_decode(&mut earliest, diagnostic);
+            saw_decode = true;
+            consider_override(&mut earliest, diagnostic);
         }
         if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
-            consider_decode(&mut earliest, diagnostic);
+            saw_decode = true;
+            consider_override(&mut earliest, diagnostic);
         }
-        if earliest
-            .as_ref()
-            .is_none_or(|current| !current.blocks_unclosed_opener)
-            && let Some(bracket) = bracket.filter(|bracket| bracket.unclosed)
-        {
-            consider_override_bracket(&mut earliest, bracket.diagnostic, true, false);
+        if !saw_decode && let Some(bracket) = bracket.filter(|bracket| bracket.unclosed) {
+            consider_override_bracket(&mut earliest, bracket.diagnostic, true);
         }
     }
     if let Some(override_diag) = earliest {
@@ -7606,6 +7591,10 @@ mod tests {
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
             ),
             ("(print x", "'(' was never closed"),
+            (
+                "(print x; '\\N'",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
             (
                 r"'\N'",
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
