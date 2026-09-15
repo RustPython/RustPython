@@ -347,6 +347,10 @@ try:
 except ImportError:
     # Leave the pure Python version in place.
     pass
+else:
+    _collections_abc.KeysView.register(type(OrderedDict().keys()))
+    _collections_abc.ItemsView.register(type(OrderedDict().items()))
+    _collections_abc.ValuesView.register(type(OrderedDict().values()))
 
 
 ################################################################################
