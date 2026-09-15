@@ -71,6 +71,10 @@ jobs:
             ':.cargo/config.toml' \
             ':crates/**' \
             ':src/**' \
+            ':build.rs' \
+            ':tests/**' \
+            ':examples/**' \
+            ':benches/**' \
             ':example_projects/**' \
             ':.github/workflows/ci.yaml' \
           ; then
@@ -707,10 +711,7 @@ jobs:
       contents: read
     if: |
       github.ref == 'refs/heads/main' ||
-      (
-        needs.determine_changes.outputs.rust_code == 'true' &&
-        needs.determine_changes.outputs.cross_target == 'true'
-      )
+      needs.determine_changes.outputs.cross_target == 'true'
     strategy:
       fail-fast: false
       matrix:
