@@ -4,8 +4,8 @@ use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use crate::util::CStrExt;
 use core::ffi::{c_char, c_int};
-use core::ptr::NonNull;
 use rustpython_vm::function::{FuncArgs, HeapMethodDef, PosArgs, PyMethodFlags};
+use rustpython_vm::types::c_slots::{kwargs_ptr, ret_ptr_to_pyresult, split_args};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 define_py_check!(fn PyCFunction_Check, types.builtin_function_or_method_type);
@@ -19,27 +19,36 @@ pub struct PyMethodDef {
     pub ml_doc: *const c_char,
 }
 
+pub type PyCFunction =
+    unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject;
+
+pub type PyCFunctionWithKeywords = unsafe extern "C" fn(
+    slf: *mut PyObject,
+    args: *mut PyObject,
+    kwargs: *mut PyObject,
+) -> *mut PyObject;
+
+pub type PyCFunctionFast = unsafe extern "C" fn(
+    slf: *mut PyObject,
+    args: *const *mut PyObject,
+    nargs: isize,
+) -> *mut PyObject;
+
+pub type PyCFunctionFastWithKeywords = unsafe extern "C" fn(
+    slf: *mut PyObject,
+    args: *const *mut PyObject,
+    nargs: isize,
+    kwnames: *mut PyObject,
+) -> *mut PyObject;
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 #[allow(non_snake_case)]
 pub union PyMethodPointer {
-    pub PyCFunction: unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject,
-    pub PyCFunctionWithKeywords: unsafe extern "C" fn(
-        slf: *mut PyObject,
-        args: *mut PyObject,
-        kwargs: *mut PyObject,
-    ) -> *mut PyObject,
-    pub PyCFunctionFast: unsafe extern "C" fn(
-        slf: *mut PyObject,
-        args: *const *mut PyObject,
-        nargs: isize,
-    ) -> *mut PyObject,
-    pub PyCFunctionFastWithKeywords: unsafe extern "C" fn(
-        slf: *mut PyObject,
-        args: *const *mut PyObject,
-        nargs: isize,
-        kwnames: *mut PyObject,
-    ) -> *mut PyObject,
+    pub PyCFunction: PyCFunction,
+    pub PyCFunctionWithKeywords: PyCFunctionWithKeywords,
+    pub PyCFunctionFast: PyCFunctionFast,
+    pub PyCFunctionFastWithKeywords: PyCFunctionFastWithKeywords,
 }
 
 pub(crate) fn build_method_def(
@@ -175,16 +184,12 @@ unsafe fn call_function_with_keywords(
         .as_ref()
         .map(|obj| obj.as_object().as_raw().cast_mut())
         .unwrap_or_default();
-    let arg_tuple = vm.ctx.new_tuple(args.args);
-    let kwargs = vm.ctx.new_dict();
-    for (k, v) in args.kwargs {
-        kwargs.set_item(&*k, v, vm)?;
-    }
+    let (arg_tuple, kwargs) = split_args(vm, args)?;
     let ret_ptr = unsafe {
         f(
             slf_ptr,
             arg_tuple.as_object().as_raw().cast_mut(),
-            kwargs.as_object().as_raw().cast_mut(),
+            kwargs_ptr(kwargs.as_ref()),
         )
     };
     ret_ptr_to_pyresult(vm, ret_ptr)
@@ -245,14 +250,6 @@ unsafe fn call_fast_function(
     let fastcall_arg_ptrs = args.args.as_mut_ptr().cast::<*mut PyObject>();
     let ret_ptr = unsafe { f(slf_ptr, fastcall_arg_ptrs, args.args.len() as isize) };
     ret_ptr_to_pyresult(vm, ret_ptr)
-}
-
-fn ret_ptr_to_pyresult(vm: &VirtualMachine, ret_ptr: *mut PyObject) -> PyResult {
-    let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
-        vm.take_raised_exception()
-            .expect("Native function returned NULL, but there was no exception set")
-    })?;
-    Ok(unsafe { PyObjectRef::from_raw(ret_ptr) })
 }
 
 fn take_self_arg(args: &mut FuncArgs, flags: PyMethodFlags) -> Option<PyObjectRef> {
