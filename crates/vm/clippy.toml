@@ -29,4 +29,22 @@ disallowed-methods = [
     { path = "std::net::TcpStream::connect", reason = "use rustpython_host_env for host network access" },
     { path = "std::net::TcpListener::bind", reason = "use rustpython_host_env for host network access" },
     { path = "std::net::UdpSocket::bind", reason = "use rustpython_host_env for host network access" },
+    { path = "libc::select", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::pselect", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::poll", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::ppoll", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::kqueue", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::kevent", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::kevent64", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::epoll_create", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::epoll_create1", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::epoll_ctl", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::epoll_wait", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::epoll_pwait", reason = "use rustpython_host_env::select", allow-invalid = true },
+]
+
+disallowed-types = [
+    { path = "libc::fd_set", reason = "use rustpython_host_env::select::FdSet", allow-invalid = true },
+    { path = "libc::kevent", reason = "use rustpython_host_env::select::kqueue::Event", allow-invalid = true },
+    { path = "libc::epoll_event", reason = "use rustpython_host_env::select::epoll", allow-invalid = true },
 ]
