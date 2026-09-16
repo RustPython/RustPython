@@ -363,7 +363,6 @@ fn cpython_parse_diagnostic_override(
         consider_override(&mut earliest, diagnostic, OverrideClass::Print);
     }
     if !saw_decode
-        && !line_continuation
         && earliest
             .as_ref()
             .is_none_or(|current| current.class == OverrideClass::Print)
@@ -6049,6 +6048,24 @@ fn bracket_syntax_error(source: &str) -> Option<BracketError> {
             continue;
         }
 
+        if ch == '\\' {
+            match chars.get(index + 1).map(|(_, next)| *next) {
+                Some('\n' | '\r') => {
+                    escape_next = true;
+                    index += 1;
+                    continue;
+                }
+                Some(_) => {
+                    index += 2;
+                    continue;
+                }
+                None => {
+                    index += 1;
+                    continue;
+                }
+            }
+        }
+
         if ch == '\'' || ch == '"' {
             is_raw_string = false;
             for look_back in 1..=2.min(index) {
@@ -7655,6 +7672,7 @@ mod tests {
                 "f-string: valid expression required before '}'",
             ),
             ("{\\'a\\'}", "unexpected character after line continuation"),
+            ("\"\\\n\"(1 for c in I,\\\n\\", "'(' was never closed"),
             (
                 r"'\N'",
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
