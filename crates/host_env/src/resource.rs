@@ -56,6 +56,33 @@ pub struct RUsage {
     pub ru_nivcsw: libc::c_long,
 }
 
+impl RUsage {
+    pub fn utime_secs(&self) -> f64 {
+        timeval_to_secs(self.ru_utime)
+    }
+
+    pub fn stime_secs(&self) -> f64 {
+        timeval_to_secs(self.ru_stime)
+    }
+
+    pub fn total_cpu_duration(&self) -> Option<core::time::Duration> {
+        let utime = timeval_to_nanos(self.ru_utime)?;
+        let stime = timeval_to_nanos(self.ru_stime)?;
+        let total = utime.checked_add(stime)?;
+        Some(core::time::Duration::from_nanos(total as u64))
+    }
+}
+
+fn timeval_to_secs(tv: libc::timeval) -> f64 {
+    tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0)
+}
+
+fn timeval_to_nanos(tv: libc::timeval) -> Option<i64> {
+    let secs = tv.tv_sec.checked_mul(1_000_000_000)?;
+    let usecs = (tv.tv_usec as i64).checked_mul(1_000)?;
+    secs.checked_add(usecs)
+}
+
 impl From<libc::rusage> for RUsage {
     fn from(rusage: libc::rusage) -> Self {
         Self {

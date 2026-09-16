@@ -1,6 +1,7 @@
 use core::mem::MaybeUninit;
 use core::time::Duration;
 use std::io;
+use std::time::Instant;
 
 #[cfg(unix)]
 pub use libc::{
@@ -226,6 +227,131 @@ pub fn sec_to_timeval(sec: f64) -> timeval {
     timeval {
         tv_sec: sec.trunc() as _,
         tv_usec: (sec.fract() * 1e6) as _,
+    }
+}
+
+pub fn duration_to_timeval(d: Duration) -> timeval {
+    timeval {
+        tv_sec: d.as_secs() as _,
+        tv_usec: d.subsec_micros() as _,
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum WaitKind {
+    Read,
+    Write,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum WaitFd {
+    Ready,
+    Timeout,
+}
+
+#[derive(Debug)]
+pub enum WaitFdError {
+    Interrupted,
+    Io(io::Error),
+}
+
+pub fn wait_fd(
+    fd: RawFd,
+    kind: WaitKind,
+    deadline: Option<Instant>,
+) -> Result<WaitFd, WaitFdError> {
+    #[cfg(unix)]
+    {
+        wait_fd_poll(fd, kind, deadline)
+    }
+    #[cfg(not(unix))]
+    {
+        wait_fd_select(fd, kind, deadline)
+    }
+}
+
+#[cfg(unix)]
+fn wait_fd_poll(
+    fd: RawFd,
+    kind: WaitKind,
+    deadline: Option<Instant>,
+) -> Result<WaitFd, WaitFdError> {
+    let events = match kind {
+        WaitKind::Read => POLLIN | POLLPRI,
+        WaitKind::Write => POLLOUT,
+    };
+    let mut fds = [PollFd {
+        fd,
+        events,
+        revents: 0,
+    }];
+    loop {
+        let (timeout, is_capped) = match deadline {
+            None => (-1, false),
+            Some(deadline) => {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    return Ok(WaitFd::Timeout);
+                };
+                let ms = remaining.as_millis();
+                if ms > i32::MAX as u128 {
+                    (i32::MAX, true)
+                } else {
+                    (ms as i32, false)
+                }
+            }
+        };
+        match poll_fds(&mut fds, timeout) {
+            Ok(0) if is_capped => {}
+            Ok(0) => return Ok(WaitFd::Timeout),
+            Ok(_) if fds[0].revents & POLLNVAL != 0 => {
+                return Err(WaitFdError::Io(io::Error::from_raw_os_error(libc::EBADF)));
+            }
+            Ok(_) => return Ok(WaitFd::Ready),
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => {
+                return Err(WaitFdError::Interrupted);
+            }
+            Err(err) => return Err(WaitFdError::Io(err)),
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn wait_fd_select(
+    fd: RawFd,
+    kind: WaitKind,
+    deadline: Option<Instant>,
+) -> Result<WaitFd, WaitFdError> {
+    let mut reads = FdSet::new();
+    let mut writes = FdSet::new();
+    let mut errs = FdSet::new();
+    match kind {
+        WaitKind::Read => {
+            reads.insert(fd);
+            errs.insert(fd);
+        }
+        WaitKind::Write => {
+            writes.insert(fd);
+            errs.insert(fd);
+        }
+    }
+    let mut timeout = match deadline {
+        None => None,
+        Some(deadline) => {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Ok(WaitFd::Timeout);
+            };
+            Some(duration_to_timeval(remaining))
+        }
+    };
+    let nfds = cfg_select! {
+        windows => 0,
+        _ => fd.saturating_add(1) as libc::c_int,
+    };
+    match select(nfds, &mut reads, &mut writes, &mut errs, timeout.as_mut()) {
+        Ok(0) => Ok(WaitFd::Timeout),
+        Ok(_) => Ok(WaitFd::Ready),
+        Err(err) if err.kind() == io::ErrorKind::Interrupted => Err(WaitFdError::Interrupted),
+        Err(err) => Err(WaitFdError::Io(err)),
     }
 }
 
@@ -545,6 +671,13 @@ pub mod kqueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn duration_to_timeval_uses_micros() {
+        let tv = duration_to_timeval(Duration::from_micros(1_500_250));
+        assert_eq!(tv.tv_sec as u64, 1);
+        assert_eq!(tv.tv_usec as u32, 500_250);
+    }
 
     #[cfg(unix)]
     #[test]
