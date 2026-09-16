@@ -289,7 +289,6 @@ class TestModule(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertGreaterEqual(value, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'termios.error'> is a subclass of <class 'OSError'>
     def test_exception(self):
         self.assertIsSubclass(termios.error, Exception)
         self.assertNotIsSubclass(termios.error, OSError)

@@ -13,6 +13,21 @@ mod fcntl {
         function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
         stdlib::_io,
     };
+    use rustpython_host_env::io::is_interrupted_error;
+
+    fn retry_on_eintr<T, E: ToPyException>(
+        vm: &VirtualMachine,
+        mut call: impl FnMut() -> Result<T, E>,
+        interrupted: impl Fn(&E) -> bool,
+    ) -> PyResult<T> {
+        loop {
+            match vm.allow_threads(&mut call) {
+                Ok(val) => return Ok(val),
+                Err(err) if interrupted(&err) => vm.check_signals()?,
+                Err(err) => return Err(err.to_pyexception(vm)),
+            }
+        }
+    }
 
     // TODO: supply these from <asm-generic/fnctl.h> (please file an issue/PR upstream):
     //       LOCK_MAND, LOCK_READ, LOCK_WRITE, LOCK_RW, F_GETSIG, F_SETSIG, F_GETLK64, F_SETLK64,
@@ -86,16 +101,21 @@ mod fcntl {
                         .ok_or_else(|| vm.new_value_error("fcntl string arg too long"))?
                         .copy_from_slice(&s)
                 }
-                vm.allow_threads(|| host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len]))
-                    .map_err(|err| err.to_pyexception(vm))?;
+                retry_on_eintr(
+                    vm,
+                    || host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len]),
+                    is_interrupted_error,
+                )?;
                 return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
             }
             OptionalArg::Present(Either::B(i)) => i.as_u32_mask(),
             OptionalArg::Missing => 0,
         };
-        let ret = vm
-            .allow_threads(|| host_fcntl::fcntl_int(fd, cmd, int as i32))
-            .map_err(|err| err.to_pyexception(vm))?;
+        let ret = retry_on_eintr(
+            vm,
+            || host_fcntl::fcntl_int(fd, cmd, int as i32),
+            is_interrupted_error,
+        )?;
         Ok(vm.new_pyobj(ret))
     }
 
@@ -131,11 +151,13 @@ mod fcntl {
                             // copies through one the same way.
                             let mut scratch = vm.new_zeroed_bytes(rw_arg.len())?;
                             scratch.copy_from_slice(&rw_arg.borrow_buf_mut());
-                            let ret = vm
-                                .allow_threads(|| unsafe {
+                            let ret = retry_on_eintr(
+                                vm,
+                                || unsafe {
                                     host_fcntl::ioctl_ptr(fd, request, scratch.as_mut_ptr().cast())
-                                })
-                                .map_err(|err| err.to_pyexception(vm))?;
+                                },
+                                is_interrupted_error,
+                            )?;
                             rw_arg.borrow_buf_mut().copy_from_slice(&scratch);
                             return Ok(vm.ctx.new_int(ret).into());
                         }
@@ -144,16 +166,19 @@ mod fcntl {
                     }
                     Either::B(ro_buf) => fill_buf(&ro_buf.borrow_bytes())?,
                 };
-                vm.allow_threads(|| unsafe {
-                    host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast())
-                })
-                .map_err(|err| err.to_pyexception(vm))?;
+                retry_on_eintr(
+                    vm,
+                    || unsafe { host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast()) },
+                    is_interrupted_error,
+                )?;
                 Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
             }
             Either::B(i) => {
-                let ret = vm
-                    .allow_threads(|| host_fcntl::ioctl_int(fd, request, i))
-                    .map_err(|err| err.to_pyexception(vm))?;
+                let ret = retry_on_eintr(
+                    vm,
+                    || host_fcntl::ioctl_int(fd, request, i),
+                    is_interrupted_error,
+                )?;
                 Ok(vm.ctx.new_int(ret).into())
             }
         }
@@ -165,9 +190,11 @@ mod fcntl {
     fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
         // LOCK_EX without LOCK_NB waits for whoever holds the lock, which may
         // be for good.
-        let ret = vm
-            .allow_threads(|| host_fcntl::flock(fd, operation))
-            .map_err(|err| err.to_pyexception(vm))?;
+        let ret = retry_on_eintr(
+            vm,
+            || host_fcntl::flock(fd, operation),
+            is_interrupted_error,
+        )?;
         Ok(vm.ctx.new_int(ret).into())
     }
 
@@ -195,9 +222,14 @@ mod fcntl {
             OptionalArg::Missing => 0,
         };
         // F_LOCK and F_TLOCK differ in exactly this: the first one waits.
-        let ret = vm
-            .allow_threads(|| host_fcntl::lockf(fd, cmd, len, start, whence))
-            .map_err(|err| err.to_pyexception(vm))?;
+        let ret = retry_on_eintr(
+            vm,
+            || host_fcntl::lockf(fd, cmd, len, start, whence),
+            |err| match err {
+                host_fcntl::LockfError::Io(e) => is_interrupted_error(e),
+                _ => false,
+            },
+        )?;
         Ok(vm.ctx.new_int(ret).into())
     }
 }
