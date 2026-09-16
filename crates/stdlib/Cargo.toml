@@ -17,9 +17,9 @@ compiler = ["rustpython-vm/compiler"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
 sqlite = ["dep:libsqlite3-sys"]
 # SSL backends
-ssl = ["host_env"]
-ssl-rustls = ["__ssl-rustls", "rustls/custom-provider"]
-ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "rustpython-host_env/native-certs"]
+ssl = ["rustpython-host_env/ssl"]
+ssl-rustls = ["__ssl-rustls", "host_env", "rustls/custom-provider"]
+ssl-openssl = ["ssl", "host_env", "openssl", "openssl-sys", "foreign-types-shared", "rustpython-host_env/native-certs"]
 ssl-openssl-vendor = ["ssl-openssl", "openssl/vendored"]
 tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
 flame-it = ["flame"]
@@ -43,6 +43,7 @@ ascii = { workspace = true }
 crossbeam-utils = { workspace = true }
 flame = { workspace = true, optional = true }
 hex = { workspace = true }
+getrandom = { workspace = true }
 itertools = { workspace = true }
 indexmap = { workspace = true }
 libc = { workspace = true }

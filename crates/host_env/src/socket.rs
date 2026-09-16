@@ -915,3 +915,41 @@ pub fn if_nameindex() -> io::Result<Vec<(u32, String)>> {
         .map(|entry| Ok((entry.InterfaceIndex, get_name(&entry.InterfaceLuid)?)))
         .collect()
 }
+
+/// `UuidFromStringW`. The status is the RPC code, not `GetLastError`.
+#[cfg(windows)]
+pub fn uuid_from_string_w(wide: &widestring::WideCStr) -> Result<windows_sys::core::GUID, u32> {
+    let mut guid = windows_sys::core::GUID {
+        data1: 0,
+        data2: 0,
+        data3: 0,
+        data4: [0; 8],
+    };
+    let status =
+        unsafe { windows_sys::Win32::System::Rpc::UuidFromStringW(wide.as_ptr(), &mut guid) };
+    if status == windows_sys::Win32::System::Rpc::RPC_S_OK {
+        Ok(guid)
+    } else {
+        Err(status as u32)
+    }
+}
+
+/// `UuidToStringW` / `RpcStringFreeW`.
+#[cfg(windows)]
+pub fn uuid_to_string_w(guid: &windows_sys::core::GUID) -> Result<String, u32> {
+    use windows_sys::Win32::System::Rpc::{RPC_S_OK, RpcStringFreeW, UuidToStringW};
+    let mut raw = core::ptr::null_mut();
+    let status = unsafe { UuidToStringW(guid, &mut raw) };
+    if status != RPC_S_OK {
+        return Err(status as u32);
+    }
+    let mut len = 0usize;
+    unsafe {
+        while *raw.add(len) != 0 {
+            len += 1;
+        }
+    }
+    let text = String::from_utf16_lossy(unsafe { core::slice::from_raw_parts(raw, len) });
+    unsafe { RpcStringFreeW(&mut raw) };
+    Ok(text)
+}

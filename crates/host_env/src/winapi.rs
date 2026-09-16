@@ -1426,3 +1426,18 @@ pub fn shell_execute_w(
         Ok(())
     }
 }
+
+/// `CompareStringOrdinal`. Returns the CSTR_* result, or 0 on failure.
+pub fn compare_string_ordinal(left: &[u16], right: &[u16], ignore_case: bool) -> i32 {
+    unsafe {
+        windows_sys::Win32::Globalization::CompareStringOrdinal(
+            left.as_ptr(),
+            left.len() as i32,
+            right.as_ptr(),
+            right.len() as i32,
+            i32::from(ignore_case),
+        )
+    }
+}
+
+pub const CSTR_EQUAL: i32 = windows_sys::Win32::Globalization::CSTR_EQUAL;

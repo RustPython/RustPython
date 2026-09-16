@@ -1,12 +1,19 @@
+//! Wasm `_socket` surface so `Lib/socket.py` and `Lib/ssl.py` can import.
+//!
+//! There are no BSD sockets on wasm32-unknown-unknown, and WASI does not
+//! expose the host_env socket engine yet. Constants, address conversion,
+//! timeouts, and a constructible `socket` type are provided; connect-side
+//! operations raise `OSError`.
+
 pub(crate) use _socket::module_def;
 
 #[pymodule]
 mod _socket {
     use rustpython_vm::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyType, PyTypeRef},
+        builtins::{PyType, PyTypeRef, PyUtf8StrRef},
         common::lock::PyMutex,
-        function::{ArgIntoFloat, OptionalArg},
+        function::{ArgBytesLike, ArgIntoFloat, OptionalArg},
         types::{Constructor, Initializer},
     };
     use std::net::{Ipv4Addr, Ipv6Addr};
@@ -62,6 +69,13 @@ mod _socket {
     const SHUT_WR: i32 = 1;
     #[pyattr]
     const SHUT_RDWR: i32 = 2;
+
+    #[pyattr]
+    const MSG_OOB: i32 = 1;
+    #[pyattr]
+    const MSG_PEEK: i32 = 2;
+    #[pyattr]
+    const MSG_DONTROUTE: i32 = 4;
 
     #[pyattr]
     const AI_PASSIVE: i32 = 1;
@@ -160,10 +174,7 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn inet_aton(
-        ip: rustpython_vm::builtins::PyUtf8StrRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
+    fn inet_aton(ip: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         ip.as_str()
             .parse::<Ipv4Addr>()
             .map(|addr| addr.octets().to_vec())
@@ -171,10 +182,7 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn inet_ntoa(
-        packed: rustpython_vm::function::ArgBytesLike,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    fn inet_ntoa(packed: ArgBytesLike, vm: &VirtualMachine) -> PyResult<String> {
         let buf = packed.borrow_buf();
         let octets: [u8; 4] = (&*buf)
             .try_into()
@@ -183,11 +191,7 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn inet_pton(
-        af: i32,
-        ip: rustpython_vm::builtins::PyUtf8StrRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
+    fn inet_pton(af: i32, ip: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         match af {
             AF_INET => ip
                 .as_str()
@@ -204,11 +208,7 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn inet_ntop(
-        af: i32,
-        packed: rustpython_vm::function::ArgBytesLike,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    fn inet_ntop(af: i32, packed: ArgBytesLike, vm: &VirtualMachine) -> PyResult<String> {
         let buf = packed.borrow_buf();
         match af {
             AF_INET => {
@@ -249,6 +249,29 @@ mod _socket {
             }
         }
         Ok(())
+    }
+
+    #[pyfunction]
+    fn gethostname(vm: &VirtualMachine) -> PyResult<String> {
+        Err(unsupported(vm, "gethostname").into())
+    }
+
+    #[pyfunction]
+    fn gethostbyname(_name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
+        Err(unsupported(vm, "gethostbyname").into())
+    }
+
+    #[pyfunction]
+    fn getaddrinfo(
+        _host: OptionalArg<PyObjectRef>,
+        _port: OptionalArg<PyObjectRef>,
+        _family: OptionalArg<i32>,
+        _type: OptionalArg<i32>,
+        _proto: OptionalArg<i32>,
+        _flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
+        Err(unsupported(vm, "getaddrinfo").into())
     }
 
     #[derive(FromArgs)]
@@ -403,17 +426,13 @@ mod _socket {
         }
 
         #[pymethod]
-        fn accept(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+        fn _accept(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
             self.ensure_open(vm)?;
             Err(unsupported(vm, "accept").into())
         }
 
         #[pymethod]
-        fn send(
-            &self,
-            _data: rustpython_vm::function::ArgBytesLike,
-            vm: &VirtualMachine,
-        ) -> PyResult<usize> {
+        fn send(&self, _data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
             self.ensure_open(vm)?;
             Err(unsupported(vm, "send").into())
         }
