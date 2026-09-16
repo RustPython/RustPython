@@ -244,25 +244,39 @@ impl CpythonDiagnostic {
     }
 }
 
-/// Lexer-class failures (invalid number, prefix, non-printable, unterminated
-/// string, mismatched closer) outrank parser-level hints. A decode or f-string
-/// diagnostic, even when it loses the positional ranking, still suppresses an
-/// unclosed opener: those tokens are produced before EOF. Within a class the
-/// earliest source offset wins.
+/// Lexer-class failures outrank print hints. Decode and f-string diagnostics
+/// compete with lexer failures by offset, and an unterminated quote is only
+/// a fallback when no decode/f-string diagnostic exists. Print is considered
+/// against the final winner: a later 0x still beats print, but an f-string
+/// that replaced that 0x must not hide an earlier print. A decode diagnostic
+/// also suppresses an EOF unclosed opener.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OverrideClass {
+    Lexer,
+    Decode,
+    Print,
+}
+
 struct RankedOverride {
     diagnostic: CpythonDiagnostic,
     unclosed_bracket: bool,
+    class: OverrideClass,
 }
 
-fn consider_override(best: &mut Option<RankedOverride>, diagnostic: CpythonDiagnostic) {
+fn consider_override(
+    best: &mut Option<RankedOverride>,
+    diagnostic: CpythonDiagnostic,
+    class: OverrideClass,
+) {
     let unclosed_bracket = diagnostic.is_unclosed_bracket;
-    consider_override_bracket(best, diagnostic, unclosed_bracket);
+    consider_ranked(best, diagnostic, unclosed_bracket, class);
 }
 
-fn consider_override_bracket(
+fn consider_ranked(
     best: &mut Option<RankedOverride>,
     diagnostic: CpythonDiagnostic,
     unclosed_bracket: bool,
+    class: OverrideClass,
 ) {
     if best
         .as_ref()
@@ -271,6 +285,7 @@ fn consider_override_bracket(
         *best = Some(RankedOverride {
             diagnostic,
             unclosed_bracket,
+            class,
         });
     }
 }
@@ -292,16 +307,13 @@ fn cpython_parse_diagnostic_override(
 
     let mut earliest: Option<RankedOverride> = None;
     if let Some(diagnostic) = invalid_number_literal_error(source_text) {
-        consider_override(&mut earliest, diagnostic);
+        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
     }
     if let Some(diagnostic) = incompatible_string_prefix_error(source_text) {
-        consider_override(&mut earliest, diagnostic);
+        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
     }
     if let Some(diagnostic) = non_printable_character_error(source_text) {
-        consider_override(&mut earliest, diagnostic);
-    }
-    if let Some(diagnostic) = unterminated_string_error(source_text, mode) {
-        consider_override(&mut earliest, diagnostic);
+        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
     }
     let bracket = bracket_syntax_error(source_text);
     if let Some(bracket) = bracket.as_ref() {
@@ -310,34 +322,59 @@ fn cpython_parse_diagnostic_override(
         // must keep winning. Mismatched closers stay in the lexer-class
         // positional ranking.
         if !bracket.unclosed {
-            consider_override_bracket(&mut earliest, bracket.diagnostic.clone(), false);
+            consider_ranked(
+                &mut earliest,
+                bracket.diagnostic.clone(),
+                false,
+                OverrideClass::Lexer,
+            );
         }
     }
-    // Decode and f-string tokens are produced while scanning, so they compete
-    // with lexer diagnostics by offset. A later unterminated quote or 0x must
-    // not hide an earlier unclosed field. Print stays out of that ranking:
-    // a later 0x still beats an earlier print hint.
-    let lexer_won = earliest.is_some();
     let mut saw_decode = false;
     if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
         saw_decode = true;
-        consider_override(&mut earliest, diagnostic);
+        consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
     }
     if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
         saw_decode = true;
-        consider_override(&mut earliest, diagnostic);
+        consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
     }
     if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
         saw_decode = true;
-        consider_override(&mut earliest, diagnostic);
+        consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
     }
-    if !lexer_won {
-        if let Some(diagnostic) = invalid_legacy_statement_error(source_text) {
-            consider_override(&mut earliest, diagnostic);
-        }
-        if !saw_decode && let Some(bracket) = bracket.filter(|bracket| bracket.unclosed) {
-            consider_override_bracket(&mut earliest, bracket.diagnostic, true);
-        }
+    // A later ordinary unterminated quote is only a fallback. Format-spec
+    // newlines and empty fields are decode diagnostics and must keep winning.
+    let line_continuation = matches!(
+        &error.error,
+        parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
+    );
+    if !saw_decode
+        && !line_continuation
+        && let Some(diagnostic) = unterminated_string_error(source_text, mode)
+    {
+        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
+    }
+    if earliest
+        .as_ref()
+        .is_none_or(|current| current.class != OverrideClass::Lexer)
+        && let Some(diagnostic) = invalid_legacy_statement_error(source_text)
+    {
+        consider_override(&mut earliest, diagnostic, OverrideClass::Print);
+    }
+    if !saw_decode
+        && !line_continuation
+        && earliest
+            .as_ref()
+            .is_none_or(|current| current.class == OverrideClass::Print)
+        && let Some(bracket) = bracket.filter(|bracket| bracket.unclosed)
+    {
+        consider_ranked(
+            &mut earliest,
+            bracket.diagnostic,
+            true,
+            OverrideClass::Lexer,
+        );
     }
     if let Some(override_diag) = earliest {
         return Some(
@@ -366,7 +403,9 @@ fn cpython_parse_diagnostic_override(
         }
         let loc = source_location(source_file, error.location.start() + TextSize::from(1));
         return Some(NormalizedParseDiagnostic::new(
-            error.error.clone(),
+            parser::ParseErrorType::OtherError(
+                "unexpected character after line continuation character".to_owned(),
+            ),
             loc,
             loc,
         ));
@@ -7602,6 +7641,20 @@ mod tests {
             ),
             ("f'{x'; '", "f-string: expecting '}'"),
             ("f'{x'; 0x", "f-string: expecting '}'"),
+            (
+                "print x; f'{x'; 0x",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            (
+                concat!("f'{1:", "d\n}'"),
+                "f-string: newlines are not allowed in format specifiers",
+            ),
+            ("f'{\n}'", "f-string: valid expression required before '}'"),
+            (
+                "f'''\n{\n# only a comment\n}'''",
+                "f-string: valid expression required before '}'",
+            ),
+            ("{\\'a\\'}", "unexpected character after line continuation"),
             (
                 r"'\N'",
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
