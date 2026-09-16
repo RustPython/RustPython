@@ -1224,6 +1224,12 @@ class ThreadTests(BaseTestCase):
                 self.assertEqual(err, b"")
                 self.assertIn(b"got the correct exception", out)
 
+    # Cycle.__del__ prints an ignored exception to stderr on macOS/Windows.
+    if not sys.platform.startswith("linux"):
+        test_join_daemon_thread_in_finalization = unittest.expectedFailure(
+            test_join_daemon_thread_in_finalization
+        )
+
     def test_join_finished_daemon_thread_in_finalization(self):
         # (see previous test)
         # If the thread is already finished, join() succeeds.
