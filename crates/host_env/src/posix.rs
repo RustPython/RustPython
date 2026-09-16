@@ -1013,7 +1013,7 @@ pub fn setresuid(ruid: u32, euid: u32, suid: u32) -> std::io::Result<()> {
         .map_err(std::io::Error::from)
 }
 
-#[cfg(not(target_os = "wasi"))]
+#[cfg(not(any(target_os = "wasi", target_os = "solaris", target_os = "illumos")))]
 pub fn login_tty(fd: i32) -> std::io::Result<()> {
     let ret = unsafe { libc::login_tty(fd) };
     if ret < 0 {

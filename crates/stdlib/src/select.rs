@@ -646,7 +646,7 @@ mod decl {
             Py, PyObject, PyPayload, PyRef,
             builtins::{PyFloat, PyType},
             class_or_notimplemented,
-            common::lock::PyMutex,
+            common::lock::{PyMutex, PyRwLock},
             convert::{IntoPyException, ToPyObject},
             function::{OptionalArg, PyComparisonValue},
             types::{Comparable, Constructor, Destructor, PyComparisonOp, Representable},
@@ -817,7 +817,7 @@ mod decl {
         #[pyclass(module = "select", name = "kqueue")]
         #[derive(Debug, PyPayload)]
         pub(crate) struct PyKqueue {
-            kqfd: Arc<AtomicI32>,
+            kqfd: PyRwLock<Option<Arc<AtomicI32>>>,
         }
 
         impl Constructor for PyKqueue {
@@ -825,13 +825,18 @@ mod decl {
 
             fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
                 let kqfd = host_select::kqueue::create().map_err(|e| e.into_pyexception(vm))?;
-                Ok(Self { kqfd })
+                Ok(Self {
+                    kqfd: PyRwLock::new(Some(kqfd)),
+                })
             }
         }
 
         impl Destructor for PyKqueue {
             fn del(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
-                let _ = host_select::kqueue::close(&zelf.kqfd);
+                let cell = zelf.kqfd.write().take();
+                if let Some(cell) = cell {
+                    let _ = host_select::kqueue::close(&cell);
+                }
                 Ok(())
             }
         }
@@ -877,8 +882,12 @@ mod decl {
             if secs > i64::MAX as f64 {
                 return Err(vm.new_overflow_error("timeout is too large"));
             }
-            let tv_sec = secs.trunc() as i64;
-            let tv_nsec = ((secs - tv_sec as f64) * 1e9).round() as i64;
+            let mut tv_sec = secs.trunc() as i64;
+            let mut tv_nsec = ((secs - tv_sec as f64) * 1e9).round() as i64;
+            if tv_nsec >= 1_000_000_000 {
+                tv_sec = tv_sec.saturating_add(1);
+                tv_nsec -= 1_000_000_000;
+            }
             Ok(Some(libc::timespec { tv_sec, tv_nsec }))
         }
 
@@ -886,38 +895,59 @@ mod decl {
         impl PyKqueue {
             #[pymethod]
             fn close(&self) -> io::Result<()> {
-                host_select::kqueue::close(&self.kqfd)
+                let cell = self.kqfd.write().take();
+                if let Some(cell) = cell {
+                    host_select::kqueue::close(&cell)?;
+                }
+                Ok(())
             }
 
             #[pygetset]
             fn closed(&self) -> bool {
-                host_select::kqueue::fd(&self.kqfd) < 0
+                self.kqfd
+                    .read()
+                    .as_ref()
+                    .is_none_or(|cell| host_select::kqueue::fd(cell) < 0)
             }
 
             #[pymethod]
             fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
-                let fd = host_select::kqueue::fd(&self.kqfd);
-                if fd < 0 {
-                    Err(vm.new_value_error("I/O operation on closed kqueue object"))
-                } else {
-                    Ok(fd)
+                match self.kqfd.read().as_ref() {
+                    Some(cell) => {
+                        let fd = host_select::kqueue::fd(cell);
+                        if fd < 0 {
+                            Err(vm.new_value_error("I/O operation on closed kqueue object"))
+                        } else {
+                            Ok(fd)
+                        }
+                    }
+                    None => Err(vm.new_value_error("I/O operation on closed kqueue object")),
                 }
             }
 
             #[pyclassmethod]
             fn fromfd(cls: PyTypeRef, fd: i32, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
                 Self {
-                    kqfd: host_select::kqueue::from_fd(fd),
+                    kqfd: PyRwLock::new(Some(host_select::kqueue::from_fd(fd))),
                 }
                 .into_ref_with_type(vm, cls)
             }
 
             #[pymethod]
             fn control(&self, args: KqueueControlArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
-                let fd = host_select::kqueue::fd(&self.kqfd);
-                if fd < 0 {
-                    return Err(vm.new_value_error("I/O operation on closed kqueue object"));
-                }
+                let guard = self.kqfd.read();
+                let fd = match guard.as_ref() {
+                    Some(cell) => {
+                        let fd = host_select::kqueue::fd(cell);
+                        if fd < 0 {
+                            return Err(vm.new_value_error("I/O operation on closed kqueue object"));
+                        }
+                        fd
+                    }
+                    None => {
+                        return Err(vm.new_value_error("I/O operation on closed kqueue object"));
+                    }
+                };
                 if args.maxevents < 0 {
                     return Err(vm.new_value_error(format!(
                         "Length of eventlist must be 0 or positive, got {}",

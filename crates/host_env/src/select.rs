@@ -366,23 +366,26 @@ pub mod kqueue {
 
     impl Event {
         pub fn to_libc(self) -> libc::kevent {
-            libc::kevent {
-                ident: self.ident,
-                filter: self.filter,
-                flags: self.flags,
-                fflags: self.fflags,
-                data: self.data,
-                udata: self.udata as *mut libc::c_void,
-            }
+            // Field widths and optional `ext` differ across BSDs; assign
+            // rather than using a struct literal.
+            let mut ev: libc::kevent = unsafe { core::mem::zeroed() };
+            ev.ident = self.ident as _;
+            ev.filter = self.filter as _;
+            ev.flags = self.flags as _;
+            ev.fflags = self.fflags as _;
+            ev.data = self.data as _;
+            ev.udata = self.udata as *mut libc::c_void;
+            ev
         }
 
+        #[allow(clippy::unnecessary_cast)]
         pub fn from_libc(e: libc::kevent) -> Self {
             Self {
-                ident: e.ident,
-                filter: e.filter,
-                flags: e.flags,
-                fflags: e.fflags,
-                data: e.data,
+                ident: e.ident as usize,
+                filter: e.filter as i16,
+                flags: e.flags as u16,
+                fflags: e.fflags as u32,
+                data: e.data as isize,
                 udata: e.udata as usize,
             }
         }
@@ -441,17 +444,7 @@ pub mod kqueue {
         timeout: Option<&libc::timespec>,
     ) -> io::Result<usize> {
         let chl: Vec<libc::kevent> = changelist.iter().copied().map(Event::to_libc).collect();
-        let mut evl = vec![
-            libc::kevent {
-                ident: 0,
-                filter: 0,
-                flags: 0,
-                fflags: 0,
-                data: 0,
-                udata: core::ptr::null_mut(),
-            };
-            eventlist.len()
-        ];
+        let mut evl = vec![unsafe { core::mem::zeroed() }; eventlist.len()];
         let timeout = timeout.map_or(core::ptr::null(), |t| t);
         let ret = unsafe {
             libc::kevent(
@@ -474,6 +467,11 @@ pub mod kqueue {
     }
 
     pub fn mark_closed_after_fork() {
+        // After fork only this thread exists. If the parent held OPEN,
+        // the child's copy stays locked until it is released.
+        if OPEN.try_lock().is_none() {
+            unsafe { OPEN.force_unlock() };
+        }
         let mut open = OPEN.lock();
         for weak in open.drain(..) {
             if let Some(cell) = weak.upgrade() {
