@@ -1,4 +1,5 @@
 use core::mem::MaybeUninit;
+use core::time::Duration;
 use std::io;
 
 #[cfg(unix)]
@@ -228,6 +229,16 @@ pub fn sec_to_timeval(sec: f64) -> timeval {
     }
 }
 
+/// Convert a duration to a `poll(2)` millisecond timeout, rounding toward +∞.
+#[cfg(unix)]
+pub fn duration_as_millis_ceiling(d: Duration) -> Option<i32> {
+    let mut ms = d.as_millis();
+    if Duration::from_millis(ms.min(u128::from(u64::MAX)) as u64) < d {
+        ms = ms.saturating_add(1);
+    }
+    i32::try_from(ms).ok()
+}
+
 #[cfg(unix)]
 #[inline]
 pub fn search_poll_fd(fds: &[PollFd], fd: i32) -> Result<usize, usize> {
@@ -342,6 +353,7 @@ pub mod epoll {
 pub mod kqueue {
     use alloc::sync::{Arc, Weak};
     use core::sync::atomic::{AtomicI32, Ordering};
+    use core::time::Duration;
     use parking_lot::Mutex;
     use std::io;
     use std::os::fd::BorrowedFd;
@@ -354,7 +366,55 @@ pub mod kqueue {
         NOTE_REVOKE, NOTE_TRACK, NOTE_TRACKERR, NOTE_WRITE,
     };
 
+    // NetBSD widths differ from i16/u16; the cast is a no-op elsewhere.
+    #[allow(clippy::unnecessary_cast)]
+    pub const DEFAULT_FILTER: i16 = EVFILT_READ as i16;
+    #[allow(clippy::unnecessary_cast)]
+    pub const DEFAULT_FLAGS: u16 = EV_ADD as u16;
+
     #[derive(Copy, Clone, Debug)]
+    pub struct Timespec {
+        pub sec: i64,
+        pub nsec: i64,
+    }
+
+    impl Timespec {
+        pub fn from_secs(secs: f64) -> Option<Self> {
+            if !secs.is_finite() || secs > i64::MAX as f64 {
+                return None;
+            }
+            let mut sec = secs.trunc() as i64;
+            let mut nsec = ((secs - sec as f64) * 1e9).round() as i64;
+            if nsec >= 1_000_000_000 {
+                sec = sec.saturating_add(1);
+                nsec -= 1_000_000_000;
+            }
+            Some(Self { sec, nsec })
+        }
+
+        pub fn from_duration(d: Duration) -> Self {
+            Self {
+                sec: d.as_secs() as i64,
+                nsec: i64::from(d.subsec_nanos()),
+            }
+        }
+
+        pub fn to_duration(self) -> Option<Duration> {
+            if self.sec < 0 || !(0..1_000_000_000).contains(&self.nsec) {
+                return None;
+            }
+            Some(Duration::new(self.sec as u64, self.nsec as u32))
+        }
+
+        fn to_libc(self) -> libc::timespec {
+            libc::timespec {
+                tv_sec: self.sec,
+                tv_nsec: self.nsec,
+            }
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, Default)]
     pub struct Event {
         pub ident: usize,
         pub filter: i16,
@@ -441,11 +501,12 @@ pub mod kqueue {
         kq: i32,
         changelist: &[Event],
         eventlist: &mut [Event],
-        timeout: Option<&libc::timespec>,
+        timeout: Option<&Timespec>,
     ) -> io::Result<usize> {
         let chl: Vec<libc::kevent> = changelist.iter().copied().map(Event::to_libc).collect();
         let mut evl = vec![unsafe { core::mem::zeroed() }; eventlist.len()];
-        let timeout = timeout.map_or(core::ptr::null(), |t| t);
+        let timeout = timeout.map(|t| t.to_libc());
+        let timeout = timeout.as_ref().map_or(core::ptr::null(), |t| t);
         let ret = unsafe {
             libc::kevent(
                 kq,
@@ -478,5 +539,45 @@ pub mod kqueue {
                 cell.store(-1, Ordering::SeqCst);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn poll_timeout_rounds_fractional_millis_up() {
+        assert_eq!(duration_as_millis_ceiling(Duration::ZERO), Some(0));
+        assert_eq!(
+            duration_as_millis_ceiling(Duration::from_micros(100)),
+            Some(1)
+        );
+        assert_eq!(
+            duration_as_millis_ceiling(Duration::from_millis(1)),
+            Some(1)
+        );
+        assert_eq!(
+            duration_as_millis_ceiling(Duration::from_micros(1100)),
+            Some(2)
+        );
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly",
+    ))]
+    #[test]
+    fn timespec_carries_nanosecond_overflow() {
+        let ts = kqueue::Timespec::from_secs(0.999_999_999_9).unwrap();
+        assert_eq!(ts.sec, 1);
+        assert!(ts.nsec < 1_000_000_000);
+        assert!(kqueue::Timespec::from_secs(f64::INFINITY).is_none());
+        assert!(kqueue::Timespec::from_secs(f64::NAN).is_none());
     }
 }

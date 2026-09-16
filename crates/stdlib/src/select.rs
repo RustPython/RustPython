@@ -202,14 +202,6 @@ mod decl {
         #[derive(Default)]
         pub(super) struct TimeoutArg<const MILLIS: bool>(pub Option<Duration>);
 
-        fn timeout_as_millis_ceiling(d: Duration, vm: &VirtualMachine) -> PyResult<i32> {
-            let mut ms = d.as_millis();
-            if Duration::from_millis(ms.min(u128::from(u64::MAX)) as u64) < d {
-                ms = ms.saturating_add(1);
-            }
-            i32::try_from(ms).map_err(|_| vm.new_overflow_error("value out of range"))
-        }
-
         impl<const MILLIS: bool> TryFromObject for TimeoutArg<MILLIS> {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
                 let timeout = if vm.is_none(&obj) {
@@ -346,7 +338,8 @@ mod decl {
                 let mut fds = self.fds.lock().clone();
                 let TimeoutArg(timeout) = timeout.unwrap_or_default();
                 let timeout_ms = match timeout {
-                    Some(d) => timeout_as_millis_ceiling(d, vm)?,
+                    Some(d) => host_select::duration_as_millis_ceiling(d)
+                        .ok_or_else(|| vm.new_overflow_error("value out of range"))?,
                     None => -1i32,
                 };
                 let deadline = timeout
@@ -367,7 +360,8 @@ mod decl {
                     }
                     if let Some(d) = deadline {
                         if let Some(remaining) = d.checked_duration_since(Instant::now()) {
-                            poll_timeout = timeout_as_millis_ceiling(remaining, vm)?;
+                            poll_timeout = host_select::duration_as_millis_ceiling(remaining)
+                                .ok_or_else(|| vm.new_overflow_error("value out of range"))?;
                         } else {
                             break;
                         }
@@ -679,7 +673,6 @@ mod decl {
         };
         use alloc::sync::Arc;
         use core::sync::atomic::AtomicI32;
-        use core::time::Duration;
         use num_traits::ToPrimitive;
         use std::time::Instant;
 
@@ -689,19 +682,13 @@ mod decl {
             ev: PyMutex<host_select::kqueue::Event>,
         }
 
-        // NetBSD widths differ from i16/u16; the cast is a no-op elsewhere.
-        #[allow(clippy::unnecessary_cast)]
-        const KEVENT_DEFAULT_FILTER: i16 = host_select::kqueue::EVFILT_READ as i16;
-        #[allow(clippy::unnecessary_cast)]
-        const KEVENT_DEFAULT_FLAGS: u16 = host_select::kqueue::EV_ADD as u16;
-
         #[derive(FromArgs)]
         pub(crate) struct KeventNewArgs {
             #[pyarg(any)]
             ident: PyObjectRef,
-            #[pyarg(any, default = KEVENT_DEFAULT_FILTER)]
+            #[pyarg(any, default = host_select::kqueue::DEFAULT_FILTER)]
             filter: i16,
-            #[pyarg(any, default = KEVENT_DEFAULT_FLAGS)]
+            #[pyarg(any, default = host_select::kqueue::DEFAULT_FLAGS)]
             flags: u16,
             #[pyarg(any, default = 0)]
             fflags: u32,
@@ -841,7 +828,7 @@ mod decl {
                 let e = zelf.event();
                 Ok(format!(
                     "<select.kevent ident={} filter={} flags=0x{:x} fflags=0x{:x} data=0x{:x} udata={:p}>",
-                    e.ident, e.filter, e.flags, e.fflags, e.data, e.udata as *const libc::c_void,
+                    e.ident, e.filter, e.flags, e.fflags, e.data, e.udata as *const (),
                 ))
             }
         }
@@ -886,7 +873,7 @@ mod decl {
         fn timespec_from_timeout(
             timeout: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
-        ) -> PyResult<Option<libc::timespec>> {
+        ) -> PyResult<Option<host_select::kqueue::Timespec>> {
             let Some(obj) = timeout.into_option() else {
                 return Ok(None);
             };
@@ -911,16 +898,9 @@ mod decl {
             if secs < 0.0 {
                 return Err(vm.new_value_error("timeout must be positive or None"));
             }
-            if secs > i64::MAX as f64 {
-                return Err(vm.new_overflow_error("timeout is too large"));
-            }
-            let mut tv_sec = secs.trunc() as i64;
-            let mut tv_nsec = ((secs - tv_sec as f64) * 1e9).round() as i64;
-            if tv_nsec >= 1_000_000_000 {
-                tv_sec = tv_sec.saturating_add(1);
-                tv_nsec -= 1_000_000_000;
-            }
-            Ok(Some(libc::timespec { tv_sec, tv_nsec }))
+            host_select::kqueue::Timespec::from_secs(secs)
+                .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
+                .map(Some)
         }
 
         #[pyclass(with(Constructor, Destructor))]
@@ -981,8 +961,11 @@ mod decl {
                 let mut timeout = timespec_from_timeout(args.timeout, vm)?;
                 let deadline = timeout
                     .map(|ts| {
+                        let duration = ts
+                            .to_duration()
+                            .ok_or_else(|| vm.new_overflow_error("timeout is too large"))?;
                         Instant::now()
-                            .checked_add(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+                            .checked_add(duration)
                             .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
                     })
                     .transpose()?;
@@ -1004,17 +987,8 @@ mod decl {
                     items.iter().map(|ev| ev.event()).collect()
                 };
 
-                let mut eventlist = vec![
-                    host_select::kqueue::Event {
-                        ident: 0,
-                        filter: 0,
-                        flags: 0,
-                        fflags: 0,
-                        data: 0,
-                        udata: 0,
-                    };
-                    args.maxevents as usize
-                ];
+                let mut eventlist =
+                    vec![host_select::kqueue::Event::default(); args.maxevents as usize];
 
                 let n = loop {
                     let result = {
@@ -1037,10 +1011,9 @@ mod decl {
                                 if let Some(remaining) =
                                     deadline.checked_duration_since(Instant::now())
                                 {
-                                    timeout = Some(libc::timespec {
-                                        tv_sec: remaining.as_secs() as i64,
-                                        tv_nsec: remaining.subsec_nanos() as i64,
-                                    });
+                                    timeout = Some(host_select::kqueue::Timespec::from_duration(
+                                        remaining,
+                                    ));
                                 } else {
                                     break 0;
                                 }
