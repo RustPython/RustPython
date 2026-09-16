@@ -1407,10 +1407,10 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    fn zfill(&self, width: ArgSize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let filled = self
             .as_wtf8()
-            .py_zfill(width)
+            .py_zfill(width.into())
             .ok_or_else(|| vm.no_memory_error())?;
         // SAFETY: this is safe-guaranteed because the original self.as_wtf8() is valid wtf8
         Ok(unsafe { Wtf8Buf::from_bytes_unchecked(filled) })
@@ -1440,17 +1440,17 @@ impl PyStr {
 
     #[pymethod]
     fn center(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        self._pad(args.width, args.fillchar, AnyStr::py_center, vm)
+        self._pad(args.width.into(), args.fillchar, AnyStr::py_center, vm)
     }
 
     #[pymethod]
     fn ljust(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        self._pad(args.width, args.fillchar, AnyStr::py_ljust, vm)
+        self._pad(args.width.into(), args.fillchar, AnyStr::py_ljust, vm)
     }
 
     #[pymethod]
     fn rjust(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        self._pad(args.width, args.fillchar, AnyStr::py_rjust, vm)
+        self._pad(args.width.into(), args.fillchar, AnyStr::py_rjust, vm)
     }
 
     #[pymethod]
@@ -1769,7 +1769,7 @@ struct StripArgs {
 #[derive(FromArgs)]
 struct PadArgs {
     #[pyarg(positional)]
-    width: isize,
+    width: ArgSize,
     #[pyarg(positional, default = " ")]
     fillchar: PyStrRef,
 }
