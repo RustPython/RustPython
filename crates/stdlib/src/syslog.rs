@@ -7,6 +7,7 @@ mod syslog {
     use crate::vm::{
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyStr, PyStrRef},
+        convert::ToPyException,
         function::{OptionalArg, OptionalOption},
         utils::ToCString,
     };
@@ -27,6 +28,27 @@ mod syslog {
     #[cfg(target_vendor = "apple")]
     #[pyattr]
     use host_syslog::{LOG_FTP, LOG_INSTALL, LOG_LAUNCHD, LOG_NETINFO, LOG_RAS, LOG_REMOTEAUTH};
+
+    fn ident_to_utf8_cstring(
+        ident: &PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<alloc::ffi::CString> {
+        let utf8 = ident.to_str().ok_or_else(|| {
+            let start = ident
+                .as_wtf8()
+                .code_points()
+                .position(|c| c.to_char().is_none())
+                .unwrap_or(0);
+            vm.new_unicode_encode_error_real(
+                vm.ctx.new_str("utf-8"),
+                ident.clone(),
+                start,
+                start + 1,
+                vm.ctx.new_str("surrogates not allowed"),
+            )
+        })?;
+        alloc::ffi::CString::new(utf8).map_err(|err| err.to_pyexception(vm))
+    }
 
     fn get_argv(vm: &VirtualMachine) -> Option<PyStrRef> {
         if let Some(argv) = vm.state.config.settings.argv.first()
@@ -58,8 +80,10 @@ mod syslog {
         let logoption = args.logoption.unwrap_or(0);
         let facility = args.facility.unwrap_or(LOG_USER);
         let ident = match args.ident.clone().flatten() {
-            Some(args) => Some(args.to_cstring(vm)?),
-            None => get_argv(vm).map(|argv| argv.to_cstring(vm)).transpose()?,
+            Some(ident) => Some(ident_to_utf8_cstring(&ident, vm)?),
+            None => get_argv(vm)
+                .map(|argv| ident_to_utf8_cstring(&argv, vm))
+                .transpose()?,
         }
         .map(|ident| ident.into_boxed_c_str());
 

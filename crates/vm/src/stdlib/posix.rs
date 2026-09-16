@@ -39,7 +39,7 @@ pub mod module {
     use rustpython_host_env::os::ffi::OsStringExt;
     use std::{
         fs, io,
-        os::fd::{BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
+        os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
     };
     use strum::IntoEnumIterator;
     use strum_macros::{EnumIter, EnumString};
@@ -622,6 +622,16 @@ pub mod module {
         // Phase 2: Reset low-level atomic state (no locks needed).
         crate::signal::clear_after_fork();
         crate::stdlib::_signal::_signal::clear_wakeup_fd_after_fork();
+
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "dragonfly",
+        ))]
+        rustpython_host_env::select::kqueue::mark_closed_after_fork();
 
         // Reset weakref stripe locks that may have been held during fork.
         #[cfg(feature = "threading")]
@@ -1291,6 +1301,13 @@ pub mod module {
     #[pyfunction]
     fn setresuid(ruid: RawUid, euid: RawUid, suid: RawUid, vm: &VirtualMachine) -> PyResult<()> {
         rustpython_host_env::posix::setresuid(ruid.0, euid.0, suid.0)
+            .map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[cfg(not(any(target_os = "wasi", target_os = "solaris", target_os = "illumos")))]
+    #[pyfunction]
+    fn login_tty(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::login_tty(fd.as_raw_fd())
             .map_err(|err| err.into_pyexception(vm))
     }
 

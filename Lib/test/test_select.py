@@ -82,7 +82,6 @@ class SelectTestCase(unittest.TestCase):
     @unittest.skipIf(
         support.is_emscripten, "Emscripten cannot select a fd multiple times."
     )
-    @unittest.skip("TODO: RUSTPYTHON timed out")
     def test_select_mutated(self):
         a = []
         class F:
@@ -92,7 +91,6 @@ class SelectTestCase(unittest.TestCase):
         a[:] = [F()] * 10
         self.assertEqual(select.select([], a, []), ([], a[:5], []))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by poll
     def test_disallow_instantiation(self):
         support.check_disallow_instantiation(self, type(select.poll()))
 
