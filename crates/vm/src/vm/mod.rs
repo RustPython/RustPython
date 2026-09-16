@@ -280,8 +280,11 @@ impl StopTheWorldState {
         // HEAD_LOCK-guarded stop-the-world bookkeeping.
         self.requested.store(true, Ordering::Release);
         let count = registry
-            .keys()
-            .filter(|&&thread_id| thread_id != requester)
+            .iter()
+            .filter(|(thread_id, slot)| {
+                **thread_id != requester
+                    && slot.state.load(Ordering::Relaxed) != thread::THREAD_SHUTTING_DOWN
+            })
             .count();
         let count = (count.min(i64::MAX as usize)) as i64;
         self.thread_countdown.store(count, Ordering::Release);
@@ -304,7 +307,7 @@ impl StopTheWorldState {
     /// Try to CAS detached threads directly to SUSPENDED and check whether
     /// stop countdown reached zero after parking detached threads.
     fn park_detached_threads(&self, state: &PyGlobalState) -> bool {
-        use thread::{THREAD_ATTACHED, THREAD_DETACHED, THREAD_SUSPENDED};
+        use thread::{THREAD_ATTACHED, THREAD_DETACHED, THREAD_SHUTTING_DOWN, THREAD_SUSPENDED};
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = state.thread_frames.lock();
         let mut attached_seen = 0u64;
@@ -345,6 +348,9 @@ impl StopTheWorldState {
                         slot.stop_requested.store(false, Ordering::Release);
                         // Another path parked it first.
                     }
+                    Err(THREAD_SHUTTING_DOWN) => {
+                        slot.stop_requested.store(false, Ordering::Release);
+                    }
                     Err(other) => {
                         debug_assert!(
                             false,
@@ -358,7 +364,7 @@ impl StopTheWorldState {
                 // Thread is in bytecode — it will see `requested` and self-suspend
                 attached_seen = attached_seen.saturating_add(1);
             }
-            // THREAD_SUSPENDED → already parked
+            // THREAD_SUSPENDED / THREAD_SHUTTING_DOWN → already parked
         }
         if attached_seen != 0 {
             self.stats_attached_seen
@@ -501,7 +507,7 @@ impl StopTheWorldState {
 
     /// Resume all suspended threads (`start_the_world`).
     pub fn start_the_world(&self, state: &PyGlobalState) {
-        use thread::{THREAD_DETACHED, THREAD_SUSPENDED};
+        use thread::{THREAD_DETACHED, THREAD_SHUTTING_DOWN, THREAD_SUSPENDED};
         let requester = self.requester.load(Ordering::Relaxed);
         stw_trace(format_args!("start begin requester={requester}"));
         let registry = state.thread_frames.lock();
@@ -525,6 +531,11 @@ impl StopTheWorldState {
 
             slot.stop_requested.store(false, Ordering::Release);
             let state = slot.state.load(Ordering::Relaxed);
+            if state == THREAD_SHUTTING_DOWN {
+                // `_PyThreadState_RemoveExcept` + SetShuttingDown already
+                // took this thread off the resume path. Leave it hanging.
+                continue;
+            }
             debug_assert!(
                 state == THREAD_SUSPENDED,
                 "non-requester thread not suspended at start-the-world: id={id} state={state}"
@@ -624,7 +635,7 @@ impl StopTheWorldState {
     /// already SUSPENDED when a new stop counts it neither notifies nor is
     /// force-parked again, so an edge-based countdown could never reach zero.
     fn all_non_requester_suspended(&self, state: &PyGlobalState) -> bool {
-        use thread::THREAD_SUSPENDED;
+        use thread::{THREAD_SHUTTING_DOWN, THREAD_SUSPENDED};
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = state.thread_frames.lock();
 
@@ -636,7 +647,8 @@ impl StopTheWorldState {
             if id == requester {
                 continue;
             }
-            if slot.state.load(Ordering::Acquire) != THREAD_SUSPENDED {
+            let slot_state = slot.state.load(Ordering::Acquire);
+            if slot_state != THREAD_SUSPENDED && slot_state != THREAD_SHUTTING_DOWN {
                 return false;
             }
         }
@@ -645,7 +657,7 @@ impl StopTheWorldState {
 
     #[cfg(debug_assertions)]
     fn debug_assert_all_non_requester_suspended(&self, state: &PyGlobalState) {
-        use thread::THREAD_SUSPENDED;
+        use thread::{THREAD_SHUTTING_DOWN, THREAD_SUSPENDED};
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = state.thread_frames.lock();
 
@@ -660,7 +672,7 @@ impl StopTheWorldState {
 
             let state = slot.state.load(Ordering::Relaxed);
             debug_assert!(
-                state == THREAD_SUSPENDED,
+                state == THREAD_SUSPENDED || state == THREAD_SHUTTING_DOWN,
                 "non-requester thread not suspended during stop-the-world: id={id} state={state}"
             );
         }
@@ -3014,9 +3026,11 @@ impl VirtualMachine {
     pub fn check_signals(&self) -> PyResult<()> {
         #[cfg(feature = "threading")]
         if self.state.finalizing.load(Ordering::Acquire) && !self.is_main_thread() {
-            // once finalization starts,
-            // non-main Python threads should stop running bytecode.
-            return Err(self.new_system_exit(vec![].into()));
+            // `_PyThreadState_MustExit` → `_PyThreadState_HangThread`.
+            // Do not return SystemExit: that would mark the handle done and
+            // make `Thread.is_alive()` false for a daemon still forced off
+            // during finalize.
+            thread::hang_current_thread(&self.state);
         }
 
         // Suspend this thread if stop-the-world is in progress
