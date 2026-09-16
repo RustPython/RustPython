@@ -148,7 +148,10 @@ impl Initializer for PySuper {
     }
 }
 
-#[pyclass(with(GetAttr, GetDescriptor, Constructor, Initializer, Representable))]
+#[pyclass(
+    with(GetAttr, GetDescriptor, Constructor, Initializer, Representable),
+    flags(BASETYPE)
+)]
 impl PySuper {
     #[pygetset]
     fn __thisclass__(&self) -> PyTypeRef {
@@ -225,13 +228,7 @@ impl GetDescriptor for PySuper {
             .into_ref(&vm.ctx)
             .into())
         } else {
-            let (obj, typ) = {
-                let lock = zelf.inner.read();
-                let obj = lock.obj.as_ref().map(|(o, _)| o.to_owned());
-                let typ = lock.typ.clone();
-                (obj, typ)
-            };
-            let obj = vm.unwrap_or_none(obj);
+            let typ = zelf.inner.read().typ.clone();
             PyType::call(zelf.class(), (typ, obj).into_args(vm), vm)
         }
     }

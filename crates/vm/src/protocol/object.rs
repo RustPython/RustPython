@@ -227,6 +227,7 @@ impl PyObject {
             instance_dict
                 .get_or_insert(vm)
                 .set_item(attr_name, value, vm)?;
+            instance_dict.maybe_materialize_inline_values();
         } else if let Some(dict) = instance_dict.get() {
             dict.del_item(attr_name, vm).map_err(|e| {
                 if e.fast_isinstance(vm.ctx.exceptions.key_error) {

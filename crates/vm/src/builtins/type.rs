@@ -2482,8 +2482,12 @@ impl Constructor for PyType {
                     seen_weakref = true;
                 }
 
-                // Check if slot name conflicts with class attributes
-                if attributes.contains_key(vm.ctx.intern_str(slot.as_wtf8())) {
+                // __qualname__ and __classcell__ are written by the compiler
+                // and may share a name with a slot.
+                if slot_name != b"__qualname__"
+                    && slot_name != b"__classcell__"
+                    && attributes.contains_key(vm.ctx.intern_str(slot.as_wtf8()))
+                {
                     return Err(vm.new_value_error(format!(
                         "'{}' in __slots__ conflicts with class variable",
                         slot.as_wtf8()
@@ -2546,6 +2550,11 @@ impl Constructor for PyType {
         // 2. __dict__ is in __slots__
         if (heaptype_slots.is_none() && may_add_dict) || add_dict {
             flags |= PyTypeFlags::HAS_DICT | PyTypeFlags::MANAGED_DICT;
+            // type_ready_managed_dict: fixed-size managed-dict types
+            // get an inline values array after the object.
+            if base.slots.itemsize == 0 {
+                flags |= PyTypeFlags::INLINE_VALUES;
+            }
         }
 
         // Add HAS_WEAKREF if:
@@ -2585,6 +2594,33 @@ impl Constructor for PyType {
         )
         .map_err(|e| vm.new_type_error(e))?;
 
+        // Consume __classcell__ before slot members of the same name
+        // overwrite the compiler-provided cell.
+        if let Some(cell) = typ.attributes.get(identifier!(vm, __classcell__)) {
+            let cell = PyCellRef::try_from_object(vm, cell.clone()).map_err(|_| {
+                vm.new_type_error(format!(
+                    "__classcell__ must be a nonlocal cell, not {}",
+                    cell.class().name()
+                ))
+            })?;
+            cell.set(Some(typ.clone().into()));
+            typ.attributes.remove(identifier!(vm, __classcell__));
+        }
+        if let Some(cell) = typ.attributes.get(identifier!(vm, __classdictcell__)) {
+            let cell = PyCellRef::try_from_object(vm, cell.clone()).map_err(|_| {
+                vm.new_type_error(format!(
+                    "__classdictcell__ must be a nonlocal cell, not {}",
+                    cell.class().name()
+                ))
+            })?;
+            let namespace = typ
+                .attributes
+                .as_dict()
+                .expect("a type built by type.__new__ has a dict namespace");
+            cell.set(Some(namespace.clone().into()));
+            typ.attributes.remove(identifier!(vm, __classdictcell__));
+        }
+
         if let Some(ref slots) = heaptype_slots {
             let class_name = typ.name().to_string();
             for (offset, member) in (base_member_count..).zip(slots.as_slice().iter()) {
@@ -2614,34 +2650,6 @@ impl Constructor for PyType {
                 // (this overrides any inherited attribute from MRO)
                 typ.set_attr(attr_name, member_descriptor.into());
             }
-        }
-
-        if let Some(cell) = typ.attributes.get(identifier!(vm, __classcell__)) {
-            let cell = PyCellRef::try_from_object(vm, cell.clone()).map_err(|_| {
-                vm.new_type_error(format!(
-                    "__classcell__ must be a nonlocal cell, not {}",
-                    cell.class().name()
-                ))
-            })?;
-            cell.set(Some(typ.clone().into()));
-            typ.attributes.remove(identifier!(vm, __classcell__));
-        }
-        if let Some(cell) = typ.attributes.get(identifier!(vm, __classdictcell__)) {
-            let cell = PyCellRef::try_from_object(vm, cell.clone()).map_err(|_| {
-                vm.new_type_error(format!(
-                    "__classdictcell__ must be a nonlocal cell, not {}",
-                    cell.class().name()
-                ))
-            })?;
-            // Annotation scopes look names up here long after the class body ran,
-            // so the cell gets the type's own namespace rather than the dict passed
-            // to __new__: later attribute changes have to be visible through it.
-            let namespace = typ
-                .attributes
-                .as_dict()
-                .expect("a type built by type.__new__ has a dict namespace");
-            cell.set(Some(namespace.clone().into()));
-            typ.attributes.remove(identifier!(vm, __classdictcell__));
         }
 
         // All *classes* should have a dict. Exceptions are *instances* of

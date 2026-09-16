@@ -1112,7 +1112,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             frozenset().__class__ = MyFrozenSet
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.thread_unsafe
     def test_slots(self):
         # Testing __slots__...
@@ -1368,7 +1367,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         a.foo = 42
         self.assertEqual(a.__dict__, {"foo": 42})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_slots_special2(self):
         # Testing __qualname__ and __classcell__ in __slots__
         class Meta(type):
@@ -2680,7 +2678,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
 
         dir(C()) # This used to segfault
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_supers(self):
         # Testing super...
 
@@ -4500,7 +4497,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         p = Proxy(obj)
         self.assertEqual(C.__dict__["f"](p), "B.f->C.f")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_carloverre(self):
         # Testing prohibition of Carlo Verre's hack...
         try:
@@ -4533,7 +4529,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         except TypeError:
             self.fail("setattr through direct base types should be legal")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_carloverre_multi_inherit_invalid(self):
         class A(type):
             def __setattr__(cls, key, value):
