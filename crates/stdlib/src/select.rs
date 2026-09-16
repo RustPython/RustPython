@@ -202,6 +202,14 @@ mod decl {
         #[derive(Default)]
         pub(super) struct TimeoutArg<const MILLIS: bool>(pub Option<Duration>);
 
+        fn timeout_as_millis_ceiling(d: Duration, vm: &VirtualMachine) -> PyResult<i32> {
+            let mut ms = d.as_millis();
+            if Duration::from_millis(ms.min(u128::from(u64::MAX)) as u64) < d {
+                ms = ms.saturating_add(1);
+            }
+            i32::try_from(ms).map_err(|_| vm.new_overflow_error("value out of range"))
+        }
+
         impl<const MILLIS: bool> TryFromObject for TimeoutArg<MILLIS> {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
                 let timeout = if vm.is_none(&obj) {
@@ -216,7 +224,10 @@ mod decl {
                     } else {
                         // MILLIS: the Python timeout is in milliseconds.
                         let secs = if MILLIS { float / 1e3 } else { float };
-                        Some(Duration::from_secs_f64(secs))
+                        Some(
+                            Duration::try_from_secs_f64(secs)
+                                .map_err(|_| vm.new_overflow_error("timeout is too large"))?,
+                        )
                     }
                 } else if let Some(int) = obj.try_index_opt(vm).transpose()? {
                     if int.as_bigint().is_negative() {
@@ -335,11 +346,16 @@ mod decl {
                 let mut fds = self.fds.lock().clone();
                 let TimeoutArg(timeout) = timeout.unwrap_or_default();
                 let timeout_ms = match timeout {
-                    Some(d) => i32::try_from(d.as_millis())
-                        .map_err(|_| vm.new_overflow_error("value out of range"))?,
+                    Some(d) => timeout_as_millis_ceiling(d, vm)?,
                     None => -1i32,
                 };
-                let deadline = timeout.map(|d| Instant::now() + d);
+                let deadline = timeout
+                    .map(|d| {
+                        Instant::now()
+                            .checked_add(d)
+                            .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
+                    })
+                    .transpose()?;
                 let mut poll_timeout = timeout_ms;
                 loop {
                     match vm.allow_threads(|| host_select::poll_fds(&mut fds, poll_timeout)) {
@@ -351,7 +367,7 @@ mod decl {
                     }
                     if let Some(d) = deadline {
                         if let Some(remaining) = d.checked_duration_since(Instant::now()) {
-                            poll_timeout = remaining.as_millis() as i32;
+                            poll_timeout = timeout_as_millis_ceiling(remaining, vm)?;
                         } else {
                             break;
                         }
@@ -519,7 +535,13 @@ mod decl {
                     .transpose()
                     .map_err(|_| vm.new_overflow_error("timeout is too large"))?;
 
-                let deadline = timeout.map(|d| Instant::now() + d);
+                let deadline = timeout
+                    .map(|d| {
+                        Instant::now()
+                            .checked_add(d)
+                            .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
+                    })
+                    .transpose()?;
                 let maxevents = match maxevents {
                     ..-1 => {
                         return Err(vm.new_value_error(format!(
@@ -546,7 +568,11 @@ mod decl {
                     }
                     if let Some(deadline) = deadline {
                         if let Some(new_timeout) = deadline.checked_duration_since(Instant::now()) {
-                            poll_timeout = Some(new_timeout.try_into().unwrap());
+                            poll_timeout = Some(
+                                new_timeout
+                                    .try_into()
+                                    .map_err(|_| vm.new_overflow_error("timeout is too large"))?,
+                            );
                         } else {
                             break;
                         }
@@ -663,13 +689,19 @@ mod decl {
             ev: PyMutex<host_select::kqueue::Event>,
         }
 
+        // NetBSD widths differ from i16/u16; the cast is a no-op elsewhere.
+        #[allow(clippy::unnecessary_cast)]
+        const KEVENT_DEFAULT_FILTER: i16 = host_select::kqueue::EVFILT_READ as i16;
+        #[allow(clippy::unnecessary_cast)]
+        const KEVENT_DEFAULT_FLAGS: u16 = host_select::kqueue::EV_ADD as u16;
+
         #[derive(FromArgs)]
         pub(crate) struct KeventNewArgs {
             #[pyarg(any)]
             ident: PyObjectRef,
-            #[pyarg(any, default = host_select::kqueue::EVFILT_READ)]
+            #[pyarg(any, default = KEVENT_DEFAULT_FILTER)]
             filter: i16,
-            #[pyarg(any, default = host_select::kqueue::EV_ADD)]
+            #[pyarg(any, default = KEVENT_DEFAULT_FLAGS)]
             flags: u16,
             #[pyarg(any, default = 0)]
             fflags: u32,
@@ -910,9 +942,8 @@ mod decl {
                     .is_none_or(|cell| host_select::kqueue::fd(cell) < 0)
             }
 
-            #[pymethod]
-            fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
-                match self.kqfd.read().as_ref() {
+            fn fd_or_closed(cell: Option<&Arc<AtomicI32>>, vm: &VirtualMachine) -> PyResult<i32> {
+                match cell {
                     Some(cell) => {
                         let fd = host_select::kqueue::fd(cell);
                         if fd < 0 {
@@ -925,6 +956,11 @@ mod decl {
                 }
             }
 
+            #[pymethod]
+            fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
+                Self::fd_or_closed(self.kqfd.read().as_ref(), vm)
+            }
+
             #[pyclassmethod]
             fn fromfd(cls: PyTypeRef, fd: i32, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
                 Self {
@@ -935,19 +971,6 @@ mod decl {
 
             #[pymethod]
             fn control(&self, args: KqueueControlArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
-                let guard = self.kqfd.read();
-                let fd = match guard.as_ref() {
-                    Some(cell) => {
-                        let fd = host_select::kqueue::fd(cell);
-                        if fd < 0 {
-                            return Err(vm.new_value_error("I/O operation on closed kqueue object"));
-                        }
-                        fd
-                    }
-                    None => {
-                        return Err(vm.new_value_error("I/O operation on closed kqueue object"));
-                    }
-                };
                 if args.maxevents < 0 {
                     return Err(vm.new_value_error(format!(
                         "Length of eventlist must be 0 or positive, got {}",
@@ -957,7 +980,12 @@ mod decl {
 
                 let mut timeout = timespec_from_timeout(args.timeout, vm)?;
                 let deadline = timeout
-                    .map(|ts| Instant::now() + Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32));
+                    .map(|ts| {
+                        Instant::now()
+                            .checked_add(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+                            .ok_or_else(|| vm.new_overflow_error("timeout is too large"))
+                    })
+                    .transpose()?;
 
                 let changelist = if vm.is_none(&args.changelist) {
                     Vec::new()
@@ -989,14 +1017,19 @@ mod decl {
                 ];
 
                 let n = loop {
-                    match vm.allow_threads(|| {
-                        host_select::kqueue::kevent(
-                            fd,
-                            &changelist,
-                            &mut eventlist,
-                            timeout.as_ref(),
-                        )
-                    }) {
+                    let result = {
+                        let guard = self.kqfd.read();
+                        let fd = Self::fd_or_closed(guard.as_ref(), vm)?;
+                        vm.allow_threads(|| {
+                            host_select::kqueue::kevent(
+                                fd,
+                                &changelist,
+                                &mut eventlist,
+                                timeout.as_ref(),
+                            )
+                        })
+                    };
+                    match result {
                         Ok(n) => break n,
                         Err(err) if err.kind() == io::ErrorKind::Interrupted => {
                             vm.check_signals()?;

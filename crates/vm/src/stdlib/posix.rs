@@ -1304,7 +1304,7 @@ pub mod module {
             .map_err(|err| err.into_pyexception(vm))
     }
 
-    #[cfg(not(any(target_os = "wasi", target_os = "solaris", target_os = "illumos")))]
+    #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     fn login_tty(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<()> {
         rustpython_host_env::posix::login_tty(fd.as_raw_fd())

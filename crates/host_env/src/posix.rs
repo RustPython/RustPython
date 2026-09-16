@@ -1023,6 +1023,26 @@ pub fn login_tty(fd: i32) -> std::io::Result<()> {
     }
 }
 
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+pub fn login_tty(fd: i32) -> std::io::Result<()> {
+    if unsafe { libc::setsid() } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::ioctl(fd, libc::TIOCSCTTY, core::ptr::null::<libc::c_char>()) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::dup2(fd, 0) } < 0
+        || unsafe { libc::dup2(fd, 1) } < 0
+        || unsafe { libc::dup2(fd, 2) } < 0
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+    if fd > 2 {
+        let _ = unsafe { libc::close(fd) };
+    }
+    Ok(())
+}
+
 #[cfg(not(target_os = "redox"))]
 pub fn openpty() -> std::io::Result<(OwnedFd, OwnedFd)> {
     let pty = nix::pty::openpty(None, None).map_err(std::io::Error::from)?;
