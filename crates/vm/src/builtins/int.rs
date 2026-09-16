@@ -13,8 +13,8 @@ use crate::{
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
-        PyComparisonValue,
+        ArgByteOrder, ArgIntoBool, ArgSize, FuncArgs, OptionalArg, OptionalOption,
+        PyArithmeticValue, PyComparisonValue,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err, numeric_literal_from_str},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -590,7 +590,11 @@ impl PyInt {
     #[pymethod]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
         let signed: bool = args.signed.into();
-        let byte_len = args.length;
+        // Bound as `isize`, as CPython's `Py_ssize_t` converter is, so a length past
+        // `isize::MAX` is an OverflowError rather than a failed allocation later on.
+        let byte_len = args.length.into_primitive().unwrap_or(1);
+        let byte_len = usize::try_from(byte_len)
+            .map_err(|_| vm.new_value_error("length argument must be non-negative"))?;
 
         let value = self.as_bigint();
         match value.sign() {
@@ -818,8 +822,10 @@ struct IntFromByteArgs {
 
 #[derive(FromArgs)]
 struct IntToByteArgs {
-    #[pyarg(any, default = 1)]
-    length: usize,
+    // `OptionalArg` rather than a literal default, which `ArgSize` cannot be built
+    // from. It also keeps an explicit `None` a TypeError. Absent means a single byte.
+    #[pyarg(any, optional, py_default = "1")]
+    length: OptionalArg<ArgSize>,
     // ArgByteOrder::Big is not the text 'big'.
     #[pyarg(any, default = ArgByteOrder::Big, py_default = "'big'")]
     byteorder: ArgByteOrder,

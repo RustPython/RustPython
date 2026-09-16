@@ -197,7 +197,11 @@ impl PyList {
         Ok(())
     }
 
-    #[pymethod]
+    #[pymethod(name = "insert")]
+    fn py_insert(&self, index: ArgSize, object: PyObjectRef) {
+        self.insert(index.into(), object);
+    }
+
     pub(crate) fn insert(&self, index: isize, object: PyObjectRef) {
         let mut elements = self.borrow_vec_mut();
         let index = elements.saturate_index(index);
