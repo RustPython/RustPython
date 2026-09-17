@@ -927,7 +927,11 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if self.exact_dict(vm) {
-            self.inner_setitem(key, value, vm)
+            self.inner_setitem(key, value, vm)?;
+            if self.as_object().is(vm.builtins.dict().as_object()) {
+                crate::stdlib::_testinternalcapi::note_builtin_dict();
+            }
+            Ok(())
         } else {
             self.as_object().set_item(key, value, vm)
         }

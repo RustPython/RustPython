@@ -14,7 +14,7 @@ mod _string;
 mod _symtable;
 mod _sysconfig;
 mod _sysconfigdata;
-mod _testinternalcapi;
+pub(crate) mod _testinternalcapi;
 mod _types;
 pub mod _typing;
 pub mod _warnings;

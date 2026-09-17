@@ -441,6 +441,7 @@ impl PyBaseObject {
                 if both_mutable || both_module {
                     super::type_::compatible_for_assignment(current_cls, &cls, "__class__", vm)?;
                     instance.set_class(cls, vm);
+                    crate::stdlib::_testinternalcapi::note_set_class();
                     Ok(())
                 } else {
                     Err(vm.new_type_error(

@@ -1205,6 +1205,7 @@ class GCTests(unittest.TestCase):
         assert_python_ok("-c", source)
 
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; get_long_lived_total is not implemented
     @unittest.skipUnless(Py_GIL_DISABLED, "requires free-threaded GC")
     @unittest.skipIf(_testinternalcapi is None, "requires _testinternalcapi")
     def test_tuple_untrack_counts(self):
@@ -1222,6 +1223,7 @@ class GCTests(unittest.TestCase):
         # Use n // 2 just in case some other objects were collected.
         self.assertTrue(new_count - count > (n // 2))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; get_tracked_heap_size is not implemented
     @requires_gil_enabled('need generational GC')
     @unittest.skipIf(_testinternalcapi is None, "requires _testinternalcapi")
     def test_heap_size(self):

@@ -1868,6 +1868,7 @@ impl PyType {
             zelf.update_all_slots(&vm.ctx);
 
             register_subclasses(&zelf.bases.read());
+            crate::stdlib::_testinternalcapi::note_set_bases();
             Ok(())
         });
         drop(retired);
