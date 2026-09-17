@@ -770,8 +770,8 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let status = code.unwrap_or_none(vm);
+    fn exit(status: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+        let status = status.unwrap_or_none(vm);
         let args = if let Some(status_tuple) = status.downcast_ref::<PyTuple>() {
             status_tuple.as_slice().to_vec()
         } else {
@@ -812,15 +812,15 @@ pub mod sys {
     #[pyfunction(name = "__excepthook__")]
     #[pyfunction]
     fn excepthook(
-        exc_type: PyObjectRef,
-        exc_val: PyObjectRef,
-        exc_tb: PyObjectRef,
+        exctype: PyObjectRef,
+        value: PyObjectRef,
+        traceback: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let stderr = super::get_stderr(vm)?;
         // Keep runtime SyntaxErrors on the normal traceback path.
-        let has_traceback = !vm.is_none(&exc_tb);
-        match vm.normalize_exception(exc_type, exc_val.clone(), exc_tb) {
+        let has_traceback = !vm.is_none(&traceback);
+        match vm.normalize_exception(exctype, value.clone(), traceback) {
             Ok(exc) => {
                 let native_syntax_error_display = !has_traceback
                     && exc.fast_isinstance(vm.ctx.exceptions.syntax_error)
@@ -852,7 +852,7 @@ pub mod sys {
                 vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc)
             }
             Err(_) => {
-                let type_name = exc_val.class().name();
+                let type_name = value.class().name();
                 let msg = format!(
                     "TypeError: print_exception(): Exception expected for value, {type_name} found\n"
                 );
@@ -986,9 +986,9 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
-        let offset = offset.into_option().unwrap_or(0);
-        let frame_ref = crate::frame::frame_at_offset(offset, vm)
+    fn _getframe(depth: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
+        let depth = depth.into_option().unwrap_or(0);
+        let frame_ref = crate::frame::frame_at_offset(depth, vm)
             .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;
         if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
             audit.call((vm.ctx.new_str("sys._getframe"), frame_ref.to_owned()), vm)?;
@@ -1211,8 +1211,8 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn intern(s: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyRef<PyStr> {
-        vm.ctx.intern_str(s).to_owned()
+    fn intern(string: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyRef<PyStr> {
+        vm.ctx.intern_str(string).to_owned()
     }
 
     #[pyattr]
@@ -1249,50 +1249,47 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn setprofile(profilefunc: PyObjectRef, vm: &VirtualMachine) {
-        vm.profile_func.replace(profilefunc);
+    fn setprofile(function: PyObjectRef, vm: &VirtualMachine) {
+        vm.profile_func.replace(function);
         update_use_tracing(vm);
     }
 
     #[pyfunction]
-    fn setrecursionlimit(recursion_limit: i32, vm: &VirtualMachine) -> PyResult<()> {
-        let recursion_limit = recursion_limit
-            .to_usize()
-            .filter(|&u| u >= 1)
-            .ok_or_else(|| {
-                vm.new_value_error("recursion limit must be greater than or equal to one")
-            })?;
+    fn setrecursionlimit(limit: i32, vm: &VirtualMachine) -> PyResult<()> {
+        let limit = limit.to_usize().filter(|&u| u >= 1).ok_or_else(|| {
+            vm.new_value_error("recursion limit must be greater than or equal to one")
+        })?;
         let recursion_depth = vm.current_recursion_depth();
 
-        if recursion_limit > recursion_depth {
-            vm.recursion_limit.set(recursion_limit);
+        if limit > recursion_depth {
+            vm.recursion_limit.set(limit);
             Ok(())
         } else {
             Err(vm.new_recursion_error(format!(
-                "cannot set the recursion limit to {recursion_limit} at the recursion depth {recursion_depth}: the limit is too low"
+                "cannot set the recursion limit to {limit} at the recursion depth {recursion_depth}: the limit is too low"
             )))
         }
     }
 
     #[pyfunction]
-    fn settrace(tracefunc: PyObjectRef, vm: &VirtualMachine) {
-        vm.trace_func.replace(tracefunc);
+    fn settrace(function: PyObjectRef, vm: &VirtualMachine) {
+        vm.trace_func.replace(function);
         update_use_tracing(vm);
     }
 
     #[pyfunction]
-    fn _settraceallthreads(tracefunc: PyObjectRef, vm: &VirtualMachine) {
-        let func = (!vm.is_none(&tracefunc)).then(|| tracefunc.clone());
+    fn _settraceallthreads(function: PyObjectRef, vm: &VirtualMachine) {
+        let func = (!vm.is_none(&function)).then(|| function.clone());
         *vm.state.global_trace_func.lock() = func;
-        vm.trace_func.replace(tracefunc);
+        vm.trace_func.replace(function);
         update_use_tracing(vm);
     }
 
     #[pyfunction]
-    fn _setprofileallthreads(profilefunc: PyObjectRef, vm: &VirtualMachine) {
-        let func = (!vm.is_none(&profilefunc)).then(|| profilefunc.clone());
+    fn _setprofileallthreads(function: PyObjectRef, vm: &VirtualMachine) {
+        let func = (!vm.is_none(&function)).then(|| function.clone());
         *vm.state.global_profile_func.lock() = func;
-        vm.profile_func.replace(profilefunc);
+        vm.profile_func.replace(function);
         update_use_tracing(vm);
     }
 
@@ -1329,23 +1326,23 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _clear_type_descriptors(type_obj: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn _clear_type_descriptors(r#type: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
         use crate::types::PyTypeFlags;
 
         // Check if type is immutable
-        if type_obj.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+        if r#type.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error("argument is immutable"));
         }
 
         // Remove __dict__ descriptor if present
-        type_obj.attributes.remove(identifier!(vm, __dict__));
+        r#type.attributes.remove(identifier!(vm, __dict__));
 
         // Remove __weakref__ descriptor if present
-        type_obj.attributes.remove(identifier!(vm, __weakref__));
+        r#type.attributes.remove(identifier!(vm, __weakref__));
 
         // Update slots to notify subclasses and recalculate cached values
-        type_obj.update_slot::<true>(identifier!(vm, __dict__), &vm.ctx);
-        type_obj.update_slot::<true>(identifier!(vm, __weakref__), &vm.ctx);
+        r#type.update_slot::<true>(identifier!(vm, __dict__), &vm.ctx);
+        r#type.update_slot::<true>(identifier!(vm, __weakref__), &vm.ctx);
 
         Ok(())
     }
