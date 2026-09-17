@@ -119,6 +119,7 @@
     "TESTFN",
     "TZPATH",
     "unraisable",
+    "ustr",
     "wasi",
     "weaked",
     // unix

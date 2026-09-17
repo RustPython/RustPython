@@ -56,20 +56,21 @@ mod decl {
 
     #[pyfunction(name = "a2b_hex")]
     #[pyfunction]
-    fn unhexlify(data: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        data.with_ref(binascii::unhexlify)
+    fn unhexlify(hexstr: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        hexstr
+            .with_ref(binascii::unhexlify)
             .map_err(|e| new_binascii_error(e, vm))
     }
 
     #[pyfunction]
-    pub(crate) fn crc32(data: ArgBytesLike, init: OptionalArg<PyIntRef>) -> u32 {
-        let init = init.map_or(0, |i| i.as_u32_mask());
-        data.with_ref(|bytes| binascii::crc32(bytes, init))
+    pub(crate) fn crc32(data: ArgBytesLike, crc: OptionalArg<PyIntRef>) -> u32 {
+        let crc = crc.map_or(0, |i| i.as_u32_mask());
+        data.with_ref(|bytes| binascii::crc32(bytes, crc))
     }
 
     #[pyfunction]
-    pub(crate) fn crc_hqx(data: ArgBytesLike, init: PyIntRef) -> u32 {
-        data.with_ref(|bytes| binascii::crc_hqx(bytes, init.as_u32_mask()))
+    pub(crate) fn crc_hqx(data: ArgBytesLike, crc: PyIntRef) -> u32 {
+        data.with_ref(|bytes| binascii::crc_hqx(bytes, crc.as_u32_mask()))
     }
 
     #[derive(FromArgs)]
@@ -136,8 +137,8 @@ mod decl {
     }
 
     #[pyfunction]
-    fn a2b_uu(s: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        s.with_ref(binascii::a2b_uu)
+    fn a2b_uu(data: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        data.with_ref(binascii::a2b_uu)
             .map_err(|e| new_binascii_error(e, vm))
     }
 

@@ -50,18 +50,18 @@ mod zlib {
     }
 
     #[pyfunction]
-    fn adler32(data: ArgBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
+    fn adler32(data: ArgBytesLike, value: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
-            let begin_state = begin_state.map_or(1, |i| i.as_u32_mask());
-            let mut hasher = Adler32::from_value(begin_state);
+            let value = value.map_or(1, |i| i.as_u32_mask());
+            let mut hasher = Adler32::from_value(value);
             hasher.update_buffer(data);
             hasher.hash()
         })
     }
 
     #[pyfunction]
-    fn crc32(data: ArgBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
-        crate::binascii::crc32(data, begin_state)
+    fn crc32(data: ArgBytesLike, value: OptionalArg<PyIntRef>) -> u32 {
+        crate::binascii::crc32(data, value)
     }
 
     #[derive(FromArgs)]

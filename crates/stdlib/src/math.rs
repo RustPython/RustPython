@@ -762,8 +762,8 @@ mod math {
     // Integer functions:
 
     #[pyfunction]
-    fn isqrt(x: ArgIndex, vm: &VirtualMachine) -> PyResult<BigInt> {
-        let value = x.into_int_ref();
+    fn isqrt(n: ArgIndex, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let value = n.into_int_ref();
         pymath::math::integer::isqrt(value.as_bigint())
             .map_err(|_| vm.new_value_error("isqrt() argument must be nonnegative"))
     }
@@ -791,12 +791,12 @@ mod math {
     }
 
     #[pyfunction]
-    fn factorial(x: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+    fn factorial(n: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
         // Check for negative before overflow - negative values are always invalid
-        if x.as_bigint().is_negative() {
+        if n.as_bigint().is_negative() {
             return Err(vm.new_value_error("factorial() not defined for negative values"));
         }
-        let n: i64 = x.try_to_primitive(vm).map_err(|_| {
+        let n: i64 = n.try_to_primitive(vm).map_err(|_| {
             vm.new_overflow_error("factorial() argument should not exceed 9223372036854775807")
         })?;
         pymath::math::integer::factorial(n)

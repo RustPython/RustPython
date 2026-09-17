@@ -798,8 +798,8 @@ pub mod array {
         }
 
         #[pymethod]
-        fn append(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.try_resizable(vm)?.push(x, vm)
+        fn append(zelf: &Py<Self>, v: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.try_resizable(vm)?.push(v, vm)
         }
 
         #[pymethod]
@@ -814,24 +814,24 @@ pub mod array {
         }
 
         #[pymethod]
-        fn count(&self, x: PyObjectRef, vm: &VirtualMachine) -> usize {
-            self.read().count(x, vm)
+        fn count(&self, v: PyObjectRef, vm: &VirtualMachine) -> usize {
+            self.read().count(v, vm)
         }
 
         #[pymethod]
-        fn remove(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.try_resizable(vm)?.remove(x, vm)
+        fn remove(zelf: &Py<Self>, v: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.try_resizable(vm)?.remove(v, vm)
         }
 
         #[pymethod]
-        fn extend(zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn extend(zelf: &Py<Self>, bb: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut w = zelf.try_resizable(vm)?;
-            if zelf.is(&obj) {
+            if zelf.is(&bb) {
                 w.imul(2, vm)
-            } else if let Some(array) = obj.downcast_ref::<Self>() {
+            } else if let Some(array) = bb.downcast_ref::<Self>() {
                 w.iadd(&array.read(), vm)
             } else {
-                let iter = ArgIterable::try_from_object(vm, obj)?;
+                let iter = ArgIterable::try_from_object(vm, bb)?;
                 // zelf.extend_from_iterable(iter, vm)
                 for obj in iter.iter(vm)? {
                     w.push(obj?, vm)?;
@@ -883,11 +883,11 @@ pub mod array {
         }
 
         #[pymethod]
-        fn fromunicode(zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let wtf8: &Wtf8 = obj.try_to_value(vm).map_err(|_| {
+        fn fromunicode(zelf: &Py<Self>, ustr: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let wtf8: &Wtf8 = ustr.try_to_value(vm).map_err(|_| {
                 vm.new_type_error(format!(
                     "fromunicode() argument must be str, not {}",
-                    obj.class().name()
+                    ustr.class().name()
                 ))
             })?;
             if !matches!(zelf.read().typecode(), 'u' | 'w') {
@@ -924,15 +924,15 @@ pub mod array {
         }
 
         #[pymethod]
-        fn frombytes(&self, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+        fn frombytes(&self, buffer: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
             // The source is read as bytes, so items of any other width would
             // be reinterpreted rather than appended.
-            if b.itemsize() != 1 {
+            if buffer.itemsize() != 1 {
                 return Err(vm.new_type_error("a bytes-like object is required"));
             }
-            let b = b.borrow_buf();
+            let buffer = buffer.borrow_buf();
             let itemsize = self.read().itemsize();
-            self._from_bytes(&b, itemsize, vm)
+            self._from_bytes(&buffer, itemsize, vm)
         }
 
         #[pymethod]
@@ -977,9 +977,9 @@ pub mod array {
         }
 
         #[pymethod]
-        fn insert(zelf: &Py<Self>, i: isize, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn insert(zelf: &Py<Self>, i: isize, v: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut w = zelf.try_resizable(vm)?;
-            w.insert(i, x, vm)
+            w.insert(i, v, vm)
         }
 
         #[pymethod]
@@ -1198,10 +1198,10 @@ pub mod array {
         #[pymethod]
         fn __reduce_ex__(
             zelf: &Py<Self>,
-            proto: usize,
+            value: usize,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
-            if proto < 3 {
+            if value < 3 {
                 return Self::__reduce__(zelf, vm);
             }
             let array = zelf.read();
