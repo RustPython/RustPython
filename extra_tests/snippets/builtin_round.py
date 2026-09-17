@@ -111,3 +111,32 @@ assert type(round(MyInt(5))) is int
 assert type(round(MyInt(5), 2)) is int
 # A negative ndigits already produced a fresh exact int.
 assert type(round(MyInt(15), -1)) is int
+
+
+# round() passes ndigits to __round__ unchanged, like CPython's builtin_round_impl().
+class Echo:
+    def __round__(self, *args):
+        return args
+
+
+assert round(Echo(), []) == ([],)
+assert round(Echo(), 1.5) == (1.5,)
+assert type(round(Echo(), True)[0]) is bool
+
+
+class Index:
+    def __index__(self):
+        return -1
+
+
+assert type(round(Echo(), Index())[0]) is Index
+
+# int.__round__ and float.__round__ apply __index__ to ndigits themselves.
+assert round(15, Index()) == 20
+assert round(1.25, Index()) == 0.0
+assert (15).__round__(Index()) == 20
+assert (1.25).__round__(Index()) == 0.0
+with assert_raises(TypeError):
+    (15).__round__(1.0)
+with assert_raises(TypeError):
+    (1.25).__round__([])

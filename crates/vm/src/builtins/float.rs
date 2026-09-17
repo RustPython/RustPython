@@ -8,7 +8,9 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     common::{float_ops, hash, wtf8::Wtf8Buf},
     convert::{ToPyObject, ToPyResult},
-    function::{ArgBytesLike, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{
+        ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
+    },
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
@@ -273,7 +275,7 @@ pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
 #[derive(FromArgs)]
 struct RoundArgs {
     #[pyarg(positional, optional)]
-    ndigits: Option<PyIntRef>,
+    ndigits: Option<ArgIndex>,
 }
 
 #[pyclass(
@@ -340,7 +342,7 @@ impl Py<PyFloat> {
     fn __round__(&self, args: RoundArgs, vm: &VirtualMachine) -> PyResult {
         let ndigits = args.ndigits;
         let value = if let Some(ndigits) = ndigits {
-            let ndigits = ndigits.as_bigint();
+            let ndigits = ndigits.as_ref().as_bigint();
             let ndigits = match ndigits.to_i32() {
                 Some(n) => n,
                 None if ndigits.is_positive() => i32::MAX,
