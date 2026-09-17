@@ -114,7 +114,7 @@ def attr_is_not_inherited(type_, attr):
 
 
 def extra_info(obj):
-    if callable(obj) and not inspect._signature_is_builtin(obj):
+    if callable(obj):
         doc = inspect.getdoc(obj)
         try:
             sig = str(inspect.signature(obj))
@@ -275,6 +275,11 @@ def dir_of_mod_or_error(module_name, keep_other=True):
     item_names = sorted(set(dir(module)))
     result = {}
     for item_name in item_names:
+        # eval() adds __builtins__ to its globals, and inspect.signature() evals
+        # defaults in the module's namespace, so whether it exists depends on
+        # what was inspected before.
+        if item_name == "__builtins__":
+            continue
         item = getattr(module, item_name)
         # don't repeat items imported from other modules
         if keep_other or is_child(module, item) or inspect.getmodule(item) is None:
