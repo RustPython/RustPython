@@ -33,7 +33,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: taiki-e/install-action@1ed6d7be6168f6c9046541087ff549b6bc581fdf # v2.87.2
+      - uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
         with:
           tool: cargo-llvm-cov
 
@@ -77,7 +77,7 @@ jobs:
         run: cargo build --release --verbose
 
       - name: collect tests data
-        run: cargo run --release extra_tests/jsontests.py
+        run: target/release/rustpython extra_tests/jsontests.py
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
 
@@ -113,12 +113,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - name: build rustpython
-        run: cargo build --release --verbose
+        run: cargo build --release --verbose --features sqlite
 
       - name: Collect what is left data
-        run: |
-          chmod +x ./scripts/whats_left.py
-          ./scripts/whats_left.py --features "ssl,sqlite" > whats_left.temp
+        run: python -I scripts/whats_left.py --rustpython target/release/rustpython > whats_left.temp
         env:
           RUSTPYTHONPATH: ${{ github.workspace }}/Lib
 

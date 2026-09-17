@@ -95,11 +95,9 @@ mod resource {
 
     impl From<host_resource::RUsage> for RUsageData {
         fn from(rusage: host_resource::RUsage) -> Self {
-            let tv =
-                |tv: host_resource::timeval| tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0);
             Self {
-                ru_utime: tv(rusage.ru_utime),
-                ru_stime: tv(rusage.ru_stime),
+                ru_utime: rusage.utime_secs(),
+                ru_stime: rusage.stime_secs(),
                 ru_maxrss: rusage.ru_maxrss,
                 ru_ixrss: rusage.ru_ixrss,
                 ru_idrss: rusage.ru_idrss,

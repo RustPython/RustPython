@@ -356,8 +356,8 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn join(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(self.inner.join(iter, vm)?.into())
+    fn join(&self, iterable_of_bytes: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(self.inner.join(iterable_of_bytes, vm)?.into())
     }
 
     #[pymethod]
@@ -426,8 +426,8 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
-        self.inner.strip(chars).into()
+    fn strip(&self, bytes: OptionalOption<PyBytesInner>) -> Self {
+        self.inner.strip(bytes).into()
     }
 
     #[pymethod]
@@ -582,8 +582,8 @@ impl PyRef<PyBytes> {
     }
 
     #[pymethod]
-    fn lstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
-        let stripped = self.inner.lstrip(chars);
+    fn lstrip(self, bytes: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
+        let stripped = self.inner.lstrip(bytes);
         if stripped == self.as_bytes() {
             self
         } else {
@@ -592,8 +592,8 @@ impl PyRef<PyBytes> {
     }
 
     #[pymethod]
-    fn rstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
-        let stripped = self.inner.rstrip(chars);
+    fn rstrip(self, bytes: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
+        let stripped = self.inner.rstrip(bytes);
         if stripped == self.as_bytes() {
             self
         } else {

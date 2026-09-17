@@ -2,12 +2,11 @@
 
 use rustls::SupportedCipherSuite;
 
-pub const SSL3_RT_CHANGE_CIPHER_SPEC: i32 = 20;
-pub const SSL3_RT_ALERT: i32 = 21;
-pub const SSL3_RT_HANDSHAKE: i32 = 22;
-pub const SSL3_RT_APPLICATION_DATA: u8 = 23;
-pub const SSL3_RT_HEADER: i32 = 256;
-pub const SSL3_MT_CHANGE_CIPHER_SPEC: i32 = 0x0101;
+pub use super::constants::{
+    SSL3_MT_CHANGE_CIPHER_SPEC, SSL3_RT_ALERT, SSL3_RT_CHANGE_CIPHER_SPEC, SSL3_RT_HANDSHAKE,
+    SSL3_RT_HEADER,
+};
+pub const SSL3_RT_APPLICATION_DATA: u8 = super::constants::SSL3_RT_APPLICATION_DATA as u8;
 const TLS_RECORD_HEADER_SIZE: usize = 5;
 
 /// Per-connection assembler for TLS records and handshake messages.

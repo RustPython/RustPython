@@ -52,4 +52,4 @@ def benchamark_collection(loops, cycles, links):
 
         assert collected is None or collected >= cycles * (links + 1)
 
-benchamark_collection(1, CYCLES, LINKS)
+benchamark_collection(10, CYCLES, LINKS)

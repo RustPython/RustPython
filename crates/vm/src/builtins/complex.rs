@@ -539,14 +539,16 @@ impl PyComplex {
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyComplex {
-    #[pygetset]
-    const fn real(&self) -> f64 {
-        self.value.re
+    #[pymember]
+    fn real(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(vm.ctx.new_float(zelf.value.re).into())
     }
 
-    #[pygetset]
-    const fn imag(&self) -> f64 {
-        self.value.im
+    #[pymember]
+    fn imag(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(vm.ctx.new_float(zelf.value.im).into())
     }
 
     #[pymethod]
@@ -561,13 +563,17 @@ impl PyComplex {
     }
 
     #[pymethod]
-    fn __format__(zelf: &Py<Self>, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    fn __format__(
+        zelf: &Py<Self>,
+        format_spec: PyUtf8StrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Wtf8Buf> {
         // Empty format spec: equivalent to str(self)
-        if spec.is_empty() {
+        if format_spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
         let format_spec =
-            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+            FormatSpec::parse(format_spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
         let result = if format_spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
             format_spec.format_complex_locale(&zelf.value, &locale)

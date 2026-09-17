@@ -26,6 +26,12 @@ mod errno_mod {
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub use rustpython_host_env::errno::errors;
 
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+pub mod errors {
+    pub const ECONNABORTED: i32 = 103;
+    pub const ECONNRESET: i32 = 104;
+}
+
 #[cfg(any(unix, windows, target_os = "wasi"))]
 macro_rules! e {
     ($name:ident) => {

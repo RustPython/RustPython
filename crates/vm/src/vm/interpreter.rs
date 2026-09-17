@@ -648,7 +648,7 @@ impl Interpreter {
     /// 1. Handle exit exception and turn it to exit code.
     /// 1. Call threading._shutdown() to join non-daemon threads.
     /// 1. Run atexit exit functions.
-    /// 1. Set finalizing flag (suppresses unraisable exceptions from __del__).
+    /// 1. Set finalizing flag and hang remaining daemon threads.
     /// 1. Forced GC collection pass (collect cycles while builtins are available).
     /// 1. Module finalization (finalize_modules).
     /// 1. Clear interpreter-owned cross-interpreter data.
@@ -690,9 +690,18 @@ impl Interpreter {
             #[cfg(feature = "threading")]
             finalize_subinterpreters(vm);
 
-            // Now suppress unraisable exceptions from daemon threads and __del__
-            // methods during the rest of shutdown.
+            // Remaining daemon threads hang in `_PyThreadState_HangThread` when
+            // they next attach (or at the eval-breaker if they are already
+            // running). Their `_ThreadHandle` stays not-done so `is_alive()`
+            // is still true for `join()` during the GC that follows.
+            #[cfg(feature = "threading")]
+            vm.state.stop_the_world.stop_the_world(&vm.state);
             vm.state.finalizing.store(true, Ordering::Release);
+            #[cfg(feature = "threading")]
+            {
+                thread::set_other_threads_shutting_down(&vm.state);
+                vm.state.stop_the_world.start_the_world(&vm.state);
+            }
 
             // GC pass - collect cycles before module cleanup
             vm.state.gc.collect_force(2);

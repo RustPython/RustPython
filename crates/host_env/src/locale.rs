@@ -191,6 +191,64 @@ pub fn acp() -> u32 {
 }
 
 #[cfg(windows)]
+pub fn user_default_lcid() -> u32 {
+    unsafe { windows_sys::Win32::Globalization::GetUserDefaultLCID() }
+}
+
+#[cfg(windows)]
+pub const LOCALE_SISO639LANGNAME: u32 = 0x0000_0059;
+#[cfg(windows)]
+pub const LOCALE_SISO3166CTRYNAME: u32 = 0x0000_005A;
+
+/// `GetLocaleInfoW` into a 16-unit buffer, the size `_getdefaultlocale` uses.
+#[cfg(windows)]
+pub fn locale_info(lcid: u32, lctype: u32) -> Option<String> {
+    use windows_sys::Win32::Globalization::GetLocaleInfoW;
+
+    let mut buffer = [0u16; 16];
+    let len = unsafe { GetLocaleInfoW(lcid, lctype, buffer.as_mut_ptr(), buffer.len() as i32) };
+    if len <= 1 {
+        None
+    } else {
+        Some(String::from_utf16_lossy(&buffer[..len as usize - 1]))
+    }
+}
+
+#[cfg(windows)]
+fn wide_cstr(units: &[u16]) -> alloc::borrow::Cow<'_, [u16]> {
+    if units.last() == Some(&0) {
+        alloc::borrow::Cow::Borrowed(units)
+    } else {
+        let mut owned = units.to_vec();
+        owned.push(0);
+        alloc::borrow::Cow::Owned(owned)
+    }
+}
+
+#[cfg(windows)]
+pub fn wcscoll(s1: &[u16], s2: &[u16]) -> i32 {
+    unsafe extern "C" {
+        fn wcscoll(s1: *const u16, s2: *const u16) -> i32;
+    }
+    let s1 = wide_cstr(s1);
+    let s2 = wide_cstr(s2);
+    unsafe { wcscoll(s1.as_ptr(), s2.as_ptr()) }
+}
+
+#[cfg(windows)]
+pub fn wcsxfrm(src: &[u16]) -> Vec<u16> {
+    unsafe extern "C" {
+        fn wcsxfrm(dst: *mut u16, src: *const u16, count: usize) -> usize;
+    }
+    let src = wide_cstr(src);
+    let needed = unsafe { wcsxfrm(core::ptr::null_mut(), src.as_ptr(), 0) };
+    let mut dst = vec![0u16; needed + 1];
+    let written = unsafe { wcsxfrm(dst.as_mut_ptr(), src.as_ptr(), dst.len()) };
+    dst.truncate(written);
+    dst
+}
+
+#[cfg(windows)]
 pub fn decode_ansi_bytes(bytes: &[u8]) -> Option<String> {
     use core::ptr;
     use windows_sys::Win32::Globalization::{CP_ACP, MultiByteToWideChar};

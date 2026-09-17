@@ -787,7 +787,6 @@ class PydocDocTest(unittest.TestCase):
         run_pydoc_for_request(pydoc.Helper.help, 'Help on function help in module pydoc:')
         # test for pydoc.Helper() instance skipped because it is always meant to be interactive
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'trace function introduces __locals__ unexpectedly')
     @requires_docstrings
@@ -1605,12 +1604,10 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(''.lower),
             "lower() method of builtins.str instance")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_method_o(self):
         self.assertEqual(self._get_summary_line(set.add),
             "add(self, object, /) unbound builtins.set method")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bound_builtin_method_o(self):
         self.assertEqual(self._get_summary_line(set().add),
             "add(object, /) method of builtins.set instance")

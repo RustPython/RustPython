@@ -160,7 +160,7 @@ impl Destructor for PyGenerator {
             return Ok(());
         }
         if let Err(e) = zelf.inner.close(zelf.as_object(), vm) {
-            vm.run_unraisable(e, None, zelf.as_object().to_owned());
+            crate::coroutine::unraisable_while_closing(zelf.as_object(), &zelf.inner, e, vm);
         }
         Ok(())
     }

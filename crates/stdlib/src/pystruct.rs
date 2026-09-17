@@ -144,11 +144,11 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn unpack(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = format.format_spec(vm)?;
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
@@ -239,17 +239,17 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn iter_unpack(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = format.format_spec(vm)?;
         UnpackIterator::with_buffer(vm, format_spec, buffer)
     }
 
     #[pyfunction]
-    fn calcsize(fmt: IntoStructFormatBytes, vm: &VirtualMachine) -> PyResult<usize> {
-        Ok(fmt.format_spec(vm)?.size)
+    fn calcsize(format: IntoStructFormatBytes, vm: &VirtualMachine) -> PyResult<usize> {
+        Ok(format.format_spec(vm)?.size)
     }
 
     /// What a `Struct` is once a format has been read into it. Held apart
@@ -342,9 +342,9 @@ pub(crate) mod _struct {
         }
 
         #[pymethod]
-        fn unpack(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        fn unpack(&self, buffer: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let inner = self.ready(vm)?;
-            data.with_ref(|buf| inner.spec.unpack(buf, vm))
+            buffer.with_ref(|buf| inner.spec.unpack(buf, vm))
         }
 
         #[pymethod]

@@ -39,7 +39,7 @@ pub mod module {
     use rustpython_host_env::os::ffi::OsStringExt;
     use std::{
         fs, io,
-        os::fd::{BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
+        os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
     };
     use strum::IntoEnumIterator;
     use strum_macros::{EnumIter, EnumString};
@@ -623,6 +623,16 @@ pub mod module {
         crate::signal::clear_after_fork();
         crate::stdlib::_signal::_signal::clear_wakeup_fd_after_fork();
 
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "dragonfly",
+        ))]
+        rustpython_host_env::select::kqueue::mark_closed_after_fork();
+
         // Reset weakref stripe locks that may have been held during fork.
         #[cfg(feature = "threading")]
         crate::object::reset_weakref_locks_after_fork();
@@ -1187,8 +1197,8 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn setpgid(pid: u32, pgid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        rustpython_host_env::posix::setpgid(pid, pgid).map_err(|err| err.into_pyexception(vm))
+    fn setpgid(pid: u32, pgrp: u32, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::setpgid(pid, pgrp).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1294,6 +1304,13 @@ pub mod module {
             .map_err(|err| err.into_pyexception(vm))
     }
 
+    #[cfg(not(target_os = "wasi"))]
+    #[pyfunction]
+    fn login_tty(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::login_tty(fd.as_raw_fd())
+            .map_err(|err| err.into_pyexception(vm))
+    }
+
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn openpty(vm: &VirtualMachine) -> PyResult<(OwnedFd, OwnedFd)> {
@@ -1374,19 +1391,19 @@ pub mod module {
     // cfg from nix
     #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
-    fn initgroups(user_name: PyUtf8StrRef, gid: RawGid, vm: &VirtualMachine) -> PyResult<()> {
-        let user = user_name.to_cstring(vm)?;
+    fn initgroups(username: PyUtf8StrRef, gid: RawGid, vm: &VirtualMachine) -> PyResult<()> {
+        let user = username.to_cstring(vm)?;
         rustpython_host_env::posix::initgroups(&user, gid.0).map_err(|err| err.into_pyexception(vm))
     }
 
     // cfg from nix
     #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
     #[pyfunction]
-    fn setgroups(group_ids: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        group_ids
+    fn setgroups(groups: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        groups
             .try_sequence(vm)
             .map_err(|_| vm.new_type_error("setgroups argument must be a sequence"))?;
-        let gids = vm.extract_elements_with(&group_ids, |gid| {
+        let gids = vm.extract_elements_with(&groups, |gid| {
             RawGid::try_from_object(vm, gid).map(|gid| gid.0)
         })?;
         rustpython_host_env::posix::setgroups_raw(&gids).map_err(|err| err.into_pyexception(vm))
@@ -1729,11 +1746,15 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
+    fn waitpid(
+        pid: libc::pid_t,
+        options: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult<(libc::pid_t, i32)> {
         let mut status = 0;
         loop {
             let res =
-                vm.allow_threads(|| rustpython_host_env::posix::waitpid(pid, &mut status, opt));
+                vm.allow_threads(|| rustpython_host_env::posix::waitpid(pid, &mut status, options));
             match res {
                 Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
                     vm.check_signals()?;
@@ -1751,13 +1772,14 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
-        rustpython_host_env::posix::kill(pid, sig as i32).map_err(|err| err.into_pyexception(vm))
+    fn kill(pid: i32, signal: isize, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::kill(pid, signal as i32).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
-    fn killpg(pgid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
-        rustpython_host_env::posix::killpg(pgid, sig as i32).map_err(|err| err.into_pyexception(vm))
+    fn killpg(pgid: i32, signal: isize, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::killpg(pgid, signal as i32)
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]

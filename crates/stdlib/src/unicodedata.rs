@@ -93,9 +93,8 @@ mod unicodedata {
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl Ucd {
         #[pymethod]
-        fn category(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<&'static str> {
-            self.extract_char(character, vm)
-                .map(|c| self.inner.category(c))
+        fn category(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<&'static str> {
+            self.extract_char(chr, vm).map(|c| self.inner.category(c))
         }
 
         #[pymethod]
@@ -118,11 +117,11 @@ mod unicodedata {
         #[pymethod]
         fn name(
             &self,
-            character: PyStrRef,
+            chr: PyStrRef,
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            if let Some(name) = self.extract_char(character, vm)?.to_char().and_then(|ch| {
+            if let Some(name) = self.extract_char(chr, vm)?.to_char().and_then(|ch| {
                 self.inner
                     .membership(ch)
                     .then(|| unicode_core::character_name(ch))
@@ -134,22 +133,14 @@ mod unicodedata {
         }
 
         #[pymethod]
-        fn bidirectional(
-            &self,
-            character: PyStrRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<&'static str> {
-            self.extract_char(character, vm)
+        fn bidirectional(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<&'static str> {
+            self.extract_char(chr, vm)
                 .map(|c| self.inner.bidirectional(c))
         }
 
         #[pymethod]
-        fn east_asian_width(
-            &self,
-            character: PyStrRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<&'static str> {
-            self.extract_char(character, vm)
+        fn east_asian_width(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<&'static str> {
+            self.extract_char(chr, vm)
                 .map(|c| self.inner.east_asian_width(c))
         }
 
@@ -164,31 +155,29 @@ mod unicodedata {
         }
 
         #[pymethod]
-        fn mirrored(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
-            self.extract_char(character, vm)
-                .map(|c| self.inner.mirrored(c))
+        fn mirrored(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
+            self.extract_char(chr, vm).map(|c| self.inner.mirrored(c))
         }
 
         #[pymethod]
-        fn combining(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<u8> {
-            self.extract_char(character, vm)
-                .map(|c| self.inner.combining(c))
+        fn combining(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<u8> {
+            self.extract_char(chr, vm).map(|c| self.inner.combining(c))
         }
 
         #[pymethod]
-        fn decomposition(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-            self.extract_char(character, vm)
+        fn decomposition(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+            self.extract_char(chr, vm)
                 .map(|c| self.inner.decomposition(c))
         }
 
         #[pymethod]
         fn digit(
             &self,
-            character: PyStrRef,
+            chr: PyStrRef,
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let ch = self.extract_char(character, vm)?;
+            let ch = self.extract_char(chr, vm)?;
             self.inner
                 .digit(ch)
                 .map(|value| vm.ctx.new_int(value).into())
@@ -200,11 +189,11 @@ mod unicodedata {
         #[pymethod]
         fn decimal(
             &self,
-            character: PyStrRef,
+            chr: PyStrRef,
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let ch = self.extract_char(character, vm)?;
+            let ch = self.extract_char(chr, vm)?;
             self.inner
                 .decimal(ch)
                 .map(|value| vm.ctx.new_int(value).into())
@@ -216,11 +205,11 @@ mod unicodedata {
         #[pymethod]
         fn numeric(
             &self,
-            character: PyStrRef,
+            chr: PyStrRef,
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let ch = self.extract_char(character, vm)?;
+            let ch = self.extract_char(chr, vm)?;
             self.inner
                 .numeric(ch)
                 .map(|value| vm.ctx.new_float(value).into())

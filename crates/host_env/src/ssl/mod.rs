@@ -1,9 +1,8 @@
-//! Host rustls `_ssl` engine.
+//! Shared `_ssl` surface.
 //!
-//! TLS helpers live here because they share the host trust store, default
-//! verify paths, and certificate files with the rest of `host_env`. The
-//! engine reports plain Rust results so interpreter layers can provide their
-//! own object and exception adapters.
+//! The `ssl` feature compiles this whole module. MemoryBIO, constants, OID,
+//! and ALPN do not use rustls. The rustls engine compiles wherever `rustls`
+//! is available, including browser wasm via rustls-rustcrypto.
 
 pub mod bio;
 pub mod cert;

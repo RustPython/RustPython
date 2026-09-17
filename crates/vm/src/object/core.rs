@@ -1949,9 +1949,13 @@ impl PyObject {
                 // during __del__, preventing safe_inc from seeing 0.
                 zelf.0.ref_count.inc_by(2);
 
+                let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
                 if let Err(e) = slot_del(zelf, vm) {
-                    let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
-                    vm.run_unraisable(e, None, del_method);
+                    let msg = del_method
+                        .repr(vm)
+                        .ok()
+                        .map(|r| format!("Exception ignored while calling deallocator {r}"));
+                    vm.run_unraisable(e, msg, del_method);
                 }
 
                 // Undo the temporary resurrection. Always remove both
@@ -2047,7 +2051,11 @@ impl PyObject {
                 if let Err(e) = slot_del(self, vm)
                     && let Some(del_method) = self.get_class_attr(identifier!(vm, __del__))
                 {
-                    vm.run_unraisable(e, None, del_method);
+                    let msg = del_method
+                        .repr(vm)
+                        .ok()
+                        .map(|r| format!("Exception ignored while calling deallocator {r}"));
+                    vm.run_unraisable(e, msg, del_method);
                 }
             });
             let _ = result;

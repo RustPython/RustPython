@@ -27,6 +27,23 @@ mod msg;
 
 pub use rustpython_host_env::ssl::{chain, cipher, oid, providers};
 
+#[cfg(target_arch = "wasm32")]
+mod sock_wait_stub {
+    use rustpython_vm::{PyRef, VirtualMachine, builtins::PyOSError};
+
+    #[derive(Copy, Clone)]
+    pub(crate) enum SockWaitKind {
+        Read,
+        Write,
+        #[allow(dead_code, reason = "kept in lockstep with the native wait kinds")]
+        Connect,
+    }
+
+    pub(crate) fn timeout_error_msg(vm: &VirtualMachine, msg: String) -> PyRef<PyOSError> {
+        vm.new_os_subtype_error(vm.ctx.exceptions.timeout_error.to_owned(), None, msg)
+    }
+}
+
 pub(crate) use _ssl::module_def;
 
 #[allow(non_snake_case)]
@@ -38,7 +55,6 @@ mod _ssl {
             hash::PyHash,
             lock::{PyMutex, PyRwLock},
         },
-        socket::{PySocket, SockWaitKind, sock_wait, timeout_error_msg},
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
             VirtualMachine,
@@ -55,6 +71,11 @@ mod _ssl {
             types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
         },
     };
+
+    #[cfg(target_arch = "wasm32")]
+    use super::sock_wait_stub::{SockWaitKind, timeout_error_msg};
+    #[cfg(not(target_arch = "wasm32"))]
+    use crate::socket::{PySocket, SockWaitKind, sock_wait, timeout_error_msg};
 
     // Import error types used in this module (others are exposed via pymodule(with(...)))
     use super::error::{
@@ -2484,24 +2505,33 @@ mod _ssl {
                 return Ok(false);
             }
 
-            // Get timeout
-            let timeout = self.get_socket_timeout(vm)?;
-
-            // Check for non-blocking mode (timeout = 0)
-            if let Some(t) = timeout
-                && t.is_zero()
+            #[cfg(target_arch = "wasm32")]
             {
-                // Non-blocking mode - don't use select
+                let _ = (wait_kind, vm);
                 return Ok(false);
             }
 
-            // Use select with the effective timeout
-            let py_socket: PyRef<PySocket> = self.io.socket_object(vm).try_into_value(vm)?;
-            let socket = py_socket
-                .sock()
-                .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                // Get timeout
+                let timeout = self.get_socket_timeout(vm)?;
 
-            sock_wait(&socket, wait_kind, timeout, vm)
+                // Check for non-blocking mode (timeout = 0)
+                if let Some(t) = timeout
+                    && t.is_zero()
+                {
+                    // Non-blocking mode - don't use select
+                    return Ok(false);
+                }
+
+                // Use select with the effective timeout
+                let py_socket: PyRef<PySocket> = self.io.socket_object(vm).try_into_value(vm)?;
+                let socket = py_socket
+                    .sock()
+                    .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
+
+                sock_wait(&socket, wait_kind, timeout, vm)
+            }
         }
 
         // Internal implementation with explicit timeout override
@@ -2516,19 +2546,28 @@ mod _ssl {
                 return Ok(false);
             }
 
-            if let Some(t) = timeout
-                && t.is_zero()
+            #[cfg(target_arch = "wasm32")]
             {
-                // Non-blocking mode - don't use select
+                let _ = (wait_kind, timeout, vm);
                 return Ok(false);
             }
 
-            let py_socket: PyRef<PySocket> = self.io.socket_object(vm).try_into_value(vm)?;
-            let socket = py_socket
-                .sock()
-                .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if let Some(t) = timeout
+                    && t.is_zero()
+                {
+                    // Non-blocking mode - don't use select
+                    return Ok(false);
+                }
 
-            sock_wait(&socket, wait_kind, timeout, vm).map_err(|e| e.into_pyexception(vm))
+                let py_socket: PyRef<PySocket> = self.io.socket_object(vm).try_into_value(vm)?;
+                let socket = py_socket
+                    .sock()
+                    .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
+
+                sock_wait(&socket, wait_kind, timeout, vm).map_err(|e| e.into_pyexception(vm))
+            }
         }
 
         fn handshake_completed(&self) -> bool {
@@ -3964,18 +4003,15 @@ mod _ssl {
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PyMemoryBIO {
         #[pymethod]
-        fn read(&self, len: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        fn read(&self, len: OptionalArg<i32>, vm: &VirtualMachine) -> PyBytesRef {
             let mut bio = self.inner.lock();
 
             let read_len = match len {
                 OptionalArg::Present(n) if n >= 0 => n as usize,
-                OptionalArg::Present(n) => {
-                    return Err(vm.new_value_error(format!("negative read length: {n}")));
-                }
-                OptionalArg::Missing => bio.pending(),
+                OptionalArg::Present(_) | OptionalArg::Missing => bio.pending(),
             };
 
-            Ok(vm.ctx.new_bytes(bio.read(read_len)))
+            vm.ctx.new_bytes(bio.read(read_len))
         }
 
         #[pymethod]

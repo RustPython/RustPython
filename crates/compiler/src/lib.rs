@@ -89,7 +89,7 @@ impl CompileError {
             location,
             end_location,
             source_path: source_file.name().to_owned(),
-            is_unclosed_bracket: false,
+            is_unclosed_bracket: diagnostic.is_unclosed_bracket,
             is_unclosed_string: diagnostic.is_unclosed_string,
         })
     }
@@ -194,6 +194,7 @@ impl NormalizedParseDiagnostic {
             end_location,
         );
         diagnostic_out.is_unclosed_string = diagnostic.is_unclosed_string;
+        diagnostic_out.is_unclosed_bracket = diagnostic.is_unclosed_bracket;
         diagnostic_out
     }
 
@@ -207,10 +208,12 @@ impl NormalizedParseDiagnostic {
 /// column. These are reconstructed by re-scanning after ruff's parse has already failed, so they
 /// carry CPython's wording rather than a translation of ruff's own error, and they never reach
 /// ruff — `NormalizedParseDiagnostic` and `CompileError` are the only things that consume one.
+#[derive(Clone)]
 struct CpythonDiagnostic {
     message: String,
     range: ruff_text_size::TextRange,
     is_unclosed_string: bool,
+    is_unclosed_bracket: bool,
 }
 
 impl CpythonDiagnostic {
@@ -226,12 +229,64 @@ impl CpythonDiagnostic {
                 TextSize::new(end as u32),
             ),
             is_unclosed_string: false,
+            is_unclosed_bracket: false,
         }
     }
 
     const fn with_unclosed_string(mut self) -> Self {
         self.is_unclosed_string = true;
         self
+    }
+
+    const fn with_unclosed_bracket(mut self) -> Self {
+        self.is_unclosed_bracket = true;
+        self
+    }
+}
+
+/// Lexer-class failures outrank print hints. Decode and f-string diagnostics
+/// compete with lexer failures by offset, and an unterminated quote is only
+/// a fallback when no decode/f-string diagnostic exists. Print is considered
+/// against the final winner: a later 0x still beats print, but an f-string
+/// that replaced that 0x must not hide an earlier print. A decode diagnostic
+/// also suppresses an EOF unclosed opener.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OverrideClass {
+    Lexer,
+    Decode,
+    Print,
+}
+
+struct RankedOverride {
+    diagnostic: CpythonDiagnostic,
+    unclosed_bracket: bool,
+    class: OverrideClass,
+}
+
+fn consider_override(
+    best: &mut Option<RankedOverride>,
+    diagnostic: CpythonDiagnostic,
+    class: OverrideClass,
+) {
+    let unclosed_bracket = diagnostic.is_unclosed_bracket;
+    consider_ranked(best, diagnostic, unclosed_bracket, class);
+}
+
+fn consider_ranked(
+    best: &mut Option<RankedOverride>,
+    diagnostic: CpythonDiagnostic,
+    unclosed_bracket: bool,
+    class: OverrideClass,
+) {
+    if best
+        .as_ref()
+        .is_none_or(|current| diagnostic.range.start() < current.diagnostic.range.start())
+    {
+        *best = Some(RankedOverride {
+            diagnostic,
+            unclosed_bracket,
+            class,
+        });
     }
 }
 
@@ -250,18 +305,80 @@ fn cpython_parse_diagnostic_override(
         };
     }
 
-    source_error!(invalid_number_literal_error(source_text));
-    source_error!(invalid_legacy_statement_error(source_text));
-    source_error!(incompatible_string_prefix_error(source_text));
-    source_error!(malformed_unicode_n_escape_error(source_text));
-    source_error!(non_printable_character_error(source_text));
-    source_error!(invalid_interpolated_string_error(source_text));
-    source_error!(mixed_tstring_literal_error(error, source_text));
-
-    if let Some(bracket) = bracket_syntax_error(source_text) {
+    let mut earliest: Option<RankedOverride> = None;
+    if let Some(diagnostic) = invalid_number_literal_error(source_text) {
+        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
+    }
+    if let Some(diagnostic) = incompatible_string_prefix_error(source_text) {
+        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
+    }
+    if let Some(diagnostic) = non_printable_character_error(source_text) {
+        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
+    }
+    let bracket = bracket_syntax_error(source_text);
+    if let Some(bracket) = bracket.as_ref() {
+        // Unclosed openers are reported at the opener and only become errors
+        // at EOF. A later token-time diagnostic (invalid number, prefix, …)
+        // must keep winning. Mismatched closers stay in the lexer-class
+        // positional ranking.
+        if !bracket.unclosed {
+            consider_ranked(
+                &mut earliest,
+                bracket.diagnostic.clone(),
+                false,
+                OverrideClass::Lexer,
+            );
+        }
+    }
+    let mut saw_decode = false;
+    if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
+        saw_decode = true;
+        consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
+    }
+    if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
+        saw_decode = true;
+        consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
+    }
+    if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
+        saw_decode = true;
+        consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
+    }
+    // A later ordinary unterminated quote is only a fallback. Format-spec
+    // newlines and empty fields are decode diagnostics and must keep winning.
+    let line_continuation = matches!(
+        &error.error,
+        parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
+    );
+    if !saw_decode
+        && !line_continuation
+        && let Some(diagnostic) = unterminated_string_error(source_text, mode)
+    {
+        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
+    }
+    if earliest
+        .as_ref()
+        .is_none_or(|current| current.class != OverrideClass::Lexer)
+        && let Some(diagnostic) = invalid_legacy_statement_error(source_text)
+    {
+        consider_override(&mut earliest, diagnostic, OverrideClass::Print);
+    }
+    if !saw_decode
+        && earliest
+            .as_ref()
+            .is_none_or(|current| current.class == OverrideClass::Print)
+        && let Some(bracket) = bracket.filter(|bracket| bracket.unclosed)
+    {
+        consider_ranked(
+            &mut earliest,
+            bracket.diagnostic,
+            true,
+            OverrideClass::Lexer,
+        );
+    }
+    if let Some(override_diag) = earliest {
         return Some(
-            NormalizedParseDiagnostic::other(source_file, bracket.diagnostic)
-                .with_unclosed_bracket(bracket.unclosed),
+            NormalizedParseDiagnostic::other(source_file, override_diag.diagnostic)
+                .with_unclosed_bracket(override_diag.unclosed_bracket),
         );
     }
 
@@ -269,9 +386,11 @@ fn cpython_parse_diagnostic_override(
         &error.error,
         parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
     ) {
-        // Only a backslash at the end of the source is an EOF error.
+        // exec input gets an implicit trailing newline, so a final `\` is a
+        // continuation that then hits EOF (`E_EOF`). single/eval see `\` at
+        // EOF as `E_LINECONT` instead.
         let terminal_backslash = source_text.len().checked_sub(1);
-        if !matches!(mode, Mode::Eval)
+        if matches!(mode, Mode::Exec)
             && terminal_backslash == Some(error.location.start().to_usize())
         {
             let loc = source_line_end_location(source_file, error.location.start());
@@ -283,13 +402,15 @@ fn cpython_parse_diagnostic_override(
         }
         let loc = source_location(source_file, error.location.start() + TextSize::from(1));
         return Some(NormalizedParseDiagnostic::new(
-            error.error.clone(),
+            parser::ParseErrorType::OtherError(
+                "unexpected character after line continuation character".to_owned(),
+            ),
             loc,
             loc,
         ));
     }
 
-    source_error!(unterminated_string_error(source_text));
+    source_error!(unterminated_string_error(source_text, mode));
     source_error!(expected_indented_block_error(error, source_text));
 
     if matches!(
@@ -316,29 +437,39 @@ fn cpython_parse_diagnostic_override(
     }
 
     source_error!(invalid_dict_error(source_text));
-    source_error!(invalid_collection_assignment_error(source_text));
+    if !matches!(mode, Mode::Eval) {
+        source_error!(invalid_collection_assignment_error(source_text));
+    }
     source_error!(invalid_group_error(source_text));
     source_error!(invalid_def_type_params_error(source_text));
     source_error!(invalid_expression_error(source_text));
     source_error!(invalid_named_expression_error(source_text));
-    source_error!(invalid_plain_assignment_error(source_text));
-    source_error!(expression_assignment_error(source_text));
-    source_error!(invalid_annotation_target_error(source_text));
-    source_error!(invalid_assignment_target_error(source_text));
-    source_error!(invalid_augassign_target_error(source_text));
-    source_error!(invalid_for_target_error(source_text));
-    source_error!(invalid_with_target_error(source_text));
-    source_error!(invalid_delete_target_error(source_text));
-    source_error!(invalid_standalone_except_error(source_text));
-    source_error!(invalid_import_statement_error(source_text));
-    source_error!(invalid_import_target_error(source_text));
-    source_error!(invalid_except_as_target_error(source_text));
-    source_error!(invalid_match_mapping_rest_wildcard_error(source_text));
-    source_error!(invalid_match_as_target_error(source_text));
-    source_error!(invalid_for_if_clause_error(source_text));
-    source_error!(invalid_if_expression_statement_error(source_text));
-    source_error!(invalid_else_elif_error(source_text));
-    source_error!(mixed_except_handlers_error(source_text));
+    // Assignment and other statements are not expressions. Eval keeps the
+    // generic parse error rather than a statement-target rewrite.
+    if !matches!(mode, Mode::Eval) {
+        source_error!(invalid_plain_assignment_error(source_text));
+        source_error!(expression_assignment_error(source_text));
+        source_error!(invalid_annotation_target_error(source_text));
+        source_error!(invalid_assignment_target_error(source_text));
+        source_error!(invalid_condition_assignment_error(
+            source_text,
+            error.location.start().to_usize()
+        ));
+        source_error!(invalid_augassign_target_error(source_text));
+        source_error!(invalid_for_target_error(source_text));
+        source_error!(invalid_with_target_error(source_text));
+        source_error!(invalid_delete_target_error(source_text));
+        source_error!(invalid_standalone_except_error(source_text));
+        source_error!(invalid_import_statement_error(source_text));
+        source_error!(invalid_import_target_error(source_text));
+        source_error!(invalid_except_as_target_error(source_text));
+        source_error!(invalid_match_mapping_rest_wildcard_error(source_text));
+        source_error!(invalid_match_as_target_error(source_text));
+        source_error!(invalid_for_if_clause_error(source_text));
+        source_error!(invalid_if_expression_statement_error(source_text));
+        source_error!(invalid_else_elif_error(source_text));
+        source_error!(mixed_except_handlers_error(source_text));
+    }
 
     if matches!(
         &error.error,
@@ -377,7 +508,11 @@ fn cpython_parse_diagnostic_override(
     // into the generic "invalid syntax" message. rustpython-vm's `vm_new.rs`
     // does this same collapse for its own callers; rustpython-compiler has no
     // vm dependency, so mirror it here.
-    if matches!(&error.error, parser::ParseErrorType::ExpectedExpression) {
+    if matches!(
+        &error.error,
+        parser::ParseErrorType::ExpectedExpression
+            | parser::ParseErrorType::UnexpectedExpressionToken
+    ) {
         let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
         return Some(NormalizedParseDiagnostic::new(
             parser::ParseErrorType::OtherError("invalid syntax".into()),
@@ -426,6 +561,10 @@ fn invalid_assignment_target_diagnostic(
             ast::Expr::BinOp(_) => "cannot assign to expression".into(),
             ast::Expr::If(_) => "cannot assign to conditional expression".into(),
             ast::Expr::Generator(_) => "cannot assign to generator expression".into(),
+            ast::Expr::Yield(_) | ast::Expr::YieldFrom(_) => {
+                "cannot assign to yield expression here. Maybe you meant '==' instead of '='?"
+                    .into()
+            }
             ast::Expr::FString(_) => "invalid syntax".into(),
             ast::Expr::StringLiteral(_)
             | ast::Expr::BytesLiteral(_)
@@ -494,6 +633,23 @@ fn is_ascii_identifier_char(byte: u8) -> bool {
     byte == b'_' || byte.is_ascii_alphanumeric()
 }
 
+fn identifier_continue_before(bytes: &[u8], index: usize) -> bool {
+    if index == 0 {
+        return false;
+    }
+    if bytes[index - 1].is_ascii() {
+        return is_ascii_identifier_char(bytes[index - 1]);
+    }
+    let mut start = index - 1;
+    while start > 0 && bytes[start] & 0b1100_0000 == 0b1000_0000 {
+        start -= 1;
+    }
+    ::core::str::from_utf8(&bytes[start..index])
+        .ok()
+        .and_then(|text| text.chars().next_back())
+        .is_some_and(|ch| ch == '_' || ch.is_alphanumeric())
+}
+
 fn numeric_keyword_suffix(rest: &[u8]) -> bool {
     rest.starts_with(b"and")
         || rest.starts_with(b"else")
@@ -546,7 +702,11 @@ fn invalid_radix_literal_error(
     let mut has_digit = false;
     loop {
         let Some(&byte) = bytes.get(index) else {
-            return Some((format!("invalid {kind} literal"), start + 1));
+            return if has_digit {
+                None
+            } else {
+                Some((format!("invalid {kind} literal"), start + 1))
+            };
         };
         if byte == b'_' {
             let Some(&next) = bytes.get(index + 1) else {
@@ -1866,6 +2026,14 @@ fn invalid_call_argument_assignment_error(
         }
     }
     if is_simple_keyword_name(bytes, target_start, target_end) {
+        // NAME '=' expression for_if_clauses
+        if unparenthesized_comprehension(bytes, equal + 1) {
+            return Some(CpythonDiagnostic::new(
+                "invalid syntax. Maybe you meant '==' or ':=' instead of '='?".to_owned(),
+                target_start,
+                equal + 1,
+            ));
+        }
         return None;
     }
     Some(CpythonDiagnostic::new(
@@ -1873,6 +2041,37 @@ fn invalid_call_argument_assignment_error(
         target_start,
         equal,
     ))
+}
+
+fn unparenthesized_comprehension(bytes: &[u8], mut index: usize) -> bool {
+    index = next_non_horizontal_whitespace(bytes, index);
+    if index >= bytes.len() {
+        return false;
+    }
+    let start = index;
+    let mut level = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                if level == 0 {
+                    return false;
+                }
+                level -= 1;
+                index += 1;
+            }
+            b',' | b':' if level == 0 => return false,
+            _ if level == 0 && index > start && starts_identifier(bytes, index, b"for") => {
+                return true;
+            }
+            _ => index += 1,
+        }
+    }
+    false
 }
 
 fn invalid_call_star_expression_error(
@@ -2684,6 +2883,43 @@ fn parenthesized_single_starred_delete_target(bytes: &[u8], start: usize, end: u
     false
 }
 
+fn assignment_target_expr_range(source: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    let bytes = source.as_bytes();
+    let (target_start, target_end) = trim_target_range(bytes, start, end);
+    if target_start >= target_end {
+        return None;
+    }
+    if parser::parse(
+        &source[target_start..target_end],
+        parser::Mode::Expression.into(),
+    )
+    .is_ok()
+    {
+        return Some((target_start, target_end));
+    }
+    // `def f(): (yield bar)` — skip the suite header so the remaining
+    // text is the assignment target expression. Other colons (`x: int += 1`)
+    // are not suite headers for this diagnostic. Grouping parentheses may
+    // wrap the yield expression.
+    let colon = top_level_colon(bytes, target_start, target_end)?;
+    let after = skip_horizontal_whitespace(bytes, colon + 1);
+    let yield_at = skip_opening_parentheses(bytes, after, target_end);
+    if yield_at >= target_end || !starts_identifier(bytes, yield_at, b"yield") {
+        return None;
+    }
+    Some((after, target_end))
+}
+
+fn skip_opening_parentheses(bytes: &[u8], mut index: usize, end: usize) -> usize {
+    loop {
+        index = skip_horizontal_whitespace(bytes, index);
+        if index >= end || bytes[index] != b'(' {
+            return index;
+        }
+        index += 1;
+    }
+}
+
 fn trim_target_range(bytes: &[u8], mut start: usize, mut end: usize) -> (usize, usize) {
     while start < end
         && matches!(
@@ -2718,10 +2954,7 @@ fn assignment_target_error_for_slice(
     end: usize,
 ) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
-    let (target_start, target_end) = trim_target_range(bytes, start, end);
-    if target_start >= target_end {
-        return None;
-    }
+    let (target_start, target_end) = assignment_target_expr_range(source, start, end)?;
     if starts_identifier(bytes, target_start, b"yield") {
         return Some(CpythonDiagnostic::new(
             "assignment to yield expression not possible".to_owned(),
@@ -2739,13 +2972,6 @@ fn assignment_target_error_for_slice(
     let invalid_target = invalid_assignment_target(&expression.body)?;
     let invalid_start = target_start + invalid_target.range().start().to_usize();
     let invalid_end = target_start + invalid_target.range().end().to_usize();
-    if matches!(invalid_target, ast::Expr::FString(_)) {
-        return Some(CpythonDiagnostic::new(
-            "invalid syntax".to_owned(),
-            invalid_start,
-            invalid_end,
-        ));
-    }
     let name = delete_target_expr_name(invalid_target);
     let top_level = invalid_target.range() == expression.body.range();
     let bitwise_like = matches!(
@@ -2758,6 +2984,12 @@ fn assignment_target_error_for_slice(
             | ast::Expr::StringLiteral(_)
             | ast::Expr::BytesLiteral(_)
             | ast::Expr::EllipsisLiteral(_)
+            | ast::Expr::Yield(_)
+            | ast::Expr::YieldFrom(_)
+            | ast::Expr::Set(_)
+            | ast::Expr::Dict(_)
+            | ast::Expr::FString(_)
+            | ast::Expr::TString(_)
     );
     Some(CpythonDiagnostic::new(
         invalid_assignment_message(name, top_level && bitwise_like),
@@ -2892,6 +3124,177 @@ fn top_level_plain_assignment_offsets(bytes: &[u8]) -> Vec<usize> {
     offsets
 }
 
+fn invalid_condition_assignment_error(
+    source: &str,
+    parse_error_offset: usize,
+) -> Option<CpythonDiagnostic> {
+    let bytes = source.as_bytes();
+    let mut index = 0usize;
+    let mut line_start = 0usize;
+    let mut level = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' if level == 0 => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\n' => {
+                line_start = index + 1;
+                index += 1;
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                level = level.saturating_sub(1);
+                index += 1;
+            }
+            _ if level == 0
+                && index == skip_horizontal_whitespace(bytes, line_start)
+                && (starts_identifier(bytes, index, b"if")
+                    || starts_identifier(bytes, index, b"elif")
+                    || starts_identifier(bytes, index, b"while")) =>
+            {
+                let keyword_len = if starts_identifier(bytes, index, b"while") {
+                    5
+                } else if starts_identifier(bytes, index, b"elif") {
+                    4
+                } else {
+                    2
+                };
+                let cond_start = skip_horizontal_whitespace(bytes, index + keyword_len);
+                let Some(colon) = top_level_colon(bytes, cond_start, bytes.len()) else {
+                    index += keyword_len;
+                    continue;
+                };
+                if parse_error_offset < index || parse_error_offset > colon {
+                    index += keyword_len;
+                    continue;
+                }
+                let Some(equal) = condition_plain_assignment(bytes, cond_start, colon) else {
+                    index += keyword_len;
+                    continue;
+                };
+                let (target_start, target_end) = trim_target_range(bytes, cond_start, equal);
+                if target_start >= target_end {
+                    index += keyword_len;
+                    continue;
+                }
+                if is_simple_keyword_name(bytes, target_start, target_end) {
+                    return Some(CpythonDiagnostic::new(
+                        "invalid syntax. Maybe you meant '==' or ':=' instead of '='?".to_owned(),
+                        target_start,
+                        equal + 1,
+                    ));
+                }
+                if let Some((expr_name, start, end, _)) =
+                    expression_name_and_range(&source[target_start..target_end])
+                {
+                    return Some(CpythonDiagnostic::new(
+                        format!(
+                            "cannot assign to {expr_name} here. Maybe you meant '==' instead of '='?"
+                        ),
+                        target_start + start,
+                        target_start + end,
+                    ));
+                }
+                return Some(CpythonDiagnostic::new(
+                    "invalid syntax. Maybe you meant '==' or ':=' instead of '='?".to_owned(),
+                    target_start,
+                    equal + 1,
+                ));
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn condition_plain_assignment(bytes: &[u8], start: usize, end: usize) -> Option<usize> {
+    let mut index = start;
+    let mut nest = Vec::new();
+    while index < end {
+        match bytes[index] {
+            b'#' => {
+                while index < end && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' => {
+                nest.push(if is_call_open(bytes, start, index) {
+                    b'c'
+                } else {
+                    b'g'
+                });
+                index += 1;
+            }
+            b'[' => {
+                nest.push(b'[');
+                index += 1;
+            }
+            b'{' => {
+                nest.push(b'{');
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                nest.pop();
+                index += 1;
+            }
+            b':' if nest.last() == Some(&b'l') => {
+                nest.pop();
+                index += 1;
+            }
+            b'=' if is_plain_assignment_operator(bytes, index)
+                && !nest.contains(&b'c')
+                && !nest.contains(&b'l') =>
+            {
+                return Some(index);
+            }
+            _ if starts_identifier(bytes, index, b"lambda") => {
+                nest.push(b'l');
+                index += 6;
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn is_call_open(bytes: &[u8], start: usize, open: usize) -> bool {
+    let mut index = open;
+    while index > start {
+        index -= 1;
+        match bytes[index] {
+            b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' => {}
+            b')' | b']' => return true,
+            byte if byte >= 0x80 || is_ascii_identifier_char(byte) => {
+                let mut ident_start = index;
+                while ident_start > start
+                    && bytes
+                        .get(ident_start - 1)
+                        .is_some_and(|b| *b >= 0x80 || is_ascii_identifier_char(*b))
+                {
+                    ident_start -= 1;
+                }
+                return !is_condition_keyword(&bytes[ident_start..=index]);
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn is_condition_keyword(word: &[u8]) -> bool {
+    matches!(
+        word,
+        b"not" | b"and" | b"or" | b"in" | b"is" | b"if" | b"elif" | b"while" | b"await" | b"lambda"
+    )
+}
+
 fn invalid_assignment_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let offsets = top_level_plain_assignment_offsets(bytes);
@@ -2960,10 +3363,7 @@ fn top_level_augassign_offset(bytes: &[u8]) -> Option<(usize, usize)> {
 fn invalid_augassign_target_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let (operator, _) = top_level_augassign_offset(bytes)?;
-    let (target_start, target_end) = trim_target_range(bytes, 0, operator);
-    if target_start >= target_end {
-        return None;
-    }
+    let (target_start, target_end) = assignment_target_expr_range(source, 0, operator)?;
     let target_text = &source[target_start..target_end];
     let Ok(parsed) = parser::parse(target_text, parser::Mode::Expression.into()) else {
         return None;
@@ -3894,7 +4294,7 @@ fn non_printable_character_error(source: &str) -> Option<CpythonDiagnostic> {
     None
 }
 
-fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
+fn unterminated_string_error(source: &str, mode: Mode) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
     let mut line = 1usize;
@@ -3921,6 +4321,7 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
                 };
                 index += quote_size;
                 let mut has_escaped_quote = false;
+                let mut ended_with_escape = false;
                 let mut closed = false;
                 while index < bytes.len() {
                     let c = bytes[index];
@@ -3952,6 +4353,7 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
                         if bytes.get(index + 1) == Some(&quote) {
                             has_escaped_quote = true;
                         }
+                        ended_with_escape = index + 1 >= bytes.len();
                         index = (index + 2).min(bytes.len());
                     } else {
                         index += 1;
@@ -3964,17 +4366,30 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
                         return Some(error);
                     }
                     let detected_line = if quote_size == 3 { line } else { start_line };
+                    let interpolated = interpolated_string_prefix(bytes, start);
                     let diagnostic = CpythonDiagnostic::new(
                         unterminated_string_message(
                             detected_line,
                             quote_size == 3,
                             has_escaped_quote,
-                            interpolated_string_prefix(bytes, start),
+                            interpolated,
                         ),
                         start,
                         start,
                     );
-                    return Some(if index >= bytes.len() {
+                    // E_EOLS is only for a plain single-quoted string at EOF.
+                    // Single-quoted f/t-strings never set it. exec input appends a
+                    // newline, so a single-quoted literal becomes the newline case
+                    // unless a final `\` consumes that newline.
+                    let exec_implicit_newline =
+                        matches!(mode, Mode::Exec) && quote_size == 1 && !ended_with_escape;
+                    let eval_assignment =
+                        matches!(mode, Mode::Eval) && eval_has_assignment_before(bytes, start);
+                    let continuable = index >= bytes.len()
+                        && !(interpolated.is_some() && quote_size == 1)
+                        && !exec_implicit_newline
+                        && !eval_assignment;
+                    return Some(if continuable {
                         diagnostic.with_unclosed_string()
                     } else {
                         diagnostic
@@ -3985,6 +4400,50 @@ fn unterminated_string_error(source: &str) -> Option<CpythonDiagnostic> {
         }
     }
     None
+}
+
+fn eval_has_assignment_before(bytes: &[u8], end: usize) -> bool {
+    let mut index = 0;
+    let mut level = 0usize;
+    let mut in_lambda_params = false;
+    while index < end {
+        match bytes[index] {
+            b'#' => {
+                while index < end && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                level = level.saturating_sub(1);
+                index += 1;
+            }
+            b':' if level == 0 => {
+                in_lambda_params = false;
+                index += 1;
+            }
+            b'=' if level == 0
+                && !in_lambda_params
+                && bytes.get(index + 1) != Some(&b'=')
+                && !matches!(
+                    bytes.get(index.saturating_sub(1)),
+                    Some(b':' | b'!' | b'<' | b'>')
+                ) =>
+            {
+                return true;
+            }
+            _ if level == 0 && starts_identifier(bytes, index, b"lambda") => {
+                in_lambda_params = true;
+                index += b"lambda".len();
+            }
+            _ => index += 1,
+        }
+    }
+    false
 }
 
 fn invalid_interpolated_string_error(source: &str) -> Option<CpythonDiagnostic> {
@@ -4161,7 +4620,7 @@ fn interpolated_string_prefix(bytes: &[u8], quote: usize) -> Option<&'static str
         return None;
     };
 
-    if prefix_start > 0 && is_ascii_identifier_char(bytes[prefix_start - 1]) {
+    if prefix_start > 0 && identifier_continue_before(bytes, prefix_start) {
         return None;
     }
 
@@ -4424,11 +4883,10 @@ fn replacement_field_comment_error(
             }
             b'#' => {
                 if !bytes[index..literal_end].contains(&b'\n') {
-                    return Some(CpythonDiagnostic::new(
-                        "'{' was never closed".to_owned(),
-                        open,
-                        open + 1,
-                    ));
+                    return Some(
+                        CpythonDiagnostic::new("'{' was never closed".to_owned(), open, open + 1)
+                            .with_unclosed_bracket(),
+                    );
                 }
                 index = skip_replacement_field_comment(bytes, index, end);
                 continue;
@@ -5298,6 +5756,20 @@ fn missing_comma_expression_error(source: &str) -> Option<CpythonDiagnostic> {
                     index = identifier_end(bytes, index, bytes.len());
                 }
                 byte if !stack.is_empty() && expression_atom_start_byte(byte) => {
+                    // `yield x` / `await x` are prefix expressions, not two
+                    // adjacent atoms missing a comma.
+                    if starts_identifier(bytes, index, b"yield") {
+                        index = identifier_end(bytes, index, bytes.len());
+                        let after_yield = skip_ascii_whitespace(bytes, index, bytes.len());
+                        if starts_identifier(bytes, after_yield, b"from") {
+                            index = identifier_end(bytes, after_yield, bytes.len());
+                        }
+                        continue;
+                    }
+                    if starts_identifier(bytes, index, b"await") {
+                        index = identifier_end(bytes, index, bytes.len());
+                        continue;
+                    }
                     let atom_end = adjacent_atom_end(bytes, index).unwrap_or(index + 1);
                     let next = skip_ascii_whitespace(bytes, atom_end, bytes.len());
                     if next > atom_end
@@ -5482,6 +5954,7 @@ fn unclosed_replacement_field_error(
             position,
             position + 1,
         )
+        .with_unclosed_bracket()
     })
 }
 
@@ -5518,6 +5991,7 @@ fn expected_opening_bracket(closing: char) -> char {
 
 /// A bracket diagnostic, and whether it is an opener that was never closed. The caller needs
 /// that apart from the message because ruff reports the unclosed case as an EOF error.
+#[derive(Clone)]
 struct BracketError {
     diagnostic: CpythonDiagnostic,
     unclosed: bool,
@@ -5572,6 +6046,24 @@ fn bracket_syntax_error(source: &str) -> Option<BracketError> {
                 index += 1;
             }
             continue;
+        }
+
+        if ch == '\\' {
+            match chars.get(index + 1).map(|(_, next)| *next) {
+                Some('\n' | '\r') => {
+                    escape_next = true;
+                    index += 1;
+                    continue;
+                }
+                Some(_) => {
+                    index += 2;
+                    continue;
+                }
+                None => {
+                    index += 1;
+                    continue;
+                }
+            }
         }
 
         if ch == '\'' || ch == '"' {
@@ -6173,6 +6665,49 @@ fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<Cpyth
     None
 }
 
+/// Horizontal and vertical space the tokenizer skips, not `str::trim()`.
+const fn is_ascii_tokenizer_whitespace(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0c')
+}
+
+/// True when every line is empty or a comment after tokenizer whitespace.
+#[doc(hidden)]
+#[must_use]
+pub fn is_blank_python_source(source: &str) -> bool {
+    source.lines().all(|line| {
+        let trimmed = line.trim_matches(is_ascii_tokenizer_whitespace);
+        trimmed.is_empty() || trimmed.starts_with('#')
+    })
+}
+
+fn single_mode_blank_source_error(source_file: &SourceFile) -> Option<CompileError> {
+    let source = source_file.source_text();
+    if !is_blank_python_source(source) {
+        return None;
+    }
+    let has_indent_only_line = source.lines().any(|line| {
+        line.trim_matches(is_ascii_tokenizer_whitespace).is_empty()
+            && line.chars().any(|c| matches!(c, ' ' | '\t'))
+    });
+    if has_indent_only_line {
+        let (location, end_location) =
+            source_locations(source_file, TextSize::new(0), TextSize::new(0));
+        return Some(CompileError::Parse(ParseError {
+            error: parser::ParseErrorType::UnexpectedIndentation,
+            raw_location: ruff_text_size::TextRange::new(TextSize::new(0), TextSize::new(0)),
+            location,
+            end_location,
+            source_path: source_file.name().to_owned(),
+            is_unclosed_bracket: false,
+            is_unclosed_string: false,
+        }));
+    }
+    Some(CompileError::from_source_error(
+        source_file,
+        CpythonDiagnostic::new("invalid syntax".to_owned(), 0, 0),
+    ))
+}
+
 /// The byte-order mark is only stripped while decoding source bytes, so one
 /// that survives into the text is just a non-printable character. The tokenizer
 /// rejects it everywhere except at the very start of the text, which is where
@@ -6590,6 +7125,11 @@ fn _compile_with_syntax_warning_handler<'a>(
     }
     let parsed =
         parsed.map_err(|err| CompileError::from_ruff_parse_error(err, &source_file, mode))?;
+    if matches!(mode, Mode::Single)
+        && let Some(error) = single_mode_blank_source_error(&source_file)
+    {
+        return Err(error);
+    }
     if opts.dont_imply_dedent
         && matches!(mode, Mode::Single)
         && let Some(error) = dont_imply_dedent_source_error(&source_file)
@@ -7091,6 +7631,49 @@ mod tests {
             ("fb''", "'b' and 'f' prefixes are incompatible"),
             ("ufr''", "'u' and 'r' prefixes are incompatible"),
             (
+                "(]\nbu'x'",
+                "closing parenthesis ']' does not match opening parenthesis '('",
+            ),
+            ("0x\nbu'x'", "invalid hexadecimal literal"),
+            ("(0x", "invalid hexadecimal literal"),
+            ("print x; 0x", "invalid hexadecimal literal"),
+            ("exec x; 0x", "invalid hexadecimal literal"),
+            (
+                "print x; 0x1",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            (
+                "print x; (",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            ("print x; )", "unmatched ')'"),
+            (
+                "( '\\N'",
+                "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
+            ),
+            ("(print x", "'(' was never closed"),
+            (
+                "(print x; '\\N'",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            ("f'{x'; '", "f-string: expecting '}'"),
+            ("f'{x'; 0x", "f-string: expecting '}'"),
+            (
+                "print x; f'{x'; 0x",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+            (
+                concat!("f'{1:", "d\n}'"),
+                "f-string: newlines are not allowed in format specifiers",
+            ),
+            ("f'{\n}'", "f-string: valid expression required before '}'"),
+            (
+                "f'''\n{\n# only a comment\n}'''",
+                "f-string: valid expression required before '}'",
+            ),
+            ("{\\'a\\'}", "unexpected character after line continuation"),
+            ("\"\\\n\"(1 for c in I,\\\n\\", "'(' was never closed"),
+            (
                 r"'\N'",
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",
             ),
@@ -7106,6 +7689,23 @@ mod tests {
                 "{source:?}: expected {expected:?}, got {err}"
             );
         }
+    }
+
+    #[test]
+    fn unclosed_fstring_field_keeps_the_unclosed_bracket_flag() {
+        let err = compile("f'{", Mode::Eval, "<interp>", CompileOpts::default())
+            .expect_err("should not compile");
+        let crate::CompileError::Parse(parse) = err else {
+            panic!("expected a parse error, got {err}");
+        };
+        assert!(
+            parse.is_unclosed_bracket,
+            "unclosed f-string field must stay incomplete, got {parse}"
+        );
+        assert!(
+            parse.to_string().contains("'{' was never closed"),
+            "got {parse}"
+        );
     }
 
     #[test]
@@ -7350,6 +7950,155 @@ mod tests {
         assert_eq!(span("(\u{3b1} b)"), (2, 5));
         // Other bracket kinds take the same path.
         assert_eq!(span("[\u{3b1} \u{3b2}]"), (2, 5));
+    }
+
+    #[test]
+    fn parenthesized_yield_assignment_uses_invalid_target_message() {
+        let err = compile(
+            "def f(): (yield bar) = y\n",
+            Mode::Exec,
+            "<yield>",
+            CompileOpts::default(),
+        )
+        .expect_err("parenthesized yield is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to yield expression here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn parenthesized_yield_augassign_uses_illegal_expression_message() {
+        let err = compile(
+            "def f(): (yield bar) += y\n",
+            Mode::Exec,
+            "<yield>",
+            CompileOpts::default(),
+        )
+        .expect_err("parenthesized yield is not an augmented assignment target");
+        assert_eq!(
+            err.to_string(),
+            "'yield expression' is an illegal expression for augmented assignment"
+        );
+    }
+
+    #[test]
+    fn kwarg_unparenthesized_genexp_uses_eq_or_walrus_message() {
+        let err = compile(
+            "dict(a = i for i in range(10))\n",
+            Mode::Exec,
+            "<kwarg>",
+            CompileOpts::default(),
+        )
+        .expect_err("unparenthesized genexp after '=' is invalid");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn eval_fstring_assignment_keeps_invalid_syntax() {
+        for source in ["f'' = 3", "f'{0}' = x", "f'{x}' = x"] {
+            let err = compile(source, Mode::Eval, "<eval>", CompileOpts::default())
+                .expect_err("assignment is invalid in eval");
+            assert_eq!(err.to_string(), "invalid syntax", "{source}");
+        }
+        let err = compile("f'' = 3", Mode::Exec, "<exec>", CompileOpts::default())
+            .expect_err("f-string is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to f-string expression here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn if_assignment_uses_eq_or_walrus_message() {
+        let err = compile(
+            "if x = 3: pass\n",
+            Mode::Exec,
+            "<if>",
+            CompileOpts::default(),
+        )
+        .expect_err("assignment in if condition is invalid");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn parenthesized_if_assignment_uses_eq_or_walrus_message() {
+        for source in [
+            "if (x = 3): pass\n",
+            "if ((x = 3)): pass\n",
+            "if (x = 3) and y: pass\n",
+        ] {
+            let err = compile(source, Mode::Exec, "<if>", CompileOpts::default())
+                .expect_err("parenthesized assignment in if condition is invalid");
+            assert_eq!(
+                err.to_string(),
+                "invalid syntax. Maybe you meant '==' or ':=' instead of '='?"
+            );
+        }
+    }
+
+    #[test]
+    fn earlier_syntax_error_is_not_replaced_by_later_condition() {
+        let err = compile(
+            "@@@\nif x = 3: pass\n",
+            Mode::Exec,
+            "<if>",
+            CompileOpts::default(),
+        )
+        .expect_err("the first invalid token is the syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location().0, 1);
+    }
+
+    #[test]
+    fn if_attribute_assignment_uses_invalid_target_hint() {
+        let err = compile(
+            "if x.a = 3: pass\n",
+            Mode::Exec,
+            "<if>",
+            CompileOpts::default(),
+        )
+        .expect_err("attribute assignment in if condition is invalid");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to attribute here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn parenthesized_yield_from_assignment_uses_invalid_target_message() {
+        let err = compile(
+            "def f(): (yield from value) = target\n",
+            Mode::Exec,
+            "<yield>",
+            CompileOpts::default(),
+        )
+        .expect_err("parenthesized yield from is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to yield expression here. Maybe you meant '==' instead of '='?"
+        );
+    }
+
+    #[test]
+    fn set_display_assignment_uses_invalid_target_hint() {
+        let err = compile(
+            "{1, 2, 3} = 42\n",
+            Mode::Exec,
+            "<set>",
+            CompileOpts::default(),
+        )
+        .expect_err("set display is not an assignment target");
+        assert_eq!(
+            err.to_string(),
+            "cannot assign to set display here. Maybe you meant '==' instead of '='?"
+        );
     }
 
     #[test]

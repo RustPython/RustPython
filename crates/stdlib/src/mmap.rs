@@ -188,6 +188,8 @@ mod mmap {
         pos: AtomicCell<usize>, // relative to offset
         exports: AtomicCell<usize>,
         access: AccessMode,
+        #[cfg(unix)]
+        trackfd: bool,
     }
 
     impl PyMmap {
@@ -229,6 +231,8 @@ mod mmap {
         access: AccessMode,
         #[pyarg(any, default = 0)]
         offset: i64,
+        #[pyarg(named, default = true)]
+        trackfd: bool,
     }
 
     #[cfg(windows)]
@@ -364,6 +368,7 @@ mod mmap {
                 prot,
                 access,
                 offset,
+                trackfd,
                 ..
             } = args;
 
@@ -443,12 +448,17 @@ mod mmap {
             Ok(Self {
                 closed: AtomicCell::new(false),
                 mmap: PyMutex::new(Some(MmapObj::Mapped(mmap))),
-                fd: AtomicCell::new(fd.map_or(-1, |fd| fd.into_raw())),
+                fd: AtomicCell::new(if trackfd {
+                    fd.map_or(-1, |owned| owned.into_raw())
+                } else {
+                    -1
+                }),
                 offset,
                 size: AtomicCell::new(map_size),
                 pos: AtomicCell::new(0),
                 exports: AtomicCell::new(0),
                 access,
+                trackfd,
             })
         }
 
@@ -750,6 +760,11 @@ mod mmap {
         fn check_resizeable(&self, vm: &VirtualMachine) -> PyResult<()> {
             if self.exports.load() > 0 {
                 return Err(vm.new_buffer_error("mmap can't resize with extant buffers exported."));
+            }
+
+            #[cfg(unix)]
+            if !self.trackfd {
+                return Err(vm.new_value_error("mmap can't resize with trackfd=False."));
             }
 
             if self.access == AccessMode::Write || self.access == AccessMode::Default {
@@ -1095,7 +1110,7 @@ mod mmap {
             dist: isize,
             whence: OptionalArg<core::ffi::c_int>,
             vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        ) -> PyResult<usize> {
             let how = whence.unwrap_or(0);
             let size = self.__len__();
 
@@ -1125,7 +1140,7 @@ mod mmap {
 
             self.pos.store(new_pos as usize);
 
-            Ok(())
+            Ok(new_pos as usize)
         }
 
         #[cfg(unix)]

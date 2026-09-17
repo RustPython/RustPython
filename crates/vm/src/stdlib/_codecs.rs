@@ -94,7 +94,7 @@ mod _codecs {
 
     #[pyfunction]
     fn register_error(
-        name: PyUtf8StrRef,
+        errors: PyUtf8StrRef,
         handler: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -103,7 +103,7 @@ mod _codecs {
         }
         vm.state
             .codec_registry
-            .register_error(name.as_str().to_owned(), handler);
+            .register_error(errors.as_str().to_owned(), handler);
         Ok(())
     }
 

@@ -2749,6 +2749,100 @@ pub fn open_library(name: impl AsRef<OsStr>) -> Result<usize, libloading::Error>
     libcache().write().open_library(name)
 }
 
+/// `LoadLibraryExW` — the raw module handle `_ctypes.LoadLibrary` stores.
+#[cfg(windows)]
+pub fn load_library_ex_w(
+    name: &widestring::WideCStr,
+    flags: u32,
+) -> std::io::Result<windows_sys::Win32::Foundation::HMODULE> {
+    let module = unsafe {
+        windows_sys::Win32::System::LibraryLoader::LoadLibraryExW(
+            name.as_ptr(),
+            core::ptr::null_mut(),
+            flags,
+        )
+    };
+    if module.is_null() {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(module)
+    }
+}
+
+#[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn get_proc_address(
+    module: windows_sys::Win32::Foundation::HMODULE,
+    name: &CStr,
+) -> Option<usize> {
+    unsafe {
+        windows_sys::Win32::System::LibraryLoader::GetProcAddress(module, name.as_ptr().cast())
+    }
+    .map(|addr| addr as usize)
+    .filter(|&addr| addr != 0)
+}
+
+#[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn free_library(module: windows_sys::Win32::Foundation::HMODULE) -> std::io::Result<()> {
+    if unsafe { windows_sys::Win32::Foundation::FreeLibrary(module) } == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn sys_string_len(bstr: *const u16) -> usize {
+    unsafe { windows_sys::Win32::Foundation::SysStringLen(bstr) as usize }
+}
+
+#[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn sys_free_string(bstr: *const u16) {
+    unsafe { windows_sys::Win32::Foundation::SysFreeString(bstr) };
+}
+
+#[cfg(windows)]
+pub fn sys_alloc_string_len(units: &[u16]) -> Option<*mut u16> {
+    let len = u32::try_from(units.len()).ok()?;
+    let bstr = unsafe { windows_sys::Win32::Foundation::SysAllocStringLen(units.as_ptr(), len) };
+    (!bstr.is_null()).then_some(bstr as *mut u16)
+}
+
+#[cfg(windows)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn co_task_mem_free(ptr: *mut core::ffi::c_void) {
+    unsafe { windows_sys::Win32::System::Com::CoTaskMemFree(ptr) };
+}
+
+/// `GetErrorInfo(0)`. `None` when the thread has no error object (`S_FALSE`).
+#[cfg(windows)]
+pub fn get_error_info() -> Option<*mut core::ffi::c_void> {
+    let mut pei = core::ptr::null_mut();
+    if unsafe { windows_sys::Win32::System::Com::GetErrorInfo(0, &mut pei) } != 0 {
+        None
+    } else {
+        Some(pei.cast())
+    }
+}
+
+/// `ProgIDFromCLSID`. The returned pointer is `CoTaskMemFree`'d by the caller.
+#[cfg(windows)]
+pub fn prog_id_from_clsid(guid: &[u8; 16]) -> Option<*mut u16> {
+    let mut progid = core::ptr::null_mut();
+    if unsafe {
+        windows_sys::Win32::System::Com::ProgIDFromCLSID(guid.as_ptr().cast(), &mut progid)
+    } != 0
+        || progid.is_null()
+    {
+        None
+    } else {
+        Some(progid)
+    }
+}
+
 #[cfg(unix)]
 pub fn open_library_with_mode(
     name: impl AsRef<OsStr>,
@@ -2789,10 +2883,16 @@ pub fn lookup_data_symbol_addr(
     symbol_name: &[u8],
 ) -> Result<usize, LookupSymbolError> {
     let cache = libcache().read();
-    cache
-        .get_lib(handle)
-        .ok_or(LookupSymbolError::LibraryNotFound)?
-        .lookup_data_symbol_addr(symbol_name)
+    if let Some(lib) = cache.get_lib(handle) {
+        return lib.lookup_data_symbol_addr(symbol_name);
+    }
+    #[cfg(windows)]
+    {
+        drop(cache);
+        lookup_raw_windows_symbol(handle, symbol_name)
+    }
+    #[cfg(not(windows))]
+    Err(LookupSymbolError::LibraryNotFound)
 }
 
 #[cfg(any(unix, windows))]
@@ -2801,10 +2901,47 @@ pub fn lookup_function_symbol_addr(
     symbol_name: &[u8],
 ) -> Result<usize, LookupSymbolError> {
     let cache = libcache().read();
-    cache
-        .get_lib(handle)
-        .ok_or(LookupSymbolError::LibraryNotFound)?
-        .lookup_function_symbol_addr(symbol_name)
+    if let Some(lib) = cache.get_lib(handle) {
+        return lib.lookup_function_symbol_addr(symbol_name);
+    }
+    #[cfg(windows)]
+    {
+        drop(cache);
+        lookup_raw_windows_symbol(handle, symbol_name)
+    }
+    #[cfg(not(windows))]
+    Err(LookupSymbolError::LibraryNotFound)
+}
+
+#[cfg(windows)]
+fn lookup_raw_windows_symbol(
+    handle: usize,
+    symbol_name: &[u8],
+) -> Result<usize, LookupSymbolError> {
+    let owned;
+    let name = if let Ok(name) = CStr::from_bytes_with_nul(symbol_name) {
+        name
+    } else {
+        owned = alloc::ffi::CString::new(symbol_name)
+            .map_err(|err| LookupSymbolError::Load(err.to_string()))?;
+        owned.as_c_str()
+    };
+    match get_proc_address(handle as _, name) {
+        Some(addr) => Ok(addr),
+        None => {
+            // A valid LoadLibraryExW handle with no such export is a missing
+            // symbol, not a missing library. GetProcAddress sets
+            // ERROR_PROC_NOT_FOUND (127); invalid/unloaded modules typically
+            // set ERROR_INVALID_HANDLE (6) or ERROR_MOD_NOT_FOUND (126).
+            match std::io::Error::last_os_error().raw_os_error() {
+                Some(6 | 126) => Err(LookupSymbolError::LibraryNotFound),
+                _ => Err(LookupSymbolError::Load(format!(
+                    "function '{}' not found",
+                    name.to_string_lossy()
+                ))),
+            }
+        }
+    }
 }
 
 #[cfg(all(unix, not(target_os = "wasi")))]

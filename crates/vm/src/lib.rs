@@ -6,7 +6,7 @@
 //!
 //! Some stdlib modules are implemented here, but most of them are in the `rustpython-stdlib` module. The
 
-#![deny(clippy::disallowed_methods)]
+#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 #![allow(
     clippy::module_inception,
     reason = "

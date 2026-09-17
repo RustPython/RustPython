@@ -270,8 +270,8 @@ pub(super) mod _os {
     const ST_NOSUID: libc::c_ulong = libc::ST_NOSUID;
 
     #[pyfunction]
-    fn close(fileno: crt_fd::Owned) -> io::Result<()> {
-        crt_fd::close(fileno)
+    fn close(fd: crt_fd::Owned) -> io::Result<()> {
+        crt_fd::close(fd)
     }
 
     #[pyfunction]
@@ -341,8 +341,8 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn read(fd: crt_fd::Borrowed<'_>, n: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        let mut buffer = vm.new_zeroed_bytes(n)?;
+    fn read(fd: crt_fd::Borrowed<'_>, length: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        let mut buffer = vm.new_zeroed_bytes(length)?;
         loop {
             match vm.allow_threads(|| crt_fd::read(fd, &mut buffer)) {
                 Ok(n) => {
@@ -555,20 +555,20 @@ pub(super) mod _os {
 
     #[cfg(windows)]
     #[pyfunction]
-    fn putenv(key: PyStrRef, value: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let key_str = key.expect_str();
+    fn putenv(name: PyStrRef, value: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        let name_str = name.expect_str();
         let value_str = value.expect_str();
         // Search from index 1 because on Windows starting '=' is allowed for
         // defining hidden environment variables.
-        if key_str.is_empty()
-            || key_str.get(1..).is_some_and(|s| s.contains('='))
-            || key.contains_nuls()
+        if name_str.is_empty()
+            || name_str.get(1..).is_some_and(|s| s.contains('='))
+            || name.contains_nuls()
             || value.contains_nuls()
         {
             cold_path();
             return Err(vm.new_value_error("illegal environment variable name"));
         }
-        let env_str = format!("{key_str}={value_str}");
+        let env_str = format!("{name_str}={value_str}");
         // env_str is guaranteed nul-free by the checks above.
         let wide = widestring::WideCString::from_str(&env_str)
             .expect("env_str validated to contain no NUL");
@@ -581,42 +581,42 @@ pub(super) mod _os {
     #[cfg(not(windows))]
     #[pyfunction]
     fn putenv(
-        key: crate::function::Either<PyStrRef, PyBytesRef>,
+        name: crate::function::Either<PyStrRef, PyBytesRef>,
         value: crate::function::Either<PyStrRef, PyBytesRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let (Some(key), Some(value)) = (
-            env_bytes_as_bytes_checked(&key),
+        let (Some(name), Some(value)) = (
+            env_bytes_as_bytes_checked(&name),
             env_bytes_as_bytes_checked(&value),
         ) else {
             cold_path();
             return Err(exceptions::nul_byte_error(vm));
         };
-        if key.is_empty() || key.contains(&b'=') {
+        if name.is_empty() || name.contains(&b'=') {
             return Err(vm.new_value_error("illegal environment variable name"));
         }
-        let key = super::bytes_as_os_str(key, vm)?;
+        let name = super::bytes_as_os_str(name, vm)?;
         let value = super::bytes_as_os_str(value, vm)?;
         // SAFETY: requirements forwarded from the caller
-        unsafe { crate::host_env::os::set_var(key, value) };
+        unsafe { crate::host_env::os::set_var(name, value) };
         Ok(())
     }
 
     #[cfg(windows)]
     #[pyfunction]
-    fn unsetenv(key: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let key_str = key.expect_str();
+    fn unsetenv(name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        let name_str = name.expect_str();
         // Search from index 1 because on Windows starting '=' is allowed for
         // defining hidden environment variables.
-        if key_str.is_empty()
-            || key_str.get(1..).is_some_and(|s| s.contains('='))
-            || key.contains_nuls()
+        if name_str.is_empty()
+            || name_str.get(1..).is_some_and(|s| s.contains('='))
+            || name.contains_nuls()
         {
             cold_path();
             return Err(vm.new_value_error("illegal environment variable name"));
         }
-        // "key=" to unset (empty value removes the variable)
-        let env_str = format!("{key_str}=");
+        // "name=" to unset (empty value removes the variable)
+        let env_str = format!("{name_str}=");
         // env_str is guaranteed nul-free by the checks above.
         let wide = widestring::WideCString::from_str(&env_str)
             .expect("env_str validated to contain no NUL");
@@ -629,27 +629,27 @@ pub(super) mod _os {
     #[cfg(not(windows))]
     #[pyfunction]
     fn unsetenv(
-        key: crate::function::Either<PyStrRef, PyBytesRef>,
+        name: crate::function::Either<PyStrRef, PyBytesRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let Some(key) = env_bytes_as_bytes_checked(&key) else {
+        let Some(name) = env_bytes_as_bytes_checked(&name) else {
             cold_path();
             return Err(exceptions::nul_byte_error(vm));
         };
-        if key.is_empty() || key.contains(&b'=') {
+        if name.is_empty() || name.contains(&b'=') {
             let x = vm.new_errno_error(
                 22,
                 format!(
                     "Invalid argument: {}",
-                    core::str::from_utf8(key).unwrap_or("<bytes encoding failure>")
+                    core::str::from_utf8(name).unwrap_or("<bytes encoding failure>")
                 ),
             );
 
             return Err(x.upcast());
         }
-        let key = super::bytes_as_os_str(key, vm)?;
+        let name = super::bytes_as_os_str(name, vm)?;
         // SAFETY: requirements forwarded from the caller
-        unsafe { crate::host_env::os::remove_var(key) };
+        unsafe { crate::host_env::os::remove_var(name) };
         Ok(())
     }
 
@@ -1416,27 +1416,27 @@ pub(super) mod _os {
     #[pyfunction]
     #[pyfunction(name = "fstat")]
     fn stat(
-        file: OsPathOrFd<'_>,
+        path: OsPathOrFd<'_>,
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult {
-        if matches!(file, OsPathOrFd::Fd(_)) && !follow_symlinks.0 {
+        if matches!(path, OsPathOrFd::Fd(_)) && !follow_symlinks.0 {
             return Err(vm.new_value_error("stat: cannot use fd and follow_symlinks together"));
         }
-        let stat = stat_inner(file.clone(), dir_fd, follow_symlinks)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, file, vm))?
+        let stat = stat_inner(path.clone(), dir_fd, follow_symlinks)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?
             .ok_or_else(|| crate::exceptions::nul_char_error(vm))?;
         Ok(StatResultData::from_stat(&stat, vm).to_pyobject(vm))
     }
 
     #[pyfunction]
     fn lstat(
-        file: OsPath,
+        path: OsPath,
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        stat(file.into(), dir_fd, FollowSymlinks(false), vm)
+        stat(path.into(), dir_fd, FollowSymlinks(false), vm)
     }
 
     fn curdir_inner(vm: &VirtualMachine) -> PyResult<PathBuf> {
@@ -1561,8 +1561,8 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn _exit(code: i32) {
-        crate::host_env::os::exit(code)
+    fn _exit(status: i32) {
+        crate::host_env::os::exit(status)
     }
 
     #[pyfunction]
@@ -1587,10 +1587,10 @@ pub(super) mod _os {
     pub(crate) fn lseek(
         fd: crt_fd::Borrowed<'_>,
         position: crt_fd::Offset,
-        how: i32,
+        whence: i32,
         vm: &VirtualMachine,
     ) -> PyResult<crt_fd::Offset> {
-        crate::host_env::os::seek_fd(fd, position, how).map_err(|e| e.into_pyexception(vm))
+        crate::host_env::os::seek_fd(fd, position, whence).map_err(|e| e.into_pyexception(vm))
     }
 
     #[derive(FromArgs)]
@@ -1902,8 +1902,8 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn strerror(e: i32) -> String {
-        crate::host_env::time::strerror(e)
+    fn strerror(code: i32) -> String {
+        crate::host_env::time::strerror(code)
     }
 
     #[pyfunction]

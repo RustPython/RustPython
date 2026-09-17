@@ -42,6 +42,11 @@ jobs:
     outputs:
       # Flag that is raised when any rust code is changed.
       rust_code: ${{ steps.check_rust_code.outputs.changed }}
+      # WASM demo / notebook / example_projects, independent of rust_code.
+      wasm_code: ${{ steps.check_wasm_code.outputs.changed }}
+      # Cross-target cargo check is skipped unless the diff can change
+      # platform-specific compilation. Force with the run:cross-check label.
+      cross_target: ${{ steps.check_cross_target.outputs.changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -66,6 +71,11 @@ jobs:
             ':.cargo/config.toml' \
             ':crates/**' \
             ':src/**' \
+            ':build.rs' \
+            ':tests/**' \
+            ':examples/**' \
+            ':benches/**' \
+            ':example_projects/**' \
             ':.github/workflows/ci.yaml' \
           ; then
               echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -75,10 +85,114 @@ jobs:
         env:
           MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
 
+      - name: Check if WASM package or demo sources changed
+        id: check_wasm_code
+        run: |
+          if git diff --quiet "${MERGE_BASE}...HEAD" -- \
+            ':wasm/**' \
+            ':crates/wasm/**' \
+            ':example_projects/wasm32_without_js/**' \
+          ; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+
+      - name: Check if cross-target compilation can change
+        id: check_cross_target
+        run: |
+          if [ "${FORCE_CROSS_TARGET}" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! git diff --quiet "${MERGE_BASE}...HEAD" -- \
+            ':Cargo.lock' \
+            ':rust-toolchain.toml' \
+            ':.cargo/**' \
+            ':.github/workflows/ci.yaml' \
+            ':crates/host_env/**' \
+            ':crates/stdlib/src/openssl/**' \
+            ':crates/stdlib/src/ssl/**' \
+            ':**/_signal.rs' \
+            ':**/_testconsole.rs' \
+            ':**/_thread.rs' \
+            ':**/_winapi.rs' \
+            ':**/_wmi.rs' \
+            ':**/cert_store.rs' \
+            ':**/crt_fd*.rs' \
+            ':**/errno.rs' \
+            ':**/faulthandler.rs' \
+            ':**/fcntl.rs' \
+            ':**/fileutils.rs' \
+            ':**/grp.rs' \
+            ':**/locale.rs' \
+            ':**/mmap.rs' \
+            ':**/msvcrt.rs' \
+            ':**/multiprocessing.rs' \
+            ':**/native_certs.rs' \
+            ':**/nt.rs' \
+            ':**/openssl.rs' \
+            ':**/os.rs' \
+            ':**/overlapped.rs' \
+            ':**/posix*.rs' \
+            ':**/pwd.rs' \
+            ':**/resource.rs' \
+            ':**/scproxy.rs' \
+            ':**/select.rs' \
+            ':**/shm.rs' \
+            ':**/signal.rs' \
+            ':**/socket.rs' \
+            ':**/ssl.rs' \
+            ':**/syslog.rs' \
+            ':**/thread.rs' \
+            ':**/time.rs' \
+            ':**/termios.rs' \
+            ':**/testconsole.rs' \
+            ':**/tkinter.rs' \
+            ':**/uuid.rs' \
+            ':**/winapi.rs' \
+            ':**/windows.rs' \
+            ':**/winreg.rs' \
+            ':**/winsound.rs' \
+            ':**/wmi.rs'
+          then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Platform cfg, or FFI crates that only exist on some targets.
+          platform_re='target_os|target_arch|target_family|target_env|target_vendor|target_pointer_width|target_endian|cfg\(windows\)|cfg\(unix\)|cfg\(wasi|not\(windows|not\(unix|\[target\.|\blibc::|\bnix::|windows_sys|winapi::|rustix::|std::os::'
+
+          if ! git diff -G "${platform_re}" --quiet "${MERGE_BASE}...HEAD"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          while IFS= read -r file; do
+            [ -f "${file}" ] || continue
+            if grep -Eq "${platform_re}" "${file}"; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done < <(git diff --name-only "${MERGE_BASE}...HEAD" -- '*.rs')
+
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        env:
+          MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+          FORCE_CROSS_TARGET: ${{ contains(github.event.pull_request.labels.*.name, 'run:cross-check') }}
+
   rust_tests:
+    # Required check: keep the job so a Lib-only PR still gets a green
+    # "Run rust tests (*)" status. Skip the build when rust sources did not change.
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    needs:
+      - determine_changes
     env:
       RUST_BACKTRACE: full
+      RUN_RUST_TESTS: ${{ needs.determine_changes.outputs.rust_code == 'true' || github.ref == 'refs/heads/main' }}
     # Named after the matrix entry rather than left to be named for it: a
     # generated name lists every value in the entry, so adding or removing one
     # renames the check and drops it from the required list.
@@ -90,20 +204,27 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-2025]
       fail-fast: false
     steps:
+      - name: Skip rust tests when sources did not change
+        if: env.RUN_RUST_TESTS != 'true'
+        run: echo "No rust source changes; required check is green without rebuilding."
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.RUN_RUST_TESTS == 'true'
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
+        if: env.RUN_RUST_TESTS == 'true'
 
       - name: Use a short Cargo home on Windows
-        if: runner.os == 'Windows'
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: |
           "CARGO_HOME=$env:RUNNER_TEMP\c" >> $env:GITHUB_ENV
           git config --global core.longpaths true
 
       - name: Restore cache
+        if: env.RUN_RUST_TESTS == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -123,38 +244,62 @@ jobs:
         continue-on-error: true
 
       - name: Install macOS dependencies
+        if: env.RUN_RUST_TESTS == 'true'
         uses: ./.github/actions/install-macos-deps
 
-      - name: run rust tests
-        run: cargo test --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+      - name: Build rust tests
+        if: env.RUN_RUST_TESTS == 'true'
+        run: cargo test --no-run --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
         env:
           INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
-      - name: run c-api tests
+      - name: run rust tests
+        if: env.RUN_RUST_TESTS == 'true'
+        run: cargo test --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }} --lib --bins --tests
+        env:
+          INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+
+      - name: Run rust doctests
+        if: env.RUN_RUST_TESTS == 'true'
+        run: cargo test --doc --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+        env:
+          INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+
+      - name: Build c-api tests
+        if: env.RUN_RUST_TESTS == 'true' && runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
         working-directory: crates/capi
-        run: cargo test --locked
-        if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
+        run: cargo test --no-run --locked
+
+      - name: run c-api tests
+        if: env.RUN_RUST_TESTS == 'true' && runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
+        working-directory: crates/capi
+        run: cargo test --locked --lib --bins --tests
+
+      - name: Run c-api doctests
+        if: env.RUN_RUST_TESTS == 'true' && runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
+        working-directory: crates/capi
+        run: cargo test --doc --locked
 
       - name: check compilation without host_env (sandbox mode)
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: |
           cargo check --locked -p rustpython-vm --no-default-features --features compiler
           cargo check --locked -p rustpython-stdlib --no-default-features --features compiler
           cargo build --locked --no-default-features --features stdlib,importlib,stdio,encodings,freeze-stdlib
-        if: runner.os == 'Linux'
 
       - name: sandbox smoke test
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: |
           target/debug/rustpython extra_tests/snippets/sandbox_smoke.py
           target/debug/rustpython extra_tests/snippets/stdlib_re.py
-        if: runner.os == 'Linux'
 
       - name: Test openssl build
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: cargo build --locked --no-default-features --features ssl-openssl
-        if: runner.os == 'Linux'
 
       - name: Test vendored OpenSSL build
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: cargo build --locked --no-default-features --features ssl-openssl-vendor
-        if: runner.os == 'Linux'
 
       # - name: Install tk-dev for tkinter build
       #   run: sudo apt-get update && sudo apt-get install -y tk-dev
@@ -164,17 +309,27 @@ jobs:
       #   run: cargo build --features tkinter
       #   if: runner.os == 'Linux'
 
-      - name: Test example projects
+      - name: Build example projects
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: |
-          cargo run --manifest-path example_projects/barebone/Cargo.toml
-          cargo run --manifest-path example_projects/frozen_stdlib/Cargo.toml
-        if: runner.os == 'Linux'
+          cargo build --manifest-path example_projects/barebone/Cargo.toml
+          cargo build --manifest-path example_projects/frozen_stdlib/Cargo.toml
+
+      - name: Run example projects
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
+        run: |
+          example_projects/barebone/target/debug/example-barebone
+          example_projects/frozen_stdlib/target/debug/example_frozen_stdlib
+
+      - name: Build rustpython for update_lib tests
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
+        run: cargo build --locked
 
       - name: run update_lib tests
-        run: cargo run --locked -- -m unittest discover -s scripts/update_lib/tests -v
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
+        run: target/debug/rustpython -m unittest discover -s scripts/update_lib/tests -v
         env:
           PYTHONPATH: scripts
-        if: runner.os == 'Linux'
 
   cargo_check:
     # Named after the matrix entry rather than left to be named for it: a
@@ -187,7 +342,7 @@ jobs:
     if: |
       (
         !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
-        needs.determine_changes.outputs.rust_code == 'true'
+        needs.determine_changes.outputs.cross_target == 'true'
       ) || github.ref == 'refs/heads/main'
     strategy:
       matrix:
@@ -487,7 +642,7 @@ jobs:
 
       - name: Check whats_left is not broken
         shell: bash
-        run: python -I scripts/whats_left.py ${{ env.CARGO_ARGS }} --features jit
+        run: python -I scripts/whats_left.py --rustpython target/release/rustpython
 
   clippy:
     # Named after the matrix entry rather than left to be named for it: a
@@ -506,10 +661,8 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - macos-latest
           - ubuntu-latest
-          - windows-latest
-    steps:
+    steps: &clippy_steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -547,6 +700,26 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --keep-going ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
 
+  # macOS/Windows clippy uses the same OS-surface filter as cargo check.
+  # Force with the run:cross-check label. Check names stay clippy (<os>).
+  clippy_cross:
+    name: clippy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs:
+      - determine_changes
+    permissions:
+      contents: read
+    if: |
+      github.ref == 'refs/heads/main' ||
+      needs.determine_changes.outputs.cross_target == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - windows-latest
+    steps: *clippy_steps
+
   cargo_shear:
     name: cargo shear
     runs-on: ubuntu-latest
@@ -564,7 +737,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: cargo-bins/cargo-binstall@75b4bfae1b2c753a6806bbce6e6cb89b602de33c # v1.22.0
+      - uses: cargo-bins/cargo-binstall@b874e25ea559687bec77e281e9b271aa1367b624 # v1.23.0
 
       - name: cargo shear
         run: |
@@ -592,7 +765,7 @@ jobs:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@dbe5299849118fd6f099ba563d263d770955a64a # v1.73.2
+        uses: reviewdog/action-actionlint@d290e336d5a743810aef4404f757dc862276d2ae # v1.73.4
 
       - name: zizmor
         uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99 # v0.6.3
@@ -652,7 +825,14 @@ jobs:
           fail_level: error
 
   miri:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    needs:
+      - determine_changes
+    if: |
+      !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
+      (
+        needs.determine_changes.outputs.rust_code == 'true' ||
+        github.ref == 'refs/heads/main'
+      )
     name: Run tests under miri
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -681,6 +861,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-
 
+      - name: Build tests under miri
+        run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test --no-run --locked -p rustpython-vm -- miri_test
+        env:
+          MIRIFLAGS: "-Zmiri-ignore-leaks -Zmiri-permissive-provenance"
+
       - name: Run tests under miri
         run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test --locked -p rustpython-vm -- miri_test
         env:
@@ -692,7 +877,15 @@ jobs:
           MIRIFLAGS: "-Zmiri-ignore-leaks -Zmiri-permissive-provenance"
 
   wasm:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    needs:
+      - determine_changes
+    if: |
+      !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
+      (
+        needs.determine_changes.outputs.rust_code == 'true' ||
+        needs.determine_changes.outputs.wasm_code == 'true' ||
+        github.ref == 'refs/heads/main'
+      )
     name: Check the WASM package and demo
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -769,15 +962,20 @@ jobs:
         with:
           wabt-version: "1.0.36"
 
-      - name: check wasm32-unknown without js
+      - name: Build wasm32-unknown without js
+        working-directory: example_projects/wasm32_without_js/rustpython-without-js
+        run: cargo build
+
+      - name: Build wasm-runtime
+        run: cargo build --release --manifest-path example_projects/wasm32_without_js/wasm-runtime/Cargo.toml
+
+      - name: Check wasm32-unknown without js
+        working-directory: example_projects/wasm32_without_js
         run: |
-          cd example_projects/wasm32_without_js/rustpython-without-js
-          cargo build
-          cd ..
           if wasm-objdump -xj Import rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm; then
             echo "ERROR: wasm32-unknown module expects imports from the host environment" >&2
           fi
-          cargo run --release --manifest-path wasm-runtime/Cargo.toml rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
+          wasm-runtime/target/release/wasm-runtime rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
 
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
@@ -807,22 +1005,34 @@ jobs:
           key: node-${{ runner.os }}-wasm-demo-${{ hashFiles('wasm/demo/package-lock.json') }}
 
   wasm-wasi:
+    # Required check: keep the job so a Lib-only PR still gets a green
+    # "Run snippets and cpython tests on wasm-wasi" status.
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    needs:
+      - determine_changes
     name: Run snippets and cpython tests on wasm-wasi
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      RUN_WASM_WASI: ${{ needs.determine_changes.outputs.rust_code == 'true' || github.ref == 'refs/heads/main' }}
     steps:
+      - name: Skip wasm-wasi when rust sources did not change
+        if: env.RUN_WASM_WASI != 'true'
+        run: echo "No rust source changes; required check is green without rebuilding."
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.RUN_WASM_WASI == 'true'
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
+        if: env.RUN_WASM_WASI == 'true'
         with:
           target: wasm32-wasip1
 
       - name: Restore cache
+        if: env.RUN_WASM_WASI == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -839,20 +1049,25 @@ jobs:
             ${{ runner.os }}-stable--
 
       - name: Setup Wasmer
+        if: env.RUN_WASM_WASI == 'true'
         uses: wasmerio/setup-wasmer@24b15c95293d23f89c68bd40dac76338f773e924 # v3.1
 
       - name: Install clang
+        if: env.RUN_WASM_WASI == 'true'
         uses: ./.github/actions/install-linux-deps
         with:
           clang: true
 
       - name: build rustpython
+        if: env.RUN_WASM_WASI == 'true'
         run: cargo build --locked --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env --verbose
       - name: run snippets
+        if: env.RUN_WASM_WASI == 'true'
         run: |
           wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
           wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_time.py"
       - name: run cpython unittest
+        if: env.RUN_WASM_WASI == 'true'
         run: wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
 
   cargo_doc:

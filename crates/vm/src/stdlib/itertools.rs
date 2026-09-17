@@ -49,11 +49,11 @@ mod decl {
         #[pyclassmethod]
         fn from_iterable(
             cls: PyTypeRef,
-            source: PyObjectRef,
+            iterable: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             Self {
-                source: PyRwLock::new(Some(source.get_iter(vm)?)),
+                source: PyRwLock::new(Some(iterable.get_iter(vm)?)),
                 active: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)

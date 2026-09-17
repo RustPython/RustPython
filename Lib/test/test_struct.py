@@ -730,7 +730,6 @@ class StructTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         s2 = struct.Struct(s.format.encode())
         self.assertEqual(s2.format, s.format)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_struct_cleans_up_at_runtime_shutdown(self):
         code = """if 1:
             import struct

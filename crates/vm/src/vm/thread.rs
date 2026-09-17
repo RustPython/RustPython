@@ -23,16 +23,20 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::thread_local;
 
-// Thread states for stop-the-world support.
+// Thread states for stop-the-world support (`_Py_THREAD_*`).
 //   DETACHED: not executing Python bytecode (in native code, or idle)
 //   ATTACHED: actively executing Python bytecode
 //   SUSPENDED: parked by a stop-the-world request
+//   SHUTTING_DOWN: interpreter is finalizing; the OS thread must hang
+//   (`_PyThreadState_HangThread`) and must not look done to `_ThreadHandle`.
 #[cfg(feature = "threading")]
 pub const THREAD_DETACHED: i32 = 0;
 #[cfg(feature = "threading")]
 pub const THREAD_ATTACHED: i32 = 1;
 #[cfg(feature = "threading")]
 pub const THREAD_SUSPENDED: i32 = 2;
+#[cfg(feature = "threading")]
+pub const THREAD_SHUTTING_DOWN: i32 = 3;
 
 /// Per-thread shared state for sys._current_frames() and sys._current_exceptions().
 /// The exception field uses atomic operations for lock-free cross-thread reads.
@@ -58,7 +62,7 @@ pub struct ThreadSlot {
     #[cfg(not(unix))]
     pub frames: parking_lot::Mutex<Vec<FramePtr>>,
     pub exception: crate::PyAtomicRef<Option<crate::exceptions::types::PyBaseException>>,
-    /// Thread state for stop-the-world: DETACHED / ATTACHED / SUSPENDED
+    /// Thread state for stop-the-world: DETACHED / ATTACHED / SUSPENDED / SHUTTING_DOWN
     pub state: core::sync::atomic::AtomicI32,
     /// Per-thread stop request bit (eval breaker equivalent).
     pub stop_requested: core::sync::atomic::AtomicBool,
@@ -502,6 +506,59 @@ fn wait_while_suspended(slot: &ThreadSlot) -> u64 {
     wait_yields
 }
 
+/// `PyThread_hang_thread`: park this OS thread forever.
+#[cfg(feature = "threading")]
+fn hang_thread() -> ! {
+    loop {
+        std::thread::park();
+    }
+}
+
+/// `_PyThreadState_HangThread`: this thread may no longer run Python.
+///
+/// Mark the slot shutting-down (so later stop-the-world requests do not wait
+/// for it) and never return. The matching `_ThreadHandle` stays not-done, so
+/// `Thread.is_alive()` remains true for a daemon forced off during finalize.
+#[cfg(feature = "threading")]
+pub fn hang_current_thread(state: &PyGlobalState) -> ! {
+    CURRENT_THREAD_SLOT.with(|slot| {
+        if let Some(s) = slot.borrow().as_ref() {
+            let prev = s.state.swap(THREAD_SHUTTING_DOWN, Ordering::AcqRel);
+            if prev == THREAD_ATTACHED {
+                crate::object::qsbr::QSBR.offline(&s.qsbr);
+            }
+            s.stop_requested.store(false, Ordering::Release);
+        }
+    });
+    if state.stop_the_world.requested.load(Ordering::Acquire) {
+        state.stop_the_world.notify_thread_gone();
+    }
+    hang_thread();
+}
+
+/// `_PyThreadState_SetShuttingDown` on every non-current thread.
+///
+/// Call while the world is stopped. Wake parked threads so they observe
+/// `SHUTTING_DOWN` and hang on the next attach, instead of resuming Python.
+#[cfg(feature = "threading")]
+pub fn set_other_threads_shutting_down(state: &PyGlobalState) {
+    let current = crate::stdlib::_thread::get_ident();
+    let registry = state.thread_frames.lock();
+
+    #[expect(
+        clippy::iter_over_hash_type,
+        reason = "Iteration order doesn't matter here"
+    )]
+    for (&id, slot) in registry.iter() {
+        if id == current {
+            continue;
+        }
+        slot.stop_requested.store(false, Ordering::Release);
+        slot.state.store(THREAD_SHUTTING_DOWN, Ordering::Release);
+        slot.thread.unpark();
+    }
+}
+
 #[cfg(feature = "threading")]
 fn attach_thread(vm: &VirtualMachine) {
     CURRENT_THREAD_SLOT.with(|slot| {
@@ -525,6 +582,10 @@ fn attach_thread(vm: &VirtualMachine) {
                         let wait_yields = wait_while_suspended(s);
                         vm.state.stop_the_world.add_attach_wait_yields(wait_yields);
                         // Retry CAS
+                    }
+                    Err(THREAD_SHUTTING_DOWN) => {
+                        super::stw_trace(format_args!("attach hang shutting-down"));
+                        hang_thread();
                     }
                     Err(state) => {
                         debug_assert!(false, "unexpected thread state in attach: {state}");
@@ -750,6 +811,11 @@ fn do_suspend(state: &PyGlobalState) {
                 super::stw_trace(format_args!("suspend skip already-suspended"));
                 return;
             }
+            Some(Err(THREAD_SHUTTING_DOWN)) => {
+                s.stop_requested.store(false, Ordering::Release);
+                super::stw_trace(format_args!("suspend hang shutting-down"));
+                hang_thread();
+            }
             Some(Err(state)) => {
                 debug_assert!(false, "unexpected thread state in suspend: {state}");
                 return;
@@ -782,6 +848,10 @@ fn do_suspend(state: &PyGlobalState) {
                     stw.add_suspend_wait_yields(extra_wait);
                 }
                 Err(THREAD_ATTACHED) => break,
+                Err(THREAD_SHUTTING_DOWN) => {
+                    super::stw_trace(format_args!("suspend resume hang shutting-down"));
+                    hang_thread();
+                }
                 Err(state) => {
                     debug_assert!(false, "unexpected post-suspend state: {state}");
                     break;

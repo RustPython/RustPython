@@ -1013,6 +1013,39 @@ pub fn setresuid(ruid: u32, euid: u32, suid: u32) -> std::io::Result<()> {
         .map_err(std::io::Error::from)
 }
 
+#[cfg(not(any(target_os = "wasi", target_os = "solaris", target_os = "illumos")))]
+pub fn login_tty(fd: i32) -> std::io::Result<()> {
+    let ret = unsafe { libc::login_tty(fd) };
+    if ret < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+pub fn login_tty(fd: i32) -> std::io::Result<()> {
+    if unsafe { libc::setsid() } < 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() != Some(libc::EPERM) {
+            return Err(err);
+        }
+    }
+    if unsafe { libc::ioctl(fd, libc::TIOCSCTTY, core::ptr::null::<libc::c_char>()) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::dup2(fd, 0) } < 0
+        || unsafe { libc::dup2(fd, 1) } < 0
+        || unsafe { libc::dup2(fd, 2) } < 0
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+    if fd > 2 {
+        let _ = unsafe { libc::close(fd) };
+    }
+    Ok(())
+}
+
 #[cfg(not(target_os = "redox"))]
 pub fn openpty() -> std::io::Result<(OwnedFd, OwnedFd)> {
     let pty = nix::pty::openpty(None, None).map_err(std::io::Error::from)?;

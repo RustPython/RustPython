@@ -32,8 +32,8 @@ mod cmath {
     }
 
     #[pyfunction]
-    fn polar(x: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
-        pymath::cmath::polar(x.into_complex()).map_err(|err| pymath_exception(err, vm))
+    fn polar(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
+        pymath::cmath::polar(z.into_complex()).map_err(|err| pymath_exception(err, vm))
     }
 
     #[pyfunction]

@@ -39,23 +39,20 @@ mod _weakref {
     }
 
     #[pyfunction]
-    fn getweakrefcount(obj: PyObjectRef) -> usize {
-        obj.weak_count().unwrap_or(0)
+    fn getweakrefcount(object: PyObjectRef) -> usize {
+        object.weak_count().unwrap_or(0)
     }
 
     #[pyfunction]
-    fn getweakrefs(obj: PyObjectRef) -> Vec<PyObjectRef> {
-        obj.get_weak_references()
+    fn getweakrefs(object: PyObjectRef) -> Vec<PyObjectRef> {
+        object
+            .get_weak_references()
             .map_or_else(Vec::new, |v| v.into_iter().map(Into::into).collect())
     }
 
     #[pyfunction]
-    fn _remove_dead_weakref(
-        dict: PyDictRef,
-        key: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        dict._as_dict_inner()
+    fn _remove_dead_weakref(dct: PyDictRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        dct._as_dict_inner()
             .delete_if(vm, &*key, |wr| {
                 let wr = wr
                     .downcast_ref::<PyWeak>()

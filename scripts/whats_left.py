@@ -71,6 +71,10 @@ def parse_args():
         help="which features to enable when building RustPython (default: [])",
         default=[],
     )
+    parser.add_argument(
+        "--rustpython",
+        help="use this RustPython executable instead of building one with cargo",
+    )
 
     args = parser.parse_args()
     return args
@@ -446,27 +450,40 @@ with open(GENERATED_FILE, "w", encoding="utf-8") as f:
     f.write(output + "\n")
 
 
-cargo_build_command = ["cargo", "build", "--release"]
-if args.no_default_features:
-    cargo_build_command.append("--no-default-features")
+def resolve_rustpython(path):
+    if os.path.isfile(path):
+        return path
+    if os.name == "nt" and not path.lower().endswith(".exe"):
+        exe = path + ".exe"
+        if os.path.isfile(exe):
+            return exe
+    sys.exit(f"RustPython executable not found: {path}")
 
-joined_features = ",".join(args.features)
-if args.features:
-    cargo_build_command.extend(["--features", joined_features])
 
-subprocess.run(cargo_build_command, check=True)
+if args.rustpython:
+    rustpython_run_command = [resolve_rustpython(args.rustpython), GENERATED_FILE]
+else:
+    cargo_build_command = ["cargo", "build", "--release"]
+    if args.no_default_features:
+        cargo_build_command.append("--no-default-features")
 
-cargo_run_command = ["cargo", "run", "--release"]
-if args.no_default_features:
-    cargo_run_command.append("--no-default-features")
+    joined_features = ",".join(args.features)
+    if args.features:
+        cargo_build_command.extend(["--features", joined_features])
 
-if args.features:
-    cargo_run_command.extend(["--features", joined_features])
+    subprocess.run(cargo_build_command, check=True)
 
-cargo_run_command.extend(["-q", "--", GENERATED_FILE])
+    rustpython_run_command = ["cargo", "run", "--release"]
+    if args.no_default_features:
+        rustpython_run_command.append("--no-default-features")
+
+    if args.features:
+        rustpython_run_command.extend(["--features", joined_features])
+
+    rustpython_run_command.extend(["-q", "--", GENERATED_FILE])
 
 result = subprocess.run(
-    cargo_run_command,
+    rustpython_run_command,
     env={**os.environ.copy(), "RUSTPYTHONPATH": "Lib"},
     text=True,
     capture_output=True,

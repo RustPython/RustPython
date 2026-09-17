@@ -80,6 +80,18 @@ mod _locale {
         )
     }
 
+    #[cfg(windows)]
+    #[pyfunction]
+    fn strcoll(string1: PyUtf8StrRef, string2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
+        if string1.as_str().contains('\0') || string2.as_str().contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        let w1: Vec<u16> = string1.as_str().encode_utf16().chain([0]).collect();
+        let w2: Vec<u16> = string2.as_str().encode_utf16().chain([0]).collect();
+        Ok(vm.new_pyobj(host_locale::wcscoll(&w1, &w2)))
+    }
+
+    #[cfg(not(windows))]
     #[pyfunction]
     fn strcoll(string1: PyUtf8StrRef, string2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         let cstr1 = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
@@ -87,6 +99,18 @@ mod _locale {
         Ok(vm.new_pyobj(host_locale::strcoll(&cstr1, &cstr2)))
     }
 
+    #[cfg(windows)]
+    #[pyfunction]
+    fn strxfrm(string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
+        if string.as_str().contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        let wide: Vec<u16> = string.as_str().encode_utf16().chain([0]).collect();
+        let transformed = host_locale::wcsxfrm(&wide);
+        Ok(vm.new_pyobj(String::from_utf16_lossy(&transformed)))
+    }
+
+    #[cfg(not(windows))]
     #[pyfunction]
     fn strxfrm(string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
@@ -94,6 +118,20 @@ mod _locale {
         let cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
         let buff = host_locale::strxfrm(&cstr, n1);
         Ok(vm.new_pyobj(String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string")))
+    }
+
+    #[cfg(windows)]
+    #[pyfunction]
+    fn _getdefaultlocale(vm: &VirtualMachine) -> PyObjectRef {
+        let lcid = host_locale::user_default_lcid();
+        let language = host_locale::locale_info(lcid, host_locale::LOCALE_SISO639LANGNAME);
+        let territory = host_locale::locale_info(lcid, host_locale::LOCALE_SISO3166CTRYNAME);
+        let locale = match (language, territory) {
+            (Some(language), Some(territory)) => vm.new_pyobj(format!("{language}_{territory}")),
+            _ => vm.ctx.none(),
+        };
+        let encoding = vm.new_pyobj(format!("cp{}", host_locale::acp()));
+        vm.ctx.new_tuple(vec![locale, encoding]).into()
     }
 
     #[pyfunction]
@@ -211,33 +249,28 @@ mod _locale {
         Ok(pystr_from_bytes(vm, &result))
     }
 
-    /// Get the current locale encoding.
+    #[cfg(windows)]
     #[pyfunction]
     fn getencoding() -> String {
-        #[cfg(windows)]
+        let acp = host_locale::acp();
+        format!("cp{acp}")
+    }
+
+    #[cfg(not(windows))]
+    #[pyfunction]
+    fn getencoding() -> String {
+        #[cfg(all(
+            unix,
+            not(any(target_os = "ios", target_os = "android", target_os = "redox"))
+        ))]
         {
-            let acp = host_locale::acp();
-            format!("cp{acp}")
-        }
-        #[cfg(not(windows))]
-        {
-            #[cfg(all(
-                unix,
-                not(any(target_os = "ios", target_os = "android", target_os = "redox"))
-            ))]
+            if let Some(codeset) = host_locale::nl_langinfo_codeset()
+                && let Ok(s) = core::str::from_utf8(&codeset)
+                && !s.is_empty()
             {
-                if let Some(codeset) = host_locale::nl_langinfo_codeset()
-                    && let Ok(s) = core::str::from_utf8(&codeset)
-                    && !s.is_empty()
-                {
-                    return s.to_string();
-                }
-                "UTF-8".to_string()
-            }
-            #[cfg(any(target_os = "ios", target_os = "android", target_os = "redox"))]
-            {
-                "UTF-8".to_string()
+                return s.to_string();
             }
         }
+        "UTF-8".to_string()
     }
 }

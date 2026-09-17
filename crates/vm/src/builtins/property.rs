@@ -135,22 +135,33 @@ impl PyProperty {
 
     // Access functions
 
-    #[pygetset]
-    fn fget(&self) -> Option<PyObjectRef> {
-        self.getter.read().clone()
+    #[pymember]
+    fn fget(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(vm.unwrap_or_none(zelf.getter.read().clone()))
     }
 
     pub(crate) fn get_fget(&self) -> Option<PyObjectRef> {
         self.getter.read().clone()
     }
 
-    #[pygetset]
-    fn fset(&self) -> Option<PyObjectRef> {
+    #[pymember]
+    fn fset(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(vm.unwrap_or_none(zelf.setter.read().clone()))
+    }
+
+    fn get_fset(&self) -> Option<PyObjectRef> {
         self.setter.read().clone()
     }
 
-    #[pygetset]
-    fn fdel(&self) -> Option<PyObjectRef> {
+    #[pymember]
+    fn fdel(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+        Ok(vm.unwrap_or_none(zelf.deleter.read().clone()))
+    }
+
+    fn get_fdel(&self) -> Option<PyObjectRef> {
         self.deleter.read().clone()
     }
 
@@ -215,9 +226,9 @@ impl PyProperty {
 
         // Create property args with updated values
         let args = PropertyArgs {
-            fget: new_getter.or_else(|| zelf.fget()),
-            fset: new_setter.or_else(|| zelf.fset()),
-            fdel: new_deleter.or_else(|| zelf.fdel()),
+            fget: new_getter.or_else(|| zelf.get_fget()),
+            fset: new_setter.or_else(|| zelf.get_fset()),
+            fdel: new_deleter.or_else(|| zelf.get_fdel()),
             doc,
         };
 
