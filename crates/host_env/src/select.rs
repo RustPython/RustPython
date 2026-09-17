@@ -231,10 +231,23 @@ pub fn sec_to_timeval(sec: f64) -> timeval {
 }
 
 pub fn duration_to_timeval(d: Duration) -> timeval {
-    timeval {
-        tv_sec: d.as_secs() as _,
+    let mut tv = timeval {
+        tv_sec: 0 as _,
         tv_usec: d.subsec_micros() as _,
-    }
+    };
+    tv.tv_sec = saturate_secs(d.as_secs(), tv.tv_sec);
+    tv
+}
+
+fn saturate_secs<T>(secs: u64, _sample: T) -> T
+where
+    T: TryFrom<u64> + TryFrom<i32>,
+{
+    T::try_from(secs).unwrap_or_else(|_| {
+        T::try_from(i32::MAX).unwrap_or_else(|_| {
+            T::try_from(0u64).unwrap_or_else(|_| unreachable!("tv_sec holds 0"))
+        })
+    })
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -255,8 +268,13 @@ pub enum WaitFdError {
     Io(io::Error),
 }
 
+#[cfg(windows)]
+type WaitFdArg = std::os::windows::io::RawSocket;
+#[cfg(not(windows))]
+type WaitFdArg = RawFd;
+
 pub fn wait_fd(
-    fd: RawFd,
+    fd: WaitFdArg,
     kind: WaitKind,
     deadline: Option<Instant>,
 ) -> Result<WaitFd, WaitFdError> {
@@ -264,7 +282,11 @@ pub fn wait_fd(
     {
         wait_fd_poll(fd, kind, deadline)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        wait_fd_select(fd as RawFd, kind, deadline)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         wait_fd_select(fd, kind, deadline)
     }
@@ -292,11 +314,9 @@ fn wait_fd_poll(
                 let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                     return Ok(WaitFd::Timeout);
                 };
-                let ms = remaining.as_millis();
-                if ms > i32::MAX as u128 {
-                    (i32::MAX, true)
-                } else {
-                    (ms as i32, false)
+                match duration_as_millis_ceiling(remaining) {
+                    Some(ms) => (ms, false),
+                    None => (i32::MAX, true),
                 }
             }
         };

@@ -1026,7 +1026,10 @@ pub fn login_tty(fd: i32) -> std::io::Result<()> {
 #[cfg(any(target_os = "solaris", target_os = "illumos"))]
 pub fn login_tty(fd: i32) -> std::io::Result<()> {
     if unsafe { libc::setsid() } < 0 {
-        return Err(std::io::Error::last_os_error());
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() != Some(libc::EPERM) {
+            return Err(err);
+        }
     }
     if unsafe { libc::ioctl(fd, libc::TIOCSCTTY, core::ptr::null::<libc::c_char>()) } < 0 {
         return Err(std::io::Error::last_os_error());

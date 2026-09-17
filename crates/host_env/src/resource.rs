@@ -78,9 +78,13 @@ fn timeval_to_secs(tv: libc::timeval) -> f64 {
 }
 
 fn timeval_to_nanos(tv: libc::timeval) -> Option<i64> {
-    let secs = tv.tv_sec.checked_mul(1_000_000_000)?;
-    let usecs = (tv.tv_usec as i64).checked_mul(1_000)?;
+    let secs = widen_to_i64(tv.tv_sec)?.checked_mul(1_000_000_000)?;
+    let usecs = widen_to_i64(tv.tv_usec)?.checked_mul(1_000)?;
     secs.checked_add(usecs)
+}
+
+fn widen_to_i64<T: Copy + TryInto<i64>>(v: T) -> Option<i64> {
+    v.try_into().ok()
 }
 
 impl From<libc::rusage> for RUsage {

@@ -41,6 +41,7 @@ disallowed-methods = [
     { path = "libc::epoll_ctl", reason = "use rustpython_host_env::select", allow-invalid = true },
     { path = "libc::epoll_wait", reason = "use rustpython_host_env::select", allow-invalid = true },
     { path = "libc::epoll_pwait", reason = "use rustpython_host_env::select", allow-invalid = true },
+    { path = "libc::epoll_pwait2", reason = "use rustpython_host_env::select", allow-invalid = true },
 ]
 
 disallowed-types = [
