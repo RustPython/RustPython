@@ -1806,7 +1806,7 @@ pub mod module {
         F: Fn() -> std::io::Result<(libc::pid_t, i32, rustpython_host_env::resource::RUsage)>,
     {
         loop {
-            match vm.allow_threads(|| wait()) {
+            match vm.allow_threads(&wait) {
                 Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
                     vm.check_signals()?;
                     continue;
