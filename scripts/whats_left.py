@@ -422,14 +422,13 @@ def compare():
                 for item in implemented_items
                 if rustpymod[item]["doc"] != cpymod[item]["doc"]
             ]
-            if mod_missing_items or mod_mismatched_items:
-                if mod_missing_items:
-                    result["missing_items"][modname] = mod_missing_items
-                if mod_mismatched_items:
-                    result["mismatched_items"][modname] = mod_mismatched_items
-                if mod_mismatched_doc_items:
-                    result["mismatched_doc_items"][modname] = mod_mismatched_doc_items
-            else:
+            if mod_missing_items:
+                result["missing_items"][modname] = mod_missing_items
+            if mod_mismatched_items:
+                result["mismatched_items"][modname] = mod_mismatched_items
+            if mod_mismatched_doc_items:
+                result["mismatched_doc_items"][modname] = mod_mismatched_doc_items
+            if not (mod_missing_items or mod_mismatched_items):
                 result["implemented"][modname] = None
 
     result["cpython_modules"] = cpymods
