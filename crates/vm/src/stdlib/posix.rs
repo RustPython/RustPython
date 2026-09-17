@@ -18,10 +18,12 @@ pub use rustpython_host_env::posix::set_inheritable;
 pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
+        builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
-        function::{ArgMapping, Either, KwArgs, OptionalArg},
+        function::{
+            ArgBytesLike, ArgMapping, ArgPrimitiveIndex, ArgSize, Either, KwArgs, OptionalArg,
+        },
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
             _os, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata, warn_if_bool_fd,
@@ -960,6 +962,57 @@ pub mod module {
     fn set_blocking(fd: BorrowedFd<'_>, blocking: bool, vm: &VirtualMachine) -> PyResult<()> {
         rustpython_host_env::fcntl::set_blocking(fd, blocking)
             .map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[pyfunction]
+    fn pread(
+        fd: ArgPrimitiveIndex<i32>,
+        n: ArgSize,
+        offset: ArgPrimitiveIndex<libc::off_t>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesRef> {
+        let (fd, n, offset) = (fd.value, n.value, offset.value);
+        if n < 0 {
+            return Err(io::Error::from_raw_os_error(libc::EINVAL).into_pyexception(vm));
+        }
+        let mut buffer = vm.new_zeroed_bytes(n as usize)?;
+        loop {
+            match vm.allow_threads(|| rustpython_host_env::posix::pread(fd, &mut buffer, offset)) {
+                Ok(n) => {
+                    buffer.truncate(n);
+                    return Ok(vm.ctx.new_bytes(buffer));
+                }
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(err) => return Err(err.into_pyexception(vm)),
+            }
+        }
+    }
+
+    #[pyfunction]
+    fn pwrite(
+        fd: ArgPrimitiveIndex<i32>,
+        buffer: ArgBytesLike,
+        offset: ArgPrimitiveIndex<libc::off_t>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        // Avoid holding a buffer lock across blocking I/O,
+        // which can prevent other threads from reaching GC safepoints.
+        let data = buffer.borrow_buf_unlocked(vm)?;
+        loop {
+            match vm
+                .allow_threads(|| rustpython_host_env::posix::pwrite(fd.value, &data, offset.value))
+            {
+                Ok(n) => return Ok(n),
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(err) => return Err(err.into_pyexception(vm)),
+            }
+        }
     }
 
     #[pyfunction]
