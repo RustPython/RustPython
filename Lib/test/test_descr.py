@@ -1938,7 +1938,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(b.foo, 3)
         self.assertEqual(b.__class__, B)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_altmro(self):
         # Testing mro() and overriding it...
         class A(object):
@@ -2117,7 +2116,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             set_add.__get__(0)
         self.assertEqual(cm.exception.args[0], expected_errmsg)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_special_method_lookup(self):
         # The lookup of special methods bypasses __getattr__ and
         # __getattribute__, but they still can be descriptors.
@@ -3346,7 +3344,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(NewClass.__doc__, 'object=None; type=NewClass')
         self.assertEqual(NewClass().__doc__, 'object=NewClass instance; type=NewClass')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_set_class(self):
         # Testing __class__ assignment...
         class C(object): pass
@@ -3821,7 +3818,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         m.foo = 1
         self.assertEqual(m.__dict__, {"foo": 1})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_funny_new(self):
         # Testing __new__ returning something unexpected...
         class C(object):
@@ -4232,7 +4228,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             X.__bases__ = type(None), O
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mutable_bases_with_failing_mro(self):
         # Testing mutable bases with failing mro...
         class WorkOnce(type):
@@ -4473,7 +4468,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertIsInstance(a, C)  # Baseline
         self.assertIsInstance(pa, C) # Test
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_proxy_super(self):
         # Testing super() for a proxy object...
         class Proxy(object):
@@ -5895,7 +5889,6 @@ class MroTest(unittest.TestCase):
         class C(B):
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_reent_set_bases_tp_base_cycle(self):
         """
         type_set_bases must check for an inheritance cycle not only through
@@ -6038,7 +6031,6 @@ class MroTest(unittest.TestCase):
         class A(metaclass=M):
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disappearing_custom_mro(self):
         """
         gh-92112: A custom mro() returning a result conflicting with

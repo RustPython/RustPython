@@ -264,6 +264,7 @@ declare_const_name! {
     items,
     keys,
     modules,
+    mro,
     n_fields,
     n_sequence_fields,
     n_unnamed_fields,

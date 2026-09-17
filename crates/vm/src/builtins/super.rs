@@ -262,7 +262,7 @@ fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
 
     let class_attr = obj.get_attr("__class__", vm)?;
     if let Ok(cls) = class_attr.downcast::<PyType>()
-        && !cls.is(&ty)
+        && !cls.is(obj.class())
         && cls.fast_issubclass(&ty)
     {
         return Ok(cls);
