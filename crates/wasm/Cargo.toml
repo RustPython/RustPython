@@ -48,7 +48,7 @@ getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
 rustls = { workspace = true, default-features = false, features = ["std", "tls12", "custom-provider"] }
 rustls-pki-types = { version = "1", default-features = false, features = ["alloc", "std", "web"] }
 rustls-rustcrypto = "0.0.2-alpha"
-rustpython-host_env = { workspace = true, features = ["ssl", "ssl-rustls"] }
+rustpython-host_env = { workspace = true, features = ["rustls"] }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false#["-O1"]

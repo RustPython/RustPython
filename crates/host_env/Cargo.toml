@@ -12,9 +12,9 @@ license.workspace = true
 native-certs = ["dep:rustls-native-certs"]
 # rustls-free `_ssl` surface: MemoryBIO, constants, OID, ALPN, hostname.
 ssl = []
-# rustls engine. Browser wasm enables this together with rustls-pki-types
-# `web` on that crate; wasm-host enables `ssl` only and must not pull JS time.
-ssl-rustls = [
+# rustls engine. Implies `ssl`. Browser wasm enables this together with
+# rustls-pki-types `web` on that crate; wasm-host enables `ssl` only.
+rustls = [
     "ssl",
     "dep:rustls",
     "dep:rustls-pemfile",

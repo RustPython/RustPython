@@ -24,7 +24,7 @@ ssl-openssl-vendor = ["ssl-openssl", "openssl/vendored"]
 tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
 flame-it = ["flame"]
 
-__ssl-rustls = ["ssl", "rustpython-host_env/ssl", "rustpython-host_env/ssl-rustls", "rustpython-host_env/native-certs", "rustls", "rustls-pemfile", "x509-parser", "pem-rfc7468", "webpki-roots"]
+__ssl-rustls = ["ssl", "rustpython-host_env/ssl", "rustpython-host_env/rustls", "rustpython-host_env/native-certs", "rustls", "rustls-pemfile", "x509-parser", "pem-rfc7468", "webpki-roots"]
 
 [dependencies]
 # rustpython crates
