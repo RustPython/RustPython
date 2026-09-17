@@ -10,7 +10,20 @@ license.workspace = true
 
 [features]
 native-certs = ["dep:rustls-native-certs"]
-ssl = ["dep:rustls", "dep:rustls-pemfile", "dep:rustls-webpki", "dep:x509-parser", "dep:der", "dep:pkcs8", "dep:sha2"]
+# rustls-free `_ssl` surface: MemoryBIO, constants, OID, ALPN, hostname.
+ssl = []
+# rustls engine. Browser wasm enables this together with rustls-pki-types
+# `web` on that crate; wasm-host enables `ssl` only and must not pull JS time.
+ssl-rustls = [
+    "ssl",
+    "dep:rustls",
+    "dep:rustls-pemfile",
+    "dep:rustls-webpki",
+    "dep:x509-parser",
+    "dep:der",
+    "dep:pkcs8",
+    "dep:sha2",
+]
 
 [dependencies]
 rustpython-wtf8 = { workspace = true }
@@ -38,11 +51,6 @@ rustix = { workspace = true }
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1.17.0"
-
-# rustls-pki-types::UnixTime::now is gated off wasm32-unknown-unknown unless
-# the `web` feature is on. Browser rustls and Charon/LLBC both need it.
-[target.'cfg(all(target_arch = "wasm32", not(target_os = "wasi")))'.dependencies]
-rustls-pki-types = { version = "1", default-features = false, features = ["alloc", "std", "web"] }
 
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
 mac_address = { workspace = true }
@@ -114,7 +122,4 @@ cc = "1"
 [lints]
 workspace = true
 
-[package.metadata.cargo-shear]
-# Feature-unification only: enables rustls-pki-types `web` so UnixTime::now
-# exists on wasm32-unknown-unknown. No rust source imports this crate.
-ignored = ["rustls-pki-types"]
+
