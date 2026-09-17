@@ -1,5 +1,7 @@
 use core::mem::MaybeUninit;
+use core::time::Duration;
 use std::io;
+use std::time::Instant;
 
 #[cfg(unix)]
 pub use libc::{
@@ -228,6 +230,161 @@ pub fn sec_to_timeval(sec: f64) -> timeval {
     }
 }
 
+pub fn duration_to_timeval(d: Duration) -> timeval {
+    let mut tv = timeval {
+        tv_sec: 0 as _,
+        tv_usec: d.subsec_micros() as _,
+    };
+    tv.tv_sec = saturate_secs(d.as_secs(), tv.tv_sec);
+    tv
+}
+
+fn saturate_secs<T>(secs: u64, _sample: T) -> T
+where
+    T: TryFrom<u64> + TryFrom<i32>,
+{
+    T::try_from(secs).unwrap_or_else(|_| {
+        T::try_from(i32::MAX).unwrap_or_else(|_| {
+            T::try_from(0u64).unwrap_or_else(|_| unreachable!("tv_sec holds 0"))
+        })
+    })
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum WaitKind {
+    Read,
+    Write,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum WaitFd {
+    Ready,
+    Timeout,
+}
+
+#[derive(Debug)]
+pub enum WaitFdError {
+    Interrupted,
+    Io(io::Error),
+}
+
+#[cfg(windows)]
+type WaitFdArg = std::os::windows::io::RawSocket;
+#[cfg(not(windows))]
+type WaitFdArg = RawFd;
+
+pub fn wait_fd(
+    fd: WaitFdArg,
+    kind: WaitKind,
+    deadline: Option<Instant>,
+) -> Result<WaitFd, WaitFdError> {
+    #[cfg(unix)]
+    {
+        wait_fd_poll(fd, kind, deadline)
+    }
+    #[cfg(windows)]
+    {
+        wait_fd_select(fd as RawFd, kind, deadline)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        wait_fd_select(fd, kind, deadline)
+    }
+}
+
+#[cfg(unix)]
+fn wait_fd_poll(
+    fd: RawFd,
+    kind: WaitKind,
+    deadline: Option<Instant>,
+) -> Result<WaitFd, WaitFdError> {
+    let events = match kind {
+        WaitKind::Read => POLLIN | POLLPRI,
+        WaitKind::Write => POLLOUT,
+    };
+    let mut fds = [PollFd {
+        fd,
+        events,
+        revents: 0,
+    }];
+    loop {
+        let (timeout, is_capped) = match deadline {
+            None => (-1, false),
+            Some(deadline) => {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    return Ok(WaitFd::Timeout);
+                };
+                match duration_as_millis_ceiling(remaining) {
+                    Some(ms) => (ms, false),
+                    None => (i32::MAX, true),
+                }
+            }
+        };
+        match poll_fds(&mut fds, timeout) {
+            Ok(0) if is_capped => {}
+            Ok(0) => return Ok(WaitFd::Timeout),
+            Ok(_) if fds[0].revents & POLLNVAL != 0 => {
+                return Err(WaitFdError::Io(io::Error::from_raw_os_error(libc::EBADF)));
+            }
+            Ok(_) => return Ok(WaitFd::Ready),
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => {
+                return Err(WaitFdError::Interrupted);
+            }
+            Err(err) => return Err(WaitFdError::Io(err)),
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn wait_fd_select(
+    fd: RawFd,
+    kind: WaitKind,
+    deadline: Option<Instant>,
+) -> Result<WaitFd, WaitFdError> {
+    let mut reads = FdSet::new();
+    let mut writes = FdSet::new();
+    let mut errs = FdSet::new();
+    match kind {
+        WaitKind::Read => {
+            reads.insert(fd);
+            errs.insert(fd);
+        }
+        WaitKind::Write => {
+            writes.insert(fd);
+            errs.insert(fd);
+        }
+    }
+    let mut timeout = match deadline {
+        None => None,
+        Some(deadline) => {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Ok(WaitFd::Timeout);
+            };
+            Some(duration_to_timeval(remaining))
+        }
+    };
+    let nfds = cfg_select! {
+        windows => 0,
+        _ => fd.saturating_add(1) as libc::c_int,
+    };
+    match select(nfds, &mut reads, &mut writes, &mut errs, timeout.as_mut()) {
+        Ok(0) => Ok(WaitFd::Timeout),
+        Ok(_) => Ok(WaitFd::Ready),
+        Err(err) if err.kind() == io::ErrorKind::Interrupted => Err(WaitFdError::Interrupted),
+        Err(err) => Err(WaitFdError::Io(err)),
+    }
+}
+
+/// Convert a duration to a `poll(2)` millisecond timeout, rounding toward +∞.
+#[cfg(unix)]
+pub fn duration_as_millis_ceiling(d: Duration) -> Option<i32> {
+    let mut ms = d.as_millis();
+    if Duration::from_millis(ms.min(u128::from(u64::MAX)) as u64) < d {
+        ms = ms.saturating_add(1);
+    }
+    i32::try_from(ms).ok()
+}
+
 #[cfg(unix)]
 #[inline]
 pub fn search_poll_fd(fds: &[PollFd], fd: i32) -> Result<usize, usize> {
@@ -342,6 +499,7 @@ pub mod epoll {
 pub mod kqueue {
     use alloc::sync::{Arc, Weak};
     use core::sync::atomic::{AtomicI32, Ordering};
+    use core::time::Duration;
     use parking_lot::Mutex;
     use std::io;
     use std::os::fd::BorrowedFd;
@@ -354,7 +512,55 @@ pub mod kqueue {
         NOTE_REVOKE, NOTE_TRACK, NOTE_TRACKERR, NOTE_WRITE,
     };
 
+    // NetBSD widths differ from i16/u16; the cast is a no-op elsewhere.
+    #[allow(clippy::unnecessary_cast)]
+    pub const DEFAULT_FILTER: i16 = EVFILT_READ as i16;
+    #[allow(clippy::unnecessary_cast)]
+    pub const DEFAULT_FLAGS: u16 = EV_ADD as u16;
+
     #[derive(Copy, Clone, Debug)]
+    pub struct Timespec {
+        pub sec: i64,
+        pub nsec: i64,
+    }
+
+    impl Timespec {
+        pub fn from_secs(secs: f64) -> Option<Self> {
+            if !secs.is_finite() || secs > i64::MAX as f64 {
+                return None;
+            }
+            let mut sec = secs.trunc() as i64;
+            let mut nsec = ((secs - sec as f64) * 1e9).round() as i64;
+            if nsec >= 1_000_000_000 {
+                sec = sec.saturating_add(1);
+                nsec -= 1_000_000_000;
+            }
+            Some(Self { sec, nsec })
+        }
+
+        pub fn from_duration(d: Duration) -> Self {
+            Self {
+                sec: d.as_secs() as i64,
+                nsec: i64::from(d.subsec_nanos()),
+            }
+        }
+
+        pub fn to_duration(self) -> Option<Duration> {
+            if self.sec < 0 || !(0..1_000_000_000).contains(&self.nsec) {
+                return None;
+            }
+            Some(Duration::new(self.sec as u64, self.nsec as u32))
+        }
+
+        fn to_libc(self) -> libc::timespec {
+            libc::timespec {
+                tv_sec: self.sec,
+                tv_nsec: self.nsec,
+            }
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, Default)]
     pub struct Event {
         pub ident: usize,
         pub filter: i16,
@@ -441,11 +647,12 @@ pub mod kqueue {
         kq: i32,
         changelist: &[Event],
         eventlist: &mut [Event],
-        timeout: Option<&libc::timespec>,
+        timeout: Option<&Timespec>,
     ) -> io::Result<usize> {
         let chl: Vec<libc::kevent> = changelist.iter().copied().map(Event::to_libc).collect();
         let mut evl = vec![unsafe { core::mem::zeroed() }; eventlist.len()];
-        let timeout = timeout.map_or(core::ptr::null(), |t| t);
+        let timeout = timeout.map(|t| t.to_libc());
+        let timeout = timeout.as_ref().map_or(core::ptr::null(), |t| t);
         let ret = unsafe {
             libc::kevent(
                 kq,
@@ -478,5 +685,52 @@ pub mod kqueue {
                 cell.store(-1, Ordering::SeqCst);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duration_to_timeval_uses_micros() {
+        let tv = duration_to_timeval(Duration::from_micros(1_500_250));
+        assert_eq!(tv.tv_sec as u64, 1);
+        assert_eq!(tv.tv_usec as u32, 500_250);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn poll_timeout_rounds_fractional_millis_up() {
+        assert_eq!(duration_as_millis_ceiling(Duration::ZERO), Some(0));
+        assert_eq!(
+            duration_as_millis_ceiling(Duration::from_micros(100)),
+            Some(1)
+        );
+        assert_eq!(
+            duration_as_millis_ceiling(Duration::from_millis(1)),
+            Some(1)
+        );
+        assert_eq!(
+            duration_as_millis_ceiling(Duration::from_micros(1100)),
+            Some(2)
+        );
+    }
+
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly",
+    ))]
+    #[test]
+    fn timespec_carries_nanosecond_overflow() {
+        let ts = kqueue::Timespec::from_secs(0.999_999_999_9).unwrap();
+        assert_eq!(ts.sec, 1);
+        assert!(ts.nsec < 1_000_000_000);
+        assert!(kqueue::Timespec::from_secs(f64::INFINITY).is_none());
+        assert!(kqueue::Timespec::from_secs(f64::NAN).is_none());
     }
 }

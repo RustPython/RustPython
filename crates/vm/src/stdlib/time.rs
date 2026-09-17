@@ -1176,19 +1176,10 @@ mod platform {
         target_os = "openbsd",
     ))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        fn from_timeval(tv: libc::timeval, vm: &VirtualMachine) -> PyResult<i64> {
-            (|tv: libc::timeval| {
-                let t = tv.tv_sec.checked_mul(SEC_TO_NS)?;
-                let u = (tv.tv_usec as i64).checked_mul(US_TO_NS)?;
-                t.checked_add(u)
-            })(tv)
+        let ru = host_resource::getrusage(host_resource::RUSAGE_SELF)
+            .map_err(|e| e.into_pyexception(vm))?;
+        ru.total_cpu_duration()
             .ok_or_else(|| vm.new_overflow_error("timestamp too large to convert to i64"))
-        }
-        let ru = host_resource::getrusage(libc::RUSAGE_SELF).map_err(|e| e.into_pyexception(vm))?;
-        let utime = from_timeval(ru.ru_utime, vm)?;
-        let stime = from_timeval(ru.ru_stime, vm)?;
-
-        Ok(Duration::from_nanos((utime + stime) as u64))
     }
 }
 

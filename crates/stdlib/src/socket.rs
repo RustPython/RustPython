@@ -2485,107 +2485,19 @@ mod _socket {
         deadline: Option<&Deadline>,
         vm: &VirtualMachine,
     ) -> Result<(), IoOrPyException> {
-        #[cfg(unix)]
-        {
-            use rustpython_host_env::select::{PollFd, poll_fds};
+        use rustpython_host_env::select::{WaitFd, WaitFdError, WaitKind, wait_fd};
 
-            let mut events = 0;
-            if matches!(wait_kind, SockWaitKind::Read) {
-                events |= libc::POLLIN | libc::POLLPRI;
-            }
-            if matches!(wait_kind, SockWaitKind::Write | SockWaitKind::Connect) {
-                events |= libc::POLLOUT;
-            }
-            let mut fds = [PollFd {
-                fd: sock_fileno(sock),
-                events,
-                revents: 0,
-            }; 1];
-
-            loop {
-                let (timeout, is_capped) = deadline
-                    .as_ref()
-                    .map(|d| {
-                        d.time_until().map(|t| {
-                            let timeout_ms = t.as_millis();
-                            let is_capped = timeout_ms > i32::MAX as u128;
-                            let timeout = if is_capped {
-                                i32::MAX
-                            } else {
-                                timeout_ms as i32
-                            };
-                            (timeout, is_capped)
-                        })
-                    })
-                    .transpose()?
-                    .unwrap_or((-1, false));
-
-                match vm.allow_threads(|| poll_fds(&mut fds, timeout)) {
-                    Ok(0) => {
-                        if is_capped {
-                            continue;
-                        }
-                        break Err(IoOrPyException::Timeout);
-                    }
-
-                    Ok(_) => {
-                        if fds[0].revents & libc::POLLNVAL != 0 {
-                            break Err(io::Error::from_raw_os_error(libc::EBADF).into());
-                        }
-                        break Ok(());
-                    }
-
-                    Err(e) => {
-                        if e.kind() == io::ErrorKind::Interrupted {
-                            vm.check_signals()?;
-                            continue;
-                        }
-                        break Err(e.into());
-                    }
-                }
-            }
-        }
-        #[cfg(windows)]
-        {
-            use rustpython_host_env::select::{FdSet, select, timeval};
-
-            let fd = sock_fileno(sock) as usize;
-
-            let mut reads = FdSet::new();
-            let mut writes = FdSet::new();
-            let mut errs = FdSet::new();
-
-            if matches!(wait_kind, SockWaitKind::Read) {
-                reads.insert(fd);
-                errs.insert(fd);
-            }
-            if matches!(wait_kind, SockWaitKind::Write | SockWaitKind::Connect) {
-                writes.insert(fd);
-                errs.insert(fd);
-            }
-
-            let mut timeout = deadline
-                .as_ref()
-                .map(|d| {
-                    d.time_until().map(|dur| timeval {
-                        tv_sec: dur.as_secs() as _,
-                        tv_usec: dur.subsec_micros() as _,
-                    })
-                })
-                .transpose()?;
-
-            match vm.allow_threads(|| {
-                select(
-                    0, // nfds is ignored on windows
-                    &mut reads,
-                    &mut writes,
-                    &mut errs,
-                    timeout.as_mut(),
-                )
-            }) {
-                Ok(0) => Err(IoOrPyException::Timeout),
-                Ok(_) => Ok(()),
-                Err(e) => Err(e.into()),
+        let kind = match wait_kind {
+            SockWaitKind::Read => WaitKind::Read,
+            SockWaitKind::Write | SockWaitKind::Connect => WaitKind::Write,
+        };
+        let deadline = deadline.map(Deadline::instant);
+        loop {
+            match vm.allow_threads(|| wait_fd(sock_fileno(sock), kind, deadline)) {
+                Ok(WaitFd::Ready) => return Ok(()),
+                Ok(WaitFd::Timeout) => return Err(IoOrPyException::Timeout),
+                Err(WaitFdError::Interrupted) => vm.check_signals()?,
+                Err(WaitFdError::Io(err)) => return Err(err.into()),
             }
         }
     }
@@ -3111,6 +3023,9 @@ mod _socket {
             Self {
                 deadline: Instant::now() + timeout,
             }
+        }
+        fn instant(&self) -> Instant {
+            self.deadline
         }
         fn time_until(&self) -> Result<Duration, IoOrPyException> {
             self.deadline
