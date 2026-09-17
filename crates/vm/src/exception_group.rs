@@ -79,10 +79,10 @@ pub(super) mod types {
         #[pymethod]
         fn subgroup(
             zelf: PyRef<PyBaseException>,
-            condition: PyObjectRef,
+            matcher_value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let matcher = get_condition_matcher(&condition, vm)?;
+            let matcher = get_condition_matcher(&matcher_value, vm)?;
 
             // If self matches the condition entirely, return self
             let zelf_obj: PyObjectRef = zelf.clone().into();
@@ -101,7 +101,7 @@ pub(super) mod types {
                     // unless this guard is here.
                     let subgroup_result = vm
                         .with_recursion("in exception group subgroup", || {
-                            vm.call_method(&exc, "subgroup", (condition.clone(),))
+                            vm.call_method(&exc, "subgroup", (matcher_value.clone(),))
                         })?;
                     if !vm.is_none(&subgroup_result) {
                         matching.push(subgroup_result.clone());
@@ -131,10 +131,10 @@ pub(super) mod types {
         #[pymethod]
         fn split(
             zelf: PyRef<PyBaseException>,
-            condition: PyObjectRef,
+            matcher_value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyTupleRef> {
-            let matcher = get_condition_matcher(&condition, vm)?;
+            let matcher = get_condition_matcher(&matcher_value, vm)?;
 
             // If self matches the condition entirely
             let zelf_obj: PyObjectRef = zelf.clone().into();
@@ -151,7 +151,7 @@ pub(super) mod types {
                     // Same as in subgroup: nothing else bounds this recursion
                     // against the native stack.
                     let result = vm.with_recursion("in exception group split", || {
-                        vm.call_method(&exc, "split", (condition.clone(),))
+                        vm.call_method(&exc, "split", (matcher_value.clone(),))
                     })?;
                     let result_tuple: PyTupleRef = result.try_into_value(vm)?;
                     let match_part = result_tuple
