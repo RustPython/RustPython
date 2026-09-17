@@ -435,10 +435,10 @@ impl PyTuple {
     }
 
     #[pymethod]
-    fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+    fn count(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
         for element in self {
-            if vm.identical_or_equal(element, &needle)? {
+            if vm.identical_or_equal(element, &value)? {
                 count += 1;
             }
         }

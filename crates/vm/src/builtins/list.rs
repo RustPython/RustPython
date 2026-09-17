@@ -187,21 +187,22 @@ impl PyList {
     }
 
     #[pymethod]
-    pub(crate) fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub(crate) fn extend(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // What is already here decides whether the iterable's length hint is
         // believable, so it goes along with the request for the elements. It is
         // counted where `list_extend()` reads `Py_SIZE(self)`, after the
         // iterable has answered, because answering runs code that can change it.
-        let mut new_elements = vm.extract_elements_sized(&x, &|| self.borrow_vec().len(), Ok)?;
+        let mut new_elements =
+            vm.extract_elements_sized(&iterable, &|| self.borrow_vec().len(), Ok)?;
         self.borrow_vec_mut().append(&mut new_elements);
         Ok(())
     }
 
     #[pymethod]
-    pub(crate) fn insert(&self, position: isize, element: PyObjectRef) {
+    pub(crate) fn insert(&self, index: isize, element: PyObjectRef) {
         let mut elements = self.borrow_vec_mut();
-        let position = elements.saturate_index(position);
-        elements.insert(position, element);
+        let index = elements.saturate_index(index);
+        elements.insert(index, element);
     }
 
     fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -331,8 +332,8 @@ impl PyList {
     }
 
     #[pymethod]
-    fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        self.mut_count(vm, &needle)
+    fn count(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        self.mut_count(vm, &value)
     }
 
     pub(crate) fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
@@ -356,24 +357,24 @@ impl PyList {
     }
 
     #[pymethod]
-    fn pop(&self, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
-        let mut i = i.into_option().unwrap_or(-1);
+    fn pop(&self, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
+        let mut index = index.into_option().unwrap_or(-1);
         let mut elements = self.borrow_vec_mut();
-        if i < 0 {
-            i += elements.len() as isize;
+        if index < 0 {
+            index += elements.len() as isize;
         }
         if elements.is_empty() {
             Err(vm.new_index_error("pop from empty list"))
-        } else if i < 0 || i as usize >= elements.len() {
+        } else if index < 0 || index as usize >= elements.len() {
             Err(vm.new_index_error("pop index out of range"))
         } else {
-            Ok(elements.remove(i as usize))
+            Ok(elements.remove(index as usize))
         }
     }
 
     #[pymethod]
-    fn remove(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let index = self.mut_index(vm, &needle)?;
+    fn remove(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let index = self.mut_index(vm, &value)?;
 
         if let Some(index) = index.into() {
             // defer delete out of borrow
@@ -384,7 +385,7 @@ impl PyList {
             drop(removed);
             Ok(())
         } else {
-            Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
+            Err(vm.new_value_error(format!("'{}' is not in list", value.str(vm)?)))
         }
     }
 
