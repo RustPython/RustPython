@@ -3876,7 +3876,6 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "rustls-pemfile",
- "rustls-pki-types",
  "rustls-webpki 0.103.13",
  "rustpython-wtf8",
  "rustyline",

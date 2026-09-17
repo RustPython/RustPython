@@ -39,6 +39,7 @@ pub fn validate_hostname(hostname: &str) -> Result<(), HostnameError> {
 }
 
 /// Convert PROTO/OP bits into the rustls version slice.
+#[cfg(feature = "rustls")]
 #[must_use]
 pub fn rustls_versions(
     minimum: i32,
