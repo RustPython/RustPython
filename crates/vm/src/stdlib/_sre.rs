@@ -35,23 +35,24 @@ mod _sre {
     }
 
     #[pyfunction]
-    fn ascii_iscased(ch: i32) -> bool {
-        (b'a' as i32..=b'z' as i32).contains(&ch) || (b'A' as i32..=b'Z' as i32).contains(&ch)
+    fn ascii_iscased(character: i32) -> bool {
+        (b'a' as i32..=b'z' as i32).contains(&character)
+            || (b'A' as i32..=b'Z' as i32).contains(&character)
     }
 
     #[pyfunction]
-    fn unicode_iscased(ch: i32) -> bool {
-        char::from_u32(ch as u32).is_some_and(rustpython_unicode::case::is_cased)
+    fn unicode_iscased(character: i32) -> bool {
+        char::from_u32(character as u32).is_some_and(rustpython_unicode::case::is_cased)
     }
 
     #[pyfunction]
-    fn ascii_tolower(ch: i32) -> i32 {
-        lower_ascii(ch as u32) as i32
+    fn ascii_tolower(character: i32) -> i32 {
+        lower_ascii(character as u32) as i32
     }
 
     #[pyfunction]
-    fn unicode_tolower(ch: i32) -> i32 {
-        lower_unicode(ch as u32) as i32
+    fn unicode_tolower(character: i32) -> i32 {
+        lower_unicode(character as u32) as i32
     }
 
     trait SreStr: StrDrive {

@@ -245,13 +245,17 @@ pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64>
 )]
 impl PyFloat {
     #[pymethod]
-    fn __format__(zelf: &Py<Self>, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    fn __format__(
+        zelf: &Py<Self>,
+        format_spec: PyUtf8StrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Wtf8Buf> {
         // Empty format spec: equivalent to str(self)
-        if spec.is_empty() {
+        if format_spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
         let format_spec =
-            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+            FormatSpec::parse(format_spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
         let result = if format_spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
             format_spec.format_float_locale(zelf.value, &locale)

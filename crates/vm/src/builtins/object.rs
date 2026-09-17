@@ -473,7 +473,7 @@ impl PyBaseObject {
     }
 
     #[pymethod]
-    fn __reduce_ex__(zelf: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
+    fn __reduce_ex__(zelf: PyObjectRef, protocol: usize, vm: &VirtualMachine) -> PyResult {
         let __reduce__ = identifier!(vm, __reduce__);
         if let Some(reduce) = vm.get_attribute_opt(zelf.clone(), __reduce__)? {
             let object_reduce = vm.ctx.types.object_type.get_attr(__reduce__).unwrap();
@@ -483,7 +483,7 @@ impl PyBaseObject {
                 return reduce.call((), vm);
             }
         }
-        common_reduce(zelf, proto, vm)
+        common_reduce(zelf, protocol, vm)
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]

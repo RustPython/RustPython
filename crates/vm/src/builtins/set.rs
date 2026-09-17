@@ -776,18 +776,18 @@ impl PySet {
     }
 
     #[pymethod]
-    pub fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.add(item, vm)
+    pub fn add(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.add(object, vm)
     }
 
     #[pymethod]
-    fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.remove(item, vm)
+    fn remove(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.remove(object, vm)
     }
 
     #[pymethod]
-    pub fn discard(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.discard(&item, vm).map(|_| ())
+    pub fn discard(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.discard(&object, vm).map(|_| ())
     }
 
     #[pymethod]

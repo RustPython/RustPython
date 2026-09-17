@@ -266,8 +266,8 @@ pub(crate) mod _signal {
 
     #[cfg(unix)]
     #[pyfunction]
-    fn alarm(time: u32) -> u32 {
-        rustpython_host_env::signal::alarm(time)
+    fn alarm(seconds: u32) -> u32 {
+        rustpython_host_env::signal::alarm(seconds)
     }
 
     #[cfg(unix)]
@@ -307,8 +307,8 @@ pub(crate) mod _signal {
 
     #[pyfunction]
     fn default_int_handler(
-        _signum: PyObjectRef,
-        _arg: PyObjectRef,
+        _signalnum: PyObjectRef,
+        _frame: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
         Err(vm.new_exception_empty(vm.ctx.exceptions.keyboard_interrupt.to_owned()))
@@ -394,8 +394,8 @@ pub(crate) mod _signal {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "siginterrupt")]
-    fn py_siginterrupt(signum: SignalNum, flag: i32, vm: &VirtualMachine) -> PyResult<()> {
-        host_signal::siginterrupt(signum.into(), flag).map_err(|_| vm.new_last_errno_error())
+    fn py_siginterrupt(signalnum: SignalNum, flag: i32, vm: &VirtualMachine) -> PyResult<()> {
+        host_signal::siginterrupt(signalnum.into(), flag).map_err(|_| vm.new_last_errno_error())
     }
 
     #[cfg(any(unix, windows))]

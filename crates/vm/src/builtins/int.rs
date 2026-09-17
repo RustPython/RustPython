@@ -524,13 +524,17 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn __format__(zelf: &Py<Self>, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    fn __format__(
+        zelf: &Py<Self>,
+        format_spec: PyUtf8StrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Wtf8Buf> {
         // Empty format spec on a subclass: equivalent to str(self)
-        if spec.is_empty() && !zelf.class().is(vm.ctx.types.int_type) {
+        if format_spec.is_empty() && !zelf.class().is(vm.ctx.types.int_type) {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
         let format_spec =
-            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+            FormatSpec::parse(format_spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
         if format_spec.is_decimal_int_format() {
             check_int_to_str_digits(&zelf.value, vm)?;
         }

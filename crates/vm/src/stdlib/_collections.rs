@@ -97,10 +97,10 @@ mod _collections {
     )]
     impl PyDeque {
         #[pymethod]
-        fn append(&self, obj: PyObjectRef) {
+        fn append(&self, item: PyObjectRef) {
             self.state.fetch_add(1);
             let mut deque = self.borrow_deque_mut();
-            deque.push_back(obj);
+            deque.push_back(item);
             // Trim after pushing, so that a `maxlen` of zero drops what just
             // arrived instead of popping from an empty deque and keeping it.
             if self.is_over_maxlen(&deque) {
@@ -109,10 +109,10 @@ mod _collections {
         }
 
         #[pymethod]
-        fn appendleft(&self, obj: PyObjectRef) {
+        fn appendleft(&self, item: PyObjectRef) {
             self.state.fetch_add(1);
             let mut deque = self.borrow_deque_mut();
-            deque.push_front(obj);
+            deque.push_front(item);
             if self.is_over_maxlen(&deque) {
                 deque.pop_back();
             }
@@ -136,9 +136,9 @@ mod _collections {
         }
 
         #[pymethod]
-        fn count(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        fn count(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
             let start_state = self.state.load();
-            let count = self.mut_count(vm, &obj)?;
+            let count = self.mut_count(vm, &value)?;
 
             if start_state != self.state.load() {
                 return Err(vm.new_runtime_error("deque mutated during iteration"));
@@ -147,8 +147,8 @@ mod _collections {
         }
 
         #[pymethod]
-        fn extend(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self._extend(&iter, vm)
+        fn extend(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            self._extend(&iterable, vm)
         }
 
         fn _extend(&self, iter: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -170,9 +170,9 @@ mod _collections {
         }
 
         #[pymethod]
-        fn extendleft(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn extendleft(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let max_len = self.maxlen;
-            let mut elements: Vec<PyObjectRef> = iter.try_to_value(vm)?;
+            let mut elements: Vec<PyObjectRef> = iterable.try_to_value(vm)?;
             elements.reverse();
 
             if let Some(max_len) = max_len {
@@ -217,7 +217,7 @@ mod _collections {
         }
 
         #[pymethod]
-        fn insert(&self, idx: i32, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn insert(&self, index: i32, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             self.state.fetch_add(1);
             let mut deque = self.borrow_deque_mut();
 
@@ -225,19 +225,19 @@ mod _collections {
                 return Err(vm.new_index_error("deque already at its maximum size"));
             }
 
-            let idx = if idx < 0 {
-                if -idx as usize > deque.len() {
+            let index = if index < 0 {
+                if -index as usize > deque.len() {
                     0
                 } else {
-                    deque.len() - ((-idx) as usize)
+                    deque.len() - ((-index) as usize)
                 }
-            } else if idx as usize > deque.len() {
+            } else if index as usize > deque.len() {
                 deque.len()
             } else {
-                idx as usize
+                index as usize
             };
 
-            deque.insert(idx, obj);
+            deque.insert(index, value);
 
             Ok(())
         }
@@ -259,9 +259,9 @@ mod _collections {
         }
 
         #[pymethod]
-        fn remove(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn remove(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let start_state = self.state.load();
-            let index = self.mut_index(vm, &obj)?;
+            let index = self.mut_index(vm, &value)?;
 
             if start_state != self.state.load() {
                 Err(vm.new_index_error("deque mutated during remove()."))
@@ -290,15 +290,15 @@ mod _collections {
         }
 
         #[pymethod]
-        fn rotate(&self, mid: OptionalArg<isize>) {
+        fn rotate(&self, n: OptionalArg<isize>) {
             self.state.fetch_add(1);
             let mut deque = self.borrow_deque_mut();
             if !deque.is_empty() {
-                let mid = mid.unwrap_or(1) % deque.len() as isize;
-                if mid.is_negative() {
-                    deque.rotate_left(-mid as usize);
+                let n = n.unwrap_or(1) % deque.len() as isize;
+                if n.is_negative() {
+                    deque.rotate_left(-n as usize);
                 } else {
-                    deque.rotate_right(mid as usize);
+                    deque.rotate_right(n as usize);
                 }
             }
         }

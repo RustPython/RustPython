@@ -1004,9 +1004,9 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn removeprefix(&self, pref: PyStrRef) -> Wtf8Buf {
+    fn removeprefix(&self, prefix: PyStrRef) -> Wtf8Buf {
         self.as_wtf8()
-            .py_removeprefix(pref.as_wtf8(), pref.byte_len(), |s, p| s.starts_with(p))
+            .py_removeprefix(prefix.as_wtf8(), prefix.byte_len(), |s, p| s.starts_with(p))
             .to_owned()
     }
 
@@ -1058,10 +1058,10 @@ impl PyStr {
     #[pymethod]
     fn __format__(
         zelf: PyRef<Self>,
-        spec: PyUtf8StrRef,
+        format_spec: PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        if spec.is_empty() {
+        if format_spec.is_empty() {
             return if zelf.class().is(vm.ctx.types.str_type) {
                 Ok(zelf)
             } else {
@@ -1069,7 +1069,7 @@ impl PyStr {
             };
         }
         let zelf = zelf.try_into_utf8(vm)?;
-        let s = FormatSpec::parse(spec.as_str())
+        let s = FormatSpec::parse(format_spec.as_str())
             .and_then(|format_spec| {
                 format_spec.format_string(&CharLenStr(zelf.as_str(), zelf.char_len()))
             })

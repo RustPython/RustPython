@@ -353,11 +353,11 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn join(&self, iter: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    fn join(&self, iterable_of_bytes: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         // Driving the iterable runs Python, which can reach this bytearray,
         // so the separator is taken by value rather than left borrowed.
         let separator = self.inner().clone();
-        Ok(separator.join(iter, vm)?.into())
+        Ok(separator.join(iterable_of_bytes, vm)?.into())
     }
 
     #[pymethod]
@@ -428,8 +428,8 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
-        self.inner().strip(chars).into()
+    fn strip(&self, bytes: OptionalOption<PyBytesInner>) -> Self {
+        self.inner().strip(bytes).into()
     }
 
     #[pymethod]
@@ -588,8 +588,8 @@ impl Py<PyByteArray> {
     }
 
     #[pymethod]
-    fn insert(&self, index: isize, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let value = value_from_object(vm, &object)?;
+    fn insert(&self, index: isize, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let value = value_from_object(vm, &item)?;
         let elements = &mut self.try_resizable(vm)?.elements;
         let index = elements.saturate_index(index);
         elements.insert(index, value);
@@ -597,39 +597,39 @@ impl Py<PyByteArray> {
     }
 
     #[pymethod]
-    fn append(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let value = value_from_object(vm, &object)?;
+    fn append(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let value = value_from_object(vm, &item)?;
         self.try_resizable(vm)?.elements.push(value);
         Ok(())
     }
 
     #[pymethod]
-    fn remove(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let value = value_from_object(vm, &object)?;
+    fn remove(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let byte = value_from_object(vm, &value)?;
         let elements = &mut self.try_resizable(vm)?.elements;
         let index = elements
-            .find_byte(value)
+            .find_byte(byte)
             .ok_or_else(|| vm.new_value_error("value not found in bytearray"))?;
         elements.remove(index);
         Ok(())
     }
 
     #[pymethod]
-    fn extend(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if self.is(&object) {
+    fn extend(&self, iterable_of_ints: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if self.is(&iterable_of_ints) {
             return PyByteArray::irepeat(self, 2, vm);
         }
         // bytearray_setslice keeps the export alive across the resize, so a value
         // looking at this bytearray is what stops it from growing.
-        let buffer = object
+        let buffer = iterable_of_ints
             .check_buffer()
             .then(|| {
-                PyBuffer::from_object(vm, &object, BufferFlags::SIMPLE).map_err(|_| {
+                PyBuffer::from_object(vm, &iterable_of_ints, BufferFlags::SIMPLE).map_err(|_| {
                     // What an exporter refuses to hand out leaves the value simply
                     // not usable here, whatever the exporter's own complaint was.
                     vm.new_type_error(format!(
                         "can't set bytearray slice from {}",
-                        object.class().name()
+                        iterable_of_ints.class().name()
                     ))
                 })
             })
@@ -641,7 +641,7 @@ impl Py<PyByteArray> {
                     vm.new_buffer_error("non-contiguous buffer is not a bytes-like object")
                 })?
                 .to_vec(),
-            None => bytearray_extend_from_object(vm, &object)?,
+            None => bytearray_extend_from_object(vm, &iterable_of_ints)?,
         };
         self.try_resizable(vm)?.elements.extend(items);
         Ok(())
@@ -676,9 +676,9 @@ impl Py<PyByteArray> {
 #[pyclass]
 impl PyRef<PyByteArray> {
     #[pymethod]
-    fn lstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
+    fn lstrip(self, bytes: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
         let inner = self.inner();
-        let stripped = inner.lstrip(chars);
+        let stripped = inner.lstrip(bytes);
         let elements = &inner.elements;
         if stripped == elements {
             drop(inner);
@@ -689,9 +689,9 @@ impl PyRef<PyByteArray> {
     }
 
     #[pymethod]
-    fn rstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
+    fn rstrip(self, bytes: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
         let inner = self.inner();
-        let stripped = inner.rstrip(chars);
+        let stripped = inner.rstrip(bytes);
         let elements = &inner.elements;
         if stripped == elements {
             drop(inner);

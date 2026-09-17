@@ -2919,9 +2919,9 @@ impl Py<PyType> {
     }
 
     #[pymethod]
-    fn __instancecheck__(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn __instancecheck__(&self, instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         // Use real_is_instance to avoid infinite recursion
-        obj.real_is_instance(self.as_object(), vm)
+        instance.real_is_instance(self.as_object(), vm)
     }
 
     #[pymethod]

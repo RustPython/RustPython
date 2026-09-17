@@ -92,8 +92,8 @@ mod _operator {
     }
 
     #[pyfunction]
-    fn invert(pos: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._invert(&pos)
+    fn invert(a: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._invert(&a)
     }
 
     #[pyfunction]
@@ -117,8 +117,8 @@ mod _operator {
     }
 
     #[pyfunction]
-    fn neg(pos: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._neg(&pos)
+    fn neg(a: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._neg(&a)
     }
 
     #[pyfunction]
@@ -127,8 +127,8 @@ mod _operator {
     }
 
     #[pyfunction]
-    fn pos(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._pos(&obj)
+    fn pos(a: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._pos(&a)
     }
 
     #[pyfunction]

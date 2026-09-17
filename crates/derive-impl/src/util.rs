@@ -2,7 +2,7 @@ use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use std::collections::{HashMap, HashSet};
-use syn::{Attribute, FnArg, Ident, Result, Signature, UseTree, spanned::Spanned};
+use syn::{Attribute, FnArg, Ident, Result, Signature, UseTree, ext::IdentExt, spanned::Spanned};
 use syn_ext::{
     ext::{AttributeExt as SynAttributeExt, *},
     types::*,
@@ -868,11 +868,13 @@ fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> 
         let syn::Pat::Ident(pat) = arg.pat.as_ref() else {
             return None;
         };
-        let ident = pat.ident.to_string();
+        let ident = pat.ident.unraw().to_string();
         if ident == "vm" {
             unreachable!("type &VirtualMachine(`{ty}`) must be filtered already");
         }
-        params.push(ident);
+        // A leading `_` only marks the argument unused in Rust. A parameter whose
+        // Python name really starts with `_` has to be a FromArgs field instead.
+        params.push(ident.strip_prefix('_').unwrap_or(&ident).to_owned());
     }
     Some(params.join(", "))
 }
