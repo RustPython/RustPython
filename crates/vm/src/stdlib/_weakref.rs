@@ -39,13 +39,14 @@ mod _weakref {
     }
 
     #[pyfunction]
-    fn getweakrefcount(obj: PyObjectRef) -> usize {
-        obj.weak_count().unwrap_or(0)
+    fn getweakrefcount(object: PyObjectRef) -> usize {
+        object.weak_count().unwrap_or(0)
     }
 
     #[pyfunction]
-    fn getweakrefs(obj: PyObjectRef) -> Vec<PyObjectRef> {
-        obj.get_weak_references()
+    fn getweakrefs(object: PyObjectRef) -> Vec<PyObjectRef> {
+        object
+            .get_weak_references()
             .map_or_else(Vec::new, |v| v.into_iter().map(Into::into).collect())
     }
 

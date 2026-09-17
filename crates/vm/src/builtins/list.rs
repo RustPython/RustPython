@@ -182,8 +182,8 @@ pub type PyListRef = PyRef<PyList>;
 )]
 impl PyList {
     #[pymethod]
-    pub(crate) fn append(&self, x: PyObjectRef) {
-        self.borrow_vec_mut().push(x);
+    pub(crate) fn append(&self, object: PyObjectRef) {
+        self.borrow_vec_mut().push(object);
     }
 
     #[pymethod]
@@ -199,10 +199,10 @@ impl PyList {
     }
 
     #[pymethod]
-    pub(crate) fn insert(&self, index: isize, element: PyObjectRef) {
+    pub(crate) fn insert(&self, index: isize, object: PyObjectRef) {
         let mut elements = self.borrow_vec_mut();
         let index = elements.saturate_index(index);
-        elements.insert(index, element);
+        elements.insert(index, object);
     }
 
     fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {

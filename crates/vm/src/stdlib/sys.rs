@@ -795,17 +795,17 @@ pub mod sys {
 
     #[pyfunction(name = "__displayhook__")]
     #[pyfunction]
-    fn displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn displayhook(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Save non-None values as "_"
-        if vm.is_none(&obj) {
+        if vm.is_none(&object) {
             return Ok(());
         }
         // set to none to avoid recursion while printing
         vm.builtins.set_attr("_", vm.ctx.none(), vm)?;
         // TODO: catch encoding errors
-        let repr = obj.repr(vm)?.into();
+        let repr = object.repr(vm)?.into();
         builtins::print(PosArgs::new(vec![repr]), Default::default(), vm)?;
-        vm.builtins.set_attr("_", obj, vm)?;
+        vm.builtins.set_attr("_", object, vm)?;
         Ok(())
     }
 
@@ -942,8 +942,8 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn getrefcount(obj: PyObjectRef) -> usize {
-        obj.strong_count()
+    fn getrefcount(object: PyObjectRef) -> usize {
+        object.strong_count()
     }
 
     #[pyfunction]

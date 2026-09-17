@@ -1049,7 +1049,7 @@ pub mod array {
         }
 
         #[pymethod]
-        fn __deepcopy__(&self, _memo: PyObjectRef) -> Self {
+        fn __deepcopy__(&self, _unused: PyObjectRef) -> Self {
             self.__copy__()
         }
 
