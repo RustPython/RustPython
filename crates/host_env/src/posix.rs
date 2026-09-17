@@ -953,6 +953,47 @@ pub fn waitpid(pid: libc::pid_t, status: &mut i32, opt: i32) -> std::io::Result<
     }
 }
 
+unsafe extern "C" {
+    #[link_name = "wait4"]
+    fn libc_wait4(
+        pid: libc::pid_t,
+        status: *mut libc::c_int,
+        options: libc::c_int,
+        rusage: *mut libc::rusage,
+    ) -> libc::pid_t;
+}
+
+/// `wait3(2)` is `wait4(-1, ...)`.
+pub fn wait3(options: i32) -> std::io::Result<(libc::pid_t, i32, crate::resource::RUsage)> {
+    wait4_rusage(-1, options)
+}
+
+/// `wait4(2)`. `rusage` is zeroed when `pid == 0` (WNOHANG, no child ready).
+pub fn wait4(
+    pid: libc::pid_t,
+    options: i32,
+) -> std::io::Result<(libc::pid_t, i32, crate::resource::RUsage)> {
+    wait4_rusage(pid, options)
+}
+
+fn wait4_rusage(
+    pid: libc::pid_t,
+    options: i32,
+) -> std::io::Result<(libc::pid_t, i32, crate::resource::RUsage)> {
+    let mut status = 0;
+    let mut ru = core::mem::MaybeUninit::<libc::rusage>::zeroed();
+    let res = unsafe { libc_wait4(pid, &mut status, options, ru.as_mut_ptr()) };
+    if res == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let ru = if res == 0 {
+        unsafe { core::mem::zeroed() }
+    } else {
+        unsafe { ru.assume_init() }
+    };
+    Ok((res, status, ru.into()))
+}
+
 pub fn kill(pid: i32, sig: i32) -> std::io::Result<()> {
     let ret = unsafe { libc::kill(pid, sig) };
     if ret == -1 {
