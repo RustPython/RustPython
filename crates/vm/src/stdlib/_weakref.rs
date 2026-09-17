@@ -50,12 +50,8 @@ mod _weakref {
     }
 
     #[pyfunction]
-    fn _remove_dead_weakref(
-        dict: PyDictRef,
-        key: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        dict._as_dict_inner()
+    fn _remove_dead_weakref(dct: PyDictRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        dct._as_dict_inner()
             .delete_if(vm, &*key, |wr| {
                 let wr = wr
                     .downcast_ref::<PyWeak>()
