@@ -346,7 +346,7 @@ def compare():
     import warnings
     from contextlib import redirect_stdout
 
-    def method_incompatibility_reason(typ, method_name, real_method_value):
+    def method_incompatibility_reason(typ, method_name):
         has_method = hasattr(typ, method_name)
         if not has_method:
             return ""
@@ -355,19 +355,29 @@ def compare():
         if is_inherited:
             return "(inherited)"
 
-        value = extra_info(getattr(typ, method_name))
-        if value != real_method_value:
-            return f"{value} != {real_method_value}"
-
         return None
 
     not_implementeds = {}
+    mismatched_methods = {}
+    mismatched_method_docs = {}
     for name, (typ, real_value, methods) in expected_methods.items():
         missing_methods = {}
         for method, real_method_value in methods:
-            reason = method_incompatibility_reason(typ, method, real_method_value)
+            reason = method_incompatibility_reason(typ, method)
             if reason is not None:
                 missing_methods[method] = reason
+                continue
+            # A method that exists but differs is a mismatch, not a missing one.
+            value = extra_info(getattr(typ, method))
+            item = f"{name}.{method}"
+            if value["sig"] != real_method_value["sig"]:
+                mismatched_methods.setdefault(name, []).append(
+                    (item, value["sig"], real_method_value["sig"])
+                )
+            if value["doc"] != real_method_value["doc"]:
+                mismatched_method_docs.setdefault(name, []).append(
+                    (item, value["doc"], real_method_value["doc"])
+                )
         if missing_methods:
             not_implementeds[name] = missing_methods
 
@@ -394,8 +404,9 @@ def compare():
         "not_implemented": {},
         "failed_to_import": {},
         "missing_items": {},
-        "mismatched_items": {},
-        "mismatched_doc_items": {},
+        # builtin types first, keyed by type name, then modules
+        "mismatched_items": mismatched_methods,
+        "mismatched_doc_items": mismatched_method_docs,
     }
     for modname, cpymod in cpymods.items():
         rustpymod = rustpymods.get(modname)
