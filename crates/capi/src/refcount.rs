@@ -3,9 +3,23 @@ use core::ptr::NonNull;
 use rustpython_vm::PyObjectRef;
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_DecRef(op: *mut PyObject) {
+    if !op.is_null() {
+        unsafe { _Py_DecRef(op) }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn _Py_DecRef(op: *mut PyObject) {
     // By dropping PyObjectRef, we will decrement the reference count.
     unsafe { drop(PyObjectRef::from_raw(NonNull::new_unchecked(op))) };
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_IncRef(op: *mut PyObject) {
+    if !op.is_null() {
+        unsafe { _Py_IncRef(op) }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -17,6 +31,15 @@ pub unsafe extern "C" fn _Py_IncRef(op: *mut PyObject) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_NewRef(op: *mut PyObject) -> *mut PyObject {
     with_vm(|_vm| unsafe { (*op).to_owned() })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_XNewRef(op: *mut PyObject) -> *mut PyObject {
+    if op.is_null() {
+        core::ptr::null_mut()
+    } else {
+        unsafe { Py_NewRef(op) }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -44,5 +67,13 @@ mod tests {
             drop(obj_clone);
             assert_eq!(ffi::Py_REFCNT(obj.as_ptr()), ref_count);
         });
+    }
+
+    #[test]
+    fn incdec_null_is_noop() {
+        unsafe {
+            ffi::Py_IncRef(core::ptr::null_mut());
+            ffi::Py_DecRef(core::ptr::null_mut());
+        }
     }
 }
