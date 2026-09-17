@@ -5,7 +5,8 @@
 
 # This script generates Lib/snippets/whats_left_data.py with these variables defined:
 # expected_methods - a dictionary mapping builtin objects to their methods
-# cpymods - a dictionary mapping module names to their contents
+# cpymods - a dictionary mapping module names to their contents, including
+#           the members of native classes as "Class.member"
 # libdir - the location of RustPython's Lib/ directory.
 
 #
@@ -24,6 +25,7 @@ import platform
 import re
 import subprocess
 import sys
+import types
 import warnings
 from pydoc import ModuleScanner
 
@@ -151,36 +153,70 @@ def name_sort_key(name):
     return name + "2"
 
 
+BUILTIN_TYPES = [
+    bool,
+    bytearray,
+    bytes,
+    complex,
+    dict,
+    enumerate,
+    filter,
+    float,
+    frozenset,
+    int,
+    list,
+    map,
+    memoryview,
+    range,
+    set,
+    slice,
+    str,
+    super,
+    tuple,
+    object,
+    zip,
+    classmethod,
+    staticmethod,
+    property,
+    Exception,
+    BaseException,
+]
+
+
+# CPython's per-class annotations cache and its vectorcall C API offset
+CPYTHON_INTERNAL_ATTRS = {"__annotations_cache__", "__vectorcalloffset__"}
+
+
+def own_attrs(typ):
+    attrs = []
+    for attr in dir(typ):
+        if attr in CPYTHON_INTERNAL_ATTRS:
+            continue
+        # Skip attributes in dir() but not actually accessible (e.g., descriptor that raises)
+        if not hasattr(typ, attr):
+            continue
+        if attr_is_not_inherited(typ, attr):
+            attrs.append((attr, extra_info(getattr(typ, attr))))
+    return attrs
+
+
+def is_native_class(obj):
+    # A class statement records __firstlineno__. A class made by calling
+    # type(), like a namedtuple, still has Python functions.
+    if not isinstance(obj, type) or "__firstlineno__" in obj.__dict__:
+        return False
+    for value in obj.__dict__.values():
+        if isinstance(value, (classmethod, staticmethod)):
+            value = value.__func__
+        if isinstance(value, property):
+            value = value.fget
+        if isinstance(value, types.FunctionType):
+            return False
+    return True
+
+
 def gen_methods():
-    types = [
-        bool,
-        bytearray,
-        bytes,
-        complex,
-        dict,
-        enumerate,
-        filter,
-        float,
-        frozenset,
-        int,
-        list,
-        map,
-        memoryview,
-        range,
-        set,
-        slice,
-        str,
-        super,
-        tuple,
-        object,
-        zip,
-        classmethod,
-        staticmethod,
-        property,
-        Exception,
-        BaseException,
-    ]
-    objects = [t.__name__ for t in types]
+    objects = [t.__name__ for t in BUILTIN_TYPES]
     objects.append("type(None)")
 
     iters = [
@@ -202,14 +238,7 @@ def gen_methods():
     methods = {}
     for typ_code in objects + iters:
         typ = eval(typ_code)
-        attrs = []
-        for attr in dir(typ):
-            # Skip attributes in dir() but not actually accessible (e.g., descriptor that raises)
-            if not hasattr(typ, attr):
-                continue
-            if attr_is_not_inherited(typ, attr):
-                attrs.append((attr, extra_info(getattr(typ, attr))))
-        methods[typ.__name__] = (typ_code, extra_info(typ), attrs)
+        methods[typ.__name__] = (typ_code, extra_info(typ), own_attrs(typ))
 
     output = "expected_methods = {\n"
     for name in sorted(methods.keys(), key=name_sort_key):
@@ -302,6 +331,17 @@ def gen_modules():
                 file=sys.stderr,
             )
             continue
+        module = import_module(mod_name)
+        for item_name in list(dir_result):
+            item = getattr(module, item_name)
+            # an alias such as array.ArrayType is scanned under its real name
+            if (
+                is_native_class(item)
+                and item not in BUILTIN_TYPES
+                and item.__name__ == item_name
+            ):
+                for attr, info in own_attrs(item):
+                    dir_result[f"{item_name}.{attr}"] = info
         modules[mod_name] = dir_result
     return modules
 
@@ -422,10 +462,29 @@ def compare():
                 rustpymod
             )
         else:
+            module = import_module(modname)
+            skipped = set()
+            inherited = set()
+            for item in cpymod:
+                cls_name, dot, attr = item.partition(".")
+                if not dot:
+                    continue
+                cls = getattr(module, cls_name, None)
+                if not isinstance(cls, type):
+                    # The class line already reports a missing class or one
+                    # implemented as something else.
+                    skipped.add(item)
+                elif not hasattr(cls, attr):
+                    continue
+                elif not attr_is_not_inherited(cls, attr):
+                    inherited.add(item)
+                else:
+                    rustpymod[item] = extra_info(getattr(cls, attr))
             implemented_items = sorted(set(cpymod) & set(rustpymod))
-            mod_missing_items = set(cpymod) - set(rustpymod)
+            mod_missing_items = set(cpymod) - set(rustpymod) - skipped
             mod_missing_items = sorted(
-                f"{modname}.{item}" for item in mod_missing_items
+                f"{modname}.{item}" + (" (inherited)" if item in inherited else "")
+                for item in mod_missing_items
             )
             mod_mismatched_items = [
                 (f"{modname}.{item}", rustpymod[item]["sig"], cpymod[item]["sig"])
