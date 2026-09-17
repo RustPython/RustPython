@@ -872,7 +872,18 @@ fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> 
         if ident == "vm" {
             unreachable!("type &VirtualMachine(`{ty}`) must be filtered already");
         }
-        params.push(ident);
+        // A leading underscore marks an argument Rust sees as unused, and `r#`
+        // escapes a Rust keyword. Neither says anything about the parameter a
+        // Python caller passes, and `r#` is not even valid Python. A parameter
+        // CPython itself names with a leading underscore, such as compile's
+        // `_feature_version`, reaches Python through a FromArgs field instead,
+        // which this never sees.
+        let ident = ident.strip_prefix("r#").unwrap_or(&ident);
+        let ident = ident
+            .strip_prefix('_')
+            .filter(|s| !s.is_empty())
+            .unwrap_or(ident);
+        params.push(ident.to_owned());
     }
     Some(params.join(", "))
 }
