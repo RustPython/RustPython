@@ -1606,7 +1606,6 @@ class _TestLock(BaseTestCase):
         for _ in range(n):
             lock.release()
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky timeout - thread start latency")
     def test_repr_rlock(self):
         if self.TYPE != 'processes':
             self.skipTest('test not appropriate for {}'.format(self.TYPE))
