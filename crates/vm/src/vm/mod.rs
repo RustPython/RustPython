@@ -1143,7 +1143,18 @@ impl VirtualMachine {
             } else if path_contains_env {
                 "RUSTPYTHONPATH or PYTHONPATH is set, but it doesn't contain the encodings library. If you are customizing the RustPython vm/interpreter, try adding the stdlib directory to the path. If you are developing the RustPython interpreter, it might be a bug during development."
             } else {
-                "RUSTPYTHONPATH or PYTHONPATH is set, but it wasn't loaded to `PyConfig::paths::module_search_paths`. If you are going to customize the RustPython vm/interpreter, those environment variables are not loaded in the Settings struct by default. Please try creating a customized instance of the Settings struct. If you are developing the RustPython interpreter, it might be a bug during development."
+                "RUSTPYTHONPATH or PYTHONPATH is set, but it wasn't loaded to `PyConfig::paths::module_search_paths`. \
+Environment variables are not loaded into the Settings struct by default when embedding RustPython. \
+To fix this, add the stdlib path manually:\n\
+\n\
+    let settings = rustpython_vm::Settings::default().with_path(\"/path/to/stdlib\".to_owned());\n\
+\n\
+Alternatively, set the RUSTPYTHONPATH environment variable and load it explicitly:\n\
+\n\
+    settings.path_list.extend(std::env::var(\"RUSTPYTHONPATH\").unwrap_or_default().split(':').map(String::from));\n\
+\n\
+If you are developing the RustPython interpreter itself, this might be a bug during development."
+
             };
 
             let mut msg = format!(
