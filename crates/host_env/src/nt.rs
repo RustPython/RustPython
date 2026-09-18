@@ -550,7 +550,7 @@ impl ScandirEntry {
     }
 
     pub fn is_dot_or_dotdot(&self) -> bool {
-        self.name == OsString::from(".") || self.name == OsString::from("..")
+        self.name == "." || self.name == ".."
     }
 
     pub fn is_directory(&self) -> bool {
@@ -625,8 +625,11 @@ impl ScandirEntry {
 
 /// `rposix_scandir` Windows `SCANDIRP`: `FindFirstFileW` / `FindNextFileW`.
 /// `next_entry` does not skip `.` and `..`.
+///
+/// The find handle is stored as `isize` so the walk can sit in a `Sync`
+/// iterator lock. It is only used while `Scandir` is uniquely borrowed.
 pub struct Scandir {
-    handle: HANDLE,
+    handle: isize,
     pending: Option<WIN32_FIND_DATAW>,
     dir: Vec<u16>,
 }
@@ -648,7 +651,7 @@ pub fn scandir(path: &widestring::WideCStr) -> io::Result<Scandir> {
         return Err(io::Error::last_os_error());
     }
     Ok(Scandir {
-        handle,
+        handle: handle as isize,
         pending: Some(data),
         dir,
     })
@@ -657,14 +660,14 @@ pub fn scandir(path: &widestring::WideCStr) -> io::Result<Scandir> {
 impl Scandir {
     /// `rposix_scandir.nextentry`. `None` when the walk is exhausted.
     pub fn next_entry(&mut self) -> io::Result<Option<ScandirEntry>> {
-        if self.handle == INVALID_HANDLE_VALUE {
+        if self.handle == INVALID_HANDLE_VALUE as isize {
             return Ok(None);
         }
         let data = if let Some(data) = self.pending.take() {
             data
         } else {
             let mut data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
-            if unsafe { FindNextFileW(self.handle, &mut data) } == 0 {
+            if unsafe { FindNextFileW(self.handle as HANDLE, &mut data) } == 0 {
                 let error = io::Error::last_os_error();
                 self.close();
                 return if error.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
@@ -692,9 +695,9 @@ impl Scandir {
 
     /// `rposix_scandir.closedir`.
     pub fn close(&mut self) {
-        if self.handle != INVALID_HANDLE_VALUE {
-            unsafe { FindClose(self.handle) };
-            self.handle = INVALID_HANDLE_VALUE;
+        if self.handle != INVALID_HANDLE_VALUE as isize {
+            unsafe { FindClose(self.handle as HANDLE) };
+            self.handle = INVALID_HANDLE_VALUE as isize;
         }
         self.pending = None;
     }
