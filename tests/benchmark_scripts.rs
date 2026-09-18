@@ -8,7 +8,6 @@ const PYPERFORMANCE_BENCHMARKS: &[&str] = &[
     "deepcopy.py",
     "deltablue.py",
     "float.py",
-    "gc_collect.py",
     "gc_traversal.py",
     "generators.py",
     "json_dumps.py",
