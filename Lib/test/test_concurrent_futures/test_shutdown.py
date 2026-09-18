@@ -255,11 +255,6 @@ class ThreadPoolShutdownTest(ThreadPoolMixin, ExecutorShutdownTest, BaseTestCase
 
 
 class ProcessPoolShutdownTest(ExecutorShutdownTest):
-    # TODO: RUSTPYTHON - flaky, dict changed size during iteration race condition
-    @unittest.skip("TODO: RUSTPYTHON - flaky race condition on macOS")
-    def test_cancel_futures(self):
-        return super().test_cancel_futures()
-
     def test_processes_terminate(self):
         def acquire_lock(lock):
             lock.acquire()
