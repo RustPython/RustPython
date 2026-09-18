@@ -401,6 +401,7 @@ pub mod sys {
         "_suggestions",
         "_symtable",
         "_sysconfig",
+        "_testinternalcapi",
         "_thread",
         "_threading_local",
         "_tkinter",

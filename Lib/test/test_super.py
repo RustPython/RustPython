@@ -445,7 +445,6 @@ class TestSuper(unittest.TestCase):
 
         self.assertEqual(C().method(), super)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: type 'super' is not an acceptable base type
     def test_super_subclass___class__(self):
         class mysuper(super):
             pass

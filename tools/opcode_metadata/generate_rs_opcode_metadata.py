@@ -46,7 +46,22 @@ class OpcodeGen:
 
     @property
     def fn_has_arg(self) -> str:
-        return self.gen_fn_has_attr("has_arg", "oparg", "HAS_ARG_FLAG")
+        arms = "|".join(
+            f"Self::{opcode.rust_name}"
+            for opcode in self
+            if opcode.properties.oparg or opcode.have_argument
+        )
+        if arms:
+            inner = f"matches!(self, {arms})"
+        else:
+            inner = "false"
+        return f"""
+        /// Does this opcode have 'HAS_ARG_FLAG' set.
+        #[must_use]
+        pub const fn has_arg(self) -> bool {{
+            {inner}
+        }}
+        """
 
     @property
     def fn_has_const(self) -> str:

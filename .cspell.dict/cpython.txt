@@ -40,6 +40,7 @@ cidx
 cjkcodecs
 CLASSDEREF
 classdict
+cleandoc
 cmpop
 CNOTAB
 codedepth
@@ -61,6 +62,7 @@ dictbytype
 DICTFLAG
 dictoffset
 distpoint
+drvsize
 dynload
 elts
 eooh
@@ -85,6 +87,7 @@ finalizers
 firsttraceable
 flowgraph
 formatfloat
+framesize
 freelist
 freevar
 freevars
@@ -93,6 +96,7 @@ fsrc
 getdict
 getfunc
 getiter
+getlasti
 getsets
 getslice
 globalgetvar
@@ -145,6 +149,7 @@ mbiencoder
 mbstreamreader
 mbstreamwriter
 metavars
+mimalloc
 miscompiles
 mult
 multibytecodec
@@ -177,6 +182,9 @@ npools
 nseen
 NSIGNALS
 numer
+numdupes
+numkwonly
+numposorkw
 nvars
 obmalloc
 opname
@@ -201,6 +209,7 @@ preds
 preinitialized
 pybuilddir
 pycore
+PYGC
 pyinner
 pydecimal
 pyerrors
@@ -215,6 +224,7 @@ pystrcmp
 PYTHONTRACEMALLOC
 PYTHONUTF8
 pythonw
+pytime
 PYTHREAD_NAME
 recvd
 releasebuffer
@@ -258,6 +268,8 @@ templatelib
 testconsole
 threadstate
 ticketer
+timespec
+timeval
 tmptype
 tok_oldval
 tstate

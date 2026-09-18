@@ -176,7 +176,8 @@ impl VirtualMachine {
         method: &'static PyStrInterned,
         args: impl IntoFuncArgs,
     ) -> PyResult {
-        self.get_special_method(obj, method)?
+        // lookup_method: AttributeError from a data descriptor is kept.
+        PyMethod::get_special_ex::<false>(obj, method, self, true)?
             .ok_or_else(|| self.new_attribute_error(method.as_str().to_owned()))?
             .invoke(args, self)
     }

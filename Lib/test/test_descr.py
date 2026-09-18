@@ -1112,7 +1112,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             frozenset().__class__ = MyFrozenSet
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.thread_unsafe
     def test_slots(self):
         # Testing __slots__...
@@ -1368,7 +1367,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         a.foo = 42
         self.assertEqual(a.__dict__, {"foo": 42})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_slots_special2(self):
         # Testing __qualname__ and __classcell__ in __slots__
         class Meta(type):
@@ -1940,7 +1938,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(b.foo, 3)
         self.assertEqual(b.__class__, B)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_altmro(self):
         # Testing mro() and overriding it...
         class A(object):
@@ -2119,7 +2116,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             set_add.__get__(0)
         self.assertEqual(cm.exception.args[0], expected_errmsg)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_special_method_lookup(self):
         # The lookup of special methods bypasses __getattr__ and
         # __getattribute__, but they still can be descriptors.
@@ -2680,7 +2676,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
 
         dir(C()) # This used to segfault
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_supers(self):
         # Testing super...
 
@@ -3349,7 +3344,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(NewClass.__doc__, 'object=None; type=NewClass')
         self.assertEqual(NewClass().__doc__, 'object=NewClass instance; type=NewClass')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_set_class(self):
         # Testing __class__ assignment...
         class C(object): pass
@@ -3824,7 +3818,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         m.foo = 1
         self.assertEqual(m.__dict__, {"foo": 1})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_funny_new(self):
         # Testing __new__ returning something unexpected...
         class C(object):
@@ -4235,7 +4228,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             X.__bases__ = type(None), O
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mutable_bases_with_failing_mro(self):
         # Testing mutable bases with failing mro...
         class WorkOnce(type):
@@ -4476,7 +4468,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertIsInstance(a, C)  # Baseline
         self.assertIsInstance(pa, C) # Test
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_proxy_super(self):
         # Testing super() for a proxy object...
         class Proxy(object):
@@ -4500,7 +4491,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         p = Proxy(obj)
         self.assertEqual(C.__dict__["f"](p), "B.f->C.f")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_carloverre(self):
         # Testing prohibition of Carlo Verre's hack...
         try:
@@ -4533,7 +4523,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         except TypeError:
             self.fail("setattr through direct base types should be legal")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_carloverre_multi_inherit_invalid(self):
         class A(type):
             def __setattr__(cls, key, value):
@@ -5900,7 +5889,6 @@ class MroTest(unittest.TestCase):
         class C(B):
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_reent_set_bases_tp_base_cycle(self):
         """
         type_set_bases must check for an inheritance cycle not only through
@@ -6043,7 +6031,6 @@ class MroTest(unittest.TestCase):
         class A(metaclass=M):
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disappearing_custom_mro(self):
         """
         gh-92112: A custom mro() returning a result conflicting with

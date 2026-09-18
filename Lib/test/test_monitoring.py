@@ -1054,6 +1054,7 @@ class ExceptionMonitoringTest(CheckEvents):
         )
         self.assertEqual(events[0], ("throw", IndexError))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; CALL_ALLOC_AND_ENTER_INIT specialization
     @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     @requires_specialization_ft
     def test_no_unwind_for_shim_frame(self):
@@ -1558,7 +1559,6 @@ BRANCH_OFFSET_RECORDERS = BranchLeftOffsetRecorder, BranchRightOffsetRecorder
 class TestBranchAndJumpEvents(CheckEvents):
     maxDiff = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_loop(self):
 
         def func():
@@ -1710,7 +1710,6 @@ class TestBranchAndJumpEvents(CheckEvents):
             ('branch left', 'func', 12, 12)])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_match(self):
 
         def func(v=1):

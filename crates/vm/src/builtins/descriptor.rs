@@ -349,7 +349,12 @@ fn get_slot_from_object(
             .get_slot(offset)
             .unwrap_or_else(|| vm.ctx.new_bool(false).into()),
         MemberKind::ObjectEx => obj.get_slot(offset).ok_or_else(|| {
-            vm.new_no_attribute_error(obj.clone(), vm.ctx.new_str(member.name.clone()))
+            // '%T' : module.qualname
+            vm.new_attribute_error(format!(
+                "'{}' object has no attribute '{}'",
+                obj.class().fully_qualified_name(vm),
+                member.name
+            ))
         })?,
     };
     Ok(slot)
@@ -654,11 +659,13 @@ impl SlotFunc {
             }
             Self::SetAttro(func) => {
                 let (name, value): (PyRef<PyStr>, PyObjectRef) = args.bind(vm)?;
+                crate::types::hackcheck_setattro(&obj, *func, "__setattr__", vm)?;
                 func(&obj, &name, PySetterValue::Assign(value), vm)?;
                 Ok(vm.ctx.none())
             }
             Self::DelAttro(func) => {
                 let (name,): (PyRef<PyStr>,) = args.bind(vm)?;
+                crate::types::hackcheck_setattro(&obj, *func, "__delattr__", vm)?;
                 func(&obj, &name, PySetterValue::Delete, vm)?;
                 Ok(vm.ctx.none())
             }

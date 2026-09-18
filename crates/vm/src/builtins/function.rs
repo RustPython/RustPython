@@ -951,6 +951,7 @@ impl PyFunction {
             *jit_guard = None;
         }
         self.func_version.store(0, Relaxed);
+        crate::stdlib::_testinternalcapi::note_func_modification();
         Ok(())
     }
 
@@ -965,6 +966,7 @@ impl PyFunction {
             PySetterValue::Delete => None,
         };
         self.func_version.store(0, Relaxed);
+        crate::stdlib::_testinternalcapi::note_func_modification();
     }
 
     #[pygetset]
@@ -978,6 +980,7 @@ impl PyFunction {
             PySetterValue::Delete => None,
         };
         self.func_version.store(0, Relaxed);
+        crate::stdlib::_testinternalcapi::note_func_modification();
     }
 
     // {"__closure__",   T_OBJECT,     OFF(func_closure), READONLY},

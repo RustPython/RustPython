@@ -205,6 +205,16 @@ impl ConstantPool {
     }
 
     #[must_use]
+    pub fn from_ordered(constants: Vec<ConstantData>) -> Self {
+        Self { constants }
+    }
+
+    #[must_use]
+    pub fn into_vec(self) -> Vec<ConstantData> {
+        self.constants
+    }
+
+    #[must_use]
     pub fn get_index(&self, idx: usize) -> Option<&ConstantData> {
         self.constants.get(idx)
     }
@@ -613,6 +623,7 @@ struct InstructionSequenceEntry {
     except_handler: InstructionSequenceExceptHandlerInfo,
     i_target: i32,
     i_offset: i32,
+    python_loc: Option<[i32; 4]>,
 }
 
 impl InstructionSequenceEntry {
@@ -622,14 +633,15 @@ impl InstructionSequenceEntry {
             except_handler,
             i_target: 0,
             i_offset: 0,
+            python_loc: None,
         }
     }
 }
 
 const INSTRUCTION_SEQUENCE_UNSET_LABEL: i32 = -111;
 
-#[derive(Clone)]
-pub(crate) struct InstructionSequence {
+#[derive(Clone, Default)]
+pub struct InstructionSequence {
     /// CPython `instr_sequence.s_instrs`, including allocated slots beyond `s_used`.
     instrs: Vec<InstructionSequenceEntry>,
     /// CPython `instr_sequence.s_allocated`, the allocated size of `s_instrs`.
@@ -641,11 +653,115 @@ pub(crate) struct InstructionSequence {
     label_map: Option<Vec<i32>>,
     label_map_allocation: usize,
     annotations_code: Option<Box<Self>>,
+    nested: Vec<Self>,
+}
+
+/// One instruction as returned by InstructionSequence.get_instructions.
+#[derive(Clone, Copy, Debug)]
+pub struct PythonInstruction {
+    pub opcode: i32,
+    pub oparg: Option<i32>,
+    pub lineno: i32,
+    pub end_lineno: i32,
+    pub col_offset: i32,
+    pub end_col_offset: i32,
 }
 
 impl InstructionSequence {
-    pub(crate) fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         instruction_sequence_new()
+    }
+
+    pub fn addop(
+        &mut self,
+        opcode: i32,
+        oparg: i32,
+        lineno: i32,
+        col_offset: i32,
+        end_lineno: i32,
+        end_col_offset: i32,
+    ) -> crate::InternalResult<()> {
+        let opcode = u16::try_from(opcode).map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        if opcode > MAX_OPCODE {
+            return Err(InternalError::MalformedControlFlowGraph);
+        }
+        let opcode =
+            AnyOpcode::try_from(opcode).map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        let instr: AnyInstruction = opcode.into();
+        let oparg = u32::try_from(oparg).map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        if oparg >= (1 << 30) || !(opcode.has_arg() || instr.has_target() || oparg == 0) {
+            return Err(InternalError::MalformedControlFlowGraph);
+        }
+        let loc = [lineno, col_offset, end_lineno, end_col_offset];
+        let entry =
+            instruction_sequence_addop(self, instruction_info_from_python(instr, oparg, loc))?;
+        // addop arguments are (lineno, col_offset, end_lineno, end_col_offset);
+        // get_instructions reports (lineno, end_lineno, col_offset, end_col_offset)
+        // after storing those four values in struct order.
+        entry.python_loc = Some([lineno, col_offset, end_lineno, end_col_offset]);
+        Ok(())
+    }
+
+    pub fn new_label(&mut self) -> i32 {
+        instruction_sequence_new_label(self).0
+    }
+
+    pub fn use_label(&mut self, label: i32) -> crate::InternalResult<()> {
+        instruction_sequence_use_label(self, InstructionSequenceLabel(label))
+    }
+
+    pub fn apply_label_map(&mut self) {
+        instruction_sequence_apply_label_map(self);
+    }
+
+    pub fn add_nested(&mut self, nested: Self) {
+        self.nested.push(nested);
+    }
+
+    #[must_use]
+    pub fn nested(&self) -> &[Self] {
+        &self.nested
+    }
+
+    pub fn nested_mut(&mut self) -> &mut Vec<Self> {
+        &mut self.nested
+    }
+
+    #[must_use]
+    pub fn python_instructions(&self) -> Vec<PythonInstruction> {
+        let mut out = Vec::with_capacity(self.instr_used);
+        for entry in &self.instrs[..self.instr_used] {
+            let opcode = any_opcode_as_i32(entry.info.instr.into());
+            let has_arg = AnyOpcode::from(entry.info.instr).has_arg();
+            let [lineno, end_lineno, col_offset, end_col_offset] = entry
+                .python_loc
+                .unwrap_or_else(|| python_location_of(&entry.info));
+            out.push(PythonInstruction {
+                opcode,
+                oparg: has_arg.then_some(u32::from(entry.info.arg) as i32),
+                lineno,
+                end_lineno,
+                col_offset,
+                end_col_offset,
+            });
+        }
+        out
+    }
+
+    fn check_load_const_indices(&self, nconsts: usize) -> crate::InternalResult<()> {
+        for entry in &self.instrs[..self.instr_used] {
+            if matches!(entry.info.instr.real(), Some(Instruction::LoadConst { .. })) {
+                let index = u32::from(entry.info.arg) as usize;
+                if index >= nconsts {
+                    return Err(InternalError::ConstIndexOutOfRange {
+                        index,
+                        len: nconsts,
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -659,6 +775,67 @@ fn instruction_sequence_new() -> InstructionSequence {
         label_map: None,
         label_map_allocation: 0,
         annotations_code: None,
+        nested: Vec::new(),
+    }
+}
+
+fn any_opcode_as_i32(opcode: AnyOpcode) -> i32 {
+    match opcode {
+        AnyOpcode::Real(op) => i32::from(u8::from(op)),
+        AnyOpcode::Pseudo(op) => i32::from(u16::from(op)),
+    }
+}
+
+fn python_location_of(info: &InstructionInfo) -> [i32; 4] {
+    let loc = info.instruction_linetable_location();
+    [loc.line, loc.end_line, loc.col, loc.end_col]
+}
+
+fn instruction_info_from_python(
+    instr: AnyInstruction,
+    oparg: u32,
+    loc: [i32; 4],
+) -> InstructionInfo {
+    let [lineno, col_offset, end_lineno, end_col_offset] = loc;
+    let lineno_override = match lineno.cmp(&0) {
+        core::cmp::Ordering::Less => Some(NO_LOCATION_OVERRIDE),
+        core::cmp::Ordering::Equal => Some(0),
+        core::cmp::Ordering::Greater => None,
+    };
+    let line = if lineno > 0 {
+        OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN)
+    } else {
+        OneIndexed::MIN
+    };
+    let end_line = if end_lineno > 0 {
+        OneIndexed::new(end_lineno as usize).unwrap_or(line)
+    } else {
+        line
+    };
+    let col = if col_offset >= 0 {
+        OneIndexed::from_zero_indexed(col_offset as usize)
+    } else {
+        OneIndexed::MIN
+    };
+    let end_col = if end_col_offset >= 0 {
+        OneIndexed::from_zero_indexed(end_col_offset as usize)
+    } else {
+        OneIndexed::MIN
+    };
+    InstructionInfo {
+        instr,
+        arg: OpArg::new(oparg),
+        target: BlockIdx::NULL,
+        location: SourceLocation {
+            line,
+            character_offset: col,
+        },
+        end_location: SourceLocation {
+            line: end_line,
+            character_offset: end_col,
+        },
+        except_handler: None,
+        lineno_override,
     }
 }
 
@@ -3952,6 +4129,105 @@ fn optimized_cfg_to_instruction_sequence(
     let mut instr_sequence = instruction_sequence_new();
     blocks.cfg_to_instruction_sequence(&mut instr_sequence)?;
     Ok((max_stackdepth, nlocalsplus, instr_sequence))
+}
+
+/// flowgraph.c _PyCompile_OptimizeCfg
+pub fn optimize_cfg_for_tests(
+    seq: InstructionSequence,
+    consts: Vec<ConstantData>,
+    nlocals: usize,
+) -> crate::InternalResult<(InstructionSequence, Vec<ConstantData>)> {
+    seq.check_load_const_indices(consts.len())?;
+    let mut metadata = CodeUnitMetadata {
+        name: String::new(),
+        qualname: None,
+        consts: ConstantPool::from_ordered(consts),
+        names: IndexSet::default(),
+        varnames: IndexSet::default(),
+        cellvars: IndexSet::default(),
+        freevars: IndexSet::default(),
+        fast_hidden: IndexMap::default(),
+        fast_hidden_final: IndexSet::default(),
+        argcount: 0,
+        posonlyargcount: 0,
+        kwonlyargcount: 0,
+        firstlineno: OneIndexed::MIN,
+    };
+    let mut blocks = Blocks::from([Block::default()]);
+    optimize_code_unit(&mut metadata, &mut blocks, seq, nlocals, 0)?;
+    let _ = blocks.calculate_stackdepth()?;
+    blocks.optimize_load_fast()?;
+    let mut out = instruction_sequence_new();
+    blocks.cfg_to_instruction_sequence(&mut out)?;
+    Ok((out, metadata.consts.into_vec()))
+}
+
+/// compile.c _PyCompile_Assemble
+pub fn assemble_for_tests(
+    filename: String,
+    seq: InstructionSequence,
+    metadata: CodeUnitMetadata,
+    debug_ranges: bool,
+) -> crate::InternalResult<CodeObject> {
+    let mut blocks = cfg_from_instruction_sequence(seq)?;
+    translate_jump_labels_to_targets(&mut blocks)?;
+    blocks.mark_except_handlers();
+    label_exception_targets(&mut blocks)?;
+    let flags = CodeFlags::empty();
+    let (max_stackdepth, nlocalsplus, mut instr_sequence) =
+        optimized_cfg_to_instruction_sequence(&metadata, flags, &mut blocks)?;
+    let localsplusinfo = compute_localsplus_info(&metadata, nlocalsplus, flags)?;
+    let CodeUnitMetadata {
+        name: obj_name,
+        qualname,
+        consts: constants,
+        names: name_cache,
+        varnames: varname_cache,
+        cellvars: _,
+        freevars: freevar_cache,
+        fast_hidden: _,
+        fast_hidden_final: _,
+        argcount: arg_count,
+        posonlyargcount: posonlyarg_count,
+        kwonlyargcount: kwonlyarg_count,
+        firstlineno: first_line_number,
+    } = metadata;
+    let code_arg_count = posonlyarg_count
+        .checked_add(arg_count)
+        .ok_or(InternalError::MalformedControlFlowGraph)?;
+    resolve_unconditional_jumps(&mut instr_sequence);
+    resolve_jump_offsets(&mut instr_sequence);
+    let assembled = assemble_emit(
+        &mut instr_sequence,
+        first_line_number.get() as i32,
+        debug_ranges,
+    )?;
+    let locations = rustpython_compiler_core::marshal::linetable_to_locations(
+        &assembled.linetable,
+        first_line_number.get() as i32,
+        assembled.instructions.len(),
+    );
+    Ok(CodeObject {
+        flags,
+        posonlyarg_count,
+        arg_count: code_arg_count,
+        kwonlyarg_count,
+        source_path: filename,
+        first_line_number: Some(first_line_number),
+        obj_name: obj_name.clone(),
+        qualname: qualname.unwrap_or(obj_name),
+        max_stackdepth: max_stackdepth.max(1),
+        instructions: CodeUnits::from(assembled.instructions),
+        locations,
+        constants: constants.into_iter().collect(),
+        names: name_cache.into_iter().collect(),
+        varnames: varname_cache.into_iter().collect(),
+        cellvars: localsplusinfo.cellvars,
+        freevars: freevar_cache.into_iter().collect(),
+        localspluskinds: localsplusinfo.kinds,
+        linetable: assembled.linetable,
+        exceptiontable: assembled.exceptiontable,
+    })
 }
 
 impl CodeInfo {

@@ -58,6 +58,11 @@ static KEYS_VERSION: AtomicU32 = AtomicU32::new(0);
 /// Allocate a new keys-version stamp. Returns 0 once the stamp space is
 /// exhausted; stamps are only allocated on specialization, so exhaustion is
 /// unrealistic in practice.
+/// Next keys-version stamp that [`next_keys_version`] would assign.
+pub(crate) fn peek_next_keys_version() -> u32 {
+    KEYS_VERSION.load(Relaxed).saturating_add(1)
+}
+
 fn next_keys_version() -> u32 {
     KEYS_VERSION
         .try_update(Relaxed, Relaxed, |v| v.checked_add(1))
@@ -570,6 +575,16 @@ impl<T: Clone> Dict<T> {
         key: &K,
     ) -> PyResult<Option<T>> {
         let hash = key.key_hash(vm)?;
+        self._get_inner(vm, key, hash)
+    }
+
+    /// `_PyDict_GetItem_KnownHash`: lookup using a caller-supplied hash.
+    pub(crate) fn get_known_hash<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<Option<T>> {
         self._get_inner(vm, key, hash)
     }
 

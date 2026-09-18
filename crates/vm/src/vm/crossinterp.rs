@@ -566,7 +566,7 @@ fn verify_stateless(
 }
 
 /// The `co_names` entries `identify_unbound_names` reaches through `LOAD_GLOBAL`.
-fn global_names(code: &PyCode) -> impl Iterator<Item = &'static PyStrInterned> + '_ {
+pub(crate) fn global_names(code: &PyCode) -> impl Iterator<Item = &'static PyStrInterned> + '_ {
     walk_instructions(code).filter_map(|(_, instr, arg)| match instr {
         Instruction::LoadGlobal { namei } => Some(code.names[(namei.get(arg) >> 1) as usize]),
         _ => None,
@@ -575,7 +575,9 @@ fn global_names(code: &PyCode) -> impl Iterator<Item = &'static PyStrInterned> +
 
 /// The instruction stream with its inline caches skipped and its specialized
 /// and instrumented opcodes mapped back, yielding `(offset, instruction, arg)`.
-fn walk_instructions(code: &PyCode) -> impl Iterator<Item = (usize, Instruction, OpArg)> + '_ {
+pub(crate) fn walk_instructions(
+    code: &PyCode,
+) -> impl Iterator<Item = (usize, Instruction, OpArg)> + '_ {
     let units = &code.instructions;
     let mut arg_state = OpArgState::default();
     let mut offset = 0;
@@ -645,7 +647,7 @@ fn is_pure_function(code: &PyCode) -> bool {
 /// `_PyCode_ReturnsOnlyNone`. Here "value" means a non-None value, since a bare
 /// return is identical to returning None explicitly, as is a missing return
 /// statement at the end of the function.
-fn code_returns_only_none(code: &PyCode) -> bool {
+pub(crate) fn code_returns_only_none(code: &PyCode) -> bool {
     if !is_pure_function(code) {
         return false;
     }

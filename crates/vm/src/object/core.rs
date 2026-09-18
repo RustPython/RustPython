@@ -372,10 +372,15 @@ pub(super) struct ObjExt {
 }
 
 impl ObjExt {
-    fn new(dict: Option<PyDictRef>, member_count: usize, has_dict: bool) -> Self {
+    fn new(
+        dict: Option<PyDictRef>,
+        member_count: usize,
+        has_dict: bool,
+        inline_values: bool,
+    ) -> Self {
         Self {
             dict: if has_dict {
-                Some(InstanceDict::from_opt(dict))
+                Some(InstanceDict::from_opt(dict, inline_values))
             } else {
                 None
             },
@@ -1079,9 +1084,14 @@ impl Py<PyWeak> {
     }
 }
 
+/// SHARED_KEYS_MAX_SIZE: beyond this many keys, inline values are
+/// converted to a regular heap dict.
+pub(crate) const SHARED_KEYS_MAX_SIZE: usize = 30;
+
 #[derive(Debug)]
 pub(crate) struct InstanceDict {
     pub(crate) d: PyRwLock<Option<PyDictRef>>,
+    inline_values_valid: PyAtomic<bool>,
 }
 
 impl From<PyDictRef> for InstanceDict {
@@ -1093,16 +1103,35 @@ impl From<PyDictRef> for InstanceDict {
 
 impl InstanceDict {
     #[inline]
-    pub(crate) const fn new(d: PyDictRef) -> Self {
+    pub(crate) fn new(d: PyDictRef) -> Self {
+        Self::from_opt(Some(d), false)
+    }
+
+    #[inline]
+    pub(crate) fn from_opt(d: Option<PyDictRef>, inline_values: bool) -> Self {
         Self {
-            d: PyRwLock::new(Some(d)),
+            d: PyRwLock::new(d),
+            inline_values_valid: Radium::new(inline_values),
         }
     }
 
     #[inline]
-    pub(crate) const fn from_opt(d: Option<PyDictRef>) -> Self {
-        Self {
-            d: PyRwLock::new(d),
+    pub(crate) fn inline_values_valid(&self) -> bool {
+        self.inline_values_valid.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub(crate) fn invalidate_inline_values(&self) {
+        self.inline_values_valid.store(false, Ordering::Relaxed);
+    }
+
+    pub(crate) fn maybe_materialize_inline_values(&self) {
+        if !self.inline_values_valid() {
+            return;
+        }
+        let overflow = self.with(|d| d.is_some_and(|d| d.__len__() > SHARED_KEYS_MAX_SIZE));
+        if overflow {
+            self.invalidate_inline_values();
         }
     }
 
@@ -1283,11 +1312,10 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             unsafe {
                 if let Some(offset) = ext_start {
                     let ext_ptr = alloc_ptr.add(offset) as *mut ObjExt;
-                    let has_dict = typ
-                        .slots
-                        .flags
-                        .has_feature(crate::types::PyTypeFlags::HAS_DICT);
-                    ext_ptr.write(ObjExt::new(dict, member_count, has_dict));
+                    let flags = typ.slots.flags;
+                    let has_dict = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT);
+                    let inline_values = flags.has_feature(crate::types::PyTypeFlags::INLINE_VALUES);
+                    ext_ptr.write(ObjExt::new(dict, member_count, has_dict, inline_values));
                 }
 
                 if let Some(offset) = weakref_start {
@@ -1698,6 +1726,18 @@ impl PyObject {
     #[inline(always)]
     pub(crate) fn instance_dict(&self) -> Option<&InstanceDict> {
         self.0.ext_ref().and_then(|ext| ext.dict.as_ref())
+    }
+
+    /// `_PyObject_InlineValues(obj)->valid` when the type has INLINE_VALUES.
+    #[inline]
+    pub fn has_inline_values(&self) -> bool {
+        self.class()
+            .slots
+            .flags
+            .has_feature(crate::types::PyTypeFlags::INLINE_VALUES)
+            && self
+                .instance_dict()
+                .is_some_and(InstanceDict::inline_values_valid)
     }
 
     #[inline(always)]
@@ -2789,7 +2829,7 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         alloc_ptr.expose_provenance();
 
         unsafe {
-            (alloc_ptr as *mut ObjExt).write(ObjExt::new(None, 0, true));
+            (alloc_ptr as *mut ObjExt).write(ObjExt::new(None, 0, true, false));
             (alloc_ptr.add(weakref_offset) as *mut WeakRefList).write(WeakRefList::new());
             alloc_ptr.add(inner_offset).cast()
         }

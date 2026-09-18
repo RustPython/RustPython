@@ -441,6 +441,7 @@ impl PyBaseObject {
                 if both_mutable || both_module {
                     super::type_::compatible_for_assignment(current_cls, &cls, "__class__", vm)?;
                     instance.set_class(cls, vm);
+                    crate::stdlib::_testinternalcapi::note_set_class();
                     Ok(())
                 } else {
                     Err(vm.new_type_error(
@@ -517,6 +518,9 @@ pub(crate) fn object_set_dict(
         PySetterValue::Assign(value) => Some(downcast_dict(value, vm)?),
         PySetterValue::Delete => None,
     };
+    if let Some(instance_dict) = obj.instance_dict() {
+        instance_dict.invalidate_inline_values();
+    }
     obj.set_dict(dict)
         .map_err(|_| vm.new_attribute_error("This object has no __dict__"))
 }
