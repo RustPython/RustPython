@@ -745,10 +745,14 @@ pub(super) mod _os {
         #[pymethod]
         fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
             #[cfg(windows)]
-            if let Some(find) = &self.find
-                && (!follow_symlinks.0 || !find.is_symlink())
-            {
-                return Ok(find.is_directory());
+            if let Some(find) = &self.find {
+                // Follow only real symlinks. Junctions are not symlinks, so
+                // FILE_ATTRIBUTE_DIRECTORY is used as-is. A directory symlink
+                // is not a directory when follow_symlinks is false.
+                let is_symlink = find.is_symlink();
+                if !(follow_symlinks.0 && is_symlink) {
+                    return Ok(!is_symlink && find.is_directory());
+                }
             }
             if let Ok(file_type) = &self.file_type
                 && (!follow_symlinks.0 || !file_type.is_symlink())
