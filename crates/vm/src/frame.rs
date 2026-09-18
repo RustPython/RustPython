@@ -8507,17 +8507,14 @@ impl ExecutingFrame<'_> {
     }
 
     /// `_PyEval_MonitorRaise` for a StopIteration produced by FOR_ITER.
-    /// Sequence iterators match FOR_ITER_LIST/RANGE/TUPLE, which do not
-    /// raise. Generators still report RAISE so sys.monitoring can see the
-    /// implicit stop.
+    /// Sequence iterators match FOR_ITER_LIST/RANGE/TUPLE and do not raise.
+    /// Generators still report RAISE and the settrace exception event
+    /// (Internal StopIteration).
     fn monitor_for_iter_stop(
         &self,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if self.monitoring_mask & monitoring::EVENT_RAISE == 0 {
-            return Ok(());
-        }
         let iter = self.top_value();
         if iter.downcast_ref_if_exact::<PyListIterator>(vm).is_some()
             || iter.downcast_ref_if_exact::<PyRangeIterator>(vm).is_some()
@@ -8525,10 +8522,21 @@ impl ExecutingFrame<'_> {
         {
             return Ok(());
         }
+        let need_raise = self.monitoring_mask & monitoring::EVENT_RAISE != 0;
+        let need_trace = vm.use_tracing.get() && self.trace_is_set(vm);
+        if !need_raise && !need_trace {
+            return Ok(());
+        }
         let stop_exc = vm.new_stop_iteration(value);
-        let offset = (self.lasti() - 1) * 2;
-        let exc_obj: PyObjectRef = stop_exc.into();
-        monitoring::fire_raise(vm, self.code, offset, &exc_obj)
+        if need_raise {
+            let offset = (self.lasti() - 1) * 2;
+            let exc_obj: PyObjectRef = stop_exc.clone().into();
+            monitoring::fire_raise(vm, self.code, offset, &exc_obj)?;
+        }
+        if need_trace {
+            self.fire_exception_trace(&stop_exc, vm)?;
+        }
+        Ok(())
     }
 
     /// Advance the iterator on top of stack.

@@ -205,7 +205,6 @@ mod _testinternalcapi {
 
     #[pyfunction]
     fn verify_stateless_code(args: VerifyStatelessCodeArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let _ = args.globalnames;
         let (code, default_globals, default_builtins) = code_or_function(&args.code, vm)?;
         let globalsns = optional_dict(args.globalsns, default_globals, "globalsns", vm)?;
         let builtinsns = optional_dict(args.builtinsns, default_builtins, "builtinsns", vm)?;
@@ -213,7 +212,7 @@ mod _testinternalcapi {
         set_unbound_var_counts(
             &code,
             &mut counts,
-            None,
+            args.globalnames.into_option(),
             None,
             globalsns.as_deref(),
             builtinsns.as_deref(),
@@ -271,17 +270,23 @@ mod _testinternalcapi {
     fn run_in_subinterp_with_config(
         code: PyStrRef,
         config: PyObjectRef,
-        _xi: OptionalArg<bool>,
+        xi: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult<i32> {
+        if xi.unwrap_or(false) {
+            return Err(vm.new_runtime_error("cross-interpreter execution is not supported"));
+        }
         let config = crate::stdlib::_interpreters::config_from_pyobject(&config, vm)?;
+        let source = code
+            .to_str()
+            .ok_or_else(|| vm.new_value_error("surrogates not allowed in interpreter source"))?;
         #[cfg(feature = "threading")]
         {
-            run_string_in_new_subinterp(code.to_str().unwrap_or(""), config, vm)
+            run_string_in_new_subinterp(source, config, vm)
         }
         #[cfg(not(feature = "threading"))]
         {
-            let _ = (code, config);
+            let _ = (source, config);
             Err(vm.new_runtime_error("isolated interpreters require threading"))
         }
     }

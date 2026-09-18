@@ -686,10 +686,13 @@ impl InstructionSequence {
         if opcode > MAX_OPCODE {
             return Err(InternalError::MalformedControlFlowGraph);
         }
-        let instr = AnyOpcode::try_from(opcode)
-            .map_err(|_| InternalError::MalformedControlFlowGraph)?
-            .into();
+        let opcode =
+            AnyOpcode::try_from(opcode).map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        let instr: AnyInstruction = opcode.into();
         let oparg = u32::try_from(oparg).map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        if oparg >= (1 << 30) || !(opcode.has_arg() || instr.has_target() || oparg == 0) {
+            return Err(InternalError::MalformedControlFlowGraph);
+        }
         let loc = [lineno, col_offset, end_lineno, end_col_offset];
         let entry =
             instruction_sequence_addop(self, instruction_info_from_python(instr, oparg, loc))?;
@@ -784,16 +787,8 @@ fn any_opcode_as_i32(opcode: AnyOpcode) -> i32 {
 }
 
 fn python_location_of(info: &InstructionInfo) -> [i32; 4] {
-    if info.lineno_override == Some(NO_LOCATION_OVERRIDE) {
-        return [-1, -1, -1, -1];
-    }
-    let lineno = info
-        .lineno_override
-        .unwrap_or_else(|| info.location.line.get() as i32);
-    let end_lineno = info.end_location.line.get() as i32;
-    let col_offset = info.location.character_offset.to_zero_indexed() as i32;
-    let end_col_offset = info.end_location.character_offset.to_zero_indexed() as i32;
-    [lineno, end_lineno, col_offset, end_col_offset]
+    let loc = info.instruction_linetable_location();
+    [loc.line, loc.end_line, loc.col, loc.end_col]
 }
 
 fn instruction_info_from_python(

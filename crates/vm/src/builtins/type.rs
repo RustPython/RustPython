@@ -986,25 +986,26 @@ impl PyType {
             Self::resolve_mro(&bases)?
         };
 
-        // Inherit HAS_DICT from any base in MRO that has it
-        // (not just the first base, as any base with __dict__ means subclass needs it too)
-        if bases.iter().any(|b| {
-            b.mro
-                .read()
-                .iter()
-                .any(|t| t.slots.flags.has_feature(PyTypeFlags::HAS_DICT))
-        }) {
-            slots.flags |= PyTypeFlags::HAS_DICT
+        // Layout flags come from each direct base's own flags. A custom
+        // mro() can omit a physical base from the stored MRO.
+        if bases
+            .iter()
+            .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_DICT))
+        {
+            slots.flags |= PyTypeFlags::HAS_DICT;
+        }
+        if bases
+            .iter()
+            .any(|b| b.slots.flags.has_feature(PyTypeFlags::MANAGED_DICT))
+        {
+            slots.flags |= PyTypeFlags::MANAGED_DICT;
         }
 
-        // Inherit HAS_WEAKREF/MANAGED_WEAKREF from any base in MRO that has it
-        if bases.iter().any(|b| {
-            b.mro
-                .read()
-                .iter()
-                .any(|t| t.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF))
-        }) {
-            slots.flags |= PyTypeFlags::HAS_WEAKREF | PyTypeFlags::MANAGED_WEAKREF
+        if bases
+            .iter()
+            .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF))
+        {
+            slots.flags |= PyTypeFlags::HAS_WEAKREF | PyTypeFlags::MANAGED_WEAKREF;
         }
 
         // Inherit SEQUENCE and MAPPING flags from base classes
@@ -1828,13 +1829,15 @@ impl PyType {
                 let old_mro = core::mem::replace(&mut *cls.mro.write(), new_mro);
                 undo.push((cls.to_owned(), old_mro));
                 cls.modified_inner();
-                for subclass in cls.subclasses.read().iter() {
-                    // Dead entries are pruned elsewhere; skip them here.
-                    let Some(subclass) = subclass.upgrade() else {
-                        continue;
-                    };
-                    let subclass: &Py<PyType> = subclass.downcast_ref().unwrap();
-                    update_mro_recursively(subclass, undo, vm)?;
+                let subclasses: Vec<PyTypeRef> = cls
+                    .subclasses
+                    .read()
+                    .iter()
+                    .filter_map(|subclass| subclass.upgrade())
+                    .filter_map(|subclass| subclass.downcast::<PyType>().ok())
+                    .collect();
+                for subclass in subclasses {
+                    update_mro_recursively(&subclass, undo, vm)?;
                 }
                 Ok(1)
             }
@@ -2550,6 +2553,7 @@ impl Constructor for PyType {
                 // and may share a name with a slot.
                 if slot_name != b"__qualname__"
                     && slot_name != b"__classcell__"
+                    && slot_name != b"__classdictcell__"
                     && attributes.contains_key(vm.ctx.intern_str(slot.as_wtf8()))
                 {
                     return Err(vm.new_value_error(format!(

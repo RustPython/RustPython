@@ -649,7 +649,11 @@ impl AsMapping for PyDict {
             ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                 let zelf = PyDict::mapping_downcast(mapping);
                 if let Some(value) = value {
-                    zelf.inner_setitem(needle, value, vm)
+                    zelf.inner_setitem(needle, value, vm)?;
+                    if zelf.as_object().is(vm.builtins.dict().as_object()) {
+                        crate::stdlib::_testinternalcapi::note_builtin_dict();
+                    }
+                    Ok(())
                 } else {
                     zelf.inner_delitem(needle, vm)
                 }

@@ -2451,24 +2451,12 @@ pub(crate) fn rust_mod_from_object(
     object: PyObjectRef,
     filename: &str,
 ) -> PyResult<RustModFromObject> {
-    if !object
-        .is_instance(pyast::NodeMod::static_type().as_object(), vm)
-        .unwrap_or(false)
-        && !object
-            .class()
-            .fast_issubclass(pyast::NodeMod::static_type())
-    {
-        // CPython PyAST_Check accepts any ast.AST; obj2mod then requires a mod.
-        // compiler_codegen tests pass Module nodes.
-        let ast_type = vm
-            .import("ast", 0)
-            .ok()
-            .and_then(|ast| ast.get_attr("AST", vm).ok());
-        if let Some(ast_type) = ast_type
-            && !object.is_instance(&ast_type, vm).unwrap_or(false)
-        {
-            return Err(vm.new_type_error("expected an AST"));
-        }
+    let is_mod = object
+        .class()
+        .fast_issubclass(pyast::NodeMod::static_type())
+        || object.is_instance(pyast::NodeMod::static_type().as_object(), vm)?;
+    if !is_mod && !is_ast_instance(vm, &object)? {
+        return Err(vm.new_type_error("expected an AST"));
     }
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
