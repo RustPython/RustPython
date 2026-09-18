@@ -2,7 +2,7 @@
 //!
 //! Mirrors CPython `Modules/_interpretersmodule.c`.
 
-pub(crate) use _interpreters::{init_xi_types, module_def};
+pub(crate) use _interpreters::{config_from_pyobject, init_xi_types, module_def};
 #[cfg_attr(not(feature = "threading"), allow(unused_imports))]
 pub(crate) use _interpreters::{
     interpreter_error, interpreter_not_found, not_shareable_error, xibufferview_from_buffer,
@@ -340,6 +340,14 @@ pub(crate) mod _interpreters {
         let name = name.unwrap_or("isolated");
         InterpreterConfig::named(name)
             .ok_or_else(|| vm.new_value_error(format!("unsupported config name '{name}'")))
+    }
+
+    /// `config_from_object`.
+    pub(crate) fn config_from_pyobject(
+        obj: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<InterpreterConfig> {
+        parse_config(Some(obj), vm)
     }
 
     /// `config_from_object`.

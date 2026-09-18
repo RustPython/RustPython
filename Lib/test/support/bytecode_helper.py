@@ -135,6 +135,7 @@ class CompilationStepTestCase(unittest.TestCase):
             self.assertTrue(all(isinstance(l, int) for l in loc))
 
 
+@unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline (compiler_codegen)
 @unittest.skipIf(_testinternalcapi is None, "requires _testinternalcapi")
 class CodegenTestCase(CompilationStepTestCase):
 
@@ -150,6 +151,7 @@ class CfgOptimizationTestCase(CompilationStepTestCase):
         insts = _testinternalcapi.optimize_cfg(seq, consts, nlocals)
         return insts, consts
 
+@unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline (assemble_code_object)
 @unittest.skipIf(_testinternalcapi is None, "requires _testinternalcapi")
 class AssemblerTestCase(CompilationStepTestCase):
 

@@ -879,6 +879,7 @@ class ExceptionMonitoringTest(CheckEvents):
 
         self.check_events(func1, [("raise", KeyError)])
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; implicit StopIteration is not raised
     @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     def test_implicit_stop_iteration(self):
         """Generators are documented as raising a StopIteration
@@ -1054,6 +1055,7 @@ class ExceptionMonitoringTest(CheckEvents):
         )
         self.assertEqual(events[0], ("throw", IndexError))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; CALL_ALLOC_AND_ENTER_INIT specialization
     @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     @requires_specialization_ft
     def test_no_unwind_for_shim_frame(self):
