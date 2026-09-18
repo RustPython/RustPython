@@ -7208,7 +7208,9 @@ impl ExecutingFrame<'_> {
                         Ok(PyIterReturn::StopIteration(value)) => {
                             // FOR_ITER_GEN returns through END_FOR, which
                             // fires STOP_ITERATION rather than RAISE.
-                            if self.monitoring_mask & monitoring::EVENT_STOP_ITERATION != 0 {
+                            if vm.state.monitoring_events.load() & monitoring::EVENT_STOP_ITERATION
+                                != 0
+                            {
                                 let offset = (self.lasti() - 1) * 2;
                                 let val = vm.unwrap_or_none(value.clone());
                                 monitoring::fire_stop_iteration(vm, self.code, offset, &val)?;
@@ -8522,7 +8524,7 @@ impl ExecutingFrame<'_> {
         {
             return Ok(());
         }
-        let need_raise = self.monitoring_mask & monitoring::EVENT_RAISE != 0;
+        let need_raise = vm.state.monitoring_events.load() & monitoring::EVENT_RAISE != 0;
         let need_trace = vm.use_tracing.get() && self.trace_is_set(vm);
         if !need_raise && !need_trace {
             return Ok(());
