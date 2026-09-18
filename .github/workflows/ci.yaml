@@ -551,10 +551,15 @@ jobs:
 
       - name: Run CPython tests
         run: |
-          target/release/rustpython -u -m test --slow-ci -j ${{ steps.cores.outputs.cores }} ${{ join(matrix.extra_test_args, ' ') }} -x ${{ env.FLAKY_MP_TESTS }} ${{ join(matrix.extra_flaky_mp_tests, ' ') }} ${{ join(matrix.skips, ' ') }}
+          target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS -x $FLAKY_MP_TESTS $EXTRA_FLAKY_MP_TESTS $SKIPS
         timeout-minutes: ${{ matrix.timeout }}
+        shell: bash
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+          CORES: ${{ steps.cores.outputs.cores }}
+          EXTRA_TEST_ARGS: ${{ join(matrix.extra_test_args, ' ') }}
+          EXTRA_FLAKY_MP_TESTS: ${{ join(matrix.extra_flaky_mp_tests, ' ') }}
+          SKIPS: ${{ join(matrix.skips, ' ') }}
 
       - name: Run flaky MP CPython tests
         run: |
@@ -562,7 +567,7 @@ jobs:
             echo "::group::Attempt ${attempt}"
 
             set +e
-            target/release/rustpython -u -m test --slow-ci -j 1 ${{ join(matrix.extra_test_args, ' ') }} ${{ env.FLAKY_MP_TESTS }} ${{ join(matrix.extra_flaky_mp_tests, ' ') }}
+            target/release/rustpython -u -m test --slow-ci -j 1 $EXTRA_TEST_ARGS $FLAKY_MP_TESTS $EXTRA_FLAKY_MP_TESTS
             status=$?
             set -e
 
@@ -578,6 +583,8 @@ jobs:
         shell: bash
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+          EXTRA_TEST_ARGS: ${{ join(matrix.extra_test_args, ' ') }}
+          EXTRA_FLAKY_MP_TESTS: ${{ join(matrix.extra_flaky_mp_tests, ' ') }}
 
       - name: run cpython tests to check if env polluters have stopped polluting
         shell: bash
