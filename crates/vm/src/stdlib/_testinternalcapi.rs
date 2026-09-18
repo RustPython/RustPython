@@ -28,10 +28,19 @@ pub(crate) fn note_func_modification() {
 mod _testinternalcapi {
     use super::*;
     use crate::{
-        PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyBytesRef, PyCode, PyDictRef, PyStrRef},
+        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
+        builtins::{
+            PyBytesRef, PyCode, PyDict, PyDictRef, PyStrRef, PyType, PyTypeRef,
+            descriptor::PyWrapper,
+        },
+        common::hash::PyHash,
+        dict_inner,
+        frame::FrameObject,
         function::OptionalArg,
+        protocol::PyMappingMethods,
+        types::{AsMapping, PyTypeFlags},
     };
+    use std::collections::HashMap;
 
     // ADAPTIVE_WARMUP_VALUE + 1
     #[pyattr]
@@ -43,6 +52,23 @@ mod _testinternalcapi {
 
     #[pyattr]
     const SHARED_KEYS_MAX_SIZE: usize = crate::object::SHARED_KEYS_MAX_SIZE;
+
+    // Free-threaded builds do not prefix objects with PyGC_Head.
+    #[pyattr]
+    const SIZEOF_PYGC_HEAD: usize = 0;
+
+    #[pyattr]
+    const SIZEOF_MANAGED_PRE_HEADER: usize = 2 * core::mem::size_of::<*const ()>();
+
+    #[pyattr]
+    const SIZEOF_PYOBJECT: usize = core::mem::size_of::<crate::PyObject>();
+
+    #[pyattr]
+    const SIZEOF_TIME_T: usize = 8;
+
+    // JUMP_BACKWARD_INITIAL_VALUE + 1
+    #[pyattr]
+    const TIER2_THRESHOLD: usize = 4096;
 
     #[pyfunction]
     fn has_inline_values(obj: PyObjectRef, _vm: &VirtualMachine) -> bool {
@@ -254,6 +280,349 @@ mod _testinternalcapi {
             Err(vm.new_runtime_error("isolated interpreters require threading"))
         }
     }
+
+    #[pyfunction]
+    fn compiler_cleandoc(doc: PyStrRef) -> String {
+        clean_doc(doc.to_str().unwrap_or(""))
+    }
+
+    #[pyfunction]
+    fn dict_getitem_knownhash(
+        dict: PyObjectRef,
+        key: PyObjectRef,
+        hash: PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let Some(dict) = dict.downcast_ref::<PyDict>() else {
+            return Err(vm.new_system_error("expected a dict"));
+        };
+        dict.get_item_known_hash(&key, hash, vm)?
+            .ok_or_else(|| vm.new_key_error(key))
+    }
+
+    #[pyfunction]
+    fn pymem_getallocatorsname() -> &'static str {
+        if cfg!(debug_assertions) {
+            "mimalloc_debug"
+        } else {
+            "mimalloc"
+        }
+    }
+
+    #[pyfunction]
+    fn get_c_recursion_remaining(vm: &VirtualMachine) -> usize {
+        vm.recursion_limit
+            .get()
+            .saturating_sub(vm.current_recursion_depth())
+    }
+
+    #[pyfunction]
+    fn get_stack_pointer() -> usize {
+        let marker = 0u8;
+        core::ptr::from_ref(&marker) as usize
+    }
+
+    #[pyfunction]
+    fn get_stack_margin() -> usize {
+        VirtualMachine::STACK_MARGIN_BYTES
+    }
+
+    #[pyfunction]
+    fn get_next_dict_keys_version() -> u32 {
+        dict_inner::peek_next_keys_version()
+    }
+
+    #[pyfunction]
+    fn type_assign_specific_version_unsafe(ty: PyTypeRef, version: u32) {
+        ty.assign_specific_version(version);
+    }
+
+    #[pyfunction]
+    fn get_tracked_heap_size(vm: &VirtualMachine) -> usize {
+        vm.state.gc.get_objects(None).len()
+    }
+
+    #[pyfunction]
+    fn get_long_lived_total(vm: &VirtualMachine) -> usize {
+        vm.state.gc.get_objects(None).len()
+    }
+
+    #[pyfunction]
+    fn get_co_framesize(code: PyRef<PyCode>) -> usize {
+        code.localspluskinds.len() + code.max_stackdepth as usize + 1
+    }
+
+    #[pyfunction]
+    fn iframe_getcode(frame: PyRef<FrameObject>) -> PyRef<PyCode> {
+        frame.f_code()
+    }
+
+    #[pyfunction]
+    fn iframe_getline(frame: PyRef<FrameObject>) -> usize {
+        frame.f_lineno()
+    }
+
+    #[pyfunction]
+    fn iframe_getlasti(frame: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        frame.get_attr("f_lasti", vm)
+    }
+
+    #[pyfunction]
+    fn get_static_builtin_types(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut stack = vec![vm.ctx.types.object_type.to_owned()];
+        while let Some(cls) = stack.pop() {
+            let ptr = cls.as_object() as *const PyObject as usize;
+            if !seen.insert(ptr) {
+                continue;
+            }
+            if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+                continue;
+            }
+            out.push(cls.clone().into());
+            for weak in cls.subclasses.read().iter() {
+                if let Some(sub) = weak.upgrade()
+                    && let Ok(sub) = sub.downcast::<PyType>()
+                {
+                    stack.push(sub);
+                }
+            }
+        }
+        out
+    }
+
+    #[pyfunction]
+    fn identify_type_slot_wrappers(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        let object = vm.ctx.types.object_type;
+        object
+            .get_attributes(&vm.ctx)
+            .into_iter()
+            .filter(|(_, value)| value.downcastable::<PyWrapper>())
+            .map(|(name, _)| name.to_owned().into())
+            .collect()
+    }
+
+    #[pyfunction]
+    fn get_configs(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        let settings = &vm.state.config.settings;
+        let global = vm.ctx.new_dict();
+        global.set_item("isolated", vm.ctx.new_bool(settings.isolated).into(), vm)?;
+        global.set_item("dev_mode", vm.ctx.new_bool(settings.dev_mode).into(), vm)?;
+        global.set_item("verbose", vm.ctx.new_int(settings.verbose).into(), vm)?;
+        global.set_item("quiet", vm.ctx.new_bool(settings.quiet).into(), vm)?;
+        global.set_item("inspect", vm.ctx.new_bool(settings.inspect).into(), vm)?;
+        global.set_item(
+            "interactive",
+            vm.ctx.new_bool(settings.interactive).into(),
+            vm,
+        )?;
+        global.set_item(
+            "optimize",
+            vm.ctx.new_int(settings.optimize as i32).into(),
+            vm,
+        )?;
+        global.set_item(
+            "hash_seed",
+            vm.ctx.new_int(settings.hash_seed.unwrap_or(0)).into(),
+            vm,
+        )?;
+        let configs = vm.ctx.new_dict();
+        configs.set_item("config", global.into(), vm)?;
+        Ok(configs)
+    }
+
+    #[pyfunction]
+    fn get_interp_settings(id: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        let _ = id;
+        let flags = vm.state.feature_flags;
+        let settings = vm.ctx.new_dict();
+        let mut bits = 0u64;
+        if flags.use_main_obmalloc {
+            bits |= 1 << 5;
+        }
+        if flags.check_multi_interp_extensions {
+            bits |= 1 << 8;
+        }
+        settings.set_item("feature_flags", vm.ctx.new_int(bits).into(), vm)?;
+        settings.set_item("own_gil", vm.ctx.new_bool(true).into(), vm)?;
+        Ok(settings)
+    }
+
+    #[pyfunction]
+    fn create_interpreter(
+        config: OptionalArg<PyObjectRef>,
+        _whence: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<i64> {
+        let cfg = match config.into_option() {
+            Some(obj) if !vm.is_none(&obj) => {
+                crate::stdlib::_interpreters::config_from_pyobject(&obj, vm)?
+            }
+            _ => crate::vm::InterpreterConfig::ISOLATED,
+        };
+        #[cfg(feature = "threading")]
+        {
+            let interp = crate::Interpreter::create_subinterpreter_from_vm(vm, cfg)
+                .map_err(|msg| crate::stdlib::_interpreters::interpreter_error(vm, msg))?;
+            Ok(crate::vm::runtime::store_owned_interpreter(interp))
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            let _ = cfg;
+            Err(vm.new_runtime_error("isolated interpreters require threading"))
+        }
+    }
+
+    #[pyfunction(name = "_PyTime_AsTimespec")]
+    fn pytime_as_timespec(ns: i64) -> (i64, i64) {
+        let sec = ns.div_euclid(1_000_000_000);
+        let nsec = ns.rem_euclid(1_000_000_000);
+        (sec, nsec)
+    }
+
+    #[pyfunction(name = "_PyTime_AsTimespec_clamp")]
+    fn pytime_as_timespec_clamp(ns: i64) -> (i64, i64) {
+        pytime_as_timespec(ns)
+    }
+
+    #[pyfunction(name = "_PyTime_AsTimeval_clamp")]
+    fn pytime_as_timeval_clamp(ns: i64, _rnd: OptionalArg<i32>) -> (i64, i64) {
+        let us = ns.div_euclid(1000);
+        let sec = us.div_euclid(1_000_000);
+        let usec = us.rem_euclid(1_000_000);
+        (sec, usec)
+    }
+
+    #[pyfunction]
+    fn test_edit_cost() {}
+
+    #[pyfunction]
+    fn hamt(vm: &VirtualMachine) -> PyRef<Hamt> {
+        Hamt::default().into_ref(&vm.ctx)
+    }
+
+    #[pyclass(no_attr, name = "hamt", module = "_testinternalcapi")]
+    #[derive(Default, Debug, PyPayload)]
+    struct Hamt {
+        buckets: HashMap<PyHash, Vec<(PyObjectRef, PyObjectRef)>>,
+        len: usize,
+    }
+
+    #[pyclass(with(AsMapping))]
+    impl Hamt {
+        #[pymethod]
+        fn set(
+            &self,
+            key: PyObjectRef,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
+            let hash = key.hash(vm)?;
+            let mut next = self.clone_map();
+            let bucket = next.buckets.entry(hash).or_default();
+            for (k, slot) in bucket.iter_mut() {
+                if vm.bool_eq(k, &key)? {
+                    *slot = value;
+                    return Ok(next.into_ref(&vm.ctx));
+                }
+            }
+            bucket.push((key, value));
+            next.len += 1;
+            Ok(next.into_ref(&vm.ctx))
+        }
+
+        #[pymethod]
+        fn get(
+            &self,
+            key: PyObjectRef,
+            default: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let hash = key.hash(vm)?;
+            if let Some(bucket) = self.buckets.get(&hash) {
+                for (k, v) in bucket {
+                    if vm.bool_eq(k, &key)? {
+                        return Ok(v.clone());
+                    }
+                }
+            }
+            Ok(default.unwrap_or_none(vm))
+        }
+
+        #[pymethod]
+        fn delete(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            let hash = key.hash(vm)?;
+            let mut next = self.clone_map();
+            if let Some(bucket) = next.buckets.get_mut(&hash) {
+                let mut idx = None;
+                for (i, (k, _)) in bucket.iter().enumerate() {
+                    if vm.bool_eq(k, &key)? {
+                        idx = Some(i);
+                        break;
+                    }
+                }
+                if let Some(i) = idx {
+                    bucket.remove(i);
+                    next.len -= 1;
+                    if bucket.is_empty() {
+                        next.buckets.remove(&hash);
+                    }
+                }
+            }
+            Ok(next.into_ref(&vm.ctx))
+        }
+
+        #[pymethod]
+        fn keys(&self, vm: &VirtualMachine) -> crate::builtins::PyListRef {
+            let keys: Vec<PyObjectRef> = self
+                .buckets
+                .values()
+                .flatten()
+                .map(|(k, _)| k.clone())
+                .collect();
+            vm.ctx.new_list(keys)
+        }
+
+        #[pymethod]
+        fn values(&self, vm: &VirtualMachine) -> crate::builtins::PyListRef {
+            let values: Vec<PyObjectRef> = self
+                .buckets
+                .values()
+                .flatten()
+                .map(|(_, v)| v.clone())
+                .collect();
+            vm.ctx.new_list(values)
+        }
+
+        #[pymethod]
+        fn items(&self, vm: &VirtualMachine) -> crate::builtins::PyListRef {
+            let items: Vec<PyObjectRef> = self
+                .buckets
+                .values()
+                .flatten()
+                .map(|(k, v)| vm.ctx.new_tuple(vec![k.clone(), v.clone()]).into())
+                .collect();
+            vm.ctx.new_list(items)
+        }
+
+        fn clone_map(&self) -> Self {
+            Self {
+                buckets: self.buckets.clone(),
+                len: self.len,
+            }
+        }
+    }
+
+    impl AsMapping for Hamt {
+        fn as_mapping() -> &'static PyMappingMethods {
+            static METHODS: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, _vm| Ok(Hamt::mapping_downcast(mapping).len)),
+                ..PyMappingMethods::NOT_IMPLEMENTED
+            };
+            &METHODS
+        }
+    }
 }
 
 use crate::{
@@ -266,6 +635,60 @@ use crate::{
     function::OptionalArg,
 };
 use std::collections::HashSet;
+
+fn clean_doc(doc: &str) -> String {
+    let doc = expandtabs(doc, 8);
+    let margin = doc
+        .split('\n')
+        .skip(1)
+        .filter(|line| line.chars().any(|c| c != ' '))
+        .map(|line| line.chars().take_while(|c| *c == ' ').count())
+        .min()
+        .unwrap_or(0);
+
+    let mut cleaned = String::with_capacity(doc.len());
+    if let Some(first_line) = doc.split('\n').next() {
+        let trimmed = first_line.trim_start();
+        if trimmed.len() == first_line.len() && margin == 0 {
+            return doc.to_owned();
+        }
+        cleaned.push_str(trimmed);
+    }
+    for line in doc.split('\n').skip(1) {
+        cleaned.push('\n');
+        let skip = line.chars().take(margin).take_while(|c| *c == ' ').count();
+        cleaned.push_str(&line[skip..]);
+    }
+    cleaned
+}
+
+fn expandtabs(input: &str, tab_size: usize) -> String {
+    let mut expanded = String::with_capacity(input.len());
+    let mut col = 0usize;
+    let mut next_stop = tab_size;
+    for ch in input.chars() {
+        match ch {
+            '\t' => {
+                let n = next_stop - col;
+                col += n;
+                expanded.extend(core::iter::repeat_n(' ', n));
+            }
+            '\r' | '\n' => {
+                expanded.push(ch);
+                col = 0;
+                next_stop = 0;
+            }
+            _ => {
+                expanded.push(ch);
+                col += 1;
+            }
+        }
+        if col >= next_stop {
+            next_stop += tab_size;
+        }
+    }
+    expanded
+}
 
 type CodeNamespaces = (PyRef<PyCode>, Option<PyRef<PyDict>>, Option<PyRef<PyDict>>);
 

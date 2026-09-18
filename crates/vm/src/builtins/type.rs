@@ -722,6 +722,11 @@ impl PyType {
         }
     }
 
+    /// Store a specific `tp_version_tag` without going through assignment.
+    pub(crate) fn assign_specific_version(&self, version: u32) {
+        self.tp_version_tag.store(version, Ordering::Release);
+    }
+
     pub fn modified(&self) {
         if self.tp_version_tag.load(Ordering::Acquire) == 0 {
             return;

@@ -40,6 +40,7 @@ cidx
 cjkcodecs
 CLASSDEREF
 classdict
+cleandoc
 cmpop
 CNOTAB
 codedepth
@@ -86,6 +87,7 @@ finalizers
 firsttraceable
 flowgraph
 formatfloat
+framesize
 freelist
 freevar
 freevars
@@ -262,6 +264,8 @@ templatelib
 testconsole
 threadstate
 ticketer
+timespec
+timeval
 tmptype
 tok_oldval
 tstate

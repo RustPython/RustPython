@@ -811,6 +811,15 @@ impl Py<PyDict> {
         Ok(attrs)
     }
 
+    pub(crate) fn get_item_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        self.entries.get_known_hash(vm, key, hash)
+    }
+
     pub fn get_item_opt<K: DictKey + ?Sized>(
         &self,
         key: &K,

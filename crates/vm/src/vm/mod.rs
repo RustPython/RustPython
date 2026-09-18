@@ -2104,7 +2104,7 @@ impl VirtualMachine {
     #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     // 2× CPython's _PY_STACK_MARGIN_BYTES to account for both heavy and
     // light frame native stack usage per recursion step.
-    const STACK_MARGIN_BYTES: usize =
+    pub(crate) const STACK_MARGIN_BYTES: usize =
         (if cfg!(debug_assertions) { 16384 } else { 4096 }) * core::mem::size_of::<usize>();
 
     /// How deep native recursion may go where the stack cannot be measured
