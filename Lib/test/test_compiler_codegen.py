@@ -1,6 +1,5 @@
 
 import textwrap
-import unittest
 from test.support.bytecode_helper import CodegenTestCase
 
 # Tests for the code-generation stage of the compiler.
@@ -42,7 +41,6 @@ class IsolatedCodeGenTests(CodegenTestCase):
         ]
         self.codegen_test(snippet, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; for-loop NOP end_lineno differs
     def test_for_loop(self):
         snippet = "for x in l:\n\tprint(x)"
         false_lbl = self.Label()

@@ -693,7 +693,10 @@ impl InstructionSequence {
         let loc = [lineno, col_offset, end_lineno, end_col_offset];
         let entry =
             instruction_sequence_addop(self, instruction_info_from_python(instr, oparg, loc))?;
-        entry.python_loc = Some([lineno, end_lineno, col_offset, end_col_offset]);
+        // addop arguments are (lineno, col_offset, end_lineno, end_col_offset);
+        // get_instructions reports (lineno, end_lineno, col_offset, end_col_offset)
+        // after storing those four values in struct order.
+        entry.python_loc = Some([lineno, col_offset, end_lineno, end_col_offset]);
         Ok(())
     }
 
@@ -4138,7 +4141,7 @@ pub fn optimize_cfg_for_tests(
     seq: InstructionSequence,
     consts: Vec<ConstantData>,
     nlocals: usize,
-) -> crate::InternalResult<InstructionSequence> {
+) -> crate::InternalResult<(InstructionSequence, Vec<ConstantData>)> {
     seq.check_load_const_indices(consts.len())?;
     let mut metadata = CodeUnitMetadata {
         name: String::new(),
@@ -4161,7 +4164,7 @@ pub fn optimize_cfg_for_tests(
     blocks.optimize_load_fast()?;
     let mut out = instruction_sequence_new();
     blocks.cfg_to_instruction_sequence(&mut out)?;
-    Ok(out)
+    Ok((out, metadata.consts.into_vec()))
 }
 
 /// compile.c _PyCompile_Assemble

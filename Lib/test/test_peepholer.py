@@ -1185,7 +1185,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         self.assertInstructionsMatch(opt_insts, expected_insts)
         self.assertEqual(opt_consts, expected_consts)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_conditional_jump_forward_non_const_condition(self):
         insts = [
             ('LOAD_NAME', 1, 11),
@@ -1238,7 +1237,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
             }
         self.assertEqual(f(), frozenset(range(40)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_nested_const_foldings(self):
         # (1, (--2 + ++2 * 2 // 2 - 2, )[0], ~~3, not not True)  ==>  (1, 2, 3, True)
         intrinsic_positive = 5
@@ -1293,7 +1291,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(before, after, consts=[], expected_consts=[-2, (1, 2, 3, True)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_build_empty_tuple(self):
         before = [
             ('BUILD_TUPLE', 0, 0),
@@ -1305,7 +1302,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(before, after, consts=[], expected_consts=[()])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_fold_tuple_of_constants(self):
         before = [
             ('NOP', None, 0),
@@ -1335,7 +1331,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(same, same, consts=[])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_fold_constant_intrinsic_list_to_tuple(self):
         INTRINSIC_LIST_TO_TUPLE = 6
 
@@ -1428,7 +1423,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(before, after, consts=[], expected_consts=[(1, 2, 3)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_optimize_if_const_list(self):
         before = [
             ('NOP', None, 0),
@@ -1469,7 +1463,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(same, same, consts=[])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_optimize_if_const_set(self):
         before = [
             ('NOP', None, 0),
@@ -1510,7 +1503,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(same, same, consts=[])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_optimize_literal_list_for_iter(self):
         # for _ in [1, 2]: pass  ==>  for _ in (1, 2): pass
         before = [
@@ -1576,7 +1568,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(before, after, consts=[None], expected_consts=[None])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_optimize_literal_set_for_iter(self):
         # for _ in {1, 2}: pass  ==>  for _ in (1, 2): pass
         before = [
@@ -1628,7 +1619,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(same, same, consts=[None], expected_consts=[None])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_optimize_literal_list_contains(self):
         # x in [1, 2]  ==>  x in (1, 2)
         before = [
@@ -1674,7 +1664,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(before, after, consts=[None], expected_consts=[None])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_optimize_literal_set_contains(self):
         # x in {1, 2}  ==>  x in (1, 2)
         before = [
@@ -1711,7 +1700,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(same, same, consts=[None], expected_consts=[None])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_optimize_unary_not(self):
         # test folding
         before = [
@@ -1957,7 +1945,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(before, after, consts=[], expected_consts=[])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_optimize_if_const_unaryop(self):
         # test unary negative
         before = [
@@ -1998,7 +1985,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(before, after, consts=[], expected_consts=[])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_optimize_if_const_binop(self):
         add = get_binop_argval('NB_ADD')
         sub = get_binop_argval('NB_SUBTRACT')
@@ -2210,7 +2196,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         self.cfg_optimization_test(before, after, consts=[(1, (1, 2, 3))], expected_consts=[(1, (1, 2, 3))])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_conditional_jump_forward_const_condition(self):
         # The unreachable branch of the jump is removed, the jump
         # becomes redundant and is replaced by a NOP (for the lineno)
@@ -2267,7 +2252,6 @@ class DirectCfgOptimizerTests(CfgOptimizationTestCase):
         ]
         self.cfg_optimization_test(insts, expected_insts, consts=list(range(5)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; compiler IR pipeline
     def test_except_handler_label(self):
         insts = [
             ('SETUP_FINALLY', handler := self.Label(), 10),

@@ -704,9 +704,16 @@ mod _testinternalcapi {
         for item in consts_list.borrow_vec().iter() {
             const_data.push(super::py_to_constant_data(item.clone(), vm)?);
         }
-        let optimized =
+        let (optimized, new_consts) =
             rustpython_codegen::ir::optimize_cfg_for_tests(rust_seq, const_data, nlocals)
                 .map_err(|err| super::internal_error_to_py(err, vm))?;
+        {
+            let mut items = consts_list.borrow_vec_mut();
+            items.clear();
+            for constant in new_consts {
+                items.push(super::constant_data_to_py(constant, vm));
+            }
+        }
         Ok(PyInstructionSequence::from_rust(optimized, vm))
     }
 
