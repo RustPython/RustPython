@@ -341,6 +341,24 @@ pub fn write_fd(fd: BorrowedFd<'_>, buf: &[u8]) -> std::io::Result<usize> {
     nix::unistd::write(fd, buf).map_err(std::io::Error::from)
 }
 
+pub fn pread(fd: i32, buf: &mut [u8], offset: libc::off_t) -> std::io::Result<usize> {
+    let ret = unsafe { libc::pread(fd, buf.as_mut_ptr().cast(), buf.len(), offset) };
+    if ret == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(ret as usize)
+    }
+}
+
+pub fn pwrite(fd: i32, buf: &[u8], offset: libc::off_t) -> std::io::Result<usize> {
+    let ret = unsafe { libc::pwrite(fd, buf.as_ptr().cast(), buf.len(), offset) };
+    if ret == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(ret as usize)
+    }
+}
+
 pub fn fchownat(
     dir_fd: BorrowedFd<'_>,
     path: &OsStr,
