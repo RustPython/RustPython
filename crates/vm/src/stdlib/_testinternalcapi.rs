@@ -28,17 +28,22 @@ pub(crate) fn note_func_modification() {
 mod _testinternalcapi {
     use super::*;
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        atomic_func,
         builtins::{
             PyBytesRef, PyCode, PyDict, PyDictRef, PyStrRef, PyType, PyTypeRef,
             descriptor::PyWrapper,
         },
-        common::hash::PyHash,
+        common::{hash::PyHash, lock::LazyLock},
         dict_inner,
         frame::FrameObject,
-        function::OptionalArg,
-        protocol::PyMappingMethods,
-        types::{AsMapping, PyTypeFlags},
+        function::{OptionalArg, PyComparisonValue},
+        object::{Traverse, TraverseFn},
+        protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
+        types::{
+            AsMapping, AsSequence, Comparable, IterNext, Iterable, PyComparisonOp, PyTypeFlags,
+            SelfIter,
+        },
     };
     use std::collections::HashMap;
 
@@ -502,32 +507,131 @@ mod _testinternalcapi {
         Hamt::default().into_ref(&vm.ctx)
     }
 
-    #[pyclass(no_attr, name = "hamt", module = "_testinternalcapi")]
+    #[pyclass(
+        no_attr,
+        name = "hamt",
+        module = "_testinternalcapi",
+        traverse = "manual"
+    )]
     #[derive(Default, Debug, PyPayload)]
     struct Hamt {
         buckets: HashMap<PyHash, Vec<(PyObjectRef, PyObjectRef)>>,
         len: usize,
     }
 
-    #[pyclass(with(AsMapping))]
+    // SAFETY: each stored key/value is visited at most once.
+    unsafe impl Traverse for Hamt {
+        fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+            // Visit order is irrelevant for GC tracing.
+            #[allow(clippy::iter_over_hash_type)]
+            for pairs in self.buckets.values() {
+                for (k, v) in pairs {
+                    k.traverse(traverse_fn);
+                    v.traverse(traverse_fn);
+                }
+            }
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            #[allow(clippy::iter_over_hash_type)]
+            for (_, pairs) in self.buckets.drain() {
+                for (k, v) in pairs {
+                    out.push(k);
+                    out.push(v);
+                }
+            }
+            self.len = 0;
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum HamtIterKind {
+        Keys,
+        Values,
+        Items,
+    }
+
+    #[pyclass(
+        no_attr,
+        name = "hamt_iterator",
+        module = "_testinternalcapi",
+        traverse
+    )]
+    #[derive(Debug, PyPayload)]
+    struct HamtIter {
+        items: Vec<(PyObjectRef, PyObjectRef)>,
+        #[pytraverse(skip)]
+        kind: HamtIterKind,
+        #[pytraverse(skip)]
+        pos: AtomicUsize,
+    }
+
+    #[pyclass(flags(HAS_WEAKREF), with(AsMapping, AsSequence, Comparable, Iterable))]
     impl Hamt {
+        fn find(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+            let hash = key.hash(vm)?;
+            if let Some(bucket) = self.buckets.get(&hash) {
+                for (k, v) in bucket {
+                    if vm.bool_eq(k, key)? {
+                        return Ok(Some(v.clone()));
+                    }
+                }
+            }
+            Ok(None)
+        }
+
+        fn pairs(&self) -> impl Iterator<Item = &(PyObjectRef, PyObjectRef)> {
+            self.buckets.values().flatten()
+        }
+
+        fn snapshot(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
+            self.pairs().cloned().collect()
+        }
+
+        fn iter_with_kind(&self, kind: HamtIterKind, vm: &VirtualMachine) -> PyRef<HamtIter> {
+            HamtIter {
+                items: self.snapshot(),
+                kind,
+                pos: AtomicUsize::new(0),
+            }
+            .into_ref(&vm.ctx)
+        }
+
+        fn clone_map(&self) -> Self {
+            Self {
+                buckets: self.buckets.clone(),
+                len: self.len,
+            }
+        }
+
         #[pymethod]
         fn set(
-            &self,
+            zelf: PyRef<Self>,
             key: PyObjectRef,
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             let hash = key.hash(vm)?;
-            let mut next = self.clone_map();
-            let bucket = next.buckets.entry(hash).or_default();
-            for (k, slot) in bucket.iter_mut() {
-                if vm.bool_eq(k, &key)? {
-                    *slot = value;
-                    return Ok(next.into_ref(&vm.ctx));
+            if let Some(bucket) = zelf.buckets.get(&hash) {
+                for (k, slot) in bucket {
+                    if vm.bool_eq(k, &key)? {
+                        if slot.is(&value) {
+                            return Ok(zelf);
+                        }
+                        let mut next = zelf.clone_map();
+                        let next_bucket = next.buckets.get_mut(&hash).unwrap();
+                        for (nk, nv) in next_bucket.iter_mut() {
+                            if vm.bool_eq(nk, &key)? {
+                                *nv = value;
+                                break;
+                            }
+                        }
+                        return Ok(next.into_ref(&vm.ctx));
+                    }
                 }
             }
-            bucket.push((key, value));
+            let mut next = zelf.clone_map();
+            next.buckets.entry(hash).or_default().push((key, value));
             next.len += 1;
             Ok(next.into_ref(&vm.ctx))
         }
@@ -539,78 +643,55 @@ mod _testinternalcapi {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let hash = key.hash(vm)?;
-            if let Some(bucket) = self.buckets.get(&hash) {
-                for (k, v) in bucket {
-                    if vm.bool_eq(k, &key)? {
-                        return Ok(v.clone());
-                    }
-                }
+            match self.find(&key, vm)? {
+                Some(value) => Ok(value),
+                None => Ok(default.unwrap_or_none(vm)),
             }
-            Ok(default.unwrap_or_none(vm))
         }
 
         #[pymethod]
-        fn delete(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        fn delete(
+            zelf: PyRef<Self>,
+            key: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
             let hash = key.hash(vm)?;
-            let mut next = self.clone_map();
-            if let Some(bucket) = next.buckets.get_mut(&hash) {
-                let mut idx = None;
-                for (i, (k, _)) in bucket.iter().enumerate() {
-                    if vm.bool_eq(k, &key)? {
-                        idx = Some(i);
-                        break;
-                    }
+            let Some(bucket) = zelf.buckets.get(&hash) else {
+                return Ok(zelf);
+            };
+            let mut idx = None;
+            for (i, (k, _)) in bucket.iter().enumerate() {
+                if vm.bool_eq(k, &key)? {
+                    idx = Some(i);
+                    break;
                 }
-                if let Some(i) = idx {
-                    bucket.remove(i);
-                    next.len -= 1;
-                    if bucket.is_empty() {
-                        next.buckets.remove(&hash);
-                    }
-                }
+            }
+            let Some(i) = idx else {
+                return Ok(zelf);
+            };
+            let mut next = zelf.clone_map();
+            let next_bucket = next.buckets.get_mut(&hash).unwrap();
+            next_bucket.remove(i);
+            next.len -= 1;
+            if next_bucket.is_empty() {
+                next.buckets.remove(&hash);
             }
             Ok(next.into_ref(&vm.ctx))
         }
 
         #[pymethod]
-        fn keys(&self, vm: &VirtualMachine) -> crate::builtins::PyListRef {
-            let keys: Vec<PyObjectRef> = self
-                .buckets
-                .values()
-                .flatten()
-                .map(|(k, _)| k.clone())
-                .collect();
-            vm.ctx.new_list(keys)
+        fn keys(&self, vm: &VirtualMachine) -> PyRef<HamtIter> {
+            self.iter_with_kind(HamtIterKind::Keys, vm)
         }
 
         #[pymethod]
-        fn values(&self, vm: &VirtualMachine) -> crate::builtins::PyListRef {
-            let values: Vec<PyObjectRef> = self
-                .buckets
-                .values()
-                .flatten()
-                .map(|(_, v)| v.clone())
-                .collect();
-            vm.ctx.new_list(values)
+        fn values(&self, vm: &VirtualMachine) -> PyRef<HamtIter> {
+            self.iter_with_kind(HamtIterKind::Values, vm)
         }
 
         #[pymethod]
-        fn items(&self, vm: &VirtualMachine) -> crate::builtins::PyListRef {
-            let items: Vec<PyObjectRef> = self
-                .buckets
-                .values()
-                .flatten()
-                .map(|(k, v)| vm.ctx.new_tuple(vec![k.clone(), v.clone()]).into())
-                .collect();
-            vm.ctx.new_list(items)
-        }
-
-        fn clone_map(&self) -> Self {
-            Self {
-                buckets: self.buckets.clone(),
-                len: self.len,
-            }
+        fn items(&self, vm: &VirtualMachine) -> PyRef<HamtIter> {
+            self.iter_with_kind(HamtIterKind::Items, vm)
         }
     }
 
@@ -618,7 +699,97 @@ mod _testinternalcapi {
         fn as_mapping() -> &'static PyMappingMethods {
             static METHODS: PyMappingMethods = PyMappingMethods {
                 length: atomic_func!(|mapping, _vm| Ok(Hamt::mapping_downcast(mapping).len)),
-                ..PyMappingMethods::NOT_IMPLEMENTED
+                subscript: atomic_func!(|mapping, needle, vm| {
+                    Hamt::mapping_downcast(mapping)
+                        .find(needle, vm)?
+                        .ok_or_else(|| vm.new_key_error(needle.to_owned()))
+                }),
+                ass_subscript: None,
+            };
+            &METHODS
+        }
+    }
+
+    impl AsSequence for Hamt {
+        fn as_sequence() -> &'static PySequenceMethods {
+            static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
+                contains: atomic_func!(|seq, target, vm| {
+                    Ok(Hamt::sequence_downcast(seq).find(target, vm)?.is_some())
+                }),
+                ..PySequenceMethods::NOT_IMPLEMENTED
+            });
+            &AS_SEQUENCE
+        }
+    }
+
+    impl Comparable for Hamt {
+        fn cmp(
+            zelf: &Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            let other = class_or_notimplemented!(Self, other);
+            op.eq_only(|| Ok(hamt_eq(zelf, other, vm)?.into()))
+        }
+    }
+
+    fn hamt_eq(left: &Py<Hamt>, right: &Py<Hamt>, vm: &VirtualMachine) -> PyResult<bool> {
+        if left.is(right) {
+            return Ok(true);
+        }
+        if left.len != right.len {
+            return Ok(false);
+        }
+        let pairs = left.snapshot();
+        for (key, left_value) in pairs {
+            match right.find(&key, vm)? {
+                Some(right_value) => {
+                    if !vm.bool_eq(&left_value, &right_value)? {
+                        return Ok(false);
+                    }
+                }
+                None => return Ok(false),
+            }
+        }
+        Ok(true)
+    }
+
+    impl Iterable for Hamt {
+        fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            Ok(zelf.keys(vm).into())
+        }
+    }
+
+    #[pyclass(with(IterNext, Iterable, AsMapping))]
+    impl HamtIter {}
+
+    impl SelfIter for HamtIter {}
+
+    impl IterNext for HamtIter {
+        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let pos = zelf.pos.fetch_add(1, Ordering::Relaxed);
+            let Some((key, value)) = zelf.items.get(pos) else {
+                zelf.pos.fetch_sub(1, Ordering::Relaxed);
+                return Ok(PyIterReturn::StopIteration(None));
+            };
+            let item = match zelf.kind {
+                HamtIterKind::Keys => key.clone(),
+                HamtIterKind::Values => value.clone(),
+                HamtIterKind::Items => vm.ctx.new_tuple(vec![key.clone(), value.clone()]).into(),
+            };
+            Ok(PyIterReturn::Return(item))
+        }
+    }
+
+    impl AsMapping for HamtIter {
+        fn as_mapping() -> &'static PyMappingMethods {
+            static METHODS: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, _vm| {
+                    Ok(HamtIter::mapping_downcast(mapping).items.len())
+                }),
+                subscript: None,
+                ass_subscript: None,
             };
             &METHODS
         }

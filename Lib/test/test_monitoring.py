@@ -879,7 +879,6 @@ class ExceptionMonitoringTest(CheckEvents):
 
         self.check_events(func1, [("raise", KeyError)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; implicit StopIteration is not raised
     @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     def test_implicit_stop_iteration(self):
         """Generators are documented as raising a StopIteration
@@ -1560,7 +1559,6 @@ BRANCH_OFFSET_RECORDERS = BranchLeftOffsetRecorder, BranchRightOffsetRecorder
 class TestBranchAndJumpEvents(CheckEvents):
     maxDiff = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_loop(self):
 
         def func():
@@ -1712,7 +1710,6 @@ class TestBranchAndJumpEvents(CheckEvents):
             ('branch left', 'func', 12, 12)])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_match(self):
 
         def func(v=1):

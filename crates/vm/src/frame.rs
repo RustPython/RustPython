@@ -7206,6 +7206,13 @@ impl ExecutingFrame<'_> {
                             self.push_value(value);
                         }
                         Ok(PyIterReturn::StopIteration(value)) => {
+                            // FOR_ITER_GEN returns through END_FOR, which
+                            // fires STOP_ITERATION rather than RAISE.
+                            if self.monitoring_mask & monitoring::EVENT_STOP_ITERATION != 0 {
+                                let offset = (self.lasti() - 1) * 2;
+                                let val = vm.unwrap_or_none(value.clone());
+                                monitoring::fire_stop_iteration(vm, self.code, offset, &val)?;
+                            }
                             if vm.use_tracing.get() && self.trace_is_set(vm) {
                                 let stop_exc = vm.new_stop_iteration(value);
                                 self.fire_exception_trace(&stop_exc, vm)?;
@@ -7453,7 +7460,9 @@ impl ExecutingFrame<'_> {
                         monitoring::fire_branch_left(vm, self.code, src_offset, dest_offset)?;
                     }
                 } else if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
-                    let dest_offset = self.lasti() * 2;
+                    // INSTRUMENTED_POP_ITER: dest is the instruction after
+                    // POP_ITER (FOR_ITER jumps over END_FOR onto POP_ITER).
+                    let dest_offset = (self.lasti() + 1) * 2;
                     monitoring::fire_branch_right(vm, self.code, src_offset, dest_offset)?;
                 }
                 Ok(None)
@@ -8497,6 +8506,29 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
+    /// `_PyEval_MonitorRaise` for a StopIteration produced by FOR_ITER.
+    fn monitor_for_iter_stop(
+        &self,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let need_raise = self.monitoring_mask & monitoring::EVENT_RAISE != 0;
+        let need_trace = vm.use_tracing.get() && self.trace_is_set(vm);
+        if !need_raise && !need_trace {
+            return Ok(());
+        }
+        let stop_exc = vm.new_stop_iteration(value);
+        if need_raise {
+            let offset = (self.lasti() - 1) * 2;
+            let exc_obj: PyObjectRef = stop_exc.clone().into();
+            monitoring::fire_raise(vm, self.code, offset, &exc_obj)?;
+        }
+        if need_trace {
+            self.fire_exception_trace(&stop_exc, vm)?;
+        }
+        Ok(())
+    }
+
     /// Advance the iterator on top of stack.
     /// Returns `true` if iteration continued (item pushed), `false` if exhausted (jumped).
     fn execute_for_iter(
@@ -8529,12 +8561,9 @@ impl ExecutingFrame<'_> {
                 Ok(true)
             }
             Ok(PyIterReturn::StopIteration(value)) => {
-                // Fire 'exception' trace event for StopIteration, matching
-                // FOR_ITER's inline call to _PyEval_MonitorRaise.
-                if vm.use_tracing.get() && self.trace_is_set(vm) {
-                    let stop_exc = vm.new_stop_iteration(value);
-                    self.fire_exception_trace(&stop_exc, vm)?;
-                }
+                // _FOR_ITER / INSTRUMENTED_FOR_ITER: _PyEval_MonitorRaise
+                // then clear the StopIteration and jump over END_FOR.
+                self.monitor_for_iter_stop(value, vm)?;
                 self.jump(self.for_iter_jump_target(target));
                 Ok(false)
             }
