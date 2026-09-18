@@ -61,6 +61,7 @@ dictbytype
 DICTFLAG
 dictoffset
 distpoint
+drvsize
 dynload
 elts
 eooh
@@ -177,6 +178,9 @@ npools
 nseen
 NSIGNALS
 numer
+numdupes
+numkwonly
+numposorkw
 nvars
 obmalloc
 opname

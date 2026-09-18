@@ -144,10 +144,7 @@ mod _testinternalcapi {
     }
 
     #[pyfunction]
-    fn get_code_var_counts(
-        args: GetCodeVarCountsArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyDictRef> {
+    fn get_code_var_counts(args: GetCodeVarCountsArgs, vm: &VirtualMachine) -> PyResult<PyDictRef> {
         let (code, default_globals, default_builtins) = code_or_function(&args.code, vm)?;
         let globalsns = optional_dict(args.globalsns, default_globals, "globalsns", vm)?;
         let builtinsns = optional_dict(args.builtinsns, default_builtins, "builtinsns", vm)?;
