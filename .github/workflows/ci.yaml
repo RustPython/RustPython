@@ -457,8 +457,6 @@ jobs:
       # Tests that can be flaky when running with multiple processes `-j 2`. We will use `-j 1` for these.
       FLAKY_MP_TESTS: >-
         test_multiprocessing_fork
-        test_multiprocessing_forkserver
-        test_multiprocessing_spawn
     # Named after the matrix entry rather than left to be named for it: a
     # generated name lists every value in the entry, so adding or removing one
     # renames the check and drops it from the required list.
