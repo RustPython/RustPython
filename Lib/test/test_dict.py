@@ -1614,7 +1614,6 @@ class DictTest(unittest.TestCase):
         self.assertEqual(holds_reference.ref['data'], 42)
         self.assertEqual(holds_reference.attr, "whatever")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unhashable_key(self):
         d = {'a': 1}
         key = [1, 2, 3]
