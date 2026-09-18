@@ -31,7 +31,7 @@ use windows_sys::{
             ERROR_FILENAME_EXCED_RANGE, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_FUNCTION,
             ERROR_INVALID_HANDLE, ERROR_INVALID_NAME, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA,
             ERROR_NOT_READY, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND, ERROR_SHARING_VIOLATION,
-            GENERIC_READ, GENERIC_WRITE, GetHandleInformation, GetLastError, HANDLE,
+            FILETIME, GENERIC_READ, GENERIC_WRITE, GetHandleInformation, GetLastError, HANDLE,
             HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, MAX_PATH, SetHandleInformation,
         },
         Globalization::{CP_UTF8, MultiByteToWideChar, WideCharToMultiByte},
@@ -48,7 +48,7 @@ use windows_sys::{
             GetVolumePathNameW, GetVolumePathNamesForVolumeNameW, INVALID_FILE_ATTRIBUTES,
             OPEN_EXISTING, RemoveDirectoryW, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE,
             SYMBOLIC_LINK_FLAG_DIRECTORY, SetFileAttributesW, SetFileInformationByHandle,
-            WIN32_FILE_ATTRIBUTE_DATA, WIN32_FIND_DATAW,
+            SetFileTime, WIN32_FILE_ATTRIBUTE_DATA, WIN32_FIND_DATAW,
         },
         System::{
             Console,
@@ -288,33 +288,58 @@ pub fn supports_virtual_terminal() -> bool {
 }
 
 pub fn symlink(
-    src: &Path,
-    dst: &Path,
+    _src: &Path,
+    _dst: &Path,
     src_wide: &widestring::WideCStr,
     dst_wide: &widestring::WideCStr,
     target_is_directory: bool,
 ) -> io::Result<()> {
     static HAS_UNPRIVILEGED_FLAG: AtomicBool = AtomicBool::new(true);
 
-    fn check_dir(src: &Path, dst: &Path) -> bool {
+    fn check_dir(src: &widestring::WideCStr, dst: &widestring::WideCStr) -> bool {
         use windows_sys::Win32::Storage::FileSystem::GetFileExInfoStandard;
 
-        let Some(dst_parent) = dst.parent() else {
+        // `_check_dirW`: two WCHAR[MAX_PATH] buffers; a join that does not
+        // fit is "not a directory".
+        let src = src.as_slice();
+        let dst = dst.as_slice();
+        let max_path = MAX_PATH_USIZE;
+        if dst.len() >= max_path {
             return false;
-        };
-        let resolved = if src.is_absolute() {
-            src.to_path_buf()
+        }
+        let parent_len = dst
+            .iter()
+            .rposition(|&unit| unit == b'\\' as u16 || unit == b'/' as u16)
+            .unwrap_or(0);
+        let parent = &dst[..parent_len];
+        let absolute = src
+            .first()
+            .is_some_and(|&unit| unit == b'\\' as u16 || unit == b'/' as u16)
+            || (src.first().is_some_and(|&unit| unit != 0) && src.get(1) == Some(&(b':' as u16)));
+
+        let mut resolved = Vec::with_capacity(max_path);
+        if absolute {
+            if src.len() >= max_path {
+                return false;
+            }
+            resolved.extend_from_slice(src);
         } else {
-            dst_parent.join(src)
-        };
-        let wide = match widestring::WideCString::from_os_str(&resolved) {
-            Ok(wide) => wide,
-            Err(_) => return false,
-        };
+            let separator_len = usize::from(!parent.is_empty());
+            if parent.len() + separator_len + src.len() >= max_path {
+                return false;
+            }
+            resolved.extend_from_slice(parent);
+            if !parent.is_empty() {
+                resolved.push(b'\\' as u16);
+            }
+            resolved.extend_from_slice(src);
+        }
+        resolved.push(0);
+
         let mut info: WIN32_FILE_ATTRIBUTE_DATA = unsafe { core::mem::zeroed() };
         let ok = unsafe {
             GetFileAttributesExW(
-                wide.as_ptr(),
+                resolved.as_ptr(),
                 GetFileExInfoStandard,
                 (&mut info as *mut WIN32_FILE_ATTRIBUTE_DATA).cast(),
             )
@@ -326,7 +351,7 @@ pub fn symlink(
     if HAS_UNPRIVILEGED_FLAG.load(Ordering::Relaxed) {
         flags |= SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
     }
-    if target_is_directory || check_dir(src, dst) {
+    if target_is_directory || check_dir(src_wide, dst_wide) {
         flags |= SYMBOLIC_LINK_FLAG_DIRECTORY;
     }
 
@@ -346,6 +371,53 @@ pub fn symlink(
         Ok(())
     } else {
         Err(io::Error::last_os_error())
+    }
+}
+
+/// `time_t_to_FILE_TIME` plus `SetFileTime`. A FILETIME counts 100ns ticks
+/// from 1601-01-01, so the epoch shift makes a second before 1970 an ordinary
+/// positive tick count. The arithmetic wraps: a second this filesystem cannot
+/// hold writes the bits the multiplication leaves.
+pub fn set_file_times(
+    path: &widestring::WideCStr,
+    atime_sec: i64,
+    atime_nsec: i64,
+    mtime_sec: i64,
+    mtime_nsec: i64,
+) -> io::Result<()> {
+    const EPOCH_DIFF: i64 = 11_644_473_600;
+    let to_filetime = |sec: i64, nsec: i64| -> FILETIME {
+        let ticks = sec
+            .wrapping_add(EPOCH_DIFF)
+            .wrapping_mul(10_000_000)
+            .wrapping_add(nsec / 100) as u64;
+        FILETIME {
+            dwLowDateTime: ticks as u32,
+            dwHighDateTime: (ticks >> 32) as u32,
+        }
+    };
+    let atime = to_filetime(atime_sec, atime_nsec);
+    let mtime = to_filetime(mtime_sec, mtime_nsec);
+    let handle = unsafe {
+        CreateFileW(
+            path.as_ptr(),
+            FILE_WRITE_ATTRIBUTES,
+            0,
+            core::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            core::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    let wrote = unsafe { SetFileTime(handle, core::ptr::null(), &atime, &mtime) };
+    let error = (wrote == 0).then(io::Error::last_os_error);
+    unsafe { CloseHandle(handle) };
+    match error {
+        Some(error) => Err(error),
+        None => Ok(()),
     }
 }
 

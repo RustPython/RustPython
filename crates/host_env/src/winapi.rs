@@ -790,6 +790,22 @@ pub fn get_version() -> u32 {
     unsafe { windows_sys::Win32::System::SystemInformation::GetVersion() }
 }
 
+/// `GetVersionExW` major/minor/build. Not `get_version()`: that DWORD is
+/// `GetVersion()`, and `get_windows_version()` overwrites the triple with
+/// kernel32's file version.
+#[must_use]
+pub fn version_ex_triple() -> Option<(u32, u32, u32)> {
+    use windows_sys::Win32::System::SystemInformation::{GetVersionExW, OSVERSIONINFOW};
+
+    let mut info: OSVERSIONINFOW = unsafe { core::mem::zeroed() };
+    info.dwOSVersionInfoSize = core::mem::size_of::<OSVERSIONINFOW>() as u32;
+    (unsafe { GetVersionExW(&mut info) } != 0).then_some((
+        info.dwMajorVersion,
+        info.dwMinorVersion,
+        info.dwBuildNumber,
+    ))
+}
+
 pub fn create_job_object_w(name: Option<&widestring::WideCStr>) -> io::Result<HANDLE> {
     let name_ptr = name.map_or(core::ptr::null(), |n| n.as_ptr());
     unsafe { windows_sys::Win32::System::JobObjects::CreateJobObjectW(core::ptr::null(), name_ptr) }
