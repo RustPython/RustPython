@@ -2440,6 +2440,57 @@ pub(crate) fn preprocess_ast_object(
 }
 
 #[cfg(feature = "codegen")]
+pub(crate) struct RustModFromObject {
+    pub ast: ast::Mod,
+    pub source_file: SourceFile,
+}
+
+#[cfg(feature = "codegen")]
+pub(crate) fn rust_mod_from_object(
+    vm: &VirtualMachine,
+    object: PyObjectRef,
+    filename: &str,
+) -> PyResult<RustModFromObject> {
+    if !object
+        .is_instance(pyast::NodeMod::static_type().as_object(), vm)
+        .unwrap_or(false)
+        && !object
+            .class()
+            .fast_issubclass(pyast::NodeMod::static_type())
+    {
+        // CPython PyAST_Check accepts any ast.AST; obj2mod then requires a mod.
+        // compiler_codegen tests pass Module nodes.
+        let ast_type = vm
+            .import("ast", 0)
+            .ok()
+            .and_then(|ast| ast.get_attr("AST", vm).ok());
+        if let Some(ast_type) = ast_type
+            && !object.is_instance(&ast_type, vm).unwrap_or(false)
+        {
+            return Err(vm.new_type_error("expected an AST"));
+        }
+    }
+    let text = synthetic_source_from_ast_object(vm, &object)?;
+    let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
+    let ast = Node::ast_from_object(vm, &source_file, object)?;
+    validate::validate_mod(vm, &ast)?;
+    let ast = match ast {
+        Mod::Module(m) => ast::Mod::Module(m.module),
+        Mod::Interactive(ModInteractive { range, body, .. }) => ast::Mod::Module(ast::ModModule {
+            node_index: Default::default(),
+            range,
+            body,
+            runtime_body: None,
+        }),
+        Mod::Expression(e) => ast::Mod::Expression(e),
+        Mod::FunctionType(_) => {
+            return Err(vm.new_runtime_error("this compiler does not handle FunctionTypes"));
+        }
+    };
+    Ok(RustModFromObject { ast, source_file })
+}
+
+#[cfg(feature = "codegen")]
 pub(crate) fn compile(
     vm: &VirtualMachine,
     object: PyObjectRef,

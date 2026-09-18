@@ -623,6 +623,238 @@ mod _testinternalcapi {
             &METHODS
         }
     }
+
+    #[cfg(feature = "codegen")]
+    #[pyfunction]
+    fn new_instruction_sequence(vm: &VirtualMachine) -> PyRef<PyInstructionSequence> {
+        PyInstructionSequence::empty().into_ref(&vm.ctx)
+    }
+
+    #[cfg(feature = "codegen")]
+    #[pyfunction]
+    fn compiler_codegen(
+        ast: PyObjectRef,
+        filename: PyObjectRef,
+        optimize: i32,
+        compile_mode: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let filename = super::filename_to_string(&filename, vm)?;
+        let converted = crate::stdlib::_ast::rust_mod_from_object(vm, ast, &filename)?;
+        let mode = match compile_mode.unwrap_or(0) {
+            1 => crate::compiler::Mode::Eval,
+            2 => crate::compiler::Mode::Single,
+            _ => crate::compiler::Mode::Exec,
+        };
+        let mut opts = rustpython_codegen::CompileOpts {
+            optimize: u8::try_from(optimize).unwrap_or(0),
+            ..rustpython_codegen::CompileOpts::default()
+        };
+        opts.future_features |= rustpython_codegen::preprocess::future_features(&converted.ast);
+        let output = rustpython_codegen::compile::compile_codegen(
+            converted.ast,
+            converted.source_file,
+            mode,
+            opts,
+        )
+        .map_err(|err| vm.new_syntax_error(&crate::compiler::CompileError::from(err), None))?;
+        let seq = PyInstructionSequence::from_rust(output.seq, vm);
+        let metadata = vm.ctx.new_dict();
+        metadata.set_item("argcount", vm.ctx.new_int(output.argcount).into(), vm)?;
+        metadata.set_item(
+            "posonlyargcount",
+            vm.ctx.new_int(output.posonlyargcount).into(),
+            vm,
+        )?;
+        metadata.set_item(
+            "kwonlyargcount",
+            vm.ctx.new_int(output.kwonlyargcount).into(),
+            vm,
+        )?;
+        let consts: Vec<PyObjectRef> = output
+            .consts
+            .into_iter()
+            .map(|c| super::constant_data_to_py(c, vm))
+            .collect();
+        metadata.set_item("consts", vm.ctx.new_list(consts).into(), vm)?;
+        Ok(vm.ctx.new_tuple(vec![seq.into(), metadata.into()]).into())
+    }
+
+    #[cfg(feature = "codegen")]
+    #[pyfunction]
+    fn optimize_cfg(
+        instructions: PyObjectRef,
+        consts: PyObjectRef,
+        nlocals: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyInstructionSequence>> {
+        let seq = instructions
+            .downcast::<PyInstructionSequence>()
+            .map_err(|_| vm.new_value_error("expected an instruction sequence"))?;
+        let consts_list = consts
+            .downcast::<crate::builtins::PyList>()
+            .map_err(|_| vm.new_type_error("consts must be a list"))?;
+        let nlocals = usize::try_from(nlocals).unwrap_or(0);
+        let rust_seq = {
+            let mut inner = seq.seq.lock();
+            inner.apply_label_map();
+            inner.clone()
+        };
+        let mut const_data = Vec::new();
+        for item in consts_list.borrow_vec().iter() {
+            const_data.push(super::py_to_constant_data(item.clone(), vm)?);
+        }
+        let optimized =
+            rustpython_codegen::ir::optimize_cfg_for_tests(rust_seq, const_data, nlocals)
+                .map_err(|err| super::internal_error_to_py(err, vm))?;
+        Ok(PyInstructionSequence::from_rust(optimized, vm))
+    }
+
+    #[cfg(feature = "codegen")]
+    #[pyfunction]
+    fn assemble_code_object(
+        filename: PyObjectRef,
+        instructions: PyObjectRef,
+        metadata: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyCode>> {
+        let seq = instructions
+            .downcast::<PyInstructionSequence>()
+            .map_err(|_| vm.new_type_error("expected an instruction sequence"))?;
+        let metadata = metadata
+            .downcast::<PyDict>()
+            .map_err(|_| vm.new_type_error("metadata must be a dict"))?;
+        let filename = super::filename_to_string(&filename, vm)?;
+        let rust_seq = {
+            let mut inner = seq.seq.lock();
+            inner.apply_label_map();
+            inner.clone()
+        };
+        let unit = super::metadata_to_code_unit(&metadata, vm)?;
+        let code = rustpython_codegen::ir::assemble_for_tests(filename, rust_seq, unit, true)
+            .map_err(|err| super::internal_error_to_py(err, vm))?;
+        Ok(vm.ctx.new_code(code))
+    }
+
+    #[cfg(feature = "codegen")]
+    #[pyclass(no_attr, name = "InstructionSequence", module = "_testinternalcapi")]
+    #[derive(PyPayload)]
+    struct PyInstructionSequence {
+        seq: rustpython_common::lock::PyMutex<rustpython_codegen::ir::InstructionSequence>,
+        nested: rustpython_common::lock::PyMutex<Vec<PyRef<Self>>>,
+    }
+
+    #[cfg(feature = "codegen")]
+    impl core::fmt::Debug for PyInstructionSequence {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str("InstructionSequence")
+        }
+    }
+
+    #[cfg(feature = "codegen")]
+    #[pyclass]
+    impl PyInstructionSequence {
+        #[pymethod]
+        #[allow(clippy::too_many_arguments)]
+        fn addop(
+            &self,
+            opcode: i32,
+            oparg: i32,
+            lineno: i32,
+            col_offset: i32,
+            end_lineno: i32,
+            end_col_offset: i32,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            self.seq
+                .lock()
+                .addop(
+                    opcode,
+                    oparg,
+                    lineno,
+                    col_offset,
+                    end_lineno,
+                    end_col_offset,
+                )
+                .map_err(|err| super::internal_error_to_py(err, vm))
+        }
+
+        #[pymethod]
+        fn use_label(&self, label: i32, vm: &VirtualMachine) -> PyResult<()> {
+            self.seq
+                .lock()
+                .use_label(label)
+                .map_err(|err| super::internal_error_to_py(err, vm))
+        }
+
+        #[pymethod]
+        fn new_label(&self) -> i32 {
+            self.seq.lock().new_label()
+        }
+
+        #[pymethod]
+        fn add_nested(&self, nested: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let nested = nested.downcast::<Self>().map_err(|obj| {
+                vm.new_type_error(format!(
+                    "expected an instruction sequence, not {}",
+                    obj.class().name()
+                ))
+            })?;
+            self.nested.lock().push(nested);
+            Ok(())
+        }
+
+        #[pymethod]
+        fn get_nested(&self, vm: &VirtualMachine) -> crate::builtins::PyListRef {
+            vm.ctx.new_list(
+                self.nested
+                    .lock()
+                    .iter()
+                    .map(|seq| seq.clone().into())
+                    .collect(),
+            )
+        }
+
+        #[pymethod]
+        fn get_instructions(&self, vm: &VirtualMachine) -> crate::builtins::PyListRef {
+            let mut seq = self.seq.lock();
+            seq.apply_label_map();
+            let items = seq
+                .python_instructions()
+                .into_iter()
+                .map(|instr| super::python_instruction_to_tuple(instr, vm))
+                .collect();
+            vm.ctx.new_list(items)
+        }
+    }
+
+    #[cfg(feature = "codegen")]
+    impl PyInstructionSequence {
+        fn empty() -> Self {
+            Self {
+                seq: rustpython_common::lock::PyMutex::new(
+                    rustpython_codegen::ir::InstructionSequence::new(),
+                ),
+                nested: rustpython_common::lock::PyMutex::new(Vec::new()),
+            }
+        }
+
+        fn from_rust(
+            mut seq: rustpython_codegen::ir::InstructionSequence,
+            vm: &VirtualMachine,
+        ) -> PyRef<Self> {
+            let nested = seq
+                .nested_mut()
+                .drain(..)
+                .map(|child| Self::from_rust(child, vm))
+                .collect();
+            Self {
+                seq: rustpython_common::lock::PyMutex::new(seq),
+                nested: rustpython_common::lock::PyMutex::new(nested),
+            }
+            .into_ref(&vm.ctx)
+        }
+    }
 }
 
 use crate::{
@@ -632,6 +864,7 @@ use crate::{
         CO_FAST_ARG, CO_FAST_ARG_KW, CO_FAST_ARG_POS, CO_FAST_ARG_VAR, CO_FAST_CELL, CO_FAST_FREE,
         CO_FAST_HIDDEN, Instruction,
     },
+    convert::ToPyObject,
     function::OptionalArg,
 };
 use std::collections::HashSet;
@@ -1226,4 +1459,274 @@ fn run_string_in_new_subinterp(
     });
     let _ = crate::vm::runtime::destroy_owned_interpreter(id);
     outcome
+}
+
+#[cfg(feature = "codegen")]
+fn python_instruction_to_tuple(
+    instr: rustpython_codegen::ir::PythonInstruction,
+    vm: &VirtualMachine,
+) -> PyObjectRef {
+    let oparg = match instr.oparg {
+        Some(arg) => vm.ctx.new_int(arg).into(),
+        None => vm.ctx.none(),
+    };
+    vm.ctx
+        .new_tuple(vec![
+            vm.ctx.new_int(instr.opcode).into(),
+            oparg,
+            vm.ctx.new_int(instr.lineno).into(),
+            vm.ctx.new_int(instr.end_lineno).into(),
+            vm.ctx.new_int(instr.col_offset).into(),
+            vm.ctx.new_int(instr.end_col_offset).into(),
+        ])
+        .into()
+}
+
+#[cfg(feature = "codegen")]
+fn filename_to_string(filename: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
+    if let Some(s) = filename.downcast_ref::<PyStr>() {
+        return Ok(s.to_string_lossy().into_owned());
+    }
+    filename.str(vm).map(|s| s.to_string_lossy().into_owned())
+}
+
+#[cfg(feature = "codegen")]
+fn internal_error_to_py(
+    err: rustpython_codegen::error::InternalError,
+    vm: &VirtualMachine,
+) -> crate::builtins::PyBaseExceptionRef {
+    match err {
+        rustpython_codegen::error::InternalError::ConstIndexOutOfRange { .. } => {
+            vm.new_value_error(err.to_string())
+        }
+        _ => vm.new_system_error(err.to_string()),
+    }
+}
+
+#[cfg(feature = "codegen")]
+fn constant_data_to_py(
+    constant: rustpython_compiler_core::bytecode::ConstantData,
+    vm: &VirtualMachine,
+) -> PyObjectRef {
+    use rustpython_compiler_core::bytecode::ConstantData;
+    match constant {
+        ConstantData::None => vm.ctx.none(),
+        ConstantData::Boolean { value } => vm.ctx.new_bool(value).into(),
+        ConstantData::Integer { value } => vm.ctx.new_int(value).into(),
+        ConstantData::Float { value } => vm.ctx.new_float(value).into(),
+        ConstantData::Complex { value } => vm.ctx.new_complex(value).into(),
+        ConstantData::Str { value } => vm.ctx.new_str(value.to_string()).into(),
+        ConstantData::Bytes { value } => vm.ctx.new_bytes(value).into(),
+        ConstantData::Tuple { elements } => vm
+            .ctx
+            .new_tuple(
+                elements
+                    .into_iter()
+                    .map(|element| constant_data_to_py(element, vm))
+                    .collect(),
+            )
+            .into(),
+        ConstantData::Frozenset { elements } => crate::builtins::PyFrozenSet::from_iter(
+            vm,
+            elements
+                .into_iter()
+                .map(|element| constant_data_to_py(element, vm)),
+        )
+        .map_or_else(|_| vm.ctx.none(), |set| set.to_pyobject(vm)),
+        ConstantData::Ellipsis => vm.ctx.ellipsis.clone().into(),
+        ConstantData::Code { code } => vm.ctx.new_code(*code).into(),
+        ConstantData::Slice { elements } => {
+            let [start, stop, step] = *elements;
+            crate::builtins::PySlice {
+                start: Some(constant_data_to_py(start, vm)),
+                stop: constant_data_to_py(stop, vm),
+                step: Some(constant_data_to_py(step, vm)),
+            }
+            .to_pyobject(vm)
+        }
+    }
+}
+
+#[cfg(feature = "codegen")]
+fn py_to_constant_data(
+    obj: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<rustpython_compiler_core::bytecode::ConstantData> {
+    use rustpython_compiler_core::bytecode::ConstantData;
+    if vm.is_none(&obj) {
+        return Ok(ConstantData::None);
+    }
+    if obj.class().is(vm.ctx.types.bool_type) {
+        return Ok(ConstantData::Boolean {
+            value: obj.is_true(vm)?,
+        });
+    }
+    if let Ok(int) = obj.clone().downcast::<crate::builtins::PyInt>() {
+        return Ok(ConstantData::Integer {
+            value: int.as_bigint().clone(),
+        });
+    }
+    if let Ok(float) = obj.clone().downcast::<crate::builtins::PyFloat>() {
+        return Ok(ConstantData::Float {
+            value: float.to_f64(),
+        });
+    }
+    if let Ok(complex) = obj.clone().downcast::<crate::builtins::PyComplex>() {
+        return Ok(ConstantData::Complex {
+            value: complex.to_complex(),
+        });
+    }
+    if obj.class().is(vm.ctx.types.str_type) {
+        return Ok(ConstantData::Str {
+            value: obj.try_to_value::<String>(vm)?.into(),
+        });
+    }
+    if obj.class().is(vm.ctx.types.bytes_type) {
+        return Ok(ConstantData::Bytes {
+            value: obj.try_to_value(vm)?,
+        });
+    }
+    if obj.class().is(vm.ctx.types.ellipsis_type) {
+        return Ok(ConstantData::Ellipsis);
+    }
+    if obj.class().is(vm.ctx.types.tuple_type) {
+        let tuple = obj.downcast::<crate::builtins::PyTuple>().unwrap();
+        let mut elements = Vec::with_capacity(tuple.len());
+        for item in tuple.iter() {
+            elements.push(py_to_constant_data(item.clone(), vm)?);
+        }
+        return Ok(ConstantData::Tuple { elements });
+    }
+    if let Ok(code) = obj.clone().downcast::<PyCode>() {
+        return Ok(ConstantData::Code {
+            code: Box::new(
+                code.code
+                    .map_clone_bag(&rustpython_compiler_core::bytecode::BasicBag),
+            ),
+        });
+    }
+    Err(vm.new_type_error(format!(
+        "cannot convert {} to a code constant",
+        obj.class().name()
+    )))
+}
+
+#[cfg(feature = "codegen")]
+fn metadata_to_code_unit(
+    metadata: &Py<PyDict>,
+    vm: &VirtualMachine,
+) -> PyResult<rustpython_codegen::ir::CodeUnitMetadata> {
+    let name = dict_str(metadata, "name", vm)?.unwrap_or_else(|| "name".to_owned());
+    let qualname = dict_str(metadata, "qualname", vm)?.or_else(|| Some(name.clone()));
+    let consts = dict_consts(metadata, vm)?;
+    let names = dict_keys_inorder(metadata, "names", vm)?;
+    let varnames = dict_keys_inorder(metadata, "varnames", vm)?;
+    let cellvars = dict_keys_inorder(metadata, "cellvars", vm)?;
+    let freevars = dict_keys_inorder(metadata, "freevars", vm)?;
+    let mut unit = rustpython_codegen::ir::CodeUnitMetadata {
+        name,
+        qualname,
+        consts: rustpython_codegen::ir::ConstantPool::from_ordered(consts),
+        names: names.into_iter().collect(),
+        varnames: varnames.into_iter().collect(),
+        cellvars: cellvars.into_iter().collect(),
+        freevars: freevars.into_iter().collect(),
+        fast_hidden: Default::default(),
+        fast_hidden_final: Default::default(),
+        argcount: dict_nonneg_int(metadata, "argcount", vm)?,
+        posonlyargcount: dict_nonneg_int(metadata, "posonlyargcount", vm)?,
+        kwonlyargcount: dict_nonneg_int(metadata, "kwonlyargcount", vm)?,
+        firstlineno: rustpython_compiler_core::OneIndexed::new(
+            dict_nonneg_int(metadata, "firstlineno", vm)?.max(1) as usize,
+        )
+        .unwrap_or(rustpython_compiler_core::OneIndexed::MIN),
+    };
+    if let Some(value) = metadata.get_item_opt("fasthidden", vm)?
+        && let Ok(dict) = value.downcast::<PyDict>()
+    {
+        for (hidden_name, flag) in dict {
+            unit.fast_hidden
+                .insert(hidden_name.try_to_value(vm)?, flag.is_true(vm)?);
+        }
+    }
+    Ok(unit)
+}
+
+#[cfg(feature = "codegen")]
+fn dict_str(metadata: &Py<PyDict>, key: &str, vm: &VirtualMachine) -> PyResult<Option<String>> {
+    let Some(value) = metadata.get_item_opt(key, vm)? else {
+        return Ok(None);
+    };
+    if vm.is_none(&value) {
+        return Ok(None);
+    }
+    Ok(Some(value.try_to_value(vm)?))
+}
+
+#[cfg(feature = "codegen")]
+fn dict_nonneg_int(metadata: &Py<PyDict>, key: &str, vm: &VirtualMachine) -> PyResult<u32> {
+    let Some(value) = metadata.get_item_opt(key, vm)? else {
+        return Ok(0);
+    };
+    let n: i32 = value.try_to_value(vm)?;
+    Ok(u32::try_from(n).unwrap_or(0))
+}
+
+#[cfg(feature = "codegen")]
+fn dict_keys_inorder(
+    metadata: &Py<PyDict>,
+    key: &str,
+    vm: &VirtualMachine,
+) -> PyResult<Vec<String>> {
+    let Some(value) = metadata.get_item_opt(key, vm)? else {
+        return Ok(Vec::new());
+    };
+    if vm.is_none(&value) {
+        return Ok(Vec::new());
+    }
+    if let Ok(dict) = value.clone().downcast::<PyDict>() {
+        let mut items = Vec::new();
+        for (name, index) in dict {
+            let name: String = name.try_to_value(vm)?;
+            let index: i32 = index.try_to_value(vm)?;
+            items.push((index, name));
+        }
+        items.sort_by_key(|(index, _)| *index);
+        return Ok(items.into_iter().map(|(_, name)| name).collect());
+    }
+    if let Ok(list) = value.downcast::<crate::builtins::PyList>() {
+        return list
+            .borrow_vec()
+            .iter()
+            .map(|item| item.try_to_value(vm))
+            .collect();
+    }
+    Ok(Vec::new())
+}
+
+#[cfg(feature = "codegen")]
+fn dict_consts(
+    metadata: &Py<PyDict>,
+    vm: &VirtualMachine,
+) -> PyResult<Vec<rustpython_compiler_core::bytecode::ConstantData>> {
+    let Some(value) = metadata.get_item_opt("consts", vm)? else {
+        return Ok(Vec::new());
+    };
+    if let Ok(list) = value.clone().downcast::<crate::builtins::PyList>() {
+        let mut consts = Vec::new();
+        for item in list.borrow_vec().iter() {
+            consts.push(py_to_constant_data(item.clone(), vm)?);
+        }
+        return Ok(consts);
+    }
+    if let Ok(dict) = value.downcast::<PyDict>() {
+        let mut items = Vec::new();
+        for (constant, index) in dict {
+            let index: i32 = index.try_to_value(vm)?;
+            items.push((index, py_to_constant_data(constant, vm)?));
+        }
+        items.sort_by_key(|(index, _)| *index);
+        return Ok(items.into_iter().map(|(_, constant)| constant).collect());
+    }
+    Ok(Vec::new())
 }

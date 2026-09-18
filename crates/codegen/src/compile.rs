@@ -193,6 +193,8 @@ struct Compiler<'a> {
     /// Mirrors `c_disable_warning` while compiling FINALLY_END copies.
     disable_warning: u32,
     syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
+    /// If true, keep unoptimized nested instruction sequences on the parent.
+    save_nested_seqs: bool,
 }
 
 /// A Python `__future__` feature flag imported via `from __future__ import <feature>`.
@@ -449,6 +451,96 @@ pub fn compile_top_with_syntax_warning_handler<'a>(
             syntax_warning_handler,
         ),
     }
+}
+
+/// Unoptimized instruction sequence and the metadata needed by optimize_cfg.
+pub struct CodegenOutput {
+    pub seq: ir::InstructionSequence,
+    pub argcount: u32,
+    pub posonlyargcount: u32,
+    pub kwonlyargcount: u32,
+    pub consts: Vec<ConstantData>,
+}
+
+/// compile.c _PyCompile_CodeGen
+pub fn compile_codegen(
+    ast: ruff_python_ast::Mod,
+    source_file: SourceFile,
+    mode: Mode,
+    opts: CompileOpts,
+) -> CompileResult<CodegenOutput> {
+    compile_codegen_with_syntax_warning_handler(ast, source_file, mode, opts, None)
+}
+
+fn compile_codegen_with_syntax_warning_handler<'a>(
+    mut ast: ruff_python_ast::Mod,
+    source_file: SourceFile,
+    mode: Mode,
+    mut opts: CompileOpts,
+    mut syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
+) -> CompileResult<CodegenOutput> {
+    opts.future_features |= checked_future_features(&ast, &source_file)?;
+    let future_annotations = opts
+        .future_features
+        .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
+    if let Some(handler) = syntax_warning_handler.as_deref_mut() {
+        preprocess::warn_control_flow_in_finally(&ast, |range, message| {
+            warn_ast_preprocess_syntax(&source_file, handler, range, message)
+        })?;
+    }
+    if matches!(mode, Mode::Single)
+        && let ruff_python_ast::Mod::Module(module) = &mut ast
+    {
+        preprocess::preprocess_statements(
+            &mut module.body,
+            opts.optimize,
+            future_annotations,
+            false,
+        );
+    } else {
+        preprocess::preprocess_mod(&mut ast, opts.optimize, future_annotations, false);
+    }
+
+    let mut compiler = Compiler::new_with_syntax_warning_handler(
+        opts,
+        source_file.clone(),
+        "<module>",
+        syntax_warning_handler,
+    );
+    compiler.save_nested_seqs = true;
+    match ast {
+        ruff_python_ast::Mod::Module(module) => match mode {
+            Mode::Exec | Mode::Eval => {
+                let symbol_table = scan_module_symbols(&module, &source_file, &compiler.opts)?;
+                compiler.compile_program(&module, symbol_table)?;
+            }
+            Mode::Single => {
+                let symbol_table = scan_module_symbols(&module, &source_file, &compiler.opts)?;
+                compiler.compile_program_single(&module.body, symbol_table)?;
+            }
+            Mode::BlockExpr => {
+                let symbol_table = scan_module_symbols(&module, &source_file, &compiler.opts)?;
+                compiler.compile_block_expr(&module.body, symbol_table)?;
+            }
+        },
+        ruff_python_ast::Mod::Expression(expr) => {
+            let symbol_table = scan_expr_symbols(&expr, &source_file, &compiler.opts)?;
+            compiler.compile_eval(&expr, symbol_table)?;
+        }
+    }
+
+    let mut unit = compiler
+        .code_stack
+        .pop()
+        .expect("codegen leaves the top-level unit on the stack");
+    unit.instr_sequence.apply_label_map();
+    Ok(CodegenOutput {
+        seq: unit.instr_sequence,
+        argcount: unit.metadata.argcount,
+        posonlyargcount: unit.metadata.posonlyargcount,
+        kwonlyargcount: unit.metadata.kwonlyargcount,
+        consts: unit.metadata.consts.into_vec(),
+    })
 }
 
 /// Compile a standard Python program to bytecode
@@ -1122,6 +1214,7 @@ impl<'warnings> Compiler<'warnings> {
             do_not_emit_bytecode: 0,
             disable_warning: 0,
             syntax_warning_handler,
+            save_nested_seqs: false,
         }
     }
 
@@ -2153,8 +2246,14 @@ impl<'warnings> Compiler<'warnings> {
 
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
-        // No parent scope stack to maintain
-        unwrap_internal(self, stack_top.finalize_code(&self.opts))
+        let nested = self
+            .save_nested_seqs
+            .then(|| stack_top.instr_sequence.clone());
+        let code = unwrap_internal(self, stack_top.finalize_code(&self.opts));
+        if let (Some(nested), Some(parent)) = (nested, self.code_stack.last_mut()) {
+            parent.instr_sequence.add_nested(nested);
+        }
+        code
     }
 
     fn expose_annotation_format_parameter(code: &mut CodeObject) {
@@ -2175,7 +2274,13 @@ impl<'warnings> Compiler<'warnings> {
         self.ctx = saved_ctx;
         let pop = self.code_stack.pop();
         let stack_top = compiler_unwrap_option(self, pop);
+        let nested = self
+            .save_nested_seqs
+            .then(|| stack_top.instr_sequence.clone());
         let mut code = unwrap_internal(self, stack_top.finalize_code(&self.opts));
+        if let (Some(nested), Some(parent)) = (nested, self.code_stack.last_mut()) {
+            parent.instr_sequence.add_nested(nested);
+        }
         Self::expose_annotation_format_parameter(&mut code);
         code
     }
