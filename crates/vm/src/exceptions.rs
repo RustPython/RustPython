@@ -1965,7 +1965,33 @@ pub(super) mod types {
     pub struct PyAttributeError(PyException);
 
     #[pyexception(with(Initializer))]
-    impl PyAttributeError {}
+    impl PyAttributeError {
+        #[pymethod]
+        fn __getstate__(zelf: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult {
+            let obj = zelf.as_object();
+            let state = match obj.dict() {
+                Some(dict) => dict.copy().into_ref(&vm.ctx),
+                None => vm.ctx.new_dict(),
+            };
+            let _ = state.del_item("obj", vm);
+            if let Ok(name) = obj.get_attr("name", vm)
+                && !vm.is_none(&name)
+            {
+                state.set_item("name", name, vm)?;
+            }
+            Ok(state.into())
+        }
+
+        #[pymethod]
+        fn __reduce__(zelf: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            let state = Self::__getstate__(zelf.clone(), vm)?;
+            Ok(vm.ctx.new_tuple(vec![
+                zelf.class().to_owned().into(),
+                zelf.args().into(),
+                state,
+            ]))
+        }
+    }
 
     impl Initializer for PyAttributeError {
         type Args = FuncArgs;

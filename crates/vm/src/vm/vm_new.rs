@@ -420,12 +420,9 @@ impl VirtualMachine {
     /// [`vm.invoke_exception()`][Self::invoke_exception] or
     /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
-        debug_assert_eq!(
-            exc_type.slots.basicsize,
-            core::mem::size_of::<PyBaseException>(),
-            "vm.new_exception() is only for exception types without additional payload. The given type '{}' is not allowed. Use vm.new_os_subtype_error() for OSError subtypes.",
-            exc_type.name()
-        );
+        if exc_type.slots.basicsize != core::mem::size_of::<PyBaseException>() {
+            return self.invoke_exception(&exc_type, args).unwrap_or_else(|e| e);
+        }
 
         PyBaseException::new(args, self)
             .into_ref_with_type_lazy_dict(self, exc_type)
@@ -446,10 +443,14 @@ impl VirtualMachine {
             core::any::type_name::<T>(),
             cls.name()
         );
-        let payload = T::py_new(&cls, args.clone(), self)?;
-        let exc = payload.into_ref_with_type_lazy_dict(self, cls)?;
-        T::slot_init(exc.as_object().to_owned(), args, self)?;
-        Ok(exc)
+        let obj = T::slot_new(cls, args.clone(), self)?;
+        T::slot_init(obj.clone(), args, self)?;
+        obj.downcast().map_err(|obj| {
+            self.new_type_error(format!(
+                "payload constructor returned '{}'",
+                obj.class().name()
+            ))
+        })
     }
 
     pub fn new_os_error(&self, msg: impl ToPyObject) -> PyRef<PyBaseException> {
@@ -665,6 +666,33 @@ impl VirtualMachine {
         .expect("UnicodeEncodeError constructor")
     }
 
+    #[cfg(feature = "parser")]
+    fn source_has_mixed_tabs_and_spaces(source: Option<&str>) -> bool {
+        source.is_some_and(|source| {
+            let mut has_space_indent = false;
+            let mut has_tab_indent = false;
+            for line in source.lines() {
+                let indent: Vec<u8> = line
+                    .bytes()
+                    .take_while(|&b| b == b' ' || b == b'\t')
+                    .collect();
+                if indent.is_empty() {
+                    continue;
+                }
+                if indent.contains(&b' ') && indent.contains(&b'\t') {
+                    return true;
+                }
+                if indent.contains(&b' ') {
+                    has_space_indent = true;
+                }
+                if indent.contains(&b'\t') {
+                    has_tab_indent = true;
+                }
+            }
+            has_space_indent && has_tab_indent
+        })
+    }
+
     // TODO: don't take ownership should make the success path faster
     pub fn new_key_error(&self, obj: PyObjectRef) -> PyBaseExceptionRef {
         let key_error = self.ctx.exceptions.key_error.to_owned();
@@ -702,45 +730,16 @@ impl VirtualMachine {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::IndentationError,
-                    ),
+                    )
+                    | ruff_python_parser::ParseErrorType::UnexpectedIndentation,
                 ..
             }) => {
-                // Detect tab/space mixing to raise TabError instead of IndentationError.
-                // This checks both within a single line and across different lines.
-                let is_tab_error = source.is_some_and(|source| {
-                    let mut has_space_indent = false;
-                    let mut has_tab_indent = false;
-                    for line in source.lines() {
-                        let indent: Vec<u8> = line
-                            .bytes()
-                            .take_while(|&b| b == b' ' || b == b'\t')
-                            .collect();
-                        if indent.is_empty() {
-                            continue;
-                        }
-                        if indent.contains(&b' ') && indent.contains(&b'\t') {
-                            return true;
-                        }
-                        if indent.contains(&b' ') {
-                            has_space_indent = true;
-                        }
-                        if indent.contains(&b'\t') {
-                            has_tab_indent = true;
-                        }
-                    }
-                    has_space_indent && has_tab_indent
-                });
-                if is_tab_error {
+                if Self::source_has_mixed_tabs_and_spaces(source) {
                     self.ctx.exceptions.tab_error
                 } else {
                     self.ctx.exceptions.indentation_error
                 }
             }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error: ruff_python_parser::ParseErrorType::UnexpectedIndentation,
-                ..
-            }) => self.ctx.exceptions.indentation_error,
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
