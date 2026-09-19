@@ -24,6 +24,8 @@ use windows_sys::Win32::{
 pub type HKEY = Registry::HKEY;
 pub const ERROR_MORE_DATA: u32 = Foundation::ERROR_MORE_DATA;
 pub const ERROR_INVALID_HANDLE: u32 = Foundation::ERROR_INVALID_HANDLE;
+pub const ERROR_FILE_NOT_FOUND: u32 = Foundation::ERROR_FILE_NOT_FOUND;
+pub const ERROR_INVALID_DATA: u32 = Foundation::ERROR_INVALID_DATA;
 pub const HKEY_CLASSES_ROOT: HKEY = Registry::HKEY_CLASSES_ROOT;
 pub const HKEY_CURRENT_USER: HKEY = Registry::HKEY_CURRENT_USER;
 pub const HKEY_LOCAL_MACHINE: HKEY = Registry::HKEY_LOCAL_MACHINE;

@@ -81,6 +81,7 @@ memchr.workspace = true
 junction = { workspace = true }
 schannel = { workspace = true }
 windows-sys = { workspace = true, features = [
+    "Win32_Devices_Bluetooth",
     "Win32_Foundation",
     "Win32_Globalization",
     "Win32_NetworkManagement_IpHelper",

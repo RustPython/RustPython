@@ -571,8 +571,8 @@ pub use windows_sys::Win32::Networking::WinSock::{
     SIO_LOOPBACK_FAST_PATH, SIO_RCVALL, SO_BROADCAST, SO_ERROR, SO_KEEPALIVE, SO_LINGER,
     SO_OOBINLINE, SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM,
     SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOCKET_ERROR as SOCKET_ERROR_CODE, SOL_SOCKET,
-    SOMAXCONN, TCP_NODELAY, WSAEBADF, WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK, getprotobyname,
-    getservbyname, getservbyport, getsockopt, setsockopt,
+    SOMAXCONN, TCP_NODELAY, WSAEBADF, WSAECONNABORTED, WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK,
+    getprotobyname, getservbyname, getservbyport, getsockopt, setsockopt,
 };
 
 #[cfg(windows)]
@@ -952,4 +952,124 @@ pub fn uuid_to_string_w(guid: &windows_sys::core::GUID) -> Result<String, u32> {
     let text = String::from_utf16_lossy(unsafe { core::slice::from_raw_parts(raw, len) });
     unsafe { RpcStringFreeW(&mut raw) };
     Ok(text)
+}
+
+/// Address families the Windows SDK exposes beyond the older MSVC census.
+#[cfg(windows)]
+pub const AF_SNA: i32 = 11;
+#[cfg(windows)]
+pub const AF_IRDA: i32 = 26;
+#[cfg(windows)]
+pub const AF_HYPERV: i32 = windows_sys::Win32::Networking::WinSock::AF_HYPERV as i32;
+#[cfg(windows)]
+pub const AF_BLUETOOTH: i32 = windows_sys::Win32::Devices::Bluetooth::AF_BTH as i32;
+#[cfg(windows)]
+pub const AF_BTH: i32 = AF_BLUETOOTH;
+#[cfg(windows)]
+pub const BTHPROTO_RFCOMM: i32 = windows_sys::Win32::Devices::Bluetooth::BTHPROTO_RFCOMM as i32;
+
+/// `hvsocket.h`: the only protocol an `AF_HYPERV` socket is opened with.
+#[cfg(windows)]
+pub const HV_PROTOCOL_RAW: i32 = 1;
+#[cfg(windows)]
+pub const HVSOCKET_CONNECT_TIMEOUT: i32 = 0x01;
+#[cfg(windows)]
+pub const HVSOCKET_CONNECT_TIMEOUT_MAX: i32 = 300_000;
+#[cfg(windows)]
+pub const HVSOCKET_CONNECTED_SUSPEND: i32 = 0x04;
+#[cfg(windows)]
+pub const HVSOCKET_ADDRESS_FLAG_PASSTHRU: i32 = 0x01;
+#[cfg(windows)]
+pub const HV_GUID_ZERO: &str = "00000000-0000-0000-0000-000000000000";
+#[cfg(windows)]
+pub const HV_GUID_WILDCARD: &str = "00000000-0000-0000-0000-000000000000";
+#[cfg(windows)]
+pub const HV_GUID_BROADCAST: &str = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF";
+#[cfg(windows)]
+pub const HV_GUID_CHILDREN: &str = "90DB8B89-0D35-4F79-8CE9-49EA0AC8B7CD";
+#[cfg(windows)]
+pub const HV_GUID_LOOPBACK: &str = "E0E16197-DD56-4A10-9195-5EE7A155A838";
+#[cfg(windows)]
+pub const HV_GUID_PARENT: &str = "A42E7CDA-D03F-480C-9CC2-A4DE20ABB878";
+
+#[cfg(windows)]
+pub const SIO_TCP_SET_ACK_FREQUENCY: i32 =
+    windows_sys::Win32::Networking::WinSock::SIO_TCP_SET_ACK_FREQUENCY as i32;
+
+/// `SOCKADDR_HV` (`hvsocket.h`).
+#[cfg(windows)]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SockaddrHv {
+    pub family: u16,
+    pub reserved: u16,
+    pub vm_id: windows_sys::core::GUID,
+    pub service_id: windows_sys::core::GUID,
+}
+
+#[cfg(windows)]
+pub fn sockaddr_hv(
+    vm_id: windows_sys::core::GUID,
+    service_id: windows_sys::core::GUID,
+) -> SockaddrHv {
+    SockaddrHv {
+        family: AF_HYPERV as u16,
+        reserved: 0,
+        vm_id,
+        service_id,
+    }
+}
+
+/// `SOCKADDR_BTH`.
+#[cfg(windows)]
+pub fn sockaddr_bth_rfcomm(
+    bd_addr: u64,
+    port: u32,
+) -> windows_sys::Win32::Devices::Bluetooth::SOCKADDR_BTH {
+    windows_sys::Win32::Devices::Bluetooth::SOCKADDR_BTH {
+        addressFamily: AF_BTH as u16,
+        btAddr: bd_addr,
+        serviceClassId: Default::default(),
+        port,
+    }
+}
+
+#[cfg(windows)]
+pub fn unpack_sockaddr_bth(ptr: *const u8) -> (u64, u32) {
+    let bth = unsafe { &*(ptr.cast::<windows_sys::Win32::Devices::Bluetooth::SOCKADDR_BTH>()) };
+    (bth.btAddr, bth.port)
+}
+
+/// `setbdaddr`: six hex octets separated by `:`.
+#[cfg(windows)]
+pub fn parse_bdaddr(name: &str) -> Option<u64> {
+    let mut parts = name.split(':');
+    let mut value = 0u64;
+    for _ in 0..6 {
+        let part = parts.next()?;
+        if part.is_empty() || part.len() > 2 {
+            return None;
+        }
+        let octet = u8::from_str_radix(part, 16).ok()?;
+        value = (value << 8) | u64::from(octet);
+    }
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(value)
+}
+
+/// `makebdaddr`: `XX:XX:XX:XX:XX:XX`, most significant octet first.
+#[cfg(windows)]
+pub fn format_bdaddr(bdaddr: u64) -> String {
+    let octet = |i: u32| (bdaddr >> (8 * i)) & 0xFF;
+    alloc::format!(
+        "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+        octet(5),
+        octet(4),
+        octet(3),
+        octet(2),
+        octet(1),
+        octet(0)
+    )
 }
