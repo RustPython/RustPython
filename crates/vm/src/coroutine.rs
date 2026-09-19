@@ -160,7 +160,7 @@ pub(crate) fn flat_resume_enter(
     if coro.closed.load() {
         return Ok(FlatEnter::Exhausted);
     }
-    let value = if coro.frame.lasti() > 0 {
+    let value = if coro.frame_opt().is_some_and(|f| f.lasti() > 0) {
         Some(value)
     } else if !vm.is_none(&value) {
         return Err(vm.new_type_error(format!(
@@ -172,8 +172,9 @@ pub(crate) fn flat_resume_enter(
     };
     // SAFETY: exclusive access guaranteed by the claim
     let gen_exc = unsafe { coro.exception.swap(None) };
-    let frame: *const Py<FrameObject> = &*coro.frame;
-    let link = match vm.gen_frame_link(&coro.frame, gen_exc) {
+    let frame_ref = coro.frame();
+    let frame: *const Py<FrameObject> = &*frame_ref;
+    let link = match vm.gen_frame_link(&frame_ref, gen_exc) {
         Ok(link) => link,
         Err(exc) => {
             // A resume that fails before the frame runs retires the
@@ -278,11 +279,7 @@ impl Coro {
     /// frame that raised.
     fn retire(&self, _claim: &RunningGuard<'_>) {
         self.closed.store(true);
-        self.frame.iframe().owner.store(
-            FrameOwner::FrameObject as i8,
-            core::sync::atomic::Ordering::Release,
-        );
-        self.clear_frame_locals_on_close();
+        self.clear_except_code();
     }
 
     /// Take the frame for this thread, or report that another thread holds it.
@@ -497,7 +494,7 @@ impl Coro {
     /// Whether the frame has run at all, i.e. is stopped at a `yield` rather
     /// than at its start.
     pub(crate) fn started(&self) -> bool {
-        self.frame.lasti() > 0
+        self.frame_opt().is_some_and(|f| f.lasti() > 0)
     }
 
     pub fn suspended(&self) -> bool {
@@ -517,7 +514,7 @@ impl Coro {
     /// The frame this generator runs, without the reference count a clone of
     /// it would cost.
     pub(crate) fn frame_ref(&self) -> &Py<FrameObject> {
-        &self.frame
+        self.frame.deref().expect("generator frame")
     }
 
     pub fn frame(&self) -> FrameObjectRef {
