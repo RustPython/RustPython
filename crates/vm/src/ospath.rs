@@ -1,10 +1,16 @@
+#[cfg(feature = "host_env")]
 use rustpython_host_env::crt_fd;
 
+#[cfg(feature = "host_env")]
 use crate::{
-    AsObject, PyObjectRef, PyResult, VirtualMachine,
-    builtins::{PyBytes, PyStr},
+    AsObject,
     class::StaticType,
-    convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
+    convert::{IntoPyException, ToPyObject},
+};
+use crate::{
+    PyObjectRef, PyResult, VirtualMachine,
+    builtins::{PyBytes, PyStr},
+    convert::{ToPyException, TryFromObject},
     function::FsPath,
 };
 use core::hint::cold_path;
@@ -79,6 +85,7 @@ impl PathConverter {
     }
 
     /// Convert to OsPathOrFd (path or file descriptor)
+    #[cfg(feature = "host_env")]
     pub(crate) fn try_path_or_fd<'fd>(
         &self,
         obj: PyObjectRef,
@@ -221,6 +228,7 @@ impl OsPath {
         Self { path, origin: None }
     }
 
+    #[cfg(feature = "host_env")]
     pub(crate) fn from_fspath(fspath: FsPath, vm: &VirtualMachine) -> PyResult<Self> {
         let path = fspath.as_os_str(vm)?.into_owned();
         let origin = match fspath {
@@ -236,6 +244,7 @@ impl OsPath {
     /// Convert an object to OsPath using the os.fspath-style error message.
     /// This is used by open() which should report "expected str, bytes or os.PathLike object, not"
     /// instead of "should be string, bytes or os.PathLike, not".
+    #[cfg(feature = "host_env")]
     pub(crate) fn try_from_fspath(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let fspath = FsPath::try_from_path_like(obj, true, vm)?;
         Self::from_fspath(fspath, vm)
@@ -296,25 +305,28 @@ impl TryFromObject for OsPath {
     }
 }
 
-// path_t with allow_fd in CPython
+#[cfg(feature = "host_env")]
 #[derive(Clone)]
 pub(crate) enum OsPathOrFd<'fd> {
     Path(OsPath),
     Fd(crt_fd::Borrowed<'fd>),
 }
 
+#[cfg(feature = "host_env")]
 impl TryFromObject for OsPathOrFd<'_> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         PathConverter::new().try_path_or_fd(obj, vm)
     }
 }
 
+#[cfg(feature = "host_env")]
 impl From<OsPath> for OsPathOrFd<'_> {
     fn from(path: OsPath) -> Self {
         Self::Path(path)
     }
 }
 
+#[cfg(feature = "host_env")]
 impl OsPathOrFd<'_> {
     pub(crate) fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
@@ -324,6 +336,7 @@ impl OsPathOrFd<'_> {
     }
 }
 
+#[cfg(feature = "host_env")]
 impl crate::exceptions::OSErrorBuilder {
     #[must_use]
     pub(crate) fn with_filename<'a>(
