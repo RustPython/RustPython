@@ -2527,7 +2527,7 @@ mod _ssl {
                 // Use select with the effective timeout
                 let py_socket: PyRef<PySocket> = self.io.socket_object(vm).try_into_value(vm)?;
                 let socket = py_socket
-                    .sock()
+                    .sock_snapshot()
                     .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
 
                 sock_wait(&socket, wait_kind, timeout, vm)
@@ -2563,7 +2563,7 @@ mod _ssl {
 
                 let py_socket: PyRef<PySocket> = self.io.socket_object(vm).try_into_value(vm)?;
                 let socket = py_socket
-                    .sock()
+                    .sock_snapshot()
                     .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
 
                 sock_wait(&socket, wait_kind, timeout, vm).map_err(|e| e.into_pyexception(vm))

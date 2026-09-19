@@ -45,6 +45,7 @@ mod _socket {
     }
 
     use core::{
+        mem::ManuallyDrop,
         net::{Ipv4Addr, Ipv6Addr, SocketAddr},
         time::Duration,
     };
@@ -981,17 +982,17 @@ mod _socket {
 
     impl Read for &PySocket {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            (&mut &*self.sock()?).read(buf)
+            (&mut &*self.sock_snapshot()?).read(buf)
         }
     }
 
     impl Write for &PySocket {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            (&mut &*self.sock()?).write(buf)
+            (&mut &*self.sock_snapshot()?).write(buf)
         }
 
         fn flush(&mut self) -> std::io::Result<()> {
-            (&mut &*self.sock()?).flush()
+            (&mut &*self.sock_snapshot()?).flush()
         }
     }
 
@@ -1004,6 +1005,21 @@ mod _socket {
         pub fn sock(&self) -> io::Result<PyMappedRwLockReadGuard<'_, Socket>> {
             self.sock_opt()
                 .ok_or_else(|| io::Error::from_raw_os_error(CLOSED_ERR))
+        }
+
+        /// Snapshot the inner socket without holding `self.sock` across a syscall.
+        ///
+        /// Blocking accept/recv/send must not keep the RwLock: `close()` needs
+        /// the write side, and a lock held by a thread that did not survive
+        /// `fork()` stays locked forever in the child.
+        pub(crate) fn sock_snapshot(&self) -> io::Result<ManuallyDrop<Socket>> {
+            let guard = self.sock()?;
+            let fd = sock_fileno(&guard);
+            drop(guard);
+            // SAFETY: PySocket remains the owner of `fd`. Drop is suppressed so
+            // this wrapper does not close it. A concurrent close() may
+            // invalidate `fd`; the syscall then fails with EBADF.
+            Ok(ManuallyDrop::new(unsafe { sock_from_raw_unchecked(fd) }))
         }
 
         fn init_inner(
@@ -1117,7 +1133,7 @@ mod _socket {
 
             loop {
                 if deadline.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
-                    let sock = self.sock()?;
+                    let sock = self.sock_snapshot()?;
                     sock_wait_deadline(&sock, wait_kind, deadline.as_ref(), vm)?;
                 }
 
@@ -1441,7 +1457,7 @@ mod _socket {
         ) -> Result<(), IoOrPyException> {
             let sock_addr = self.extract_address(address, caller, vm)?;
 
-            let sock = self.sock()?;
+            let sock = self.sock_snapshot()?;
             let err = match vm.allow_threads(|| sock.connect(&sock_addr)) {
                 Ok(()) => return Ok(()),
                 Err(e) => e,
@@ -1461,7 +1477,7 @@ mod _socket {
 
             if wait_connect {
                 self.sock_op(vm, SockWaitKind::Connect, || {
-                    let sock = self.sock()?;
+                    let sock = self.sock_snapshot()?;
                     let err = sock.take_error()?;
                     match err {
                         Some(e) => Err(e),
@@ -1710,8 +1726,9 @@ mod _socket {
         ) -> Result<(RawSocket, PyObjectRef), IoOrPyException> {
             // Use accept_raw() instead of accept() to avoid socket2's set_common_flags()
             // which tries to set SO_NOSIGPIPE and fails with EINVAL on Unix domain sockets on macOS
-            let (sock, addr) =
-                self.sock_op(vm, SockWaitKind::Read, || self.sock()?.accept_raw())?;
+            let (sock, addr) = self.sock_op(vm, SockWaitKind::Read, || {
+                self.sock_snapshot()?.accept_raw()
+            })?;
             let fd = into_sock_fileno(sock);
             Ok((fd, get_addr_tuple(&addr, vm)))
         }
@@ -1728,9 +1745,9 @@ mod _socket {
             buffer
                 .try_reserve_exact(bufsize)
                 .map_err(|_| vm.no_memory_error())?;
-            let sock = self.sock()?;
             let n = self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_with_flags(buffer.spare_capacity_mut(), flags)
+                self.sock_snapshot()?
+                    .recv_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
             Ok(buffer)
@@ -1745,7 +1762,6 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let sock = self.sock()?;
 
             // Handle nbytes parameter
             let read_len = if let OptionalArg::Present(nbytes) = nbytes {
@@ -1759,7 +1775,8 @@ mod _socket {
 
             let mut scratch = alloc_recv_scratch(read_len, vm)?;
             let n = self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
+                self.sock_snapshot()?
+                    .recv_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
             })?;
             unsafe { scratch.set_len(n) };
             buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
@@ -1782,7 +1799,7 @@ mod _socket {
                 .try_reserve_exact(bufsize)
                 .map_err(|_| vm.no_memory_error())?;
             let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
-                self.sock()?
+                self.sock_snapshot()?
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
@@ -1812,10 +1829,10 @@ mod _socket {
                 OptionalArg::Missing => buf.len(),
             };
             let flags = flags.unwrap_or(0);
-            let sock = self.sock()?;
             let mut scratch = alloc_recv_scratch(read_len, vm)?;
             let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_from_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
+                self.sock_snapshot()?
+                    .recv_from_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
             })?;
             unsafe { scratch.set_len(n) };
             buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
@@ -1833,7 +1850,7 @@ mod _socket {
             let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             self.sock_op(vm, SockWaitKind::Write, || {
-                self.sock()?.send_with_flags(buf, flags)
+                self.sock_snapshot()?.send_with_flags(buf, flags)
             })
         }
 
@@ -1858,7 +1875,7 @@ mod _socket {
                 let interval = deadline.as_ref().map(|d| d.time_until()).transpose()?;
                 self.sock_op_timeout_err(vm, SockWaitKind::Write, interval, || {
                     let subbuf = &buf[buf_offset..];
-                    buf_offset += self.sock()?.send_with_flags(subbuf, flags)?;
+                    buf_offset += self.sock_snapshot()?.send_with_flags(subbuf, flags)?;
                     Ok(())
                 })?;
                 vm.check_signals()?;
@@ -1890,7 +1907,7 @@ mod _socket {
             let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             self.sock_op(vm, SockWaitKind::Write, || {
-                self.sock()?.send_to_with_flags(buf, &addr, flags)
+                self.sock_snapshot()?.send_to_with_flags(buf, &addr, flags)
             })
         }
 
@@ -1948,7 +1965,7 @@ mod _socket {
             }
 
             self.sock_op(vm, SockWaitKind::Write, || {
-                let sock = self.sock()?;
+                let sock = self.sock_snapshot()?;
                 sock.sendmsg(&msg, flags)
             })
             .map_err(|e| e.into_pyexception(vm))
@@ -1984,7 +2001,7 @@ mod _socket {
             let iv = iv.map(|iv| iv.borrow_buf().to_vec());
 
             self.sock_op(vm, SockWaitKind::Write, || {
-                let sock = self.sock()?;
+                let sock = self.sock_snapshot()?;
                 let fd = unsafe { BorrowedFd::borrow_raw(sock_fileno(&sock)) };
                 host_socket::sendmsg_afalg(fd, &buffers, op, iv.as_deref(), assoclen, flags)
             })
@@ -2017,7 +2034,7 @@ mod _socket {
 
             let msg = self
                 .sock_op(vm, SockWaitKind::Read, || {
-                    let sock = self.sock()?;
+                    let sock = self.sock_snapshot()?;
                     let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock_fileno(&sock)) };
                     host_socket::recvmsg(fd, bufsize, ancbufsize, flags)
                 })
