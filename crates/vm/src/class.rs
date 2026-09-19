@@ -1,7 +1,7 @@
 //! Utilities to define a new Python class
 
 use crate::{
-    PyPayload,
+    AsObject, PyPayload,
     builtins::{PyBaseObject, PyType, PyTypeRef, descriptor::PyWrapper},
     function::PyMethodDef,
     object::Py,
@@ -94,7 +94,9 @@ pub trait StaticType {
         let cell = Self::static_cell();
         cell.set(typ)
             .unwrap_or_else(|_| panic!("double initialization from init_manually"));
-        cell.get().unwrap()
+        let typ = cell.get().unwrap();
+        typ.as_object().make_immortal();
+        typ
     }
 
     #[must_use]
@@ -106,7 +108,9 @@ pub trait StaticType {
         let cell = Self::static_cell();
         cell.set(typ)
             .unwrap_or_else(|_| panic!("double initialization of {}", Self::NAME));
-        cell.get().unwrap()
+        let typ = cell.get().unwrap();
+        typ.as_object().make_immortal();
+        typ
     }
 
     #[must_use]
@@ -228,7 +232,7 @@ pub trait PyClassImpl: PyClassDef {
     where
         Self: StaticType + Sized,
     {
-        (*Self::static_cell().get_or_init(|| {
+        let typ = Self::static_cell().get_or_init(|| {
             let typ = Self::create_static_type();
             Self::extend_class(Context::genesis(), unsafe {
                 // typ will be saved in static_cell
@@ -237,8 +241,13 @@ pub trait PyClassImpl: PyClassDef {
                 r
             });
             typ
-        }))
-        .to_owned()
+        });
+        // A static type is held by its `static_cell` for the life of the
+        // process, so nothing is kept alive that would have died: all this
+        // buys is that every reference to a builtin type from here on is a
+        // branch rather than an atomic read-modify-write.
+        typ.as_object().make_immortal();
+        (*typ).to_owned()
     }
 
     fn make_slots() -> PyTypeSlots {

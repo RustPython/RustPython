@@ -1336,7 +1336,7 @@ impl Constructor for PyCField {
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         // PyCField_new_impl: requires _internal_use=True
         let internal_use = if let Some(v) = args.kwargs.get("_internal_use") {
-            v.clone().try_to_bool(vm)?
+            v.try_to_bool(vm)?
         } else {
             false
         };

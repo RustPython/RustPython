@@ -84,7 +84,7 @@ mod _multiprocessing {
                 .kwargs
                 .get("block")
                 .or_else(|| args.args.first())
-                .map(|o| o.clone().try_to_bool(vm))
+                .map(|o| o.try_to_bool(vm))
                 .transpose()?
                 .unwrap_or(true);
 
@@ -481,7 +481,7 @@ mod _multiprocessing {
                 .kwargs
                 .get("block")
                 .or_else(|| args.args.first())
-                .map(|o| o.clone().try_to_bool(vm))
+                .map(|o| o.try_to_bool(vm))
                 .transpose()?
                 .unwrap_or(true);
 

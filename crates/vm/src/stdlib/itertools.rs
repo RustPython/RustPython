@@ -155,7 +155,7 @@ mod decl {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             loop {
                 let sel_obj = raise_if_stop!(zelf.selectors.next(vm)?);
-                let verdict = sel_obj.clone().try_to_bool(vm)?;
+                let verdict = sel_obj.try_to_bool(vm)?;
                 let data_obj = zelf.data.next(vm)?;
 
                 if verdict {
