@@ -467,16 +467,14 @@ mod decl {
     unsafe extern "system" fn faulthandler_exc_handler(
         exc_info: *mut host_faulthandler::ExceptionPointers,
     ) -> i32 {
-        const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
-
         if !FATAL_ERROR.enabled.load(Ordering::Relaxed) {
-            return EXCEPTION_CONTINUE_SEARCH;
+            return host_faulthandler::EXCEPTION_CONTINUE_SEARCH;
         }
 
         let code = unsafe { host_faulthandler::exception_code(exc_info) };
 
         if faulthandler_ignore_exception(code) {
-            return EXCEPTION_CONTINUE_SEARCH;
+            return host_faulthandler::EXCEPTION_CONTINUE_SEARCH;
         }
 
         let fd = FATAL_ERROR.fd.load(Ordering::Relaxed);
@@ -498,7 +496,7 @@ mod decl {
         let all_threads = FATAL_ERROR.all_threads.load(Ordering::Relaxed);
         faulthandler_dump_traceback(fd, all_threads);
 
-        EXCEPTION_CONTINUE_SEARCH
+        host_faulthandler::EXCEPTION_CONTINUE_SEARCH
     }
 
     // faulthandler_enable

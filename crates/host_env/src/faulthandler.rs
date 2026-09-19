@@ -502,6 +502,12 @@ pub fn exception_description(code: u32) -> Option<&'static str> {
     }
 }
 
+/// `EXCEPTION_CONTINUE_SEARCH`: this handler only reports; later
+/// handlers decide the process fate.
+#[cfg(windows)]
+pub const EXCEPTION_CONTINUE_SEARCH: i32 =
+    windows_sys::Win32::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
+
 #[cfg(windows)]
 pub unsafe fn exception_code(exc_info: *mut EXCEPTION_POINTERS) -> u32 {
     let record = unsafe { &*(*exc_info).ExceptionRecord };

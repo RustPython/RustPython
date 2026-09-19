@@ -32,6 +32,8 @@ mod _socket {
     use rustpython_host_env::socket as host_socket;
     #[cfg(windows)]
     use rustpython_host_env::windows as host_windows;
+    #[cfg(windows)]
+    use rustpython_host_env::windows::ToWideString;
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
@@ -61,13 +63,14 @@ mod _socket {
     #[cfg(windows)]
     mod c {
         pub(super) use rustpython_host_env::socket::{
-            AF_APPLETALK, AF_DECnet, AF_INET, AF_INET6, AF_IPX, AF_LINK, AF_UNSPEC, AI_ADDRCONFIG,
-            AI_ALL, AI_CANONNAME, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE, AI_V4MAPPED,
-            EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NODATA, EAI_NONAME,
-            EAI_SERVICE, EAI_SOCKTYPE, INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
-            IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF, IP_MULTICAST_LOOP,
-            IP_MULTICAST_TTL, IP_OPTIONS, IP_RECVDSTADDR, IP_TOS, IP_TTL, IPPORT_RESERVED,
-            IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP, IPPROTO_FRAGMENT, IPPROTO_GGP,
+            AF_APPLETALK, AF_BLUETOOTH, AF_BTH, AF_DECnet, AF_HYPERV, AF_INET, AF_INET6, AF_IPX,
+            AF_IRDA, AF_LINK, AF_SNA, AF_UNSPEC, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME,
+            AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE, AI_V4MAPPED, EAI_AGAIN, EAI_BADFLAGS,
+            EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NODATA, EAI_NONAME, EAI_SERVICE, EAI_SOCKTYPE,
+            INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE, IP_ADD_MEMBERSHIP,
+            IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL,
+            IP_OPTIONS, IP_RECVDSTADDR, IP_TOS, IP_TTL, IPPORT_RESERVED, IPPROTO_AH,
+            IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP, IPPROTO_FRAGMENT, IPPROTO_GGP,
             IPPROTO_HOPOPTS, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IP,
             IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV4, IPPROTO_IPV6, IPPROTO_ND, IPPROTO_NONE,
             IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_UDP,
@@ -823,8 +826,12 @@ mod _socket {
     #[cfg(windows)]
     #[pyattr]
     use host_socket::{
-        IPPROTO_CBT, IPPROTO_ICLFXBM, IPPROTO_IGP, IPPROTO_L2TP, IPPROTO_PGM, IPPROTO_RDP,
-        IPPROTO_SCTP, IPPROTO_ST,
+        AF_BLUETOOTH, AF_HYPERV, AF_IRDA, AF_SNA, BTHPROTO_RFCOMM, HV_GUID_BROADCAST,
+        HV_GUID_CHILDREN, HV_GUID_LOOPBACK, HV_GUID_PARENT, HV_GUID_WILDCARD, HV_GUID_ZERO,
+        HV_PROTOCOL_RAW, HVSOCKET_ADDRESS_FLAG_PASSTHRU, HVSOCKET_CONNECT_TIMEOUT,
+        HVSOCKET_CONNECT_TIMEOUT_MAX, HVSOCKET_CONNECTED_SUSPEND, IPPROTO_CBT, IPPROTO_ICLFXBM,
+        IPPROTO_IGP, IPPROTO_L2TP, IPPROTO_PGM, IPPROTO_RDP, IPPROTO_SCTP, IPPROTO_ST,
+        SIO_TCP_SET_ACK_FREQUENCY,
     };
 
     #[pyattr]
@@ -1183,6 +1190,111 @@ mod _socket {
                         SocketAddr::V4(_) => unreachable!(),
                     }
                     Ok(addr6.into())
+                }
+                #[cfg(windows)]
+                family if family == c::AF_HYPERV => {
+                    if self.proto.load() != host_socket::HV_PROTOCOL_RAW {
+                        return Err(vm
+                            .new_os_error(format!(
+                                "{caller}(): unsupported AF_HYPERV protocol: {}",
+                                self.proto.load()
+                            ))
+                            .into());
+                    }
+                    let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
+                        vm.new_type_error(format!(
+                            "{caller}(): AF_HYPERV address must be tuple, not {}",
+                            obj.class().name()
+                        ))
+                    })?;
+                    if tuple.len() != 2 {
+                        return Err(vm
+                            .new_type_error(
+                                "AF_HYPERV address must be a str tuple (vm_id, service_id)",
+                            )
+                            .into());
+                    }
+                    let vm_id: PyStrRef = tuple[0].clone().downcast().map_err(|_| {
+                        vm.new_type_error(
+                            "AF_HYPERV address must be a str tuple (vm_id, service_id)",
+                        )
+                    })?;
+                    let service_id: PyStrRef = tuple[1].clone().downcast().map_err(|_| {
+                        vm.new_type_error(
+                            "AF_HYPERV address must be a str tuple (vm_id, service_id)",
+                        )
+                    })?;
+                    let vm_wide = vm_id.as_wtf8().to_wide_cstring().map_err(|_| {
+                        vm.new_value_error(format!(
+                            "{caller}(): AF_HYPERV address vm_id is not a valid UUID string"
+                        ))
+                    })?;
+                    let service_wide = service_id.as_wtf8().to_wide_cstring().map_err(|_| {
+                        vm.new_value_error(format!(
+                            "{caller}(): AF_HYPERV address service_id is not a valid UUID string"
+                        ))
+                    })?;
+                    let vm_guid = host_socket::uuid_from_string_w(&vm_wide).map_err(|_| {
+                        vm.new_value_error(format!(
+                            "{caller}(): AF_HYPERV address vm_id is not a valid UUID string"
+                        ))
+                    })?;
+                    let service_guid =
+                        host_socket::uuid_from_string_w(&service_wide).map_err(|_| {
+                            vm.new_value_error(format!(
+                            "{caller}(): AF_HYPERV address service_id is not a valid UUID string"
+                        ))
+                        })?;
+                    let hv = host_socket::sockaddr_hv(vm_guid, service_guid);
+                    let mut storage: host_socket::raw::SockAddrStorage =
+                        unsafe { core::mem::zeroed() };
+                    unsafe {
+                        core::ptr::write(core::ptr::from_mut(&mut storage).cast(), hv);
+                    }
+                    Ok(unsafe {
+                        host_socket::raw::SockAddr::new(storage, core::mem::size_of_val(&hv) as u32)
+                    })
+                }
+                #[cfg(windows)]
+                family if family == c::AF_BLUETOOTH => {
+                    if self.proto.load() != host_socket::BTHPROTO_RFCOMM {
+                        return Err(vm
+                            .new_os_error(format!("{caller}(): unknown Bluetooth protocol"))
+                            .into());
+                    }
+                    let tuple: PyTupleRef = addr
+                        .downcast()
+                        .map_err(|_| vm.new_os_error(format!("{caller}(): wrong format")))?;
+                    if tuple.len() != 2 {
+                        return Err(vm.new_os_error(format!("{caller}(): wrong format")).into());
+                    }
+                    let name: PyStrRef = tuple[0]
+                        .clone()
+                        .downcast()
+                        .map_err(|_| vm.new_os_error(format!("{caller}(): wrong format")))?;
+                    let channel = i64::try_from_object(vm, tuple[1].clone())
+                        .map_err(|_| vm.new_os_error(format!("{caller}(): wrong format")))?;
+                    let name = name
+                        .try_into_utf8(vm)
+                        .map_err(|_| vm.new_os_error(format!("{caller}(): wrong format")))?;
+                    let name = name.as_str();
+                    if name.contains('\0') {
+                        return Err(vm.new_os_error(format!("{caller}(): wrong format")).into());
+                    }
+                    let bd_addr = host_socket::parse_bdaddr(name)
+                        .ok_or_else(|| vm.new_os_error("bad bluetooth address"))?;
+                    let bth = host_socket::sockaddr_bth_rfcomm(bd_addr, channel as u32);
+                    let mut storage: host_socket::raw::SockAddrStorage =
+                        unsafe { core::mem::zeroed() };
+                    unsafe {
+                        core::ptr::write(core::ptr::from_mut(&mut storage).cast(), bth);
+                    }
+                    Ok(unsafe {
+                        host_socket::raw::SockAddr::new(
+                            storage,
+                            core::mem::size_of_val(&bth) as u32,
+                        )
+                    })
                 }
                 #[cfg(target_os = "linux")]
                 c::AF_CAN => {
@@ -2312,6 +2424,33 @@ mod _socket {
                     .new_tuple(vec![
                         vm.ctx.new_str(type_str).into(),
                         vm.ctx.new_str(name_str).into(),
+                    ])
+                    .into();
+            }
+        }
+        #[cfg(windows)]
+        {
+            let family = addr.family() as i32;
+            if family == c::AF_HYPERV {
+                let hv = unsafe { &*(addr.as_ptr() as *const host_socket::SockaddrHv) };
+                let vm_id = host_socket::uuid_to_string_w(&hv.vm_id).unwrap_or_default();
+                let service_id = host_socket::uuid_to_string_w(&hv.service_id).unwrap_or_default();
+                return vm
+                    .ctx
+                    .new_tuple(vec![
+                        vm.ctx.new_str(vm_id).into(),
+                        vm.ctx.new_str(service_id).into(),
+                    ])
+                    .into();
+            }
+            if family == c::AF_BLUETOOTH {
+                let (bd_addr, port) = host_socket::unpack_sockaddr_bth(addr.as_ptr().cast());
+                let name = host_socket::format_bdaddr(bd_addr);
+                return vm
+                    .ctx
+                    .new_tuple(vec![
+                        vm.ctx.new_str(name).into(),
+                        vm.ctx.new_int(port).into(),
                     ])
                     .into();
             }
