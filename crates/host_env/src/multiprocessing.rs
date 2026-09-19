@@ -13,7 +13,7 @@ use alloc::ffi::CString;
 use std::io;
 
 #[cfg(unix)]
-pub use libc::{sem_t, timespec};
+use libc::sem_t;
 #[cfg(unix)]
 use nix::errno::Errno;
 
@@ -92,6 +92,12 @@ pub enum WaitStatus {
     Error(SemError),
 }
 
+#[cfg(unix)]
+#[derive(Copy, Clone, Debug)]
+pub struct Deadline {
+    spec: libc::timespec,
+}
+
 #[cfg(windows)]
 use windows_sys::Win32::{
     Foundation::{
@@ -161,8 +167,40 @@ impl SemHandle {
     }
 
     #[inline]
-    pub fn as_ptr(&self) -> *mut sem_t {
-        self.raw
+    pub fn as_handle_int(&self) -> isize {
+        self.raw as isize
+    }
+
+    #[inline]
+    pub fn trywait(&self) -> TryAcquireStatus {
+        sem_trywait_status(self.raw)
+    }
+
+    #[inline]
+    pub fn post(&self) -> Result<(), SemError> {
+        sem_post(self.raw)
+    }
+
+    #[inline]
+    pub fn wait(&self, deadline: Option<&Deadline>) -> WaitStatus {
+        sem_wait_status(self.raw, deadline.map(|deadline| &deadline.spec))
+    }
+
+    #[cfg(not(target_vendor = "apple"))]
+    #[inline]
+    pub fn value(&self) -> Result<i32, SemError> {
+        // Safety: `self.raw` is a live `sem_open` handle owned by this object.
+        unsafe { get_semaphore_value(self.raw) }
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[inline]
+    pub fn poll_wait_step(
+        &self,
+        deadline: &Deadline,
+        delay: u64,
+    ) -> Result<PollWaitStep, SemError> {
+        sem_timedwait_poll_step(self.raw, &deadline.spec, delay)
     }
 }
 
@@ -182,8 +220,28 @@ impl SemHandle {
     }
 
     #[inline]
+    pub fn as_handle_int(&self) -> isize {
+        self.raw as isize
+    }
+
+    #[inline]
     pub fn as_raw(&self) -> HANDLE {
         self.raw
+    }
+
+    #[inline]
+    pub fn wait(&self, timeout_ms: u32) -> u32 {
+        wait_for_single_object(self.raw, timeout_ms)
+    }
+
+    #[inline]
+    pub fn release(&self) -> Result<(), u32> {
+        release_semaphore(self.raw)
+    }
+
+    #[inline]
+    pub fn value(&self) -> Result<i32, ()> {
+        get_semaphore_value(self.raw)
     }
 }
 
@@ -340,7 +398,7 @@ pub fn sem_unlink(name: &str) -> Result<(), SemError> {
 ///
 /// `handle` must point to a valid `sem_t` that remains alive for the duration
 /// of this call and is valid to pass to `sem_getvalue`.
-pub unsafe fn get_semaphore_value(handle: *mut sem_t) -> Result<i32, SemError> {
+unsafe fn get_semaphore_value(handle: *mut sem_t) -> Result<i32, SemError> {
     let mut sval: libc::c_int = 0;
     let res = unsafe { libc::sem_getvalue(handle, &mut sval) };
     if res < 0 {
@@ -352,7 +410,7 @@ pub unsafe fn get_semaphore_value(handle: *mut sem_t) -> Result<i32, SemError> {
 
 #[cfg(unix)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn sem_trywait_status(handle: *mut sem_t) -> TryAcquireStatus {
+fn sem_trywait_status(handle: *mut sem_t) -> TryAcquireStatus {
     if unsafe { libc::sem_trywait(handle) } == 0 {
         TryAcquireStatus::Acquired
     } else {
@@ -366,7 +424,7 @@ pub fn sem_trywait_status(handle: *mut sem_t) -> TryAcquireStatus {
 
 #[cfg(unix)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn sem_post(handle: *mut sem_t) -> Result<(), SemError> {
+fn sem_post(handle: *mut sem_t) -> Result<(), SemError> {
     if unsafe { libc::sem_post(handle) } < 0 {
         Err(SemError::from_errno(Errno::last()))
     } else {
@@ -385,7 +443,7 @@ pub fn sem_value_max() -> i32 {
 }
 
 #[cfg(unix)]
-pub fn gettimeofday() -> Result<libc::timeval, SemError> {
+fn gettimeofday() -> Result<libc::timeval, SemError> {
     let mut tv = libc::timeval {
         tv_sec: 0,
         tv_usec: 0,
@@ -398,7 +456,7 @@ pub fn gettimeofday() -> Result<libc::timeval, SemError> {
 }
 
 #[cfg(unix)]
-pub fn deadline_from_timeout(timeout: f64) -> Result<libc::timespec, SemError> {
+pub fn deadline_from_timeout(timeout: f64) -> Result<Deadline, SemError> {
     let timeout = if timeout < 0.0 { 0.0 } else { timeout };
     if !timeout.is_finite() {
         return Err(SemError::InvalidInput);
@@ -423,12 +481,12 @@ pub fn deadline_from_timeout(timeout: f64) -> Result<libc::timespec, SemError> {
         .checked_add((deadline.tv_nsec / 1_000_000_000) as libc::time_t)
         .ok_or(SemError::InvalidInput)?;
     deadline.tv_nsec %= 1_000_000_000;
-    Ok(deadline)
+    Ok(Deadline { spec: deadline })
 }
 
 #[cfg(unix)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn sem_wait_status(handle: *mut sem_t, deadline: Option<&libc::timespec>) -> WaitStatus {
+fn sem_wait_status(handle: *mut sem_t, deadline: Option<&libc::timespec>) -> WaitStatus {
     #[cfg(not(target_vendor = "apple"))]
     if let Some(deadline) = deadline {
         if unsafe { libc::sem_timedwait(handle, deadline) } == 0 {
@@ -474,7 +532,7 @@ pub enum PollWaitStep {
 
 #[cfg(target_vendor = "apple")]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn sem_timedwait_poll_step(
+fn sem_timedwait_poll_step(
     handle: *mut sem_t,
     deadline: &libc::timespec,
     delay: u64,
