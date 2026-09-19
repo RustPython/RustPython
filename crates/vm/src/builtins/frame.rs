@@ -525,7 +525,9 @@ impl FrameObject {
                 return prev as i32;
             }
         }
-        self.f_code().addr2line(lasti_bytes)
+        // lasti is stored as the next instruction index (see FrameObject::run),
+        // so the executing opcode is at lasti-1 / lasti_bytes-2.
+        self.f_code().addr2line(lasti_bytes - 2)
     }
 
     #[pygetset(name = "f_lineno")]
