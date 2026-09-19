@@ -18,6 +18,10 @@ def join_workers(workers):
         assert not worker.is_alive()
 
 
+def wait_sem(sem, msg):
+    assert sem.acquire(timeout=5), msg
+
+
 def notify_all_six(ctx):
     cond = ctx.Condition()
     started = ctx.Semaphore(0)
@@ -35,15 +39,15 @@ def notify_all_six(ctx):
         thread.start()
         workers.append(thread)
 
-    for _ in range(6):
-        started.acquire()
+    for i in range(6):
+        wait_sem(started, f"waiter {i} did not enter Condition.wait()")
 
     cond.acquire()
     cond.notify_all()
     cond.release()
 
-    for _ in range(6):
-        woken.acquire()
+    for i in range(6):
+        wait_sem(woken, f"waiter {i} did not wake")
     join_workers(workers)
 
 
@@ -59,18 +63,18 @@ def notify_one_then_the_other(ctx):
     thread.daemon = True
     thread.start()
 
-    started.acquire()
-    started.acquire()
+    wait_sem(started, "process did not enter Condition.wait()")
+    wait_sem(started, "thread did not enter Condition.wait()")
 
     cond.acquire()
     cond.notify()
     cond.release()
-    woken.acquire()
+    wait_sem(woken, "first waiter did not wake")
 
     cond.acquire()
     cond.notify()
     cond.release()
-    woken.acquire()
+    wait_sem(woken, "second waiter did not wake")
     join_workers([proc, thread])
 
 
