@@ -20,35 +20,6 @@ static EVAL_BREAKER: AtomicU8 = AtomicU8::new(0);
 
 /// A signal handler recorded a pending signal.
 const SIGNAL_BIT: u8 = 1 << 0;
-/// QSBR has retired allocations pending reclamation.
-#[cfg(feature = "threading")]
-const QSBR_BIT: u8 = 1 << 1;
-/// An automatic collection was scheduled by `maybe_collect` and must run at
-/// the next bytecode safepoint rather than synchronously inside the
-/// allocation that tripped the threshold.
-#[cfg(feature = "threading")]
-const GC_BIT: u8 = 1 << 2;
-/// At least one thread's `stop_requested` flag may be set (stop-the-world in
-/// progress). This bit is shared by every thread rather than being
-/// per-thread: the fast (common) path checked once per bytecode instruction
-/// becomes a single relaxed load of this word instead of a thread-local
-/// lookup plus atomic load of that thread's own flag. Once set, the bit is
-/// sticky until `start_the_world`/`reset_after_fork` clears it (both run
-/// under the single stop-the-world exclusion, so clearing cannot race a new
-/// requester) — every thread takes the slow path for the (short) duration of
-/// a stop-the-world request, which only affects programs with more than one
-/// live thread; single-threaded programs never set this bit at all, since
-/// `stop_the_world` never sets any per-thread `stop_requested` flag when
-/// there are no other threads to stop.
-#[cfg(feature = "threading")]
-const STOP_BIT: u8 = 1 << 3;
-/// The interpreter has begun finalizing (see `Interpreter::finalize`). Set
-/// once, near process/interpreter shutdown, and never cleared — from that
-/// point on every thread takes the slow path once per instruction, which is
-/// fine because finalization is a one-time, short-lived, non-performance-
-/// sensitive window.
-#[cfg(feature = "threading")]
-const FINALIZING_BIT: u8 = 1 << 4;
 
 #[expect(
     clippy::declare_interior_mutable_const,
@@ -153,53 +124,85 @@ pub(crate) fn eval_breaker_pending() -> bool {
     EVAL_BREAKER.load(Ordering::Relaxed) != 0
 }
 
+/// Extra eval-breaker bits used only when more than one thread can run.
 #[cfg(feature = "threading")]
-pub(crate) fn set_qsbr_bit() {
-    EVAL_BREAKER.fetch_or(QSBR_BIT, Ordering::Release);
+mod mt {
+    use super::EVAL_BREAKER;
+    use core::sync::atomic::Ordering;
+
+    /// QSBR has retired allocations pending reclamation.
+    const QSBR_BIT: u8 = 1 << 1;
+    /// An automatic collection was scheduled by `maybe_collect` and must run
+    /// at the next bytecode safepoint rather than synchronously inside the
+    /// allocation that tripped the threshold.
+    const GC_BIT: u8 = 1 << 2;
+    /// At least one thread's `stop_requested` flag may be set (stop-the-world
+    /// in progress). This bit is shared by every thread rather than being
+    /// per-thread: the fast (common) path checked once per bytecode
+    /// instruction becomes a single relaxed load of this word instead of a
+    /// thread-local lookup plus atomic load of that thread's own flag. Once
+    /// set, the bit is sticky until `start_the_world`/`reset_after_fork`
+    /// clears it (both run under the single stop-the-world exclusion, so
+    /// clearing cannot race a new requester) — every thread takes the slow
+    /// path for the (short) duration of a stop-the-world request, which only
+    /// affects programs with more than one live thread; single-threaded
+    /// programs never set this bit at all, since `stop_the_world` never sets
+    /// any per-thread `stop_requested` flag when there are no other threads
+    /// to stop.
+    const STOP_BIT: u8 = 1 << 3;
+    /// The interpreter has begun finalizing (see `Interpreter::finalize`).
+    /// Set once, near process/interpreter shutdown, and never cleared — from
+    /// that point on every thread takes the slow path once per instruction,
+    /// which is fine because finalization is a one-time, short-lived,
+    /// non-performance-sensitive window.
+    const FINALIZING_BIT: u8 = 1 << 4;
+
+    pub(crate) fn set_qsbr_bit() {
+        EVAL_BREAKER.fetch_or(QSBR_BIT, Ordering::Release);
+    }
+
+    pub(crate) fn clear_qsbr_bit() {
+        EVAL_BREAKER.fetch_and(!QSBR_BIT, Ordering::Release);
+    }
+
+    pub(crate) fn qsbr_bit_set() -> bool {
+        EVAL_BREAKER.load(Ordering::Relaxed) & QSBR_BIT != 0
+    }
+
+    /// Record that some thread's `stop_requested` flag was (or may have been)
+    /// set. See `STOP_BIT`.
+    pub(crate) fn set_stop_bit() {
+        EVAL_BREAKER.fetch_or(STOP_BIT, Ordering::Release);
+    }
+
+    /// Clear the shared stop-the-world bit. Only safe to call from
+    /// `start_the_world`/`reset_after_fork`, which run under the single
+    /// stop-the-world exclusion (see `STOP_BIT`).
+    pub(crate) fn clear_stop_bit() {
+        EVAL_BREAKER.fetch_and(!STOP_BIT, Ordering::Release);
+    }
+
+    /// Record that finalization has begun. See `FINALIZING_BIT`.
+    pub(crate) fn set_finalizing_bit() {
+        EVAL_BREAKER.fetch_or(FINALIZING_BIT, Ordering::Release);
+    }
+
+    /// Schedule an automatic collection to run at the next bytecode safepoint.
+    pub(crate) fn schedule_gc() {
+        EVAL_BREAKER.fetch_or(GC_BIT, Ordering::Release);
+    }
+
+    /// Clear the scheduled-GC bit, returning whether it had been set.
+    pub(crate) fn take_gc_scheduled() -> bool {
+        EVAL_BREAKER.fetch_and(!GC_BIT, Ordering::Acquire) & GC_BIT != 0
+    }
 }
 
 #[cfg(feature = "threading")]
-pub(crate) fn clear_qsbr_bit() {
-    EVAL_BREAKER.fetch_and(!QSBR_BIT, Ordering::Release);
-}
-
-#[cfg(feature = "threading")]
-pub(crate) fn qsbr_bit_set() -> bool {
-    EVAL_BREAKER.load(Ordering::Relaxed) & QSBR_BIT != 0
-}
-
-/// Record that some thread's `stop_requested` flag was (or may have been)
-/// set. See `STOP_BIT`.
-#[cfg(feature = "threading")]
-pub(crate) fn set_stop_bit() {
-    EVAL_BREAKER.fetch_or(STOP_BIT, Ordering::Release);
-}
-
-/// Clear the shared stop-the-world bit. Only safe to call from
-/// `start_the_world`/`reset_after_fork`, which run under the single
-/// stop-the-world exclusion (see `STOP_BIT`).
-#[cfg(feature = "threading")]
-pub(crate) fn clear_stop_bit() {
-    EVAL_BREAKER.fetch_and(!STOP_BIT, Ordering::Release);
-}
-
-/// Record that finalization has begun. See `FINALIZING_BIT`.
-#[cfg(feature = "threading")]
-pub(crate) fn set_finalizing_bit() {
-    EVAL_BREAKER.fetch_or(FINALIZING_BIT, Ordering::Release);
-}
-
-/// Schedule an automatic collection to run at the next bytecode safepoint.
-#[cfg(feature = "threading")]
-pub(crate) fn schedule_gc() {
-    EVAL_BREAKER.fetch_or(GC_BIT, Ordering::Release);
-}
-
-/// Clear the scheduled-GC bit, returning whether it had been set.
-#[cfg(feature = "threading")]
-pub(crate) fn take_gc_scheduled() -> bool {
-    EVAL_BREAKER.fetch_and(!GC_BIT, Ordering::Acquire) & GC_BIT != 0
-}
+pub(crate) use mt::{
+    clear_qsbr_bit, clear_stop_bit, qsbr_bit_set, schedule_gc, set_finalizing_bit, set_qsbr_bit,
+    set_stop_bit, take_gc_scheduled,
+};
 
 /// Reset all signal trigger state after fork in child process.
 /// Stale triggers from the parent must not fire in the child.
