@@ -1537,7 +1537,7 @@ mod _pickle {
             Some(t) if t.len() == 2 => (t.as_slice()[0].clone(), Some(t.as_slice()[1].clone())),
             _ => (state, None),
         };
-        if !vm.is_none(&state) && state.clone().try_to_bool(vm)? {
+        if !vm.is_none(&state) && state.try_to_bool(vm)? {
             let Some(dict) = state.downcast_ref::<PyDict>() else {
                 return Err(new_unpickling_error(vm, "state is not a dictionary"));
             };
@@ -1552,7 +1552,7 @@ mod _pickle {
         }
         if let Some(slotstate) = slotstate
             && !vm.is_none(&slotstate)
-            && slotstate.clone().try_to_bool(vm)?
+            && slotstate.try_to_bool(vm)?
         {
             let Some(dict) = slotstate.downcast_ref::<PyDict>() else {
                 return Err(new_unpickling_error(vm, "slot state is not a dictionary"));
@@ -1582,7 +1582,7 @@ mod _pickle {
         let inverted = copyreg.get_attr("_inverted_registry", vm)?;
         let key = mapping_get(&inverted, code_obj.as_object(), vm)?;
         let key = match key {
-            Some(k) if k.clone().try_to_bool(vm)? => k,
+            Some(k) if k.try_to_bool(vm)? => k,
             _ => {
                 if code <= 0 {
                     return Err(new_unpickling_error(vm, "EXT specifies code <= 0"));
