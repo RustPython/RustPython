@@ -972,12 +972,17 @@ mod tests {
 
     #[test]
     fn format_parse_type_fail() {
-        assert_eq!(
-            "Hello %n".parse::<CFormatString>(),
-            Err(CFormatError {
-                typ: CFormatErrorType::UnsupportedFormatChar('n'.into()),
-                index: 7
-            })
+        let parsed = "Hello %n".parse::<CFormatString>().unwrap();
+        let spec = parsed.iter().find_map(|(_, part)| match part {
+            CFormatPart::Spec(spec) => Some(&spec.spec),
+            CFormatPart::Literal(_) => None,
+        });
+        assert!(
+            matches!(
+                spec.map(|s| &s.format_type),
+                Some(CFormatType::Unsupported { ch, index: 7 }) if *ch == 'n'
+            ),
+            "{spec:?}"
         );
     }
 

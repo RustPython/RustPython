@@ -321,10 +321,30 @@ impl VirtualMachine {
         let is_utf8 = encoding.as_deref().is_none_or(Self::is_utf8_encoding);
         if has_bom && !is_utf8 {
             let enc = encoding.as_deref().unwrap_or("utf-8");
-            return Err(self.new_exception_msg(
-                self.ctx.exceptions.syntax_error.to_owned(),
-                format!("encoding problem: {enc} with BOM").into(),
-            ));
+            let after_bom = &source[3..];
+            let line_end = after_bom
+                .iter()
+                .position(|&b| b == b'\n')
+                .unwrap_or(after_bom.len());
+            let text = String::from_utf8_lossy(&after_bom[..line_end]).into_owned();
+            let end_offset = text.chars().count() as i32;
+            let msg = format!("encoding problem: {enc} with BOM");
+            let location = self.ctx.new_tuple(vec![
+                self.ctx.new_str(filename).into(),
+                self.ctx.new_int(1).into(),
+                self.ctx.new_int(0).into(),
+                self.ctx.new_str(text).into(),
+                self.ctx.new_int(1).into(),
+                self.ctx.new_int(end_offset).into(),
+            ]);
+            return Err(self
+                .invoke_exception(
+                    self.ctx.exceptions.syntax_error,
+                    vec![self.ctx.new_str(msg.as_str()).into(), location.into()],
+                )
+                .unwrap_or_else(|_| {
+                    self.new_exception_msg(self.ctx.exceptions.syntax_error.to_owned(), msg.into())
+                }));
         }
 
         if is_utf8 {

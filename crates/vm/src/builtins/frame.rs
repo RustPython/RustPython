@@ -509,22 +509,6 @@ impl FrameObject {
                 .first_line_number
                 .map_or(1, |n| n.get() as i32);
         }
-        // For executing frames (on the TLS chain), use prev_line which is
-        // updated at each bytecode instruction *before* the instruction
-        // runs. This gives the correct line even when observed mid-CALL
-        // (where lasti has already advanced past the CALL instruction).
-        let live = self.find_live_source_iframe();
-        if !live.is_null() {
-            // Read live prev_line. Use read_volatile to bypass LLVM noalias
-            // on the &mut InterpreterFrame borrow held by the running frame.
-            let prev = unsafe {
-                let field_ptr = core::ptr::addr_of!((*live).prev_line);
-                core::ptr::read_volatile(field_ptr as *const u32)
-            };
-            if prev > 0 {
-                return prev as i32;
-            }
-        }
         // lasti is stored as the next instruction index (see FrameObject::run),
         // so the executing opcode is at lasti-1 / lasti_bytes-2.
         self.f_code().addr2line(lasti_bytes - 2)

@@ -2302,7 +2302,11 @@ impl PyType {
     #[pygetset]
     fn __type_params__(&self, vm: &VirtualMachine) -> PyObjectRef {
         let key = identifier!(vm, __type_params__);
-        if let Some(params) = self.attributes.get(key) {
+        if let Some(params) = self.attributes.get(key)
+            // Builtin type namespaces store the getset wrapper under this
+            // name; heap types store the actual value.
+            && !params.class().is(vm.ctx.types.getset_type)
+        {
             return params;
         }
         vm.ctx.empty_tuple.clone().into()

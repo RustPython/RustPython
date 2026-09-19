@@ -403,7 +403,10 @@ impl PyBaseObject {
         match zelf.get_attr(identifier!(vm, __dict__), vm) {
             Ok(obj) => {
                 if let Ok(dict) = obj.downcast::<PyDict>() {
-                    names.extend(dict.into_iter().map(|(k, _)| k));
+                    names.extend(
+                        dict.into_iter()
+                            .filter_map(|(k, _)| k.downcast_ref::<PyStr>().is_some().then_some(k)),
+                    );
                 }
             }
             Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
