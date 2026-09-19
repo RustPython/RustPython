@@ -80,8 +80,12 @@ def notify_one_then_the_other(ctx):
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    ctx = multiprocessing.get_context("spawn")
+    methods = ["spawn"]
+    if "forkserver" in multiprocessing.get_all_start_methods():
+        methods.append("forkserver")
     # Enough repeats to surface a lost-wakeup race in CI snippets.
-    for _ in range(20):
-        notify_all_six(ctx)
-        notify_one_then_the_other(ctx)
+    for method in methods:
+        ctx = multiprocessing.get_context(method)
+        for _ in range(20):
+            notify_all_six(ctx)
+            notify_one_then_the_other(ctx)
