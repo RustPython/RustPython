@@ -925,7 +925,8 @@ pub fn if_nameindex() -> io::Result<Vec<(u32, Wtf8Buf)>> {
         .collect()
 }
 
-#[cfg(all(test, windows))]
+#[cfg(test)]
+#[cfg(windows)]
 mod if_name_from_wide_tests {
     use super::if_name_from_wide;
     use rustpython_wtf8::Wtf8Buf;
