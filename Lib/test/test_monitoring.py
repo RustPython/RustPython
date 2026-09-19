@@ -1054,7 +1054,6 @@ class ExceptionMonitoringTest(CheckEvents):
         )
         self.assertEqual(events[0], ("throw", IndexError))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; CALL_ALLOC_AND_ENTER_INIT specialization
     @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     @requires_specialization_ft
     def test_no_unwind_for_shim_frame(self):

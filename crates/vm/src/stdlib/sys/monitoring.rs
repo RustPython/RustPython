@@ -226,6 +226,62 @@ fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyRe
     Ok(event_set)
 }
 
+/// Event that causes this opcode to be rewritten to INSTRUMENTED_*.
+/// RESUME uses `oparg`: 0 → PY_START, nonzero → PY_RESUME.
+fn event_for_opcode(op: rustpython_compiler_core::bytecode::Instruction, oparg: u8) -> Option<u32> {
+    use rustpython_compiler_core::bytecode::Opcode;
+    match op.deoptimize().as_opcode() {
+        Opcode::ReturnValue => Some(EVENT_PY_RETURN),
+        Opcode::Call | Opcode::CallKw | Opcode::CallFunctionEx | Opcode::LoadSuperAttr => {
+            Some(EVENT_CALL)
+        }
+        Opcode::YieldValue => Some(EVENT_PY_YIELD),
+        Opcode::JumpForward | Opcode::JumpBackward => Some(EVENT_JUMP),
+        Opcode::PopJumpIfFalse
+        | Opcode::PopJumpIfTrue
+        | Opcode::PopJumpIfNone
+        | Opcode::PopJumpIfNotNone => Some(EVENT_BRANCH_RIGHT),
+        Opcode::ForIter => Some(EVENT_BRANCH_LEFT),
+        Opcode::PopIter => Some(EVENT_BRANCH_RIGHT),
+        Opcode::EndFor | Opcode::EndSend => Some(EVENT_STOP_ITERATION),
+        Opcode::NotTaken => Some(EVENT_BRANCH_LEFT),
+        Opcode::EndAsyncFor => Some(EVENT_BRANCH_RIGHT),
+        Opcode::Resume => {
+            if oparg != 0 {
+                Some(EVENT_PY_RESUME)
+            } else {
+                Some(EVENT_PY_START)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn opcode_event_is_active(
+    op: rustpython_compiler_core::bytecode::Instruction,
+    oparg: u8,
+    events: u32,
+) -> bool {
+    event_for_opcode(op, oparg).is_some_and(|ev| events & ev != 0)
+}
+
+/// Walk real instructions, skipping specialization CACHE payloads.
+/// Cache slots may contain pointer bits that are not valid opcodes.
+fn for_each_instruction(
+    code: &PyCode,
+    mut f: impl FnMut(usize, rustpython_compiler_core::bytecode::Instruction, u8),
+) {
+    let len = code.code.instructions.len();
+    let mut i = 0;
+    while i < len {
+        let op = code.code.instructions.read_op(i);
+        let oparg = code.code.instructions.read_arg(i).as_u8();
+        let caches = op.deoptimize().cache_entries();
+        f(i, op, oparg);
+        i += 1 + caches;
+    }
+}
+
 /// Rewrite a code object's bytecode in-place with layered instrumentation.
 ///
 /// Three layers (outermost first):
@@ -234,6 +290,7 @@ fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyRe
 /// 3. Regular INSTRUMENTED_* — direct 1:1 opcode swap (no side-table needed)
 ///
 /// De-instrumentation peels layers in reverse order.
+/// Specialized opcodes are restored to base only when their EVENT_FOR_OPCODE is active.
 pub(crate) fn instrument_code(code: &PyCode, events: u32) {
     use rustpython_compiler_core::bytecode::{self, Instruction};
 
@@ -270,33 +327,39 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
         }
     }
 
-    // Phase 3: Remove regular INSTRUMENTED_* and specialized opcodes → restore base opcodes.
-    // Also clear all CACHE entries so specialization starts fresh.
+    // Phase 3: Restore INSTRUMENTED_* whose event is no longer active.
+    // Restore specialized opcodes to base only when that family will be instrumented.
     {
         let mut i = 0;
         while i < len {
-            let op = code.code.instructions[i].op;
+            let op = code.code.instructions.read_op(i);
+            let oparg = code.code.instructions.read_arg(i).as_u8();
             let base_op = op.deoptimize();
-            if u8::from(base_op) != u8::from(op) {
+            let caches = base_op.cache_entries();
+            // LINE/INSTRUCTION wrap every instruction, so specialized
+            // CACHE payloads must be cleared first.
+            let want_instrumented = events & (EVENT_LINE | EVENT_INSTRUCTION) != 0
+                || opcode_event_is_active(base_op, oparg, events);
+            let restore_base = if want_instrumented {
+                !op.is_instrumented() && u8::from(base_op) != u8::from(op)
+            } else {
+                op.is_instrumented()
+            };
+            if restore_base {
                 unsafe {
                     code.code.instructions.replace_op(i, base_op);
                 }
-            }
-            let caches = base_op.cache_entries();
-            // Zero all CACHE entries (the op+arg bytes may have been overwritten
-            // by specialization with arbitrary data like pointers).
-            for c in 1..=caches {
-                if i + c < len {
-                    unsafe {
-                        code.code.instructions.write_cache_u16(i + c, 0);
+                for c in 1..=caches {
+                    if i + c < len {
+                        unsafe {
+                            code.code.instructions.write_cache_u16(i + c, 0);
+                        }
                     }
                 }
             }
             i += 1 + caches;
         }
     }
-
-    // All opcodes are now base opcodes.
 
     if events == 0 {
         *monitoring_data = None;
@@ -318,24 +381,43 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
     data.per_instruction_opcodes.resize(len, 0);
 
     // Find _co_firsttraceable: index of first RESUME instruction
-    let first_traceable = code
-        .code
-        .instructions
-        .iter()
-        .position(|u| matches!(u.op, Instruction::Resume { .. } | Instruction::ResumeCheck))
-        .unwrap_or(0);
+    let mut first_traceable = None;
+    for_each_instruction(code, |i, op, _| {
+        if first_traceable.is_none()
+            && matches!(
+                op,
+                Instruction::Resume { .. }
+                    | Instruction::ResumeCheck
+                    | Instruction::InstrumentedResume
+            )
+        {
+            first_traceable = Some(i);
+        }
+    });
+    let first_traceable = first_traceable.unwrap_or(0);
 
-    // Phase 4: Place regular INSTRUMENTED_* opcodes
-    for i in 0..len {
-        let op = code.code.instructions[i].op;
-        if let Some(instrumented) = op.to_instrumented() {
-            unsafe {
-                code.code.instructions.replace_op(i, instrumented);
+    // Phase 4: Place regular INSTRUMENTED_* opcodes whose event is active.
+    // Walk by cache_entries so specialized CACHE payloads are not decoded as opcodes.
+    {
+        let mut i = 0;
+        while i < len {
+            let op = code.code.instructions.read_op(i);
+            let oparg = code.code.instructions.read_arg(i).as_u8();
+            let caches = op.deoptimize().cache_entries();
+            if (events & (EVENT_LINE | EVENT_INSTRUCTION) != 0
+                || opcode_event_is_active(op, oparg, events))
+                && let Some(instrumented) = op.to_instrumented()
+            {
+                unsafe {
+                    code.code.instructions.replace_op(i, instrumented);
+                }
             }
+            i += 1 + caches;
         }
     }
 
     // Phase 5: Place INSTRUMENTED_INSTRUCTION (if EVENT_INSTRUCTION is active)
+    // LINE/INSTRUCTION restore specialized opcodes first, so CACHE slots are valid.
     if events & EVENT_INSTRUCTION != 0 {
         for i in first_traceable..len {
             let op = code.code.instructions[i].op;
@@ -482,7 +564,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
                 && !is_line_start[target_idx]
                 && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
-                let target_op = code.code.instructions[target_idx].op;
+                let target_op = code.code.instructions.read_op(target_idx);
                 let target_base = target_op.to_base().unwrap_or(target_op);
                 if !matches!(target_base, Instruction::PopIter)
                     && let Some((loc, _)) = line_locations.get(target_idx)
@@ -502,7 +584,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
             .skip(first_traceable)
         {
             if marked {
-                let op = code.code.instructions[i].op;
+                let op = code.code.instructions.read_op(i);
                 data.line_opcodes[i] = u8::from(op);
                 unsafe {
                     code.code

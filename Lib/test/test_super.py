@@ -187,7 +187,6 @@ class TestSuper(unittest.TestCase):
         B = type("B", (), test_namespace)
         self.assertIs(B.f(), B)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test___class___mro(self):
         # See issue #23722
         test_class = None

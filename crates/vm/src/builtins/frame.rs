@@ -2,9 +2,9 @@
 
 */
 
-use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyIntRef, PyStrRef};
+use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyIntRef};
 use crate::{
-    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     frame::{FrameObject, FrameObjectRef, FrameOwner},
     function::PySetterValue,
@@ -433,15 +433,16 @@ pub(crate) fn init(context: &'static Context) {
 }
 
 impl Representable for FrameObject {
-    #[inline]
-    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        const REPR: &str = "<frame object at .. >";
-        Ok(vm.ctx.intern_str(REPR).to_owned())
-    }
-
-    #[cold]
-    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        unreachable!("use repr instead")
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let code = zelf.iframe().code();
+        let file_repr = code.source_path().to_owned().as_object().repr(vm)?;
+        let lineno = zelf.f_lineno();
+        let name = code.code.obj_name.as_wtf8();
+        let ptr = zelf as *const Py<Self> as usize;
+        Ok(format!(
+            "<frame at {ptr:#x}, file {}, line {lineno}, code {name}>",
+            file_repr.as_wtf8(),
+        ))
     }
 }
 
@@ -464,7 +465,7 @@ impl FrameObject {
     }
 }
 
-#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py))]
+#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py, Representable))]
 impl FrameObject {
     #[pygetset]
     fn f_globals(&self) -> PyDictRef {
@@ -539,7 +540,7 @@ impl FrameObject {
                     .map_err(|_| vm.new_value_error("lineno must be an integer"))?
             }
             PySetterValue::Delete => {
-                return Err(vm.new_type_error("can't delete f_lineno attribute"));
+                return Err(vm.new_attribute_error("cannot delete attribute"));
             }
         };
 
