@@ -343,14 +343,14 @@ impl PyStrIterator {
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let func = builtins_iter(vm);
-        self.internal.lock().0.reduce(
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let func = builtins_iter(vm)?;
+        Ok(self.internal.lock().0.reduce(
             func,
             |x| x.clone().into(),
             |vm| vm.ctx.empty_str.to_owned().into(),
             vm,
-        )
+        ))
     }
 }
 

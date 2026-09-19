@@ -3061,23 +3061,62 @@ impl VirtualMachine {
         self.import_inner(module_name, from_list, level)
     }
 
+    /// Look up `name` in the current frame's builtins (`_PyEval_GetBuiltin`).
+    /// A missing key becomes AttributeError with that name.
+    pub fn eval_get_builtin(&self, name: &'static PyStrInterned) -> PyResult {
+        let builtins =
+            crate::frame::current_builtins().unwrap_or_else(|| self.builtins.dict().into());
+        if let Some(dict) = builtins.downcast_ref::<PyDict>() {
+            match dict.get_item_opt(name, self)? {
+                Some(value) => Ok(value),
+                None => Err(self.new_attribute_error(name.to_owned())),
+            }
+        } else {
+            match builtins.get_item(name, self) {
+                Ok(value) => Ok(value),
+                Err(e) if e.fast_isinstance(self.ctx.exceptions.key_error) => {
+                    Err(self.new_attribute_error(name.to_owned()))
+                }
+                Err(e) => Err(e),
+            }
+        }
+    }
+
     fn import_inner(
         &self,
         module: &Py<PyStr>,
         from_list: &Py<PyTuple<PyStrRef>>,
         level: usize,
     ) -> PyResult {
+        let builtins =
+            crate::frame::current_builtins().unwrap_or_else(|| self.builtins.dict().into());
+        // The module-cache fast path assumes interpreter builtins. A frame
+        // whose f_builtins is a custom mapping (eval/exec) must go through
+        // that mapping's __import__.
         if level == 0
             && from_list.as_slice().is_empty()
+            && builtins.is(self.builtins.dict().as_object())
             && let Some(cached) = self.try_import_cached(module)?
         {
             return Ok(cached);
         }
 
-        let import_func = self
-            .builtins
-            .get_attr(identifier!(self, __import__), self)
-            .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
+        let import_func = if let Some(dict) = builtins.downcast_ref::<PyDict>() {
+            match dict.get_item_opt(identifier!(self, __import__), self)? {
+                Some(func) => func,
+                None => {
+                    return Err(self.new_import_error("__import__ not found", module.to_owned()));
+                }
+            }
+        } else {
+            match builtins.get_item(identifier!(self, __import__), self) {
+                Ok(func) => func,
+                Err(e) if e.fast_isinstance(self.ctx.exceptions.key_error) => {
+                    return Err(self.new_import_error("__import__ not found", module.to_owned()));
+                }
+                Err(e) => return Err(e),
+            }
+        };
 
         let (locals, globals) = if let Some(globals) = crate::frame::current_globals() {
             // Locals fallback: use the heavy frame if available, otherwise

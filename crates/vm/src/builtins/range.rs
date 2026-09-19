@@ -617,7 +617,7 @@ impl PyLongRangeIterator {
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         range_iter_reduce(
             self.start.clone(),
             self.length.clone(),
@@ -679,7 +679,7 @@ impl PyRangeIterator {
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         range_iter_reduce(
             BigInt::from(self.start),
             BigInt::from(self.length),
@@ -720,8 +720,8 @@ fn range_iter_reduce(
     step: BigInt,
     index: usize,
     vm: &VirtualMachine,
-) -> PyTupleRef {
-    let iter = builtins_iter(vm);
+) -> PyResult<PyTupleRef> {
+    let iter = builtins_iter(vm)?;
     // CPython pickles the remaining range with a None state. next() increments
     // the index unconditionally, so clamp it to length before rebasing start.
     let index = BigInt::from(index).min(length.clone());
@@ -732,7 +732,7 @@ fn range_iter_reduce(
         stop: PyInt::from(stop).into_ref(&vm.ctx),
         step: PyInt::from(step).into_ref(&vm.ctx),
     };
-    vm.new_tuple((iter, (range,), vm.ctx.none()))
+    Ok(vm.new_tuple((iter, (range,), vm.ctx.none())))
 }
 
 // Silently clips state (i.e index) in range [0, usize::MAX].
