@@ -329,15 +329,15 @@ impl Coro {
                         vm.new_runtime_error(format!("{} raised StopIteration", gen_name(jen, vm)));
                     // PEP 479: chain __context__ as well as __cause__ to the
                     // original StopIteration.
-                    err.set___context__(Some(e.clone()));
-                    err.set___cause__(Some(e));
+                    err.set_context(Some(e.clone()));
+                    err.set_cause(Some(e));
                     Err(err)
                 } else if jen.class().is(vm.ctx.types.async_generator)
                     && e.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
                 {
                     let err = vm.new_runtime_error("async generator raised StopAsyncIteration");
-                    err.set___context__(Some(e.clone()));
-                    err.set___cause__(Some(e));
+                    err.set_context(Some(e.clone()));
+                    err.set_cause(Some(e));
                     Err(err)
                 } else {
                     Err(e)
@@ -662,7 +662,7 @@ pub(crate) fn unraisable_while_closing(
         let lineno = rustpython_compiler_core::OneIndexed::new(frame.f_lineno().max(1) as usize)
             .unwrap_or(rustpython_compiler_core::OneIndexed::MIN);
         let tb = PyTraceback::new(None, frame, lasti, lineno);
-        e.set_traceback_typed(Some(tb.into_ref(&vm.ctx)));
+        e.set_traceback(Some(tb.into_ref(&vm.ctx)));
     }
     let msg = jen
         .repr(vm)

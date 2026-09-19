@@ -548,7 +548,7 @@ impl PyStr {
                 .code_points()
                 .position(|c| c.to_char().is_none())
                 .unwrap();
-            Err(vm.new_unicode_encode_error_real(
+            Err(vm.new_unicode_encode_error(
                 identifier!(vm, utf_8).to_owned(),
                 vm.ctx.new_str(self.data.clone()),
                 start,

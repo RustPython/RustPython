@@ -14,7 +14,7 @@ pub(crate) mod _asyncio {
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{
                 PyBaseException, PyBaseExceptionRef, PyDict, PyGenericAlias, PyList, PyListRef,
-                PyModule, PySet, PyTuple, PyType, PyTypeRef,
+                PyModule, PySet, PyTraceback, PyTuple, PyType, PyTypeRef,
             },
             extend_module,
             function::{FuncArgs, KwArgs, OptionalArg, OptionalOption, PySetterValue},
@@ -231,7 +231,9 @@ pub(crate) mod _asyncio {
                         // Restore the original traceback to prevent traceback accumulation
                         let fut_exception_tb = self.fut_exception_tb.read().clone();
                         if let Some(tb) = fut_exception_tb {
-                            let _ = exc.set___traceback__(tb, vm);
+                            if let Ok(tb) = tb.downcast::<PyTraceback>() {
+                                exc.set_traceback(Some(tb));
+                            }
                         }
                         Err(exc)
                     } else {
@@ -311,8 +313,8 @@ pub(crate) mod _asyncio {
                 let runtime_err = vm.new_runtime_error(msg.to_string());
                 // Set cause and context to the original StopIteration
                 let stop_iter: PyRef<PyBaseException> = exc.downcast().unwrap();
-                runtime_err.set___cause__(Some(stop_iter.clone()));
-                runtime_err.set___context__(Some(stop_iter));
+                runtime_err.set_cause(Some(stop_iter.clone()));
+                runtime_err.set_context(Some(stop_iter));
                 runtime_err.into()
             } else {
                 exc
@@ -1277,7 +1279,9 @@ pub(crate) mod _asyncio {
                         // Restore the original traceback to prevent traceback accumulation
                         let fut_exception_tb = self.base.fut_exception_tb.read().clone();
                         if let Some(tb) = fut_exception_tb {
-                            let _ = exc.set___traceback__(tb, vm);
+                            if let Ok(tb) = tb.downcast::<PyTraceback>() {
+                                exc.set_traceback(Some(tb));
+                            }
                         }
 
                         Err(exc)

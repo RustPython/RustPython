@@ -583,7 +583,7 @@ impl PySetInner {
                     "cannot use '{}' as a set element ({message})",
                     item.class().name()
                 ));
-                err.set___cause__(Some(cause));
+                err.set_cause(Some(cause));
                 Err(err)
             }
             result => result,

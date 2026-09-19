@@ -658,7 +658,7 @@ impl VirtualMachine {
         .expect("UnicodeDecodeError constructor")
     }
 
-    pub fn new_unicode_encode_error_real(
+    pub fn new_unicode_encode_error(
         &self,
         encoding: PyStrRef,
         object: PyStrRef,

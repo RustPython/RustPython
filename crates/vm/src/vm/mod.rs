@@ -1281,7 +1281,7 @@ impl VirtualMachine {
             }
 
             let err = self.new_runtime_error(msg);
-            err.set___cause__(Some(import_err));
+            err.set_cause(Some(import_err));
             err
         })?;
         Ok(())
@@ -3602,7 +3602,7 @@ impl VirtualMachine {
             let mut slow_update_toggle = false;
             while let Some(context) = o.__context__() {
                 if context.is(exception) {
-                    o.set___context__(None);
+                    o.set_context(None);
                     break;
                 }
                 o = context;
@@ -3615,7 +3615,7 @@ impl VirtualMachine {
                 }
                 slow_update_toggle = !slow_update_toggle;
             }
-            exception.set___context__(Some(context_exc))
+            exception.set_context(Some(context_exc))
         }
     }
 

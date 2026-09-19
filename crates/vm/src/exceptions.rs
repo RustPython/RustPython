@@ -398,7 +398,7 @@ impl VirtualMachine {
         let ctor = ExceptionCtor::try_from_object(self, exc_type)?;
         let exc = ctor.instantiate_value(exc_val, self)?;
         if let Some(tb) = Option::<PyTracebackRef>::try_from_object(self, exc_tb)? {
-            exc.set_traceback_typed(Some(tb));
+            exc.set_traceback(Some(tb));
         }
         Ok(exc)
     }
@@ -669,8 +669,11 @@ impl PyBaseException {
         self.traceback.read().clone()
     }
 
-    #[allow(non_snake_case)]
-    pub fn set___traceback__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set___traceback__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let PySetterValue::Assign(value) = value else {
+            return Err(vm.new_type_error("__traceback__ may not be deleted"));
+        };
         let traceback = if vm.is_none(&value) {
             None
         } else {
@@ -681,20 +684,11 @@ impl PyBaseException {
                 }
             }
         };
-        self.set_traceback_typed(traceback);
+        self.set_traceback(traceback);
         Ok(())
     }
 
-    #[pygetset(setter, name = "__traceback__")]
-    fn py_set_traceback(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        let PySetterValue::Assign(value) = value else {
-            return Err(vm.new_type_error("__traceback__ may not be deleted"));
-        };
-        self.set___traceback__(value, vm)
-    }
-
-    // Helper method for internal use that doesn't require PyObjectRef
-    pub(crate) fn set_traceback_typed(&self, traceback: Option<PyTracebackRef>) {
+    pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
         *self.traceback.write() = traceback;
     }
 
@@ -703,15 +697,8 @@ impl PyBaseException {
         self.cause.read().clone()
     }
 
-    #[allow(non_snake_case)]
-    pub fn set___cause__(&self, cause: Option<PyRef<Self>>) {
-        let mut c = self.cause.write();
-        self.set_suppress_context(true);
-        *c = cause;
-    }
-
-    #[pygetset(setter, name = "__cause__")]
-    fn py_set_cause(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set___cause__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         let PySetterValue::Assign(value) = value else {
             return Err(vm.new_type_error("__cause__ may not be deleted"));
         };
@@ -727,8 +714,14 @@ impl PyBaseException {
                 }
             }
         };
-        self.set___cause__(cause);
+        self.set_cause(cause);
         Ok(())
+    }
+
+    pub fn set_cause(&self, cause: Option<PyRef<Self>>) {
+        let mut c = self.cause.write();
+        self.set_suppress_context(true);
+        *c = cause;
     }
 
     #[pygetset]
@@ -736,13 +729,8 @@ impl PyBaseException {
         self.context.read().clone()
     }
 
-    #[allow(non_snake_case)]
-    pub fn set___context__(&self, context: Option<PyRef<Self>>) {
-        *self.context.write() = context;
-    }
-
-    #[pygetset(setter, name = "__context__")]
-    fn py_set_context(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set___context__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         let PySetterValue::Assign(value) = value else {
             return Err(vm.new_type_error("__context__ may not be deleted"));
         };
@@ -758,8 +746,12 @@ impl PyBaseException {
                 }
             }
         };
-        self.set___context__(context);
+        self.set_context(context);
         Ok(())
+    }
+
+    pub fn set_context(&self, context: Option<PyRef<Self>>) {
+        *self.context.write() = context;
     }
 
     #[pygetset]
@@ -3414,7 +3406,7 @@ pub fn exception_group_match(
                 && let Some(tb) = exc.__traceback__()
                 && let Ok(wrapped_exc) = wrapped.clone().downcast::<types::PyBaseException>()
             {
-                let _ = wrapped_exc.set___traceback__(tb.into(), vm);
+                wrapped_exc.set_traceback(Some(tb));
             }
             wrapped
         };
