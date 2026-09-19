@@ -1269,7 +1269,7 @@ mod _socket {
                         core::ptr::write(core::ptr::from_mut(&mut storage).cast(), hv);
                     }
                     Ok(unsafe {
-                        host_socket::raw::SockAddr::new(storage, core::mem::size_of_val(&hv) as u32)
+                        host_socket::raw::SockAddr::new(storage, core::mem::size_of_val(&hv) as _)
                     })
                 }
                 #[cfg(windows)]
@@ -1307,10 +1307,7 @@ mod _socket {
                         core::ptr::write(core::ptr::from_mut(&mut storage).cast(), bth);
                     }
                     Ok(unsafe {
-                        host_socket::raw::SockAddr::new(
-                            storage,
-                            core::mem::size_of_val(&bth) as u32,
-                        )
+                        host_socket::raw::SockAddr::new(storage, core::mem::size_of_val(&bth) as _)
                     })
                 }
                 #[cfg(target_os = "linux")]
