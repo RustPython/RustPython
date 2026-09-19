@@ -1003,23 +1003,24 @@ mod decl {
     // Windows-specific constants
     #[cfg(windows)]
     #[pyattr]
-    const _EXCEPTION_ACCESS_VIOLATION: u32 = 0xC0000005;
+    const _EXCEPTION_ACCESS_VIOLATION: u32 = host_faulthandler::EXCEPTION_ACCESS_VIOLATION;
 
     #[cfg(windows)]
     #[pyattr]
-    const _EXCEPTION_INT_DIVIDE_BY_ZERO: u32 = 0xC0000094;
+    const _EXCEPTION_INT_DIVIDE_BY_ZERO: u32 = host_faulthandler::EXCEPTION_INT_DIVIDE_BY_ZERO;
 
     #[cfg(windows)]
     #[pyattr]
-    const _EXCEPTION_STACK_OVERFLOW: u32 = 0xC00000FD;
+    const _EXCEPTION_STACK_OVERFLOW: u32 = host_faulthandler::EXCEPTION_STACK_OVERFLOW;
 
     #[cfg(windows)]
     #[pyattr]
-    const _EXCEPTION_NONCONTINUABLE: u32 = 0x00000001;
+    const _EXCEPTION_NONCONTINUABLE: u32 = host_faulthandler::EXCEPTION_NONCONTINUABLE;
 
     #[cfg(windows)]
     #[pyattr]
-    const _EXCEPTION_NONCONTINUABLE_EXCEPTION: u32 = 0xC0000025;
+    const _EXCEPTION_NONCONTINUABLE_EXCEPTION: u32 =
+        host_faulthandler::EXCEPTION_NONCONTINUABLE_EXCEPTION;
 
     #[cfg(windows)]
     #[derive(FromArgs)]

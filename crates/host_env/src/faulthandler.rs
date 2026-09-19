@@ -490,14 +490,14 @@ pub fn ignore_exception(code: u32) -> bool {
 #[cfg(windows)]
 pub fn exception_description(code: u32) -> Option<&'static str> {
     match code {
-        0xC0000005 => Some("access violation"),
-        0xC000008C => Some("float divide by zero"),
-        0xC0000091 => Some("float overflow"),
-        0xC0000094 => Some("int divide by zero"),
-        0xC0000095 => Some("integer overflow"),
-        0xC0000006 => Some("page error"),
-        0xC00000FD => Some("stack overflow"),
-        0xC000001D => Some("illegal instruction"),
+        EXCEPTION_ACCESS_VIOLATION => Some("access violation"),
+        EXCEPTION_FLT_DIVIDE_BY_ZERO => Some("float divide by zero"),
+        EXCEPTION_FLT_OVERFLOW => Some("float overflow"),
+        EXCEPTION_INT_DIVIDE_BY_ZERO => Some("int divide by zero"),
+        EXCEPTION_INT_OVERFLOW => Some("integer overflow"),
+        EXCEPTION_IN_PAGE_ERROR => Some("page error"),
+        EXCEPTION_STACK_OVERFLOW => Some("stack overflow"),
+        EXCEPTION_ILLEGAL_INSTRUCTION => Some("illegal instruction"),
         _ => None,
     }
 }
@@ -509,6 +509,37 @@ pub const EXCEPTION_CONTINUE_SEARCH: i32 =
     windows_sys::Win32::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
 
 #[cfg(windows)]
+pub const EXCEPTION_ACCESS_VIOLATION: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_ACCESS_VIOLATION as u32;
+#[cfg(windows)]
+pub const EXCEPTION_FLT_DIVIDE_BY_ZERO: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_FLT_DIVIDE_BY_ZERO as u32;
+#[cfg(windows)]
+pub const EXCEPTION_FLT_OVERFLOW: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_FLT_OVERFLOW as u32;
+#[cfg(windows)]
+pub const EXCEPTION_INT_DIVIDE_BY_ZERO: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_INT_DIVIDE_BY_ZERO as u32;
+#[cfg(windows)]
+pub const EXCEPTION_INT_OVERFLOW: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_INT_OVERFLOW as u32;
+#[cfg(windows)]
+pub const EXCEPTION_IN_PAGE_ERROR: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_IN_PAGE_ERROR as u32;
+#[cfg(windows)]
+pub const EXCEPTION_STACK_OVERFLOW: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_STACK_OVERFLOW as u32;
+#[cfg(windows)]
+pub const EXCEPTION_ILLEGAL_INSTRUCTION: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_ILLEGAL_INSTRUCTION as u32;
+#[cfg(windows)]
+pub const EXCEPTION_NONCONTINUABLE: u32 =
+    windows_sys::Win32::System::SystemServices::EXCEPTION_NONCONTINUABLE;
+#[cfg(windows)]
+pub const EXCEPTION_NONCONTINUABLE_EXCEPTION: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_NONCONTINUABLE_EXCEPTION as u32;
+
+#[cfg(windows)]
 pub unsafe fn exception_code(exc_info: *mut EXCEPTION_POINTERS) -> u32 {
     let record = unsafe { &*(*exc_info).ExceptionRecord };
     record.ExceptionCode as u32
@@ -517,5 +548,5 @@ pub unsafe fn exception_code(exc_info: *mut EXCEPTION_POINTERS) -> u32 {
 #[cfg(windows)]
 #[inline]
 pub fn is_access_violation(code: u32) -> bool {
-    code == 0xC0000005
+    code == EXCEPTION_ACCESS_VIOLATION
 }
