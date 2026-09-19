@@ -1516,7 +1516,7 @@ mod _pickle {
             Some(t) if t.len() == 2 => (t.as_slice()[0].clone(), Some(t.as_slice()[1].clone())),
             _ => (state, None),
         };
-        if !vm.is_none(&state) && state.try_to_bool(vm)? {
+        if !vm.is_none(&state) && state.clone().try_to_bool(vm)? {
             let Some(dict) = state.downcast_ref::<PyDict>() else {
                 return Err(new_unpickling_error(vm, "state is not a dictionary"));
             };
@@ -1531,7 +1531,7 @@ mod _pickle {
         }
         if let Some(slotstate) = slotstate
             && !vm.is_none(&slotstate)
-            && slotstate.try_to_bool(vm)?
+            && slotstate.clone().try_to_bool(vm)?
         {
             let Some(dict) = slotstate.downcast_ref::<PyDict>() else {
                 return Err(new_unpickling_error(vm, "slot state is not a dictionary"));
