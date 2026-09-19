@@ -667,15 +667,20 @@ impl VirtualMachine {
     }
 
     #[cfg(feature = "parser")]
-    fn source_has_mixed_tabs_and_spaces(source: Option<&str>) -> bool {
+    fn source_has_mixed_tabs_and_spaces(source: Option<&str>, error_line: usize) -> bool {
         source.is_some_and(|source| {
             let mut has_space_indent = false;
             let mut has_tab_indent = false;
-            for line in source.lines() {
-                let indent: Vec<u8> = line
-                    .bytes()
-                    .take_while(|&b| b == b' ' || b == b'\t')
-                    .collect();
+            for (i, line) in source.lines().enumerate() {
+                if i + 1 > error_line {
+                    break;
+                }
+                let rest = line.trim_start_matches([' ', '\t']);
+                // Blank and comment-only lines do not participate in indent.
+                if rest.is_empty() || rest.starts_with('#') {
+                    continue;
+                }
+                let indent = &line.as_bytes()[..line.len() - rest.len()];
                 if indent.is_empty() {
                     continue;
                 }
@@ -732,9 +737,10 @@ impl VirtualMachine {
                         ruff_python_parser::LexicalErrorType::IndentationError,
                     )
                     | ruff_python_parser::ParseErrorType::UnexpectedIndentation,
+                location,
                 ..
             }) => {
-                if Self::source_has_mixed_tabs_and_spaces(source) {
+                if Self::source_has_mixed_tabs_and_spaces(source, location.line.get()) {
                     self.ctx.exceptions.tab_error
                 } else {
                     self.ctx.exceptions.indentation_error
