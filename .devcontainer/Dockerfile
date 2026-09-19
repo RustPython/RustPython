@@ -1,4 +1,4 @@
-FROM rust:bullseye
+FROM rust:bookworm
 
 # Install clang
 RUN apt-get update \

@@ -23,6 +23,15 @@ use rustpython_host_env::ctypes::{
     write_wchar_array_value, wstring_from_bytes, zeroed_bytes,
 };
 
+fn cow_bytes_as_mut<'buf>(buffer: &'buf mut Cow<'_, [u8]>) -> &'buf mut [u8] {
+    match buffer {
+        Cow::Borrowed(slice) => unsafe {
+            rustpython_host_env::ctypes::borrowed_slice_as_mut(slice)
+        },
+        Cow::Owned(vec) => vec.as_mut_slice(),
+    }
+}
+
 /// Get itemsize from a PEP 3118 format string
 /// Extracts the type code (last char after endianness prefix) and returns its size
 fn get_size_from_format(fmt: &str) -> usize {
@@ -1094,7 +1103,7 @@ fn char_array_set_value(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachin
         return Err(vm.new_value_error("byte string too long"));
     }
 
-    write_char_array_value(buffer.to_mut(), src);
+    write_char_array_value(cow_bytes_as_mut(&mut buffer), src);
     Ok(())
 }
 
@@ -1119,7 +1128,7 @@ fn char_array_set_raw(
     if src.len() > buffer.len() {
         return Err(vm.new_value_error("byte string too long"));
     }
-    write_char_array_raw(buffer.to_mut(), &src);
+    write_char_array_raw(cow_bytes_as_mut(&mut buffer), &src);
     Ok(())
 }
 
@@ -1141,9 +1150,11 @@ fn wchar_array_set_value(
         .downcast_ref::<PyStr>()
         .ok_or_else(|| vm.new_type_error("unicode string expected"))?;
     let mut buffer = zelf.0.buffer.write();
-    write_wchar_array_value(buffer.to_mut(), s.as_wtf8()).map_err(|err| match err {
-        WCharArrayWriteError::TooLong => vm.new_value_error("string too long"),
-    })?;
+    write_wchar_array_value(cow_bytes_as_mut(&mut buffer), s.as_wtf8()).map_err(
+        |err| match err {
+            WCharArrayWriteError::TooLong => vm.new_value_error("string too long"),
+        },
+    )?;
     Ok(())
 }
 
