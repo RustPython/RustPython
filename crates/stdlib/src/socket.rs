@@ -826,13 +826,30 @@ mod _socket {
     #[cfg(windows)]
     #[pyattr]
     use host_socket::{
-        AF_BLUETOOTH, AF_HYPERV, AF_IRDA, AF_SNA, BTHPROTO_RFCOMM, HV_GUID_BROADCAST,
-        HV_GUID_CHILDREN, HV_GUID_LOOPBACK, HV_GUID_PARENT, HV_GUID_WILDCARD, HV_GUID_ZERO,
-        HV_PROTOCOL_RAW, HVSOCKET_ADDRESS_FLAG_PASSTHRU, HVSOCKET_CONNECT_TIMEOUT,
-        HVSOCKET_CONNECT_TIMEOUT_MAX, HVSOCKET_CONNECTED_SUSPEND, IPPROTO_CBT, IPPROTO_ICLFXBM,
-        IPPROTO_IGP, IPPROTO_L2TP, IPPROTO_PGM, IPPROTO_RDP, IPPROTO_SCTP, IPPROTO_ST,
-        SIO_TCP_SET_ACK_FREQUENCY,
+        AF_BLUETOOTH, AF_HYPERV, AF_IRDA, AF_SNA, BTHPROTO_RFCOMM, HV_PROTOCOL_RAW,
+        HVSOCKET_ADDRESS_FLAG_PASSTHRU, HVSOCKET_CONNECT_TIMEOUT, HVSOCKET_CONNECT_TIMEOUT_MAX,
+        HVSOCKET_CONNECTED_SUSPEND, IPPROTO_CBT, IPPROTO_ICLFXBM, IPPROTO_IGP, IPPROTO_L2TP,
+        IPPROTO_PGM, IPPROTO_RDP, IPPROTO_SCTP, IPPROTO_ST, SIO_TCP_SET_ACK_FREQUENCY,
     };
+
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_ZERO: &str = host_socket::HV_GUID_ZERO;
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_WILDCARD: &str = host_socket::HV_GUID_WILDCARD;
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_BROADCAST: &str = host_socket::HV_GUID_BROADCAST;
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_CHILDREN: &str = host_socket::HV_GUID_CHILDREN;
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_LOOPBACK: &str = host_socket::HV_GUID_LOOPBACK;
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_PARENT: &str = host_socket::HV_GUID_PARENT;
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
