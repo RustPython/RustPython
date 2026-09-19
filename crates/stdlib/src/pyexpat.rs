@@ -175,22 +175,10 @@ mod _pyexpat {
     };
     use alloc::collections::VecDeque;
     use alloc::rc::Rc;
-    #[cfg(not(target_arch = "wasm32"))]
-    use alloc::sync::Arc;
     use core::cell::RefCell;
-    #[cfg(not(target_arch = "wasm32"))]
-    use core::mem::ManuallyDrop;
     use core::sync::atomic::{AtomicBool, Ordering};
     use rustpython_common::lock::PyRwLock;
-    #[cfg(not(target_arch = "wasm32"))]
-    use std::io::BufReader;
     use std::io::Read;
-    #[cfg(not(target_arch = "wasm32"))]
-    use std::sync::mpsc::{self, Receiver, Sender};
-    #[cfg(not(target_arch = "wasm32"))]
-    use std::sync::{Condvar, Mutex};
-    #[cfg(not(target_arch = "wasm32"))]
-    use std::thread::JoinHandle;
     use xml::common::Position;
     use xml::reader::XmlEvent;
 
@@ -459,21 +447,21 @@ mod _pyexpat {
 
     #[cfg(not(target_arch = "wasm32"))]
     struct FeedBuffer {
-        inner: Mutex<FeedInner>,
-        cv: Condvar,
+        inner: std::sync::Mutex<FeedInner>,
+        cv: std::sync::Condvar,
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     impl FeedBuffer {
         fn new() -> Self {
             Self {
-                inner: Mutex::new(FeedInner {
+                inner: std::sync::Mutex::new(FeedInner {
                     data: VecDeque::new(),
                     closed: false,
                     stopped: false,
                     pushes: 0,
                 }),
-                cv: Condvar::new(),
+                cv: std::sync::Condvar::new(),
             }
         }
 
@@ -503,9 +491,9 @@ mod _pyexpat {
     /// nor stopped. Runs entirely on the parser thread.
     #[cfg(not(target_arch = "wasm32"))]
     struct FeedReader {
-        buf: Arc<FeedBuffer>,
+        buf: alloc::sync::Arc<FeedBuffer>,
         tracker: Rc<RefCell<LineTracker>>,
-        events_tx: Sender<ParserMsg>,
+        events_tx: std::sync::mpsc::Sender<ParserMsg>,
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -616,9 +604,9 @@ mod _pyexpat {
         // mutex/condvar/channel that may look held by a thread that no
         // longer exists) when this stream predates a fork. See the module
         // doc comment.
-        buf: ManuallyDrop<Arc<FeedBuffer>>,
-        rx: ManuallyDrop<Mutex<Receiver<ParserMsg>>>,
-        thread: Option<JoinHandle<()>>,
+        buf: core::mem::ManuallyDrop<alloc::sync::Arc<FeedBuffer>>,
+        rx: core::mem::ManuallyDrop<std::sync::Mutex<std::sync::mpsc::Receiver<ParserMsg>>>,
+        thread: Option<std::thread::JoinHandle<()>>,
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -644,16 +632,16 @@ mod _pyexpat {
             if post_fork_child() {
                 return None;
             }
-            let buf = Arc::new(FeedBuffer::new());
-            let (tx, rx) = mpsc::channel();
-            let thread_buf = Arc::clone(&buf);
+            let buf = alloc::sync::Arc::new(FeedBuffer::new());
+            let (tx, rx) = std::sync::mpsc::channel();
+            let thread_buf = alloc::sync::Arc::clone(&buf);
             let thread = std::thread::Builder::new()
                 .name("pyexpat-parser".into())
                 .spawn(move || run_parser_thread(config, thread_buf, tx))
                 .ok()?;
             Some(Self {
-                buf: ManuallyDrop::new(buf),
-                rx: ManuallyDrop::new(Mutex::new(rx)),
+                buf: core::mem::ManuallyDrop::new(buf),
+                rx: core::mem::ManuallyDrop::new(std::sync::Mutex::new(rx)),
                 thread: Some(thread),
             })
         }
@@ -690,8 +678,8 @@ mod _pyexpat {
             // Safety: not reached on the post-fork leak path above, and
             // `drop` runs at most once, so these are never touched again.
             unsafe {
-                ManuallyDrop::drop(&mut self.rx);
-                ManuallyDrop::drop(&mut self.buf);
+                core::mem::ManuallyDrop::drop(&mut self.rx);
+                core::mem::ManuallyDrop::drop(&mut self.buf);
             }
         }
     }
@@ -703,14 +691,18 @@ mod _pyexpat {
     /// thread from the messages sent here, exactly as the module doc
     /// comment requires.
     #[cfg(not(target_arch = "wasm32"))]
-    fn run_parser_thread(config: xml::ParserConfig, buf: Arc<FeedBuffer>, tx: Sender<ParserMsg>) {
+    fn run_parser_thread(
+        config: xml::ParserConfig,
+        buf: alloc::sync::Arc<FeedBuffer>,
+        tx: std::sync::mpsc::Sender<ParserMsg>,
+    ) {
         let tracker = Rc::new(RefCell::new(LineTracker::new()));
         let reader = FeedReader {
             buf,
             tracker: Rc::clone(&tracker),
             events_tx: tx.clone(),
         };
-        let mut parser = config.create_reader(BufReader::new(reader));
+        let mut parser = config.create_reader(std::io::BufReader::new(reader));
         loop {
             match parser.next() {
                 Ok(XmlEvent::EndDocument) => {
