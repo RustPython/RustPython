@@ -368,7 +368,7 @@ mod _testinternalcapi {
     }
 
     #[pyfunction]
-    fn iframe_getline(frame: PyRef<FrameObject>) -> usize {
+    fn iframe_getline(frame: PyRef<FrameObject>) -> i32 {
         frame.f_lineno()
     }
 

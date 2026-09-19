@@ -5015,6 +5015,20 @@ fn replacement_field_error(
         ));
     }
 
+    // Adjacent atoms in a replacement field are a missing comma, not an
+    // f-string "expecting '}'" at the opening brace.
+    if let Some(atom_end) = adjacent_atom_end(bytes, expr_start) {
+        let next = skip_ascii_whitespace(bytes, atom_end, expr_end);
+        if next > atom_end && expression_atom_start(bytes, next) {
+            let second_end = adjacent_atom_end(bytes, next).unwrap_or(next + 1);
+            return Some(CpythonDiagnostic::new(
+                "invalid syntax. Perhaps you forgot a comma?".to_owned(),
+                expr_start,
+                second_end,
+            ));
+        }
+    }
+
     // The expression started fine but ran into a character that cannot continue it. CPython
     // points at that character and lists the separators it wanted instead.
     if let Some(stray) = replacement_expression_stray_character(bytes, expr_start, expr_end) {
@@ -7916,6 +7930,18 @@ mod tests {
             "with Barry as BDFL, use '<>' instead of '!='"
         );
         assert_eq!(err.python_location(), (2, 3));
+    }
+
+    #[test]
+    fn fstring_adjacent_atoms_are_a_missing_comma() {
+        let err = compile("f'{6 0}'", Mode::Exec, "<fragment>", CompileOpts::default())
+            .expect_err("adjacent atoms in an f-string field are a syntax error");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax. Perhaps you forgot a comma?"
+        );
+        assert_eq!(err.python_location(), (1, 4));
+        assert_eq!(err.python_end_location(), Some((1, 7)));
     }
 
     #[test]

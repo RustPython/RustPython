@@ -144,7 +144,6 @@ class ExceptionTests(unittest.TestCase):
 
         self.raise_catch(StopAsyncIteration, "StopAsyncIteration")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSyntaxErrorMessage(self):
         # make sure the right exception message is raised for each of
         # these code fragments
@@ -169,7 +168,6 @@ class ExceptionTests(unittest.TestCase):
         ckmsg("continue\n", "'continue' not properly in loop")
         ckmsg("f'{6 0}'", "invalid syntax. Perhaps you forgot a comma?")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSyntaxErrorMissingParens(self):
         def ckmsg(src, msg, exception=SyntaxError):
             try:
@@ -234,7 +232,6 @@ class ExceptionTests(unittest.TestCase):
         check = self.check
         check('"\\\n"(1 for c in I,\\\n\\', 2, 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSyntaxErrorOffset(self):
         check = self.check
         check('def fact(x):\n\treturn x!\n', 2, 10)
@@ -2393,14 +2390,12 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertEqual(err[-3], '    (')
         self.assertEqual(err[-2], '    ^')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_non_utf8(self):
         # Check non utf-8 characters
         self.addCleanup(unlink, TESTFN)
         err = run_script(b"\x89")
         self.assertIn("SyntaxError: Non-UTF-8 code starting with '\\x89' in file", err[-1])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_string_source(self):
         def try_compile(source):
             with self.assertRaises(SyntaxError) as cm:
@@ -2590,7 +2585,6 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_except, 4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lineno_after_other_except(self):
         def other_except():
             try:
@@ -2608,7 +2602,6 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_named_except, 4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lineno_in_try(self):
         def in_try():
             try:
@@ -2647,7 +2640,6 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(after_with, 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_missing_lineno_shows_as_none(self):
         def f():
             1/0

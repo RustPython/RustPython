@@ -3756,18 +3756,6 @@ impl ExecutingFrame<'_> {
                                 exception
                             };
 
-                            // Restore lasti from traceback so frame.f_lineno matches tb_lineno
-                            // The traceback was created with the correct lasti when exception
-                            // was first raised, but frame.lasti may have changed during cleanup
-                            if let Some(tb) = exception.__traceback__()
-                                && self.iframe().frame_obj().is_some_and(|fo| {
-                                    core::ptr::eq::<Py<FrameObject>>(&*tb.frame, fo)
-                                })
-                            {
-                                // This traceback entry is for this frame - restore its lasti
-                                // tb.lasti is in bytes (idx * 2), convert back to instruction index
-                                self.update_lasti(|i| *i = tb.lasti / 2);
-                            }
                             break Err(exception);
                         }
                     }

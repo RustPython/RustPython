@@ -42,7 +42,7 @@ macro_rules! define_exception_fn {
                 )]
         pub fn $fn_name(&self, msg: impl Into<Wtf8Buf>) -> $crate::builtins::PyBaseExceptionRef {
             let err = self.ctx.exceptions.$attr.to_owned();
-            self.new_exception_msg(err, msg.into())
+            self.new_simple_exception(err, vec![self.ctx.new_str(msg.into()).into()])
         }
     };
 }
@@ -414,19 +414,42 @@ impl VirtualMachine {
         def.build_method(class, self)
     }
 
-    /// Instantiate an exception with arguments.
-    /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using
-    /// [`vm.invoke_exception()`][Self::invoke_exception] or
-    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
-    pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
-        if exc_type.slots.basicsize != core::mem::size_of::<PyBaseException>() {
-            return self.invoke_exception(&exc_type, args).unwrap_or_else(|e| e);
-        }
-
+    /// Allocate a `BaseException`-layout instance without running `__new__`/`__init__`.
+    ///
+    /// Only valid when `exc_type` uses the `BaseException` payload. Extra-payload
+    /// types (OSError, UnicodeError, ExceptionGroup, SystemExit, ...) must use
+    /// [`new_exception`][Self::new_exception] or
+    /// [`invoke_exception`][Self::invoke_exception].
+    pub fn new_simple_exception(
+        &self,
+        exc_type: PyTypeRef,
+        args: Vec<PyObjectRef>,
+    ) -> PyBaseExceptionRef {
+        debug_assert_eq!(
+            exc_type.slots.basicsize,
+            core::mem::size_of::<PyBaseException>(),
+            "vm.new_simple_exception() requires a BaseException-sized type, got {}",
+            exc_type.name()
+        );
         PyBaseException::new(args, self)
             .into_ref_with_type_lazy_dict(self, exc_type)
-            .expect("vm.new_exception() called with an invalid exception type")
+            .expect("vm.new_simple_exception() called with an invalid exception type")
+    }
+
+    /// Instantiate an exception with arguments.
+    ///
+    /// `BaseException`-sized types use
+    /// [`new_simple_exception`][Self::new_simple_exception]. Extra-payload types
+    /// run the type constructor so their fields are initialized. User-defined
+    /// types that override `__new__`/`__init__` should still use
+    /// [`invoke_exception`][Self::invoke_exception] or
+    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor].
+    pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
+        if exc_type.slots.basicsize == core::mem::size_of::<PyBaseException>() {
+            self.new_simple_exception(exc_type, args)
+        } else {
+            self.invoke_exception(&exc_type, args).unwrap_or_else(|e| e)
+        }
     }
 
     /// Construct a built-in exception type that carries a payload, directly
@@ -470,19 +493,11 @@ impl VirtualMachine {
     }
 
     /// Instantiate an exception with no arguments.
-    /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using
-    /// [`vm.invoke_exception()`][Self::invoke_exception] or
-    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception_empty(&self, exc_type: PyTypeRef) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![])
     }
 
     /// Instantiate an exception with `msg` as the only argument.
-    /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using
-    /// [`vm.invoke_exception()`][Self::invoke_exception] or
-    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: Wtf8Buf) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![self.ctx.new_str(msg).into()])
     }
@@ -701,7 +716,7 @@ impl VirtualMachine {
     // TODO: don't take ownership should make the success path faster
     pub fn new_key_error(&self, obj: PyObjectRef) -> PyBaseExceptionRef {
         let key_error = self.ctx.exceptions.key_error.to_owned();
-        self.new_exception(key_error, vec![obj])
+        self.new_simple_exception(key_error, vec![obj])
     }
 
     #[cfg(any(feature = "parser", feature = "compiler"))]
@@ -862,7 +877,14 @@ impl VirtualMachine {
             Some(line + "\n")
         }
 
-        let mut statement = source.and_then(|src| get_statement(src, error.location()));
+        // Tokenizer/parser errors attach the current source line. Compiler
+        // errors load that line with ProgramText, which is None when the
+        // filename cannot be opened (compile of a string).
+        let mut statement = if matches!(error, crate::compiler::CompileError::Codegen(_)) {
+            self.program_text(error.source_path(), error.python_location().0)
+        } else {
+            source.and_then(|src| get_statement(src, error.location()))
+        };
 
         let mut msg = error.to_string();
         if !msg.starts_with("Exceeds the limit ")
@@ -886,6 +908,7 @@ impl VirtualMachine {
             && !msg.starts_with("Assignment expressions are")
             && !msg.starts_with("Await expressions are")
             && !msg.starts_with("Underscores in numeric literals are")
+            && !msg.starts_with("Missing parentheses")
             && let Some(msg) = msg.get_mut(..1)
         {
             msg.make_ascii_lowercase();
