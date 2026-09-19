@@ -319,7 +319,7 @@ impl OsPathOrFd<'_> {
     pub(crate) fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
             Self::Path(path) => path.filename(vm),
-            Self::Fd(fd) => fd.to_pyobject(vm),
+            Self::Fd(fd) => fd.as_raw().to_pyobject(vm),
         }
     }
 }
