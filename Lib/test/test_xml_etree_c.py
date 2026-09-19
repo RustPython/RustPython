@@ -271,6 +271,16 @@ def install_tests():
 
 install_tests()
 
+# The Python ET still fails these; the native accelerator does not.
+class XMLPullParserTest(XMLPullParserTest):
+    @unittest.expectedSuccess
+    def test_simple_xml_chunk_1(self):
+        return super().test_simple_xml_chunk_1()
+
+    @unittest.expectedSuccess
+    def test_simple_xml_chunk_5(self):
+        return super().test_simple_xml_chunk_5()
+
 def setUpModule():
     from test import test_xml_etree
     test_xml_etree.setUpModule(module=cET)
