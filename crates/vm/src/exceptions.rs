@@ -654,7 +654,11 @@ impl PyBaseException {
     }
 
     #[pygetset(setter)]
-    fn set_args(&self, args: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_args(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let PySetterValue::Assign(value) = value else {
+            return Err(vm.new_type_error("args may not be deleted"));
+        };
+        let args: ArgIterable = value.try_into_value(vm)?;
         let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
         *self.args.write() = PyTuple::new_ref(args, &vm.ctx);
         Ok(())
@@ -665,7 +669,7 @@ impl PyBaseException {
         self.traceback.read().clone()
     }
 
-    #[pygetset(setter)]
+    #[allow(non_snake_case)]
     pub fn set___traceback__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let traceback = if vm.is_none(&value) {
             None
@@ -681,6 +685,14 @@ impl PyBaseException {
         Ok(())
     }
 
+    #[pygetset(setter, name = "__traceback__")]
+    fn py_set_traceback(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let PySetterValue::Assign(value) = value else {
+            return Err(vm.new_type_error("__traceback__ may not be deleted"));
+        };
+        self.set___traceback__(value, vm)
+    }
+
     // Helper method for internal use that doesn't require PyObjectRef
     pub(crate) fn set_traceback_typed(&self, traceback: Option<PyTracebackRef>) {
         *self.traceback.write() = traceback;
@@ -691,11 +703,32 @@ impl PyBaseException {
         self.cause.read().clone()
     }
 
-    #[pygetset(setter)]
+    #[allow(non_snake_case)]
     pub fn set___cause__(&self, cause: Option<PyRef<Self>>) {
         let mut c = self.cause.write();
         self.set_suppress_context(true);
         *c = cause;
+    }
+
+    #[pygetset(setter, name = "__cause__")]
+    fn py_set_cause(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let PySetterValue::Assign(value) = value else {
+            return Err(vm.new_type_error("__cause__ may not be deleted"));
+        };
+        let cause = if vm.is_none(&value) {
+            None
+        } else {
+            match value.downcast::<Self>() {
+                Ok(exc) => Some(exc),
+                Err(_) => {
+                    return Err(vm.new_type_error(
+                        "exception cause must be None or derive from BaseException",
+                    ));
+                }
+            }
+        };
+        self.set___cause__(cause);
+        Ok(())
     }
 
     #[pygetset]
@@ -703,9 +736,30 @@ impl PyBaseException {
         self.context.read().clone()
     }
 
-    #[pygetset(setter)]
+    #[allow(non_snake_case)]
     pub fn set___context__(&self, context: Option<PyRef<Self>>) {
         *self.context.write() = context;
+    }
+
+    #[pygetset(setter, name = "__context__")]
+    fn py_set_context(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let PySetterValue::Assign(value) = value else {
+            return Err(vm.new_type_error("__context__ may not be deleted"));
+        };
+        let context = if vm.is_none(&value) {
+            None
+        } else {
+            match value.downcast::<Self>() {
+                Ok(exc) => Some(exc),
+                Err(_) => {
+                    return Err(vm.new_type_error(
+                        "exception context must be None or derive from BaseException",
+                    ));
+                }
+            }
+        };
+        self.set___context__(context);
+        Ok(())
     }
 
     #[pygetset]
@@ -1006,10 +1060,7 @@ impl ExceptionZoo {
         PyBaseException::extend_class(ctx, excs.base_exception_type);
 
         // Sorted By Hierarchy then alphabetized.
-        extend_exception!(PyBaseExceptionGroup, ctx, excs.base_exception_group, {
-            "message" => ctx.new_readonly_getset("message", excs.base_exception_group, make_arg_getter(0)),
-            "exceptions" => ctx.new_readonly_getset("exceptions", excs.base_exception_group, make_arg_getter(1)),
-        });
+        extend_exception!(PyBaseExceptionGroup, ctx, excs.base_exception_group);
 
         extend_exception!(PySystemExit, ctx, excs.system_exit);
         extend_exception!(PyKeyboardInterrupt, ctx, excs.keyboard_interrupt);
@@ -1996,9 +2047,10 @@ pub(super) mod types {
 
             // Check for any remaining invalid keyword arguments
             if let Some(invalid_key) = kwargs.keys().next() {
-                return Err(vm.new_type_error(format!(
-                    "'{invalid_key}' is an invalid keyword argument for ImportError"
-                )));
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some("ImportError"),
+                    &invalid_key.to_string(),
+                ));
             }
 
             if let Some(name) = name {
@@ -2232,6 +2284,28 @@ pub(super) mod types {
         }
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            if oserror_use_init(&cls) {
+                let payload = Self {
+                    base: PyException(PyBaseException::new(vec![], vm)),
+                    errno: None.into(),
+                    strerror: None.into(),
+                    filename: None.into(),
+                    filename2: None.into(),
+                    #[cfg(windows)]
+                    winerror: None.into(),
+                    written: AtomicCell::new(-1),
+                };
+                return payload
+                    .into_ref_with_type_lazy_dict(vm, cls)
+                    .map(Into::into);
+            }
+
+            if !args.kwargs.is_empty() {
+                return Err(
+                    vm.new_type_error(format!("{}() takes no keyword arguments", cls.slot_name()))
+                );
+            }
+
             // We need this method, because of how `CPython` copies `init`
             // from `BaseException` in `SimpleExtendsException` macro.
             // See: `BaseException_new`
@@ -2253,97 +2327,120 @@ pub(super) mod types {
                     }
                 }
             }
-            let payload = Self::py_new(&cls, args, vm)?;
-            payload
-                .into_ref_with_type_lazy_dict(vm, cls)
-                .map(Into::into)
+            let payload = Self::py_new(&cls, args.clone(), vm)?;
+            let obj = payload.into_ref_with_type_lazy_dict(vm, cls)?;
+            oserror_init(obj.as_object().to_owned(), args, vm)?;
+            Ok(obj.into())
         }
+    }
+
+    fn oserror_use_init(cls: &Py<PyType>) -> bool {
+        let init = cls.slots.init.load();
+        let new = cls.slots.new.load();
+        let slot_init: fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()> =
+            PyOSError::slot_init;
+        let slot_new: fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult = PyOSError::slot_new;
+        !matches!(init, Some(f) if core::ptr::fn_addr_eq(f, slot_init))
+            && matches!(new, Some(f) if core::ptr::fn_addr_eq(f, slot_new))
+    }
+
+    fn oserror_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let len = args.args.len();
+        let mut new_args = args;
+
+        // All OSError subclasses use #[repr(transparent)] wrapping PyOSError,
+        // so we can safely access the PyOSError fields through pointer cast
+        // SAFETY: All OSError subclasses (FileNotFoundError, etc.) are
+        // #[repr(transparent)] wrappers around PyOSError with identical memory layout
+        #[allow(deprecated)]
+        let exc: &Py<PyOSError> = zelf.downcast_ref::<PyOSError>().unwrap();
+
+        // Check if this is BlockingIOError - need to handle characters_written
+        let is_blocking_io_error = zelf
+            .class()
+            .is(vm.ctx.exceptions.blocking_io_error.as_ref());
+
+        // SAFETY: slot_init is called during object initialization,
+        // so fields are None and swap result can be safely ignored
+        let mut set_filename = true;
+        if len <= 5 {
+            // Only set errno/strerror when args len is 2-5
+            if 2 <= len {
+                let _ = unsafe { exc.errno.swap(Some(new_args.args[0].clone())) };
+                let _ = unsafe { exc.strerror.swap(Some(new_args.args[1].clone())) };
+            }
+            if 3 <= len {
+                let third_arg = &new_args.args[2];
+                // BlockingIOError's 3rd argument can be the number of characters written
+                if is_blocking_io_error
+                    && !vm.is_none(third_arg)
+                    && crate::protocol::PyNumber::check(third_arg)
+                    && let Ok(written) = third_arg.try_index(vm)
+                    && let Ok(n) = written.try_to_primitive::<isize>(vm)
+                {
+                    exc.written.store(n);
+                    set_filename = false;
+                    // The count leaves neither filename taken, so both are
+                    // put back the way `py_new` found them.
+                    let _ = unsafe { exc.filename.swap(None) };
+                    let _ = unsafe { exc.filename2.swap(None) };
+                }
+                if set_filename {
+                    let _ = unsafe { exc.filename.swap(Some(third_arg.clone())) };
+                }
+            }
+            #[cfg(windows)]
+            if 4 <= len {
+                let winerror = new_args.args.get(3).cloned();
+                // Store original winerror
+                let _ = unsafe { exc.winerror.swap(winerror.clone()) };
+
+                // Convert winerror to errno and update errno + args[0]
+                if let Some(errno) = winerror
+                    .as_ref()
+                    .and_then(|w| w.downcast_ref::<crate::builtins::PyInt>())
+                    .and_then(|w| w.try_to_primitive::<i32>(vm).ok())
+                    .map(crate::host_env::os::winerror_to_errno)
+                {
+                    let errno_obj = vm.new_pyobj(errno);
+                    let _ = unsafe { exc.errno.swap(Some(errno_obj.clone())) };
+                    new_args.args[0] = errno_obj;
+                }
+            }
+        }
+
+        // A second filename, and the two arguments the rest are cut back
+        // to, both follow the filename itself having been taken.
+        let has_filename = exc
+            .filename
+            .to_owned()
+            .as_ref()
+            .is_some_and(|f| !vm.is_none(f));
+        if (3..=5).contains(&len) && has_filename {
+            if let Some(filename2) = new_args.args.get(4)
+                && !vm.is_none(filename2)
+            {
+                let _ = unsafe { exc.filename2.swap(Some(filename2.clone())) };
+            }
+            new_args.args.truncate(2);
+        }
+        PyBaseException::slot_init(zelf, new_args, vm)
     }
 
     impl Initializer for PyOSError {
         type Args = FuncArgs;
 
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let len = args.args.len();
-            let mut new_args = args;
-
-            // All OSError subclasses use #[repr(transparent)] wrapping PyOSError,
-            // so we can safely access the PyOSError fields through pointer cast
-            // SAFETY: All OSError subclasses (FileNotFoundError, etc.) are
-            // #[repr(transparent)] wrappers around PyOSError with identical memory layout
-            #[allow(deprecated)]
-            let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
-
-            // Check if this is BlockingIOError - need to handle characters_written
-            let is_blocking_io_error =
-                zelf.class()
-                    .is(vm.ctx.exceptions.blocking_io_error.as_ref());
-
-            // SAFETY: slot_init is called during object initialization,
-            // so fields are None and swap result can be safely ignored
-            let mut set_filename = true;
-            if len <= 5 {
-                // Only set errno/strerror when args len is 2-5
-                if 2 <= len {
-                    let _ = unsafe { exc.errno.swap(Some(new_args.args[0].clone())) };
-                    let _ = unsafe { exc.strerror.swap(Some(new_args.args[1].clone())) };
-                }
-                if 3 <= len {
-                    let third_arg = &new_args.args[2];
-                    // BlockingIOError's 3rd argument can be the number of characters written
-                    if is_blocking_io_error
-                        && !vm.is_none(third_arg)
-                        && crate::protocol::PyNumber::check(third_arg)
-                        && let Ok(written) = third_arg.try_index(vm)
-                        && let Ok(n) = written.try_to_primitive::<isize>(vm)
-                    {
-                        exc.written.store(n);
-                        set_filename = false;
-                        // The count leaves neither filename taken, so both are
-                        // put back the way `py_new` found them.
-                        let _ = unsafe { exc.filename.swap(None) };
-                        let _ = unsafe { exc.filename2.swap(None) };
-                    }
-                    if set_filename {
-                        let _ = unsafe { exc.filename.swap(Some(third_arg.clone())) };
-                    }
-                }
-                #[cfg(windows)]
-                if 4 <= len {
-                    let winerror = new_args.args.get(3).cloned();
-                    // Store original winerror
-                    let _ = unsafe { exc.winerror.swap(winerror.clone()) };
-
-                    // Convert winerror to errno and update errno + args[0]
-                    if let Some(errno) = winerror
-                        .as_ref()
-                        .and_then(|w| w.downcast_ref::<crate::builtins::PyInt>())
-                        .and_then(|w| w.try_to_primitive::<i32>(vm).ok())
-                        .map(crate::host_env::os::winerror_to_errno)
-                    {
-                        let errno_obj = vm.new_pyobj(errno);
-                        let _ = unsafe { exc.errno.swap(Some(errno_obj.clone())) };
-                        new_args.args[0] = errno_obj;
-                    }
-                }
+            if !oserror_use_init(zelf.class()) {
+                return Ok(());
             }
-
-            // A second filename, and the two arguments the rest are cut back
-            // to, both follow the filename itself having been taken.
-            let has_filename = exc
-                .filename
-                .to_owned()
-                .as_ref()
-                .is_some_and(|f| !vm.is_none(f));
-            if (3..=5).contains(&len) && has_filename {
-                if let Some(filename2) = new_args.args.get(4)
-                    && !vm.is_none(filename2)
-                {
-                    let _ = unsafe { exc.filename2.swap(Some(filename2.clone())) };
-                }
-                new_args.args.truncate(2);
+            if !args.kwargs.is_empty() {
+                return Err(vm.new_type_error(format!(
+                    "{}() takes no keyword arguments",
+                    zelf.class().slot_name()
+                )));
             }
-            PyBaseException::slot_init(zelf, new_args, vm)
+            oserror_init(zelf, args, vm)
         }
 
         fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
@@ -2564,12 +2661,11 @@ pub(super) mod types {
         #[pygetset(setter)]
         fn set_characters_written(
             &self,
-            value: Option<PyObjectRef>,
+            value: PySetterValue,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             match value {
-                None => {
-                    // Deleting the attribute
+                PySetterValue::Delete => {
                     if self.written.load() == -1 {
                         Err(vm.new_attribute_error("characters_written"))
                     } else {
@@ -2577,7 +2673,7 @@ pub(super) mod types {
                         Ok(())
                     }
                 }
-                Some(v) => {
+                PySetterValue::Assign(v) => {
                     let n = v
                         .try_index(vm)?
                         .try_to_primitive::<isize>(vm)
@@ -2818,11 +2914,12 @@ pub(super) mod types {
                 .iter()
                 .enumerate()
                 {
-                    if location_tup_len > i {
-                        zelf.set_attr(attr, location_tuple[i].to_owned(), vm)?;
+                    let value = if location_tup_len > i {
+                        location_tuple[i].to_owned()
                     } else {
-                        break;
-                    }
+                        vm.ctx.none()
+                    };
+                    zelf.set_attr(attr, value, vm)?;
                 }
             }
 
@@ -2882,10 +2979,92 @@ pub(super) mod types {
         )))
     }
 
-    #[pyexception(name, base = PyValueError, ctx = "unicode_error", impl)]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PyUnicodeError(PyValueError);
+    fn unicode_error_attr_str(
+        exc: &Py<PyBaseException>,
+        name: &'static str,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
+        exc.as_object().get_attr(name, vm)?.str(vm)
+    }
+
+    fn unicode_error_attr_isize(
+        exc: &Py<PyBaseException>,
+        name: &'static str,
+        vm: &VirtualMachine,
+    ) -> PyResult<isize> {
+        let value = exc.as_object().get_attr(name, vm)?;
+        match value.try_index(vm) {
+            Ok(n) => Ok(n.try_to_primitive::<isize>(vm).unwrap_or(0)),
+            Err(_) => Ok(0),
+        }
+    }
+
+    fn unicode_error_require_object(
+        exc: &Py<PyBaseException>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        match exc.as_object().get_attr("object", vm) {
+            Ok(obj) if !vm.is_none(&obj) => Ok(obj),
+            _ => Err(vm.new_type_error("UnicodeError 'object' attribute is not set")),
+        }
+    }
+
+    #[pyexception(name, base = PyValueError, ctx = "unicode_error", traverse = "manual")]
+    #[repr(C)]
+    pub struct PyUnicodeError {
+        base: PyValueError,
+        object: PyAtomicRef<Option<PyObject>>,
+    }
+
+    impl crate::class::PySubclass for PyUnicodeError {
+        type Base = PyValueError;
+        fn as_base(&self) -> &Self::Base {
+            &self.base
+        }
+    }
+
+    impl core::fmt::Debug for PyUnicodeError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("PyUnicodeError").finish_non_exhaustive()
+        }
+    }
+
+    unsafe impl Traverse for PyUnicodeError {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.base.0.0.traverse(tracer_fn);
+            if let Some(obj) = self.object.deref() {
+                tracer_fn(obj);
+            }
+        }
+    }
+
+    #[pyexception(with(Constructor))]
+    impl PyUnicodeError {
+        #[pygetset]
+        fn object(&self) -> Option<PyObjectRef> {
+            self.object.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_object(&self, value: PySetterValue, vm: &VirtualMachine) {
+            let object = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.object.swap_to_temporary_refs(object, vm);
+        }
+    }
+
+    impl Constructor for PyUnicodeError {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
+                base: PyValueError(PyException(PyBaseException::new(args.args, vm))),
+                object: None.into(),
+            })
+        }
+    }
 
     #[pyexception(name, base = PyUnicodeError, ctx = "unicode_decode_error")]
     #[derive(Debug)]
@@ -2896,31 +3075,35 @@ pub(super) mod types {
     impl PyUnicodeDecodeError {
         #[pymethod]
         fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let Ok(object) = zelf.as_object().get_attr("object", vm) else {
-                return Ok(vm.ctx.empty_str.to_owned());
-            };
-            let object: ArgBytesLike = object.try_into_value(vm)?;
-            let encoding: PyStrRef = zelf
-                .as_object()
-                .get_attr("encoding", vm)?
-                .try_into_value(vm)?;
-            let start: usize = zelf.as_object().get_attr("start", vm)?.try_into_value(vm)?;
-            let end: usize = zelf.as_object().get_attr("end", vm)?.try_into_value(vm)?;
-            let reason: PyStrRef = zelf
-                .as_object()
-                .get_attr("reason", vm)?
-                .try_into_value(vm)?;
-            Ok(vm.ctx.new_str(if start < object.len() && end <= object.len() && end == start + 1 {
-                let b = object.borrow_buf()[start];
-                format!(
-                    "'{encoding}' codec can't decode byte {b:#04x} in position {start}: {reason}"
-                )
-            } else {
-                format!(
-                    "'{encoding}' codec can't decode bytes in position {start}-{}: {reason}",
-                    end - 1,
-                )
-            }))
+            match zelf.as_object().get_attr("object", vm) {
+                Ok(obj) if !vm.is_none(&obj) => {}
+                _ => return Ok(vm.ctx.empty_str.to_owned()),
+            }
+            let encoding = unicode_error_attr_str(zelf, "encoding", vm)?;
+            let reason = unicode_error_attr_str(zelf, "reason", vm)?;
+            let object: ArgBytesLike =
+                unicode_error_require_object(zelf, vm)?.try_into_value(vm)?;
+            let start = unicode_error_attr_isize(zelf, "start", vm)?;
+            let end = unicode_error_attr_isize(zelf, "end", vm)?;
+            let start_u = usize::try_from(start).ok();
+            let end_u = usize::try_from(end).ok();
+            Ok(vm.ctx.new_str(
+                if let (Some(start_u), Some(end_u)) = (start_u, end_u)
+                    && start_u < object.len()
+                    && end_u <= object.len()
+                    && end_u == start_u + 1
+                {
+                    let b = object.borrow_buf()[start_u];
+                    format!(
+                        "'{encoding}' codec can't decode byte {b:#04x} in position {start}: {reason}"
+                    )
+                } else {
+                    format!(
+                        "'{encoding}' codec can't decode bytes in position {start}-{}: {reason}",
+                        end - 1,
+                    )
+                },
+            ))
         }
     }
 
@@ -2955,32 +3138,35 @@ pub(super) mod types {
     impl PyUnicodeEncodeError {
         #[pymethod]
         fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let Ok(object) = zelf.as_object().get_attr("object", vm) else {
-                return Ok(vm.ctx.empty_str.to_owned());
-            };
-            let object: PyStrRef = object.try_into_value(vm)?;
-            let encoding: PyStrRef = zelf
-                .as_object()
-                .get_attr("encoding", vm)?
-                .try_into_value(vm)?;
-            let start: usize = zelf.as_object().get_attr("start", vm)?.try_into_value(vm)?;
-            let end: usize = zelf.as_object().get_attr("end", vm)?.try_into_value(vm)?;
-            let reason: PyStrRef = zelf
-                .as_object()
-                .get_attr("reason", vm)?
-                .try_into_value(vm)?;
-            Ok(vm.ctx.new_str(if start < object.char_len() && end <= object.char_len() && end == start + 1 {
-                let ch = object.as_wtf8().code_points().nth(start).unwrap();
-                format!(
-                    "'{encoding}' codec can't encode character '{}' in position {start}: {reason}",
-                    UnicodeEscapeCodepoint(ch)
-                )
-            } else {
-                format!(
-                    "'{encoding}' codec can't encode characters in position {start}-{}: {reason}",
-                    end - 1,
-                )
-            }))
+            match zelf.as_object().get_attr("object", vm) {
+                Ok(obj) if !vm.is_none(&obj) => {}
+                _ => return Ok(vm.ctx.empty_str.to_owned()),
+            }
+            let encoding = unicode_error_attr_str(zelf, "encoding", vm)?;
+            let reason = unicode_error_attr_str(zelf, "reason", vm)?;
+            let object: PyStrRef = unicode_error_require_object(zelf, vm)?.try_into_value(vm)?;
+            let start = unicode_error_attr_isize(zelf, "start", vm)?;
+            let end = unicode_error_attr_isize(zelf, "end", vm)?;
+            let start_u = usize::try_from(start).ok();
+            let end_u = usize::try_from(end).ok();
+            Ok(vm.ctx.new_str(
+                if let (Some(start_u), Some(end_u)) = (start_u, end_u)
+                    && start_u < object.char_len()
+                    && end_u <= object.char_len()
+                    && end_u == start_u + 1
+                {
+                    let ch = object.as_wtf8().code_points().nth(start_u).unwrap();
+                    format!(
+                        "'{encoding}' codec can't encode character '{}' in position {start}: {reason}",
+                        UnicodeEscapeCodepoint(ch)
+                    )
+                } else {
+                    format!(
+                        "'{encoding}' codec can't encode characters in position {start}-{}: {reason}",
+                        end - 1,
+                    )
+                },
+            ))
         }
     }
 
@@ -3015,19 +3201,23 @@ pub(super) mod types {
     impl PyUnicodeTranslateError {
         #[pymethod]
         fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let Ok(object) = zelf.as_object().get_attr("object", vm) else {
-                return Ok(vm.ctx.empty_str.to_owned());
-            };
-            let object: PyStrRef = object.try_into_value(vm)?;
-            let start: usize = zelf.as_object().get_attr("start", vm)?.try_into_value(vm)?;
-            let end: usize = zelf.as_object().get_attr("end", vm)?.try_into_value(vm)?;
-            let reason: PyStrRef = zelf
-                .as_object()
-                .get_attr("reason", vm)?
-                .try_into_value(vm)?;
+            match zelf.as_object().get_attr("object", vm) {
+                Ok(obj) if !vm.is_none(&obj) => {}
+                _ => return Ok(vm.ctx.empty_str.to_owned()),
+            }
+            let reason = unicode_error_attr_str(zelf, "reason", vm)?;
+            let object: PyStrRef = unicode_error_require_object(zelf, vm)?.try_into_value(vm)?;
+            let start = unicode_error_attr_isize(zelf, "start", vm)?;
+            let end = unicode_error_attr_isize(zelf, "end", vm)?;
+            let start_u = usize::try_from(start).ok();
+            let end_u = usize::try_from(end).ok();
             Ok(vm.ctx.new_str(
-                if start < object.char_len() && end <= object.char_len() && end == start + 1 {
-                    let ch = object.as_wtf8().code_points().nth(start).unwrap();
+                if let (Some(start_u), Some(end_u)) = (start_u, end_u)
+                    && start_u < object.char_len()
+                    && end_u <= object.char_len()
+                    && end_u == start_u + 1
+                {
+                    let ch = object.as_wtf8().code_points().nth(start_u).unwrap();
                     format!(
                         "can't translate character '{}' in position {start}: {reason}",
                         UnicodeEscapeCodepoint(ch)
@@ -3404,7 +3594,8 @@ fn split_by_leaf_ids(
         return Ok(vm.ctx.none());
     }
 
-    // Reconstruct using derive() to preserve the structure (not necessarily the subclass type)
-    let matched_tuple = vm.ctx.new_tuple(matched);
-    vm.call_method(exc, "derive", (matched_tuple,))
+    let group = exc
+        .downcast_ref::<crate::exception_group::types::PyBaseExceptionGroup>()
+        .ok_or_else(|| vm.new_type_error("expected a BaseExceptionGroup"))?;
+    crate::exception_group::types::derive_and_copy_attributes(group, matched, vm)
 }

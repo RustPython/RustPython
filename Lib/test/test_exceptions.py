@@ -661,7 +661,6 @@ class ExceptionTests(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_setattr(self):
         TE = TypeError
         exc = Exception()
@@ -674,7 +673,6 @@ class ExceptionTests(unittest.TestCase):
         msg = "exception context must be None or derive from BaseException"
         self.assertRaisesRegex(TE, msg, setattr, exc, '__context__', 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_delattr(self):
         TE = TypeError
         try:
@@ -1306,7 +1304,6 @@ class ExceptionTests(unittest.TestCase):
         self.assertIs(exc, oe)
         self.assertIs(exc.__context__, ve)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unicode_change_attributes(self):
         # See issue 7309. This was a crasher.
 
@@ -1350,7 +1347,6 @@ class ExceptionTests(unittest.TestCase):
         for klass in klasses:
             self.assertEqual(str(klass.__new__(klass)), "")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust usize
     def test_unicode_error_str_does_not_crash(self):
         # Test that str(UnicodeError(...)) does not crash.
         # See https://github.com/python/cpython/issues/123378.
@@ -1374,13 +1370,11 @@ class ExceptionTests(unittest.TestCase):
                 exc = UnicodeDecodeError('utf-8', encoded, start, end, '')
                 self.assertIsInstance(str(exc), str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unicode_error_evil_str_set_none_object(self):
         def side_effect(exc):
             exc.object = None
         self.do_test_unicode_error_mutate(side_effect)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unicode_error_evil_str_del_self_object(self):
         def side_effect(exc):
             del exc.object
@@ -2054,7 +2048,6 @@ class AttributeErrorTests(unittest.TestCase):
 
 class ImportErrorTests(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_attributes(self):
         # Setting 'name' and 'path' should not be a problem.
         exc = ImportError('test')
@@ -2524,7 +2517,6 @@ class SyntaxErrorTests(unittest.TestCase):
         args = ("bad.py", 1, 2, "abcdefg", 1)
         self.assertRaises(TypeError, SyntaxError, "bad bad", args)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 2 is not None
     def test_syntax_error_memory_leak(self):
         # gh-146250: memory leak with re-initialization of SyntaxError
         e = SyntaxError("msg", ("file.py", 1, 2, "txt", 2, 3))

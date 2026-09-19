@@ -629,27 +629,17 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         let start = self.ctx.new_int(start);
         let end = self.ctx.new_int(end);
-        let exc = self.new_exception(
-            self.ctx.exceptions.unicode_decode_error.to_owned(),
+        self.invoke_exception(
+            self.ctx.exceptions.unicode_decode_error,
             vec![
-                encoding.clone().into(),
-                object.clone().into(),
-                start.clone().into(),
-                end.clone().into(),
-                reason.clone().into(),
+                encoding.into(),
+                object.into(),
+                start.into(),
+                end.into(),
+                reason.into(),
             ],
-        );
-
-        set_attrs!(
-            exc.as_object(), self, unwrap,
-            "encoding" => encoding,
-            "object" => object,
-            "start" => start,
-            "end" => end,
-            "reason" => reason,
-        );
-
-        exc
+        )
+        .expect("UnicodeDecodeError constructor")
     }
 
     pub fn new_unicode_encode_error_real(
@@ -662,27 +652,17 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         let start = self.ctx.new_int(start);
         let end = self.ctx.new_int(end);
-        let exc = self.new_exception(
-            self.ctx.exceptions.unicode_encode_error.to_owned(),
+        self.invoke_exception(
+            self.ctx.exceptions.unicode_encode_error,
             vec![
-                encoding.clone().into(),
-                object.clone().into(),
-                start.clone().into(),
-                end.clone().into(),
-                reason.clone().into(),
+                encoding.into(),
+                object.into(),
+                start.into(),
+                end.into(),
+                reason.into(),
             ],
-        );
-
-        set_attrs!(
-            exc.as_object(), self, unwrap,
-            "encoding" => encoding,
-            "object" => object,
-            "start" => start,
-            "end" => end,
-            "reason" => reason,
-        );
-
-        exc
+        )
+        .expect("UnicodeEncodeError constructor")
     }
 
     // TODO: don't take ownership should make the success path faster
