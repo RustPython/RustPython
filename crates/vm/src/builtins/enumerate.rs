@@ -14,11 +14,14 @@ use crate::{
 use malachite_bigint::BigInt;
 use num_traits::ToPrimitive;
 
-/// Fast-path counter for `enumerate`. Most enumerations never exceed
-/// `usize::MAX` iterations, so we keep the counter as a machine integer and
-/// only fall back to arbitrary-precision arithmetic (matching CPython's
-/// unbounded `count()`-style semantics) once it would overflow, or when the
-/// caller supplied a `start` that doesn't fit in a `usize` to begin with.
+/// Fast-path counter for `enumerate`.
+///
+/// malachite `BigInt` already keeps limb-sized values inline (`Natural::Small`)
+/// and only heap-allocates beyond that, so this enum looks redundant. The
+/// small/large tag is crate-private, so we cannot inspect or bump that limb
+/// ourselves; storing a `BigInt` would still clone it and go through
+/// `+= 1` on every `next()`. Keep a `usize` until it overflows, or when
+/// `start` does not fit in `usize`.
 #[derive(Debug, Clone)]
 enum Counter {
     Small(usize),
@@ -117,8 +120,6 @@ impl IterNext for PyEnumerate {
                         vm.ctx.new_int(cur)
                     }
                     None => {
-                        // Overflowed usize::MAX: promote to arbitrary precision,
-                        // matching CPython's unbounded enumerate() semantics.
                         let cur_int = vm.ctx.new_int(cur);
                         *counter = Counter::Big(BigInt::from(cur) + 1);
                         cur_int
