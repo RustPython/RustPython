@@ -535,6 +535,8 @@ pub fn sendmsg_afalg(
 #[cfg(windows)]
 use core::{ffi::CStr, ptr::NonNull};
 #[cfg(windows)]
+use rustpython_wtf8::Wtf8Buf;
+#[cfg(windows)]
 use std::io;
 #[cfg(windows)]
 use windows_sys::Win32::{
@@ -865,16 +867,23 @@ pub fn if_indextoname_checked(index: u32) -> io::Result<String> {
     }
 }
 
+/// `PyUnicode_FromWideChar` / `Py_BuildValue("Iu")`: a LUID name is kept as
+/// WTF-8, so an unpaired surrogate is not replaced with U+FFFD.
 #[cfg(windows)]
-pub fn if_nameindex() -> io::Result<Vec<(u32, String)>> {
-    fn get_name(luid: &NET_LUID_LH) -> io::Result<String> {
+fn if_name_from_wide(buf: &[u16]) -> Wtf8Buf {
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Wtf8Buf::from_wide(&buf[..len])
+}
+
+#[cfg(windows)]
+pub fn if_nameindex() -> io::Result<Vec<(u32, Wtf8Buf)>> {
+    fn get_name(luid: &NET_LUID_LH) -> io::Result<Wtf8Buf> {
         let mut buf = [0u16; IF_MAX_STRING_SIZE as usize + 1];
         let ret = unsafe { ConvertInterfaceLuidToNameW(luid, buf.as_mut_ptr(), buf.len()) };
         if ret != 0 {
             return Err(io::Error::from_raw_os_error(ret as i32));
         }
-        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-        Ok(String::from_utf16_lossy(&buf[..len]))
+        Ok(if_name_from_wide(&buf))
     }
 
     struct MibTable {
@@ -914,6 +923,23 @@ pub fn if_nameindex() -> io::Result<Vec<(u32, String)>> {
         .iter()
         .map(|entry| Ok((entry.InterfaceIndex, get_name(&entry.InterfaceLuid)?)))
         .collect()
+}
+
+#[cfg(all(test, windows))]
+mod if_name_from_wide_tests {
+    use super::if_name_from_wide;
+    use rustpython_wtf8::Wtf8Buf;
+
+    #[test]
+    fn keeps_unpaired_surrogate() {
+        let units = [b'e' as u16, 0xD800, 0];
+        let name = if_name_from_wide(&units);
+        assert_eq!(name, Wtf8Buf::from_wide(&[b'e' as u16, 0xD800]));
+        assert_ne!(
+            name.as_bytes(),
+            String::from_utf16_lossy(&[b'e' as u16, 0xD800]).as_bytes()
+        );
+    }
 }
 
 /// `UuidFromStringW`. The status is the RPC code, not `GetLastError`.

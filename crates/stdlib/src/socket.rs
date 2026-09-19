@@ -3004,7 +3004,7 @@ mod _socket {
             let list = host_socket::if_nameindex()
                 .map_err(|err| err.into_pyexception(vm))?
                 .into_iter()
-                .map(|tup| tup.to_pyobject(vm))
+                .map(|(index, name)| (index, vm.ctx.new_str(name)).to_pyobject(vm))
                 .collect();
             Ok(list)
         }
