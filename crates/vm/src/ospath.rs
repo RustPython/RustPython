@@ -7,6 +7,9 @@ use crate::{
 use core::hint::cold_path;
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "host_env")]
+pub(crate) use crate::ospath_fd::OsPathOrFd;
+
 /// path_converter
 #[derive(Clone, Copy, Default)]
 pub struct PathConverter {
@@ -243,6 +246,3 @@ impl TryFromObject for OsPath {
         PathConverter::new().try_path(obj, vm)
     }
 }
-
-#[cfg(feature = "host_env")]
-pub(crate) use crate::ospath_fd::OsPathOrFd;
