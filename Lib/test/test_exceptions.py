@@ -60,7 +60,6 @@ class ExceptionTests(unittest.TestCase):
             self.assertEqual(buf1, buf2)
             self.assertEqual(exc.__name__, excname)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testRaising(self):
         self.raise_catch(AttributeError, "AttributeError")
         self.assertRaises(AttributeError, getattr, sys, "undefined_attribute")
@@ -145,7 +144,6 @@ class ExceptionTests(unittest.TestCase):
 
         self.raise_catch(StopAsyncIteration, "StopAsyncIteration")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSyntaxErrorMessage(self):
         # make sure the right exception message is raised for each of
         # these code fragments
@@ -170,7 +168,6 @@ class ExceptionTests(unittest.TestCase):
         ckmsg("continue\n", "'continue' not properly in loop")
         ckmsg("f'{6 0}'", "invalid syntax. Perhaps you forgot a comma?")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSyntaxErrorMissingParens(self):
         def ckmsg(src, msg, exception=SyntaxError):
             try:
@@ -235,7 +232,6 @@ class ExceptionTests(unittest.TestCase):
         check = self.check
         check('"\\\n"(1 for c in I,\\\n\\', 2, 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSyntaxErrorOffset(self):
         check = self.check
         check('def fact(x):\n\treturn x!\n', 2, 10)
@@ -442,7 +438,6 @@ class ExceptionTests(unittest.TestCase):
         with self.assertRaisesRegex(OSError, 'Windows Error 0x%x' % code):
             ctypes.pythonapi.PyErr_SetFromWindowsErr(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testAttributes(self):
         # test that exception attributes are happy
 
@@ -661,7 +656,6 @@ class ExceptionTests(unittest.TestCase):
         else:
             self.fail("No exception raised")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_setattr(self):
         TE = TypeError
         exc = Exception()
@@ -674,7 +668,6 @@ class ExceptionTests(unittest.TestCase):
         msg = "exception context must be None or derive from BaseException"
         self.assertRaisesRegex(TE, msg, setattr, exc, '__context__', 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_delattr(self):
         TE = TypeError
         try:
@@ -1306,7 +1299,6 @@ class ExceptionTests(unittest.TestCase):
         self.assertIs(exc, oe)
         self.assertIs(exc.__context__, ve)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unicode_change_attributes(self):
         # See issue 7309. This was a crasher.
 
@@ -1350,7 +1342,6 @@ class ExceptionTests(unittest.TestCase):
         for klass in klasses:
             self.assertEqual(str(klass.__new__(klass)), "")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust usize
     def test_unicode_error_str_does_not_crash(self):
         # Test that str(UnicodeError(...)) does not crash.
         # See https://github.com/python/cpython/issues/123378.
@@ -1374,13 +1365,11 @@ class ExceptionTests(unittest.TestCase):
                 exc = UnicodeDecodeError('utf-8', encoded, start, end, '')
                 self.assertIsInstance(str(exc), str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unicode_error_evil_str_set_none_object(self):
         def side_effect(exc):
             exc.object = None
         self.do_test_unicode_error_mutate(side_effect)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unicode_error_evil_str_del_self_object(self):
         def side_effect(exc):
             del exc.object
@@ -2054,7 +2043,6 @@ class AttributeErrorTests(unittest.TestCase):
 
 class ImportErrorTests(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_attributes(self):
         # Setting 'name' and 'path' should not be a problem.
         exc = ImportError('test')
@@ -2402,14 +2390,12 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertEqual(err[-3], '    (')
         self.assertEqual(err[-2], '    ^')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_non_utf8(self):
         # Check non utf-8 characters
         self.addCleanup(unlink, TESTFN)
         err = run_script(b"\x89")
         self.assertIn("SyntaxError: Non-UTF-8 code starting with '\\x89' in file", err[-1])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_string_source(self):
         def try_compile(source):
             with self.assertRaises(SyntaxError) as cm:
@@ -2524,7 +2510,6 @@ class SyntaxErrorTests(unittest.TestCase):
         args = ("bad.py", 1, 2, "abcdefg", 1)
         self.assertRaises(TypeError, SyntaxError, "bad bad", args)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 2 is not None
     def test_syntax_error_memory_leak(self):
         # gh-146250: memory leak with re-initialization of SyntaxError
         e = SyntaxError("msg", ("file.py", 1, 2, "txt", 2, 3))
@@ -2600,7 +2585,6 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_except, 4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lineno_after_other_except(self):
         def other_except():
             try:
@@ -2618,7 +2602,6 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(in_named_except, 4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lineno_in_try(self):
         def in_try():
             try:
@@ -2657,7 +2640,6 @@ class PEP626Tests(unittest.TestCase):
                 pass
         self.lineno_after_raise(after_with, 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_missing_lineno_shows_as_none(self):
         def f():
             1/0

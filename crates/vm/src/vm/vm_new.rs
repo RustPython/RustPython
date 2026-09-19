@@ -42,7 +42,7 @@ macro_rules! define_exception_fn {
                 )]
         pub fn $fn_name(&self, msg: impl Into<Wtf8Buf>) -> $crate::builtins::PyBaseExceptionRef {
             let err = self.ctx.exceptions.$attr.to_owned();
-            self.new_exception_msg(err, msg.into())
+            self.new_simple_exception(err, vec![self.ctx.new_str(msg.into()).into()])
         }
     };
 }
@@ -414,22 +414,42 @@ impl VirtualMachine {
         def.build_method(class, self)
     }
 
-    /// Instantiate an exception with arguments.
-    /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using
-    /// [`vm.invoke_exception()`][Self::invoke_exception] or
-    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
-    pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
+    /// Allocate a `BaseException`-layout instance without running `__new__`/`__init__`.
+    ///
+    /// Only valid when `exc_type` uses the `BaseException` payload. Extra-payload
+    /// types (OSError, UnicodeError, ExceptionGroup, SystemExit, ...) must use
+    /// [`new_exception`][Self::new_exception] or
+    /// [`invoke_exception`][Self::invoke_exception].
+    pub fn new_simple_exception(
+        &self,
+        exc_type: PyTypeRef,
+        args: Vec<PyObjectRef>,
+    ) -> PyBaseExceptionRef {
         debug_assert_eq!(
             exc_type.slots.basicsize,
             core::mem::size_of::<PyBaseException>(),
-            "vm.new_exception() is only for exception types without additional payload. The given type '{}' is not allowed. Use vm.new_os_subtype_error() for OSError subtypes.",
+            "vm.new_simple_exception() requires a BaseException-sized type, got {}",
             exc_type.name()
         );
-
         PyBaseException::new(args, self)
             .into_ref_with_type_lazy_dict(self, exc_type)
-            .expect("vm.new_exception() called with an invalid exception type")
+            .expect("vm.new_simple_exception() called with an invalid exception type")
+    }
+
+    /// Instantiate an exception with arguments.
+    ///
+    /// `BaseException`-sized types use
+    /// [`new_simple_exception`][Self::new_simple_exception]. Extra-payload types
+    /// run the type constructor so their fields are initialized. User-defined
+    /// types that override `__new__`/`__init__` should still use
+    /// [`invoke_exception`][Self::invoke_exception] or
+    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor].
+    pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
+        if exc_type.slots.basicsize == core::mem::size_of::<PyBaseException>() {
+            self.new_simple_exception(exc_type, args)
+        } else {
+            self.invoke_exception(&exc_type, args).unwrap_or_else(|e| e)
+        }
     }
 
     /// Construct a built-in exception type that carries a payload, directly
@@ -446,10 +466,14 @@ impl VirtualMachine {
             core::any::type_name::<T>(),
             cls.name()
         );
-        let payload = T::py_new(&cls, args.clone(), self)?;
-        let exc = payload.into_ref_with_type_lazy_dict(self, cls)?;
-        T::slot_init(exc.as_object().to_owned(), args, self)?;
-        Ok(exc)
+        let obj = T::slot_new(cls, args.clone(), self)?;
+        T::slot_init(obj.clone(), args, self)?;
+        obj.downcast().map_err(|obj| {
+            self.new_type_error(format!(
+                "payload constructor returned '{}'",
+                obj.class().name()
+            ))
+        })
     }
 
     pub fn new_os_error(&self, msg: impl ToPyObject) -> PyRef<PyBaseException> {
@@ -469,19 +493,11 @@ impl VirtualMachine {
     }
 
     /// Instantiate an exception with no arguments.
-    /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using
-    /// [`vm.invoke_exception()`][Self::invoke_exception] or
-    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception_empty(&self, exc_type: PyTypeRef) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![])
     }
 
     /// Instantiate an exception with `msg` as the only argument.
-    /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using
-    /// [`vm.invoke_exception()`][Self::invoke_exception] or
-    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: Wtf8Buf) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![self.ctx.new_str(msg).into()])
     }
@@ -629,30 +645,20 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         let start = self.ctx.new_int(start);
         let end = self.ctx.new_int(end);
-        let exc = self.new_exception(
-            self.ctx.exceptions.unicode_decode_error.to_owned(),
+        self.invoke_exception(
+            self.ctx.exceptions.unicode_decode_error,
             vec![
-                encoding.clone().into(),
-                object.clone().into(),
-                start.clone().into(),
-                end.clone().into(),
-                reason.clone().into(),
+                encoding.into(),
+                object.into(),
+                start.into(),
+                end.into(),
+                reason.into(),
             ],
-        );
-
-        set_attrs!(
-            exc.as_object(), self, unwrap,
-            "encoding" => encoding,
-            "object" => object,
-            "start" => start,
-            "end" => end,
-            "reason" => reason,
-        );
-
-        exc
+        )
+        .expect("UnicodeDecodeError constructor")
     }
 
-    pub fn new_unicode_encode_error_real(
+    pub fn new_unicode_encode_error(
         &self,
         encoding: PyStrRef,
         object: PyStrRef,
@@ -662,33 +668,55 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         let start = self.ctx.new_int(start);
         let end = self.ctx.new_int(end);
-        let exc = self.new_exception(
-            self.ctx.exceptions.unicode_encode_error.to_owned(),
+        self.invoke_exception(
+            self.ctx.exceptions.unicode_encode_error,
             vec![
-                encoding.clone().into(),
-                object.clone().into(),
-                start.clone().into(),
-                end.clone().into(),
-                reason.clone().into(),
+                encoding.into(),
+                object.into(),
+                start.into(),
+                end.into(),
+                reason.into(),
             ],
-        );
+        )
+        .expect("UnicodeEncodeError constructor")
+    }
 
-        set_attrs!(
-            exc.as_object(), self, unwrap,
-            "encoding" => encoding,
-            "object" => object,
-            "start" => start,
-            "end" => end,
-            "reason" => reason,
-        );
-
-        exc
+    #[cfg(feature = "parser")]
+    fn source_has_mixed_tabs_and_spaces(source: Option<&str>, error_line: usize) -> bool {
+        source.is_some_and(|source| {
+            let mut has_space_indent = false;
+            let mut has_tab_indent = false;
+            for (i, line) in source.lines().enumerate() {
+                if i + 1 > error_line {
+                    break;
+                }
+                let rest = line.trim_start_matches([' ', '\t']);
+                // Blank and comment-only lines do not participate in indent.
+                if rest.is_empty() || rest.starts_with('#') {
+                    continue;
+                }
+                let indent = &line.as_bytes()[..line.len() - rest.len()];
+                if indent.is_empty() {
+                    continue;
+                }
+                if indent.contains(&b' ') && indent.contains(&b'\t') {
+                    return true;
+                }
+                if indent.contains(&b' ') {
+                    has_space_indent = true;
+                }
+                if indent.contains(&b'\t') {
+                    has_tab_indent = true;
+                }
+            }
+            has_space_indent && has_tab_indent
+        })
     }
 
     // TODO: don't take ownership should make the success path faster
     pub fn new_key_error(&self, obj: PyObjectRef) -> PyBaseExceptionRef {
         let key_error = self.ctx.exceptions.key_error.to_owned();
-        self.new_exception(key_error, vec![obj])
+        self.new_simple_exception(key_error, vec![obj])
     }
 
     #[cfg(any(feature = "parser", feature = "compiler"))]
@@ -722,45 +750,17 @@ impl VirtualMachine {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::IndentationError,
-                    ),
+                    )
+                    | ruff_python_parser::ParseErrorType::UnexpectedIndentation,
+                location,
                 ..
             }) => {
-                // Detect tab/space mixing to raise TabError instead of IndentationError.
-                // This checks both within a single line and across different lines.
-                let is_tab_error = source.is_some_and(|source| {
-                    let mut has_space_indent = false;
-                    let mut has_tab_indent = false;
-                    for line in source.lines() {
-                        let indent: Vec<u8> = line
-                            .bytes()
-                            .take_while(|&b| b == b' ' || b == b'\t')
-                            .collect();
-                        if indent.is_empty() {
-                            continue;
-                        }
-                        if indent.contains(&b' ') && indent.contains(&b'\t') {
-                            return true;
-                        }
-                        if indent.contains(&b' ') {
-                            has_space_indent = true;
-                        }
-                        if indent.contains(&b'\t') {
-                            has_tab_indent = true;
-                        }
-                    }
-                    has_space_indent && has_tab_indent
-                });
-                if is_tab_error {
+                if Self::source_has_mixed_tabs_and_spaces(source, location.line.get()) {
                     self.ctx.exceptions.tab_error
                 } else {
                     self.ctx.exceptions.indentation_error
                 }
             }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error: ruff_python_parser::ParseErrorType::UnexpectedIndentation,
-                ..
-            }) => self.ctx.exceptions.indentation_error,
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
@@ -877,7 +877,14 @@ impl VirtualMachine {
             Some(line + "\n")
         }
 
-        let mut statement = source.and_then(|src| get_statement(src, error.location()));
+        // Tokenizer/parser errors attach the current source line. Compiler
+        // errors load that line with ProgramText, which is None when the
+        // filename cannot be opened (compile of a string).
+        let mut statement = if matches!(error, crate::compiler::CompileError::Codegen(_)) {
+            self.program_text(error.source_path(), error.python_location().0)
+        } else {
+            source.and_then(|src| get_statement(src, error.location()))
+        };
 
         let mut msg = error.to_string();
         if !msg.starts_with("Exceeds the limit ")
@@ -901,6 +908,7 @@ impl VirtualMachine {
             && !msg.starts_with("Assignment expressions are")
             && !msg.starts_with("Await expressions are")
             && !msg.starts_with("Underscores in numeric literals are")
+            && !msg.starts_with("Missing parentheses")
             && let Some(msg) = msg.get_mut(..1)
         {
             msg.make_ascii_lowercase();

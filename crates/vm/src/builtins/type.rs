@@ -2300,43 +2300,27 @@ impl PyType {
     }
 
     #[pygetset]
-    fn __type_params__(&self, vm: &VirtualMachine) -> PyTupleRef {
+    fn __type_params__(&self, vm: &VirtualMachine) -> PyObjectRef {
         let key = identifier!(vm, __type_params__);
-        if let Some(params) = self.attributes.get(key)
-            && let Ok(tuple) = params.downcast::<PyTuple>()
-        {
-            return tuple;
+        if let Some(params) = self.attributes.get(key) {
+            return params;
         }
-        // Return empty tuple if not found or not a tuple
-        vm.ctx.empty_tuple.clone()
+        vm.ctx.empty_tuple.clone().into()
     }
 
     #[pygetset(setter)]
-    fn set___type_params__(
-        &self,
-        value: PySetterValue<PyTupleRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn set___type_params__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         let key = identifier!(vm, __type_params__);
         match value {
             PySetterValue::Assign(val) => {
                 self.check_set_special_type_attr(key, vm)?;
                 let _prev_value = Self::with_type_lock(vm, || {
                     self.modified_inner();
-                    self.attributes.insert(key, val.into())
+                    self.attributes.insert(key, val)
                 });
             }
             PySetterValue::Delete => {
-                if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
-                    return Err(vm.new_type_error(format!(
-                        "cannot delete '__type_params__' attribute of immutable type '{}'",
-                        self.slot_name()
-                    )));
-                }
-                let _prev_value = Self::with_type_lock(vm, || {
-                    self.modified_inner();
-                    self.attributes.remove(key)
-                });
+                return Err(vm.new_type_error("cannot delete '__type_params__'"));
             }
         }
         Ok(())

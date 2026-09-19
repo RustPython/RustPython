@@ -39,7 +39,7 @@ mod syslog {
                 .code_points()
                 .position(|c| c.to_char().is_none())
                 .unwrap_or(0);
-            vm.new_unicode_encode_error_real(
+            vm.new_unicode_encode_error(
                 vm.ctx.new_str("utf-8"),
                 ident.clone(),
                 start,

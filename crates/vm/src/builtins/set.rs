@@ -583,7 +583,7 @@ impl PySetInner {
                     "cannot use '{}' as a set element ({message})",
                     item.class().name()
                 ));
-                err.set___cause__(Some(cause));
+                err.set_cause(Some(cause));
                 Err(err)
             }
             result => result,
@@ -1534,10 +1534,13 @@ impl PySetIterator {
     }
 
     #[pymethod]
-    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyObjectRef, (PyObjectRef,)) {
+    fn __reduce__(
+        zelf: PyRef<Self>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
         let internal = zelf.internal.lock();
-        (
-            builtins_iter(vm),
+        Ok((
+            builtins_iter(vm)?,
             (vm.ctx
                 .new_list(match &internal.status {
                     IterStatus::Exhausted => vec![],
@@ -1550,7 +1553,7 @@ impl PySetIterator {
                         .collect(),
                 })
                 .into(),),
-        )
+        ))
     }
 }
 

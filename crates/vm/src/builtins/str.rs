@@ -343,14 +343,14 @@ impl PyStrIterator {
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let func = builtins_iter(vm);
-        self.internal.lock().0.reduce(
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let func = builtins_iter(vm)?;
+        Ok(self.internal.lock().0.reduce(
             func,
             |x| x.clone().into(),
             |vm| vm.ctx.empty_str.to_owned().into(),
             vm,
-        )
+        ))
     }
 }
 
@@ -548,7 +548,7 @@ impl PyStr {
                 .code_points()
                 .position(|c| c.to_char().is_none())
                 .unwrap();
-            Err(vm.new_unicode_encode_error_real(
+            Err(vm.new_unicode_encode_error(
                 identifier!(vm, utf_8).to_owned(),
                 vm.ctx.new_str(self.data.clone()),
                 start,

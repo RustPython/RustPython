@@ -705,14 +705,14 @@ impl PyTupleIterator {
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let func = builtins_iter(vm);
-        self.internal.lock().reduce(
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let func = builtins_iter(vm)?;
+        Ok(self.internal.lock().reduce(
             func,
             |x| x.clone().into(),
             |vm| vm.ctx.empty_tuple.clone().into(),
             vm,
-        )
+        ))
     }
 }
 

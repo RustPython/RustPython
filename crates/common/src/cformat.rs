@@ -105,17 +105,24 @@ pub enum CFormatType {
     Character(CCharacterType),
     String(CFormatConversion),
     Bytes,
+    /// Parsed conversion that is not one of the supported specifiers.
+    /// The argument is still consumed, then formatting raises ValueError.
+    Unsupported {
+        ch: CodePoint,
+        index: usize,
+    },
 }
 
 impl CFormatType {
     #[must_use]
-    pub const fn to_char(self) -> char {
+    pub fn to_char(self) -> char {
         match self {
             Self::Number(x) => x as u8 as char,
             Self::Float(x) => x as u8 as char,
             Self::Character(x) => x as u8 as char,
             Self::String(x) => x as u8 as char,
             Self::Bytes => 'b',
+            Self::Unsupported { ch, .. } => ch.to_char_lossy(),
         }
     }
 }
@@ -660,7 +667,10 @@ where
         's' => CFormatType::String(CFormatConversion::Str),
         'a' => CFormatType::String(CFormatConversion::Ascii),
         'b' if context == CFormatContext::Bytes => CFormatType::Bytes,
-        _ => return Err((CFormatErrorType::UnsupportedFormatChar(c.into()), index)),
+        _ => CFormatType::Unsupported {
+            ch: c.into(),
+            index,
+        },
     })
 }
 

@@ -496,36 +496,44 @@ impl FrameObject {
         val * 2
     }
 
-    #[pygetset]
-    pub fn f_lineno(&self) -> usize {
-        // For executing frames (on the TLS chain), read the live iframe's
-        // lasti directly rather than `self.lasti()`, which may reflect a
-        // stale snapshot taken before a nested call. lasti always points
-        // just past the last-fetched instruction (see the bytecode loop in
-        // `ExecutingFrame::run`), so `locations[lasti - 1]` is the source
-        // line of the instruction currently in flight — correct even when
-        // observed mid-CALL (e.g. sys._getframe, warnings.warn).
-        let live = self.find_live_source_iframe();
-        let lasti = if !live.is_null() {
-            unsafe { (*live).lasti.load(Relaxed) }
-        } else {
-            self.lasti()
-        };
-        // If lasti is 0, execution hasn't started yet - use first line number
-        if lasti == 0 {
+    /// Current line, or -1 when the linetable has no line for lasti.
+    pub fn f_lineno(&self) -> i32 {
+        let lasti_bytes = self.f_lasti() as i32;
+        // If lasti is 0, execution hasn't started yet - use first line number.
+        // Read the live iframe so a materialized copy that still has lasti==0
+        // does not hide the current line while the frame is running.
+        if lasti_bytes == 0 {
             return self
                 .iframe()
                 .code()
                 .first_line_number
-                .map_or(1, |n| n.get());
+                .map_or(1, |n| n.get() as i32);
         }
-        // This lookup also covers returned frames (e.g. exception
-        // tracebacks), where `live` is null and `self.lasti()` reflects the
-        // frame's final position.
-        self.iframe().code().locations[lasti as usize - 1]
-            .0
-            .line
-            .get()
+        // For executing frames (on the TLS chain), use prev_line which is
+        // updated at each bytecode instruction *before* the instruction
+        // runs. This gives the correct line even when observed mid-CALL
+        // (where lasti has already advanced past the CALL instruction).
+        let live = self.find_live_source_iframe();
+        if !live.is_null() {
+            // Read live prev_line. Use read_volatile to bypass LLVM noalias
+            // on the &mut InterpreterFrame borrow held by the running frame.
+            let prev = unsafe {
+                let field_ptr = core::ptr::addr_of!((*live).prev_line);
+                core::ptr::read_volatile(field_ptr as *const u32)
+            };
+            if prev > 0 {
+                return prev as i32;
+            }
+        }
+        // lasti is stored as the next instruction index (see FrameObject::run),
+        // so the executing opcode is at lasti-1 / lasti_bytes-2.
+        self.f_code().addr2line(lasti_bytes - 2)
+    }
+
+    #[pygetset(name = "f_lineno")]
+    fn get_f_lineno(&self) -> Option<usize> {
+        let lineno = self.f_lineno();
+        (lineno >= 0).then_some(lineno as usize)
     }
 
     #[pygetset(setter)]

@@ -354,7 +354,7 @@ fn not_shareable_error_from(
     cause: PyBaseExceptionRef,
 ) -> PyBaseExceptionRef {
     let exc = not_shareable_error(vm, msg);
-    exc.set___cause__(Some(cause));
+    exc.set_cause(Some(cause));
     exc
 }
 
@@ -405,7 +405,7 @@ pub fn utf8_key<'a>(key: &'a PyObject, vm: &'a VirtualMachine) -> PyResult<&'a s
         .downcast_ref::<PyStr>()
         .ok_or_else(|| vm.new_type_error("bad argument type for built-in operation"))?;
     s.as_wtf8().as_str().map_err(|_| {
-        vm.new_unicode_encode_error_real(
+        vm.new_unicode_encode_error(
             vm.ctx.new_str("utf-8"),
             s.to_owned(),
             0,

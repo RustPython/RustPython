@@ -368,7 +368,7 @@ mod _testinternalcapi {
     }
 
     #[pyfunction]
-    fn iframe_getline(frame: PyRef<FrameObject>) -> usize {
+    fn iframe_getline(frame: PyRef<FrameObject>) -> i32 {
         frame.f_lineno()
     }
 
@@ -1616,7 +1616,7 @@ fn run_string_in_new_subinterp(
         let cause = vm.new_runtime_error(msg.to_owned());
         let exc =
             crate::stdlib::_interpreters::interpreter_error(vm, "sub-interpreter creation failed");
-        exc.set___context__(Some(cause));
+        exc.set_context(Some(cause));
         exc
     })?;
     let id = crate::vm::runtime::store_owned_interpreter(interp);

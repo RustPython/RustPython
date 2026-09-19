@@ -2663,7 +2663,7 @@ pub(crate) fn trampoline_handle_exception(
     if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {
         let next = exception.__traceback__();
         let new_traceback = PyTraceback::new(next, exec.frame_object(vm), idx as u32 * 2, loc.line);
-        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+        exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
     }
 
     exec.unwind_blocks(
@@ -3566,7 +3566,7 @@ impl ExecutingFrame<'_> {
                             idx as u32 * 2,
                             loc.line,
                         );
-                        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                        exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                     }
                     vm.contextualize_exception(&exception);
                     frame.unwind_blocks(vm, UnwindReason::Raising { exception })
@@ -3656,8 +3656,7 @@ impl ExecutingFrame<'_> {
                                     new_traceback,
                                     loc.line
                                 );
-                                exception
-                                    .set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                                exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                             }
 
                             // _PyErr_SetObject sets __context__ only when the exception
@@ -3756,18 +3755,6 @@ impl ExecutingFrame<'_> {
                                 exception
                             };
 
-                            // Restore lasti from traceback so frame.f_lineno matches tb_lineno
-                            // The traceback was created with the correct lasti when exception
-                            // was first raised, but frame.lasti may have changed during cleanup
-                            if let Some(tb) = exception.__traceback__()
-                                && self.iframe().frame_obj().is_some_and(|fo| {
-                                    core::ptr::eq::<Py<FrameObject>>(&*tb.frame, fo)
-                                })
-                            {
-                                // This traceback entry is for this frame - restore its lasti
-                                // tb.lasti is in bytes (idx * 2), convert back to instruction index
-                                self.update_lasti(|i| *i = tb.lasti / 2);
-                            }
                             break Err(exception);
                         }
                     }
@@ -3865,7 +3852,7 @@ impl ExecutingFrame<'_> {
                         let next = err.__traceback__();
                         let new_traceback =
                             PyTraceback::new(next, self.frame_object(vm), idx as u32 * 2, loc.line);
-                        err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                        err.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                     }
 
                     self.push_value(vm.ctx.none());
@@ -3910,7 +3897,7 @@ impl ExecutingFrame<'_> {
                                 idx as u32 * 2,
                                 loc.line,
                             );
-                            err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                            err.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                         }
 
                         self.push_value(vm.ctx.none());
@@ -3935,7 +3922,7 @@ impl ExecutingFrame<'_> {
         let exception = match ctor.instantiate_value(exc_val, vm) {
             Ok(exc) => {
                 if let Some(tb) = Option::<PyRef<PyTraceback>>::try_from_object(vm, exc_tb)? {
-                    exc.set_traceback_typed(Some(tb));
+                    exc.set_traceback(Some(tb));
                 }
                 exc
             }
@@ -3949,7 +3936,7 @@ impl ExecutingFrame<'_> {
             let next = exception.__traceback__();
             let new_traceback =
                 PyTraceback::new(next, self.frame_object(vm), idx as u32 * 2, loc.line);
-            exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+            exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
         }
 
         // Fire PY_THROW and RAISE events before raising the exception.
@@ -4573,7 +4560,7 @@ impl ExecutingFrame<'_> {
                             "'async for' received an invalid object from __anext__: {:.200}",
                             next_iter.class().name()
                         ));
-                        err.set___cause__(Some(e));
+                        err.set_cause(Some(e));
                         err
                     })?
                 };
@@ -8888,7 +8875,7 @@ impl ExecutingFrame<'_> {
         #[cfg(debug_assertions)]
         debug!("Exception raised: {exception:?} with cause: {cause:?}");
         if let Some(cause) = cause {
-            exception.set___cause__(cause);
+            exception.set_cause(cause);
         }
         Err(exception)
     }
@@ -12086,8 +12073,8 @@ impl ExecutingFrame<'_> {
                     // see in tracebacks (suppress_context becomes true), but
                     // assertions that inspect __context__ also expect it set.
                     let cause: Option<PyBaseExceptionRef> = arg.downcast().ok();
-                    err.set___context__(cause.clone());
-                    err.set___cause__(cause);
+                    err.set_context(cause.clone());
+                    err.set_cause(cause);
                     Ok(err.into())
                 } else {
                     // Not StopIteration, pass through for RERAISE

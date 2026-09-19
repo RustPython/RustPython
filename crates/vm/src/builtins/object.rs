@@ -398,7 +398,33 @@ impl PyBaseObject {
 
     #[pymethod]
     pub fn __dir__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-        zelf.dir(vm)
+        let mut names: Vec<PyObjectRef> = Vec::new();
+
+        match zelf.get_attr(identifier!(vm, __dict__), vm) {
+            Ok(obj) => {
+                if let Ok(dict) = obj.downcast::<PyDict>() {
+                    names.extend(dict.into_iter().map(|(k, _)| k));
+                }
+            }
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+            Err(e) => return Err(e),
+        }
+
+        match zelf.get_attr(identifier!(vm, __class__), vm) {
+            Ok(cls_obj) => {
+                if let Some(cls) = cls_obj.downcast_ref::<PyType>() {
+                    for (name, _) in cls.get_attributes(&vm.ctx) {
+                        names.push(name.to_object());
+                    }
+                }
+            }
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+            Err(e) => return Err(e),
+        }
+
+        let lst = PyList::from(names);
+        lst.sort(Default::default(), vm)?;
+        Ok(lst)
     }
 
     #[pymethod]

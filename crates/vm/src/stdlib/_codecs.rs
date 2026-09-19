@@ -1019,7 +1019,7 @@ mod _codecs_windows {
                     _ => break,
                 }
             }
-            return Err(vm.new_unicode_encode_error_real(
+            return Err(vm.new_unicode_encode_error(
                 encoding_str,
                 s.clone(),
                 fail_pos,
@@ -1070,7 +1070,7 @@ mod _codecs_windows {
             }
 
             // Character can't be encoded - call error handler
-            let exc = vm.new_unicode_encode_error_real(
+            let exc = vm.new_unicode_encode_error(
                 encoding_str.clone(),
                 s.clone(),
                 pos,
@@ -1097,7 +1097,7 @@ mod _codecs_windows {
                 for rcp in rep_str.as_wtf8().code_points() {
                     let rch = rcp.to_u32();
                     if rch > 127 {
-                        return Err(vm.new_unicode_encode_error_real(
+                        return Err(vm.new_unicode_encode_error(
                             encoding_str,
                             s.clone(),
                             pos,
