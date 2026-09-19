@@ -5016,10 +5016,18 @@ fn replacement_field_error(
     }
 
     // Adjacent atoms in a replacement field are a missing comma, not an
-    // f-string "expecting '}'" at the opening brace.
-    if let Some(atom_end) = adjacent_atom_end(bytes, expr_start) {
+    // f-string "expecting '}'" at the opening brace. Prefix `yield`/`await`/
+    // `not` and continuation keywords (`and`, `for`, ...) are not a second atom.
+    if !starts_identifier(bytes, expr_start, b"yield")
+        && !starts_identifier(bytes, expr_start, b"await")
+        && !starts_identifier(bytes, expr_start, b"not")
+        && let Some(atom_end) = adjacent_atom_end(bytes, expr_start)
+    {
         let next = skip_ascii_whitespace(bytes, atom_end, expr_end);
-        if next > atom_end && expression_atom_start(bytes, next) {
+        if next > atom_end
+            && expression_atom_start(bytes, next)
+            && !expression_continuation_keyword(bytes, next)
+        {
             let second_end = adjacent_atom_end(bytes, next).unwrap_or(next + 1);
             return Some(CpythonDiagnostic::new(
                 "invalid syntax. Perhaps you forgot a comma?".to_owned(),
@@ -7942,6 +7950,25 @@ mod tests {
         );
         assert_eq!(err.python_location(), (1, 4));
         assert_eq!(err.python_end_location(), Some((1, 7)));
+
+        compile(
+            "f'{not x}'",
+            Mode::Exec,
+            "<fragment>",
+            CompileOpts::default(),
+        )
+        .expect("unary not is a prefix, not two atoms");
+        let err = compile(
+            "f'{a and}'",
+            Mode::Exec,
+            "<fragment>",
+            CompileOpts::default(),
+        )
+        .expect_err("a dangling 'and' is an f-string separator error");
+        assert_eq!(
+            err.to_string(),
+            "f-string: expecting '=', or '!', or ':', or '}'"
+        );
     }
 
     #[test]
