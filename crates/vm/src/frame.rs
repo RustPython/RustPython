@@ -8251,14 +8251,10 @@ impl ExecutingFrame<'_> {
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn import(&mut self, vm: &VirtualMachine, module_name: Option<&Py<PyStr>>) -> PyResult<()> {
         let module_name = module_name.unwrap_or(vm.ctx.empty_str);
-        let top = self.pop_value();
-        let from_list = match <Option<PyTupleRef>>::try_from_object(vm, top)? {
-            Some(from_list) => from_list.try_into_typed::<PyStr>(vm)?,
-            None => vm.ctx.empty_tuple_typed().to_owned(),
-        };
+        let from_list = self.pop_value();
         let level = usize::try_from_object(vm, self.pop_value())?;
 
-        let module = vm.import_from(module_name, &from_list, level)?;
+        let module = vm.import_from(module_name, from_list, level)?;
 
         self.push_value(module);
         Ok(())

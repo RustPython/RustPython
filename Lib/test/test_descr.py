@@ -2788,7 +2788,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             super(Base, kw=1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_basic_inheritance(self):
         # Testing inheritance from basic types...
 

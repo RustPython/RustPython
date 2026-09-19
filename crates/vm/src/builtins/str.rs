@@ -927,6 +927,15 @@ impl PyStr {
         }
     }
 
+    /// Return `zelf` when it is an exact str; otherwise a new str copy.
+    fn result_unchanged(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
+        if zelf.class().is(vm.ctx.types.str_type) {
+            zelf
+        } else {
+            vm.ctx.new_str(zelf.as_wtf8())
+        }
+    }
+
     #[pymethod]
     fn lstrip(
         zelf: PyRef<Self>,
@@ -940,7 +949,7 @@ impl PyStr {
             |s| s.trim_start_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
         );
         if s == stripped {
-            zelf
+            Self::result_unchanged(zelf, vm)
         } else {
             vm.ctx.new_str(stripped)
         }
@@ -959,7 +968,7 @@ impl PyStr {
             |s| s.trim_end_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
         );
         if s == stripped {
-            zelf
+            Self::result_unchanged(zelf, vm)
         } else {
             vm.ctx.new_str(stripped)
         }

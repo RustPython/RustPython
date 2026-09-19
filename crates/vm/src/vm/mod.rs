@@ -3044,8 +3044,7 @@ impl VirtualMachine {
     #[inline]
     pub fn import<'a>(&self, module_name: impl AsPyStr<'a>, level: usize) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
-        let from_list = self.ctx.empty_tuple_typed();
-        self.import_inner(module_name, from_list, level)
+        self.import_inner(module_name, self.ctx.none(), level)
     }
 
     /// Call Python __import__ function caller with from_list.
@@ -3054,7 +3053,7 @@ impl VirtualMachine {
     pub fn import_from<'a>(
         &self,
         module_name: impl AsPyStr<'a>,
-        from_list: &Py<PyTuple<PyStrRef>>,
+        from_list: PyObjectRef,
         level: usize,
     ) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
@@ -3082,19 +3081,19 @@ impl VirtualMachine {
         }
     }
 
-    fn import_inner(
-        &self,
-        module: &Py<PyStr>,
-        from_list: &Py<PyTuple<PyStrRef>>,
-        level: usize,
-    ) -> PyResult {
+    fn import_inner(&self, module: &Py<PyStr>, from_list: PyObjectRef, level: usize) -> PyResult {
         let builtins =
             crate::frame::current_builtins().unwrap_or_else(|| self.builtins.dict().into());
         // The module-cache fast path assumes interpreter builtins. A frame
         // whose f_builtins is a custom mapping (eval/exec) must go through
-        // that mapping's __import__.
+        // that mapping's __import__. None and an empty tuple are both an
+        // empty from-list (`import name`).
+        let fromlist_empty = self.is_none(&from_list)
+            || from_list
+                .downcast_ref::<PyTuple>()
+                .is_some_and(|tuple| tuple.is_empty());
         if level == 0
-            && from_list.as_slice().is_empty()
+            && fromlist_empty
             && builtins.is(self.builtins.dict().as_object())
             && let Some(cached) = self.try_import_cached(module)?
         {
@@ -3129,7 +3128,6 @@ impl VirtualMachine {
         } else {
             (None, None)
         };
-        let from_list: PyObjectRef = from_list.to_owned().into();
         import_func
             .call((module.to_owned(), globals, locals, from_list, level), self)
             .inspect_err(|exc| import::remove_importlib_frames(self, exc))

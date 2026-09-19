@@ -637,6 +637,37 @@ impl FrameObject {
             .cold()
             .pending_unwind_from_stack
             .store(start_stack, Relaxed);
+        // Bind None into any NULL localsplus slots the jump target may
+        // assume exist, rather than leaving LOAD_FAST to raise later.
+        let unbound = {
+            let fastlocals = unsafe {
+                let ptr = target as *const crate::frame::InterpreterFrame
+                    as *mut crate::frame::InterpreterFrame;
+                (*ptr).localsplus.fastlocals()
+            };
+            fastlocals.iter().filter(|slot| slot.is_none()).count()
+        };
+        if unbound > 0 {
+            let s = if unbound == 1 { "" } else { "s" };
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.runtime_warning,
+                format!("assigning None to {unbound} unbound local{s}"),
+                1,
+                vm,
+            )?;
+            let none = vm.ctx.none();
+            let fastlocals = unsafe {
+                let ptr = target as *const crate::frame::InterpreterFrame
+                    as *mut crate::frame::InterpreterFrame;
+                (*ptr).localsplus.fastlocals_mut()
+            };
+            for slot in fastlocals.iter_mut() {
+                if slot.is_none() {
+                    *slot = Some(none.clone());
+                }
+            }
+        }
+
         target.lasti.store(best_addr as u32, Relaxed);
         Ok(())
     }
