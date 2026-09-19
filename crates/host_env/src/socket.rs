@@ -994,7 +994,7 @@ pub const HV_GUID_PARENT: &str = "A42E7CDA-D03F-480C-9CC2-A4DE20ABB878";
 
 #[cfg(windows)]
 pub const SIO_TCP_SET_ACK_FREQUENCY: i32 =
-    windows_sys::Win32::Networking::WinSock::SIO_TCP_SET_ACK_FREQUENCY;
+    windows_sys::Win32::Networking::WinSock::SIO_TCP_SET_ACK_FREQUENCY as i32;
 
 /// `SOCKADDR_HV` (`hvsocket.h`).
 #[cfg(windows)]
