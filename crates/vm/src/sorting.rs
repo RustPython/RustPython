@@ -646,7 +646,7 @@ fn powerloop(s1: usize, n1: usize, n2: usize, n: usize) -> u32 {
 
 /// Stable adaptive mergesort (Tim Peters' timsort with powersort's
 /// merge-ordering policy, matching CPython 3.11+). `is_lt` provides comparison.
-pub(crate) fn timsort<T, E, F>(values: &mut [T], is_lt: &mut F) -> Result<(), E>
+pub fn timsort<T, E, F>(values: &mut [T], is_lt: &mut F) -> Result<(), E>
 where
     T: Clone,
     F: FnMut(&T, &T) -> Result<bool, E>,
