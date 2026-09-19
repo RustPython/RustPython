@@ -4084,7 +4084,6 @@ class _TestPicklingConnections(BaseTestCase):
 
         conn.close()
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_pickling(self):
         families = self.connection.families
 
@@ -4306,7 +4305,6 @@ class _TestSharedCTypes(BaseTestCase):
         for i in range(len(arr)):
             arr[i] *= 2
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - ctypes Structure shared memory not working
     def test_sharedctypes(self, lock=False):
         x = Value('i', 7, lock=lock)
         y = Value(c_double, 1.0/3.0, lock=lock)
@@ -4330,7 +4328,6 @@ class _TestSharedCTypes(BaseTestCase):
             self.assertAlmostEqual(arr[i], i*2)
         self.assertEqual(string.value, latin('hellohello'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - calls test_sharedctypes which fails
     def test_synchronize(self):
         self.test_sharedctypes(lock=True)
 
