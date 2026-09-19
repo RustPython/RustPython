@@ -63,7 +63,7 @@ mod _pickle {
         vm.new_exception_msg(unpickling_error(vm), msg.into())
     }
 
-    // ---------------------------------------------------------------- PickleBuffer
+    // PickleBuffer
 
     #[pyattr]
     #[pyclass(module = "_pickle", name = "PickleBuffer")]
@@ -127,7 +127,7 @@ mod _pickle {
         }
     }
 
-    // ---------------------------------------------------------------- opcodes
+    // opcodes
 
     const MARK: u8 = b'(';
     const STOP: u8 = b'.';
@@ -205,7 +205,7 @@ mod _pickle {
     /// Amount of data `peek()` grabs at a time from a file-like input.
     const PREFETCH: usize = 8192;
 
-    // ---------------------------------------------------------------- input handling
+    // input handling
 
     #[derive(Debug, Default)]
     pub(super) struct ReadState {
@@ -369,7 +369,7 @@ mod _pickle {
         }
     }
 
-    // ---------------------------------------------------------------- memo proxies
+    // memo proxies
 
     #[pyattr]
     #[pyclass(module = "_pickle", name = "UnpicklerMemoProxy")]
@@ -413,7 +413,7 @@ mod _pickle {
         }
     }
 
-    // ---------------------------------------------------------------- Unpickler
+    // Unpickler
 
     #[derive(Debug)]
     pub(super) struct UnpicklerConfig {
@@ -1715,7 +1715,7 @@ mod _pickle {
         load_impl(&unpickler, vm)
     }
 
-    // ---------------------------------------------------------------- Pickler
+    // Pickler
 
     const FRAME_HEADER_SIZE: usize = 9;
     const FRAME_SIZE_MIN: usize = 4;
@@ -2104,7 +2104,7 @@ mod _pickle {
         }
     }
 
-    // ---------------------------------------------------------------- saving
+    // saving
 
     fn add_note(err: PyBaseExceptionRef, note: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let _ = err.clone().add_note(vm.ctx.new_str(note), vm);
@@ -2243,7 +2243,7 @@ mod _pickle {
             }
         }
 
-        // -- atoms ------------------------------------------------------
+        // atoms
 
         fn save_bool(&mut self, value: bool) {
             if self.proto >= 2 {
@@ -2323,7 +2323,7 @@ mod _pickle {
             Ok(())
         }
 
-        // -- bytes and strings ------------------------------------------
+        // bytes and strings
 
         fn save_bytes_no_memo(&mut self, data: &[u8], vm: &VirtualMachine) -> PyResult<()> {
             let n = data.len();
@@ -2460,7 +2460,7 @@ mod _pickle {
             Ok(())
         }
 
-        // -- containers -------------------------------------------------
+        // containers
 
         fn save_tuple(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             let tuple = obj.downcast_ref::<PyTuple>().expect("tuple");

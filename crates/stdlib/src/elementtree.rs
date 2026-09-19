@@ -37,10 +37,6 @@ pub(crate) mod _elementtree {
     };
     use rustpython_common::lock::PyRwLock;
 
-    // -----------------------------------------------------------------
-    // module state
-    // -----------------------------------------------------------------
-
     /// The per-module bookkeeping `_elementtree.c` keeps in its
     /// `elementtreestate`: the `Comment`/`ProcessingInstruction` factories
     /// installed by `_set_factories`, and two helpers imported from Python
@@ -149,10 +145,6 @@ pub(crate) mod _elementtree {
             old_pi.unwrap_or_else(|| vm.ctx.none()),
         ))
     }
-
-    // -----------------------------------------------------------------
-    // Element
-    // -----------------------------------------------------------------
 
     /// `text`/`tail` as the C accelerator stores them: either the value the
     /// user sees, or a list of fragments the `TreeBuilder` accumulated that
@@ -1253,10 +1245,6 @@ pub(crate) mod _elementtree {
         Ok(element)
     }
 
-    // -----------------------------------------------------------------
-    // TreeBuilder
-    // -----------------------------------------------------------------
-
     #[derive(Debug, Default)]
     struct TreeBuilderState {
         /// First element created; what `close()` hands back.
@@ -1793,10 +1781,6 @@ pub(crate) mod _elementtree {
             self.done(vm)
         }
     }
-
-    // -----------------------------------------------------------------
-    // XMLParser
-    // -----------------------------------------------------------------
 
     fn new_parse_error(
         message: &str,
@@ -2369,10 +2353,6 @@ pub(crate) mod _elementtree {
             Ok(())
         }
     }
-
-    // -----------------------------------------------------------------
-    // Element iterator
-    // -----------------------------------------------------------------
 
     #[derive(Debug)]
     struct ParentLocator {
