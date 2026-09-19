@@ -561,15 +561,13 @@ pub(crate) fn is_gen_exit(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> boo
 }
 
 fn iframe_origin_lineno(frame: &InterpreterFrame) -> usize {
-    if frame.get_lasti() == 0 {
+    // `prev_line` is only updated on the tracing path, so origin capture
+    // has to derive the line from lasti the same way `f_lineno` does.
+    let lasti = frame.get_lasti();
+    if lasti == 0 {
         return frame.code().first_line_number.map_or(1, |n| n.get());
     }
-    let prev = frame.prev_line.get();
-    if prev > 0 {
-        prev as usize
-    } else {
-        frame.code().first_line_number.map_or(1, |n| n.get())
-    }
+    frame.code().locations[lasti as usize - 1].0.line.get()
 }
 
 /// Capture the current call stack as a coroutine `cr_origin` tuple.

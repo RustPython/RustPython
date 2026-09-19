@@ -20,6 +20,9 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 use rustpython_common::wtf8::Wtf8Buf;
 
+/// Predicate used by [`PyTypeSlots::del_needed`].
+pub type DelNeededFunc = fn(&PyObject) -> bool;
+
 /// Type-erased storage for extension module data attached to heap types.
 pub struct TypeDataSlot {
     // PyObject_GetTypeData
@@ -199,7 +202,7 @@ pub struct PyTypeSlots {
     /// generator or coroutine). Returning `false` skips the `del` call
     /// entirely, avoiding that VM lookup; `None` (the default) preserves the
     /// prior behavior of always calling `del`.
-    pub del_needed: AtomicCell<Option<fn(&PyObject) -> bool>>,
+    pub del_needed: AtomicCell<Option<DelNeededFunc>>,
 
     // The count of tp_members.
     pub member_count: usize,

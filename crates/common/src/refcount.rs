@@ -545,8 +545,10 @@ mod tests {
     /// keeping an immortal object out of a collection's dead set.
     #[test]
     fn the_parked_count_outruns_any_real_reference_total() {
-        assert!(IMMORTAL_COUNT > 1);
-        assert!(IMMORTAL_COUNT <= STRONG);
+        const {
+            assert!(IMMORTAL_COUNT > 1);
+            assert!(IMMORTAL_COUNT <= STRONG);
+        }
         if usize::BITS >= 64 {
             assert_eq!(IMMORTAL_COUNT, u32::MAX as usize);
         }

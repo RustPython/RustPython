@@ -452,7 +452,7 @@ pub(crate) fn import_module_level(
 
     // Handle fromlist
     let has_from = match fromlist.as_ref().filter(|fl| !vm.is_none(fl)) {
-        Some(fl) => fl.clone().try_to_bool(vm)?,
+        Some(fl) => fl.try_to_bool(vm)?,
         None => false,
     };
 
