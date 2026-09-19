@@ -245,7 +245,7 @@ pub(super) mod _os {
     pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const UNLINK_DIR_FD: bool = cfg!(not(windows));
     const RENAME_DIR_FD: bool = cfg!(any(unix, target_os = "wasi"));
-    const RMDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    const RMDIR_DIR_FD: bool = cfg!(not(windows));
     const SCANDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
     #[pyattr]
@@ -449,18 +449,7 @@ pub(super) mod _os {
         dir_fd: DirFd<'_, { RMDIR_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        #[cfg(not(target_os = "redox"))]
-        if let Some(fd) = dir_fd.raw_opt() {
-            let c_path = path.clone().into_cstring(vm)?;
-            return if let Err(err) = crate::host_env::posix::remove_dir_at(fd, c_path.as_c_str()) {
-                Err(OSErrorBuilder::with_filename(&err, path, vm))
-            } else {
-                Ok(())
-            };
-        }
-        #[cfg(target_os = "redox")]
-        let [] = dir_fd.0;
-        crate::host_env::fs::remove_dir(&path)
+        crate::host_env::posix::remove_dir_at(dir_fd.get_opt(), &path.path)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 

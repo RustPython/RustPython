@@ -210,16 +210,6 @@ pub fn link_paths(src: &CStr, dst: &CStr, follow_symlinks: bool) -> std::io::Res
     }
 }
 
-#[cfg(all(not(windows), not(target_os = "redox")))]
-pub fn remove_dir_at(dir_fd: i32, path: &CStr) -> std::io::Result<()> {
-    let ret = unsafe { libc::unlinkat(dir_fd, path.as_ptr(), libc::AT_REMOVEDIR) };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(all(unix, not(target_os = "redox")))]
 fn statvfs_info_from_raw(st: libc::statvfs) -> StatVfsInfo {
     let f_fsid = {

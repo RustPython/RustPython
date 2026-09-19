@@ -49,6 +49,14 @@ pub fn replace(
     rename(from, from_fd, to, to_fd)
 }
 
+pub fn remove_dir_at(
+    dir_fd: Option<crt_fd::Borrowed<'_>>,
+    path: impl AsRef<Path>,
+) -> io::Result<()> {
+    let dir_fd = dir_fd.as_ref().map_or(fs::CWD, AsFd::as_fd);
+    fs::unlinkat(dir_fd, path.as_ref(), AtFlags::REMOVEDIR).map_err(Into::into)
+}
+
 pub fn stat_path(
     path: impl AsRef<Path>,
     dir_fd: Option<crt_fd::Borrowed<'_>>,

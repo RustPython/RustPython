@@ -7,11 +7,6 @@ pub use super::posix_unix_like::*;
 
 use crate::{crt_fd, os::CheckLibcResult};
 
-pub fn remove_dir_at(dir_fd: i32, path: &CStr) -> io::Result<()> {
-    unsafe { libc::unlinkat(dir_fd, path.as_ptr(), libc::AT_REMOVEDIR) }.check_libc_neg()?;
-    Ok(())
-}
-
 pub fn stat_fd(fd: crate::crt_fd::Borrowed<'_>) -> io::Result<crate::fileutils::StatStruct> {
     crate::fileutils::fstat(fd)
 }
