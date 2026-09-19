@@ -11,6 +11,7 @@ mod _multiprocessing {
         types::Constructor,
     };
     use core::sync::atomic::{AtomicI32, AtomicU32, Ordering};
+    use rustpython_common::lock::PyMutex;
     use rustpython_host_env::multiprocessing as host_multiprocessing;
 
     // These match the values in Lib/multiprocessing/synchronize.py
@@ -49,6 +50,8 @@ mod _multiprocessing {
         name: Option<String>,
         last_tid: AtomicU32,
         count: AtomicI32,
+        /// Serializes owner bookkeeping. Dropped around blocking waits.
+        crit: PyMutex<()>,
     }
 
     type SemHandle = host_multiprocessing::SemHandle;
@@ -109,21 +112,26 @@ mod _multiprocessing {
             };
 
             // Check whether we already own the lock
-            if self.kind == RECURSIVE_MUTEX && ismine!(self) {
-                self.count.fetch_add(1, Ordering::Release);
-                return Ok(true);
-            }
-
-            // Check whether we can acquire without blocking
-            match host_multiprocessing::wait_for_single_object(self.handle.as_raw(), 0) {
-                x if x == host_multiprocessing::wait_object_0() => {
-                    self.last_tid
-                        .store(host_multiprocessing::current_thread_id(), Ordering::Release);
+            {
+                let _crit = self.crit.lock();
+                if self.kind == RECURSIVE_MUTEX && ismine!(self) {
                     self.count.fetch_add(1, Ordering::Release);
                     return Ok(true);
                 }
-                x if x == host_multiprocessing::wait_failed() => return Err(vm.new_last_os_error()),
-                _ => {}
+
+                // Check whether we can acquire without blocking
+                match host_multiprocessing::wait_for_single_object(self.handle.as_raw(), 0) {
+                    x if x == host_multiprocessing::wait_object_0() => {
+                        self.last_tid
+                            .store(host_multiprocessing::current_thread_id(), Ordering::Release);
+                        self.count.fetch_add(1, Ordering::Release);
+                        return Ok(true);
+                    }
+                    x if x == host_multiprocessing::wait_failed() => {
+                        return Err(vm.new_last_os_error());
+                    }
+                    _ => {}
+                }
             }
 
             // Poll with signal checking (CPython uses WaitForMultipleObjectsEx
@@ -148,6 +156,7 @@ mod _multiprocessing {
 
                 match res {
                     x if x == host_multiprocessing::wait_object_0() => {
+                        let _crit = self.crit.lock();
                         self.last_tid
                             .store(host_multiprocessing::current_thread_id(), Ordering::Release);
                         self.count.fetch_add(1, Ordering::Release);
@@ -173,6 +182,7 @@ mod _multiprocessing {
 
         #[pymethod]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let _crit = self.crit.lock();
             if self.kind == RECURSIVE_MUTEX {
                 if !ismine!(self) {
                     return Err(vm.new_assertion_error(
@@ -229,12 +239,14 @@ mod _multiprocessing {
                 name,
                 last_tid: AtomicU32::new(0),
                 count: AtomicI32::new(0),
+                crit: PyMutex::new(()),
             };
             zelf.into_ref_with_type(vm, cls).map(Into::into)
         }
 
         #[pymethod]
         fn _after_fork(&self) {
+            let _crit = self.crit.lock();
             self.count.store(0, Ordering::Release);
             self.last_tid.store(0, Ordering::Release);
         }
@@ -246,6 +258,7 @@ mod _multiprocessing {
 
         #[pymethod]
         fn _count(&self) -> i32 {
+            let _crit = self.crit.lock();
             self.count.load(Ordering::Acquire)
         }
 
@@ -306,6 +319,7 @@ mod _multiprocessing {
                 name,
                 last_tid: AtomicU32::new(0),
                 count: AtomicI32::new(0),
+                crit: PyMutex::new(()),
             })
         }
     }
@@ -354,6 +368,7 @@ mod _multiprocessing {
         types::Constructor,
     };
     use core::sync::atomic::{AtomicI32, AtomicU64, Ordering};
+    use rustpython_common::lock::PyMutex;
     #[cfg(target_vendor = "apple")]
     use rustpython_host_env::multiprocessing::sem_t;
     use rustpython_host_env::multiprocessing::{
@@ -437,6 +452,8 @@ mod _multiprocessing {
         name: Option<String>,
         last_tid: AtomicU64, // unsigned long
         count: AtomicI32,    // int
+        /// Serializes owner bookkeeping. Dropped around blocking waits.
+        crit: PyMutex<()>,
     }
 
     type SemHandle = host_multiprocessing::SemHandle;
@@ -483,6 +500,7 @@ mod _multiprocessing {
                 .or_else(|| args.args.get(1))
                 .cloned();
 
+            let _crit = self.crit.lock();
             if self.kind == RECURSIVE_MUTEX && ismine!(self) {
                 self.count.fetch_add(1, Ordering::Release);
                 return Ok(true);
@@ -516,10 +534,7 @@ mod _multiprocessing {
             // if (res < 0 && errno == EAGAIN && blocking)
             if matches!(try_status, TryAcquireStatus::WouldBlock) && blocking {
                 // Couldn't acquire immediately, need to block.
-                //
-                // Save errno inside the allow_threads closure, before
-                // attach_thread() runs — matches CPython which saves
-                // `err = errno` before Py_END_ALLOW_THREADS.
+                drop(_crit);
 
                 #[cfg(not(target_vendor = "apple"))]
                 {
@@ -573,6 +588,9 @@ mod _multiprocessing {
                         }
                     }
                 }
+                let _crit = self.crit.lock();
+                self.mark_acquired();
+                return Ok(true);
             } else if !matches!(try_status, TryAcquireStatus::Acquired) {
                 // Non-blocking path failed, or blocking=false
                 match try_status {
@@ -583,17 +601,21 @@ mod _multiprocessing {
                 }
             }
 
+            self.mark_acquired();
+            Ok(true)
+        }
+
+        fn mark_acquired(&self) {
             self.count.fetch_add(1, Ordering::Release);
             self.last_tid
                 .store(host_multiprocessing::current_thread_id(), Ordering::Release);
-
-            Ok(true)
         }
 
         /// Release the semaphore/lock.
         // _multiprocessing_SemLock_release_impl
         #[pymethod]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let _crit = self.crit.lock();
             if self.kind == RECURSIVE_MUTEX {
                 // if (!ISMINE(self))
                 if !ismine!(self) {
@@ -698,6 +720,7 @@ mod _multiprocessing {
                 name,
                 last_tid: AtomicU64::new(0),
                 count: AtomicI32::new(0),
+                crit: PyMutex::new(()),
             };
             zelf.into_ref_with_type(vm, cls).map(Into::into)
         }
@@ -706,6 +729,7 @@ mod _multiprocessing {
         // _multiprocessing_SemLock__after_fork_impl
         #[pymethod]
         fn _after_fork(&self) {
+            let _crit = self.crit.lock();
             self.count.store(0, Ordering::Release);
             // Also reset last_tid for safety
             self.last_tid.store(0, Ordering::Release);
@@ -722,6 +746,7 @@ mod _multiprocessing {
         // _multiprocessing_SemLock__count_impl
         #[pymethod]
         fn _count(&self) -> i32 {
+            let _crit = self.crit.lock();
             self.count.load(Ordering::Acquire)
         }
 
@@ -826,6 +851,7 @@ mod _multiprocessing {
                 name,
                 last_tid: AtomicU64::new(0),
                 count: AtomicI32::new(0),
+                crit: PyMutex::new(()),
             })
         }
     }

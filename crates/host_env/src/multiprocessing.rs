@@ -23,6 +23,13 @@ pub struct SemHandle {
     raw: *mut sem_t,
 }
 
+// POSIX named semaphores are safe to post/wait from any thread that holds
+// a `sem_t *` to the same kernel object.
+#[cfg(unix)]
+unsafe impl Send for SemHandle {}
+#[cfg(unix)]
+unsafe impl Sync for SemHandle {}
+
 #[cfg(unix)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum SemError {
@@ -110,7 +117,9 @@ pub struct SemHandle {
     raw: HANDLE,
 }
 
+#[cfg(windows)]
 unsafe impl Send for SemHandle {}
+#[cfg(windows)]
 unsafe impl Sync for SemHandle {}
 
 #[cfg(unix)]
