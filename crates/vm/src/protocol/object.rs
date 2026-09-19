@@ -227,6 +227,7 @@ impl PyObject {
             instance_dict
                 .get_or_insert(vm)
                 .set_item(attr_name, value, vm)?;
+            instance_dict.maybe_materialize_inline_values();
         } else if let Some(dict) = instance_dict.get() {
             dict.del_item(attr_name, vm).map_err(|e| {
                 if e.fast_isinstance(vm.ctx.exceptions.key_error) {
@@ -298,6 +299,20 @@ impl PyObject {
     pub fn del_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult<()> {
         let attr_name = attr_name.as_pystr(&vm.ctx);
         self.call_set_attr(vm, attr_name, PySetterValue::Delete)
+    }
+
+    /// `PyObject_RichCompare` over two references the caller does not own.
+    ///
+    /// The eval loop reaches this through borrowed stack entries, so taking
+    /// `&self` here is what keeps `COMPARE_OP` free of reference counting.
+    #[inline(always)]
+    pub fn rich_compare(
+        &self,
+        other: &Self,
+        op_id: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self._cmp(other, op_id, vm).map(|res| res.to_pyobject(vm))
     }
 
     // Perform a comparison, raising TypeError when the requested comparison
@@ -603,8 +618,8 @@ impl PyObject {
             return Ok(false);
         }
 
-        // Check for __subclasscheck__ method using lookup_special (matches CPython)
-        if let Some(checker) = cls.lookup_special(identifier!(vm, __subclasscheck__), vm) {
+        // Check for __subclasscheck__ method using lookup_special
+        if let Some(checker) = cls.lookup_special(identifier!(vm, __subclasscheck__), vm)? {
             let res = vm.with_recursion("in __subclasscheck__", || {
                 checker.call((derived.to_owned(),), vm)
             })?;
@@ -695,8 +710,8 @@ impl PyObject {
             return Ok(false);
         }
 
-        // Check for __instancecheck__ method using lookup_special (matches CPython)
-        if let Some(checker) = cls.lookup_special(identifier!(vm, __instancecheck__), vm) {
+        // Check for __instancecheck__ method using lookup_special
+        if let Some(checker) = cls.lookup_special(identifier!(vm, __instancecheck__), vm)? {
             let res = vm.with_recursion("in __instancecheck__", || {
                 checker.call((self.to_owned(),), vm)
             })?;
@@ -833,23 +848,26 @@ impl PyObject {
         Err(vm.new_type_error(msg))
     }
 
-    /// Equivalent to CPython's _PyObject_LookupSpecial
-    /// Looks up a special method in the type's MRO without checking instance dict.
-    /// Returns None if not found (masking AttributeError like CPython).
-    pub fn lookup_special(&self, attr: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjectRef> {
+    /// _PyObject_LookupSpecial: look up a special method in the type MRO
+    /// without checking the instance dict. A miss is silent; a descr_get
+    /// error is propagated.
+    pub fn lookup_special(
+        &self,
+        attr: &Py<PyStr>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
         let obj_cls = self.class();
 
-        // Use PyType::lookup_ref (equivalent to CPython's _PyType_LookupRef)
-        let res = obj_cls.lookup_ref(attr, vm)?;
+        let Some(res) = obj_cls.lookup_ref(attr, vm) else {
+            return Ok(None);
+        };
 
-        // If it's a descriptor, call its __get__ method
         let descr_get = res.class().slots.descr_get.load();
         if let Some(descr_get) = descr_get {
             let obj_cls = obj_cls.to_owned().into();
-            // CPython ignores exceptions in _PyObject_LookupSpecial and returns NULL
-            descr_get(res, Some(self.to_owned()), Some(obj_cls), vm).ok()
+            descr_get(res, Some(self.to_owned()), Some(obj_cls), vm).map(Some)
         } else {
-            Some(res)
+            Ok(Some(res))
         }
     }
 }

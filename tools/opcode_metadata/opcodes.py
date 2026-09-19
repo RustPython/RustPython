@@ -82,7 +82,7 @@ def iter_opcodes(text: str, override_confs: OverrideConfs) -> Iterable[Opcode]:
 
         kwargs = {}
         if instr := analysis.instructions.get(cpython_name):
-            kwargs["properties"] = instr.properties
+            kwargs["properties"] = properties_with_pseudo_flags(instr)
             kwargs["family"] = getattr(instr, "family", None)
             kwargs["cache_entry"] = getattr(instr, "size", -1)
 
@@ -98,6 +98,33 @@ def iter_opcodes(text: str, override_confs: OverrideConfs) -> Iterable[Opcode]:
             )
 
         yield dataclasses.replace(opcode, override=override, **kwargs)
+
+
+# opcode_metadata_generator.py generate_metadata_table: cflags(pseudo.properties)
+# plus each explicit flag from the pseudo() definition.
+_PSEUDO_FLAG_ATTRS = {
+    "HAS_ARG": "oparg",
+    "HAS_CONST": "uses_co_consts",
+    "HAS_NAME": "uses_co_names",
+    "HAS_JUMP": "jumps",
+    "HAS_FREE": "has_free",
+    "HAS_LOCAL": "uses_locals",
+    "HAS_EVAL_BREAK": "eval_breaker",
+    "HAS_DEOPT": "deopts",
+    "HAS_EXIT": "side_exit",
+    "HAS_PURE": "pure",
+}
+
+
+def properties_with_pseudo_flags(instr):
+    props = instr.properties
+    flags = getattr(instr, "flags", None)
+    if not flags:
+        return props
+    updates = {attr: True for flag in flags if (attr := _PSEUDO_FLAG_ATTRS.get(flag))}
+    if not updates:
+        return props
+    return dataclasses.replace(props, **updates)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

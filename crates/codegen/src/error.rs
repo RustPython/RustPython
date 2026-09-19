@@ -29,6 +29,7 @@ pub enum InternalError {
     InvalidStackEffect,
     MalformedControlFlowGraph,
     MissingSymbol(String),
+    ConstIndexOutOfRange { index: usize, len: usize },
 }
 
 impl Display for InternalError {
@@ -42,6 +43,12 @@ impl Display for InternalError {
                 f,
                 "The symbol '{s}' must be present in the symbol table, even when it is undefined in python."
             ),
+            Self::ConstIndexOutOfRange { index, len } => {
+                write!(
+                    f,
+                    "LOAD_CONST index {index} is out of range for consts (len={len})"
+                )
+            }
         }
     }
 }

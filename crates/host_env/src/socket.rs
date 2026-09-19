@@ -535,6 +535,8 @@ pub fn sendmsg_afalg(
 #[cfg(windows)]
 use core::{ffi::CStr, ptr::NonNull};
 #[cfg(windows)]
+use rustpython_wtf8::Wtf8Buf;
+#[cfg(windows)]
 use std::io;
 #[cfg(windows)]
 use windows_sys::Win32::{
@@ -559,20 +561,21 @@ pub use windows_sys::Win32::Networking::WinSock::{
     IP_OPTIONS, IP_RECVDSTADDR, IP_TOS, IP_TTL, IPPORT_RESERVED, IPPROTO_AH, IPPROTO_CBT,
     IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP, IPPROTO_FRAGMENT, IPPROTO_GGP, IPPROTO_HOPOPTS,
     IPPROTO_ICLFXBM, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IGP,
-    IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV4, IPPROTO_IPV6, IPPROTO_L2TP, IPPROTO_ND,
-    IPPROTO_NONE, IPPROTO_PGM, IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_RDP, IPPROTO_ROUTING,
-    IPPROTO_SCTP, IPPROTO_ST, IPPROTO_TCP, IPPROTO_UDP, IPV6_CHECKSUM, IPV6_DONTFRAG,
-    IPV6_HOPLIMIT, IPV6_HOPOPTS, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, IPV6_MULTICAST_HOPS,
-    IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP, IPV6_PKTINFO, IPV6_RECVRTHDR, IPV6_RECVTCLASS,
-    IPV6_RTHDR, IPV6_TCLASS, IPV6_UNICAST_HOPS, IPV6_V6ONLY, MSG_BCAST, MSG_CTRUNC, MSG_DONTROUTE,
-    MSG_MCAST, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST, NI_MAXSERV,
-    NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON,
-    RCVALL_SOCKETLEVELONLY, SD_BOTH, SD_RECEIVE, SD_SEND, SIO_KEEPALIVE_VALS,
-    SIO_LOOPBACK_FAST_PATH, SIO_RCVALL, SO_BROADCAST, SO_ERROR, SO_KEEPALIVE, SO_LINGER,
-    SO_OOBINLINE, SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM,
-    SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOCKET_ERROR as SOCKET_ERROR_CODE, SOL_SOCKET,
-    SOMAXCONN, TCP_NODELAY, WSAEBADF, WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK, getprotobyname,
-    getservbyname, getservbyport, getsockopt, setsockopt,
+    IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV4, IPPROTO_IPV6, IPPROTO_L2TP, IPPROTO_MAX,
+    IPPROTO_ND, IPPROTO_NONE, IPPROTO_PGM, IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_RDP,
+    IPPROTO_ROUTING, IPPROTO_SCTP, IPPROTO_ST, IPPROTO_TCP, IPPROTO_UDP, IPV6_CHECKSUM,
+    IPV6_DONTFRAG, IPV6_HOPLIMIT, IPV6_HOPOPTS, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP,
+    IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP, IPV6_PKTINFO, IPV6_RECVRTHDR,
+    IPV6_RECVTCLASS, IPV6_RTHDR, IPV6_TCLASS, IPV6_UNICAST_HOPS, IPV6_V6ONLY, MSG_BCAST,
+    MSG_CTRUNC, MSG_DONTROUTE, MSG_MCAST, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM,
+    NI_MAXHOST, NI_MAXSERV, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, RCVALL_IPLEVEL,
+    RCVALL_OFF, RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH, SD_RECEIVE, SD_SEND,
+    SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL, SO_ACCEPTCONN, SO_BROADCAST, SO_DEBUG,
+    SO_DONTROUTE, SO_ERROR, SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE, SO_RCVBUF, SO_RCVTIMEO,
+    SO_REUSEADDR, SO_SNDBUF, SO_SNDTIMEO, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW, SOCK_RDM,
+    SOCK_SEQPACKET, SOCK_STREAM, SOCKET_ERROR as SOCKET_ERROR_CODE, SOL_IP, SOL_SOCKET, SOMAXCONN,
+    TCP_MAXSEG, TCP_NODELAY, WSAEBADF, WSAECONNABORTED, WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK,
+    getprotobyname, getservbyname, getservbyport, getsockopt, setsockopt,
 };
 
 #[cfg(windows)]
@@ -609,6 +612,71 @@ pub const AI_PASSIVE: i32 = windows_sys::Win32::Networking::WinSock::AI_PASSIVE 
 pub const AI_NUMERICHOST: i32 = windows_sys::Win32::Networking::WinSock::AI_NUMERICHOST as i32;
 #[cfg(windows)]
 pub const FROM_PROTOCOL_INFO_VALUE: i32 = FROM_PROTOCOL_INFO;
+
+/// Signed C-long readings of option words, plus names the Winsock headers
+/// do not define that the module still carries.
+#[cfg(windows)]
+pub const SOL_TCP: i32 = 6;
+#[cfg(windows)]
+pub const SOL_UDP: i32 = 17;
+#[cfg(windows)]
+pub const SOL_RFCOMM: i32 = 3;
+#[cfg(windows)]
+pub const SO_SNDLOWAT: i32 = 0x1003;
+#[cfg(windows)]
+pub const SO_RCVLOWAT: i32 = 0x1004;
+#[cfg(windows)]
+pub const SO_ORIGINAL_DST: i32 = 12303;
+#[cfg(windows)]
+pub const SO_BTH_ENCRYPT: i32 = 2;
+#[cfg(windows)]
+pub const SO_BTH_MTU: i32 = 0x8000_0007u32 as i32;
+#[cfg(windows)]
+pub const SO_BTH_MTU_MAX: i32 = 0x8000_0008u32 as i32;
+#[cfg(windows)]
+pub const SO_BTH_MTU_MIN: i32 = 0x8000_000au32 as i32;
+#[cfg(windows)]
+pub const TCP_KEEPIDLE: i32 = 3;
+#[cfg(windows)]
+pub const TCP_FASTOPEN: i32 = 15;
+#[cfg(windows)]
+pub const TCP_KEEPCNT: i32 = 16;
+#[cfg(windows)]
+pub const TCP_KEEPINTVL: i32 = 17;
+#[cfg(windows)]
+pub const IPPORT_USERRESERVED: i32 = 5000;
+#[cfg(windows)]
+pub const INADDR_UNSPEC_GROUP: i32 = 0xe000_0000u32 as i32;
+#[cfg(windows)]
+pub const INADDR_ALLHOSTS_GROUP: i32 = 0xe000_0001u32 as i32;
+#[cfg(windows)]
+pub const INADDR_MAX_LOCAL_GROUP: i32 = 0xe000_00ffu32 as i32;
+#[cfg(windows)]
+pub const IP_ADD_SOURCE_MEMBERSHIP: i32 = 15;
+#[cfg(windows)]
+pub const IP_DROP_SOURCE_MEMBERSHIP: i32 = 16;
+#[cfg(windows)]
+pub const IP_BLOCK_SOURCE: i32 = 17;
+#[cfg(windows)]
+pub const IP_UNBLOCK_SOURCE: i32 = 18;
+#[cfg(windows)]
+pub const IP_PKTINFO: i32 = 19;
+#[cfg(windows)]
+pub const IP_RECVTTL: i32 = 21;
+#[cfg(windows)]
+pub const IP_RECVTOS: i32 = 40;
+#[cfg(windows)]
+pub const IP_RECVERR: i32 = 75;
+#[cfg(windows)]
+pub const IPV6_RECVERR: i32 = 75;
+#[cfg(windows)]
+pub const MSG_ERRQUEUE: i32 = 0x1000;
+#[cfg(windows)]
+pub const RCVALL_MAX: i32 = 3;
+#[cfg(windows)]
+pub const BDADDR_ANY: &str = "00:00:00:00:00:00";
+#[cfg(windows)]
+pub const BDADDR_LOCAL: &str = "00:00:00:FF:FF:FF";
 
 #[cfg(windows)]
 pub type RawSocket = SOCKET;
@@ -865,16 +933,23 @@ pub fn if_indextoname_checked(index: u32) -> io::Result<String> {
     }
 }
 
+/// `PyUnicode_FromWideChar` / `Py_BuildValue("Iu")`: a LUID name is kept as
+/// WTF-8, so an unpaired surrogate is not replaced with U+FFFD.
 #[cfg(windows)]
-pub fn if_nameindex() -> io::Result<Vec<(u32, String)>> {
-    fn get_name(luid: &NET_LUID_LH) -> io::Result<String> {
+fn if_name_from_wide(buf: &[u16]) -> Wtf8Buf {
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Wtf8Buf::from_wide(&buf[..len])
+}
+
+#[cfg(windows)]
+pub fn if_nameindex() -> io::Result<Vec<(u32, Wtf8Buf)>> {
+    fn get_name(luid: &NET_LUID_LH) -> io::Result<Wtf8Buf> {
         let mut buf = [0u16; IF_MAX_STRING_SIZE as usize + 1];
         let ret = unsafe { ConvertInterfaceLuidToNameW(luid, buf.as_mut_ptr(), buf.len()) };
         if ret != 0 {
             return Err(io::Error::from_raw_os_error(ret as i32));
         }
-        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-        Ok(String::from_utf16_lossy(&buf[..len]))
+        Ok(if_name_from_wide(&buf))
     }
 
     struct MibTable {
@@ -916,6 +991,24 @@ pub fn if_nameindex() -> io::Result<Vec<(u32, String)>> {
         .collect()
 }
 
+#[cfg(test)]
+#[cfg(windows)]
+mod if_name_from_wide_tests {
+    use super::if_name_from_wide;
+    use rustpython_wtf8::Wtf8Buf;
+
+    #[test]
+    fn keeps_unpaired_surrogate() {
+        let units = [b'e' as u16, 0xD800, 0];
+        let name = if_name_from_wide(&units);
+        assert_eq!(name, Wtf8Buf::from_wide(&[b'e' as u16, 0xD800]));
+        assert_ne!(
+            name.as_bytes(),
+            String::from_utf16_lossy(&[b'e' as u16, 0xD800]).as_bytes()
+        );
+    }
+}
+
 /// `UuidFromStringW`. The status is the RPC code, not `GetLastError`.
 #[cfg(windows)]
 pub fn uuid_from_string_w(wide: &widestring::WideCStr) -> Result<windows_sys::core::GUID, u32> {
@@ -952,4 +1045,124 @@ pub fn uuid_to_string_w(guid: &windows_sys::core::GUID) -> Result<String, u32> {
     let text = String::from_utf16_lossy(unsafe { core::slice::from_raw_parts(raw, len) });
     unsafe { RpcStringFreeW(&mut raw) };
     Ok(text)
+}
+
+/// Address families the Windows SDK exposes beyond the older MSVC census.
+#[cfg(windows)]
+pub const AF_SNA: i32 = 11;
+#[cfg(windows)]
+pub const AF_IRDA: i32 = 26;
+#[cfg(windows)]
+pub const AF_HYPERV: i32 = windows_sys::Win32::Networking::WinSock::AF_HYPERV as i32;
+#[cfg(windows)]
+pub const AF_BLUETOOTH: i32 = windows_sys::Win32::Devices::Bluetooth::AF_BTH as i32;
+#[cfg(windows)]
+pub const AF_BTH: i32 = AF_BLUETOOTH;
+#[cfg(windows)]
+pub const BTHPROTO_RFCOMM: i32 = windows_sys::Win32::Devices::Bluetooth::BTHPROTO_RFCOMM as i32;
+
+/// `hvsocket.h`: the only protocol an `AF_HYPERV` socket is opened with.
+#[cfg(windows)]
+pub const HV_PROTOCOL_RAW: i32 = 1;
+#[cfg(windows)]
+pub const HVSOCKET_CONNECT_TIMEOUT: i32 = 0x01;
+#[cfg(windows)]
+pub const HVSOCKET_CONNECT_TIMEOUT_MAX: i32 = 300_000;
+#[cfg(windows)]
+pub const HVSOCKET_CONNECTED_SUSPEND: i32 = 0x04;
+#[cfg(windows)]
+pub const HVSOCKET_ADDRESS_FLAG_PASSTHRU: i32 = 0x01;
+#[cfg(windows)]
+pub const HV_GUID_ZERO: &str = "00000000-0000-0000-0000-000000000000";
+#[cfg(windows)]
+pub const HV_GUID_WILDCARD: &str = "00000000-0000-0000-0000-000000000000";
+#[cfg(windows)]
+pub const HV_GUID_BROADCAST: &str = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF";
+#[cfg(windows)]
+pub const HV_GUID_CHILDREN: &str = "90DB8B89-0D35-4F79-8CE9-49EA0AC8B7CD";
+#[cfg(windows)]
+pub const HV_GUID_LOOPBACK: &str = "E0E16197-DD56-4A10-9195-5EE7A155A838";
+#[cfg(windows)]
+pub const HV_GUID_PARENT: &str = "A42E7CDA-D03F-480C-9CC2-A4DE20ABB878";
+
+#[cfg(windows)]
+pub const SIO_TCP_SET_ACK_FREQUENCY: i32 =
+    windows_sys::Win32::Networking::WinSock::SIO_TCP_SET_ACK_FREQUENCY as i32;
+
+/// `SOCKADDR_HV` (`hvsocket.h`).
+#[cfg(windows)]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SockaddrHv {
+    pub family: u16,
+    pub reserved: u16,
+    pub vm_id: windows_sys::core::GUID,
+    pub service_id: windows_sys::core::GUID,
+}
+
+#[cfg(windows)]
+pub fn sockaddr_hv(
+    vm_id: windows_sys::core::GUID,
+    service_id: windows_sys::core::GUID,
+) -> SockaddrHv {
+    SockaddrHv {
+        family: AF_HYPERV as u16,
+        reserved: 0,
+        vm_id,
+        service_id,
+    }
+}
+
+/// `SOCKADDR_BTH`.
+#[cfg(windows)]
+pub fn sockaddr_bth_rfcomm(
+    bd_addr: u64,
+    port: u32,
+) -> windows_sys::Win32::Devices::Bluetooth::SOCKADDR_BTH {
+    windows_sys::Win32::Devices::Bluetooth::SOCKADDR_BTH {
+        addressFamily: AF_BTH as u16,
+        btAddr: bd_addr,
+        serviceClassId: Default::default(),
+        port,
+    }
+}
+
+#[cfg(windows)]
+pub fn unpack_sockaddr_bth(ptr: *const u8) -> (u64, u32) {
+    let bth = unsafe { &*(ptr.cast::<windows_sys::Win32::Devices::Bluetooth::SOCKADDR_BTH>()) };
+    (bth.btAddr, bth.port)
+}
+
+/// `setbdaddr`: six hex octets separated by `:`.
+#[cfg(windows)]
+pub fn parse_bdaddr(name: &str) -> Option<u64> {
+    let mut parts = name.split(':');
+    let mut value = 0u64;
+    for _ in 0..6 {
+        let part = parts.next()?;
+        if part.is_empty() || part.len() > 2 {
+            return None;
+        }
+        let octet = u8::from_str_radix(part, 16).ok()?;
+        value = (value << 8) | u64::from(octet);
+    }
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(value)
+}
+
+/// `makebdaddr`: `XX:XX:XX:XX:XX:XX`, most significant octet first.
+#[cfg(windows)]
+pub fn format_bdaddr(bdaddr: u64) -> String {
+    let octet = |i: u32| (bdaddr >> (8 * i)) & 0xFF;
+    alloc::format!(
+        "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+        octet(5),
+        octet(4),
+        octet(3),
+        octet(2),
+        octet(1),
+        octet(0)
+    )
 }

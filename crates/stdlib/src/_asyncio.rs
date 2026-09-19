@@ -7,6 +7,7 @@ pub(crate) use _asyncio::module_def;
 #[pymodule]
 pub(crate) mod _asyncio {
     use crate::common::wtf8::{Wtf8Buf, wtf8_concat};
+    use crate::contextvars::PyContext;
     use crate::{
         common::lock::PyRwLock,
         vm::{
@@ -1994,28 +1995,40 @@ pub(crate) mod _asyncio {
         let coro = zelf.task_coro.read().clone();
         let context = zelf.task_context.read().clone();
 
-        // Run the first step with context (using context.run(callable, *args))
-        let step_result = if let Some(ctx) = context {
-            // Call context.run(coro.send, None)
-            let coro_ref = match coro {
-                Some(c) => c,
-                None => {
-                    let _ = _swap_current_task(loop_obj, prev_task, vm);
-                    _unregister_eager_task(task_obj, vm)?;
-                    return Ok(());
+        // Run the first step with context. Rather than going through the
+        // generic `context.run(coro.send, None)` dispatch (which builds a
+        // bound-method object for `send` and then re-enters the generic
+        // callable/FuncArgs machinery just to invoke it), enter/exit the
+        // native `PyContext` directly and call `coro.send(None)` through a
+        // single `call_method`. This is eager-start specific: it runs once
+        // per task (not per step), so it only shaves the extra dispatch
+        // layer off the synchronous-completion fast path.
+        let step_result = match coro {
+            Some(c) => {
+                if let Some(ctx) = context {
+                    match ctx.downcast::<PyContext>() {
+                        Ok(ctx) => {
+                            // Only exit a context that was actually entered.
+                            PyContext::enter(&ctx, vm)?;
+                            let result = vm.call_method(&c, "send", (vm.ctx.none(),));
+                            PyContext::exit(&ctx, vm)?;
+                            result
+                        }
+                        Err(ctx) => {
+                            // Non-native context object (e.g. user-subclassed):
+                            // fall back to the generic `context.run` dispatch.
+                            let send_method = c.get_attr(vm.ctx.intern_str("send"), vm)?;
+                            vm.call_method(&ctx, "run", (send_method, vm.ctx.none()))
+                        }
+                    }
+                } else {
+                    vm.call_method(&c, "send", (vm.ctx.none(),))
                 }
-            };
-            let send_method = coro_ref.get_attr(vm.ctx.intern_str("send"), vm)?;
-            vm.call_method(&ctx, "run", (send_method, vm.ctx.none()))
-        } else {
-            // Run without context
-            match coro {
-                Some(c) => vm.call_method(&c, "send", (vm.ctx.none(),)),
-                None => {
-                    let _ = _swap_current_task(loop_obj, prev_task, vm);
-                    _unregister_eager_task(task_obj, vm)?;
-                    return Ok(());
-                }
+            }
+            None => {
+                let _ = _swap_current_task(loop_obj, prev_task, vm);
+                _unregister_eager_task(task_obj, vm)?;
+                return Ok(());
             }
         };
 
@@ -2332,25 +2345,144 @@ pub(crate) mod _asyncio {
 
     // Module Functions
 
+    /// Cache of `_asyncio`'s module-level task-tracking containers.
+    ///
+    /// The hot paths below (task registration/unregistration and entering
+    /// and leaving tasks) previously re-did `vm.import(...)` followed by a
+    /// string-keyed `get_attribute_opt` on *every single call*. For the
+    /// `async_tree_eager` workload that means tens of thousands of
+    /// redundant module imports and attribute lookups. We instead resolve
+    /// these objects once and cache them here.
+    ///
+    /// The cache pins the *module object itself* (not just its raw id), so
+    /// a dropped-and-reused address can never alias a stale cache entry
+    /// (the ABA problem a pointer-only id comparison would have). Validity
+    /// is then just an identity (`is`) comparison between the pinned module
+    /// and the module `vm.import` currently resolves to.
+    ///
+    /// `current_tasks` is kept independent of whether it downcasts to a
+    /// `dict`: if user code has replaced `_current_tasks` with something
+    /// else, we simply treat the cross-thread lookup as unavailable rather
+    /// than hard-erroring, matching the lenient behavior callers expect
+    /// (e.g. `current_task()` falling back to `None`).
+    struct AsyncioCache {
+        module: PyObjectRef,
+        scheduled_tasks: PyObjectRef,
+        eager_tasks: PyRef<PySet>,
+        current_tasks: Option<PyRef<PyDict>>,
+    }
+
+    /// Cache of `contextvars.copy_context`, resolved independently of
+    /// `AsyncioCache` so that the extremely hot `get_copy_context` path
+    /// (called on every Future/Task construction and every
+    /// context-less `add_done_callback`) never has to pay for importing or
+    /// validating `_asyncio` as well.
+    struct ContextVarsCache {
+        module: PyObjectRef,
+        copy_context: PyObjectRef,
+    }
+
+    // `PyObjectRef`/`PyRef<T>` are not `Sync` (they are not meant to be
+    // shared across threads via a plain global), so the caches live in
+    // thread-locals, mirroring the `CONTEXTS` thread-local already used by
+    // `contextvars.rs`. Each thread pays the resolution cost once (or again
+    // after a module reload, detected via the identity check below) rather
+    // than on every task step.
+    thread_local! {
+        static ASYNCIO_CACHE: core::cell::RefCell<Option<AsyncioCache>> = const { core::cell::RefCell::new(None) };
+        static CONTEXTVARS_CACHE: core::cell::RefCell<Option<ContextVarsCache>> = const { core::cell::RefCell::new(None) };
+    }
+
+    /// Access the cached `_asyncio` module state, refreshing it first if the
+    /// module it was built from is no longer the currently-imported one
+    /// (e.g. after a reload). `f` only clones out the one field the caller
+    /// actually needs, rather than the whole cache.
+    fn with_asyncio_cache<R>(
+        vm: &VirtualMachine,
+        f: impl FnOnce(&AsyncioCache) -> R,
+    ) -> PyResult<R> {
+        let asyncio_module = vm.import("_asyncio", 0)?;
+
+        let hit =
+            ASYNCIO_CACHE.with_borrow(|c| c.as_ref().is_some_and(|c| c.module.is(&asyncio_module)));
+        if hit {
+            return Ok(ASYNCIO_CACHE.with_borrow(|c| f(c.as_ref().unwrap())));
+        }
+
+        // Slow path: (re)resolve everything and populate the cache.
+        let scheduled_tasks = vm
+            .get_attribute_opt(
+                asyncio_module.clone(),
+                vm.ctx.intern_str("_scheduled_tasks"),
+            )?
+            .ok_or_else(|| vm.new_attribute_error("_scheduled_tasks not found"))?;
+        let eager_tasks: PyRef<PySet> = vm
+            .get_attribute_opt(asyncio_module.clone(), vm.ctx.intern_str("_eager_tasks"))?
+            .ok_or_else(|| vm.new_attribute_error("_eager_tasks not found"))?
+            .downcast()
+            .map_err(|_| vm.new_type_error("_eager_tasks is not a set"))?;
+        // Lenient by design: a missing or non-dict `_current_tasks` just
+        // disables the cross-thread lookup instead of raising.
+        let current_tasks: Option<PyRef<PyDict>> = vm
+            .get_attribute_opt(asyncio_module.clone(), vm.ctx.intern_str("_current_tasks"))?
+            .and_then(|obj| obj.downcast::<PyDict>().ok());
+
+        let cache = AsyncioCache {
+            module: asyncio_module,
+            scheduled_tasks,
+            eager_tasks,
+            current_tasks,
+        };
+        let result = f(&cache);
+        ASYNCIO_CACHE.with_borrow_mut(|c| *c = Some(cache));
+        Ok(result)
+    }
+
+    /// Access the cached `contextvars.copy_context`, refreshing it first if
+    /// the module it was built from is no longer the currently-imported one.
+    fn with_contextvars_cache<R>(
+        vm: &VirtualMachine,
+        f: impl FnOnce(&ContextVarsCache) -> R,
+    ) -> PyResult<R> {
+        let contextvars_module = vm.import("contextvars", 0)?;
+
+        let hit = CONTEXTVARS_CACHE
+            .with_borrow(|c| c.as_ref().is_some_and(|c| c.module.is(&contextvars_module)));
+        if hit {
+            return Ok(CONTEXTVARS_CACHE.with_borrow(|c| f(c.as_ref().unwrap())));
+        }
+
+        let copy_context = vm
+            .get_attribute_opt(
+                contextvars_module.clone(),
+                vm.ctx.intern_str("copy_context"),
+            )?
+            .ok_or_else(|| vm.new_attribute_error("copy_context not found"))?;
+
+        let cache = ContextVarsCache {
+            module: contextvars_module,
+            copy_context,
+        };
+        let result = f(&cache);
+        CONTEXTVARS_CACHE.with_borrow_mut(|c| *c = Some(cache));
+        Ok(result)
+    }
+
     fn get_all_tasks_set(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         // Use the module-level _scheduled_tasks WeakSet
-        let asyncio_module = vm.import("_asyncio", 0)?;
-        vm.get_attribute_opt(asyncio_module, vm.ctx.intern_str("_scheduled_tasks"))?
-            .ok_or_else(|| vm.new_attribute_error("_scheduled_tasks not found"))
+        with_asyncio_cache(vm, |c| c.scheduled_tasks.clone())
     }
 
-    fn get_eager_tasks_set(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn get_eager_tasks_set(vm: &VirtualMachine) -> PyResult<PyRef<PySet>> {
         // Use the module-level _eager_tasks Set
-        let asyncio_module = vm.import("_asyncio", 0)?;
-        vm.get_attribute_opt(asyncio_module, vm.ctx.intern_str("_eager_tasks"))?
-            .ok_or_else(|| vm.new_attribute_error("_eager_tasks not found"))
+        with_asyncio_cache(vm, |c| c.eager_tasks.clone())
     }
 
-    fn get_current_tasks_dict(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        // Use the module-level _current_tasks Dict
-        let asyncio_module = vm.import("_asyncio", 0)?;
-        vm.get_attribute_opt(asyncio_module, vm.ctx.intern_str("_current_tasks"))?
-            .ok_or_else(|| vm.new_attribute_error("_current_tasks not found"))
+    /// Returns `Ok(None)` (rather than erroring) when `_current_tasks` isn't
+    /// available as a dict, so callers can fall back to their lenient
+    /// per-thread-only behavior.
+    fn get_current_tasks_dict(vm: &VirtualMachine) -> PyResult<Option<PyRef<PyDict>>> {
+        with_asyncio_cache(vm, |c| c.current_tasks.clone())
     }
 
     #[pyfunction]
@@ -2420,15 +2552,17 @@ pub(crate) mod _asyncio {
                 .unwrap_or_else(|| vm.ctx.none()));
         }
 
-        // Slow path: look up in the module-level dict for cross-thread queries
-        let current_tasks = get_current_tasks_dict(vm)?;
-        let Ok(dict) = current_tasks.downcast::<PyDict>() else {
-            return Ok(vm.ctx.none());
-        };
-
-        match dict.get_item(&*loop_obj, vm) {
-            Ok(task) => Ok(task),
-            Err(_) => Ok(vm.ctx.none()),
+        // Slow path: look up in the module-level dict for cross-thread
+        // queries. Lenient: if the dict isn't available (e.g.
+        // `_current_tasks` was replaced with something that isn't a dict),
+        // or the lookup itself fails, fall back to `None`, matching
+        // CPython's non-raising behavior here.
+        match get_current_tasks_dict(vm) {
+            Ok(Some(current_tasks)) => match current_tasks.get_item(&*loop_obj, vm) {
+                Ok(task) => Ok(task),
+                Err(_) => Ok(vm.ctx.none()),
+            },
+            _ => Ok(vm.ctx.none()),
         }
     }
 
@@ -2489,16 +2623,18 @@ pub(crate) mod _asyncio {
 
     #[pyfunction]
     fn _register_eager_task(task: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        // _eager_tasks is always our native PySet, so insert directly via
+        // its Rust API instead of a generic `call_method(.., "add", ..)`
+        // dispatch (attribute lookup + FuncArgs machinery) on every eager
+        // task start.
         let eager_tasks_set = get_eager_tasks_set(vm)?;
-        vm.call_method(&eager_tasks_set, "add", (task,))?;
-        Ok(())
+        eager_tasks_set.add(task, vm)
     }
 
     #[pyfunction]
     fn _unregister_eager_task(task: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let eager_tasks_set = get_eager_tasks_set(vm)?;
-        vm.call_method(&eager_tasks_set, "discard", (task,))?;
-        Ok(())
+        eager_tasks_set.discard(task, vm)
     }
 
     #[pyfunction]
@@ -2520,10 +2656,8 @@ pub(crate) mod _asyncio {
         *vm.asyncio_running_task.borrow_mut() = Some(task.clone());
 
         // Also update the module-level dict for cross-thread queries
-        if let Ok(current_tasks) = get_current_tasks_dict(vm)
-            && let Ok(dict) = current_tasks.downcast::<rustpython_vm::builtins::PyDict>()
-        {
-            let _ = dict.set_item(&*loop_, task, vm);
+        if let Ok(Some(current_tasks)) = get_current_tasks_dict(vm) {
+            let _ = current_tasks.set_item(&*loop_, task, vm);
         }
         Ok(())
     }
@@ -2547,10 +2681,8 @@ pub(crate) mod _asyncio {
         *vm.asyncio_running_task.borrow_mut() = None;
 
         // Also update the module-level dict
-        if let Ok(current_tasks) = get_current_tasks_dict(vm)
-            && let Ok(dict) = current_tasks.downcast::<rustpython_vm::builtins::PyDict>()
-        {
-            let _ = dict.del_item(&*loop_, vm);
+        if let Ok(Some(current_tasks)) = get_current_tasks_dict(vm) {
+            let _ = current_tasks.del_item(&*loop_, vm);
         }
         Ok(())
     }
@@ -2575,13 +2707,11 @@ pub(crate) mod _asyncio {
         }
 
         // Also update the module-level dict for cross-thread queries
-        if let Ok(current_tasks) = get_current_tasks_dict(vm)
-            && let Ok(dict) = current_tasks.downcast::<rustpython_vm::builtins::PyDict>()
-        {
+        if let Ok(Some(current_tasks)) = get_current_tasks_dict(vm) {
             if vm.is_none(&task) {
-                let _ = dict.del_item(&*loop_, vm);
+                let _ = current_tasks.del_item(&*loop_, vm);
             } else {
-                let _ = dict.set_item(&*loop_, task, vm);
+                let _ = current_tasks.set_item(&*loop_, task, vm);
             }
         }
 
@@ -2590,10 +2720,11 @@ pub(crate) mod _asyncio {
 
     /// Reset task state after fork in child process.
     #[pyfunction]
+    #[allow(clippy::unnecessary_wraps)] // keep PyResult for consistency with sibling module functions
     fn _on_fork(vm: &VirtualMachine) -> PyResult<()> {
         // Clear current_tasks dict so child process doesn't inherit parent's tasks
-        if let Ok(current_tasks) = get_current_tasks_dict(vm) {
-            vm.call_method(&current_tasks, "clear", ())?;
+        if let Ok(Some(current_tasks)) = get_current_tasks_dict(vm) {
+            current_tasks.clear();
         }
         // Clear the running loop and task
         *vm.asyncio_running_loop.borrow_mut() = None;
@@ -2770,10 +2901,10 @@ pub(crate) mod _asyncio {
     }
 
     fn get_copy_context(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let contextvars = vm.import("contextvars", 0)?;
-        let copy_context = vm
-            .get_attribute_opt(contextvars, vm.ctx.intern_str("copy_context"))?
-            .ok_or_else(|| vm.new_attribute_error("copy_context not found"))?;
+        // Cached: avoids re-importing `contextvars` and re-resolving
+        // `copy_context` by name on every Future/Task construction and every
+        // context-less `add_done_callback` call (see `ContextVarsCache`).
+        let copy_context = with_contextvars_cache(vm, |c| c.copy_context.clone())?;
         copy_context.call((), vm)
     }
 

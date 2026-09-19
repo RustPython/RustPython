@@ -110,11 +110,19 @@ impl VirtualMachine {
     }
 
     pub fn length_hint_opt(&self, iter: PyObjectRef) -> PyResult<Option<usize>> {
-        match iter.length(self) {
-            Ok(len) => return Ok(Some(len)),
-            Err(e) => {
-                if !e.fast_isinstance(self.ctx.exceptions.type_error) {
-                    return Err(e);
+        // Ask for a length only from something that could have one. `length()`
+        // answers a type with no length slot -- every iterator, every
+        // generator, which is most of what gets passed here -- by building a
+        // `TypeError` this caller immediately throws away. CPython's
+        // `PyObject_LengthHint` gates the call on the slots for the same
+        // reason.
+        if let Some(len) = iter.length_opt(self) {
+            match len {
+                Ok(len) => return Ok(Some(len)),
+                Err(e) => {
+                    if !e.fast_isinstance(self.ctx.exceptions.type_error) {
+                        return Err(e);
+                    }
                 }
             }
         }
@@ -369,9 +377,12 @@ impl VirtualMachine {
             }
         }
 
+        // The modulus gets its turn whenever its slot is not one of the two
+        // already tried, which includes the case where neither operand had one:
+        // `pow(10, 2, Decimal(7))` reaches `Decimal` only this way.
         if let Some(slot_c) = class_c.slots.as_number.left_ternary_op(op_slot)
-            && slot_a.is_some_and(|slot_a| !core::ptr::fn_addr_eq(slot_a, slot_c))
-            && slot_b.is_some_and(|slot_b| !core::ptr::fn_addr_eq(slot_b, slot_c))
+            && slot_a.is_none_or(|slot_a| !core::ptr::fn_addr_eq(slot_a, slot_c))
+            && slot_b.is_none_or(|slot_b| !core::ptr::fn_addr_eq(slot_b, slot_c))
         {
             let ret = slot_c(a, b, c, self)?;
             if !ret.is(&self.ctx.not_implemented) {

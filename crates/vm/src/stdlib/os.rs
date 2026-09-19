@@ -245,7 +245,7 @@ pub(super) mod _os {
     pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const UNLINK_DIR_FD: bool = cfg!(not(windows));
     const RENAME_DIR_FD: bool = cfg!(any(unix, target_os = "wasi"));
-    const RMDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    const RMDIR_DIR_FD: bool = cfg!(not(windows));
     const SCANDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
     #[pyattr]
@@ -449,18 +449,7 @@ pub(super) mod _os {
         dir_fd: DirFd<'_, { RMDIR_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        #[cfg(not(target_os = "redox"))]
-        if let Some(fd) = dir_fd.raw_opt() {
-            let c_path = path.clone().into_cstring(vm)?;
-            return if let Err(err) = crate::host_env::posix::remove_dir_at(fd, c_path.as_c_str()) {
-                Err(OSErrorBuilder::with_filename(&err, path, vm))
-            } else {
-                Ok(())
-            };
-        }
-        #[cfg(target_os = "redox")]
-        let [] = dir_fd.0;
-        crate::host_env::fs::remove_dir(&path)
+        crate::host_env::posix::remove_dir_at(dir_fd.get_opt(), &path.path)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
@@ -684,6 +673,9 @@ pub(super) mod _os {
         ino: AtomicCell<Option<u128>>,
         #[cfg(not(any(unix, windows)))]
         ino: AtomicCell<Option<u64>>,
+        /// `WIN32_FIND_DATAW` from `rposix_scandir.nextentry`.
+        #[cfg(windows)]
+        find: Option<host_nt::ScandirEntry>,
     }
 
     #[pyclass(flags(DISALLOW_INSTANTIATION), with(Representable))]
@@ -741,6 +733,16 @@ pub(super) mod _os {
 
         #[pymethod]
         fn is_dir(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+            #[cfg(windows)]
+            if let Some(find) = &self.find {
+                // Follow only real symlinks. Junctions are not symlinks, so
+                // FILE_ATTRIBUTE_DIRECTORY is used as-is. A directory symlink
+                // is not a directory when follow_symlinks is false.
+                let is_symlink = find.is_symlink();
+                if !(follow_symlinks.0 && is_symlink) {
+                    return Ok(!is_symlink && find.is_directory());
+                }
+            }
             if let Ok(file_type) = &self.file_type
                 && (!follow_symlinks.0 || !file_type.is_symlink())
             {
@@ -766,6 +768,12 @@ pub(super) mod _os {
 
         #[pymethod]
         fn is_file(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+            #[cfg(windows)]
+            if let Some(find) = &self.find
+                && (!follow_symlinks.0 || !find.is_symlink())
+            {
+                return Ok(find.is_file());
+            }
             if let Ok(file_type) = &self.file_type
                 && (!follow_symlinks.0 || !file_type.is_symlink())
             {
@@ -791,6 +799,10 @@ pub(super) mod _os {
 
         #[pymethod]
         fn is_symlink(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            #[cfg(windows)]
+            if let Some(find) = &self.find {
+                return Ok(find.is_symlink());
+            }
             if let Ok(file_type) = &self.file_type {
                 return Ok(file_type.is_symlink());
             }
@@ -971,6 +983,9 @@ pub(super) mod _os {
     #[pyclass(name = "ScandirIter")]
     #[derive(Debug, PyPayload)]
     struct ScandirIterator {
+        #[cfg(windows)]
+        entries: PyRwLock<Option<host_nt::Scandir>>,
+        #[cfg(not(windows))]
         entries: PyRwLock<Option<fs::ReadDir>>,
         mode: OutputMode,
     }
@@ -979,8 +994,7 @@ pub(super) mod _os {
     impl ScandirIterator {
         #[pymethod]
         fn close(&self) {
-            let entryref: &mut Option<fs::ReadDir> = &mut self.entries.write();
-            let _dropped = entryref.take();
+            let _dropped = self.entries.write().take();
         }
 
         #[pymethod]
@@ -1019,71 +1033,100 @@ pub(super) mod _os {
 
     impl IterNext for ScandirIterator {
         fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let entryref: &mut Option<fs::ReadDir> = &mut zelf.entries.write();
-
-            match entryref {
-                None => Ok(PyIterReturn::StopIteration(None)),
-                Some(inner) => match inner.next() {
-                    Some(entry) => match entry {
-                        Ok(entry) => {
-                            #[cfg(unix)]
-                            let ino = {
-                                use std::os::unix::fs::DirEntryExt;
-                                entry.ino()
-                            };
-                            // TODO: wasi is nightly
-                            // #[cfg(target_os = "wasi")]
-                            // let ino = {
-                            //     use std::os::wasi::fs::DirEntryExt;
-                            //     entry.ino()
-                            // };
-                            #[cfg(not(unix))]
-                            let ino = None;
-
-                            let pathval = entry.path();
-
-                            // On Windows, pre-cache lstat from directory entry metadata
-                            // This allows stat() to return cached data even if file is removed
-                            #[cfg(windows)]
+            #[cfg(windows)]
+            {
+                let mut entryref = zelf.entries.write();
+                let inner = match entryref.as_mut() {
+                    None => return Ok(PyIterReturn::StopIteration(None)),
+                    Some(inner) => inner,
+                };
+                loop {
+                    match inner.next_entry() {
+                        Ok(None) => {
+                            let _dropped = entryref.take();
+                            return Ok(PyIterReturn::StopIteration(None));
+                        }
+                        Err(err) => {
+                            let _dropped = entryref.take();
+                            return Err(err.into_pyexception(vm));
+                        }
+                        Ok(Some(entry)) if entry.is_dot_or_dotdot() => continue,
+                        Ok(Some(entry)) => {
+                            let pathval = PathBuf::from(inner.entry_path(&entry));
                             let lstat = {
                                 let cell = OnceCell::new();
-                                if let Ok(wide) = pathval.as_os_str().to_wide_cstring()
-                                    && let Ok(stat_struct) = host_nt::win32_xstat(&wide, false)
-                                {
-                                    let stat_obj =
-                                        StatResultData::from_stat(&stat_struct, vm).to_pyobject(vm);
-                                    let _ = cell.set(stat_obj);
-                                }
+                                let stat_obj =
+                                    StatResultData::from_stat(&entry.to_stat_struct(), vm)
+                                        .to_pyobject(vm);
+                                let _ = cell.set(stat_obj);
                                 cell
                             };
-                            #[cfg(not(windows))]
-                            let lstat = OnceCell::new();
-
-                            Ok(PyIterReturn::Return(
+                            return Ok(PyIterReturn::Return(
                                 DirEntry {
-                                    file_name: entry.file_name(),
+                                    file_name: entry.name.clone(),
                                     pathval,
-                                    file_type: entry.file_type(),
-                                    #[cfg(unix)]
-                                    d_type: None,
-                                    #[cfg(not(any(windows, target_os = "redox")))]
-                                    dir_fd: None,
+                                    file_type: Err(io::Error::other(
+                                        "file_type taken from find data",
+                                    )),
                                     mode: zelf.mode,
                                     lstat,
                                     stat: OnceCell::new(),
-                                    ino: AtomicCell::new(ino),
+                                    ino: AtomicCell::new(None),
+                                    find: Some(entry),
                                 }
                                 .into_ref(&vm.ctx)
                                 .into(),
-                            ))
+                            ));
                         }
-                        Err(err) => Err(err.into_pyexception(vm)),
-                    },
-                    None => {
-                        let _dropped = entryref.take();
-                        Ok(PyIterReturn::StopIteration(None))
                     }
-                },
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                let entryref: &mut Option<fs::ReadDir> = &mut zelf.entries.write();
+
+                match entryref {
+                    None => Ok(PyIterReturn::StopIteration(None)),
+                    Some(inner) => match inner.next() {
+                        Some(entry) => match entry {
+                            Ok(entry) => {
+                                #[cfg(unix)]
+                                let ino = {
+                                    use std::os::unix::fs::DirEntryExt;
+                                    entry.ino()
+                                };
+                                #[cfg(not(unix))]
+                                let ino = None;
+
+                                let pathval = entry.path();
+                                let lstat = OnceCell::new();
+
+                                Ok(PyIterReturn::Return(
+                                    DirEntry {
+                                        file_name: entry.file_name(),
+                                        pathval,
+                                        file_type: entry.file_type(),
+                                        #[cfg(unix)]
+                                        d_type: None,
+                                        #[cfg(not(any(windows, target_os = "redox")))]
+                                        dir_fd: None,
+                                        mode: zelf.mode,
+                                        lstat,
+                                        stat: OnceCell::new(),
+                                        ino: AtomicCell::new(ino),
+                                    }
+                                    .into_ref(&vm.ctx)
+                                    .into(),
+                                ))
+                            }
+                            Err(err) => Err(err.into_pyexception(vm)),
+                        },
+                        None => {
+                            let _dropped = entryref.take();
+                            Ok(PyIterReturn::StopIteration(None))
+                        }
+                    },
+                }
             }
         }
     }
@@ -1185,14 +1228,32 @@ pub(super) mod _os {
             .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         match path {
             OsPathOrFd::Path(path) => {
-                let entries = crate::host_env::fs::read_dir(&path.path)
-                    .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-                Ok(ScandirIterator {
-                    entries: PyRwLock::new(Some(entries)),
-                    mode: path.mode(),
+                #[cfg(windows)]
+                {
+                    let wide = path
+                        .path
+                        .to_wide_cstring()
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                    let entries = host_nt::scandir(&wide)
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                    Ok(ScandirIterator {
+                        entries: PyRwLock::new(Some(entries)),
+                        mode: path.mode(),
+                    }
+                    .into_ref(&vm.ctx)
+                    .into())
                 }
-                .into_ref(&vm.ctx)
-                .into())
+                #[cfg(not(windows))]
+                {
+                    let entries = crate::host_env::fs::read_dir(&path.path)
+                        .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
+                    Ok(ScandirIterator {
+                        entries: PyRwLock::new(Some(entries)),
+                        mode: path.mode(),
+                    }
+                    .into_ref(&vm.ctx)
+                    .into())
+                }
             }
             OsPathOrFd::Fd(fno) => {
                 #[cfg(not(all(unix, not(target_os = "redox"))))]

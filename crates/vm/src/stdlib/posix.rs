@@ -18,10 +18,12 @@ pub use rustpython_host_env::posix::set_inheritable;
 pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
+        builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
-        function::{ArgMapping, Either, KwArgs, OptionalArg},
+        function::{
+            ArgBytesLike, ArgMapping, ArgPrimitiveIndex, ArgSize, Either, KwArgs, OptionalArg,
+        },
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
             _os, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata, warn_if_bool_fd,
@@ -963,6 +965,57 @@ pub mod module {
     }
 
     #[pyfunction]
+    fn pread(
+        fd: ArgPrimitiveIndex<i32>,
+        n: ArgSize,
+        offset: ArgPrimitiveIndex<libc::off_t>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesRef> {
+        let (fd, n, offset) = (fd.value, n.value, offset.value);
+        if n < 0 {
+            return Err(io::Error::from_raw_os_error(libc::EINVAL).into_pyexception(vm));
+        }
+        let mut buffer = vm.new_zeroed_bytes(n as usize)?;
+        loop {
+            match vm.allow_threads(|| rustpython_host_env::posix::pread(fd, &mut buffer, offset)) {
+                Ok(n) => {
+                    buffer.truncate(n);
+                    return Ok(vm.ctx.new_bytes(buffer));
+                }
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(err) => return Err(err.into_pyexception(vm)),
+            }
+        }
+    }
+
+    #[pyfunction]
+    fn pwrite(
+        fd: ArgPrimitiveIndex<i32>,
+        buffer: ArgBytesLike,
+        offset: ArgPrimitiveIndex<libc::off_t>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        // Avoid holding a buffer lock across blocking I/O,
+        // which can prevent other threads from reaching GC safepoints.
+        let data = buffer.borrow_buf_unlocked(vm)?;
+        loop {
+            match vm
+                .allow_threads(|| rustpython_host_env::posix::pwrite(fd.value, &data, offset.value))
+            {
+                Ok(n) => return Ok(n),
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(err) => return Err(err.into_pyexception(vm)),
+            }
+        }
+    }
+
+    #[pyfunction]
     fn pipe(vm: &VirtualMachine) -> PyResult<(OwnedFd, OwnedFd)> {
         rustpython_host_env::posix::pipe().map_err(|err| err.into_pyexception(vm))
     }
@@ -1769,6 +1822,65 @@ pub mod module {
     #[pyfunction]
     fn wait(vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
         waitpid(-1, 0, vm)
+    }
+
+    fn rusage_to_py(
+        ru: rustpython_host_env::resource::RUsage,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let resource = vm.import("resource", 0)?;
+        let struct_rusage = resource.get_attr("struct_rusage", vm)?;
+        let tv = |t: rustpython_host_env::resource::timeval| {
+            t.tv_sec as f64 + (t.tv_usec as f64 / 1_000_000.0)
+        };
+        let fields = vm.ctx.new_tuple(vec![
+            vm.ctx.new_float(tv(ru.ru_utime)).into(),
+            vm.ctx.new_float(tv(ru.ru_stime)).into(),
+            vm.ctx.new_int(ru.ru_maxrss).into(),
+            vm.ctx.new_int(ru.ru_ixrss).into(),
+            vm.ctx.new_int(ru.ru_idrss).into(),
+            vm.ctx.new_int(ru.ru_isrss).into(),
+            vm.ctx.new_int(ru.ru_minflt).into(),
+            vm.ctx.new_int(ru.ru_majflt).into(),
+            vm.ctx.new_int(ru.ru_nswap).into(),
+            vm.ctx.new_int(ru.ru_inblock).into(),
+            vm.ctx.new_int(ru.ru_oublock).into(),
+            vm.ctx.new_int(ru.ru_msgsnd).into(),
+            vm.ctx.new_int(ru.ru_msgrcv).into(),
+            vm.ctx.new_int(ru.ru_nsignals).into(),
+            vm.ctx.new_int(ru.ru_nvcsw).into(),
+            vm.ctx.new_int(ru.ru_nivcsw).into(),
+        ]);
+        struct_rusage.call((fields,), vm)
+    }
+
+    fn wait_with_rusage<F>(vm: &VirtualMachine, wait: F) -> PyResult<PyTupleRef>
+    where
+        F: Fn() -> std::io::Result<(libc::pid_t, i32, rustpython_host_env::resource::RUsage)>,
+    {
+        loop {
+            match vm.allow_threads(&wait) {
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(err) => return Err(err.into_pyexception(vm)),
+                Ok((pid, status, ru)) => {
+                    let rusage = rusage_to_py(ru, vm)?;
+                    return Ok(vm.new_tuple((pid, status, rusage)));
+                }
+            }
+        }
+    }
+
+    #[pyfunction]
+    fn wait3(options: i32, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        wait_with_rusage(vm, || rustpython_host_env::posix::wait3(options))
+    }
+
+    #[pyfunction]
+    fn wait4(pid: libc::pid_t, options: i32, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        wait_with_rusage(vm, || rustpython_host_env::posix::wait4(pid, options))
     }
 
     #[pyfunction]

@@ -1606,7 +1606,6 @@ class _TestLock(BaseTestCase):
         for _ in range(n):
             lock.release()
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky timeout - thread start latency")
     def test_repr_rlock(self):
         if self.TYPE != 'processes':
             self.skipTest('test not appropriate for {}'.format(self.TYPE))
@@ -5009,7 +5008,6 @@ class _TestFinalize(BaseTestCase):
         result = [obj for obj in iter(conn.recv, 'STOP')]
         self.assertEqual(result, ['a', 'b', 'd10', 'd03', 'd02', 'd01', 'e'])
 
-    @unittest.skip("TODO: RUSTPYTHON; SIGSEGV due to dict thread-safety issue under aggressive GC")
     @support.requires_resource('cpu')
     def test_thread_safety(self):
         # bpo-24484: _run_finalizers() should be thread-safe

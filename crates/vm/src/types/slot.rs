@@ -20,6 +20,9 @@ use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
 use rustpython_common::wtf8::Wtf8Buf;
 
+/// Predicate used by [`PyTypeSlots::del_needed`].
+pub type DelNeededFunc = fn(&PyObject) -> bool;
+
 /// Type-erased storage for extension module data attached to heap types.
 pub struct TypeDataSlot {
     // PyObject_GetTypeData
@@ -191,6 +194,16 @@ pub struct PyTypeSlots {
     // tp_weaklist
     pub del: AtomicCell<Option<DelFunc>>,
 
+    /// Optional fast, VM-free predicate checked before `del` is invoked via
+    /// `drop_slow_inner`/`try_call_finalizer`. Those call sites otherwise pay
+    /// for attaching to a VM (`with_vm`) unconditionally whenever a type has
+    /// a `del` slot at all, even when the type's own `del` is a documented
+    /// no-op for the object's current state (e.g. an already-exhausted
+    /// generator or coroutine). Returning `false` skips the `del` call
+    /// entirely, avoiding that VM lookup; `None` (the default) preserves the
+    /// prior behavior of always calling `del`.
+    pub del_needed: AtomicCell<Option<DelNeededFunc>>,
+
     // The count of tp_members.
     pub member_count: usize,
 }
@@ -227,6 +240,7 @@ bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq)]
     #[non_exhaustive]
     pub struct PyTypeFlags: u64 {
+        const INLINE_VALUES = 1 << 2;
         const MANAGED_WEAKREF = 1 << 3;
         const MANAGED_DICT = 1 << 4;
         const SEQUENCE = 1 << 5;
@@ -549,6 +563,62 @@ fn getattro_wrapper(zelf: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> P
     }
 }
 
+/// hackcheck: reject object.__setattr__/__delattr__ applied to a type
+/// whose C-level tp_setattro is not the wrapped function.
+pub(crate) fn hackcheck_setattro(
+    obj: &PyObject,
+    func: SetattroFunc,
+    what: &str,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let Some(_typ) = obj.downcast_ref::<PyType>() else {
+        return Ok(());
+    };
+    let obj_cls = obj.class();
+    let obj_setattro = obj_cls.slots.setattro.load();
+
+    let mut defining = obj_cls.to_owned();
+    {
+        let mro = obj_cls.mro.read();
+        for base in mro.iter().rev() {
+            let base_setattro = base.slots.setattro.load();
+            if is_slot_tp_setattro(base_setattro) {
+                continue;
+            } else if setattro_eq(base_setattro, obj_setattro) {
+                defining = base.clone();
+                break;
+            }
+        }
+    }
+
+    let mut base = Some(defining);
+    while let Some(b) = base {
+        let b_setattro = b.slots.setattro.load();
+        if setattro_eq(b_setattro, Some(func)) {
+            return Ok(());
+        } else if !is_slot_tp_setattro(b_setattro) {
+            return Err(vm.new_type_error(format!(
+                "can't apply this {what} to {} object",
+                obj_cls.slot_name()
+            )));
+        }
+        base = b.base.deref().map(|cls| cls.to_owned());
+    }
+    Ok(())
+}
+
+fn is_slot_tp_setattro(f: Option<SetattroFunc>) -> bool {
+    f.is_some_and(|f| fn_addr(f) == fn_addr(setattro_wrapper as SetattroFunc))
+}
+
+fn setattro_eq(a: Option<SetattroFunc>, b: Option<SetattroFunc>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => fn_addr(a) == fn_addr(b),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 fn setattro_wrapper(
     zelf: &PyObject,
     name: &Py<PyStr>,
@@ -573,8 +643,13 @@ pub(crate) fn richcompare_wrapper(
     op: PyComparisonOp,
     vm: &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-    vm.call_special_method(zelf, op.method_name(&vm.ctx), (other.to_owned(),))
-        .map(Either::A)
+    // slot_tp_richcompare / _PyObject_MaybeCallSpecialOneArg: a missing
+    // method, or a data descriptor whose __get__ raises AttributeError,
+    // is NotImplemented rather than an error.
+    match vm.get_special_method(zelf, op.method_name(&vm.ctx))? {
+        Some(meth) => meth.invoke((other.to_owned(),), vm).map(Either::A),
+        None => Ok(Either::B(PyComparisonValue::NotImplemented)),
+    }
 }
 
 fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -654,7 +729,7 @@ fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResu
 }
 
 pub(crate) fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-    let new = cls.get_attr(identifier!(vm, __new__)).unwrap();
+    let new = cls.as_object().get_attr(identifier!(vm, __new__), vm)?;
     args.prepend_arg(cls.into());
     new.call(args, vm)
 }

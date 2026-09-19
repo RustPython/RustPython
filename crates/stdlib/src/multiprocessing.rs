@@ -11,6 +11,7 @@ mod _multiprocessing {
         types::Constructor,
     };
     use core::sync::atomic::{AtomicI32, AtomicU32, Ordering};
+    use rustpython_common::lock::PyMutex;
     use rustpython_host_env::multiprocessing as host_multiprocessing;
 
     // These match the values in Lib/multiprocessing/synchronize.py
@@ -49,6 +50,8 @@ mod _multiprocessing {
         name: Option<String>,
         last_tid: AtomicU32,
         count: AtomicI32,
+        /// Serializes owner bookkeeping. Dropped around blocking waits.
+        crit: PyMutex<()>,
     }
 
     type SemHandle = host_multiprocessing::SemHandle;
@@ -57,7 +60,7 @@ mod _multiprocessing {
     impl SemLock {
         #[pygetset]
         fn handle(&self) -> isize {
-            self.handle.as_raw() as isize
+            self.handle.as_handle_int()
         }
 
         #[pygetset]
@@ -81,7 +84,7 @@ mod _multiprocessing {
                 .kwargs
                 .get("block")
                 .or_else(|| args.args.first())
-                .map(|o| o.clone().try_to_bool(vm))
+                .map(|o| o.try_to_bool(vm))
                 .transpose()?
                 .unwrap_or(true);
 
@@ -109,21 +112,26 @@ mod _multiprocessing {
             };
 
             // Check whether we already own the lock
-            if self.kind == RECURSIVE_MUTEX && ismine!(self) {
-                self.count.fetch_add(1, Ordering::Release);
-                return Ok(true);
-            }
-
-            // Check whether we can acquire without blocking
-            match host_multiprocessing::wait_for_single_object(self.handle.as_raw(), 0) {
-                x if x == host_multiprocessing::wait_object_0() => {
-                    self.last_tid
-                        .store(host_multiprocessing::current_thread_id(), Ordering::Release);
+            {
+                let _crit = self.crit.lock();
+                if self.kind == RECURSIVE_MUTEX && ismine!(self) {
                     self.count.fetch_add(1, Ordering::Release);
                     return Ok(true);
                 }
-                x if x == host_multiprocessing::wait_failed() => return Err(vm.new_last_os_error()),
-                _ => {}
+
+                // Check whether we can acquire without blocking
+                match self.handle.wait(0) {
+                    x if x == host_multiprocessing::wait_object_0() => {
+                        self.last_tid
+                            .store(host_multiprocessing::current_thread_id(), Ordering::Release);
+                        self.count.fetch_add(1, Ordering::Release);
+                        return Ok(true);
+                    }
+                    x if x == host_multiprocessing::wait_failed() => {
+                        return Err(vm.new_last_os_error());
+                    }
+                    _ => {}
+                }
             }
 
             // Poll with signal checking (CPython uses WaitForMultipleObjectsEx
@@ -141,13 +149,12 @@ mod _multiprocessing {
                     remaining.min(poll_ms)
                 };
 
-                let handle = self.handle.as_raw();
-                let res = vm.allow_threads(|| {
-                    host_multiprocessing::wait_for_single_object(handle, wait_ms)
-                });
+                let handle = &self.handle;
+                let res = vm.allow_threads(|| handle.wait(wait_ms));
 
                 match res {
                     x if x == host_multiprocessing::wait_object_0() => {
+                        let _crit = self.crit.lock();
                         self.last_tid
                             .store(host_multiprocessing::current_thread_id(), Ordering::Release);
                         self.count.fetch_add(1, Ordering::Release);
@@ -173,6 +180,7 @@ mod _multiprocessing {
 
         #[pymethod]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let _crit = self.crit.lock();
             if self.kind == RECURSIVE_MUTEX {
                 if !ismine!(self) {
                     return Err(vm.new_assertion_error(
@@ -185,7 +193,7 @@ mod _multiprocessing {
                 }
             }
 
-            if let Err(err) = host_multiprocessing::release_semaphore(self.handle.as_raw()) {
+            if let Err(err) = self.handle.release() {
                 if host_multiprocessing::is_too_many_posts(err) {
                     return Err(vm.new_value_error("semaphore or lock released too many times"));
                 }
@@ -229,12 +237,14 @@ mod _multiprocessing {
                 name,
                 last_tid: AtomicU32::new(0),
                 count: AtomicI32::new(0),
+                crit: PyMutex::new(()),
             };
             zelf.into_ref_with_type(vm, cls).map(Into::into)
         }
 
         #[pymethod]
         fn _after_fork(&self) {
+            let _crit = self.crit.lock();
             self.count.store(0, Ordering::Release);
             self.last_tid.store(0, Ordering::Release);
         }
@@ -246,6 +256,7 @@ mod _multiprocessing {
 
         #[pymethod]
         fn _count(&self) -> i32 {
+            let _crit = self.crit.lock();
             self.count.load(Ordering::Acquire)
         }
 
@@ -256,14 +267,12 @@ mod _multiprocessing {
 
         #[pymethod]
         fn _get_value(&self, vm: &VirtualMachine) -> PyResult<i32> {
-            host_multiprocessing::get_semaphore_value(self.handle.as_raw())
-                .map_err(|_| vm.new_last_os_error())
+            self.handle.value().map_err(|_| vm.new_last_os_error())
         }
 
         #[pymethod]
         fn _is_zero(&self, vm: &VirtualMachine) -> PyResult<bool> {
-            let val = host_multiprocessing::get_semaphore_value(self.handle.as_raw())
-                .map_err(|_| vm.new_last_os_error())?;
+            let val = self.handle.value().map_err(|_| vm.new_last_os_error())?;
             Ok(val == 0)
         }
 
@@ -306,6 +315,7 @@ mod _multiprocessing {
                 name,
                 last_tid: AtomicU32::new(0),
                 count: AtomicI32::new(0),
+                crit: PyMutex::new(()),
             })
         }
     }
@@ -354,8 +364,7 @@ mod _multiprocessing {
         types::Constructor,
     };
     use core::sync::atomic::{AtomicI32, AtomicU64, Ordering};
-    #[cfg(target_vendor = "apple")]
-    use rustpython_host_env::multiprocessing::sem_t;
+    use rustpython_common::lock::PyMutex;
     use rustpython_host_env::multiprocessing::{
         self as host_multiprocessing, SemError, TryAcquireStatus, WaitStatus,
     };
@@ -370,19 +379,16 @@ mod _multiprocessing {
     }
 
     /// macOS fallback for sem_timedwait using select + sem_trywait polling
-    /// Matches sem_timedwait_save in semaphore.c
     #[cfg(target_vendor = "apple")]
     fn sem_timedwait_polled(
-        sem: *mut sem_t,
-        deadline: &host_multiprocessing::timespec,
+        handle: &SemHandle,
+        deadline: &host_multiprocessing::Deadline,
         vm: &VirtualMachine,
     ) -> Result<(), SemWaitError> {
         let mut delay: u64 = 0;
 
         loop {
-            match vm.allow_threads(|| {
-                host_multiprocessing::sem_timedwait_poll_step(sem, deadline, delay)
-            }) {
+            match vm.allow_threads(|| handle.poll_wait_step(deadline, delay)) {
                 Ok(host_multiprocessing::PollWaitStep::Acquired) => return Ok(()),
                 Ok(host_multiprocessing::PollWaitStep::Timeout) => {
                     return Err(SemWaitError::Timeout);
@@ -437,6 +443,8 @@ mod _multiprocessing {
         name: Option<String>,
         last_tid: AtomicU64, // unsigned long
         count: AtomicI32,    // int
+        /// Serializes owner bookkeeping. Dropped around blocking waits.
+        crit: PyMutex<()>,
     }
 
     type SemHandle = host_multiprocessing::SemHandle;
@@ -445,7 +453,7 @@ mod _multiprocessing {
     impl SemLock {
         #[pygetset]
         fn handle(&self) -> isize {
-            self.handle.as_ptr() as isize
+            self.handle.as_handle_int()
         }
 
         #[pygetset]
@@ -473,7 +481,7 @@ mod _multiprocessing {
                 .kwargs
                 .get("block")
                 .or_else(|| args.args.first())
-                .map(|o| o.clone().try_to_bool(vm))
+                .map(|o| o.try_to_bool(vm))
                 .transpose()?
                 .unwrap_or(true);
 
@@ -483,6 +491,7 @@ mod _multiprocessing {
                 .or_else(|| args.args.get(1))
                 .cloned();
 
+            let _crit = self.crit.lock();
             if self.kind == RECURSIVE_MUTEX && ismine!(self) {
                 self.count.fetch_add(1, Ordering::Release);
                 return Ok(true);
@@ -505,7 +514,7 @@ mod _multiprocessing {
 
             // Check whether we can acquire without releasing the GIL and blocking
             let try_status = loop {
-                match host_multiprocessing::sem_trywait_status(self.handle.as_ptr()) {
+                match self.handle.trywait() {
                     TryAcquireStatus::Interrupted => {
                         vm.check_signals()?;
                     }
@@ -516,19 +525,13 @@ mod _multiprocessing {
             // if (res < 0 && errno == EAGAIN && blocking)
             if matches!(try_status, TryAcquireStatus::WouldBlock) && blocking {
                 // Couldn't acquire immediately, need to block.
-                //
-                // Save errno inside the allow_threads closure, before
-                // attach_thread() runs — matches CPython which saves
-                // `err = errno` before Py_END_ALLOW_THREADS.
+                drop(_crit);
 
                 #[cfg(not(target_vendor = "apple"))]
                 {
                     loop {
-                        let sem_ptr = self.handle.as_ptr();
-                        // Py_BEGIN_ALLOW_THREADS / Py_END_ALLOW_THREADS
-                        match vm.allow_threads(|| {
-                            host_multiprocessing::sem_wait_status(sem_ptr, deadline.as_ref())
-                        }) {
+                        let handle = &self.handle;
+                        match vm.allow_threads(|| handle.wait(deadline.as_ref())) {
                             WaitStatus::Acquired => break,
                             WaitStatus::Interrupted => {
                                 vm.check_signals()?;
@@ -543,7 +546,7 @@ mod _multiprocessing {
                 {
                     // macOS: use polled fallback since sem_timedwait is not available
                     if let Some(ref dl) = deadline {
-                        match sem_timedwait_polled(self.handle.as_ptr(), dl, vm) {
+                        match sem_timedwait_polled(&self.handle, dl, vm) {
                             Ok(()) => {}
                             Err(SemWaitError::Timeout) => {
                                 return Ok(false);
@@ -558,10 +561,8 @@ mod _multiprocessing {
                     } else {
                         // No timeout: use sem_wait (available on macOS)
                         loop {
-                            let sem_ptr = self.handle.as_ptr();
-                            match vm.allow_threads(|| {
-                                host_multiprocessing::sem_wait_status(sem_ptr, None)
-                            }) {
+                            let handle = &self.handle;
+                            match vm.allow_threads(|| handle.wait(None)) {
                                 WaitStatus::Acquired => break,
                                 WaitStatus::Interrupted => {
                                     vm.check_signals()?;
@@ -573,6 +574,9 @@ mod _multiprocessing {
                         }
                     }
                 }
+                let _crit = self.crit.lock();
+                self.mark_acquired();
+                return Ok(true);
             } else if !matches!(try_status, TryAcquireStatus::Acquired) {
                 // Non-blocking path failed, or blocking=false
                 match try_status {
@@ -583,17 +587,21 @@ mod _multiprocessing {
                 }
             }
 
+            self.mark_acquired();
+            Ok(true)
+        }
+
+        fn mark_acquired(&self) {
             self.count.fetch_add(1, Ordering::Release);
             self.last_tid
                 .store(host_multiprocessing::current_thread_id(), Ordering::Release);
-
-            Ok(true)
         }
 
         /// Release the semaphore/lock.
         // _multiprocessing_SemLock_release_impl
         #[pymethod]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let _crit = self.crit.lock();
             if self.kind == RECURSIVE_MUTEX {
                 // if (!ISMINE(self))
                 if !ismine!(self) {
@@ -612,9 +620,7 @@ mod _multiprocessing {
                 #[cfg(not(target_vendor = "apple"))]
                 {
                     // Linux: use sem_getvalue
-                    let sval =
-                        unsafe { host_multiprocessing::get_semaphore_value(self.handle.as_ptr()) }
-                            .map_err(|err| os_error(vm, err))?;
+                    let sval = self.handle.value().map_err(|err| os_error(vm, err))?;
                     if sval >= self.maxvalue {
                         return Err(vm.new_value_error("semaphore or lock released too many times"));
                     }
@@ -625,12 +631,10 @@ mod _multiprocessing {
                     // We will only check properly the maxvalue == 1 case
                     if self.maxvalue == 1 {
                         // make sure that already locked
-                        match host_multiprocessing::sem_trywait_status(self.handle.as_ptr()) {
+                        match self.handle.trywait() {
                             TryAcquireStatus::WouldBlock => {}
                             TryAcquireStatus::Acquired => {
-                                if let Err(err) =
-                                    host_multiprocessing::sem_post(self.handle.as_ptr())
-                                {
+                                if let Err(err) = self.handle.post() {
                                     return Err(os_error(vm, err));
                                 }
                                 return Err(
@@ -646,7 +650,7 @@ mod _multiprocessing {
                 }
             }
 
-            if let Err(err) = host_multiprocessing::sem_post(self.handle.as_ptr()) {
+            if let Err(err) = self.handle.post() {
                 return Err(os_error(vm, err));
             }
 
@@ -698,6 +702,7 @@ mod _multiprocessing {
                 name,
                 last_tid: AtomicU64::new(0),
                 count: AtomicI32::new(0),
+                crit: PyMutex::new(()),
             };
             zelf.into_ref_with_type(vm, cls).map(Into::into)
         }
@@ -706,6 +711,7 @@ mod _multiprocessing {
         // _multiprocessing_SemLock__after_fork_impl
         #[pymethod]
         fn _after_fork(&self) {
+            let _crit = self.crit.lock();
             self.count.store(0, Ordering::Release);
             // Also reset last_tid for safety
             self.last_tid.store(0, Ordering::Release);
@@ -722,6 +728,7 @@ mod _multiprocessing {
         // _multiprocessing_SemLock__count_impl
         #[pymethod]
         fn _count(&self) -> i32 {
+            let _crit = self.crit.lock();
             self.count.load(Ordering::Acquire)
         }
 
@@ -739,8 +746,7 @@ mod _multiprocessing {
             #[cfg(not(target_vendor = "apple"))]
             {
                 // Linux: use sem_getvalue
-                unsafe { host_multiprocessing::get_semaphore_value(self.handle.as_ptr()) }
-                    .map_err(|err| os_error(vm, err))
+                self.handle.value().map_err(|err| os_error(vm, err))
             }
             #[cfg(target_vendor = "apple")]
             {
@@ -761,7 +767,7 @@ mod _multiprocessing {
             {
                 // macOS: HAVE_BROKEN_SEM_GETVALUE
                 // Try to acquire - if EAGAIN, value is 0
-                match host_multiprocessing::sem_trywait_status(self.handle.as_ptr()) {
+                match self.handle.trywait() {
                     TryAcquireStatus::WouldBlock => return Ok(true),
                     TryAcquireStatus::Interrupted => {
                         return Err(os_error(vm, SemError::Interrupted));
@@ -770,7 +776,7 @@ mod _multiprocessing {
                     TryAcquireStatus::Acquired => {}
                 }
                 // Successfully acquired - undo and return false
-                if let Err(err) = host_multiprocessing::sem_post(self.handle.as_ptr()) {
+                if let Err(err) = self.handle.post() {
                     return Err(os_error(vm, err));
                 }
                 Ok(false)
@@ -826,6 +832,7 @@ mod _multiprocessing {
                 name,
                 last_tid: AtomicU64::new(0),
                 count: AtomicI32::new(0),
+                crit: PyMutex::new(()),
             })
         }
     }

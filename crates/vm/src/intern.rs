@@ -57,6 +57,12 @@ impl StringPool {
             let inserted = zelf.inner.write().insert(cache.clone());
             if inserted {
                 let interned = unsafe { cache.as_interned_str() };
+                // `mark_intern` also makes the object immortal: the pool
+                // never gives an entry up and its refcount could already never
+                // reach zero, so this frees no memory that would otherwise
+                // have been freed — it only takes the atomic
+                // read-modify-write off every incref and decref of an
+                // attribute name, a dict key or a docstring.
                 unsafe { interned.as_object().mark_intern() };
                 interned
             } else {

@@ -92,6 +92,21 @@ impl PyMethod {
         name: &'static PyStrInterned,
         vm: &VirtualMachine,
     ) -> PyResult<Option<Self>> {
+        Self::get_special_ex::<DIRECT>(obj, name, vm, false)
+    }
+
+    /// lookup_method_ex.
+    ///
+    /// `raise_attribute_error` is CPython's same-named argument: when false
+    /// (`lookup_maybe_method`), AttributeError from `tp_descr_get` is cleared
+    /// and the lookup reports a miss. When true (`lookup_method`), that error
+    /// is kept.
+    pub(crate) fn get_special_ex<const DIRECT: bool>(
+        obj: &PyObject,
+        name: &'static PyStrInterned,
+        vm: &VirtualMachine,
+        raise_attribute_error: bool,
+    ) -> PyResult<Option<Self>> {
         let obj_cls = obj.class();
         let attr = if DIRECT {
             obj_cls.get_direct_attr(name)
@@ -116,9 +131,18 @@ impl PyMethod {
             }
         } else {
             let obj_cls = obj_cls.to_owned().into();
-            let attr = vm
-                .call_get_descriptor_specific(&func, Some(obj.to_owned()), Some(obj_cls))
-                .unwrap_or(Ok(func))?;
+            let attr =
+                match vm.call_get_descriptor_specific(&func, Some(obj.to_owned()), Some(obj_cls)) {
+                    Some(Ok(attr)) => attr,
+                    Some(Err(e))
+                        if !raise_attribute_error
+                            && e.fast_isinstance(vm.ctx.exceptions.attribute_error) =>
+                    {
+                        return Ok(None);
+                    }
+                    Some(Err(e)) => return Err(e),
+                    None => func,
+                };
             Self::Attribute(attr)
         };
         Ok(Some(meth))

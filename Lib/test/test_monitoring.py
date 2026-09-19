@@ -1558,7 +1558,6 @@ BRANCH_OFFSET_RECORDERS = BranchLeftOffsetRecorder, BranchRightOffsetRecorder
 class TestBranchAndJumpEvents(CheckEvents):
     maxDiff = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_loop(self):
 
         def func():
@@ -1710,7 +1709,6 @@ class TestBranchAndJumpEvents(CheckEvents):
             ('branch left', 'func', 12, 12)])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_match(self):
 
         def func(v=1):

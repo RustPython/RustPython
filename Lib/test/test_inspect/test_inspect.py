@@ -4308,7 +4308,6 @@ class TestSignatureObject(unittest.TestCase):
                 self.assertEqual(self.signature(C.__new__, follow_wrapped=False),
                                 varargs_signature)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_signature_on_class_with_wrapped_new(self):
         with self.subTest('FunctionType'):
             class C:

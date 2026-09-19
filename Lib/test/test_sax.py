@@ -1055,7 +1055,6 @@ class ExpatReaderTest(XmlTestBase):
         self.assertEqual(result.getvalue(), start +
                          b"<doc><entity></entity></doc>")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_entityresolver_default(self):
         parser = create_parser()
         self.assertEqual(parser.getFeature(feature_external_ges), False)
@@ -1206,7 +1205,6 @@ class ExpatReaderTest(XmlTestBase):
 
     # ===== IncrementalParser support
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_incremental(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)
@@ -1219,7 +1217,6 @@ class ExpatReaderTest(XmlTestBase):
 
         self.assertEqual(result.getvalue(), start + b"<doc></doc>")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_incremental_reset(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)

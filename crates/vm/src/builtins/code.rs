@@ -1312,15 +1312,14 @@ impl PyCode {
             let (src, left, right) = match op {
                 Instruction::ForIter { .. } => {
                     // left = fall-through past CACHE entries (continue iteration)
-                    // right = past END_FOR (iterator exhausted, skip cleanup)
-                    // arg is relative forward from after instruction+caches
+                    // right = next_offset + oparg + 2 (skip END_FOR and POP_ITER)
                     let after_cache = i + 1 + caches;
                     let target = after_cache + oparg as usize;
                     let right = if matches!(
                         instructions.get(target).map(|u| u.op),
                         Some(Instruction::EndFor | Instruction::InstrumentedEndFor)
                     ) {
-                        (target + 1) * 2
+                        (target + 2) * 2
                     } else {
                         target * 2
                     };

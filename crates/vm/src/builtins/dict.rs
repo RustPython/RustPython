@@ -649,7 +649,11 @@ impl AsMapping for PyDict {
             ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                 let zelf = PyDict::mapping_downcast(mapping);
                 if let Some(value) = value {
-                    zelf.inner_setitem(needle, value, vm)
+                    zelf.inner_setitem(needle, value, vm)?;
+                    if zelf.as_object().is(vm.builtins.dict().as_object()) {
+                        crate::stdlib::_testinternalcapi::note_builtin_dict();
+                    }
+                    Ok(())
                 } else {
                     zelf.inner_delitem(needle, vm)
                 }
@@ -811,6 +815,15 @@ impl Py<PyDict> {
         Ok(attrs)
     }
 
+    pub(crate) fn get_item_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        self.entries.get_known_hash(vm, key, hash)
+    }
+
     pub fn get_item_opt<K: DictKey + ?Sized>(
         &self,
         key: &K,
@@ -927,7 +940,11 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if self.exact_dict(vm) {
-            self.inner_setitem(key, value, vm)
+            self.inner_setitem(key, value, vm)?;
+            if self.as_object().is(vm.builtins.dict().as_object()) {
+                crate::stdlib::_testinternalcapi::note_builtin_dict();
+            }
+            Ok(())
         } else {
             self.as_object().set_item(key, value, vm)
         }

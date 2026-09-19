@@ -148,7 +148,10 @@ impl Initializer for PySuper {
     }
 }
 
-#[pyclass(with(GetAttr, GetDescriptor, Constructor, Initializer, Representable))]
+#[pyclass(
+    with(GetAttr, GetDescriptor, Constructor, Initializer, Representable),
+    flags(BASETYPE)
+)]
 impl PySuper {
     #[pygetset]
     fn __thisclass__(&self) -> PyTypeRef {
@@ -181,24 +184,29 @@ impl GetAttr for PySuper {
         }
 
         if let Some(name) = vm.ctx.interned_str(name) {
-            // skip the classes in start_type.mro up to and including zelf.typ
-            let mro: Vec<PyRef<PyType>> = start_type.mro_map_collect(|x| x.to_owned());
-            let mro: Vec<_> = mro
-                .iter()
-                .skip_while(|cls| !cls.is(&zelf.inner.read().typ))
-                .skip(1) // skip su->type (if any)
-                .collect();
-            for cls in &mro {
-                if let Some(descr) = cls.get_direct_attr(name) {
-                    return vm
-                        .call_get_descriptor_specific(
-                            &descr,
-                            // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
-                            if obj.is(&start_type) { None } else { Some(obj) },
-                            Some(start_type.as_object().to_owned()),
-                        )
-                        .unwrap_or(Ok(descr));
-                }
+            // Walk start_type's MRO by reference (no Vec allocation, no
+            // per-class clone) up to and including zelf.typ, then look for
+            // the first class past it that declares `name` directly.
+            // Both locks are dropped before any arbitrary Python code
+            // (the descriptor call below) runs, so they can't be held
+            // across a call that might re-enter and want them again.
+            let su_type = zelf.inner.read().typ.clone();
+            let descr = {
+                let mro = start_type.mro.read();
+                mro.iter()
+                    .skip_while(|cls| !cls.is(&su_type))
+                    .skip(1) // skip su->type (if any)
+                    .find_map(|cls| cls.get_direct_attr(name))
+            };
+            if let Some(descr) = descr {
+                return vm
+                    .call_get_descriptor_specific(
+                        &descr,
+                        // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
+                        if obj.is(&start_type) { None } else { Some(obj) },
+                        Some(start_type.as_object().to_owned()),
+                    )
+                    .unwrap_or(Ok(descr));
             }
         }
         skip(zelf, name)
@@ -225,13 +233,7 @@ impl GetDescriptor for PySuper {
             .into_ref(&vm.ctx)
             .into())
         } else {
-            let (obj, typ) = {
-                let lock = zelf.inner.read();
-                let obj = lock.obj.as_ref().map(|(o, _)| o.to_owned());
-                let typ = lock.typ.clone();
-                (obj, typ)
-            };
-            let obj = vm.unwrap_or_none(obj);
+            let typ = zelf.inner.read().typ.clone();
             PyType::call(zelf.class(), (typ, obj).into_args(vm), vm)
         }
     }
@@ -265,7 +267,7 @@ fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult
 
     let class_attr = obj.get_attr("__class__", vm)?;
     if let Ok(cls) = class_attr.downcast::<PyType>()
-        && !cls.is(&ty)
+        && !cls.is(obj.class())
         && cls.fast_issubclass(&ty)
     {
         return Ok(cls);

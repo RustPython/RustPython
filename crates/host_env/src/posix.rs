@@ -210,16 +210,6 @@ pub fn link_paths(src: &CStr, dst: &CStr, follow_symlinks: bool) -> std::io::Res
     }
 }
 
-#[cfg(all(not(windows), not(target_os = "redox")))]
-pub fn remove_dir_at(dir_fd: i32, path: &CStr) -> std::io::Result<()> {
-    let ret = unsafe { libc::unlinkat(dir_fd, path.as_ptr(), libc::AT_REMOVEDIR) };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(all(unix, not(target_os = "redox")))]
 fn statvfs_info_from_raw(st: libc::statvfs) -> StatVfsInfo {
     let f_fsid = {
@@ -339,6 +329,24 @@ pub fn fork() -> std::io::Result<libc::pid_t> {
 
 pub fn write_fd(fd: BorrowedFd<'_>, buf: &[u8]) -> std::io::Result<usize> {
     nix::unistd::write(fd, buf).map_err(std::io::Error::from)
+}
+
+pub fn pread(fd: i32, buf: &mut [u8], offset: libc::off_t) -> std::io::Result<usize> {
+    let ret = unsafe { libc::pread(fd, buf.as_mut_ptr().cast(), buf.len(), offset) };
+    if ret == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(ret as usize)
+    }
+}
+
+pub fn pwrite(fd: i32, buf: &[u8], offset: libc::off_t) -> std::io::Result<usize> {
+    let ret = unsafe { libc::pwrite(fd, buf.as_ptr().cast(), buf.len(), offset) };
+    if ret == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(ret as usize)
+    }
 }
 
 pub fn fchownat(
@@ -951,6 +959,30 @@ pub fn waitpid(pid: libc::pid_t, status: &mut i32, opt: i32) -> std::io::Result<
     } else {
         Ok(res)
     }
+}
+
+/// `wait3(2)` is `wait4(-1, ...)`.
+pub fn wait3(options: i32) -> std::io::Result<(libc::pid_t, i32, crate::resource::RUsage)> {
+    wait4(-1, options)
+}
+
+/// `wait4(2)`. `rusage` is zeroed when `pid == 0` (WNOHANG, no child ready).
+pub fn wait4(
+    pid: libc::pid_t,
+    options: i32,
+) -> std::io::Result<(libc::pid_t, i32, crate::resource::RUsage)> {
+    let mut status = 0;
+    let mut ru = core::mem::MaybeUninit::<libc::rusage>::zeroed();
+    let res = unsafe { libc::wait4(pid, &mut status, options, ru.as_mut_ptr()) };
+    if res == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let ru = if res == 0 {
+        unsafe { core::mem::zeroed() }
+    } else {
+        unsafe { ru.assume_init() }
+    };
+    Ok((res, status, ru.into()))
 }
 
 pub fn kill(pid: i32, sig: i32) -> std::io::Result<()> {

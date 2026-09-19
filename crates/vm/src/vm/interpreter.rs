@@ -701,6 +701,7 @@ impl Interpreter {
             {
                 thread::set_other_threads_shutting_down(&vm.state);
                 vm.state.stop_the_world.start_the_world(&vm.state);
+                crate::signal::set_finalizing_bit();
             }
 
             // GC pass - collect cycles before module cleanup

@@ -1,4 +1,9 @@
+atfork
 cfgs
+csascii
+csisolatin
+genshi
+mimalloc
 miri
 py
 pyarg
@@ -19,6 +24,7 @@ pyname
 pyobj
 pyobject
 pypayload
+pyperformance
 pyref
 pyslot
 pystaticmethod
@@ -26,8 +32,10 @@ pystone
 pystr
 pystruct
 pystructseq
+pyperformance
 pytype
 qsbr
 rustix
 struc
+unscanned
 zelf
