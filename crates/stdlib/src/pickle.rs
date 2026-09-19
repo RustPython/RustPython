@@ -127,80 +127,101 @@ mod _pickle {
         }
     }
 
-    // opcodes
+    // Pickle opcodes. These must be kept updated with pickle.py.
+    // Extensive docs are in pickletools.py.
+    macro_rules! pickle_opcodes {
+        ($($name:ident = $val:expr),* $(,)?) => {
+            #[repr(u8)]
+            #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+            #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
+            enum Opcode {
+                $($name = $val,)*
+            }
 
-    const MARK: u8 = b'(';
-    const STOP: u8 = b'.';
-    const POP: u8 = b'0';
-    const POP_MARK: u8 = b'1';
-    const DUP: u8 = b'2';
-    const FLOAT: u8 = b'F';
-    const INT: u8 = b'I';
-    const BININT: u8 = b'J';
-    const BININT1: u8 = b'K';
-    const LONG: u8 = b'L';
-    const BININT2: u8 = b'M';
-    const NONE: u8 = b'N';
-    const PERSID: u8 = b'P';
-    const BINPERSID: u8 = b'Q';
-    const REDUCE: u8 = b'R';
-    const STRING: u8 = b'S';
-    const BINSTRING: u8 = b'T';
-    const SHORT_BINSTRING: u8 = b'U';
-    const UNICODE: u8 = b'V';
-    const BINUNICODE: u8 = b'X';
-    const APPEND: u8 = b'a';
-    const BUILD: u8 = b'b';
-    const GLOBAL: u8 = b'c';
-    const DICT: u8 = b'd';
-    const EMPTY_DICT: u8 = b'}';
-    const APPENDS: u8 = b'e';
-    const GET: u8 = b'g';
-    const BINGET: u8 = b'h';
-    const INST: u8 = b'i';
-    const LONG_BINGET: u8 = b'j';
-    const LIST: u8 = b'l';
-    const EMPTY_LIST: u8 = b']';
-    const OBJ: u8 = b'o';
-    const PUT: u8 = b'p';
-    const BINPUT: u8 = b'q';
-    const LONG_BINPUT: u8 = b'r';
-    const SETITEM: u8 = b's';
-    const TUPLE: u8 = b't';
-    const EMPTY_TUPLE: u8 = b')';
-    const SETITEMS: u8 = b'u';
-    const BINFLOAT: u8 = b'G';
+            impl Opcode {
+                fn from_u8(b: u8) -> Option<Self> {
+                    match b {
+                        $($val => Some(Self::$name),)*
+                        _ => None,
+                    }
+                }
+            }
+        };
+    }
 
-    const PROTO: u8 = 0x80;
-    const NEWOBJ: u8 = 0x81;
-    const EXT1: u8 = 0x82;
-    const EXT2: u8 = 0x83;
-    const EXT4: u8 = 0x84;
-    const TUPLE1: u8 = 0x85;
-    const TUPLE2: u8 = 0x86;
-    const TUPLE3: u8 = 0x87;
-    const NEWTRUE: u8 = 0x88;
-    const NEWFALSE: u8 = 0x89;
-    const LONG1: u8 = 0x8a;
-    const LONG4: u8 = 0x8b;
+    pickle_opcodes! {
+        MARK = b'(',
+        STOP = b'.',
+        POP = b'0',
+        POP_MARK = b'1',
+        DUP = b'2',
+        FLOAT = b'F',
+        INT = b'I',
+        BININT = b'J',
+        BININT1 = b'K',
+        LONG = b'L',
+        BININT2 = b'M',
+        NONE = b'N',
+        PERSID = b'P',
+        BINPERSID = b'Q',
+        REDUCE = b'R',
+        STRING = b'S',
+        BINSTRING = b'T',
+        SHORT_BINSTRING = b'U',
+        UNICODE = b'V',
+        BINUNICODE = b'X',
+        APPEND = b'a',
+        BUILD = b'b',
+        GLOBAL = b'c',
+        DICT = b'd',
+        EMPTY_DICT = b'}',
+        APPENDS = b'e',
+        GET = b'g',
+        BINGET = b'h',
+        INST = b'i',
+        LONG_BINGET = b'j',
+        LIST = b'l',
+        EMPTY_LIST = b']',
+        OBJ = b'o',
+        PUT = b'p',
+        BINPUT = b'q',
+        LONG_BINPUT = b'r',
+        SETITEM = b's',
+        TUPLE = b't',
+        EMPTY_TUPLE = b')',
+        SETITEMS = b'u',
+        BINFLOAT = b'G',
+        PROTO = 0x80,
+        NEWOBJ = 0x81,
+        EXT1 = 0x82,
+        EXT2 = 0x83,
+        EXT4 = 0x84,
+        TUPLE1 = 0x85,
+        TUPLE2 = 0x86,
+        TUPLE3 = 0x87,
+        NEWTRUE = 0x88,
+        NEWFALSE = 0x89,
+        LONG1 = 0x8a,
+        LONG4 = 0x8b,
+        BINBYTES = b'B',
+        SHORT_BINBYTES = b'C',
+        SHORT_BINUNICODE = 0x8c,
+        BINUNICODE8 = 0x8d,
+        BINBYTES8 = 0x8e,
+        EMPTY_SET = 0x8f,
+        ADDITEMS = 0x90,
+        FROZENSET = 0x91,
+        NEWOBJ_EX = 0x92,
+        STACK_GLOBAL = 0x93,
+        MEMOIZE = 0x94,
+        FRAME = 0x95,
+        BYTEARRAY8 = 0x96,
+        NEXT_BUFFER = 0x97,
+        READONLY_BUFFER = 0x98,
+    }
 
-    const BINBYTES: u8 = b'B';
-    const SHORT_BINBYTES: u8 = b'C';
-
-    const SHORT_BINUNICODE: u8 = 0x8c;
-    const BINUNICODE8: u8 = 0x8d;
-    const BINBYTES8: u8 = 0x8e;
-    const EMPTY_SET: u8 = 0x8f;
-    const ADDITEMS: u8 = 0x90;
-    const FROZENSET: u8 = 0x91;
-    const NEWOBJ_EX: u8 = 0x92;
-    const STACK_GLOBAL: u8 = 0x93;
-    const MEMOIZE: u8 = 0x94;
-    const FRAME: u8 = 0x95;
-
-    const BYTEARRAY8: u8 = 0x96;
-    const NEXT_BUFFER: u8 = 0x97;
-    const READONLY_BUFFER: u8 = 0x98;
+    #[allow(clippy::enum_glob_use)]
+    use Opcode::*;
 
     /// Amount of data `peek()` grabs at a time from a file-like input.
     const PREFETCH: usize = 8192;
@@ -874,25 +895,25 @@ mod _pickle {
                     });
                 }
             };
-            match key {
-                STOP => {
+            match Opcode::from_u8(key) {
+                Some(STOP) => {
                     let value = pop!();
                     // Put the file position right after the pickle so that the
                     // stream can be read from, or unpickled from, again.
                     st.skip_consumed(vm)?;
                     return Ok(value);
                 }
-                MARK => {
+                Some(MARK) => {
                     marks.push(stack.len());
                 }
-                NONE => stack.push(vm.ctx.none()),
-                NEWTRUE => stack.push(vm.ctx.new_bool(true).into()),
-                NEWFALSE => stack.push(vm.ctx.new_bool(false).into()),
-                EMPTY_LIST => stack.push(vm.ctx.new_list(vec![]).into()),
-                EMPTY_DICT => stack.push(vm.ctx.new_dict().into()),
-                EMPTY_TUPLE => stack.push(vm.ctx.new_tuple(vec![]).into()),
-                EMPTY_SET => stack.push(PySet::default().into_ref(&vm.ctx).into()),
-                PROTO => {
+                Some(NONE) => stack.push(vm.ctx.none()),
+                Some(NEWTRUE) => stack.push(vm.ctx.new_bool(true).into()),
+                Some(NEWFALSE) => stack.push(vm.ctx.new_bool(false).into()),
+                Some(EMPTY_LIST) => stack.push(vm.ctx.new_list(vec![]).into()),
+                Some(EMPTY_DICT) => stack.push(vm.ctx.new_dict().into()),
+                Some(EMPTY_TUPLE) => stack.push(vm.ctx.new_tuple(vec![]).into()),
+                Some(EMPTY_SET) => stack.push(PySet::default().into_ref(&vm.ctx).into()),
+                Some(PROTO) => {
                     let proto = st.read_n(1, vm)?[0];
                     if proto > HIGHEST_PROTOCOL {
                         return Err(
@@ -901,24 +922,24 @@ mod _pickle {
                     }
                     zelf.config.write().proto = proto;
                 }
-                FRAME => {
+                Some(FRAME) => {
                     let arr: [u8; 8] = st.read_n(8, vm)?.try_into().unwrap();
                     let size = read_size(&arr, vm, "FRAME")?;
                     st.load_frame(size, vm)?;
                 }
-                BININT => {
+                Some(BININT) => {
                     let arr: [u8; 4] = st.read_n(4, vm)?.try_into().unwrap();
                     stack.push(vm.ctx.new_int(i32::from_le_bytes(arr)).into());
                 }
-                BININT1 => {
+                Some(BININT1) => {
                     let b = st.read_n(1, vm)?[0];
                     stack.push(vm.ctx.new_int(b).into());
                 }
-                BININT2 => {
+                Some(BININT2) => {
                     let arr: [u8; 2] = st.read_n(2, vm)?.try_into().unwrap();
                     stack.push(vm.ctx.new_int(u16::from_le_bytes(arr)).into());
                 }
-                INT => {
+                Some(INT) => {
                     let line = st.read_line(vm)?;
                     if line.len() < 2 {
                         return Err(truncated(vm));
@@ -933,7 +954,7 @@ mod _pickle {
                     };
                     stack.push(obj);
                 }
-                LONG => {
+                Some(LONG) => {
                     let line = st.read_line(vm)?;
                     if line.len() < 2 {
                         return Err(truncated(vm));
@@ -944,7 +965,7 @@ mod _pickle {
                     }
                     stack.push(parse_int_literal(body, vm)?);
                 }
-                LONG1 => {
+                Some(LONG1) => {
                     let n = st.read_n(1, vm)?[0] as usize;
                     let data = st.read_n(n, vm)?;
                     stack.push(
@@ -953,7 +974,7 @@ mod _pickle {
                             .into(),
                     );
                 }
-                LONG4 => {
+                Some(LONG4) => {
                     let arr: [u8; 4] = st.read_n(4, vm)?.try_into().unwrap();
                     let n = i32::from_le_bytes(arr);
                     if n < 0 {
@@ -969,7 +990,7 @@ mod _pickle {
                             .into(),
                     );
                 }
-                FLOAT => {
+                Some(FLOAT) => {
                     let line = st.read_line(vm)?;
                     if line.len() < 2 {
                         return Err(truncated(vm));
@@ -983,11 +1004,11 @@ mod _pickle {
                     })?;
                     stack.push(vm.ctx.new_float(value).into());
                 }
-                BINFLOAT => {
+                Some(BINFLOAT) => {
                     let arr: [u8; 8] = st.read_n(8, vm)?.try_into().unwrap();
                     stack.push(vm.ctx.new_float(f64::from_be_bytes(arr)).into());
                 }
-                STRING => {
+                Some(STRING) => {
                     let line = st.read_line(vm)?;
                     if line.len() < 3 {
                         return Err(truncated(vm));
@@ -1016,7 +1037,7 @@ mod _pickle {
                         .to_vec();
                     stack.push(decode_string(zelf, &data, vm)?);
                 }
-                BINSTRING => {
+                Some(BINSTRING) => {
                     let arr: [u8; 4] = st.read_n(4, vm)?.try_into().unwrap();
                     let n = i32::from_le_bytes(arr);
                     if n < 0 {
@@ -1028,35 +1049,35 @@ mod _pickle {
                     let data = st.read_n(n as usize, vm)?.to_vec();
                     stack.push(decode_string(zelf, &data, vm)?);
                 }
-                SHORT_BINSTRING => {
+                Some(SHORT_BINSTRING) => {
                     let n = st.read_n(1, vm)?[0] as usize;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(decode_string(zelf, &data, vm)?);
                 }
-                BINBYTES => {
+                Some(BINBYTES) => {
                     let arr: [u8; 4] = st.read_n(4, vm)?.try_into().unwrap();
                     let n = read_size(&arr, vm, "BINBYTES")?;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(vm.ctx.new_bytes(data).into());
                 }
-                SHORT_BINBYTES => {
+                Some(SHORT_BINBYTES) => {
                     let n = st.read_n(1, vm)?[0] as usize;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(vm.ctx.new_bytes(data).into());
                 }
-                BINBYTES8 => {
+                Some(BINBYTES8) => {
                     let arr: [u8; 8] = st.read_n(8, vm)?.try_into().unwrap();
                     let n = read_size(&arr, vm, "BINBYTES8")?;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(vm.ctx.new_bytes(data).into());
                 }
-                BYTEARRAY8 => {
+                Some(BYTEARRAY8) => {
                     let arr: [u8; 8] = st.read_n(8, vm)?.try_into().unwrap();
                     let n = read_size(&arr, vm, "BYTEARRAY8")?;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(PyByteArray::from(data).into_ref(&vm.ctx).into());
                 }
-                UNICODE => {
+                Some(UNICODE) => {
                     let line = st.read_line(vm)?;
                     let body = if line.last() == Some(&b'\n') {
                         &line[..line.len() - 1]
@@ -1072,47 +1093,47 @@ mod _pickle {
                     )?;
                     stack.push(decoded.into());
                 }
-                BINUNICODE => {
+                Some(BINUNICODE) => {
                     let arr: [u8; 4] = st.read_n(4, vm)?.try_into().unwrap();
                     let n = read_size(&arr, vm, "BINUNICODE")?;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(utf8_surrogatepass(&data, vm)?);
                 }
-                SHORT_BINUNICODE => {
+                Some(SHORT_BINUNICODE) => {
                     let n = st.read_n(1, vm)?[0] as usize;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(utf8_surrogatepass(&data, vm)?);
                 }
-                BINUNICODE8 => {
+                Some(BINUNICODE8) => {
                     let arr: [u8; 8] = st.read_n(8, vm)?.try_into().unwrap();
                     let n = read_size(&arr, vm, "BINUNICODE8")?;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(utf8_surrogatepass(&data, vm)?);
                 }
-                TUPLE => {
+                Some(TUPLE) => {
                     let items = pop_mark!();
                     stack.push(vm.ctx.new_tuple(items).into());
                 }
-                TUPLE1 => {
+                Some(TUPLE1) => {
                     let a = pop!();
                     stack.push(vm.ctx.new_tuple(vec![a]).into());
                 }
-                TUPLE2 => {
+                Some(TUPLE2) => {
                     let b = pop!();
                     let a = pop!();
                     stack.push(vm.ctx.new_tuple(vec![a, b]).into());
                 }
-                TUPLE3 => {
+                Some(TUPLE3) => {
                     let c = pop!();
                     let b = pop!();
                     let a = pop!();
                     stack.push(vm.ctx.new_tuple(vec![a, b, c]).into());
                 }
-                LIST => {
+                Some(LIST) => {
                     let items = pop_mark!();
                     stack.push(vm.ctx.new_list(items).into());
                 }
-                DICT => {
+                Some(DICT) => {
                     let items = pop_mark!();
                     if items.len() % 2 != 0 {
                         return Err(new_unpickling_error(vm, "odd number of items for DICT"));
@@ -1123,12 +1144,12 @@ mod _pickle {
                     }
                     stack.push(dict.into());
                 }
-                FROZENSET => {
+                Some(FROZENSET) => {
                     let items = pop_mark!();
                     let set = PyFrozenSet::from_iter(vm, items)?;
                     stack.push(set.into_ref(&vm.ctx).into());
                 }
-                APPEND => {
+                Some(APPEND) => {
                     let value = pop!();
                     let obj = top!();
                     if let Some(list) = obj.downcast_ref::<PyList>() {
@@ -1137,7 +1158,7 @@ mod _pickle {
                         vm.call_method(&obj, "append", (value,))?;
                     }
                 }
-                APPENDS => {
+                Some(APPENDS) => {
                     let items = pop_mark!();
                     let obj = top!();
                     if let Some(list) = obj.downcast_ref::<PyList>() {
@@ -1156,13 +1177,13 @@ mod _pickle {
                         }
                     }
                 }
-                SETITEM => {
+                Some(SETITEM) => {
                     let value = pop!();
                     let key = pop!();
                     let obj = top!();
                     obj.set_item(&*key, value, vm)?;
                 }
-                SETITEMS => {
+                Some(SETITEMS) => {
                     let items = pop_mark!();
                     if items.len() % 2 != 0 {
                         return Err(new_unpickling_error(vm, "odd number of items for SETITEMS"));
@@ -1178,7 +1199,7 @@ mod _pickle {
                         }
                     }
                 }
-                ADDITEMS => {
+                Some(ADDITEMS) => {
                     let items = pop_mark!();
                     let obj = top!();
                     if let Some(set) = obj.downcast_ref::<PySet>() {
@@ -1192,29 +1213,29 @@ mod _pickle {
                         }
                     }
                 }
-                POP => {
+                Some(POP) => {
                     if stack.len() > fence!() {
                         stack.pop();
                     } else {
                         let _ = pop_mark!();
                     }
                 }
-                POP_MARK => {
+                Some(POP_MARK) => {
                     let _ = pop_mark!();
                 }
-                DUP => {
+                Some(DUP) => {
                     stack.push(top!());
                 }
-                BINGET => {
+                Some(BINGET) => {
                     let i = st.read_n(1, vm)?[0] as usize;
                     stack.push(memo_get(zelf, i, vm)?);
                 }
-                LONG_BINGET => {
+                Some(LONG_BINGET) => {
                     let arr: [u8; 4] = st.read_n(4, vm)?.try_into().unwrap();
                     let i = u32::from_le_bytes(arr) as usize;
                     stack.push(memo_get(zelf, i, vm)?);
                 }
-                GET => {
+                Some(GET) => {
                     let line = st.read_line(vm)?;
                     if line.len() < 2 {
                         return Err(truncated(vm));
@@ -1223,18 +1244,18 @@ mod _pickle {
                     let idx = parse_memo_index(body, vm)?;
                     stack.push(memo_get(zelf, idx, vm)?);
                 }
-                BINPUT => {
+                Some(BINPUT) => {
                     let i = st.read_n(1, vm)?[0] as usize;
                     let value = top!();
                     memo_put(zelf, i, value);
                 }
-                LONG_BINPUT => {
+                Some(LONG_BINPUT) => {
                     let arr: [u8; 4] = st.read_n(4, vm)?.try_into().unwrap();
                     let i = u32::from_le_bytes(arr) as usize;
                     let value = top!();
                     memo_put(zelf, i, value);
                 }
-                PUT => {
+                Some(PUT) => {
                     let line = st.read_line(vm)?;
                     if line.len() < 2 {
                         return Err(truncated(vm));
@@ -1244,12 +1265,12 @@ mod _pickle {
                     let value = top!();
                     memo_put(zelf, idx, value);
                 }
-                MEMOIZE => {
+                Some(MEMOIZE) => {
                     let value = top!();
                     let idx = zelf.memo.read().len();
                     memo_put(zelf, idx, value);
                 }
-                PERSID => {
+                Some(PERSID) => {
                     let line = st.read_line(vm)?;
                     if line.is_empty() {
                         return Err(truncated(vm));
@@ -1271,12 +1292,12 @@ mod _pickle {
                     let value = persistent_load!(pid);
                     stack.push(value);
                 }
-                BINPERSID => {
+                Some(BINPERSID) => {
                     let pid = pop!();
                     let value = persistent_load!(pid);
                     stack.push(value);
                 }
-                GLOBAL => {
+                Some(GLOBAL) => {
                     let module = {
                         let line = st.read_line(vm)?;
                         if line.len() < 2 {
@@ -1294,7 +1315,7 @@ mod _pickle {
                     let cls = find_class!(module, name);
                     stack.push(cls);
                 }
-                STACK_GLOBAL => {
+                Some(STACK_GLOBAL) => {
                     let name = pop!();
                     let module = pop!();
                     if !name.class().is(vm.ctx.types.str_type)
@@ -1305,7 +1326,7 @@ mod _pickle {
                     let cls = find_class!(module, name);
                     stack.push(cls);
                 }
-                INST => {
+                Some(INST) => {
                     let module = {
                         let line = st.read_line(vm)?;
                         if line.len() < 2 {
@@ -1324,7 +1345,7 @@ mod _pickle {
                     let args = pop_mark!();
                     stack.push(instantiate(cls, args, vm)?);
                 }
-                OBJ => {
+                Some(OBJ) => {
                     let mut args = pop_mark!();
                     if args.is_empty() {
                         return Err(new_unpickling_error(vm, "unpickling stack underflow"));
@@ -1332,7 +1353,7 @@ mod _pickle {
                     let cls = args.remove(0);
                     stack.push(instantiate(cls, args, vm)?);
                 }
-                NEWOBJ => {
+                Some(NEWOBJ) => {
                     let args = pop!();
                     let cls = pop!();
                     let args: PyTupleRef = args
@@ -1343,7 +1364,7 @@ mod _pickle {
                     let obj = cls.get_attr("__new__", vm)?.call(call_args, vm)?;
                     stack.push(obj);
                 }
-                NEWOBJ_EX => {
+                Some(NEWOBJ_EX) => {
                     let kwargs = pop!();
                     let args = pop!();
                     let cls = pop!();
@@ -1369,7 +1390,7 @@ mod _pickle {
                     let obj = cls.get_attr("__new__", vm)?.call(func_args, vm)?;
                     stack.push(obj);
                 }
-                REDUCE => {
+                Some(REDUCE) => {
                     let args = pop!();
                     let func = top!();
                     let args: PyTupleRef = args
@@ -1379,26 +1400,26 @@ mod _pickle {
                     let last = stack.len() - 1;
                     stack[last] = value;
                 }
-                BUILD => {
+                Some(BUILD) => {
                     let state = pop!();
                     let inst = top!();
                     load_build(inst, state, vm)?;
                 }
-                EXT1 => {
+                Some(EXT1) => {
                     let code = st.read_n(1, vm)?[0] as i32;
                     stack.push(get_extension(zelf, code, find_class_override, vm)?);
                 }
-                EXT2 => {
+                Some(EXT2) => {
                     let arr: [u8; 2] = st.read_n(2, vm)?.try_into().unwrap();
                     let code = u16::from_le_bytes(arr) as i32;
                     stack.push(get_extension(zelf, code, find_class_override, vm)?);
                 }
-                EXT4 => {
+                Some(EXT4) => {
                     let arr: [u8; 4] = st.read_n(4, vm)?.try_into().unwrap();
                     let code = i32::from_le_bytes(arr);
                     stack.push(get_extension(zelf, code, find_class_override, vm)?);
                 }
-                NEXT_BUFFER => {
+                Some(NEXT_BUFFER) => {
                     let buffers = zelf.config.read().buffers.clone();
                     let Some(buffers) = buffers else {
                         return Err(new_unpickling_error(
@@ -1413,7 +1434,7 @@ mod _pickle {
                         }
                     }
                 }
-                READONLY_BUFFER => {
+                Some(READONLY_BUFFER) => {
                     let obj = top!();
                     let mv_type: PyObjectRef = vm.ctx.types.memoryview_type.to_owned().into();
                     let view = mv_type.call((obj,), vm)?;
@@ -1422,7 +1443,7 @@ mod _pickle {
                         stack[last] = vm.call_method(&view, "toreadonly", ())?;
                     }
                 }
-                _ => {
+                None => {
                     return Err(new_unpickling_error(
                         vm,
                         format!("invalid load key, {}.", ascii_repr(key)),
@@ -1778,7 +1799,7 @@ mod _pickle {
             };
             let frame_len = self.buf.len() - start - FRAME_HEADER_SIZE;
             if frame_len >= FRAME_SIZE_MIN {
-                self.buf[start] = FRAME;
+                self.buf[start] = FRAME as u8;
                 self.buf[start + 1..start + FRAME_HEADER_SIZE]
                     .copy_from_slice(&(frame_len as u64).to_le_bytes());
             } else {
@@ -2172,15 +2193,15 @@ mod _pickle {
 
         fn write_put(&mut self, idx: usize) {
             if self.proto >= 4 {
-                self.write(&[MEMOIZE]);
+                self.write(&[MEMOIZE as u8]);
             } else if self.bin && idx < 256 {
-                self.write(&[BINPUT, idx as u8]);
+                self.write(&[BINPUT as u8, idx as u8]);
             } else if self.bin {
-                let mut buf = [LONG_BINPUT, 0, 0, 0, 0];
+                let mut buf = [LONG_BINPUT as u8, 0, 0, 0, 0];
                 buf[1..].copy_from_slice(&(idx as u32).to_le_bytes());
                 self.write(&buf);
             } else {
-                self.write_pair(&[PUT], format!("{idx}\n").as_bytes());
+                self.write_pair(&[PUT as u8], format!("{idx}\n").as_bytes());
             }
         }
 
@@ -2196,14 +2217,14 @@ mod _pickle {
         fn get_opcode(&self, idx: usize) -> Vec<u8> {
             if self.bin {
                 if idx < 256 {
-                    vec![BINGET, idx as u8]
+                    vec![BINGET as u8, idx as u8]
                 } else {
-                    let mut v = vec![LONG_BINGET];
+                    let mut v = vec![LONG_BINGET as u8];
                     v.extend_from_slice(&(idx as u32).to_le_bytes());
                     v
                 }
             } else {
-                let mut v = vec![GET];
+                let mut v = vec![GET as u8];
                 v.extend_from_slice(idx.to_string().as_bytes());
                 v.push(b'\n');
                 v
@@ -2233,13 +2254,13 @@ mod _pickle {
 
         fn write_memo_get(&mut self, idx: usize) {
             if self.bin && idx < 256 {
-                self.write(&[BINGET, idx as u8]);
+                self.write(&[BINGET as u8, idx as u8]);
             } else if self.bin {
-                let mut buf = [LONG_BINGET, 0, 0, 0, 0];
+                let mut buf = [LONG_BINGET as u8, 0, 0, 0, 0];
                 buf[1..].copy_from_slice(&(idx as u32).to_le_bytes());
                 self.write(&buf);
             } else {
-                self.write_pair(&[GET], format!("{idx}\n").as_bytes());
+                self.write_pair(&[GET as u8], format!("{idx}\n").as_bytes());
             }
         }
 
@@ -2247,7 +2268,7 @@ mod _pickle {
 
         fn save_bool(&mut self, value: bool) {
             if self.proto >= 2 {
-                self.write(&[if value { NEWTRUE } else { NEWFALSE }]);
+                self.write(&[if value { NEWTRUE as u8 } else { NEWFALSE as u8 }]);
             } else if value {
                 self.write(b"I01\n");
             } else {
@@ -2262,17 +2283,17 @@ mod _pickle {
                 && let Some(v) = value.to_i64()
             {
                 if (0..=0xff).contains(&v) {
-                    self.write(&[BININT1, v as u8]);
+                    self.write(&[BININT1 as u8, v as u8]);
                     return Ok(());
                 }
                 if (0..=0xffff).contains(&v) {
-                    let mut buf = [BININT2, 0, 0];
+                    let mut buf = [BININT2 as u8, 0, 0];
                     buf[1..].copy_from_slice(&(v as u16).to_le_bytes());
                     self.write(&buf);
                     return Ok(());
                 }
                 if let Ok(v) = i32::try_from(v) {
-                    let mut buf = [BININT, 0, 0, 0, 0];
+                    let mut buf = [BININT as u8, 0, 0, 0, 0];
                     buf[1..].copy_from_slice(&v.to_le_bytes());
                     self.write(&buf);
                     return Ok(());
@@ -2286,9 +2307,9 @@ mod _pickle {
                 };
                 let n = encoded.len();
                 let mut header = if n < 256 {
-                    vec![LONG1, n as u8]
+                    vec![LONG1 as u8, n as u8]
                 } else {
-                    let mut v = vec![LONG4];
+                    let mut v = vec![LONG4 as u8];
                     let n = i32::try_from(n)
                         .map_err(|_| new_pickling_error(vm, "int too large to pickle"))?;
                     v.extend_from_slice(&n.to_le_bytes());
@@ -2300,9 +2321,9 @@ mod _pickle {
             }
             let text = value.to_string();
             if value.to_i64().is_some_and(|v| i32::try_from(v).is_ok()) {
-                self.write_pair(&[INT], format!("{text}\n").as_bytes());
+                self.write_pair(&[INT as u8], format!("{text}\n").as_bytes());
             } else {
-                self.write_pair(&[LONG], format!("{text}L\n").as_bytes());
+                self.write_pair(&[LONG as u8], format!("{text}L\n").as_bytes());
             }
             Ok(())
         }
@@ -2310,12 +2331,12 @@ mod _pickle {
         fn save_float(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             let value = obj.downcast_ref::<PyFloat>().expect("float").to_f64();
             if self.bin {
-                let mut buf = [BINFLOAT, 0, 0, 0, 0, 0, 0, 0, 0];
+                let mut buf = [BINFLOAT as u8, 0, 0, 0, 0, 0, 0, 0, 0];
                 buf[1..].copy_from_slice(&value.to_be_bytes());
                 self.write(&buf);
             } else {
                 let text = obj.repr(vm)?;
-                let mut buf = vec![FLOAT];
+                let mut buf = vec![FLOAT as u8];
                 buf.extend_from_slice(text.to_string_lossy().as_bytes());
                 buf.push(b'\n');
                 self.write(&buf);
@@ -2328,17 +2349,17 @@ mod _pickle {
         fn save_bytes_no_memo(&mut self, data: &[u8], vm: &VirtualMachine) -> PyResult<()> {
             let n = data.len();
             if n <= 0xff {
-                self.write_pair(&[SHORT_BINBYTES, n as u8], data);
+                self.write_pair(&[SHORT_BINBYTES as u8, n as u8], data);
             } else if n > 0xffff_ffff && self.proto >= 4 {
-                let mut header = vec![BINBYTES8];
+                let mut header = vec![BINBYTES8 as u8];
                 header.extend_from_slice(&(n as u64).to_le_bytes());
                 self.out.write_large_bytes(&header, data, vm)?;
             } else if n >= FRAME_SIZE_TARGET {
-                let mut header = vec![BINBYTES];
+                let mut header = vec![BINBYTES as u8];
                 header.extend_from_slice(&(n as u32).to_le_bytes());
                 self.out.write_large_bytes(&header, data, vm)?;
             } else {
-                let mut header = [BINBYTES, 0, 0, 0, 0];
+                let mut header = [BINBYTES as u8, 0, 0, 0, 0];
                 header[1..].copy_from_slice(&(n as u32).to_le_bytes());
                 self.write_pair(&header, data);
             }
@@ -2347,7 +2368,7 @@ mod _pickle {
 
         fn save_bytearray_no_memo(&mut self, data: &[u8], vm: &VirtualMachine) -> PyResult<()> {
             let n = data.len();
-            let mut header = [BYTEARRAY8, 0, 0, 0, 0, 0, 0, 0, 0];
+            let mut header = [BYTEARRAY8 as u8, 0, 0, 0, 0, 0, 0, 0, 0];
             header[1..].copy_from_slice(&(n as u64).to_le_bytes());
             if n >= FRAME_SIZE_TARGET {
                 self.out.write_large_bytes(&header, data, vm)?;
@@ -2434,24 +2455,24 @@ mod _pickle {
                 let encoded = s.as_bytes();
                 let n = encoded.len();
                 if n <= 0xff && self.proto >= 4 {
-                    self.write_pair(&[SHORT_BINUNICODE, n as u8], encoded);
+                    self.write_pair(&[SHORT_BINUNICODE as u8, n as u8], encoded);
                 } else if n > 0xffff_ffff && self.proto >= 4 {
-                    let mut header = vec![BINUNICODE8];
+                    let mut header = vec![BINUNICODE8 as u8];
                     header.extend_from_slice(&(n as u64).to_le_bytes());
                     let payload = encoded.to_vec();
                     self.out.write_large_bytes(&header, &payload, vm)?;
                 } else if n >= FRAME_SIZE_TARGET {
-                    let mut header = vec![BINUNICODE];
+                    let mut header = vec![BINUNICODE as u8];
                     header.extend_from_slice(&(n as u32).to_le_bytes());
                     let payload = encoded.to_vec();
                     self.out.write_large_bytes(&header, &payload, vm)?;
                 } else {
-                    let mut header = [BINUNICODE, 0, 0, 0, 0];
+                    let mut header = [BINUNICODE as u8, 0, 0, 0, 0];
                     header[1..].copy_from_slice(&(n as u32).to_le_bytes());
                     self.write_pair(&header, encoded);
                 }
             } else {
-                let mut buf = vec![UNICODE];
+                let mut buf = vec![UNICODE as u8];
                 raw_unicode_escape(s.as_wtf8(), &mut buf);
                 buf.push(b'\n');
                 self.write(&buf);
@@ -2467,9 +2488,9 @@ mod _pickle {
             let n = tuple.len();
             if n == 0 {
                 if self.bin {
-                    self.write(&[EMPTY_TUPLE]);
+                    self.write(&[EMPTY_TUPLE as u8]);
                 } else {
-                    self.write(&[MARK, TUPLE]);
+                    self.write(&[MARK as u8, TUPLE as u8]);
                 }
                 return Ok(());
             }
@@ -2485,16 +2506,16 @@ mod _pickle {
                     })?;
                 }
                 if let Some(idx) = self.memo_lookup(obj) {
-                    let mut buf = vec![POP; n];
+                    let mut buf = vec![POP as u8; n];
                     buf.extend_from_slice(&self.get_opcode(idx));
                     self.write(&buf);
                 } else {
-                    self.write(&[[EMPTY_TUPLE, TUPLE1, TUPLE2, TUPLE3][n]]);
+                    self.write(&[[EMPTY_TUPLE as u8, TUPLE1 as u8, TUPLE2 as u8, TUPLE3 as u8][n]]);
                     self.memoize(obj);
                 }
                 return Ok(());
             }
-            self.write(&[MARK]);
+            self.write(&[MARK as u8]);
             for (i, item) in items.iter().enumerate() {
                 self.save(item, false, vm).map_err(|e| {
                     add_note(
@@ -2507,24 +2528,24 @@ mod _pickle {
             if let Some(idx) = self.memo_lookup(obj) {
                 let get = self.get_opcode(idx);
                 let mut buf = if self.bin {
-                    vec![POP_MARK]
+                    vec![POP_MARK as u8]
                 } else {
-                    vec![POP; n + 1]
+                    vec![POP as u8; n + 1]
                 };
                 buf.extend_from_slice(&get);
                 self.write(&buf);
                 return Ok(());
             }
-            self.write(&[TUPLE]);
+            self.write(&[TUPLE as u8]);
             self.memoize(obj);
             Ok(())
         }
 
         fn save_list(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             if self.bin {
-                self.write(&[EMPTY_LIST]);
+                self.write(&[EMPTY_LIST as u8]);
             } else {
-                self.write(&[MARK, LIST]);
+                self.write(&[MARK as u8, LIST as u8]);
             }
             self.memoize(obj);
             let list = obj.downcast_ref::<PyList>().expect("list");
@@ -2569,17 +2590,17 @@ mod _pickle {
                 if !self.bin {
                     for (k, item) in batch.iter().enumerate() {
                         self.save_item(item, start + k, obj, vm)?;
-                        self.write(&[APPEND]);
+                        self.write(&[APPEND as u8]);
                     }
                 } else if batch.len() != 1 {
-                    self.write(&[MARK]);
+                    self.write(&[MARK as u8]);
                     for (k, item) in batch.iter().enumerate() {
                         self.save_item(item, start + k, obj, vm)?;
                     }
-                    self.write(&[APPENDS]);
+                    self.write(&[APPENDS as u8]);
                 } else {
                     self.save_item(&batch[0], start, obj, vm)?;
-                    self.write(&[APPEND]);
+                    self.write(&[APPEND as u8]);
                 }
                 start += batch.len();
                 if list.borrow_vec().len() != initial_len {
@@ -2619,23 +2640,23 @@ mod _pickle {
                         self.save(item, false, vm).map_err(|e| {
                             add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
                         })?;
-                        self.write(&[APPEND]);
+                        self.write(&[APPEND as u8]);
                         index += 1;
                     }
                 } else if pending.len() != 1 {
-                    self.write(&[MARK]);
+                    self.write(&[MARK as u8]);
                     for item in &pending {
                         self.save(item, false, vm).map_err(|e| {
                             add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
                         })?;
                         index += 1;
                     }
-                    self.write(&[APPENDS]);
+                    self.write(&[APPENDS as u8]);
                 } else {
                     self.save(&pending[0], false, vm).map_err(|e| {
                         add_note(e, format!("when serializing {} item {index}", name(vm)), vm)
                     })?;
-                    self.write(&[APPEND]);
+                    self.write(&[APPEND as u8]);
                     index += 1;
                 }
             }
@@ -2644,9 +2665,9 @@ mod _pickle {
 
         fn save_dict(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             if self.bin {
-                self.write(&[EMPTY_DICT]);
+                self.write(&[EMPTY_DICT as u8]);
             } else {
-                self.write(&[MARK, DICT]);
+                self.write(&[MARK as u8, DICT as u8]);
             }
             self.memoize(obj);
             let dict = obj.downcast_ref::<PyDict>().expect("dict");
@@ -2660,20 +2681,20 @@ mod _pickle {
                     for (k, v) in batch {
                         self.save(k, false, vm)?;
                         self.save_value(v, k, obj, vm)?;
-                        self.write(&[SETITEM]);
+                        self.write(&[SETITEM as u8]);
                     }
                 } else if batch.len() != 1 {
-                    self.write(&[MARK]);
+                    self.write(&[MARK as u8]);
                     for (k, v) in batch {
                         self.save(k, false, vm)?;
                         self.save_value(v, k, obj, vm)?;
                     }
-                    self.write(&[SETITEMS]);
+                    self.write(&[SETITEMS as u8]);
                 } else {
                     let (k, v) = &batch[0];
                     self.save(k, false, vm)?;
                     self.save_value(v, k, obj, vm)?;
-                    self.write(&[SETITEM]);
+                    self.write(&[SETITEM as u8]);
                 }
                 start = end;
                 if dict.__len__() != initial_len {
@@ -2738,7 +2759,7 @@ mod _pickle {
                 }
                 let single = pending.len() == 1;
                 if self.bin && !single {
-                    self.write(&[MARK]);
+                    self.write(&[MARK as u8]);
                 }
                 for (k, v) in &pending {
                     self.save(k, false, vm)?;
@@ -2747,11 +2768,11 @@ mod _pickle {
                         None => self.save(v, false, vm)?,
                     }
                     if !self.bin || single {
-                        self.write(&[SETITEM]);
+                        self.write(&[SETITEM as u8]);
                     }
                 }
                 if self.bin && !single {
-                    self.write(&[SETITEMS]);
+                    self.write(&[SETITEMS as u8]);
                 }
             }
             Ok(())
@@ -2773,11 +2794,11 @@ mod _pickle {
                     vm,
                 );
             }
-            self.write(&[EMPTY_SET]);
+            self.write(&[EMPTY_SET as u8]);
             self.memoize(obj);
             let elements = set.elements();
             for batch in elements.chunks(BATCH_SIZE) {
-                self.write(&[MARK]);
+                self.write(&[MARK as u8]);
                 for item in batch {
                     self.save(item, false, vm).map_err(|e| {
                         add_note(
@@ -2787,7 +2808,7 @@ mod _pickle {
                         )
                     })?;
                 }
-                self.write(&[ADDITEMS]);
+                self.write(&[ADDITEMS as u8]);
             }
             Ok(())
         }
@@ -2808,7 +2829,7 @@ mod _pickle {
                     vm,
                 );
             }
-            self.write(&[MARK]);
+            self.write(&[MARK as u8]);
             for item in set.elements() {
                 self.save(&item, false, vm).map_err(|e| {
                     add_note(
@@ -2819,12 +2840,12 @@ mod _pickle {
                 })?;
             }
             if let Some(idx) = self.memo_lookup(obj) {
-                let mut buf = vec![POP_MARK];
+                let mut buf = vec![POP_MARK as u8];
                 buf.extend_from_slice(&self.get_opcode(idx));
                 self.write(&buf);
                 return Ok(());
             }
-            self.write(&[FROZENSET]);
+            self.write(&[FROZENSET as u8]);
             self.memoize(obj);
             Ok(())
         }
@@ -2873,7 +2894,7 @@ mod _pickle {
             }
 
             if vm.is_none(obj) {
-                self.write(&[NONE]);
+                self.write(&[NONE as u8]);
                 return Ok(());
             }
             let cls = obj.class();
@@ -3146,7 +3167,7 @@ mod _pickle {
                                 vm,
                             )
                         })?;
-                    self.write(&[NEWOBJ_EX]);
+                    self.write(&[NEWOBJ_EX as u8]);
                 } else {
                     let functools = vm.import("functools", 0)?;
                     let partial = functools.get_attr("partial", vm)?;
@@ -3177,7 +3198,7 @@ mod _pickle {
                     })?;
                     let empty: PyObjectRef = vm.ctx.new_tuple(vec![]).into();
                     self.save(&empty, false, vm)?;
-                    self.write(&[REDUCE]);
+                    self.write(&[REDUCE as u8]);
                 }
             } else if self.proto >= 2 && func_name == "__newobj__" {
                 let parts = args.as_slice();
@@ -3215,7 +3236,7 @@ mod _pickle {
                         vm,
                     )
                 })?;
-                self.write(&[NEWOBJ]);
+                self.write(&[NEWOBJ as u8]);
             } else {
                 self.save(&func, false, vm).map_err(|e| {
                     add_note(
@@ -3232,12 +3253,12 @@ mod _pickle {
                         vm,
                     )
                 })?;
-                self.write(&[REDUCE]);
+                self.write(&[REDUCE as u8]);
             }
 
             if let Some(o) = obj {
                 if let Some(idx) = self.memo_lookup(o) {
-                    let mut buf = vec![POP];
+                    let mut buf = vec![POP as u8];
                     buf.extend_from_slice(&self.get_opcode(idx));
                     self.write(&buf);
                 } else {
@@ -3257,7 +3278,7 @@ mod _pickle {
                         self.save(&state, false, vm).map_err(|e| {
                             add_note(e, format!("when serializing {} state", obj_name(vm)), vm)
                         })?;
-                        self.write(&[BUILD]);
+                        self.write(&[BUILD as u8]);
                     }
                     Some(setter) => {
                         self.save(&setter, false, vm).map_err(|e| {
@@ -3276,7 +3297,7 @@ mod _pickle {
                         self.save(&state, false, vm).map_err(|e| {
                             add_note(e, format!("when serializing {} state", obj_name(vm)), vm)
                         })?;
-                        self.write(&[TUPLE2, REDUCE, POP]);
+                        self.write(&[TUPLE2 as u8, REDUCE as u8, POP as u8]);
                     }
                 }
             }
@@ -3286,14 +3307,14 @@ mod _pickle {
         fn save_pers(&mut self, pid: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             if self.bin {
                 self.save(pid, true, vm)?;
-                self.write(&[BINPERSID]);
+                self.write(&[BINPERSID as u8]);
                 return Ok(());
             }
             let text = pid.str(vm)?;
             let ascii = text.to_str().filter(|s| s.is_ascii()).ok_or_else(|| {
                 new_pickling_error(vm, "persistent IDs in protocol 0 must be ASCII strings")
             })?;
-            let mut buf = vec![PERSID];
+            let mut buf = vec![PERSID as u8];
             buf.extend_from_slice(ascii.as_bytes());
             buf.push(b'\n');
             self.write(&buf);
@@ -3357,9 +3378,9 @@ mod _pickle {
                 }
                 self.memoize(obj);
             } else {
-                self.write(&[NEXT_BUFFER]);
+                self.write(&[NEXT_BUFFER as u8]);
                 if buffer.desc.readonly {
-                    self.write(&[READONLY_BUFFER]);
+                    self.write(&[READONLY_BUFFER as u8]);
                 }
             }
             Ok(())
@@ -3403,13 +3424,13 @@ mod _pickle {
                         if code == 0 {
                             return Err(vm.new_runtime_error("extension code 0 is out of range"));
                         }
-                        self.write(&[EXT1, code as u8]);
+                        self.write(&[EXT1 as u8, code as u8]);
                     } else if code <= 0xffff {
-                        let mut buf = [EXT2, 0, 0];
+                        let mut buf = [EXT2 as u8, 0, 0];
                         buf[1..].copy_from_slice(&(code as u16).to_le_bytes());
                         self.write(&buf);
                     } else {
-                        let mut buf = [EXT4, 0, 0, 0, 0];
+                        let mut buf = [EXT4 as u8, 0, 0, 0, 0];
                         buf[1..].copy_from_slice(&(code as i32).to_le_bytes());
                         self.write(&buf);
                     }
@@ -3422,7 +3443,7 @@ mod _pickle {
                 self.save(&module_obj, false, vm)?;
                 let name_obj: PyObjectRef = name.clone().into();
                 self.save(&name_obj, false, vm)?;
-                self.write(&[STACK_GLOBAL]);
+                self.write(&[STACK_GLOBAL as u8]);
             } else if name.as_bytes().contains(&b'.') {
                 let mut parts = split_dotted(&name, vm);
                 let head = parts.remove(0);
@@ -3431,7 +3452,7 @@ mod _pickle {
                 for _ in &dotted {
                     self.save(&getattr, false, vm)?;
                     if self.proto < 2 {
-                        self.write(&[MARK]);
+                        self.write(&[MARK as u8]);
                     }
                 }
                 self.save_toplevel_by_name(&module_name, &head, vm)?;
@@ -3439,11 +3460,11 @@ mod _pickle {
                     let attr: PyObjectRef = attrname.clone().into();
                     self.save(&attr, false, vm)?;
                     if self.proto < 2 {
-                        self.write(&[TUPLE]);
+                        self.write(&[TUPLE as u8]);
                     } else {
-                        self.write(&[TUPLE2]);
+                        self.write(&[TUPLE2 as u8]);
                     }
-                    self.write(&[REDUCE]);
+                    self.write(&[REDUCE as u8]);
                 }
             } else {
                 self.save_toplevel_by_name(&module_name, &name, vm)?;
@@ -3525,7 +3546,7 @@ mod _pickle {
                     err.set___context__(Some(e));
                     err
                 })?;
-            let mut buf = vec![GLOBAL];
+            let mut buf = vec![GLOBAL as u8];
             buf.extend_from_slice(module_bytes.as_bytes());
             buf.push(b'\n');
             buf.extend_from_slice(name_bytes.as_bytes());
@@ -3715,7 +3736,7 @@ mod _pickle {
         out.frame_start = None;
         out.framing = false;
         if proto >= 2 {
-            out.write_bytes(&[PROTO, proto]);
+            out.write_bytes(&[PROTO as u8, proto]);
         }
         if proto >= 4 {
             out.framing = true;
@@ -3734,7 +3755,7 @@ mod _pickle {
             copyreg: None,
         };
         ctx.save(&obj, false, vm)?;
-        ctx.write(&[STOP]);
+        ctx.write(&[STOP as u8]);
         out.commit_frame();
         out.flush_to_file(vm)?;
         Ok(())
