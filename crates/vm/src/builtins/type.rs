@@ -2646,16 +2646,6 @@ impl Constructor for PyType {
         )
         .map_err(|e| vm.new_type_error(e))?;
 
-        // Keep non-string namespace keys on tp_dict so lookup can call their
-        // __eq__/__hash__ (string keys were copied through to_attributes).
-        if let Some(ns) = typ.attributes.as_dict() {
-            for (key, value) in dict.into_iter() {
-                if key.downcast_ref::<PyStr>().is_none() {
-                    ns.set_item(key, value, vm)?;
-                }
-            }
-        }
-
         // Fill __classcell__ before a custom mro() runs so methods that
         // close over __class__ can execute during type creation.
         if let Some(cell) = typ.attributes.get(identifier!(vm, __classcell__)) {

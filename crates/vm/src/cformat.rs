@@ -32,13 +32,11 @@ fn spec_format_bytes(
     obj: PyObjectRef,
 ) -> PyResult<Vec<u8>> {
     match &spec.format_type {
-        CFormatType::Unsupported { ch, index } => {
-            return Err(vm.new_value_error(format!(
-                "unsupported format character '{}' ({:#x}) at index {index}",
-                ch.to_char_lossy(),
-                ch.to_u32(),
-            )));
-        }
+        CFormatType::Unsupported { ch, index } => Err(vm.new_value_error(format!(
+            "unsupported format character '{}' ({:#x}) at index {index}",
+            ch.to_char_lossy(),
+            ch.to_u32(),
+        ))),
         // Unlike strings, %r and %a are identical for bytes: the behaviour corresponds to
         // %a for strings (not %r)
         CFormatType::String(CFormatConversion::Repr | CFormatConversion::Ascii) => {
@@ -181,13 +179,11 @@ fn spec_format_string(
     obj: PyObjectRef,
 ) -> PyResult<Wtf8Buf> {
     match &spec.format_type {
-        CFormatType::Unsupported { ch, index } => {
-            return Err(vm.new_value_error(format!(
-                "unsupported format character '{}' ({:#x}) at index {index}",
-                ch.to_char_lossy(),
-                ch.to_u32(),
-            )));
-        }
+        CFormatType::Unsupported { ch, index } => Err(vm.new_value_error(format!(
+            "unsupported format character '{}' ({:#x}) at index {index}",
+            ch.to_char_lossy(),
+            ch.to_u32(),
+        ))),
         CFormatType::String(conversion) => {
             let result = match conversion {
                 CFormatConversion::Ascii => builtins::ascii(obj, vm)?.as_wtf8().to_owned(),

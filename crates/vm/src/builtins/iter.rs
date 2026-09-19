@@ -217,11 +217,11 @@ where
 }
 
 pub fn builtins_iter(vm: &VirtualMachine) -> PyResult {
-    vm.eval_get_builtin(identifier!(vm, iter))
+    vm.eval_get_builtin(vm.ctx.intern_str("iter"))
 }
 
 pub fn builtins_reversed(vm: &VirtualMachine) -> PyResult {
-    vm.eval_get_builtin(identifier!(vm, reversed))
+    vm.eval_get_builtin(vm.ctx.intern_str("reversed"))
 }
 
 #[pyclass(module = false, name = "iterator", traverse)]

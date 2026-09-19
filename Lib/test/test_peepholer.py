@@ -727,7 +727,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(format('x = %s!', '%% %s'), 'x = %% %s!')
         self.assertEqual(format('x = %s, y = %d', 12, 34), 'x = 12, y = 34')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: unsupported format character 'z' (0x7a) at index 3
     def test_format_errors(self):
         with self.assertRaisesRegex(TypeError,
                     'not enough arguments for format string'):

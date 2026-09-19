@@ -3069,13 +3069,13 @@ impl VirtualMachine {
         if let Some(dict) = builtins.downcast_ref::<PyDict>() {
             match dict.get_item_opt(name, self)? {
                 Some(value) => Ok(value),
-                None => Err(self.new_attribute_error(name.to_owned())),
+                None => Err(self.new_attribute_error(name.to_string())),
             }
         } else {
             match builtins.get_item(name, self) {
                 Ok(value) => Ok(value),
                 Err(e) if e.fast_isinstance(self.ctx.exceptions.key_error) => {
-                    Err(self.new_attribute_error(name.to_owned()))
+                    Err(self.new_attribute_error(name.to_string()))
                 }
                 Err(e) => Err(e),
             }

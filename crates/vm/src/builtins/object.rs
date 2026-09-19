@@ -4,7 +4,7 @@ use crate::types::PyTypeFlags;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    convert::{ToPyObject, ToPyResult},
+    convert::ToPyResult,
     function::{Callee, Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
     types::{Constructor, Initializer, PyComparisonOp},
 };
