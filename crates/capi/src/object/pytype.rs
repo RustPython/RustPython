@@ -6,10 +6,13 @@ use crate::pystate::with_vm;
 use crate::slots::{PySlot, PySlotKind, PySlotType};
 use crate::util::CStrExt;
 use core::ffi::{c_char, c_int, c_ulong, c_void};
-use rustpython_vm::builtins::{PyDict, PyStr, PyTuple, PyType};
+use dashmap::DashMap;
+use rustpython_vm::builtins::{PyDict, PyStr, PyType, PyTypeRef};
 use rustpython_vm::function::{FuncArgs, PyMethodFlags};
 use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
-use rustpython_vm::{AsObject, Py, PyObject};
+use rustpython_vm::{AsObject, Py, PyObject, PyResult, VirtualMachine};
+use std::any::{Any, TypeId};
+use std::sync::LazyLock;
 
 pub type PyTypeObject = Py<PyType>;
 
@@ -97,6 +100,45 @@ pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) 
     })
 }
 
+fn get_c_tp_new<F: Any + Send + Sync>(
+    rust_tp_new: F,
+) -> extern "C" fn(*mut PyTypeObject, *mut PyObject, *mut PyObject) -> *mut PyObject
+where
+    F: Fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult,
+{
+    extern "C" fn trampoline<F: Any + Send + Sync>(
+        subtype: *mut PyTypeObject,
+        args: *mut PyObject,
+        kwargs: *mut PyObject,
+    ) -> *mut PyObject
+    where
+        F: Fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult,
+    {
+        let entry = SLOT_CACHE
+            .get(&TypeId::of::<F>())
+            .expect("could not find tp_new trampoline");
+        let func = entry.downcast_ref::<F>().expect("trampoline type mismatch");
+        with_vm(|vm| unsafe {
+            let args = FuncArgs::new(
+                tuple_to_args((&*args).try_downcast_ref(vm)?),
+                kwargs
+                    .as_ref()
+                    .map(|kwargs| dict_to_kwargs(vm, kwargs.try_downcast_ref::<PyDict>(vm)?))
+                    .transpose()?
+                    .unwrap_or_default(),
+            );
+            func((&*subtype).to_owned(), args, vm)
+        })
+    }
+
+    static SLOT_CACHE: LazyLock<DashMap<TypeId, Box<dyn Any + Send + Sync>>> =
+        LazyLock::new(DashMap::new);
+    SLOT_CACHE
+        .entry(TypeId::of::<F>())
+        .or_insert_with(|| Box::new(rust_tp_new));
+    trampoline::<F>
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c_void {
     with_vm(|_vm| {
@@ -109,40 +151,11 @@ pub unsafe extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) ->
             .expect("invalid slot number for SlotAccessor");
 
         match slot_accessor {
-            SlotAccessor::TpNew => {
-                extern "C" fn newfunc_wrapper(
-                    subtype: *mut PyTypeObject,
-                    args: *mut PyObject,
-                    kwargs: *mut PyObject,
-                ) -> *mut PyObject {
-                    with_vm(|vm| {
-                        let subtype = unsafe { &*subtype };
-
-                        let args = if let Some(args_obj) = unsafe { args.as_ref() } {
-                            tuple_to_args(args_obj.try_downcast_ref::<PyTuple>(vm)?)
-                        } else {
-                            ().into()
-                        };
-
-                        let kwargs = unsafe { kwargs.as_ref() }
-                            .map(|obj| dict_to_kwargs(vm, obj.try_downcast_ref::<PyDict>(vm)?))
-                            .transpose()?
-                            .unwrap_or_default();
-
-                        subtype
-                            .slots
-                            .new
-                            .load()
-                            .expect("tp_new slot function pointer is null")(
-                            subtype.to_owned(),
-                            FuncArgs::new(args, kwargs),
-                            vm,
-                        )
-                    })
-                }
-
-                ty.slots.new.load().map(|_| newfunc_wrapper as *mut c_void)
-            }
+            SlotAccessor::TpNew => ty
+                .slots
+                .new
+                .load()
+                .map(|rust_tp_new| get_c_tp_new(rust_tp_new) as *mut c_void),
             _ => {
                 todo!("Slot {slot_accessor:?} for {ty:?} is not yet implemented in PyType_GetSlot")
             }
@@ -200,10 +213,10 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                                         base = unsafe { Some(&*slot.pfunc.cast::<PyTypeObject>()) }
                                     }
                                     SlotAccessor::TpDealloc => {
-                                        type_slots.del.store(Some(|_ty, _vm| {
-                                            // TODO
-                                            Ok(())
-                                        }));
+                                        // type_slots.del.store(Some(|_ty, _vm| {
+                                        //     // TODO
+                                        //     Ok(())
+                                        // }));
                                     }
                                     SlotAccessor::TpMethods => {
                                         for def in PyMethodDef::iter(slot.pfunc.cast()) {
@@ -257,7 +270,7 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
             vm.new_system_error(format!("Failed to create type from slots: {msg}"))
         })?;
 
-        let mut attrs = class.attributes.write();
+        let attrs = &class.attributes;
         let class_static = unsafe { &*((&*class) as *const _) };
         for (name, method) in methods {
             attrs.insert(
@@ -279,7 +292,6 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                 member.build(class_static, vm)?.into(),
             );
         }
-        drop(attrs);
 
         Ok(class)
     })
