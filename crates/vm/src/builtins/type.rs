@@ -2662,13 +2662,8 @@ impl Constructor for PyType {
         )
         .map_err(|e| vm.new_type_error(e))?;
 
-        if custom_mro {
-            mro_internal(&typ, vm)?;
-            typ.init_slots(&vm.ctx);
-        }
-
-        // Consume __classcell__ before slot members of the same name
-        // overwrite the compiler-provided cell.
+        // Fill __classcell__ before a custom mro() runs so methods that
+        // close over __class__ can execute during type creation.
         if let Some(cell) = typ.attributes.get(identifier!(vm, __classcell__)) {
             let cell = PyCellRef::try_from_object(vm, cell.clone()).map_err(|_| {
                 vm.new_type_error(format!(
@@ -2692,6 +2687,11 @@ impl Constructor for PyType {
                 .expect("a type built by type.__new__ has a dict namespace");
             cell.set(Some(namespace.clone().into()));
             typ.attributes.remove(identifier!(vm, __classdictcell__));
+        }
+
+        if custom_mro {
+            mro_internal(&typ, vm)?;
+            typ.init_slots(&vm.ctx);
         }
 
         if let Some(ref slots) = heaptype_slots {
