@@ -230,10 +230,10 @@ pub(crate) mod _asyncio {
                         let exc: PyBaseExceptionRef = exc.downcast().unwrap();
                         // Restore the original traceback to prevent traceback accumulation
                         let fut_exception_tb = self.fut_exception_tb.read().clone();
-                        if let Some(tb) = fut_exception_tb {
-                            if let Ok(tb) = tb.downcast::<PyTraceback>() {
-                                exc.set_traceback(Some(tb));
-                            }
+                        if let Some(tb) = fut_exception_tb
+                            && let Ok(tb) = tb.downcast::<PyTraceback>()
+                        {
+                            exc.set_traceback(Some(tb));
                         }
                         Err(exc)
                     } else {
@@ -1278,10 +1278,10 @@ pub(crate) mod _asyncio {
                         let exc: PyBaseExceptionRef = exc.downcast().unwrap();
                         // Restore the original traceback to prevent traceback accumulation
                         let fut_exception_tb = self.base.fut_exception_tb.read().clone();
-                        if let Some(tb) = fut_exception_tb {
-                            if let Ok(tb) = tb.downcast::<PyTraceback>() {
-                                exc.set_traceback(Some(tb));
-                            }
+                        if let Some(tb) = fut_exception_tb
+                            && let Ok(tb) = tb.downcast::<PyTraceback>()
+                        {
+                            exc.set_traceback(Some(tb));
                         }
 
                         Err(exc)
