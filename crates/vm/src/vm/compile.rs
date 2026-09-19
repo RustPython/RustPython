@@ -268,9 +268,8 @@ impl VirtualMachine {
             .rposition(|&b| b == b'\n')
             .map_or(0, |i| i + 1);
         let lineno = src[..error_at].iter().filter(|&&b| b == b'\n').count() + 1;
-        let offset = core::str::from_utf8(&src[line_start..error_at])
-            .map(|s| s.chars().count() + 1)
-            .unwrap_or(1);
+        let offset =
+            core::str::from_utf8(&src[line_start..error_at]).map_or(1, |s| s.chars().count() + 1);
         let line_end = src[line_start..]
             .iter()
             .position(|&b| b == b'\n')
