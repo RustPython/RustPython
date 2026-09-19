@@ -656,15 +656,19 @@ impl Py<PyFunction> {
 
         // Use self.as_object() as raw pointer — no refcount inc/dec.
         // The function is alive on the caller's stack for the call duration.
-        let iframe = crate::frame::InterpreterFrame::new_on_datastack(
-            &self.code,
-            &self.globals,
-            &self.builtins,
-            Some(self.as_object()),
-            locals,
-            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            vm,
-        );
+        let iframe = unsafe {
+            // SAFETY: `self` is borrowed for this call; its code, globals,
+            // builtins, and the function object outlive `iframe`.
+            crate::frame::InterpreterFrame::new_on_datastack(
+                &self.code,
+                &self.globals,
+                &self.builtins,
+                Some(self.as_object()),
+                locals,
+                self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+                vm,
+            )
+        };
         let result = self
             .fill_locals_from_args_iframe(iframe, func_args, vm)
             .and_then(|()| vm.run_frame_fast(iframe));
@@ -893,15 +897,19 @@ impl Py<PyFunction> {
             ))
         };
 
-        let iframe = crate::frame::InterpreterFrame::new_on_datastack(
-            code,
-            &self.globals,
-            &self.builtins,
-            Some(self.as_object()),
-            locals,
-            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            vm,
-        );
+        let iframe = unsafe {
+            // SAFETY: `self` is borrowed for this call; its code, globals,
+            // builtins, and the function object outlive `iframe`.
+            crate::frame::InterpreterFrame::new_on_datastack(
+                code,
+                &self.globals,
+                &self.builtins,
+                Some(self.as_object()),
+                locals,
+                self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+                vm,
+            )
+        };
 
         // Fill arguments directly into fastlocals
         {

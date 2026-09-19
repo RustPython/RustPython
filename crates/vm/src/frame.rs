@@ -907,10 +907,11 @@ impl Default for FrameColdData {
 /// Lightweight execution frame. Not a PyObject.
 /// Analogous to CPython's `_PyInterpreterFrame`.
 ///
-/// The four "identity" fields (`code`, `globals`, `builtins`, `func_obj`)
-/// are borrowed raw pointers — refcounts are maintained by the owner
-/// (FrameObject's owned fields, or the PyFunction on the caller's stack
-/// in the DataStack path).
+/// The four identity fields (`code`, `globals`, `builtins`, `func_obj`)
+/// are borrowed raw pointers. Construction is `unsafe` and is what
+/// establishes that they stay valid for the frame's life (or until
+/// `init_iframe_ptrs` overwrites them). A live `InterpreterFrame` may
+/// then be executed through safe APIs such as `run_iframe`.
 #[repr(C)]
 pub struct InterpreterFrame {
     // Borrowed pointers — owned by FrameObject or by PyFunction on caller's stack.
@@ -965,14 +966,16 @@ unsafe impl Sync for InterpreterFrame {}
 impl InterpreterFrame {
     /// Construct a new InterpreterFrame with raw pointers set from the given references.
     ///
-    /// The caller must ensure that the pointed-to objects outlive this frame.
     /// For FrameObject-owned frames, `init_iframe_ptrs` patches the pointers
     /// after heap allocation; the pointers passed here are then overwritten.
-    /// For stack-allocated frames (future), the pointers remain valid for the
-    /// frame's lifetime on the native stack.
+    ///
+    /// # Safety
+    /// `code`, `globals`, `builtins`, and `func_obj` (if any) must remain
+    /// valid for the lifetime of this frame, or until `init_iframe_ptrs`
+    /// overwrites the stored pointers.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
-    pub(crate) fn new(
+    pub(crate) unsafe fn new(
         code: &Py<PyCode>,
         globals: &Py<PyDict>,
         builtins: &PyObject,
@@ -1040,12 +1043,16 @@ impl InterpreterFrame {
     ///
     /// Returns a mutable reference whose lifetime is bounded by the data
     /// stack's LIFO discipline. The caller must call
-    /// `release_datastack_frame()` (unsafe) when done, then
+    /// `release_datastack_frame()` when done, then
     /// `vm.datastack_pop_frame(base, size)`. The reference must not be used after
     /// `release_datastack_frame` returns.
+    ///
+    /// # Safety
+    /// `code`, `globals`, `builtins`, and `func_obj` (if any) must remain
+    /// valid until `release_datastack_frame` returns.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
-    pub(crate) fn new_on_datastack<'a>(
+    pub(crate) unsafe fn new_on_datastack<'a>(
         code: &Py<PyCode>,
         globals: &Py<PyDict>,
         builtins: &PyObject,
@@ -1084,16 +1091,20 @@ impl InterpreterFrame {
             stack_top: 0,
         };
 
-        let mut iframe = Self::new(
-            code,
-            globals,
-            builtins,
-            func_obj,
-            localsplus,
-            locals,
-            closure,
-            FrameOwner::Thread,
-        );
+        let mut iframe = unsafe {
+            // SAFETY: the caller of `new_on_datastack` guarantees these
+            // objects outlive the datastack frame.
+            Self::new(
+                code,
+                globals,
+                builtins,
+                func_obj,
+                localsplus,
+                locals,
+                closure,
+                FrameOwner::Thread,
+            )
+        };
         iframe.datastack_base = base;
 
         // Write the fully initialized InterpreterFrame into the datastack.
@@ -1394,18 +1405,21 @@ impl InterpreterFrame {
     /// Borrowed code object.
     #[inline(always)]
     pub fn code(&self) -> &Py<PyCode> {
+        // SAFETY: established by `new` / `init_iframe_ptrs`.
         unsafe { &*self.code }
     }
 
     /// Borrowed globals dict.
     #[inline(always)]
     pub fn globals(&self) -> &Py<PyDict> {
+        // SAFETY: established by `new` / `init_iframe_ptrs`.
         unsafe { &*self.globals }
     }
 
     /// Borrowed builtins object.
     #[inline(always)]
     pub fn builtins(&self) -> &PyObject {
+        // SAFETY: established by `new` / `init_iframe_ptrs`.
         unsafe { &*self.builtins }
     }
 
@@ -1415,6 +1429,7 @@ impl InterpreterFrame {
         if self.func_obj.is_null() {
             None
         } else {
+            // SAFETY: established by `new` / `init_iframe_ptrs`.
             Some(unsafe { &*self.func_obj })
         }
     }
@@ -1781,20 +1796,23 @@ impl FrameObject {
             None => FrameLocals::with_locals(ArgMapping::from_dict_exact(scope.globals.clone())),
         };
 
-        // Build the InterpreterFrame using the constructor.
         // Pointers are initially set from owned fields' references but will be
         // dangling after the FrameObject moves into heap allocation — they get
         // patched by `init_iframe_ptrs` after `into_ref`.
-        let iframe = InterpreterFrame::new(
-            &code,
-            &scope.globals,
-            &builtins,
-            func_obj.as_deref(),
-            localsplus,
-            locals,
-            closure,
-            FrameOwner::FrameObject,
-        );
+        let iframe = unsafe {
+            // SAFETY: `init_iframe_ptrs` overwrites these pointers after
+            // `into_ref`, before the frame is executed.
+            InterpreterFrame::new(
+                &code,
+                &scope.globals,
+                &builtins,
+                func_obj.as_deref(),
+                localsplus,
+                locals,
+                closure,
+                FrameOwner::FrameObject,
+            )
+        };
         Self {
             owned_code: Some(code),
             owned_globals: Some(scope.globals),
@@ -2439,16 +2457,20 @@ impl Py<FrameObject> {
         // executes a given frame (enforced by the owner field and generator
         // running flag). Same safety argument as FastLocals (UnsafeCell).
         let iframe = unsafe { self.iframe_mut() };
-        // Dereference the raw pointers before taking mutable borrows
-        // to localsplus/prev_line. The raw pointers point to FrameObject's
-        // owned fields, not into InterpreterFrame, so there is no aliasing.
-        let code: &Py<PyCode> = unsafe { &*iframe.code };
-        let globals: &Py<PyDict> = unsafe { &*iframe.globals };
-        let builtins: &PyObject = unsafe { &*iframe.builtins };
-        let func_obj: Option<&PyObject> = if iframe.func_obj.is_null() {
-            None
-        } else {
-            Some(unsafe { &*iframe.func_obj })
+        // Raw pointer deref, not `iframe.code()`, so the later `&mut`
+        // localsplus/prev_line borrows are not aliasing a live `&self`.
+        // SAFETY: established by `new` / `init_iframe_ptrs`.
+        let (code, globals, builtins, func_obj) = unsafe {
+            (
+                &*iframe.code,
+                &*iframe.globals,
+                &*iframe.builtins,
+                if iframe.func_obj.is_null() {
+                    None
+                } else {
+                    Some(&*iframe.func_obj)
+                },
+            )
         };
         let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
             builtins
@@ -2530,13 +2552,18 @@ impl Py<FrameObject> {
         }
         // SAFETY: FrameObject is not executing, so UnsafeCell access is safe.
         let iframe = unsafe { self.iframe_mut() };
-        let code: &Py<PyCode> = unsafe { &*iframe.code };
-        let globals: &Py<PyDict> = unsafe { &*iframe.globals };
-        let builtins: &PyObject = unsafe { &*iframe.builtins };
-        let func_obj: Option<&PyObject> = if iframe.func_obj.is_null() {
-            None
-        } else {
-            Some(unsafe { &*iframe.func_obj })
+        // SAFETY: established by `new` / `init_iframe_ptrs`.
+        let (code, globals, builtins, func_obj) = unsafe {
+            (
+                &*iframe.code,
+                &*iframe.globals,
+                &*iframe.builtins,
+                if iframe.func_obj.is_null() {
+                    None
+                } else {
+                    Some(&*iframe.func_obj)
+                },
+            )
         };
         let iframe_ptr = iframe as *const InterpreterFrame;
         let exec = ExecutingFrame {
@@ -2648,23 +2675,26 @@ pub(crate) fn trampoline_handle_exception(
 }
 
 /// Borrow an `InterpreterFrame` as an `ExecutingFrame`.
-///
-/// # Safety
-/// The InterpreterFrame's raw pointers (code, globals, builtins, func_obj)
-/// must be valid for the lifetime of the returned borrow.
 #[inline(always)]
 fn exec_iframe<'a>(
     iframe: &'a mut InterpreterFrame,
     flatten: Flatten,
     vm: &VirtualMachine,
 ) -> ExecutingFrame<'a> {
-    let code: &Py<PyCode> = unsafe { &*iframe.code };
-    let globals: &Py<PyDict> = unsafe { &*iframe.globals };
-    let builtins: &PyObject = unsafe { &*iframe.builtins };
-    let func_obj: Option<&PyObject> = if iframe.func_obj.is_null() {
-        None
-    } else {
-        Some(unsafe { &*iframe.func_obj })
+    // Raw pointer deref, not `iframe.code()`, so the later `&mut`
+    // localsplus/prev_line borrows are not aliasing a live `&self`.
+    // SAFETY: established by `new` / `init_iframe_ptrs`.
+    let (code, globals, builtins, func_obj) = unsafe {
+        (
+            &*iframe.code,
+            &*iframe.globals,
+            &*iframe.builtins,
+            if iframe.func_obj.is_null() {
+                None
+            } else {
+                Some(&*iframe.func_obj)
+            },
+        )
     };
     let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
         builtins
@@ -2691,10 +2721,6 @@ fn exec_iframe<'a>(
 }
 
 /// Execute an InterpreterFrame's bytecode directly, without a FrameObject.
-///
-/// # Safety
-/// The InterpreterFrame's raw pointers (code, globals, builtins, func_obj)
-/// must be valid for the duration of this call.
 #[inline(always)]
 pub(crate) fn run_iframe(
     iframe: &mut InterpreterFrame,
@@ -2726,7 +2752,7 @@ pub(crate) fn yield_from_delegate(
     iframe: &InterpreterFrame,
     vm: &VirtualMachine,
 ) -> Option<(PyObjectRef, GenCont)> {
-    let code: &Py<PyCode> = unsafe { &*iframe.code };
+    let code = iframe.code();
     let send_caches = Instruction::from(Opcode::Send).cache_entries();
     let resumed_at = iframe.lasti.load(Relaxed) as usize;
     // The SEND, its cache and the YIELD_VALUE sit below `resumed_at`.
@@ -11375,15 +11401,20 @@ impl ExecutingFrame<'_> {
             ))
         };
 
-        let callee_iframe = InterpreterFrame::new_on_datastack(
-            code,
-            &func.globals,
-            &func.builtins,
-            Some(func.as_object()),
-            locals,
-            func.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            vm,
-        );
+        let callee_iframe = unsafe {
+            // SAFETY: the callable stays on the caller's stack until it is
+            // moved into `pending_tailcall_owner`, which keeps `func` alive
+            // while this frame runs.
+            InterpreterFrame::new_on_datastack(
+                code,
+                &func.globals,
+                &func.builtins,
+                Some(func.as_object()),
+                locals,
+                func.closure.as_ref().map_or(&[], |c| c.as_slice()),
+                vm,
+            )
+        };
 
         // Move args directly from the caller's stack into callee fastlocals,
         // avoiding an intermediate buffer.
@@ -11436,15 +11467,20 @@ impl ExecutingFrame<'_> {
             ))
         };
 
-        let callee_iframe = InterpreterFrame::new_on_datastack(
-            code,
-            &func.globals,
-            &func.builtins,
-            Some(func.as_object()),
-            locals,
-            func.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            vm,
-        );
+        let callee_iframe = unsafe {
+            // SAFETY: `bound_function` is held on this stack until the
+            // callee frame is stored as a pending tailcall, and `func`
+            // is borrowed from it.
+            InterpreterFrame::new_on_datastack(
+                code,
+                &func.globals,
+                &func.builtins,
+                Some(func.as_object()),
+                locals,
+                func.closure.as_ref().map_or(&[], |c| c.as_slice()),
+                vm,
+            )
+        };
 
         // Move args directly from the caller's stack into callee fastlocals.
         let fastlocals = callee_iframe.localsplus.fastlocals_mut();
