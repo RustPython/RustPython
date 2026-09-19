@@ -47,5 +47,6 @@ def main():
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    for _ in range(5):
+    # Enough repeats to surface a lost-wakeup race in CI snippets.
+    for _ in range(20):
         main()
