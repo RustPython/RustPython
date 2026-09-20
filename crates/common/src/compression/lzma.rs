@@ -378,8 +378,10 @@ fn decompress_chunks(
     stream: &mut LzmaStream,
     max_length: Option<usize>,
 ) -> Result<(Vec<u8>, bool), XzError> {
+    // No input to feed the decoder: not a stream end, so `eof` stays false and
+    // the caller can still supply compressed data later.
     if chunks.is_empty() {
-        return Ok((Vec::new(), true));
+        return Ok((Vec::new(), false));
     }
     let max_length = max_length.unwrap_or(usize::MAX);
     let mut output = Vec::new();
@@ -621,6 +623,21 @@ impl Compressor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_input_does_not_finish_a_stream() {
+        let mut compressor = Compressor::new(FORMAT_XZ, CHECK_CRC64, PRESET_DEFAULT, None).unwrap();
+        let mut encoded = compressor.compress(b"data").unwrap();
+        encoded.extend(compressor.flush().unwrap());
+
+        let mut decompressor = Decompressor::new(FORMAT_AUTO, None, None).unwrap();
+        assert_eq!(decompressor.decompress(b"", None).unwrap(), b"");
+        assert!(!decompressor.eof());
+        assert!(decompressor.needs_input());
+
+        assert_eq!(decompressor.decompress(&encoded, None).unwrap(), b"data");
+        assert!(decompressor.eof());
+    }
 
     #[test]
     fn encode_lzma1_properties_rejects_invalid_lclppb() {
