@@ -2933,7 +2933,7 @@ pub(crate) enum Flatten {
 }
 
 #[inline]
-fn specialization_compact_int_value(i: &PyInt) -> Option<isize> {
+fn specialization_compact_int_value(i: &Py<PyInt>) -> Option<isize> {
     // _PyLong_IsCompact(): a one-digit PyLong (base 2^30),
     // i.e. abs(value) <= 2^30 - 1.
     const CPYTHON_COMPACT_LONG_ABS_MAX: i64 = (1i64 << 30) - 1;
@@ -2948,7 +2948,7 @@ fn specialization_compact_int_value(i: &PyInt) -> Option<isize> {
 #[inline]
 fn compact_int_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<isize> {
     obj.downcast_ref_if_exact::<PyInt>(vm)
-        .and_then(|i| specialization_compact_int_value(i))
+        .and_then(specialization_compact_int_value)
 }
 
 #[inline]
@@ -2957,7 +2957,7 @@ fn exact_float_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<f64> {
 }
 
 #[inline]
-fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> Option<usize> {
+fn specialization_nonnegative_compact_index(i: &Py<PyInt>, vm: &VirtualMachine) -> Option<usize> {
     // _PyLong_IsNonNegativeCompact(): a single base-2^30 digit.
     const CPYTHON_COMPACT_LONG_MAX: u64 = (1u64 << 30) - 1;
     let v = i.try_to_primitive::<u64>(vm).ok()?;
@@ -2969,7 +2969,7 @@ fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> O
 }
 
 /// Get the variable name for a localsplus index of `code`.
-fn localsplus_name(code: &PyCode, idx: usize) -> &'static PyStrInterned {
+fn localsplus_name(code: &Py<PyCode>, idx: usize) -> &'static PyStrInterned {
     code.localsplus_name(idx)
 }
 
@@ -9337,8 +9337,8 @@ impl ExecutingFrame<'_> {
     /// small-int cache is consulted identically.
     #[inline]
     fn int_fast_op(
-        a: &PyInt,
-        b: &PyInt,
+        a: &Py<PyInt>,
+        b: &Py<PyInt>,
         vm: &VirtualMachine,
         checked: fn(i64, i64) -> Option<i64>,
         fallback: impl FnOnce(&BigInt, &BigInt) -> BigInt,
@@ -9355,19 +9355,19 @@ impl ExecutingFrame<'_> {
 
     /// Int addition with i64 fast path to avoid BigInt heap allocation.
     #[inline]
-    fn int_add(a: &PyInt, b: &PyInt, vm: &VirtualMachine) -> PyObjectRef {
+    fn int_add(a: &Py<PyInt>, b: &Py<PyInt>, vm: &VirtualMachine) -> PyObjectRef {
         Self::int_fast_op(a, b, vm, i64::checked_add, |a, b| a + b)
     }
 
     /// Int subtraction with i64 fast path to avoid BigInt heap allocation.
     #[inline]
-    fn int_sub(a: &PyInt, b: &PyInt, vm: &VirtualMachine) -> PyObjectRef {
+    fn int_sub(a: &Py<PyInt>, b: &Py<PyInt>, vm: &VirtualMachine) -> PyObjectRef {
         Self::int_fast_op(a, b, vm, i64::checked_sub, |a, b| a - b)
     }
 
     /// Int multiplication with i64 fast path to avoid BigInt heap allocation.
     #[inline]
-    fn int_mul(a: &PyInt, b: &PyInt, vm: &VirtualMachine) -> PyObjectRef {
+    fn int_mul(a: &Py<PyInt>, b: &Py<PyInt>, vm: &VirtualMachine) -> PyObjectRef {
         Self::int_fast_op(a, b, vm, i64::checked_mul, |a, b| a * b)
     }
 
@@ -10526,7 +10526,7 @@ impl ExecutingFrame<'_> {
     fn execute_binary_op_int(
         &mut self,
         vm: &VirtualMachine,
-        op: impl FnOnce(&PyInt, &PyInt, &VirtualMachine) -> PyObjectRef,
+        op: impl FnOnce(&Py<PyInt>, &Py<PyInt>, &VirtualMachine) -> PyObjectRef,
         deopt_op: bytecode::BinaryOperator,
     ) -> FrameResult {
         let b = self.top_value();

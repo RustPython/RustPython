@@ -865,7 +865,7 @@ impl PyCArray {
     }
 
     // Array_subscript slice handling
-    fn getitem_by_slice(zelf: &Py<Self>, slice: &PySlice, vm: &VirtualMachine) -> PyResult {
+    fn getitem_by_slice(zelf: &Py<Self>, slice: &Py<PySlice>, vm: &VirtualMachine) -> PyResult {
         let stg = zelf.class().stg_info_opt();
         let length = stg.as_ref().map_or(0, |i| i.length);
 
@@ -984,7 +984,7 @@ impl PyCArray {
     // Array_ass_subscript slice handling
     fn setitem_by_slice(
         zelf: &Py<Self>,
-        slice: &PySlice,
+        slice: &Py<PySlice>,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {

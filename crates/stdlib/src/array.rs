@@ -215,7 +215,7 @@ pub mod array {
                     }
                 }
 
-                fn fromlist(&mut self, list: &PyList, vm: &VirtualMachine) -> PyResult<()> {
+                fn fromlist(&mut self, list: &Py<PyList>, vm: &VirtualMachine) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
                             // convert list before modify self

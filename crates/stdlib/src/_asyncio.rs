@@ -403,7 +403,7 @@ pub(crate) mod _asyncio {
             if len == 1 {
                 let item = list.borrow_vec().first().cloned();
                 if let Some(item) = item {
-                    let tuple: &PyTuple = item.downcast_ref().unwrap();
+                    let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
                     let cb = tuple.first().unwrap().clone();
                     let cmp = vm.identical_or_equal(&cb, &func)?;
                     if cmp {
@@ -440,7 +440,7 @@ pub(crate) mod _asyncio {
                     None => break,
                 };
 
-                let tuple: &PyTuple = item.downcast_ref().unwrap();
+                let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
                 let cb = tuple.first().unwrap().clone();
                 let cmp = vm.identical_or_equal(&cb, &func)?;
 
@@ -1415,7 +1415,7 @@ pub(crate) mod _asyncio {
             if len == 1 {
                 let item = list.borrow_vec().first().cloned();
                 if let Some(item) = item {
-                    let tuple: &PyTuple = item.downcast_ref().unwrap();
+                    let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
                     let cb = tuple.first().unwrap().clone();
                     let cmp = vm.identical_or_equal(&cb, &func)?;
                     if cmp {
@@ -1452,7 +1452,7 @@ pub(crate) mod _asyncio {
                     None => break,
                 };
 
-                let tuple: &PyTuple = item.downcast_ref().unwrap();
+                let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
                 let cb = tuple.first().unwrap().clone();
                 let cmp = vm.identical_or_equal(&cb, &func)?;
 

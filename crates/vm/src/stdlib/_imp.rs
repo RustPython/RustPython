@@ -1,6 +1,6 @@
 use crate::builtins::{PyCode, PyStrInterned};
 use crate::frozen::FrozenModule;
-use crate::{VirtualMachine, builtins::PyBaseExceptionRef};
+use crate::{Py, VirtualMachine, builtins::PyBaseExceptionRef};
 use core::borrow::Borrow;
 
 pub(crate) use _imp::module_def;
@@ -377,7 +377,7 @@ mod _imp {
 }
 
 fn update_code_filenames(
-    code: &PyCode,
+    code: &Py<PyCode>,
     old_name: &'static PyStrInterned,
     new_name: &'static PyStrInterned,
 ) {

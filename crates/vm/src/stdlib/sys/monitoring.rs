@@ -268,7 +268,7 @@ fn opcode_event_is_active(
 /// Walk real instructions, skipping specialization CACHE payloads.
 /// Cache slots may contain pointer bits that are not valid opcodes.
 fn for_each_instruction(
-    code: &PyCode,
+    code: &Py<PyCode>,
     mut f: impl FnMut(usize, rustpython_compiler_core::bytecode::Instruction, u8),
 ) {
     let len = code.code.instructions.len();
@@ -291,7 +291,7 @@ fn for_each_instruction(
 ///
 /// De-instrumentation peels layers in reverse order.
 /// Specialized opcodes are restored to base only when their EVENT_FOR_OPCODE is active.
-pub(crate) fn instrument_code(code: &PyCode, events: u32) {
+pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
     use rustpython_compiler_core::bytecode::{self, Instruction};
 
     let len = code.code.instructions.len();

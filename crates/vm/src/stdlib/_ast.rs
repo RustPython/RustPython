@@ -171,7 +171,7 @@ fn get_node_list_field_object(
 fn convert_node_list_field<T: Node>(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    list: &PyList,
+    list: &Py<PyList>,
     field: &'static str,
     typ: &str,
 ) -> PyResult<Vec<T>> {
