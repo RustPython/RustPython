@@ -446,7 +446,7 @@ pub(crate) mod _interpreters {
             crate::Interpreter::create_subinterpreter_from_vm(vm, config).map_err(|msg| {
                 let cause = vm.new_runtime_error(msg.to_owned());
                 let exc = interpreter_error(vm, "interpreter creation failed");
-                exc.set___context__(Some(cause));
+                exc.set_context(Some(cause));
                 exc
             })?;
         if reqrefs {

@@ -1688,7 +1688,7 @@ def test_post_mortem():
     ...     test_function_2()
     ...     print('Not reached.')
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...     'step',      # step to test_function_2() line
     ...     'next',      # step over exception-raising call
     ...     'bt',        # get a backtrace
@@ -2806,7 +2806,7 @@ def test_pdb_closure():
     ...     g = 3
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'k',
     ...     'g',
     ...     'y = y',
@@ -3224,7 +3224,7 @@ def test_pdb_issue_gh_127321():
     ...     import pdb; pdb_instance = pdb.Pdb(nosigint=True, readrc=False)
     ...     [1, 2] and pdb_instance.set_trace()
     ...     a = 1
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'continue'
     ... ]):
     ...    test_function()
@@ -4575,7 +4575,6 @@ def bœr():
             self.assertIn('4 B', stdout, "breakpoint not found")
             self.assertIn('-> def func():', stdout, "stack entry not found")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_empty_file(self):
         script = ''
         commands = 'q\n'

@@ -41,7 +41,7 @@ use core::sync::atomic;
 use core::sync::atomic::Ordering::{Acquire, Relaxed};
 use itertools::Itertools;
 use malachite_bigint::BigInt;
-use num_traits::Zero;
+use num_traits::{ToPrimitive, Zero};
 use rustpython_common::atomic::{PyAtomic, Radium};
 use rustpython_common::{
     lock::{OnceCell, PyMutex},
@@ -206,7 +206,11 @@ enum UnwindReason {
 
     /// We hit an exception, so unwind any try-except and finally blocks. The exception should be
     /// on top of the vm exception stack.
-    Raising { exception: PyBaseExceptionRef },
+    Raising {
+        exception: PyBaseExceptionRef,
+        /// Instruction that raised; used for exception-table lookup.
+        offset: u32,
+    },
 }
 
 /// Tracks who owns a frame.
@@ -1435,7 +1439,7 @@ impl InterpreterFrame {
     }
 
     /// Synchronize `prev_line` to the line of the instruction currently
-    /// in flight (derived from `lasti`, same as `PyFrame::f_lineno`).
+    /// in flight (derived from `lasti`, same as `FrameObject::lineno`).
     ///
     /// `prev_line` is normally only updated on the cold 'line'-trace-event
     /// path (see the dispatch loop in `ExecutingFrame::run`), so it can go
@@ -2663,13 +2667,14 @@ pub(crate) fn trampoline_handle_exception(
     if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {
         let next = exception.__traceback__();
         let new_traceback = PyTraceback::new(next, exec.frame_object(vm), idx as u32 * 2, loc.line);
-        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+        exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
     }
 
     exec.unwind_blocks(
         vm,
         UnwindReason::Raising {
             exception: exception.clone(),
+            offset: idx as u32,
         },
     )
 }
@@ -3509,7 +3514,7 @@ impl ExecutingFrame<'_> {
             let mut do_extend_arg = false;
 
             // f_lineno for a live (currently executing) frame is derived
-            // lazily from lasti/locations (see `PyFrame::f_lineno`) rather
+            // lazily from lasti/locations (see `FrameObject::lineno`) rather
             // than maintained here on every instruction. lasti already
             // points past the instruction currently executing (see the
             // `self.lasti.store` above), so `locations[lasti - 1]` gives
@@ -3566,10 +3571,16 @@ impl ExecutingFrame<'_> {
                             idx as u32 * 2,
                             loc.line,
                         );
-                        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                        exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                     }
                     vm.contextualize_exception(&exception);
-                    frame.unwind_blocks(vm, UnwindReason::Raising { exception })
+                    frame.unwind_blocks(
+                        vm,
+                        UnwindReason::Raising {
+                            exception,
+                            offset: idx as u32,
+                        },
+                    )
                 }
                 match handle_signal_exception(self, exception, idx, vm) {
                     Ok(None) => {}
@@ -3656,8 +3667,7 @@ impl ExecutingFrame<'_> {
                                     new_traceback,
                                     loc.line
                                 );
-                                exception
-                                    .set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                                exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                             }
 
                             // _PyErr_SetObject sets __context__ only when the exception
@@ -3671,7 +3681,13 @@ impl ExecutingFrame<'_> {
                         }
 
                         // Use exception table for zero-cost exception handling
-                        frame.unwind_blocks(vm, UnwindReason::Raising { exception })
+                        frame.unwind_blocks(
+                            vm,
+                            UnwindReason::Raising {
+                                exception,
+                                offset: idx as u32,
+                            },
+                        )
                     }
 
                     // Check if this is a RERAISE instruction
@@ -3756,18 +3772,6 @@ impl ExecutingFrame<'_> {
                                 exception
                             };
 
-                            // Restore lasti from traceback so frame.f_lineno matches tb_lineno
-                            // The traceback was created with the correct lasti when exception
-                            // was first raised, but frame.lasti may have changed during cleanup
-                            if let Some(tb) = exception.__traceback__()
-                                && self.iframe().frame_obj().is_some_and(|fo| {
-                                    core::ptr::eq::<Py<FrameObject>>(&*tb.frame, fo)
-                                })
-                            {
-                                // This traceback entry is for this frame - restore its lasti
-                                // tb.lasti is in bytes (idx * 2), convert back to instruction index
-                                self.update_lasti(|i| *i = tb.lasti / 2);
-                            }
                             break Err(exception);
                         }
                     }
@@ -3865,12 +3869,18 @@ impl ExecutingFrame<'_> {
                         let next = err.__traceback__();
                         let new_traceback =
                             PyTraceback::new(next, self.frame_object(vm), idx as u32 * 2, loc.line);
-                        err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                        err.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                     }
 
                     self.push_value(vm.ctx.none());
                     vm.chain_stack_item(&err);
-                    return match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
+                    return match self.unwind_blocks(
+                        vm,
+                        UnwindReason::Raising {
+                            exception: err,
+                            offset: idx as u32,
+                        },
+                    ) {
                         Ok(None) => {
                             self.prev_line.set(0);
                             self.run(vm)
@@ -3910,12 +3920,18 @@ impl ExecutingFrame<'_> {
                                 idx as u32 * 2,
                                 loc.line,
                             );
-                            err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                            err.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                         }
 
                         self.push_value(vm.ctx.none());
                         vm.chain_stack_item(&err);
-                        match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
+                        match self.unwind_blocks(
+                            vm,
+                            UnwindReason::Raising {
+                                exception: err,
+                                offset: idx as u32,
+                            },
+                        ) {
                             Ok(None) => {
                                 self.prev_line.set(0);
                                 self.run(vm)
@@ -3935,7 +3951,7 @@ impl ExecutingFrame<'_> {
         let exception = match ctor.instantiate_value(exc_val, vm) {
             Ok(exc) => {
                 if let Some(tb) = Option::<PyRef<PyTraceback>>::try_from_object(vm, exc_tb)? {
-                    exc.set_traceback_typed(Some(tb));
+                    exc.set_traceback(Some(tb));
                 }
                 exc
             }
@@ -3949,7 +3965,7 @@ impl ExecutingFrame<'_> {
             let next = exception.__traceback__();
             let new_traceback =
                 PyTraceback::new(next, self.frame_object(vm), idx as u32 * 2, loc.line);
-            exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+            exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
         }
 
         // Fire PY_THROW and RAISE events before raising the exception.
@@ -3986,7 +4002,13 @@ impl ExecutingFrame<'_> {
         // This is needed for exception handler to have correct stack state
         self.push_value(vm.ctx.none());
 
-        match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+        match self.unwind_blocks(
+            vm,
+            UnwindReason::Raising {
+                exception,
+                offset: idx as u32,
+            },
+        ) {
             Ok(None) => {
                 // Reset prev_line so that the first instruction in the handler
                 // fires a LINE event. In CPython, gen_send_ex re-enters the
@@ -4573,7 +4595,7 @@ impl ExecutingFrame<'_> {
                             "'async for' received an invalid object from __anext__: {:.200}",
                             next_iter.class().name()
                         ));
-                        err.set___cause__(Some(e));
+                        err.set_cause(Some(e));
                         err
                     })?
                 };
@@ -5445,19 +5467,16 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(result).into());
                 Ok(None)
             }
-            Instruction::Reraise { depth: _ } => {
+            Instruction::Reraise { depth } => {
                 // inst(RERAISE, (values[oparg], exc -- values[oparg]))
                 //
-                // RERAISE pops only `exc` from TOS. The `values` below it
-                // (lasti and optional prev_exc) stay on the stack — the
-                // outer exception handler's exception-table unwind will
-                // pop them down to its configured stack depth.
-                //
-                // `oparg` encodes how many values are preserved below exc
-                // (1 for simple reraise, 2 for with-block reraise where
-                // values[0]=lasti). Runtime-wise we don't need oparg since
-                // the exception table handles stack layout.
+                // Pops only `exc`. When oparg != 0, values[0] is the lasti
+                // pushed by the exception table; restore it before unwind so
+                // a later handler that also pushes lasti records the original
+                // raise.
+                let oparg = depth.get(arg);
                 let exc = self.pop_value();
+                self.restore_reraise_lasti(oparg);
 
                 if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
                     Err(exc_ref.to_owned())
@@ -8232,14 +8251,10 @@ impl ExecutingFrame<'_> {
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn import(&mut self, vm: &VirtualMachine, module_name: Option<&Py<PyStr>>) -> PyResult<()> {
         let module_name = module_name.unwrap_or(vm.ctx.empty_str);
-        let top = self.pop_value();
-        let from_list = match <Option<PyTupleRef>>::try_from_object(vm, top)? {
-            Some(from_list) => from_list.try_into_typed::<PyStr>(vm)?,
-            None => vm.ctx.empty_tuple_typed().to_owned(),
-        };
+        let from_list = self.pop_value();
         let level = usize::try_from_object(vm, self.pop_value())?;
 
-        let module = vm.import_from(module_name, &from_list, level)?;
+        let module = vm.import_from(module_name, from_list, level)?;
 
         self.push_value(module);
         Ok(())
@@ -8410,17 +8425,9 @@ impl ExecutingFrame<'_> {
     fn unwind_blocks(&mut self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
         // use exception table for exception handling
         match reason {
-            UnwindReason::Raising { exception } => {
-                // Look up handler in exception table
-                // lasti points to NEXT instruction (already incremented in run loop)
-                // The exception occurred at the previous instruction
-                // Python uses signed int where INSTR_OFFSET() - 1 = -1 before first instruction.
-                // We use u32, so check for 0 explicitly.
-                if self.lasti() == 0 {
-                    // No instruction executed yet, no handler can match
-                    return Err(exception);
-                }
-                let offset = self.lasti() - 1;
+            UnwindReason::Raising { exception, offset } => {
+                // Look up handler from the raising instruction. lasti may
+                // already have been restored by RERAISE to the original raise.
                 if let Some(entry) =
                     bytecode::find_exception_handler(&self.code.exceptiontable, offset)
                 {
@@ -8439,10 +8446,11 @@ impl ExecutingFrame<'_> {
                         let _ = self.localsplus.stack_pop();
                     }
 
-                    // 2. If push_lasti=true (SETUP_CLEANUP), push lasti before exception
-                    // pushes lasti as PyLong
+                    // 2. If push_lasti=true, push the current lasti (which
+                    // RERAISE may have restored to the original raise).
                     if entry.push_lasti {
-                        self.push_value(vm.ctx.new_int(offset as i32).into());
+                        let lasti = self.lasti().saturating_sub(1);
+                        self.push_value(vm.ctx.new_int(lasti as i32).into());
                     }
 
                     // 3. Push exception onto stack
@@ -8462,6 +8470,31 @@ impl ExecutingFrame<'_> {
             }
             UnwindReason::Returning { value } => Ok(Some(ExecutionResult::Return(value))),
         }
+    }
+
+    /// Restore lasti from the exception-table value still on the stack.
+    ///
+    /// `oparg` is RERAISE's operand: values[0] is lasti when oparg != 0.
+    /// lasti is stored as the next instruction index, so the saved index is
+    /// incremented by one.
+    fn restore_reraise_lasti(&mut self, oparg: u32) {
+        if oparg == 0 {
+            return;
+        }
+        let stack_len = self.localsplus.stack_len();
+        if stack_len < oparg as usize {
+            return;
+        }
+        let Some(lasti_ref) = self.localsplus.stack_index(stack_len - oparg as usize) else {
+            return;
+        };
+        let Some(int) = lasti_ref.as_object().downcast_ref::<PyInt>() else {
+            return;
+        };
+        let Some(idx) = int.as_bigint().to_u32() else {
+            return;
+        };
+        self.lasti.store(idx.saturating_add(1), Relaxed);
     }
 
     fn execute_store_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
@@ -8888,7 +8921,7 @@ impl ExecutingFrame<'_> {
         #[cfg(debug_assertions)]
         debug!("Exception raised: {exception:?} with cause: {cause:?}");
         if let Some(cause) = cause {
-            exception.set___cause__(cause);
+            exception.set_cause(cause);
         }
         Err(exception)
     }
@@ -12086,8 +12119,8 @@ impl ExecutingFrame<'_> {
                     // see in tracebacks (suppress_context becomes true), but
                     // assertions that inspect __context__ also expect it set.
                     let cause: Option<PyBaseExceptionRef> = arg.downcast().ok();
-                    err.set___context__(cause.clone());
-                    err.set___cause__(cause);
+                    err.set_context(cause.clone());
+                    err.set_cause(cause);
                     Ok(err.into())
                 } else {
                     // Not StopIteration, pass through for RERAISE

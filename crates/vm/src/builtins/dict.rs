@@ -193,7 +193,7 @@ impl PyDict {
         match vm.call_method(exc.as_object(), "add_note", (vm.ctx.new_str(note),)) {
             Ok(_) => exc,
             Err(note_err) => {
-                note_err.set___context__(Some(exc));
+                note_err.set_context(Some(exc));
                 note_err
             }
         }
@@ -1252,8 +1252,8 @@ macro_rules! dict_view {
             }
 
             #[pymethod]
-            fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-                let iter = builtins_iter(vm);
+            fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+                let iter = builtins_iter(vm)?;
                 let internal = self.internal.lock();
                 let entries = match &internal.status {
                     IterStatus::Active(dict) => {
@@ -1269,7 +1269,7 @@ macro_rules! dict_view {
                     }
                     IterStatus::Exhausted => vec![],
                 };
-                vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
+                Ok(vm.new_tuple((iter, (vm.ctx.new_list(entries),))))
             }
         }
 
@@ -1336,8 +1336,8 @@ macro_rules! dict_view {
             }
 
             #[pymethod]
-            fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-                let iter = builtins_iter(vm);
+            fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+                let iter = builtins_iter(vm)?;
                 let internal = self.internal.lock();
                 let entries = match &internal.status {
                     IterStatus::Active(dict) => {
@@ -1356,7 +1356,7 @@ macro_rules! dict_view {
                     }
                     IterStatus::Exhausted => vec![],
                 };
-                vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
+                Ok(vm.new_tuple((iter, (vm.ctx.new_list(entries),))))
             }
 
             #[pymethod]

@@ -269,7 +269,7 @@ pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &Py<PyBaseException>) {
 
     if let Some(tb) = exc.__traceback__() {
         let trimmed_tb = remove_importlib_frames_inner(vm, Some(tb), always_trim).0;
-        exc.set_traceback_typed(trimmed_tb);
+        exc.set_traceback(trimmed_tb);
     }
 }
 

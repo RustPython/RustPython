@@ -436,7 +436,7 @@ impl Representable for FrameObject {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let code = zelf.iframe().code();
         let file_repr = code.source_path().to_owned().as_object().repr(vm)?;
-        let lineno = zelf.f_lineno();
+        let lineno = zelf.lineno();
         let name = code.code.obj_name.as_wtf8();
         let ptr = zelf as *const Py<Self> as usize;
         Ok(format!(
@@ -496,36 +496,28 @@ impl FrameObject {
         val * 2
     }
 
-    #[pygetset]
-    pub fn f_lineno(&self) -> usize {
-        // For executing frames (on the TLS chain), read the live iframe's
-        // lasti directly rather than `self.lasti()`, which may reflect a
-        // stale snapshot taken before a nested call. lasti always points
-        // just past the last-fetched instruction (see the bytecode loop in
-        // `ExecutingFrame::run`), so `locations[lasti - 1]` is the source
-        // line of the instruction currently in flight — correct even when
-        // observed mid-CALL (e.g. sys._getframe, warnings.warn).
-        let live = self.find_live_source_iframe();
-        let lasti = if !live.is_null() {
-            unsafe { (*live).lasti.load(Relaxed) }
-        } else {
-            self.lasti()
-        };
-        // If lasti is 0, execution hasn't started yet - use first line number
-        if lasti == 0 {
+    /// Current line, or -1 when the linetable has no line for lasti.
+    pub fn lineno(&self) -> i32 {
+        let lasti_bytes = self.f_lasti() as i32;
+        // If lasti is 0, execution hasn't started yet - use first line number.
+        // Read the live iframe so a materialized copy that still has lasti==0
+        // does not hide the current line while the frame is running.
+        if lasti_bytes == 0 {
             return self
                 .iframe()
                 .code()
                 .first_line_number
-                .map_or(1, |n| n.get());
+                .map_or(1, |n| n.get() as i32);
         }
-        // This lookup also covers returned frames (e.g. exception
-        // tracebacks), where `live` is null and `self.lasti()` reflects the
-        // frame's final position.
-        self.iframe().code().locations[lasti as usize - 1]
-            .0
-            .line
-            .get()
+        // lasti is stored as the next instruction index (see FrameObject::run),
+        // so the executing opcode is at lasti-1 / lasti_bytes-2.
+        self.f_code().addr2line(lasti_bytes - 2)
+    }
+
+    #[pygetset]
+    fn f_lineno(&self) -> Option<usize> {
+        let lineno = self.lineno();
+        (lineno >= 0).then_some(lineno as usize)
     }
 
     #[pygetset(setter)]
@@ -645,6 +637,37 @@ impl FrameObject {
             .cold()
             .pending_unwind_from_stack
             .store(start_stack, Relaxed);
+        // Bind None into any NULL localsplus slots the jump target may
+        // assume exist, rather than leaving LOAD_FAST to raise later.
+        let unbound = {
+            let fastlocals = unsafe {
+                let ptr = target as *const crate::frame::InterpreterFrame
+                    as *mut crate::frame::InterpreterFrame;
+                (*ptr).localsplus.fastlocals()
+            };
+            fastlocals.iter().filter(|slot| slot.is_none()).count()
+        };
+        if unbound > 0 {
+            let s = if unbound == 1 { "" } else { "s" };
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.runtime_warning,
+                format!("assigning None to {unbound} unbound local{s}"),
+                1,
+                vm,
+            )?;
+            let none = vm.ctx.none();
+            let fastlocals = unsafe {
+                let ptr = target as *const crate::frame::InterpreterFrame
+                    as *mut crate::frame::InterpreterFrame;
+                (*ptr).localsplus.fastlocals_mut()
+            };
+            for slot in fastlocals.iter_mut() {
+                if slot.is_none() {
+                    *slot = Some(none.clone());
+                }
+            }
+        }
+
         target.lasti.store(best_addr as u32, Relaxed);
         Ok(())
     }

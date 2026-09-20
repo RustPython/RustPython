@@ -20,7 +20,6 @@ class TestExceptionGroupTypeHierarchy(unittest.TestCase):
 
 
 class BadConstructorArgs(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_EG_construction__too_many_args(self):
         MSG = r'BaseExceptionGroup.__new__\(\) takes exactly 2 arguments'
         with self.assertRaisesRegex(TypeError, MSG):
@@ -194,7 +193,6 @@ class StrAndReprTests(unittest.TestCase):
                       "MyEG('flat', [ValueError(1), TypeError(2)]), "
                       "TypeError(2)])"))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Tuples differ: ('test', (ValueError(1), TypeError(2))) != ('test', [])
     def test_exceptions_mutation(self):
         class MyEG(ExceptionGroup):
             pass
@@ -236,7 +234,6 @@ class StrAndReprTests(unittest.TestCase):
             "ExceptionGroup('test', deque([ValueError(1), TypeError(2)]))"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_repr_raises(self):
         class MySeq(collections.abc.Sequence):
             def __init__(self, raises):

@@ -655,7 +655,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         msg = r"^attribute name must be string, not 'int'$"
         self.assertRaisesRegex(TypeError, msg, delattr, sys, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '__repr__' unexpectedly found in ['__class__', '__delattr__', '__dict__', '__dir__', '__doc__', '__eq__', '__firstlineno__', '__format__', '__ge__', '__getattribute__', '__getstate__', '__gt__', '__hash__', '__init__', '__init_subclass__', '__le__', '__lt__', '__module__', '__ne__', '__new__', '__reduce__', '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__slots__', '__str__', '__subclasshook__', 'bar']
     def test_dir(self):
         # dir(wrong number of arguments)
         self.assertRaises(TypeError, dir, 42, 42)
@@ -989,7 +988,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaisesRegex(NameError, "name 'superglobal' is not defined",
                                eval, code, ns)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_exec_builtins_mapping_import(self):
         code = compile("import foo.bar", "test", "exec")
         ns = {'__builtins__': types.MappingProxyType({})}
@@ -998,7 +996,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         exec(code, ns)
         self.assertEqual(ns['foo'], ('foo.bar', ns, ns, None, 0))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: AttributeError not raised by eval
     def test_eval_builtins_mapping_reduce(self):
         # list_iterator.__reduce__() calls _PyEval_GetBuiltin("iter")
         code = compile("x.__reduce__()", "test", "eval")
@@ -2970,7 +2967,6 @@ class TestType(unittest.TestCase):
         A.__firstlineno__ = 43
         self.assertEqual(A.__dict__['__firstlineno__'], 43)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'tuple' but 'str' found.
     def test_type_typeparams(self):
         class A[T]:
             pass

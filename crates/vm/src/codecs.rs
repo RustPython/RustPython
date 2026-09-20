@@ -868,7 +868,7 @@ impl EncodeContext for PyEncodeContext<'_> {
                     let reason = reason.expect(
                         "should only ever pass reason: None if an exception is already set",
                     );
-                    vm.new_unicode_encode_error_real(
+                    vm.new_unicode_encode_error(
                         vm.ctx.new_str(self.encoding),
                         self.data.to_owned(),
                         range.start.chars,

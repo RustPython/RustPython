@@ -1401,7 +1401,7 @@ mod _io {
                     "raw readinto() returned invalid length {n} (should have been between 0 and {len})"
                 ));
                 if let Some(cause) = type_error {
-                    os_error.set___cause__(Some(cause));
+                    os_error.set_cause(Some(cause));
                 }
                 return Err(os_error);
             }
@@ -1976,7 +1976,7 @@ mod _io {
     fn exception_chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
         match (e1, e2) {
             (Err(e1), Err(e)) => {
-                e.set___context__(Some(e1));
+                e.set_context(Some(e1));
                 Err(e)
             }
             (Err(e), Ok(_)) | (Ok(()), Err(e)) => Err(e),
@@ -5987,7 +5987,7 @@ mod fileio {
             };
             match (flush_exc, close_err) {
                 (Some(fe), Some(ce)) => {
-                    ce.set___context__(Some(fe));
+                    ce.set_context(Some(fe));
                     Err(ce)
                 }
                 (Some(e), None) | (None, Some(e)) => Err(e),
@@ -6441,7 +6441,7 @@ mod winconsoleio {
             };
             match (flush_exc, close_err) {
                 (Some(fe), Some(ce)) => {
-                    ce.set___context__(Some(fe));
+                    ce.set_context(Some(fe));
                     Err(ce)
                 }
                 (Some(e), None) | (None, Some(e)) => Err(e),
