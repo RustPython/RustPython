@@ -952,9 +952,10 @@ impl VirtualMachine {
             }
             _ => false,
         };
-        // CPython reports the unparenthesized exception types error with a range ending
-        // at the `:` that closes the `except` clause, which covers the `as NAME` part,
-        // while the parser reports the exception types alone. See `invalid_except_stmt_end`.
+        // CPython reports the unparenthesized exception types error with a range stopping
+        // just before the `:` that closes the `except` clause, which covers the `as NAME`
+        // part, while the parser reports the exception types alone. The exclusive end that
+        // yields is the column of the `:`. See `invalid_except_stmt_end`.
         let except_as_end = cfg_select! {
             feature = "parser" => {
                 if msg == "multiple exception types must be parenthesized when using 'as'"
@@ -1285,13 +1286,18 @@ fn scan_quoted_string_for_incomplete(bytes: &[u8], quote_index: usize) -> Quoted
     }
 }
 
-/// Returns the end of the range CPython reports for its `invalid_except_stmt` rule, as a
-/// 1-based `(line, column)` pair: the location of the `:` that closes the `except` clause
-/// whose exception types were reported as needing parentheses.
+/// Returns the exclusive end of the range CPython reports for its `invalid_except_stmt`
+/// rule, as a 1-based `(line, column)` pair. Being exclusive, that column is the one the
+/// `:` closing the `except` clause sits on: the `:` itself is not part of the range.
 ///
 /// CPython raises that error only once the whole clause has matched, and reports a range
-/// starting at the first exception type and ending at the `:`, so the range covers the
-/// `as NAME` part as well:
+/// starting at the first exception type and stopping just before the `:`, so the range
+/// covers the `as NAME` part as well:
+///
+/// ```text
+/// except A, B as e:
+///        ^^^^^^^^^   offset = 8, end_offset = 17
+/// ```
 ///
 /// ```text
 /// invalid_except_stmt:
