@@ -1287,8 +1287,9 @@ fn scan_quoted_string_for_incomplete(bytes: &[u8], quote_index: usize) -> Quoted
 }
 
 /// Returns the exclusive end of the range CPython reports for its `invalid_except_stmt`
-/// rule, as a 1-based `(line, column)` pair. Being exclusive, that column is the one the
-/// `:` closing the `except` clause sits on: the `:` itself is not part of the range.
+/// rule, as a 1-based `(line, column)` pair whose column counts characters, not bytes.
+/// Being exclusive, that column is the one the `:` closing the `except` clause sits on:
+/// the `:` itself is not part of the range.
 ///
 /// CPython raises that error only once the whole clause has matched, and reports a range
 /// starting at the first exception type and stopping just before the `:`, so the range
@@ -1337,14 +1338,20 @@ fn invalid_except_stmt_end(source: &str, types_end: usize) -> Option<(usize, usi
 
     // Only `as NAME` may appear between the exception types and the `:`. CPython reports a
     // different error when the name is missing, so leave the range alone in that case.
-    let name = source.get(types_end..colon)?.trim().strip_prefix("as")?;
-    if name.trim().is_empty() {
+    // An explicit line join may sit anywhere in between, so drop the backslashes and let
+    // the newline they escape count as the ordinary whitespace around `as`.
+    let between = source.get(types_end..colon)?.replace('\\', " ");
+    let name = between.trim().strip_prefix("as")?;
+    if !name.starts_with(char::is_whitespace) || name.trim().is_empty() {
         return None;
     }
 
     let before = source.get(..colon)?;
     let line = before.bytes().filter(|&byte| byte == b'\n').count() + 1;
     let line_start = before.rfind('\n').map_or(0, |index| index + 1);
+    // `line_start` and `colon` are byte offsets, but the column counts characters, so a
+    // non-ASCII exception type or `as NAME` would otherwise push the column too far right.
+    let column = source.get(line_start..colon)?.chars().count() + 1;
 
-    Some((line, colon - line_start + 1))
+    Some((line, column))
 }
