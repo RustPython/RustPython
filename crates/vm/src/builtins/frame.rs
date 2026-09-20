@@ -436,7 +436,7 @@ impl Representable for FrameObject {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let code = zelf.iframe().code();
         let file_repr = code.source_path().to_owned().as_object().repr(vm)?;
-        let lineno = zelf.f_lineno();
+        let lineno = zelf.lineno();
         let name = code.code.obj_name.as_wtf8();
         let ptr = zelf as *const Py<Self> as usize;
         Ok(format!(
@@ -497,7 +497,7 @@ impl FrameObject {
     }
 
     /// Current line, or -1 when the linetable has no line for lasti.
-    pub fn f_lineno(&self) -> i32 {
+    pub fn lineno(&self) -> i32 {
         let lasti_bytes = self.f_lasti() as i32;
         // If lasti is 0, execution hasn't started yet - use first line number.
         // Read the live iframe so a materialized copy that still has lasti==0
@@ -514,9 +514,9 @@ impl FrameObject {
         self.f_code().addr2line(lasti_bytes - 2)
     }
 
-    #[pygetset(name = "f_lineno")]
-    fn get_f_lineno(&self) -> Option<usize> {
-        let lineno = self.f_lineno();
+    #[pygetset]
+    fn f_lineno(&self) -> Option<usize> {
+        let lineno = self.lineno();
         (lineno >= 0).then_some(lineno as usize)
     }
 

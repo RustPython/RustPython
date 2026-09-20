@@ -3053,11 +3053,11 @@ impl VirtualMachine {
     pub fn import_from<'a>(
         &self,
         module_name: impl AsPyStr<'a>,
-        from_list: PyObjectRef,
+        from_list: impl Into<PyObjectRef>,
         level: usize,
     ) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
-        self.import_inner(module_name, from_list, level)
+        self.import_inner(module_name, from_list.into(), level)
     }
 
     /// Look up `name` in the current frame's builtins (`_PyEval_GetBuiltin`).

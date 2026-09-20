@@ -1439,7 +1439,7 @@ impl InterpreterFrame {
     }
 
     /// Synchronize `prev_line` to the line of the instruction currently
-    /// in flight (derived from `lasti`, same as `PyFrame::f_lineno`).
+    /// in flight (derived from `lasti`, same as `FrameObject::lineno`).
     ///
     /// `prev_line` is normally only updated on the cold 'line'-trace-event
     /// path (see the dispatch loop in `ExecutingFrame::run`), so it can go
@@ -3514,7 +3514,7 @@ impl ExecutingFrame<'_> {
             let mut do_extend_arg = false;
 
             // f_lineno for a live (currently executing) frame is derived
-            // lazily from lasti/locations (see `PyFrame::f_lineno`) rather
+            // lazily from lasti/locations (see `FrameObject::lineno`) rather
             // than maintained here on every instruction. lasti already
             // points past the instruction currently executing (see the
             // `self.lasti.store` above), so `locations[lasti - 1]` gives

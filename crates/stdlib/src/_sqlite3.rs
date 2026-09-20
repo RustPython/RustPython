@@ -1515,7 +1515,7 @@ mod _sqlite3 {
         #[pymethod]
         fn iterdump(zelf: PyRef<Self>, args: IterDumpArgs, vm: &VirtualMachine) -> PyResult {
             let from_list = PyTuple::new_ref_typed(vec![vm.ctx.new_str("_iterdump")], &vm.ctx);
-            let module = vm.import_from("sqlite3.dump", &from_list, 0)?;
+            let module = vm.import_from("sqlite3.dump", from_list.into(), 0)?;
             let func = module.get_attr("_iterdump", vm)?;
             let filter: PyObjectRef = args
                 .filter
