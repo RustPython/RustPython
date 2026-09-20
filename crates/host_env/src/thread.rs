@@ -30,6 +30,41 @@ pub fn current_thread_id() -> u64 {
     unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() as u64 }
 }
 
+/// Kernel-assigned thread id, unique system-wide until the thread exits.
+#[cfg(windows)]
+pub fn native_id() -> u64 {
+    unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() as u64 }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub fn native_id() -> u64 {
+    let mut tid = 0u64;
+    unsafe {
+        libc::pthread_threadid_np(0 as libc::pthread_t, &mut tid);
+    }
+    tid
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub fn native_id() -> u64 {
+    unsafe { libc::syscall(libc::SYS_gettid) as u64 }
+}
+
+#[cfg(target_os = "freebsd")]
+pub fn native_id() -> u64 {
+    unsafe { libc::pthread_getthreadid_np() as u64 }
+}
+
+#[cfg(target_os = "openbsd")]
+pub fn native_id() -> u64 {
+    unsafe { libc::getthrid() as u64 }
+}
+
+#[cfg(target_os = "netbsd")]
+pub fn native_id() -> u64 {
+    unsafe { libc::_lwp_self() as u64 }
+}
+
 #[cfg(windows)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn thread_id_from_handle(handle: *mut core::ffi::c_void) -> u64 {
