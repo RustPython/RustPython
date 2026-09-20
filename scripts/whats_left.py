@@ -301,6 +301,8 @@ def is_child(module, item):
 
 def dir_of_mod_or_error(module_name, keep_other=True):
     module = import_module(module_name)
+    if isinstance(module, Exception):
+        return module
     item_names = sorted(set(dir(module)))
     result = {}
     for item_name in item_names:
@@ -458,8 +460,8 @@ def compare():
         if rustpymod is None:
             result["not_implemented"][modname] = None
         elif isinstance(rustpymod, Exception):
-            result["failed_to_import"][modname] = rustpymod.__class__.__name__ + str(
-                rustpymod
+            result["failed_to_import"][modname] = (
+                f"{rustpymod.__class__.__name__}: {rustpymod}"
             )
         else:
             module = import_module(modname)
