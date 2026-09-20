@@ -3471,35 +3471,39 @@ impl ExecutingFrame<'_> {
             // Only fire if this frame has a per-frame trace function set
             // (frames entered before sys.settrace() have trace=None).
             // Skip RESUME – it should not generate user-visible line events.
+            // Skip NO_LOCATION units (addr2line == -1); the locations table
+            // fills those with a dummy line, which would emit a 'line'
+            // event whose f_lineno is None.
             if tracing
                 && self.trace_is_set(vm)
                 && !matches!(
                     self.code.instructions.read_op(idx),
                     Instruction::Resume { .. } | Instruction::InstrumentedResume
                 )
-                && let Some((loc, _)) = self.code.locations.get(idx)
-                && loc.line.get() as u32 != self.prev_line.get()
             {
-                self.prev_line.set(loc.line.get() as u32);
-                vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
-                // The trace callback may have toggled tracing (e.g. via
-                // sys.settrace(None)); refresh before the opcode-trace check
-                // below reuses this flag.
-                tracing = vm.use_tracing.get();
-                // Trace callback may have changed lasti via set_f_lineno.
-                // Re-read and restart the loop from the new position.
-                if lasti_cell.load(Relaxed) != (idx as u32 + 1) {
-                    // set_f_lineno defers stack unwinding because we hold
-                    // the state mutex.  Perform it now.
-                    let pops = self.pending_stack_pops();
-                    if pops > 0 {
-                        let from_stack = self.pending_unwind_from_stack();
-                        self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
-                        self.set_pending_stack_pops(0);
+                let line = self.code.addr2line(idx as i32 * 2);
+                if line >= 0 && line as u32 != self.prev_line.get() {
+                    self.prev_line.set(line as u32);
+                    vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
+                    // The trace callback may have toggled tracing (e.g. via
+                    // sys.settrace(None)); refresh before the opcode-trace check
+                    // below reuses this flag.
+                    tracing = vm.use_tracing.get();
+                    // Trace callback may have changed lasti via set_f_lineno.
+                    // Re-read and restart the loop from the new position.
+                    if lasti_cell.load(Relaxed) != (idx as u32 + 1) {
+                        // set_f_lineno defers stack unwinding because we hold
+                        // the state mutex.  Perform it now.
+                        let pops = self.pending_stack_pops();
+                        if pops > 0 {
+                            let from_stack = self.pending_unwind_from_stack();
+                            self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
+                            self.set_pending_stack_pops(0);
+                        }
+                        arg_state.reset();
+                        idx = lasti_cell.load(Relaxed) as usize;
+                        continue;
                     }
-                    arg_state.reset();
-                    idx = lasti_cell.load(Relaxed) as usize;
-                    continue;
                 }
             }
             // One aligned acquire load fetches opcode and arg together; two

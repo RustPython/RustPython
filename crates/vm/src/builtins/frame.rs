@@ -484,16 +484,16 @@ impl FrameObject {
 
     #[pygetset]
     fn f_lasti(&self) -> u32 {
-        // Return byte offset (each instruction is 2 bytes) for compatibility.
-        // For materialized frames, read live lasti from the source iframe on
-        // the TLS chain so f_lasti reflects the current execution position.
+        // Byte offset of the current opcode. lasti is stored as the next
+        // instruction index (see FrameObject::run), so the executing unit
+        // is lasti-1.
         let live = self.find_live_source_iframe();
         let val = if !live.is_null() {
             unsafe { (*live).lasti.load(Relaxed) }
         } else {
             self.lasti()
         };
-        val * 2
+        if val == 0 { 0 } else { (val - 1) * 2 }
     }
 
     /// Current line, or -1 when the linetable has no line for lasti.
@@ -509,9 +509,7 @@ impl FrameObject {
                 .first_line_number
                 .map_or(1, |n| n.get() as i32);
         }
-        // lasti is stored as the next instruction index (see FrameObject::run),
-        // so the executing opcode is at lasti-1 / lasti_bytes-2.
-        self.f_code().addr2line(lasti_bytes - 2)
+        self.f_code().addr2line(lasti_bytes)
     }
 
     #[pygetset]

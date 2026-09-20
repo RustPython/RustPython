@@ -1459,7 +1459,10 @@ impl PyType {
 
     /// Raw MRO walk without cache.
     fn find_name_in_mro_uncached(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
-        for cls in self.mro.read().iter() {
+        // Keep a strong snapshot of the MRO because tp_mro can be replaced
+        // during dict lookup, e.g. when comparing to non-string keys.
+        let mro: Vec<PyTypeRef> = self.mro.read().iter().cloned().collect();
+        for cls in &mro {
             if let Some(value) = cls.attributes.get(name) {
                 return Some(value);
             }
@@ -1767,8 +1770,7 @@ impl PyType {
             }
         };
 
-        // Register this type as a subclass of the given bases
-        let register_subclasses = |bases: &[PyTypeRef]| {
+        let add_as_subclass = |bases: &[PyTypeRef]| {
             let weakref_type = super::PyWeak::static_type();
             for base in bases {
                 base.subclasses.write().push(
@@ -1779,19 +1781,8 @@ impl PyType {
             }
         };
 
-        let result = Self::with_type_lock(vm, || {
-            for base in bases.iter() {
-                if is_subtype_with_mro(&base.mro.read(), base, zelf)
-                    || (!base.mro.read().is_empty() && type_is_subtype_base_chain(base, zelf, vm))
-                {
-                    return Err(vm.new_type_error("a __bases__ item causes an inheritance cycle"));
-                }
-            }
-
-            // Remove this class from the old bases' subclass lists, pruning
-            // dead entries along the way. Upgraded refs are retired so the
-            // last strong reference is never dropped under the lock.
-            for base in zelf.bases.read().iter() {
+        let remove_as_subclass = |bases: &[PyTypeRef], retired: &mut Vec<PyObjectRef>| {
+            for base in bases {
                 let mut subclasses = base.subclasses.write();
                 let mut kept = Vec::with_capacity(subclasses.len());
                 for weak in subclasses.drain(..) {
@@ -1809,9 +1800,19 @@ impl PyType {
                 }
                 *subclasses = kept;
             }
+        };
 
-            let old_bases = core::mem::replace(&mut *zelf.bases.write(), bases);
-            let old_base = unsafe { zelf.base.swap(Some(new_base)) };
+        let result = Self::with_type_lock(vm, || {
+            for base in bases.iter() {
+                if is_subtype_with_mro(&base.mro.read(), base, zelf)
+                    || (!base.mro.read().is_empty() && type_is_subtype_base_chain(base, zelf, vm))
+                {
+                    return Err(vm.new_type_error("a __bases__ item causes an inheritance cycle"));
+                }
+            }
+
+            let old_bases = core::mem::replace(&mut *zelf.bases.write(), bases.clone());
+            let old_base = unsafe { zelf.base.swap(Some(new_base.clone())) };
 
             // Recursively update the mros of this class and all subclasses,
             // recording the previous mros so a failure can be rolled back.
@@ -1851,13 +1852,20 @@ impl PyType {
                     retired.extend(failed_mro.into_iter().map(Into::into));
                     retired.push(cls.into());
                 }
-                let failed_bases = core::mem::replace(&mut *zelf.bases.write(), old_bases);
-                if let Some(failed_base) = unsafe { zelf.base.swap(old_base) } {
-                    keep_alive(failed_base, &mut retired);
+                // Take no action if tp_bases was replaced through reentrance.
+                if core::ptr::eq(&**zelf.bases.read(), &*bases) {
+                    let failed_bases = core::mem::replace(&mut *zelf.bases.write(), old_bases);
+                    if let Some(failed_base) = unsafe { zelf.base.swap(old_base) } {
+                        keep_alive(failed_base, &mut retired);
+                    }
+                    retired.push(failed_bases.into_untyped().into());
+                    zelf.modified_inner();
+                } else {
+                    retired.push(old_bases.into_untyped().into());
+                    if let Some(old_base) = old_base {
+                        keep_alive(old_base, &mut retired);
+                    }
                 }
-                register_subclasses(&zelf.bases.read());
-                retired.push(failed_bases.into_untyped().into());
-                zelf.modified_inner();
                 return Err(err);
             }
             // Retire the replaced mros as well; dropping them here would
@@ -1866,16 +1874,18 @@ impl PyType {
                 retired.extend(old_mro.into_iter().map(Into::into));
                 retired.push(cls.into());
             }
+
+            // Take no action if tp_bases was replaced through reentrance.
+            if core::ptr::eq(&**zelf.bases.read(), &*bases) {
+                remove_as_subclass(&old_bases, &mut retired);
+                add_as_subclass(&bases);
+                zelf.update_all_slots(&vm.ctx);
+            }
+
             retired.push(old_bases.into_untyped().into());
             if let Some(old_base) = old_base {
                 keep_alive(old_base, &mut retired);
             }
-
-            // Invalidate inline caches and rebuild every slot for this type and
-            // all descendants so slots whose methods left the MRO are reset.
-            zelf.update_all_slots(&vm.ctx);
-
-            register_subclasses(&zelf.bases.read());
             crate::stdlib::_testinternalcapi::note_set_bases();
             Ok(())
         });
@@ -2649,6 +2659,15 @@ impl Constructor for PyType {
             custom_mro,
         )
         .map_err(|e| vm.new_type_error(e))?;
+
+        // tp_dict keeps non-string keys so lookup can hash-compare them.
+        if let Some(tp_dict) = typ.attributes.as_dict() {
+            for (key, value) in &*dict {
+                if key.downcast_ref::<PyStr>().is_none() {
+                    tp_dict.set_item(&*key, value, vm)?;
+                }
+            }
+        }
 
         // Fill __classcell__ before a custom mro() runs so methods that
         // close over __class__ can execute during type creation.
