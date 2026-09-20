@@ -3302,7 +3302,7 @@ impl ExecutingFrame<'_> {
     /// this activation so lasti is already the resume unit
     /// (COPY_FREE_VARS / RETURN_GENERATOR that precede it are not a 'call',
     /// and later RESUMEs in a SEND loop are not a new call either).
-    fn trace_call_from_resume(&mut self, vm: &VirtualMachine) -> PyResult<()> {
+    fn trace_call_from_resume(&mut self, vm: &VirtualMachine, resume_type: u32) -> PyResult<()> {
         if self.call_traced {
             return Ok(());
         }
@@ -3310,7 +3310,13 @@ impl ExecutingFrame<'_> {
         if !vm.use_tracing.get() {
             return Ok(());
         }
-        let trace_result = vm.trace_event(crate::protocol::TraceEvent::Call, None)?;
+        // RESUME oparg 0 is PY_START; nonzero is PY_RESUME.
+        let what = if resume_type == 0 {
+            monitoring::WHAT_PY_START
+        } else {
+            monitoring::WHAT_PY_RESUME
+        };
+        let trace_result = vm.trace_event_what(crate::protocol::TraceEvent::Call, what, None)?;
         if let Some(local_trace) = trace_result {
             let was_unset = self.iframe().cold().trace.lock().is_none();
             *self.iframe().cold().trace.lock() = Some(local_trace);
@@ -3521,7 +3527,26 @@ impl ExecutingFrame<'_> {
                 let line = self.code.addr2line(idx as i32 * 2);
                 if line >= 0 && line as u32 != self.prev_line.get() {
                     self.prev_line.set(line as u32);
-                    vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
+                    match vm.trace_event(crate::protocol::TraceEvent::Line, None) {
+                        Ok(_) => {}
+                        Err(exception) => {
+                            match self.unwind_blocks(
+                                vm,
+                                UnwindReason::Raising {
+                                    exception,
+                                    offset: idx as u32,
+                                },
+                            ) {
+                                Ok(None) => {
+                                    arg_state.reset();
+                                    idx = lasti_cell.load(Relaxed) as usize;
+                                    continue;
+                                }
+                                Ok(Some(value)) => break Ok(value),
+                                Err(e) => break Err(e),
+                            }
+                        }
+                    }
                     // The trace callback may have toggled tracing (e.g. via
                     // sys.settrace(None)); refresh before the opcode-trace check
                     // below reuses this flag.
@@ -4011,6 +4036,15 @@ impl ExecutingFrame<'_> {
 
         // Fire PY_THROW and RAISE events before raising the exception.
         // If a monitoring callback fails, its exception replaces the original.
+        if vm.use_tracing.get() {
+            let what = monitoring::WHAT_PY_THROW;
+            if let Some(local_trace) =
+                vm.trace_event_what(crate::protocol::TraceEvent::Call, what, None)?
+            {
+                *self.iframe().cold().trace.lock() = Some(local_trace);
+            }
+            self.fire_exception_trace(&exception, vm)?;
+        }
         let exception = {
             let mon_events = vm.state.monitoring_events.load();
             let exception = if mon_events & monitoring::EVENT_PY_THROW != 0 {
@@ -5437,7 +5471,7 @@ impl ExecutingFrame<'_> {
                     // Re-execute this instruction (it may now be INSTRUMENTED_RESUME)
                     self.update_lasti(|i| *i -= 1);
                 } else {
-                    self.trace_call_from_resume(vm)?;
+                    self.trace_call_from_resume(vm, u32::from(arg))?;
                 }
                 Ok(None)
             }
@@ -7899,7 +7933,7 @@ impl ExecutingFrame<'_> {
                 } else if self.monitoring_mask & monitoring::EVENT_PY_RESUME != 0 {
                     monitoring::fire_py_resume(vm, self.code, offset)?;
                 }
-                self.trace_call_from_resume(vm)?;
+                self.trace_call_from_resume(vm, resume_type)?;
                 Ok(None)
             }
             Instruction::InstrumentedReturnValue => {

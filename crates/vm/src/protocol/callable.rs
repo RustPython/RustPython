@@ -176,6 +176,22 @@ impl TraceEvent {
     pub(crate) const fn is_opcode_event(self) -> bool {
         matches!(self, Self::Opcode)
     }
+
+    /// Default `what_event` for this legacy event.
+    #[must_use]
+    const fn default_what(self) -> i32 {
+        use crate::stdlib::sys::monitoring as mon;
+        match self {
+            Self::Call => mon::WHAT_PY_START,
+            Self::Return => mon::WHAT_PY_RETURN,
+            Self::Exception => mon::WHAT_RAISE,
+            Self::Line => mon::WHAT_LINE,
+            Self::Opcode => mon::WHAT_INSTRUCTION,
+            Self::CCall => mon::WHAT_CALL,
+            Self::CReturn => mon::WHAT_C_RETURN,
+            Self::CException => mon::WHAT_C_RAISE,
+        }
+    }
 }
 
 impl core::fmt::Display for TraceEvent {
@@ -209,8 +225,24 @@ impl VirtualMachine {
         event: TraceEvent,
         arg: Option<PyObjectRef>,
     ) -> PyResult<Option<PyObjectRef>> {
+        self.trace_event_what(event, event.default_what(), arg)
+    }
+
+    /// Like [`Self::trace_event`], but records `what` as `tstate->what_event`
+    /// for the duration of the callback (so `f_lineno` assignment can tell
+    /// a 'line' event from a 'call'/'return'/'exception').
+    #[inline]
+    pub(crate) fn trace_event_what(
+        &self,
+        event: TraceEvent,
+        what: i32,
+        arg: Option<PyObjectRef>,
+    ) -> PyResult<Option<PyObjectRef>> {
         if self.use_tracing.get() && !self.tracing_is_suppressed() {
-            self._trace_event_inner(event, arg)
+            let old = self.what_event.replace(what);
+            let result = self._trace_event_inner(event, arg);
+            self.what_event.set(old);
+            result
         } else {
             Ok(None)
         }

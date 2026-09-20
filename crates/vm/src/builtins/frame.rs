@@ -534,6 +534,47 @@ impl FrameObject {
             }
         };
 
+        let what_event = vm.what_event.get();
+        if what_event < 0 {
+            return Err(
+                vm.new_value_error("f_lineno can only be set in a trace function".to_owned())
+            );
+        }
+        {
+            use crate::stdlib::sys::monitoring as mon;
+            match what_event {
+                mon::WHAT_PY_RESUME
+                | mon::WHAT_JUMP
+                | mon::WHAT_BRANCH
+                | mon::WHAT_BRANCH_LEFT
+                | mon::WHAT_BRANCH_RIGHT
+                | mon::WHAT_LINE
+                | mon::WHAT_PY_YIELD => {}
+                mon::WHAT_PY_START => {
+                    return Err(vm.new_value_error(
+                        "can't jump from the 'call' trace event of a new frame".to_owned(),
+                    ));
+                }
+                mon::WHAT_CALL | mon::WHAT_C_RETURN => {
+                    return Err(vm.new_value_error("can't jump during a call".to_owned()));
+                }
+                mon::WHAT_PY_RETURN
+                | mon::WHAT_PY_UNWIND
+                | mon::WHAT_PY_THROW
+                | mon::WHAT_RAISE
+                | mon::WHAT_C_RAISE
+                | mon::WHAT_INSTRUCTION
+                | mon::WHAT_EXCEPTION_HANDLED => {
+                    return Err(
+                        vm.new_value_error("can only jump from a 'line' trace event".to_owned())
+                    );
+                }
+                _ => {
+                    return Err(vm.new_system_error("unexpected event type".to_owned()));
+                }
+            }
+        }
+
         let first_line = self
             .iframe()
             .code()
@@ -573,7 +614,7 @@ impl FrameObject {
             self.lasti() as usize
         };
         let start_idx = current_lasti.saturating_sub(1);
-        let start_stack = if start_idx < stacks.len() {
+        let mut start_stack = if start_idx < stacks.len() {
             stacks[start_idx]
         } else {
             OVERFLOWED
@@ -607,6 +648,18 @@ impl FrameObject {
 
         if err != 0 {
             return Err(vm.new_value_error(msg.to_owned()));
+        }
+
+        // Yield leaves the yielded value on the modeled stack; the eval
+        // loop has already popped it for a suspended generator.
+        let is_suspended = live.is_null()
+            && current_lasti > 0
+            && matches!(
+                FrameOwner::from_i8(self.iframe().owner.load(Relaxed)),
+                FrameOwner::Generator
+            );
+        if is_suspended {
+            start_stack = pop_value(start_stack);
         }
 
         // Count how many entries to pop

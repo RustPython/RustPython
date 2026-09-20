@@ -95,6 +95,8 @@ pub struct VirtualMachine {
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
+    /// Event currently being monitored, or -1 when not in a callback.
+    pub(crate) what_event: Cell<i32>,
     tracing_depth: Cell<usize>,
     pub recursion_limit: Cell<usize>,
     pub(crate) signal_handlers: OnceCell<SignalHandlers>,
@@ -1200,6 +1202,7 @@ impl VirtualMachine {
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
+            what_event: Cell::new(-1),
             tracing_depth: Cell::new(0),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
             signal_handlers,
@@ -2935,7 +2938,25 @@ impl VirtualMachine {
                     .cold_opt()
                     .is_some_and(|c| c.trace.lock().is_some()))
         {
-            let ret_result = self.trace_event(TraceEvent::Return, None);
+            let what = if result.is_err() {
+                crate::stdlib::sys::monitoring::WHAT_PY_UNWIND
+            } else {
+                #[allow(unused_imports)]
+                use rustpython_common::atomic::Radium;
+                let lasti = frame
+                    .iframe()
+                    .lasti
+                    .load(core::sync::atomic::Ordering::Relaxed);
+                let idx = lasti.saturating_sub(1) as usize;
+                match frame.iframe().code().instructions.read_op(idx).into() {
+                    crate::bytecode::Opcode::YieldValue
+                    | crate::bytecode::Opcode::InstrumentedYieldValue => {
+                        crate::stdlib::sys::monitoring::WHAT_PY_YIELD
+                    }
+                    _ => crate::stdlib::sys::monitoring::WHAT_PY_RETURN,
+                }
+            };
+            let ret_result = self.trace_event_what(TraceEvent::Return, what, None);
             // call_trace_protected: if trace function raises, its error
             // replaces the original exception.
             ret_result?;

@@ -446,7 +446,6 @@ class TraceTestCase(unittest.TestCase):
     def test_12_tighterloop(self):
         self.run_test(tighterloop_example)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_13_genexp(self):
         self.run_test(generator_example)
         # issue1265: if the trace function contains a generator,
@@ -2117,20 +2116,17 @@ class JumpTestCase(unittest.TestCase):
 
     ## The first set of 'jump' tests are for things that are allowed:
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(1, 3, [3])
     def test_jump_simple_forwards(output):
         output.append(1)
         output.append(2)
         output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 1, [1, 1, 2])
     def test_jump_simple_backwards(output):
         output.append(1)
         output.append(2)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(1, 4, [5], warning=(RuntimeWarning, unbound_locals))
     def test_jump_is_none_forwards(output):
         x = None
@@ -2139,7 +2135,6 @@ class JumpTestCase(unittest.TestCase):
         else:
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(6, 5, [3, 5, 6])
     def test_jump_is_none_backwards(output):
         x = None
@@ -2149,7 +2144,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(5)
         output.append(6)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 4, [5])
     def test_jump_is_not_none_forwards(output):
         x = None
@@ -2158,7 +2152,6 @@ class JumpTestCase(unittest.TestCase):
         else:
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(6, 5, [5, 5, 6])
     def test_jump_is_not_none_backwards(output):
         x = None
@@ -2168,7 +2161,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(5)
         output.append(6)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 5, [2, 5], warning=(RuntimeWarning, unbound_locals))
     def test_jump_out_of_block_forwards(output):
         for i in 1, 2:
@@ -2177,7 +2169,6 @@ class JumpTestCase(unittest.TestCase):
                 output.append(4)
         output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(6, 1, [1, 3, 5, 1, 3, 5, 6, 7])
     def test_jump_out_of_block_backwards(output):
         output.append(1)
@@ -2188,7 +2179,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(6)
         output.append(7)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(4, 5, [3, 5])
     @clean_asynciter
     async def test_jump_out_of_async_for_block_forwards(output, asynciter):
@@ -2198,7 +2188,6 @@ class JumpTestCase(unittest.TestCase):
                 output.append(4)
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(5, 2, [2, 4, 2, 4, 5, 6])
     @clean_asynciter
     async def test_jump_out_of_async_for_block_backwards(output, asynciter):
@@ -2209,14 +2198,12 @@ class JumpTestCase(unittest.TestCase):
                 output.append(5)
             output.append(6)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(1, 2, [3])
     def test_jump_to_codeless_line(output):
         output.append(1)
         # Jumping to this line should skip to the next one.
         output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 2, [1, 2, 3])
     def test_jump_to_same_line(output):
         output.append(1)
@@ -2224,7 +2211,6 @@ class JumpTestCase(unittest.TestCase):
         output.append(3)
 
     # Tests jumping within a finally block, and over one.
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(4, 9, [2, 9])
     def test_jump_in_nested_finally(output):
         try:
@@ -2237,7 +2223,6 @@ class JumpTestCase(unittest.TestCase):
                 output.append(8)
             output.append(9)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(6, 7, [2, 7], (ZeroDivisionError, ''))
     def test_jump_in_nested_finally_2(output):
         try:
@@ -2249,7 +2234,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(7)
         output.append(8)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(6, 11, [2, 11], (ZeroDivisionError, ''))
     def test_jump_in_nested_finally_3(output):
         try:
@@ -2273,7 +2257,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(3)
         output.append(4)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 4, [4, 4])
     def test_jump_forwards_into_while_block(output):
         i = 1
@@ -2282,7 +2265,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(4)
             i += 1
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(5, 3, [3, 3, 3, 5])
     def test_jump_backwards_into_while_block(output):
         i = 1
@@ -2291,35 +2273,30 @@ class JumpTestCase(unittest.TestCase):
             i += 1
         output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 3, [1, 3])
     def test_jump_forwards_out_of_with_block(output):
         with tracecontext(output, 1):
             output.append(2)
         output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(2, 3, [1, 3])
     async def test_jump_forwards_out_of_async_with_block(output):
         async with asynctracecontext(output, 1):
             output.append(2)
         output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 1, [1, 2, 1, 2, 3, -2])
     def test_jump_backwards_out_of_with_block(output):
         output.append(1)
         with tracecontext(output, 2):
             output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(3, 1, [1, 2, 1, 2, 3, -2])
     async def test_jump_backwards_out_of_async_with_block(output):
         output.append(1)
         async with asynctracecontext(output, 2):
             output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 5, [5])
     def test_jump_forwards_out_of_try_finally_block(output):
         try:
@@ -2328,7 +2305,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(4)
         output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 1, [1, 1, 3, 5])
     def test_jump_backwards_out_of_try_finally_block(output):
         output.append(1)
@@ -2337,7 +2313,6 @@ class JumpTestCase(unittest.TestCase):
         finally:
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 6, [6])
     def test_jump_forwards_out_of_try_except_block(output):
         try:
@@ -2347,7 +2322,6 @@ class JumpTestCase(unittest.TestCase):
             raise
         output.append(6)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 1, [1, 1, 3])
     def test_jump_backwards_out_of_try_except_block(output):
         output.append(1)
@@ -2357,7 +2331,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(5)
             raise
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(5, 7, [4, 7, 8])
     def test_jump_between_except_blocks(output):
         try:
@@ -2369,7 +2342,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(7)
         output.append(8)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(5, 7, [4, 7, 8])
     def test_jump_from_except_to_finally(output):
         try:
@@ -2381,7 +2353,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(7)
         output.append(8)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(5, 6, [4, 6, 7])
     def test_jump_within_except_block(output):
         try:
@@ -2392,7 +2363,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(6)
         output.append(7)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(6, 1, [1, 5, 1, 5], warning=(RuntimeWarning, unbound_locals))
     def test_jump_over_try_except(output):
         output.append(1)
@@ -2402,7 +2372,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(5)
         x = 42  # has to be a two-instruction block
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 4, [1, 4, 5, -4])
     def test_jump_across_with(output):
         output.append(1)
@@ -2411,7 +2380,6 @@ class JumpTestCase(unittest.TestCase):
         with tracecontext(output, 4):
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(2, 4, [1, 4, 5, -4])
     async def test_jump_across_async_with(output):
         output.append(1)
@@ -2420,7 +2388,6 @@ class JumpTestCase(unittest.TestCase):
         async with asynctracecontext(output, 4):
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(4, 5, [1, 3, 5, 6])
     def test_jump_out_of_with_block_within_for_block(output):
         output.append(1)
@@ -2430,7 +2397,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(5)
         output.append(6)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(4, 5, [1, 3, 5, 6])
     async def test_jump_out_of_async_with_block_within_for_block(output):
         output.append(1)
@@ -2440,7 +2406,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(5)
         output.append(6)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(4, 5, [1, 2, 3, 5, -2, 6])
     def test_jump_out_of_with_block_within_with_block(output):
         output.append(1)
@@ -2450,7 +2415,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(5)
         output.append(6)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(4, 5, [1, 2, 3, 5, -2, 6])
     async def test_jump_out_of_async_with_block_within_with_block(output):
         output.append(1)
@@ -2460,7 +2424,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(5)
         output.append(6)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(5, 6, [2, 4, 6, 7])
     def test_jump_out_of_with_block_within_finally_block(output):
         try:
@@ -2471,7 +2434,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(6)
         output.append(7)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(5, 6, [2, 4, 6, 7])
     async def test_jump_out_of_async_with_block_within_finally_block(output):
         try:
@@ -2482,7 +2444,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(6)
         output.append(7)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(8, 11, [1, 3, 5, 11, 12])
     def test_jump_out_of_complex_nested_blocks(output):
         output.append(1)
@@ -2498,7 +2459,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(11)
         output.append(12)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 5, [1, 2, 5], warning=(RuntimeWarning, unbound_locals))
     def test_jump_out_of_with_assignment(output):
         output.append(1)
@@ -2507,7 +2467,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(4)
         output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(3, 5, [1, 2, 5], warning=(RuntimeWarning, unbound_locals))
     async def test_jump_out_of_async_with_assignment(output):
         output.append(1)
@@ -2516,7 +2475,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(4)
         output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 6, [1, 6, 8, 9])
     def test_jump_over_return_in_try_finally_block(output):
         output.append(1)
@@ -2529,7 +2487,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(8)
         output.append(9)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(5, 8, [1, 3, 8, 10, 11, 13])
     def test_jump_over_break_in_try_finally_block(output):
         output.append(1)
@@ -2546,7 +2503,6 @@ class JumpTestCase(unittest.TestCase):
             break
         output.append(13)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(1, 7, [7, 8], warning=(RuntimeWarning, unbound_locals))
     def test_jump_over_for_block_before_else(output):
         output.append(1)
@@ -2558,7 +2514,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(7)
         output.append(8)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(1, 7, [7, 8], warning=(RuntimeWarning, unbound_locals))
     async def test_jump_over_async_for_block_before_else(output):
         output.append(1)
@@ -2572,20 +2527,17 @@ class JumpTestCase(unittest.TestCase):
 
     # The second set of 'jump' tests are for things that are not allowed:
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 3, [1], (ValueError, 'after'))
     def test_no_jump_too_far_forwards(output):
         output.append(1)
         output.append(2)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, -2, [1], (ValueError, 'before'))
     def test_no_jump_too_far_backwards(output):
         output.append(1)
         output.append(2)
 
     # Test each kind of 'except' line.
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 3, [4], (ValueError, 'except'))
     def test_no_jump_to_except_1(output):
         try:
@@ -2594,7 +2546,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(4)
             raise
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 3, [4], (ValueError, 'except'))
     def test_no_jump_to_except_2(output):
         try:
@@ -2603,7 +2554,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(4)
             raise
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 3, [4], (ValueError, 'except'))
     def test_no_jump_to_except_3(output):
         try:
@@ -2612,7 +2562,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(4)
             raise e
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 3, [4], (ValueError, 'except'))
     def test_no_jump_to_except_4(output):
         try:
@@ -2621,14 +2570,13 @@ class JumpTestCase(unittest.TestCase):
             output.append(4)
             raise e
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(1, 3, [], (ValueError, 'into'))
     def test_no_jump_forwards_into_for_block(output):
         output.append(1)
         for i in 1, 2:
             output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @async_jump_test(1, 3, [], (ValueError, 'into'))
     async def test_no_jump_forwards_into_async_for_block(output):
         output.append(1)
@@ -2636,7 +2584,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(3)
         pass
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 2, [2, 2], (ValueError, 'into'))
     def test_no_jump_backwards_into_for_block(output):
         for i in 1, 2:
@@ -2644,42 +2591,37 @@ class JumpTestCase(unittest.TestCase):
         output.append(3)
 
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @async_jump_test(3, 2, [2, 2], (ValueError, "can't jump into the body of a for loop"))
     async def test_no_jump_backwards_into_async_for_block(output):
         async for i in asynciter([1, 2]):
             output.append(2)
         output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(1, 3, [], (ValueError, 'stack'))
     def test_no_jump_forwards_into_with_block(output):
         output.append(1)
         with tracecontext(output, 2):
             output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(1, 3, [], (ValueError, 'stack'))
     async def test_no_jump_forwards_into_async_with_block(output):
         output.append(1)
         async with asynctracecontext(output, 2):
             output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 2, [1, 2, -1], (ValueError, 'stack'))
     def test_no_jump_backwards_into_with_block(output):
         with tracecontext(output, 1):
             output.append(2)
         output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(3, 2, [1, 2, -1], (ValueError, 'stack'))
     async def test_no_jump_backwards_into_async_with_block(output):
         async with asynctracecontext(output, 1):
             output.append(2)
         output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(1, 3, [3, 5])
     def test_jump_forwards_into_try_finally_block(output):
         output.append(1)
@@ -2688,7 +2630,6 @@ class JumpTestCase(unittest.TestCase):
         finally:
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(5, 2, [2, 4, 2, 4, 5])
     def test_jump_backwards_into_try_finally_block(output):
         try:
@@ -2697,7 +2638,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(4)
         output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(1, 3, [3])
     def test_jump_forwards_into_try_except_block(output):
         output.append(1)
@@ -2707,7 +2647,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(5)
             raise
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(6, 2, [2, 2, 6])
     def test_jump_backwards_into_try_except_block(output):
         try:
@@ -2718,7 +2657,6 @@ class JumpTestCase(unittest.TestCase):
         output.append(6)
 
     # 'except' with a variable creates an implicit finally block
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(5, 7, [4, 7, 8], warning=(RuntimeWarning, unbound_locals))
     def test_jump_between_except_blocks_2(output):
         try:
@@ -2730,7 +2668,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(7)
         output.append(8)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(1, 5, [5])
     def test_jump_into_finally_block(output):
         output.append(1)
@@ -2739,7 +2676,6 @@ class JumpTestCase(unittest.TestCase):
         finally:
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 6, [2, 6, 7])
     def test_jump_into_finally_block_from_try_block(output):
         try:
@@ -2750,7 +2686,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(6)
         output.append(7)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(5, 1, [1, 3, 1, 3, 5])
     def test_jump_out_of_finally_block(output):
         output.append(1)
@@ -2759,7 +2694,6 @@ class JumpTestCase(unittest.TestCase):
         finally:
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(1, 5, [], (ValueError, "can't jump into an 'except' block as there's no exception"))
     def test_no_jump_into_bare_except_block(output):
         output.append(1)
@@ -2768,7 +2702,6 @@ class JumpTestCase(unittest.TestCase):
         except:
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(1, 5, [], (ValueError, "can't jump into an 'except' block as there's no exception"))
     def test_no_jump_into_qualified_except_block(output):
         output.append(1)
@@ -2777,7 +2710,6 @@ class JumpTestCase(unittest.TestCase):
         except Exception:
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 6, [2, 5, 6], (ValueError, "can't jump into an 'except' block as there's no exception"))
     def test_no_jump_into_bare_except_block_from_try_block(output):
         try:
@@ -2789,7 +2721,6 @@ class JumpTestCase(unittest.TestCase):
             raise
         output.append(8)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 6, [2], (ValueError, "can't jump into an 'except' block as there's no exception"))
     def test_no_jump_into_qualified_except_block_from_try_block(output):
         try:
@@ -2801,7 +2732,6 @@ class JumpTestCase(unittest.TestCase):
             raise
         output.append(8)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(7, 1, [1, 3, 6, 1, 3, 6, 7])
     def test_jump_out_of_bare_except_block(output):
         output.append(1)
@@ -2812,7 +2742,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(6)
             output.append(7)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(7, 1, [1, 3, 6, 1, 3, 6, 7])
     def test_jump_out_of_qualified_except_block(output):
         output.append(1)
@@ -2823,7 +2752,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(6)
             output.append(7)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 5, [1, 2, 5, -2])
     def test_jump_between_with_blocks(output):
         output.append(1)
@@ -2832,7 +2760,6 @@ class JumpTestCase(unittest.TestCase):
         with tracecontext(output, 4):
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(3, 5, [1, 2, 5, -2])
     async def test_jump_between_async_with_blocks(output):
         output.append(1)
@@ -2841,7 +2768,6 @@ class JumpTestCase(unittest.TestCase):
         async with asynctracecontext(output, 4):
             output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(5, 7, [2, 4], (ValueError, "after"))
     def test_no_jump_over_return_out_of_finally_block(output):
         try:
@@ -2852,7 +2778,6 @@ class JumpTestCase(unittest.TestCase):
         return
         output.append(7)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(7, 4, [1, 6], (ValueError, 'into'))
     def test_no_jump_into_for_block_before_else(output):
         output.append(1)
@@ -2864,7 +2789,7 @@ class JumpTestCase(unittest.TestCase):
             output.append(7)
         output.append(8)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @async_jump_test(7, 4, [1, 6], (ValueError, 'into'))
     async def test_no_jump_into_async_for_block_before_else(output):
         output.append(1)
@@ -2876,17 +2801,14 @@ class JumpTestCase(unittest.TestCase):
             output.append(7)
         output.append(8)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_no_jump_to_non_integers(self):
         self.run_test(no_jump_to_non_integers, 2, "Spam", [True])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_no_jump_without_trace_function(self):
         # Must set sys.settrace(None) in setUp(), else condition is not
         # triggered.
         no_jump_without_trace_function()
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_large_function(self):
         d = {}
         exec("""def f(output):        # line 0
@@ -2901,7 +2823,7 @@ class JumpTestCase(unittest.TestCase):
         f = d['f']
         self.run_test(f, 2, 1007, [0], warning=(RuntimeWarning, self.unbound_locals))
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_jump_to_firstlineno(self):
         # This tests that PDB can jump back to the first line in a
         # file.  See issue #1689458.  It can only be triggered in a
@@ -2921,7 +2843,6 @@ output.append(4)
         sys.settrace(None)
         self.compare_jump_output([2, 3, 2, 3, 4], namespace["output"])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 3, [1], event='call', error=(ValueError, "can't jump from"
                " the 'call' trace event of a new frame"))
     def test_no_jump_from_call(output):
@@ -2931,21 +2852,19 @@ output.append(4)
         nested()
         output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 1, [1], event='return', error=(ValueError,
                "can only jump from a 'line' trace event"))
     def test_no_jump_from_return_event(output):
         output.append(1)
         return
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 1, [1], event='exception', error=(ValueError,
                "can only jump from a 'line' trace event"))
     def test_no_jump_from_exception_event(output):
         output.append(1)
         1 / 0
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @jump_test(3, 2, [2, 2, 5], event='return')
     def test_jump_from_yield(output):
         def gen():
@@ -2954,7 +2873,6 @@ output.append(4)
         next(gen())
         output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 3, [1, 3], warning=(RuntimeWarning, unbound_locals))
     def test_jump_forward_over_listcomp(output):
         output.append(1)
@@ -2963,14 +2881,12 @@ output.append(4)
 
     # checking for segfaults.
     # See https://github.com/python/cpython/issues/92311
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 1, [], warning=(RuntimeWarning, unbound_locals))
     def test_jump_backward_over_listcomp(output):
         a = 1
         x = [i for i in range(10)]
         c = 3
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(8, 2, [2, 7, 2], warning=(RuntimeWarning, unbound_locals))
     def test_jump_backward_over_listcomp_v2(output):
         flag = False
@@ -2982,21 +2898,18 @@ output.append(4)
         output.append(7)
         output.append(8)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(2, 3, [1, 3], warning=(RuntimeWarning, unbound_locals))
     async def test_jump_forward_over_async_listcomp(output):
         output.append(1)
         x = [i async for i in asynciter(range(10))]
         output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(3, 1, [], warning=(RuntimeWarning, unbound_locals))
     async def test_jump_backward_over_async_listcomp(output):
         a = 1
         x = [i async for i in asynciter(range(10))]
         c = 3
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @async_jump_test(8, 2, [2, 7, 2], warning=(RuntimeWarning, unbound_locals))
     async def test_jump_backward_over_async_listcomp_v2(output):
         flag = False
@@ -3009,7 +2922,6 @@ output.append(4)
         output.append(8)
 
     # checking for segfaults.
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 7, [], error=(ValueError, "stack"))
     def test_jump_with_null_on_stack_load_global(output):
         a = 1
@@ -3029,7 +2941,6 @@ output.append(4)
         output.append(15)
 
     # checking for segfaults.
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(4, 8, [], error=(ValueError, "stack"))
     def test_jump_with_null_on_stack_push_null(output):
         a = 1
@@ -3050,7 +2961,6 @@ output.append(4)
         output.append(16)
 
     # checking for segfaults.
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 7, [], error=(ValueError, "stack"))
     def test_jump_with_null_on_stack_load_attr(output):
         a = 1
@@ -3069,14 +2979,12 @@ output.append(4)
         )
         output.append(15)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 3, [1, 3], warning=(RuntimeWarning, unbound_locals))
     def test_jump_extended_args_unpack_ex_simple(output):
         output.append(1)
         _, *_, _ = output.append(2) or "Spam"
         output.append(3)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(3, 4, [1, 4, 4, 5], warning=(RuntimeWarning, unbound_locals))
     def test_jump_extended_args_unpack_ex_tricky(output):
         output.append(1)
@@ -3085,7 +2993,6 @@ output.append(4)
         ) = output.append(4) or "Spam"
         output.append(5)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @support.requires_resource('cpu')
     def test_jump_extended_args_for_iter(self):
         # In addition to failing when extended arg handling is broken, this can
@@ -3102,7 +3009,6 @@ output.append(4)
         f = namespace["f"]
         self.run_test(f,  2, 100_000, [1, 100_000], warning=(RuntimeWarning, self.unbound_locals))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     @jump_test(2, 3, [1, 3], warning=(RuntimeWarning, unbound_locals))
     def test_jump_or_pop(output):
         output.append(1)
