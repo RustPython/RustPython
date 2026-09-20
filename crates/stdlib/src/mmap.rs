@@ -798,51 +798,56 @@ mod mmap {
             Ok(())
         }
 
-        fn get_find_range(&self, options: FindOptions) -> (usize, usize) {
+        fn get_find_range(&self, options: &FindOptions) -> (usize, usize) {
             let size = self.__len__();
             let start = options
                 .start
                 .map_or_else(|| self.pos(), |start| start.saturated_at(size));
-            let end = options
-                .end
-                .map_or(size, |end| end.saturated_at(size))
-                .max(start);
+            let end = options.end.map_or(size, |end| end.saturated_at(size));
             (start, end)
+        }
+
+        fn find_inner(
+            &self,
+            options: FindOptions,
+            reverse: bool,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyInt> {
+            let mmap = self.check_valid(vm)?;
+            let (start, end) = self.get_find_range(&options);
+
+            // A reversed range contains nothing, not even the empty subsequence.
+            if start > end {
+                return Ok(PyInt::from(-1isize));
+            }
+
+            let sub = &options.sub;
+            // The empty subsequence matches at the edge the scan begins from:
+            // the start of the range going forward, the end going backward.
+            if sub.is_empty() {
+                let pos = if reverse { end } else { start };
+                return Ok(PyInt::from(pos as isize));
+            }
+
+            let buf = &mmap.as_ref().unwrap().as_slice()[start..end];
+            let mut windows = buf.windows(sub.len());
+            let pos = if reverse {
+                windows.rposition(|window| window == sub)
+            } else {
+                windows.position(|window| window == sub)
+            };
+
+            Ok(pos.map_or_else(|| PyInt::from(-1isize), |i| PyInt::from(start + i)))
         }
 
         #[pymethod]
         fn find(&self, options: FindOptions, vm: &VirtualMachine) -> PyResult<PyInt> {
-            let (start, end) = self.get_find_range(options.clone());
-
-            let sub = &options.sub;
-
-            // returns start position for empty string
-            if sub.is_empty() {
-                return Ok(PyInt::from(start as isize));
-            }
-
-            let mmap = self.check_valid(vm)?;
-            let buf = &mmap.as_ref().unwrap().as_slice()[start..end];
-            let pos = buf.windows(sub.len()).position(|window| window == sub);
-
-            Ok(pos.map_or_else(|| PyInt::from(-1isize), |i| PyInt::from(start + i)))
+            self.find_inner(options, false, vm)
         }
 
         #[pymethod]
         fn rfind(&self, options: FindOptions, vm: &VirtualMachine) -> PyResult<PyInt> {
-            let (start, end) = self.get_find_range(options.clone());
-
-            let sub = &options.sub;
-            // returns start position for empty string
-            if sub.is_empty() {
-                return Ok(PyInt::from(start as isize));
-            }
-
-            let mmap = self.check_valid(vm)?;
-            let buf = &mmap.as_ref().unwrap().as_slice()[start..end];
-            let pos = buf.windows(sub.len()).rposition(|window| window == sub);
-
-            Ok(pos.map_or_else(|| PyInt::from(-1isize), |i| PyInt::from(start + i)))
+            self.find_inner(options, true, vm)
         }
 
         #[pymethod]
