@@ -1024,6 +1024,23 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       RUN_WASM_WASI: ${{ needs.determine_changes.outputs.rust_code == 'true' || github.ref == 'refs/heads/main' }}
+      # Passing snippets under wasm32-wasip1.
+      WASM_WASI_SNIPPETS: >-
+        stdlib_random
+        stdlib_time
+      # Passing Lib/test files under wasm32-wasip1
+      WASM_WASI_TEST_FILES: >-
+        test_int
+        test_dict
+        test_exceptions
+        test_copy
+        test_isinstance
+        test_dynamic
+        test_dictviews
+        test_glob
+        test_class
+        test_genericpath
+        test_grammar
     steps:
       - name: Skip wasm-wasi when rust sources did not change
         if: env.RUN_WASM_WASI != 'true'
@@ -1072,11 +1089,19 @@ jobs:
       - name: run snippets
         if: env.RUN_WASM_WASI == 'true'
         run: |
-          wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
-          wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_time.py"
+          for name in $WASM_WASI_SNIPPETS; do
+            echo "::group::extra_tests/snippets/${name}.py"
+            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/${name}.py"
+            echo "::endgroup::"
+          done
       - name: run cpython unittest
         if: env.RUN_WASM_WASI == 'true'
-        run: wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
+        run: |
+          for name in $WASM_WASI_TEST_FILES; do
+            echo "::group::Lib/test/${name}.py"
+            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/${name}.py"
+            echo "::endgroup::"
+          done
 
   cargo_doc:
     needs:
