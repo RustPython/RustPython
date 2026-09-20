@@ -313,6 +313,23 @@ mod tests {
     }
 
     #[test]
+    fn empty_input_does_not_finish_a_stream() {
+        let mut compressor = Compressor::new(9).unwrap();
+        let mut encoded = compressor.compress(b"later input").unwrap();
+        encoded.extend(compressor.flush().unwrap());
+
+        let mut decompressor = Decompressor::new();
+        assert_eq!(decompressor.decompress(b"", None).unwrap(), b"");
+        assert!(!decompressor.eof());
+        assert!(decompressor.needs_input());
+        assert_eq!(
+            decompressor.decompress(&encoded, None).unwrap(),
+            b"later input"
+        );
+        assert!(decompressor.eof());
+    }
+
+    #[test]
     fn bad_data_latches_failure() {
         let mut decompressor = Decompressor::new();
         let err = decompressor.decompress(b"not a bz2 stream", None);

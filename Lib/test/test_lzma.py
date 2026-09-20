@@ -143,7 +143,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         self.assertTrue(lzd.eof)
         self.assertEqual(lzd.unused_data, b"")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; EOFError: End of stream already reached
     def test_decompressor_chunks_empty(self):
         lzd = LZMADecompressor()
         out = []
