@@ -311,6 +311,11 @@ def dir_of_mod_or_error(module_name, keep_other=True):
         # what was inspected before.
         if item_name == "__builtins__":
             continue
+        if item_name == "__doc__":
+            # extra_info() reports a docstring for a callable only, and a module
+            # is not one. getdoc() matches how a callable's is normalized.
+            result[item_name] = {"sig": None, "doc": inspect.getdoc(module)}
+            continue
         item = getattr(module, item_name)
         # don't repeat items imported from other modules
         if keep_other or is_child(module, item) or inspect.getmodule(item) is None:
