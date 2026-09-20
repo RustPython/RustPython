@@ -548,7 +548,7 @@ impl FrameObject {
             )));
         }
 
-        let py_code: &PyCode = self.iframe().code();
+        let py_code: &Py<PyCode> = self.iframe().code();
         let code = &py_code.code;
         let lines = mark_lines(code);
 

@@ -440,7 +440,7 @@ impl PyCPointer {
     }
 
     // Pointer_subscript slice handling (manual parsing, not PySlice_Unpack)
-    fn getitem_by_slice(zelf: &Py<Self>, slice: &PySlice, vm: &VirtualMachine) -> PyResult {
+    fn getitem_by_slice(zelf: &Py<Self>, slice: &Py<PySlice>, vm: &VirtualMachine) -> PyResult {
         // Since pointers have no length, we have to dissect the slice ourselves
 
         // step: defaults to 1, step == 0 is error

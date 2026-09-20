@@ -544,7 +544,7 @@ impl ExcInfo {
 /// the code's `LOAD_GLOBAL` names are resolved against; without them every such
 /// name stays unknown, which `_PyCode_CheckNoExternalState` lets through.
 fn verify_stateless(
-    code: &PyCode,
+    code: &Py<PyCode>,
     namespaces: Option<(&Py<PyDict>, &Py<PyDict>)>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
@@ -566,7 +566,7 @@ fn verify_stateless(
 }
 
 /// The `co_names` entries `identify_unbound_names` reaches through `LOAD_GLOBAL`.
-pub(crate) fn global_names(code: &PyCode) -> impl Iterator<Item = &'static PyStrInterned> + '_ {
+pub(crate) fn global_names(code: &Py<PyCode>) -> impl Iterator<Item = &'static PyStrInterned> + '_ {
     walk_instructions(code).filter_map(|(_, instr, arg)| match instr {
         Instruction::LoadGlobal { namei } => Some(code.names[(namei.get(arg) >> 1) as usize]),
         _ => None,
@@ -576,7 +576,7 @@ pub(crate) fn global_names(code: &PyCode) -> impl Iterator<Item = &'static PyStr
 /// The instruction stream with its inline caches skipped and its specialized
 /// and instrumented opcodes mapped back, yielding `(offset, instruction, arg)`.
 pub(crate) fn walk_instructions(
-    code: &PyCode,
+    code: &Py<PyCode>,
 ) -> impl Iterator<Item = (usize, Instruction, OpArg)> + '_ {
     let units = &code.instructions;
     let mut arg_state = OpArgState::default();
@@ -597,7 +597,7 @@ pub(crate) fn walk_instructions(
 }
 
 /// `_PyFunction_VerifyStateless`.
-fn verify_stateless_function(func: &PyFunction, vm: &VirtualMachine) -> PyResult<()> {
+fn verify_stateless_function(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<()> {
     // `__globals__` is a dict by construction, so only the builtins are checked.
     let builtins = func.builtins.downcast_ref::<PyDict>().ok_or_else(|| {
         vm.new_type_error(format!(
@@ -618,7 +618,7 @@ fn verify_stateless_function(func: &PyFunction, vm: &VirtualMachine) -> PyResult
 }
 
 /// `verify_script`: a script takes no arguments and returns only None.
-pub fn verify_script(code: &PyCode, vm: &VirtualMachine) -> PyResult<()> {
+pub fn verify_script(code: &Py<PyCode>, vm: &VirtualMachine) -> PyResult<()> {
     verify_stateless(code, None, vm)?;
     if code.arg_count > 0
         || code.posonlyarg_count > 0
@@ -635,7 +635,7 @@ pub fn verify_script(code: &PyCode, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 /// `_PyCode_CheckPureFunction`.
-fn is_pure_function(code: &PyCode) -> bool {
+fn is_pure_function(code: &Py<PyCode>) -> bool {
     !code.flags.intersects(
         CodeFlags::GENERATOR
             | CodeFlags::COROUTINE
@@ -647,7 +647,7 @@ fn is_pure_function(code: &PyCode) -> bool {
 /// `_PyCode_ReturnsOnlyNone`. Here "value" means a non-None value, since a bare
 /// return is identical to returning None explicitly, as is a missing return
 /// statement at the end of the function.
-pub(crate) fn code_returns_only_none(code: &PyCode) -> bool {
+pub(crate) fn code_returns_only_none(code: &Py<PyCode>) -> bool {
     if !is_pure_function(code) {
         return false;
     }

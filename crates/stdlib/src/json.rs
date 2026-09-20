@@ -1134,7 +1134,7 @@ mod _json {
         fn dict_items(
             &self,
             obj: &PyObjectRef,
-            dict: &PyDict,
+            dict: &Py<PyDict>,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<(PyObjectRef, PyObjectRef)>> {
             if obj.class().is(vm.ctx.types.dict_type) {
@@ -1155,7 +1155,7 @@ mod _json {
         fn encode_dict(
             &self,
             obj: &PyObjectRef,
-            dict: &PyDict,
+            dict: &Py<PyDict>,
             level: isize,
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,

@@ -2448,7 +2448,7 @@ mod _io {
     }
 
     impl Utf8size {
-        fn len_pystr(s: &PyStr) -> Self {
+        fn len_pystr(s: &Py<PyStr>) -> Self {
             Self {
                 bytes: s.byte_len(),
                 chars: s.char_len(),

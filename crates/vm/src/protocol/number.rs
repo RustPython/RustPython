@@ -3,7 +3,7 @@ use core::ops::Deref;
 use crossbeam_utils::atomic::AtomicCell;
 
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr, int,
@@ -29,7 +29,7 @@ use alloc::borrow::Cow;
 ///
 /// A string holding surrogates can never be a valid literal, so it folds to an
 /// empty — and therefore invalid — one.
-pub fn numeric_literal_from_str(s: &PyStr) -> Cow<'_, str> {
+pub fn numeric_literal_from_str(s: &Py<PyStr>) -> Cow<'_, str> {
     match s.as_str_kind() {
         PyKindStr::Ascii(s) => Cow::Borrowed(s.trim().as_str()),
         PyKindStr::Utf8(s) => transform_decimal_and_space_to_ascii(s.trim()),

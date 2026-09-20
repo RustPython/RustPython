@@ -1197,7 +1197,7 @@ struct VarCounts {
     unbound: UnboundCounts,
 }
 
-fn var_counts(code: &PyCode) -> VarCounts {
+fn var_counts(code: &Py<PyCode>) -> VarCounts {
     let mut locals = LocalsCounts::default();
     let mut numfree = 0;
     for &kind in &code.localspluskinds {
@@ -1257,7 +1257,7 @@ fn var_counts(code: &PyCode) -> VarCounts {
 }
 
 fn set_unbound_var_counts(
-    code: &PyCode,
+    code: &Py<PyCode>,
     counts: &mut VarCounts,
     globalnames: Option<PyObjectRef>,
     attrnames: Option<PyObjectRef>,
@@ -1295,7 +1295,7 @@ fn optional_set(
 }
 
 fn identify_unbound_names(
-    code: &PyCode,
+    code: &Py<PyCode>,
     globalnames: Option<PyRef<PySet>>,
     attrnames: Option<PyRef<PySet>>,
     globalsns: Option<&Py<PyDict>>,
