@@ -111,8 +111,7 @@ def attr_is_not_inherited(type_, attr):
     """
     returns True if type_'s attr is not inherited from any of its base classes
     """
-    bases = type_.__mro__[1:]
-    return getattr(type_, attr) not in (getattr(base, attr, None) for base in bases)
+    return attr in type_.__dict__
 
 
 def extra_info(obj):
@@ -398,13 +397,15 @@ def compare():
     import warnings
     from contextlib import redirect_stdout
 
-    def method_incompatibility_reason(typ, method_name):
+    def method_incompatibility_reason(typ, method_name, real_method_value):
         has_method = hasattr(typ, method_name)
         if not has_method:
             return ""
 
         is_inherited = not attr_is_not_inherited(typ, method_name)
-        if is_inherited:
+        # Inheriting something that reads the same as CPython's own member
+        # leaves nothing to implement.
+        if is_inherited and extra_info(getattr(typ, method_name)) != real_method_value:
             return "(inherited)"
 
         return None
@@ -415,7 +416,7 @@ def compare():
     for name, (typ, real_value, methods) in expected_methods.items():
         missing_methods = {}
         for method, real_method_value in methods:
-            reason = method_incompatibility_reason(typ, method)
+            reason = method_incompatibility_reason(typ, method, real_method_value)
             if reason is not None:
                 missing_methods[method] = reason
                 continue
@@ -483,10 +484,12 @@ def compare():
                     skipped.add(item)
                 elif not hasattr(cls, attr):
                     continue
-                elif not attr_is_not_inherited(cls, attr):
-                    inherited.add(item)
-                else:
+                elif attr_is_not_inherited(cls, attr):
                     rustpymod[item] = extra_info(getattr(cls, attr))
+                elif extra_info(getattr(cls, attr)) == cpymod[item]:
+                    rustpymod[item] = cpymod[item]
+                else:
+                    inherited.add(item)
             implemented_items = sorted(set(cpymod) & set(rustpymod))
             mod_missing_items = set(cpymod) - set(rustpymod) - skipped
             mod_missing_items = sorted(
