@@ -2498,6 +2498,7 @@ impl Py<FrameObject> {
             prev_line: &iframe.prev_line,
             monitoring_mask: 0,
             flatten: Flatten::Nothing,
+            call_traced: false,
         };
         f(exec)
     }
@@ -2583,6 +2584,7 @@ impl Py<FrameObject> {
             prev_line: &iframe.prev_line,
             monitoring_mask: 0,
             flatten: Flatten::Nothing,
+            call_traced: false,
         };
         exec.yield_from_target().map(PyObject::to_owned)
     }
@@ -2722,6 +2724,7 @@ fn exec_iframe<'a>(
         prev_line: &iframe.prev_line,
         monitoring_mask: 0,
         flatten,
+        call_traced: false,
     }
 }
 
@@ -2914,6 +2917,8 @@ pub(crate) struct ExecutingFrame<'a> {
     /// What this frame may hand back to the trampoline, if it is running
     /// under one at all.
     flatten: Flatten,
+    /// PY_START/PY_RESUME Call already fired for this activation.
+    call_traced: bool,
 }
 
 /// How much of what a frame does the trampoline can take over.
@@ -3293,12 +3298,43 @@ impl ExecutingFrame<'_> {
             .is_some_and(|c| c.trace.lock().is_some())
     }
 
+    /// PY_START / PY_RESUME → PyTrace_CALL. Fired from the first RESUME of
+    /// this activation so lasti is already the resume unit
+    /// (COPY_FREE_VARS / RETURN_GENERATOR that precede it are not a 'call',
+    /// and later RESUMEs in a SEND loop are not a new call either).
+    fn trace_call_from_resume(&mut self, vm: &VirtualMachine) -> PyResult<()> {
+        if self.call_traced {
+            return Ok(());
+        }
+        self.call_traced = true;
+        if !vm.use_tracing.get() {
+            return Ok(());
+        }
+        let trace_result = vm.trace_event(crate::protocol::TraceEvent::Call, None)?;
+        if let Some(local_trace) = trace_result {
+            let was_unset = self.iframe().cold().trace.lock().is_none();
+            *self.iframe().cold().trace.lock() = Some(local_trace);
+            if was_unset {
+                self.iframe().sync_prev_line_from_lasti();
+            }
+        }
+        Ok(())
+    }
+
     /// Access the frame's trace_opcodes lock.
     #[inline]
     fn trace_opcodes_is_set(&self) -> bool {
         self.iframe()
             .cold_opt()
             .is_some_and(|c| *c.trace_opcodes.lock())
+    }
+
+    /// f_trace_lines, defaulting to true when cold data is not allocated.
+    #[inline]
+    fn trace_lines_is_set(&self) -> bool {
+        self.iframe()
+            .cold_opt()
+            .is_none_or(|c| *c.trace_lines.lock())
     }
 
     /// Get pending_stack_pops from the frame.
@@ -3476,6 +3512,7 @@ impl ExecutingFrame<'_> {
             // event whose f_lineno is None.
             if tracing
                 && self.trace_is_set(vm)
+                && self.trace_lines_is_set()
                 && !matches!(
                     self.code.instructions.read_op(idx),
                     Instruction::Resume { .. } | Instruction::InstrumentedResume
@@ -5399,6 +5436,8 @@ impl ExecutingFrame<'_> {
                         .store(global_ver, atomic::Ordering::Release);
                     // Re-execute this instruction (it may now be INSTRUMENTED_RESUME)
                     self.update_lasti(|i| *i -= 1);
+                } else {
+                    self.trace_call_from_resume(vm)?;
                 }
                 Ok(None)
             }
@@ -7860,6 +7899,7 @@ impl ExecutingFrame<'_> {
                 } else if self.monitoring_mask & monitoring::EVENT_PY_RESUME != 0 {
                     monitoring::fire_py_resume(vm, self.code, offset)?;
                 }
+                self.trace_call_from_resume(vm)?;
                 Ok(None)
             }
             Instruction::InstrumentedReturnValue => {

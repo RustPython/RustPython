@@ -413,31 +413,22 @@ class TraceTestCase(unittest.TestCase):
         finally:
             sys.settrace(None)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_01_basic(self):
         self.run_test(basic)
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_02_arigo0(self):
         self.run_test(arigo_example0)
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_02_arigo1(self):
         self.run_test(arigo_example1)
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_02_arigo2(self):
         self.run_test(arigo_example2)
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_03_one_instr(self):
         self.run_test(one_instr_line)
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_04_no_pop_blocks(self):
         self.run_test(no_pop_blocks)
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_05_no_pop_tops(self):
         self.run_test(no_pop_tops)
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_06_call(self):
         self.run_test(call)
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_07_raise(self):
         self.run_test(test_raise)
 
@@ -447,17 +438,15 @@ class TraceTestCase(unittest.TestCase):
     @unittest.skip("TODO: RUSTPYTHON")
     def test_09_settrace_and_raise(self):
         self.run_test2(settrace_and_raise)
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_10_ireturn(self):
         self.run_test(ireturn_example)
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_11_tightloop(self):
         self.run_test(tightloop_example)
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_12_tighterloop(self):
         self.run_test(tighterloop_example)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_13_genexp(self):
         self.run_test(generator_example)
         # issue1265: if the trace function contains a generator,
@@ -471,7 +460,6 @@ class TraceTestCase(unittest.TestCase):
         self.compare_events(generator_example.__code__.co_firstlineno,
                             tracer.events, generator_example.events)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_14_onliner_if(self):
         def onliners():
             if True: x=False
@@ -484,7 +472,6 @@ class TraceTestCase(unittest.TestCase):
              (3, 'line'),
              (3, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_15_loops(self):
         # issue1750076: "while" expression is skipped by debugger
         def for_example():
@@ -516,7 +503,6 @@ class TraceTestCase(unittest.TestCase):
              (3, 'line'),
              (3, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_16_blank_lines(self):
         namespace = {}
         exec("def f():\n" + "\n" * 256 + "    pass", namespace)
@@ -526,7 +512,6 @@ class TraceTestCase(unittest.TestCase):
              (257, 'line'),
              (257, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_17_none_f_trace(self):
         # Issue 20041: fix TypeError when f_trace is set to None.
         def func():
@@ -536,7 +521,6 @@ class TraceTestCase(unittest.TestCase):
             [(0, 'call'),
              (1, 'line')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_18_except_with_name(self):
         def func():
             try:
@@ -561,7 +545,6 @@ class TraceTestCase(unittest.TestCase):
              (9, 'line'),
              (9, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_19_except_with_finally(self):
         def func():
             try:
@@ -583,7 +566,6 @@ class TraceTestCase(unittest.TestCase):
              (7, 'line'),
              (7, 'return')])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_20_async_for_loop(self):
         class AsyncIteratorWrapper:
             def __init__(self, obj):
@@ -660,7 +642,6 @@ class TraceTestCase(unittest.TestCase):
         self.compare_events(doit_async.__code__.co_firstlineno,
                             tracer.events, events)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_async_for_backwards_jump_has_no_line(self):
         async def arange(n):
             for i in range(n):
@@ -713,7 +694,6 @@ class TraceTestCase(unittest.TestCase):
         self.compare_events(f.__code__.co_firstlineno,
                             tracer.events, events)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_21_repeated_pass(self):
         def func():
             pass
@@ -725,7 +705,6 @@ class TraceTestCase(unittest.TestCase):
              (2, 'line'),
              (2, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_loop_in_try_except(self):
         # https://bugs.python.org/issue41670
 
@@ -743,7 +722,6 @@ class TraceTestCase(unittest.TestCase):
              (3, 'line'),
              (3, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_except_no_exception(self):
 
         def func():
@@ -773,7 +751,6 @@ class TraceTestCase(unittest.TestCase):
              (14, 'line'),
              (14, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_exception_in_else(self):
 
         def func():
@@ -806,7 +783,6 @@ class TraceTestCase(unittest.TestCase):
              (14, 'line'),
              (14, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_nested_loops(self):
 
         def func():
@@ -833,7 +809,6 @@ class TraceTestCase(unittest.TestCase):
              (4, 'line'),
              (4, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_if_break(self):
 
         def func():
@@ -859,7 +834,6 @@ class TraceTestCase(unittest.TestCase):
              (8, 'line'),
              (8, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_break_through_finally(self):
 
         def func():
@@ -895,7 +869,6 @@ class TraceTestCase(unittest.TestCase):
              (10, 'line')] +
              ([(13, 'line'), (13, 'return')] if __debug__ else [(10, 'return')]))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_continue_through_finally(self):
 
         def func():
@@ -932,7 +905,6 @@ class TraceTestCase(unittest.TestCase):
              (3, 'line')] +
              ([(13, 'line'), (13, 'return')] if __debug__ else [(3, 'return')]))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_return_through_finally(self):
 
         def func():
@@ -948,7 +920,6 @@ class TraceTestCase(unittest.TestCase):
              (4, 'line'),
              (4, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_except_with_wrong_type(self):
 
         def func():
@@ -976,7 +947,6 @@ class TraceTestCase(unittest.TestCase):
              (10, 'line'),
              (10, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_finally_with_conditional(self):
 
         # See gh-105658
@@ -1006,7 +976,6 @@ class TraceTestCase(unittest.TestCase):
              (10, 'line'),
              (10, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_break_to_continue1(self):
 
         def func():
@@ -1030,7 +999,6 @@ class TraceTestCase(unittest.TestCase):
              (3, 'line'),
              (3, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_break_to_continue2(self):
 
         def func():
@@ -1054,7 +1022,6 @@ class TraceTestCase(unittest.TestCase):
              (3, 'line'),
              (3, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_break_to_break(self):
 
         def func():
@@ -1073,7 +1040,6 @@ class TraceTestCase(unittest.TestCase):
              (5, 'line'),
              (5, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_nested_ifs(self):
 
         def func():
@@ -1094,7 +1060,6 @@ class TraceTestCase(unittest.TestCase):
              (4, 'line'),
              (4, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_nested_ifs_with_and(self):
 
         def func():
@@ -1118,7 +1083,6 @@ class TraceTestCase(unittest.TestCase):
              (3, 'line'),
              (3, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_nested_try_if(self):
 
         def func():
@@ -1141,7 +1105,6 @@ class TraceTestCase(unittest.TestCase):
              (7, 'line'),
              (7, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_if_false_in_with(self):
 
         class C:
@@ -1168,7 +1131,6 @@ class TraceTestCase(unittest.TestCase):
              (-2, 'return'),
              (1, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_if_false_in_try_except(self):
 
         def func():
@@ -1184,7 +1146,6 @@ class TraceTestCase(unittest.TestCase):
              (2, 'line'),
              (2, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_implicit_return_in_class(self):
 
         def func():
@@ -1204,7 +1165,6 @@ class TraceTestCase(unittest.TestCase):
              (3, 'return'),
              (1, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_in_try(self):
         def func():
             try:
@@ -1222,7 +1182,6 @@ class TraceTestCase(unittest.TestCase):
              (3, 'line'),
              (3, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_in_try_with_exception(self):
 
         def func():
@@ -1264,7 +1223,6 @@ class TraceTestCase(unittest.TestCase):
              (5, 'line'),
              (5, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_if_in_if_in_if(self):
         def func(a=0, p=1, z=1):
             if p:
@@ -1282,7 +1240,6 @@ class TraceTestCase(unittest.TestCase):
              (2, 'line'),
              (2, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_early_exit_with(self):
 
         class C:
@@ -1329,7 +1286,6 @@ class TraceTestCase(unittest.TestCase):
              (-8, 'return'),
              (1, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_flow_converges_on_same_line(self):
 
         def foo(x):
@@ -1366,7 +1322,6 @@ class TraceTestCase(unittest.TestCase):
              (1, 'line'),
              (1, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_no_tracing_of_named_except_cleanup(self):
 
         def func():
@@ -1389,7 +1344,6 @@ class TraceTestCase(unittest.TestCase):
             (7, 'line'),
             (7, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_tracing_exception_raised_in_with(self):
 
         class NullCtx:
@@ -1422,7 +1376,6 @@ class TraceTestCase(unittest.TestCase):
              (5, 'line'),
              (5, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_except_star_no_exception(self):
 
         def func():
@@ -1452,7 +1405,6 @@ class TraceTestCase(unittest.TestCase):
              (14, 'line'),
              (14, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_except_star_named_no_exception(self):
 
         def func():
@@ -1473,7 +1425,6 @@ class TraceTestCase(unittest.TestCase):
              (8, 'line'),
              (8, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_except_star_exception_caught(self):
 
         def func():
@@ -1496,7 +1447,6 @@ class TraceTestCase(unittest.TestCase):
              (8, 'line'),
              (8, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_except_star_named_exception_caught(self):
 
         def func():
@@ -1519,7 +1469,6 @@ class TraceTestCase(unittest.TestCase):
              (8, 'line'),
              (8, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_except_star_exception_not_caught(self):
 
         def func():
@@ -1542,7 +1491,6 @@ class TraceTestCase(unittest.TestCase):
              (7, 'line'),
              (7, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_except_star_named_exception_not_caught(self):
 
         def func():
@@ -1565,7 +1513,6 @@ class TraceTestCase(unittest.TestCase):
              (7, 'line'),
              (7, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_try_except_star_nested(self):
 
         def func():
@@ -1613,7 +1560,6 @@ class TraceTestCase(unittest.TestCase):
              (19, 'line'),
              (19, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_notrace_lambda(self):
         #Regression test for issue 46314
 
@@ -1629,7 +1575,6 @@ class TraceTestCase(unittest.TestCase):
              (3, 'line'),
              (3, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_class_creation_with_docstrings(self):
 
         def func():
@@ -1649,7 +1594,6 @@ class TraceTestCase(unittest.TestCase):
              (3, 'return'),
              (1, 'return')])
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_class_creation_with_decorator(self):
         def func():
             def decorator(arg):
@@ -1740,7 +1684,6 @@ class TraceTestCase(unittest.TestCase):
 
         self.run_and_compare(func, EXPECTED_EVENTS)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_correct_tracing_quickened_call_class_init(self):
 
         class C:
@@ -1861,6 +1804,9 @@ class SkipLineEventsTraceTestCase(TraceTestCase):
     @staticmethod
     def make_tracer():
         return Tracer(trace_line_events=False)
+
+    def test_12_tighterloop(self):
+        TraceTestCase.test_12_tighterloop(self)
 
 
 @support.cpython_only

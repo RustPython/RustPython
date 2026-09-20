@@ -2919,21 +2919,9 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         use crate::protocol::TraceEvent;
 
-        // Fire 'call' trace event. current_frame() now returns the callee.
-        let trace_result = self.trace_event(TraceEvent::Call, None)?;
-        if let Some(local_trace) = trace_result {
-            let was_unset = frame.iframe().cold().trace.lock().is_none();
-            *frame.iframe().cold().trace.lock() = Some(local_trace);
-            if was_unset {
-                // For a fresh frame this is a no-op (lasti is still 0 here,
-                // before the frame body below has run). For a generator
-                // resumed mid-body, `lasti` already reflects the suspended
-                // position, so `prev_line` -- stale from before tracing was
-                // installed -- must be synced again or the very next
-                // instruction fires a spurious 'line' event.
-                frame.iframe().sync_prev_line_from_lasti();
-            }
-        }
+        // 'call' is PY_START / PY_RESUME, fired from RESUME once lasti is
+        // the resume unit. Wrapping the body would report lasti=0 (and
+        // trace RETURN_GENERATOR on async-def construction).
 
         let result = f(frame);
 
