@@ -72,6 +72,10 @@ pub type Handle = HANDLE;
 pub type StdHandle = windows_sys::Win32::System::Console::STD_HANDLE;
 pub type FileType = windows_sys::Win32::Storage::FileSystem::FILE_TYPE;
 pub const MAX_PATH_USIZE: usize = windows_sys::Win32::Foundation::MAX_PATH as usize;
+/// Empty locale name (`LOCALE_NAME_INVARIANT`).
+pub const LOCALE_NAME_INVARIANT: &str = "";
+/// Reserved name for the system default locale.
+pub const LOCALE_NAME_SYSTEM_DEFAULT: &str = "!x-sys-default-locale";
 pub const INFINITE_TIMEOUT: u32 = windows_sys::Win32::System::Threading::INFINITE;
 pub const CREATE_UNICODE_ENVIRONMENT_FLAG: u32 =
     windows_sys::Win32::System::Threading::CREATE_UNICODE_ENVIRONMENT;
