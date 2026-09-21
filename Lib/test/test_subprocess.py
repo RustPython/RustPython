@@ -3051,7 +3051,6 @@ class POSIXProcessTestCase(BaseTestCase):
         p1.stdout.close()
         p2.stdout.close()
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     def test_close_fds(self):
         fd_status = support.findfile("fd_status.py", subdir="subprocessdata")
 
@@ -3183,7 +3182,6 @@ class POSIXProcessTestCase(BaseTestCase):
     # descriptor of a pipe closed in the parent process is valid in the
     # child process according to fstat(), but the mode of the file
     # descriptor is invalid, and read or write raise an error.
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @support.requires_mac_ver(10, 5)
     def test_pass_fds(self):
         fd_status = support.findfile("fd_status.py", subdir="subprocessdata")

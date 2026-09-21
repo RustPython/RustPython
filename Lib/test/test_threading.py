@@ -685,7 +685,6 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out, b'')
         self.assertEqual(err, b'')
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @skip_unless_reliable_fork
     def test_is_alive_after_fork(self):
         # Try hard to trigger #18418: is_alive() could sometimes be True on
@@ -749,7 +748,6 @@ class ThreadTests(BaseTestCase):
                          "main ident True\n"
                          "current is main True\n")
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky; process timeout after fork")
     @skip_unless_reliable_fork
     @unittest.skipUnless(hasattr(os, 'waitpid'), "test needs os.waitpid()")
     def test_main_thread_after_fork_from_nonmain_thread(self):
@@ -1470,7 +1468,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
             """
         self._run_and_join(script)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @skip_unless_reliable_fork
     def test_3_join_in_forked_from_thread(self):
         # Like the test above, but fork() was called from a worker thread
@@ -1852,7 +1849,6 @@ class ThreadingExceptionTests(BaseTestCase):
         lock = threading.Lock()
         self.assertRaises(RuntimeError, lock.release)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @requires_subprocess()
     def test_recursion_limit(self):
         # Issue 9670
@@ -2236,10 +2232,6 @@ class CRLockTests(lock_tests.RLockTests):
             CustomRLock(1, b=2)
         self.assertEqual(warnings_log, [])
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
-    def test_different_thread(self):
-        return super().test_different_thread()
-
 class EventTests(lock_tests.EventTests):
     eventtype = staticmethod(threading.Event)
 
@@ -2249,10 +2241,6 @@ class ConditionAsRLockTests(lock_tests.RLockTests):
 
     def test_recursion_count(self):
         self.skipTest("Condition does not expose _recursion_count()")
-
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
-    def test_different_thread(self):
-        return super().test_different_thread()
 
 class ConditionTests(lock_tests.ConditionTests):
     condtype = staticmethod(threading.Condition)
@@ -2413,7 +2401,6 @@ class InterruptMainTests(unittest.TestCase):
             # Restore original handler
             signal.signal(signum, handler)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @requires_gil_enabled("gh-118433: Flaky due to a longstanding bug")
     def test_interrupt_main_subthread(self):
         # Calling start_new_thread with a function that executes interrupt_main

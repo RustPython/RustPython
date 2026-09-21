@@ -2476,7 +2476,6 @@ class ReTests(unittest.TestCase):
 
     # gh-117594: The test is not slow by itself, but it relies on
     # the absolute computation time and can fail on very slow computers.
-    @unittest.skip("TODO: RUSTPYTHON; flaky, improve perf")
     @requires_resource('cpu')
     def test_search_anchor_at_beginning(self):
         s = 'x'*10**7

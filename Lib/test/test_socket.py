@@ -7066,14 +7066,6 @@ class SendfileUsingSendfileTest(SendfileUsingSendTest):
     def meth_from_sock(self, sock):
         return getattr(sock, "_sendfile_use_sendfile")
 
-    @unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly; flaky")
-    def testCount(self):
-        return super().testCount()
-
-    @unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly; flaky")
-    def testWithTimeout(self):
-        return super().testWithTimeout()
-
 
 @unittest.skipUnless(HAVE_SOCKET_ALG, 'AF_ALG required')
 class LinuxKernelCryptoAPI(unittest.TestCase):

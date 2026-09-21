@@ -731,7 +731,6 @@ class HandlerTest(BaseTest):
     # based on os.fork existing because that is what users and this test use.
     # This helps ensure that when fork exists (the important concept) that the
     # register_at_fork mechanism is also present and used.
-    @unittest.skip("TODO: RUSTPYTHON; Flaky")
     @support.requires_fork()
     @threading_helper.requires_working_threading()
     @skip_if_asan_fork
@@ -4109,7 +4108,6 @@ class ConfigDictTest(BaseTest):
         # log a message (this creates a record put in the queue)
         logging.getLogger().info(message_to_log)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky EOFError")
     @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; SemLock not implemented on Windows")
     @skip_if_tsan_fork
     @support.requires_subprocess()
