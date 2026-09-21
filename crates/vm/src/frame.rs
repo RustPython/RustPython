@@ -2661,13 +2661,9 @@ pub(crate) fn trampoline_handle_exception(
 ) -> FrameResult {
     let mut exec = exec_iframe(iframe, Flatten::Nothing, vm);
 
-    // lasti points past the call opcode and its inline caches. Walk back
-    // over CACHE units so traceback / raise events use the call itself.
-    let mut idx = (exec.lasti() as usize).saturating_sub(1);
-    while idx > 0 && matches!(exec.code.instructions.read_op(idx), Instruction::Cache) {
-        idx -= 1;
-    }
-    exec.update_lasti(|i| *i = idx as u32 + 1);
+    // lasti points past the call opcode and its inline caches. Do not
+    // decode those cache units: their bytes are not valid opcodes.
+    let idx = (exec.lasti() as usize).saturating_sub(1);
 
     // Add traceback entry at the call site.
     if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {

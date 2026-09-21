@@ -1226,7 +1226,6 @@ class ArgsTestCase(BaseTestCase):
                 regex = ('10 slowest tests:\n')
                 self.check_line(output, regex)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: '^lines +cov% +module +\\(path\\)\\n(?: *[0-9]+ *[0-9]{1,2}\\.[0-9]% *[^ ]+ +\\([^)]+\\)+)+' not found in 'Warning: collecting coverage without -j is imprecise. Configure --with-pydebug and run -m test -T -j for best results.\nUsing random seed: 2780369491\n0:00:00 Run 1 test sequentially in a single process\n0:00:00 [1/1] test_regrtest_coverage\n0:00:00 [1/1] test_regrtest_coverage passed\n\n== Tests result: SUCCESS ==\n\n1 test OK.\n\nTotal duration: 102 ms\nTotal tests: run=1\nTotal test files: run=1/1\nResult: SUCCESS\n'
     def test_coverage(self):
         # test --coverage
         test = self.create_test('coverage')
