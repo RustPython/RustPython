@@ -649,6 +649,16 @@ impl PyBaseException {
 )]
 impl PyBaseException {
     #[pygetset]
+    fn __dict__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<crate::builtins::PyDictRef> {
+        crate::builtins::object::object_get_dict(zelf, vm)
+    }
+
+    #[pygetset(setter)]
+    fn set___dict__(zelf: PyObjectRef, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        crate::builtins::object::object_generic_set_dict(zelf, value, vm)
+    }
+
+    #[pygetset]
     pub fn args(&self) -> PyTupleRef {
         self.args.read().clone()
     }

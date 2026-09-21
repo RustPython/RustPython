@@ -176,6 +176,22 @@ impl TraceEvent {
     pub(crate) const fn is_opcode_event(self) -> bool {
         matches!(self, Self::Opcode)
     }
+
+    /// Default `what_event` for this legacy event.
+    #[must_use]
+    const fn default_what(self) -> i32 {
+        use crate::stdlib::sys::monitoring as mon;
+        match self {
+            Self::Call => mon::WHAT_PY_START,
+            Self::Return => mon::WHAT_PY_RETURN,
+            Self::Exception => mon::WHAT_RAISE,
+            Self::Line => mon::WHAT_LINE,
+            Self::Opcode => mon::WHAT_INSTRUCTION,
+            Self::CCall => mon::WHAT_CALL,
+            Self::CReturn => mon::WHAT_C_RETURN,
+            Self::CException => mon::WHAT_C_RAISE,
+        }
+    }
 }
 
 impl core::fmt::Display for TraceEvent {
@@ -209,8 +225,24 @@ impl VirtualMachine {
         event: TraceEvent,
         arg: Option<PyObjectRef>,
     ) -> PyResult<Option<PyObjectRef>> {
+        self.trace_event_what(event, event.default_what(), arg)
+    }
+
+    /// Like [`Self::trace_event`], but records `what` as `tstate->what_event`
+    /// for the duration of the callback (so `f_lineno` assignment can tell
+    /// a 'line' event from a 'call'/'return'/'exception').
+    #[inline]
+    pub(crate) fn trace_event_what(
+        &self,
+        event: TraceEvent,
+        what: i32,
+        arg: Option<PyObjectRef>,
+    ) -> PyResult<Option<PyObjectRef>> {
         if self.use_tracing.get() && !self.tracing_is_suppressed() {
-            self._trace_event_inner(event, arg)
+            let old = self.what_event.replace(what);
+            let result = self._trace_event_inner(event, arg);
+            self.what_event.set(old);
+            result
         } else {
             Ok(None)
         }
@@ -244,32 +276,49 @@ impl VirtualMachine {
             return Ok(None);
         }
 
-        let frame: PyObjectRef = frame_ref.into();
-        let event = self.ctx.new_str(event.to_string()).into();
-        let args = vec![frame, event, arg.unwrap_or_else(|| self.ctx.none())];
+        // trace_trampoline: CALL uses the global callback; every other
+        // event uses the per-frame f_trace (and is a no-op if that is unset).
+        let callback = if event == TraceEvent::Call {
+            if self.is_none(&trace_func) {
+                None
+            } else {
+                Some(trace_func)
+            }
+        } else {
+            frame_ref
+                .iframe()
+                .cold_opt()
+                .and_then(|c| c.trace.lock().clone())
+        };
+
+        let frame: PyObjectRef = frame_ref.to_owned().into();
+        let event_str: PyObjectRef = self.ctx.new_str(event.to_string()).into();
+        let args = vec![frame, event_str, arg.unwrap_or_else(|| self.ctx.none())];
 
         let mut trace_result = None;
 
         // temporarily disable tracing, during the call to the
         // tracing function itself.
-        if is_trace_event && !self.is_none(&trace_func) {
+        if is_trace_event && let Some(callback) = callback {
             self.use_tracing.set(false);
             self.enter_tracing();
-            let res = trace_func.call(args.clone(), self);
+            let res = callback.call(args.clone(), self);
             self.leave_tracing();
             self.use_tracing.set(true);
             match res {
                 Ok(result) => {
                     if !self.is_none(&result) {
+                        *frame_ref.iframe().cold().trace.lock() = Some(result.clone());
                         trace_result = Some(result);
                     }
                 }
                 Err(e) => {
-                    // trace_trampoline behavior: clear per-frame f_trace
-                    // and propagate the error.
-                    if let Some(frame_ref) = self.current_frame() {
-                        *frame_ref.iframe().cold().trace.lock() = None;
-                    }
+                    // trace_trampoline: disable the global tracer and clear
+                    // this frame's f_trace, then propagate.
+                    *self.trace_func.borrow_mut() = self.ctx.none();
+                    *frame_ref.iframe().cold().trace.lock() = None;
+                    let profile_is_none = self.is_none(&self.profile_func.borrow());
+                    self.use_tracing.set(!profile_is_none);
                     return Err(e);
                 }
             }

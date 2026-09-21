@@ -349,18 +349,18 @@ pub(crate) mod stack_analysis {
                         }
                     }
                     _ => {
-                        // Default: use stack_effect
-                        let effect: StackEffect = opcode.stack_effect_info(oparg);
-                        let popped = effect.popped() as i64;
-                        let pushed = effect.pushed() as i64;
-                        let mut ns = next_stack;
-                        for _ in 0..popped {
-                            ns = pop_value(ns);
+                        // PyCompile_OpcodeStackEffect: apply the net delta so
+                        // overlapping in/out (GET_ANEXT: aiter -- aiter, awaitable)
+                        // keep the original kind of the surviving entries.
+                        let mut delta = opcode.stack_effect(oparg);
+                        while delta < 0 {
+                            next_stack = pop_value(next_stack);
+                            delta += 1;
                         }
-                        for _ in 0..pushed {
-                            ns = push_value(ns, Kind::Object as i64);
+                        while delta > 0 {
+                            next_stack = push_value(next_stack, Kind::Object as i64);
+                            delta -= 1;
                         }
-                        next_stack = ns;
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
                         }
@@ -484,34 +484,21 @@ impl FrameObject {
 
     #[pygetset]
     fn f_lasti(&self) -> u32 {
-        // Return byte offset (each instruction is 2 bytes) for compatibility.
-        // For materialized frames, read live lasti from the source iframe on
-        // the TLS chain so f_lasti reflects the current execution position.
+        // Byte offset of the current opcode. lasti is stored as the next
+        // instruction index (see FrameObject::run), so the executing unit
+        // is lasti-1.
         let live = self.find_live_source_iframe();
         let val = if !live.is_null() {
             unsafe { (*live).lasti.load(Relaxed) }
         } else {
             self.lasti()
         };
-        val * 2
+        if val == 0 { 0 } else { (val - 1) * 2 }
     }
 
     /// Current line, or -1 when the linetable has no line for lasti.
     pub fn lineno(&self) -> i32 {
-        let lasti_bytes = self.f_lasti() as i32;
-        // If lasti is 0, execution hasn't started yet - use first line number.
-        // Read the live iframe so a materialized copy that still has lasti==0
-        // does not hide the current line while the frame is running.
-        if lasti_bytes == 0 {
-            return self
-                .iframe()
-                .code()
-                .first_line_number
-                .map_or(1, |n| n.get() as i32);
-        }
-        // lasti is stored as the next instruction index (see FrameObject::run),
-        // so the executing opcode is at lasti-1 / lasti_bytes-2.
-        self.f_code().addr2line(lasti_bytes - 2)
+        self.f_code().addr2line(self.f_lasti() as i32)
     }
 
     #[pygetset]
@@ -535,6 +522,47 @@ impl FrameObject {
                 return Err(vm.new_attribute_error("cannot delete attribute"));
             }
         };
+
+        let what_event = vm.what_event.get();
+        if what_event < 0 {
+            return Err(
+                vm.new_value_error("f_lineno can only be set in a trace function".to_owned())
+            );
+        }
+        {
+            use crate::stdlib::sys::monitoring as mon;
+            match what_event {
+                mon::WHAT_PY_RESUME
+                | mon::WHAT_JUMP
+                | mon::WHAT_BRANCH
+                | mon::WHAT_BRANCH_LEFT
+                | mon::WHAT_BRANCH_RIGHT
+                | mon::WHAT_LINE
+                | mon::WHAT_PY_YIELD => {}
+                mon::WHAT_PY_START => {
+                    return Err(vm.new_value_error(
+                        "can't jump from the 'call' trace event of a new frame".to_owned(),
+                    ));
+                }
+                mon::WHAT_CALL | mon::WHAT_C_RETURN => {
+                    return Err(vm.new_value_error("can't jump during a call".to_owned()));
+                }
+                mon::WHAT_PY_RETURN
+                | mon::WHAT_PY_UNWIND
+                | mon::WHAT_PY_THROW
+                | mon::WHAT_RAISE
+                | mon::WHAT_C_RAISE
+                | mon::WHAT_INSTRUCTION
+                | mon::WHAT_EXCEPTION_HANDLED => {
+                    return Err(
+                        vm.new_value_error("can only jump from a 'line' trace event".to_owned())
+                    );
+                }
+                _ => {
+                    return Err(vm.new_system_error("unexpected event type".to_owned()));
+                }
+            }
+        }
 
         let first_line = self
             .iframe()
@@ -575,7 +603,7 @@ impl FrameObject {
             self.lasti() as usize
         };
         let start_idx = current_lasti.saturating_sub(1);
-        let start_stack = if start_idx < stacks.len() {
+        let mut start_stack = if start_idx < stacks.len() {
             stacks[start_idx]
         } else {
             OVERFLOWED
@@ -609,6 +637,18 @@ impl FrameObject {
 
         if err != 0 {
             return Err(vm.new_value_error(msg.to_owned()));
+        }
+
+        // Yield leaves the yielded value on the modeled stack; the eval
+        // loop has already popped it for a suspended generator.
+        let is_suspended = live.is_null()
+            && current_lasti > 0
+            && matches!(
+                FrameOwner::from_i8(self.iframe().owner.load(Relaxed)),
+                FrameOwner::Generator
+            );
+        if is_suspended {
+            start_stack = pop_value(start_stack);
         }
 
         // Count how many entries to pop

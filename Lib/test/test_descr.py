@@ -3432,7 +3432,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         l = [A() for x in range(100)]
         del l
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_set_dict(self):
         # Testing __dict__ assignment...
         class C(object): pass
@@ -5288,7 +5287,6 @@ class AAAPTypesLongInitTest(unittest.TestCase):
 
 
 class MiscTests(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; a class namespace drops keys that are not strings, so MyKey.__eq__ is never reached and __bases__ stays put
     def test_type_lookup_mro_reference(self):
         # Issue #14199: _PyType_Lookup() has to keep a strong reference to
         # the type MRO because it may be modified during the lookup, if
@@ -5924,7 +5922,6 @@ class MroTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             B1.__bases__ += ()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tp_subclasses_cycle_in_update_slots(self):
         """
         type_set_bases must check for reentrancy upon finishing its job
@@ -5961,7 +5958,6 @@ class MroTest(unittest.TestCase):
         self.assertEqual(B1.__bases__, (C,))
         self.assertEqual(C.__subclasses__(), [B1])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tp_subclasses_cycle_error_return_path(self):
         """
         The same as test_tp_subclasses_cycle_in_update_slots, but tests

@@ -1276,6 +1276,12 @@ pub mod sys {
     fn settrace(function: PyObjectRef, vm: &VirtualMachine) {
         vm.trace_func.replace(function);
         update_use_tracing(vm);
+        // The rest of the current line already started before tracing was
+        // enabled; sync prev_line so leftover opcodes on this line do not
+        // emit a spurious 'line' event.
+        if let Some(frame) = vm.current_frame() {
+            frame.iframe().sync_prev_line_from_lasti();
+        }
     }
 
     #[pyfunction]

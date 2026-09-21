@@ -95,6 +95,8 @@ pub struct VirtualMachine {
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
+    /// Event currently being monitored, or -1 when not in a callback.
+    pub(crate) what_event: Cell<i32>,
     tracing_depth: Cell<usize>,
     pub recursion_limit: Cell<usize>,
     pub(crate) signal_handlers: OnceCell<SignalHandlers>,
@@ -1200,6 +1202,7 @@ impl VirtualMachine {
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
+            what_event: Cell::new(-1),
             tracing_depth: Cell::new(0),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
             signal_handlers,
@@ -2919,35 +2922,28 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         use crate::protocol::TraceEvent;
 
-        // Fire 'call' trace event. current_frame() now returns the callee.
-        let trace_result = self.trace_event(TraceEvent::Call, None)?;
-        if let Some(local_trace) = trace_result {
-            let was_unset = frame.iframe().cold().trace.lock().is_none();
-            *frame.iframe().cold().trace.lock() = Some(local_trace);
-            if was_unset {
-                // For a fresh frame this is a no-op (lasti is still 0 here,
-                // before the frame body below has run). For a generator
-                // resumed mid-body, `lasti` already reflects the suspended
-                // position, so `prev_line` -- stale from before tracing was
-                // installed -- must be synced again or the very next
-                // instruction fires a spurious 'line' event.
-                frame.iframe().sync_prev_line_from_lasti();
-            }
-        }
+        // 'call' is PY_START / PY_RESUME, fired from RESUME once lasti is
+        // the resume unit. Wrapping the body would report lasti=0 (and
+        // trace RETURN_GENERATOR on async-def construction).
 
         let result = f(frame);
 
-        // Fire 'return' event if frame is being traced or profiled.
-        // PY_UNWIND fires PyTrace_RETURN with arg=None — so we fire for
-        // both Ok and Err, matching `call_trace_protected` behavior.
-        if self.use_tracing.get()
+        // PY_RETURN / PY_YIELD are fired from RETURN_VALUE / YIELD_VALUE.
+        // PY_UNWIND fires PyTrace_RETURN with arg=None when the exception
+        // leaves this frame.
+        if result.is_err()
+            && self.use_tracing.get()
             && (!self.is_none(&self.profile_func.borrow())
                 || frame
                     .iframe()
                     .cold_opt()
                     .is_some_and(|c| c.trace.lock().is_some()))
         {
-            let ret_result = self.trace_event(TraceEvent::Return, None);
+            let ret_result = self.trace_event_what(
+                TraceEvent::Return,
+                crate::stdlib::sys::monitoring::WHAT_PY_UNWIND,
+                None,
+            );
             // call_trace_protected: if trace function raises, its error
             // replaces the original exception.
             ret_result?;

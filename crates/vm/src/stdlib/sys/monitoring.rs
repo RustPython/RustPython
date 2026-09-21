@@ -58,6 +58,29 @@ pub(crate) const EVENT_STOP_ITERATION: u32 = MonitoringEvents::STOP_ITERATION.bi
 pub(crate) const EVENT_PY_THROW: u32 = MonitoringEvents::PY_THROW.bits();
 const EVENT_BRANCH: u32 = MonitoringEvents::BRANCH.bits();
 pub(crate) const EVENT_RERAISE: u32 = MonitoringEvents::RERAISE.bits();
+
+/// `tstate->what_event` values, the event currently being monitored.
+pub(crate) const WHAT_PY_START: i32 = 0;
+pub(crate) const WHAT_PY_RESUME: i32 = 1;
+pub(crate) const WHAT_PY_RETURN: i32 = 2;
+pub(crate) const WHAT_PY_YIELD: i32 = 3;
+pub(crate) const WHAT_CALL: i32 = 4;
+pub(crate) const WHAT_LINE: i32 = 5;
+pub(crate) const WHAT_INSTRUCTION: i32 = 6;
+pub(crate) const WHAT_JUMP: i32 = 7;
+pub(crate) const WHAT_BRANCH_LEFT: i32 = 8;
+pub(crate) const WHAT_BRANCH_RIGHT: i32 = 9;
+#[allow(dead_code)]
+pub(crate) const WHAT_STOP_ITERATION: i32 = 10;
+pub(crate) const WHAT_RAISE: i32 = 11;
+pub(crate) const WHAT_EXCEPTION_HANDLED: i32 = 12;
+pub(crate) const WHAT_PY_UNWIND: i32 = 13;
+pub(crate) const WHAT_PY_THROW: i32 = 14;
+#[allow(dead_code)]
+pub(crate) const WHAT_RERAISE: i32 = 15;
+pub(crate) const WHAT_C_RETURN: i32 = 16;
+pub(crate) const WHAT_C_RAISE: i32 = 17;
+pub(crate) const WHAT_BRANCH: i32 = 18;
 const EVENT_C_RETURN_MASK: u32 = EVENT_C_RETURN | EVENT_C_RAISE;
 
 const EVENT_NAMES: [&str; EVENTS_COUNT] = [
@@ -883,6 +906,7 @@ fn fire(
 
     FIRING.with(|f| f.set(true));
     vm.enter_tracing();
+    let old_what = vm.what_event.replace(event_id as i32);
     let result = (|| {
         for (tool, cb) in callbacks {
             let result = cb.call(args.clone(), vm)?;
@@ -905,6 +929,7 @@ fn fire(
         }
         Ok(())
     })();
+    vm.what_event.set(old_what);
     vm.leave_tracing();
     FIRING.with(|f| f.set(false));
     result
