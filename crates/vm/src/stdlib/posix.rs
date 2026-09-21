@@ -280,52 +280,11 @@ pub mod module {
     use libc::{O_CLOEXEC, WCONTINUED};
 
     #[pyattr]
-    const EX_OK: i8 = exitcode::OK as i8;
-
-    #[pyattr]
-    const EX_USAGE: i8 = exitcode::USAGE as i8;
-
-    #[pyattr]
-    const EX_DATAERR: i8 = exitcode::DATAERR as i8;
-
-    #[pyattr]
-    const EX_NOINPUT: i8 = exitcode::NOINPUT as i8;
-
-    #[pyattr]
-    const EX_NOUSER: i8 = exitcode::NOUSER as i8;
-
-    #[pyattr]
-    const EX_NOHOST: i8 = exitcode::NOHOST as i8;
-
-    #[pyattr]
-    const EX_UNAVAILABLE: i8 = exitcode::UNAVAILABLE as i8;
-
-    #[pyattr]
-    const EX_SOFTWARE: i8 = exitcode::SOFTWARE as i8;
-
-    #[pyattr]
-    const EX_OSERR: i8 = exitcode::OSERR as i8;
-
-    #[pyattr]
-    const EX_OSFILE: i8 = exitcode::OSFILE as i8;
-
-    #[pyattr]
-    const EX_CANTCREAT: i8 = exitcode::CANTCREAT as i8;
-
-    #[pyattr]
-    const EX_IOERR: i8 = exitcode::IOERR as i8;
-
-    #[pyattr]
-    const EX_TEMPFAIL: i8 = exitcode::TEMPFAIL as i8;
-
-    #[pyattr]
-    const EX_PROTOCOL: i8 = exitcode::PROTOCOL as i8;
-
-    #[pyattr]
-    const EX_NOPERM: i8 = exitcode::NOPERM as i8;
-
-    #[pyattr]
-    const EX_CONFIG: i8 = exitcode::CONFIG as i8;
+    use rustpython_host_env::posix::{
+        EX_CANTCREAT, EX_CONFIG, EX_DATAERR, EX_IOERR, EX_NOHOST, EX_NOINPUT, EX_NOPERM, EX_NOUSER,
+        EX_OK, EX_OSERR, EX_OSFILE, EX_PROTOCOL, EX_SOFTWARE, EX_TEMPFAIL, EX_UNAVAILABLE,
+        EX_USAGE,
+    };
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]

@@ -64,7 +64,7 @@ mod _winapi {
     const NULL: isize = 0;
 
     #[pyattr]
-    const INVALID_HANDLE_VALUE: isize = -1;
+    const INVALID_HANDLE_VALUE: isize = host_overlapped::INVALID_HANDLE_VALUE_ISIZE;
 
     #[pyattr]
     const INFINITE: u32 = host_winapi::INFINITE_TIMEOUT;
@@ -466,12 +466,8 @@ mod _winapi {
         WindowsSysResult(host_winapi::release_mutex(handle.0))
     }
 
-    // LOCALE_NAME_INVARIANT is an empty string in Windows API
     #[pyattr]
-    const LOCALE_NAME_INVARIANT: &str = "";
-
-    #[pyattr]
-    const LOCALE_NAME_SYSTEM_DEFAULT: &str = "!x-sys-default-locale";
+    use host_winapi::{LOCALE_NAME_INVARIANT, LOCALE_NAME_SYSTEM_DEFAULT};
 
     #[pyattr(name = "LOCALE_NAME_USER_DEFAULT")]
     fn locale_name_user_default(vm: &VirtualMachine) -> PyObjectRef {
@@ -911,7 +907,7 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    const MAXIMUM_WAIT_OBJECTS: usize = 64;
+    const MAXIMUM_WAIT_OBJECTS: usize = host_winapi::MAXIMUM_WAIT_OBJECTS as usize;
 
     /// BatchedWaitForMultipleObjects - Wait for multiple handles, supporting more than 64.
     #[pyfunction]

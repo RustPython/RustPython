@@ -38,7 +38,7 @@ mod zlib {
     #[pyattr]
     const DEF_BUF_SIZE: usize = backend::DEF_BUF_SIZE;
     #[pyattr]
-    const DEF_MEM_LEVEL: u8 = 8;
+    const DEF_MEM_LEVEL: u8 = backend::DEF_MEM_LEVEL;
 
     #[pyattr(once)]
     fn error(vm: &VirtualMachine) -> PyTypeRef {

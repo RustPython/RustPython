@@ -137,21 +137,9 @@ pub(crate) mod _signal {
     use libc::{SIGPWR, SIGSTKFLT};
 
     // Interval timer constants
-    #[cfg(all(unix, not(target_os = "android")))]
+    #[cfg(unix)]
     #[pyattr]
-    use libc::{ITIMER_PROF, ITIMER_REAL, ITIMER_VIRTUAL};
-
-    #[cfg(target_os = "android")]
-    #[pyattr]
-    const ITIMER_REAL: libc::c_int = 0;
-
-    #[cfg(target_os = "android")]
-    #[pyattr]
-    const ITIMER_VIRTUAL: libc::c_int = 1;
-
-    #[cfg(target_os = "android")]
-    #[pyattr]
-    const ITIMER_PROF: libc::c_int = 2;
+    use host_signal::{ITIMER_PROF, ITIMER_REAL, ITIMER_VIRTUAL};
 
     #[cfg(unix)]
     #[pyattr(name = "ItimerError", once)]

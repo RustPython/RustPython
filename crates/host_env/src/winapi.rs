@@ -51,7 +51,7 @@ pub use windows_sys::Win32::{
             NMPWAIT_WAIT_FOREVER, PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE,
             PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
         },
-        SystemServices::LOCALE_NAME_MAX_LENGTH,
+        SystemServices::{LOCALE_NAME_MAX_LENGTH, MAXIMUM_WAIT_OBJECTS},
         Threading::{
             ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, CREATE_BREAKAWAY_FROM_JOB,
             CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP,
@@ -72,6 +72,10 @@ pub type Handle = HANDLE;
 pub type StdHandle = windows_sys::Win32::System::Console::STD_HANDLE;
 pub type FileType = windows_sys::Win32::Storage::FileSystem::FILE_TYPE;
 pub const MAX_PATH_USIZE: usize = windows_sys::Win32::Foundation::MAX_PATH as usize;
+/// Empty locale name (`LOCALE_NAME_INVARIANT`).
+pub const LOCALE_NAME_INVARIANT: &str = "";
+/// Reserved name for the system default locale.
+pub const LOCALE_NAME_SYSTEM_DEFAULT: &str = "!x-sys-default-locale";
 pub const INFINITE_TIMEOUT: u32 = windows_sys::Win32::System::Threading::INFINITE;
 pub const CREATE_UNICODE_ENVIRONMENT_FLAG: u32 =
     windows_sys::Win32::System::Threading::CREATE_UNICODE_ENVIRONMENT;
@@ -496,8 +500,7 @@ pub fn batched_wait_for_multiple_objects(
         },
     };
 
-    const MAXIMUM_WAIT_OBJECTS: usize = 64;
-    let batch_size = MAXIMUM_WAIT_OBJECTS - 1;
+    let batch_size = MAXIMUM_WAIT_OBJECTS as usize - 1;
     let mut batches: Vec<&[HANDLE]> = Vec::new();
     let mut i = 0;
     while i < handles.len() {
@@ -592,9 +595,7 @@ pub fn batched_wait_for_multiple_objects(
             let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
             let _ = set_event(data.cancel_event);
             err
-        } else if (WAIT_ABANDONED_0..WAIT_ABANDONED_0 + MAXIMUM_WAIT_OBJECTS as u32)
-            .contains(&result)
-        {
+        } else if (WAIT_ABANDONED_0..WAIT_ABANDONED_0 + MAXIMUM_WAIT_OBJECTS).contains(&result) {
             data.result.store(WAIT_FAILED, Ordering::SeqCst);
             let _ = set_event(data.cancel_event);
             windows_sys::Win32::Foundation::ERROR_ABANDONED_WAIT_0

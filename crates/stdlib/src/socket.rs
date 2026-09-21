@@ -151,81 +151,16 @@ mod _socket {
         SOL_CAN_RAW,
     };
 
-    // CAN BCM opcodes
     #[cfg(target_os = "linux")]
     #[pyattr]
-    const CAN_BCM_TX_SETUP: i32 = 1;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_DELETE: i32 = 2;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_READ: i32 = 3;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_SEND: i32 = 4;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_SETUP: i32 = 5;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_DELETE: i32 = 6;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_READ: i32 = 7;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_STATUS: i32 = 8;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_EXPIRED: i32 = 9;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_STATUS: i32 = 10;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_TIMEOUT: i32 = 11;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_CHANGED: i32 = 12;
-
-    // CAN BCM flags (linux/can/bcm.h)
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_SETTIMER: i32 = 0x0001;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_STARTTIMER: i32 = 0x0002;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_COUNTEVT: i32 = 0x0004;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_ANNOUNCE: i32 = 0x0008;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_CP_CAN_ID: i32 = 0x0010;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_FILTER_ID: i32 = 0x0020;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_CHECK_DLC: i32 = 0x0040;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_NO_AUTOTIMER: i32 = 0x0080;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_ANNOUNCE_RESUME: i32 = 0x0100;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_RESET_MULTI_IDX: i32 = 0x0200;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_RTR_FRAME: i32 = 0x0400;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_CAN_FD_FRAME: i32 = 0x0800;
+    use host_socket::{
+        CAN_BCM_CAN_FD_FRAME, CAN_BCM_RX_ANNOUNCE_RESUME, CAN_BCM_RX_CHANGED, CAN_BCM_RX_CHECK_DLC,
+        CAN_BCM_RX_DELETE, CAN_BCM_RX_FILTER_ID, CAN_BCM_RX_NO_AUTOTIMER, CAN_BCM_RX_READ,
+        CAN_BCM_RX_RTR_FRAME, CAN_BCM_RX_SETUP, CAN_BCM_RX_STATUS, CAN_BCM_RX_TIMEOUT,
+        CAN_BCM_SETTIMER, CAN_BCM_STARTTIMER, CAN_BCM_TX_ANNOUNCE, CAN_BCM_TX_COUNTEVT,
+        CAN_BCM_TX_CP_CAN_ID, CAN_BCM_TX_DELETE, CAN_BCM_TX_EXPIRED, CAN_BCM_TX_READ,
+        CAN_BCM_TX_RESET_MULTI_IDX, CAN_BCM_TX_SEND, CAN_BCM_TX_SETUP, CAN_BCM_TX_STATUS,
+    };
 
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     #[pyattr]
@@ -239,47 +174,13 @@ mod _socket {
     #[pyattr]
     use c::{AF_SYSTEM, PF_SYSTEM, SYSPROTO_CONTROL, TCP_KEEPALIVE};
 
-    // RFC3542 IPv6 socket options for macOS (netinet6/in6.h)
-    // Not available in libc, define manually
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    const IPV6_RECVHOPLIMIT: i32 = 37;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVRTHDR: i32 = 38;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVHOPOPTS: i32 = 39;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVDSTOPTS: i32 = 40;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_USE_MIN_MTU: i32 = 42;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVPATHMTU: i32 = 43;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_PATHMTU: i32 = 44;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_NEXTHOP: i32 = 48;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_HOPOPTS: i32 = 49;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_DSTOPTS: i32 = 50;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RTHDR: i32 = 51;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RTHDRDSTOPTS: i32 = 57;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RTHDR_TYPE_0: i32 = 0;
+    use host_socket::{
+        IPV6_DSTOPTS, IPV6_HOPOPTS, IPV6_NEXTHOP, IPV6_PATHMTU, IPV6_RECVDSTOPTS,
+        IPV6_RECVHOPLIMIT, IPV6_RECVHOPOPTS, IPV6_RECVPATHMTU, IPV6_RECVRTHDR, IPV6_RTHDR,
+        IPV6_RTHDR_TYPE_0, IPV6_RTHDRDSTOPTS, IPV6_USE_MIN_MTU,
+    };
 
     #[cfg(windows)]
     #[pyattr]
@@ -291,10 +192,10 @@ mod _socket {
 
     #[cfg(not(windows))]
     #[pyattr]
-    const IPPORT_RESERVED: i32 = 1024;
+    use host_socket::IPPORT_RESERVED;
 
     #[pyattr]
-    const IPPORT_USERRESERVED: i32 = 5000;
+    use host_socket::IPPORT_USERRESERVED;
 
     #[cfg(any(unix, target_os = "android"))]
     #[pyattr]
@@ -334,15 +235,19 @@ mod _socket {
         IPV6_MULTICAST_LOOP, IPV6_UNICAST_HOPS, IPV6_V6ONLY,
     };
 
-    #[cfg(any(unix, target_os = "android", windows))]
+    #[cfg(unix)]
+    #[pyattr]
+    use host_socket::{INADDR_ALLHOSTS_GROUP, INADDR_MAX_LOCAL_GROUP, INADDR_UNSPEC_GROUP};
+
+    #[cfg(windows)]
     #[pyattr]
     const INADDR_UNSPEC_GROUP: u32 = 0xe0000000;
 
-    #[cfg(any(unix, target_os = "android", windows))]
+    #[cfg(windows)]
     #[pyattr]
     const INADDR_ALLHOSTS_GROUP: u32 = 0xe0000001;
 
-    #[cfg(any(unix, target_os = "android", windows))]
+    #[cfg(windows)]
     #[pyattr]
     const INADDR_MAX_LOCAL_GROUP: u32 = 0xe00000ff;
 

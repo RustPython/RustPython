@@ -101,6 +101,124 @@ pub use libc::{AF_ALG, AF_CAN};
 #[cfg(target_os = "linux")]
 pub use libc::{sockaddr_alg, sockaddr_can};
 
+/// Port numbers some Unix libcs omit. Windows takes `IPPORT_RESERVED` from
+/// WinSock and defines `IPPORT_USERRESERVED` beside the other extras.
+#[cfg(unix)]
+pub const IPPORT_RESERVED: i32 = 1024;
+#[cfg(unix)]
+pub const IPPORT_USERRESERVED: i32 = 5000;
+
+/// Multicast groups as unsigned host-order words. Windows publishes the
+/// same bits as signed C longs (`INADDR_*_GROUP` below).
+#[cfg(unix)]
+pub const INADDR_UNSPEC_GROUP: u32 = 0xe000_0000;
+#[cfg(unix)]
+pub const INADDR_ALLHOSTS_GROUP: u32 = 0xe000_0001;
+#[cfg(unix)]
+pub const INADDR_MAX_LOCAL_GROUP: u32 = 0xe000_00ff;
+
+/// POSIX `<netdb.h>` `NI_MAXSERV`. libc omits it on linux-gnu.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub const NI_MAXSERV: i32 = 32;
+
+/// `<netinet/in.h>` join/leave and routing-header type. libc omits them
+/// on linux-gnu.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub const IPV6_JOIN_GROUP: i32 = 20;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub const IPV6_LEAVE_GROUP: i32 = 21;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub const IPV6_RTHDR_TYPE_0: i32 = 0;
+
+// spell-checker:ignore SETTIMER STARTTIMER COUNTEVT AUTOTIMER
+/// `linux/can/bcm.h` opcodes and flags. Not in libc.
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_SETUP: i32 = 1;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_DELETE: i32 = 2;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_READ: i32 = 3;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_SEND: i32 = 4;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_SETUP: i32 = 5;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_DELETE: i32 = 6;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_READ: i32 = 7;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_STATUS: i32 = 8;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_EXPIRED: i32 = 9;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_STATUS: i32 = 10;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_TIMEOUT: i32 = 11;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_CHANGED: i32 = 12;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_SETTIMER: i32 = 0x0001;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_STARTTIMER: i32 = 0x0002;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_COUNTEVT: i32 = 0x0004;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_ANNOUNCE: i32 = 0x0008;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_CP_CAN_ID: i32 = 0x0010;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_FILTER_ID: i32 = 0x0020;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_CHECK_DLC: i32 = 0x0040;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_NO_AUTOTIMER: i32 = 0x0080;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_ANNOUNCE_RESUME: i32 = 0x0100;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_RESET_MULTI_IDX: i32 = 0x0200;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_RTR_FRAME: i32 = 0x0400;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_CAN_FD_FRAME: i32 = 0x0800;
+
+/// RFC 3542 IPv6 socket options (`netinet6/in6.h`). Not in libc.
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RECVHOPLIMIT: i32 = 37;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RECVRTHDR: i32 = 38;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RECVHOPOPTS: i32 = 39;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RECVDSTOPTS: i32 = 40;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_USE_MIN_MTU: i32 = 42;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RECVPATHMTU: i32 = 43;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_PATHMTU: i32 = 44;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_NEXTHOP: i32 = 48;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_HOPOPTS: i32 = 49;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_DSTOPTS: i32 = 50;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RTHDR: i32 = 51;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RTHDRDSTOPTS: i32 = 57;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RTHDR_TYPE_0: i32 = 0;
+
+/// Darwin `<netdb.h>` `EAI_*` names the libc crate does not re-export.
+#[cfg(target_vendor = "apple")]
+pub const EAI_ADDRFAMILY: i32 = 1;
+#[cfg(target_vendor = "apple")]
+pub const EAI_BADHINTS: i32 = 12;
+#[cfg(target_vendor = "apple")]
+pub const EAI_PROTOCOL: i32 = 13;
+#[cfg(target_vendor = "apple")]
+pub const EAI_MAX: i32 = 15;
+
 /// Set the system's hostname from its filesystem-encoded bytes.
 ///
 /// `socketmodule.c socket_sethostname` reads the argument as a buffer and

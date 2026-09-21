@@ -168,24 +168,12 @@ mod _ssl {
     #[pyattr]
     const PROTOCOL_TLSv1_3: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1_3;
 
-    // Protocol version constants for TLSVersion enum
     #[pyattr]
-    const PROTO_SSLv3: i32 = 0x0300;
-    #[pyattr]
-    const PROTO_TLSv1: i32 = 0x0301;
-    #[pyattr]
-    const PROTO_TLSv1_1: i32 = 0x0302;
-    #[pyattr]
-    const PROTO_TLSv1_2: i32 = rustpython_host_env::ssl::PROTO_TLSV1_2;
-    #[pyattr]
-    const PROTO_TLSv1_3: i32 = rustpython_host_env::ssl::PROTO_TLSV1_3;
-
-    // Minimum and maximum supported protocol versions for rustls
-    // Use special values -2 and -1 to avoid enum name conflicts
-    #[pyattr]
-    const PROTO_MINIMUM_SUPPORTED: i32 = -2; // special value
-    #[pyattr]
-    const PROTO_MAXIMUM_SUPPORTED: i32 = -1; // special value
+    use rustpython_host_env::ssl::{
+        PROTO_MAXIMUM_SUPPORTED, PROTO_MINIMUM_SUPPORTED, PROTO_SSL3 as PROTO_SSLv3,
+        PROTO_TLSV1 as PROTO_TLSv1, PROTO_TLSV1_1 as PROTO_TLSv1_1, PROTO_TLSV1_2 as PROTO_TLSv1_2,
+        PROTO_TLSV1_3 as PROTO_TLSv1_3,
+    };
 
     // Internal constants for rustls actual supported versions
     // rustls only supports TLS 1.2 and TLS 1.3
@@ -231,109 +219,36 @@ mod _ssl {
     const HOSTFLAG_NEVER_CHECK_SUBJECT: i32 =
         rustpython_host_env::ssl::HOSTFLAG_NEVER_CHECK_SUBJECT;
 
-    // Options (OpenSSL-compatible flags, mostly no-op in rustls)
     #[pyattr]
-    const OP_NO_SSLv2: i32 = 0x00000000; // Not supported anyway
-    #[pyattr]
-    const OP_NO_SSLv3: i32 = 0x02000000;
-    #[pyattr]
-    const OP_NO_TLSv1: i32 = 0x04000000;
-    #[pyattr]
-    const OP_NO_TLSv1_1: i32 = 0x10000000;
-    #[pyattr]
-    const OP_NO_TLSv1_2: i32 = rustpython_host_env::ssl::OP_NO_TLSV1_2;
-    #[pyattr]
-    const OP_NO_TLSv1_3: i32 = rustpython_host_env::ssl::OP_NO_TLSV1_3;
-    #[pyattr]
-    const OP_NO_COMPRESSION: i32 = 0x00020000;
-    #[pyattr]
-    const OP_CIPHER_SERVER_PREFERENCE: i32 = 0x00400000;
-    #[pyattr]
-    const OP_SINGLE_DH_USE: i32 = 0x00000000; // No-op in rustls
-    #[pyattr]
-    const OP_SINGLE_ECDH_USE: i32 = 0x00000000; // No-op in rustls
-    #[pyattr]
-    const OP_NO_TICKET: i32 = 0x00004000;
-    #[pyattr]
-    const OP_LEGACY_SERVER_CONNECT: i32 = 0x00000004;
-    #[pyattr]
-    const OP_NO_RENEGOTIATION: i32 = 0x40000000;
-    #[pyattr]
-    const OP_IGNORE_UNEXPECTED_EOF: i32 = 0x00000080;
-    #[pyattr]
-    const OP_ENABLE_MIDDLEBOX_COMPAT: i32 = 0x00100000;
-    #[pyattr]
-    const OP_ALL: i32 = 0x00000BFB; // Combined "safe" options (reduced for i32, excluding OP_LEGACY_SERVER_CONNECT for OpenSSL 3.0.0+ compatibility)
+    use rustpython_host_env::ssl::{
+        OP_ALL, OP_CIPHER_SERVER_PREFERENCE, OP_ENABLE_MIDDLEBOX_COMPAT, OP_IGNORE_UNEXPECTED_EOF,
+        OP_LEGACY_SERVER_CONNECT, OP_NO_COMPRESSION, OP_NO_RENEGOTIATION, OP_NO_SSLv2, OP_NO_SSLv3,
+        OP_NO_TICKET, OP_NO_TLSV1 as OP_NO_TLSv1, OP_NO_TLSV1_1 as OP_NO_TLSv1_1,
+        OP_NO_TLSV1_2 as OP_NO_TLSv1_2, OP_NO_TLSV1_3 as OP_NO_TLSv1_3, OP_SINGLE_DH_USE,
+        OP_SINGLE_ECDH_USE,
+    };
 
-    // Alert types (matching _TLSAlertType enum)
     #[pyattr]
-    const ALERT_DESCRIPTION_CLOSE_NOTIFY: i32 = 0;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNEXPECTED_MESSAGE: i32 = 10;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_RECORD_MAC: i32 = 20;
-    #[pyattr]
-    const ALERT_DESCRIPTION_DECRYPTION_FAILED: i32 = 21;
-    #[pyattr]
-    const ALERT_DESCRIPTION_RECORD_OVERFLOW: i32 = 22;
-    #[pyattr]
-    const ALERT_DESCRIPTION_DECOMPRESSION_FAILURE: i32 = 30;
-    #[pyattr]
-    const ALERT_DESCRIPTION_HANDSHAKE_FAILURE: i32 = 40;
-    #[pyattr]
-    const ALERT_DESCRIPTION_NO_CERTIFICATE: i32 = 41;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_CERTIFICATE: i32 = 42;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNSUPPORTED_CERTIFICATE: i32 = 43;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_REVOKED: i32 = 44;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_EXPIRED: i32 = 45;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_UNKNOWN: i32 = 46;
-    #[pyattr]
-    const ALERT_DESCRIPTION_ILLEGAL_PARAMETER: i32 = 47;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNKNOWN_CA: i32 = 48;
-    #[pyattr]
-    const ALERT_DESCRIPTION_ACCESS_DENIED: i32 = 49;
-    #[pyattr]
-    const ALERT_DESCRIPTION_DECODE_ERROR: i32 = 50;
-    #[pyattr]
-    const ALERT_DESCRIPTION_DECRYPT_ERROR: i32 = 51;
-    #[pyattr]
-    const ALERT_DESCRIPTION_EXPORT_RESTRICTION: i32 = 60;
-    #[pyattr]
-    const ALERT_DESCRIPTION_PROTOCOL_VERSION: i32 = 70;
-    #[pyattr]
-    const ALERT_DESCRIPTION_INSUFFICIENT_SECURITY: i32 = 71;
-    #[pyattr]
-    const ALERT_DESCRIPTION_INTERNAL_ERROR: i32 = 80;
-    #[pyattr]
-    const ALERT_DESCRIPTION_INAPPROPRIATE_FALLBACK: i32 = 86;
-    #[pyattr]
-    const ALERT_DESCRIPTION_USER_CANCELLED: i32 = 90;
-    #[pyattr]
-    const ALERT_DESCRIPTION_NO_RENEGOTIATION: i32 = 100;
-    #[pyattr]
-    const ALERT_DESCRIPTION_MISSING_EXTENSION: i32 = 109;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNSUPPORTED_EXTENSION: i32 = 110;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_UNOBTAINABLE: i32 = 111;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNRECOGNIZED_NAME: i32 = 112;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_CERTIFICATE_STATUS_RESPONSE: i32 = 113;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE: i32 = 114;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNKNOWN_PSK_IDENTITY: i32 = 115;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_REQUIRED: i32 = 116;
-    #[pyattr]
-    const ALERT_DESCRIPTION_NO_APPLICATION_PROTOCOL: i32 = 120;
+    use rustpython_host_env::ssl::{
+        ALERT_DESCRIPTION_ACCESS_DENIED, ALERT_DESCRIPTION_BAD_CERTIFICATE,
+        ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE,
+        ALERT_DESCRIPTION_BAD_CERTIFICATE_STATUS_RESPONSE, ALERT_DESCRIPTION_BAD_RECORD_MAC,
+        ALERT_DESCRIPTION_CERTIFICATE_EXPIRED, ALERT_DESCRIPTION_CERTIFICATE_REQUIRED,
+        ALERT_DESCRIPTION_CERTIFICATE_REVOKED, ALERT_DESCRIPTION_CERTIFICATE_UNKNOWN,
+        ALERT_DESCRIPTION_CERTIFICATE_UNOBTAINABLE, ALERT_DESCRIPTION_CLOSE_NOTIFY,
+        ALERT_DESCRIPTION_DECODE_ERROR, ALERT_DESCRIPTION_DECOMPRESSION_FAILURE,
+        ALERT_DESCRIPTION_DECRYPT_ERROR, ALERT_DESCRIPTION_DECRYPTION_FAILED,
+        ALERT_DESCRIPTION_EXPORT_RESTRICTION, ALERT_DESCRIPTION_HANDSHAKE_FAILURE,
+        ALERT_DESCRIPTION_ILLEGAL_PARAMETER, ALERT_DESCRIPTION_INAPPROPRIATE_FALLBACK,
+        ALERT_DESCRIPTION_INSUFFICIENT_SECURITY, ALERT_DESCRIPTION_INTERNAL_ERROR,
+        ALERT_DESCRIPTION_MISSING_EXTENSION, ALERT_DESCRIPTION_NO_APPLICATION_PROTOCOL,
+        ALERT_DESCRIPTION_NO_CERTIFICATE, ALERT_DESCRIPTION_NO_RENEGOTIATION,
+        ALERT_DESCRIPTION_PROTOCOL_VERSION, ALERT_DESCRIPTION_RECORD_OVERFLOW,
+        ALERT_DESCRIPTION_UNEXPECTED_MESSAGE, ALERT_DESCRIPTION_UNKNOWN_CA,
+        ALERT_DESCRIPTION_UNKNOWN_PSK_IDENTITY, ALERT_DESCRIPTION_UNRECOGNIZED_NAME,
+        ALERT_DESCRIPTION_UNSUPPORTED_CERTIFICATE, ALERT_DESCRIPTION_UNSUPPORTED_EXTENSION,
+        ALERT_DESCRIPTION_USER_CANCELLED,
+    };
 
     // `ssl.py` still requires OpenSSL-shaped numeric compatibility fields even
     // for non-OpenSSL TLS providers. Keep them in the supported 3.x ABI range,
@@ -380,13 +295,8 @@ mod _ssl {
     #[pyattr]
     const HAS_PHA: bool = false; // Post-Handshake Auth not supported in rustls
 
-    // Encoding constants (matching OpenSSL)
     #[pyattr]
-    const ENCODING_PEM: i32 = 1;
-    #[pyattr]
-    const ENCODING_DER: i32 = 2;
-    #[pyattr]
-    const ENCODING_PEM_AUX: i32 = 0x101; // PEM + 0x100
+    use rustpython_host_env::ssl::{ENCODING_DER, ENCODING_PEM, ENCODING_PEM_AUX};
 
     /// Validate server hostname for TLS SNI.
     fn validate_hostname(hostname: &str, vm: &VirtualMachine) -> PyResult<()> {

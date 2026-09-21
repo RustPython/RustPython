@@ -10,27 +10,12 @@ pub(crate) mod ssl_error {
         types::Constructor,
     };
 
-    // Error type constants - exposed as pyattr and available for internal use
     #[pyattr]
-    pub(crate) const SSL_ERROR_NONE: i32 = 0;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_SSL: i32 = 1;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_WANT_READ: i32 = 2;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_WANT_WRITE: i32 = 3;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_WANT_X509_LOOKUP: i32 = 4;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_SYSCALL: i32 = 5;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_ZERO_RETURN: i32 = 6;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_WANT_CONNECT: i32 = 7;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_EOF: i32 = 8;
-    #[pyattr]
-    pub(crate) const SSL_ERROR_INVALID_ERROR_CODE: i32 = 10;
+    pub(crate) use rustpython_host_env::ssl::{
+        SSL_ERROR_EOF, SSL_ERROR_INVALID_ERROR_CODE, SSL_ERROR_NONE, SSL_ERROR_SSL,
+        SSL_ERROR_SYSCALL, SSL_ERROR_WANT_CONNECT, SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE,
+        SSL_ERROR_WANT_X509_LOOKUP, SSL_ERROR_ZERO_RETURN,
+    };
 
     #[pyattr]
     #[pyexception(name = "SSLError", base = PyOSError)]

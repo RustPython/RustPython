@@ -12,6 +12,19 @@ pub const LK_LOCK: i32 = 1;
 pub const LK_NBLCK: i32 = 2;
 pub const LK_RLCK: i32 = 3;
 pub const LK_NBRLCK: i32 = 4;
+
+/// `_P_*` spawn modes from `process.h`.
+pub const P_WAIT: i32 = 0;
+pub const P_NOWAIT: i32 = 1;
+pub const P_OVERLAY: i32 = 2;
+pub const P_NOWAITO: i32 = 3;
+pub const P_DETACH: i32 = 4;
+
+/// `_O_SHORT_LIVED` from `fcntl.h`. Not in `libc`.
+pub const O_SHORT_LIVED: i32 = 0x1000;
+
+pub const EX_OK: i32 = 0;
+pub const TMP_MAX: i32 = i32::MAX;
 pub const SEM_FAILCRITICALERRORS: ErrorMode = Debug::SEM_FAILCRITICALERRORS;
 pub const SEM_NOALIGNMENTFAULTEXCEPT: ErrorMode = Debug::SEM_NOALIGNMENTFAULTEXCEPT;
 pub const SEM_NOGPFAULTERRORBOX: ErrorMode = Debug::SEM_NOGPFAULTERRORBOX;

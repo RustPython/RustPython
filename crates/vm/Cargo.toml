@@ -82,9 +82,6 @@ psm = { workspace = true }
 optional = { workspace = true }
 result-like = { workspace = true }
 
-[target.'cfg(unix)'.dependencies]
-exitcode = { workspace = true }
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 widestring = { workspace = true }
 

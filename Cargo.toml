@@ -214,7 +214,6 @@ criterion = { package = "codspeed-criterion-compat", version = "5.0.1", features
 crossbeam-utils = "0.8.21"
 csv-core = "0.1.11"
 dns-lookup = "4.0"
-exitcode = "1.1.2"
 flame = "0.2.2"
 flamer = "0.5"
 # Bump only when the openssl crate bumps it
