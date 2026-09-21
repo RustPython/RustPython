@@ -10,6 +10,16 @@ use crate::os::CheckLibcZero;
 #[cfg(any(unix, windows))]
 pub use libc::sighandler_t;
 
+#[cfg(unix)]
+pub use libc::{SIG_DFL, SIG_ERR, SIG_IGN};
+
+#[cfg(not(unix))]
+pub const SIG_DFL: libc::sighandler_t = 0;
+#[cfg(not(unix))]
+pub const SIG_IGN: libc::sighandler_t = 1;
+#[cfg(not(unix))]
+pub const SIG_ERR: libc::sighandler_t = -1 as _;
+
 #[cfg(all(unix, not(target_os = "android")))]
 pub use libc::{ITIMER_PROF, ITIMER_REAL, ITIMER_VIRTUAL};
 

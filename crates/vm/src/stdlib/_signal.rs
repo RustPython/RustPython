@@ -73,28 +73,28 @@ pub(crate) mod _signal {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[allow(unused_imports)]
-    pub use libc::SIG_ERR;
+    pub use host_signal::SIG_ERR;
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[pyattr]
-    pub use libc::{SIG_DFL, SIG_IGN};
+    pub use host_signal::{SIG_DFL, SIG_IGN};
 
     // pthread_sigmask 'how' constants
     #[cfg(unix)]
     #[pyattr]
     use libc::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     #[pyattr]
     pub const SIG_DFL: sighandler_t = 0;
 
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     #[pyattr]
     pub const SIG_IGN: sighandler_t = 1;
 
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     #[allow(dead_code)]
     pub const SIG_ERR: sighandler_t = -1 as _;
 
