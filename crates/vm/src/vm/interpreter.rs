@@ -1945,7 +1945,7 @@ for _ in range(40):
     #[cfg(feature = "threading")]
     #[test]
     fn a_thread_blocked_on_a_lock_does_not_stall_stop_the_world() {
-        use super::super::thread::THREAD_DETACHED;
+        use super::super::thread::ThreadState;
         use crate::common::lock::PyDetachingRwLock;
         use alloc::sync::Arc;
         use core::{
@@ -1986,11 +1986,9 @@ for _ in range(40):
         // hanging it, as the timeout on the stop below does.
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         let blocked_detached = |ident| {
-            state
-                .thread_frames
-                .lock()
-                .get(&ident)
-                .is_some_and(|slot| slot.state.load(Ordering::Acquire) == THREAD_DETACHED)
+            state.thread_frames.lock().get(&ident).is_some_and(|slot| {
+                slot.state.load(Ordering::Acquire) == ThreadState::Detached as i32
+            })
         };
         loop {
             match worker_ident.load(Ordering::Acquire) {

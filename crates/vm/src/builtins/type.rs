@@ -1115,11 +1115,14 @@ impl PyType {
 
         // Static types are not tracked by GC.
         // They are immortal and never participate in collectable cycles.
-        unsafe {
-            crate::gc_state::gc_state()
-                .untrack_object(core::ptr::NonNull::from(new_type.as_object()));
+        // Heap types from PyType_FromSpec stay tracked.
+        if !new_type.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            unsafe {
+                crate::gc_state::gc_state()
+                    .untrack_object(core::ptr::NonNull::from(new_type.as_object()));
+            }
+            new_type.as_object().clear_gc_tracked();
         }
-        new_type.as_object().clear_gc_tracked();
 
         new_type.mro.write().insert(0, new_type.clone());
 
@@ -2355,6 +2358,17 @@ impl Constructor for PyType {
 
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
             args.clone().bind_for(vm, Self::NAME)?;
+
+        // A mapping that is not an exact dict (e.g. OrderedDict) keeps its
+        // own iteration order; copy via the mapping protocol so that order
+        // lands in the type dict.
+        let dict = if args.args[2].class().is(vm.ctx.types.dict_type) {
+            dict
+        } else {
+            let copied = vm.ctx.new_dict();
+            copied.merge_object(args.args[2].clone(), vm)?;
+            copied
+        };
 
         if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters"));

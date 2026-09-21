@@ -38,49 +38,84 @@ bitflags::bitflags! {
     }
 }
 
-// Re-export as plain u32 constants for use in frame.rs hot-path checks
-pub(crate) const EVENT_PY_START: u32 = MonitoringEvents::PY_START.bits();
-pub(crate) const EVENT_PY_RESUME: u32 = MonitoringEvents::PY_RESUME.bits();
-pub(crate) const EVENT_PY_RETURN: u32 = MonitoringEvents::PY_RETURN.bits();
-pub(crate) const EVENT_PY_YIELD: u32 = MonitoringEvents::PY_YIELD.bits();
-pub(crate) const EVENT_CALL: u32 = MonitoringEvents::CALL.bits();
-pub(crate) const EVENT_LINE: u32 = MonitoringEvents::LINE.bits();
-pub(crate) const EVENT_INSTRUCTION: u32 = MonitoringEvents::INSTRUCTION.bits();
-pub(crate) const EVENT_JUMP: u32 = MonitoringEvents::JUMP.bits();
-pub(crate) const EVENT_BRANCH_LEFT: u32 = MonitoringEvents::BRANCH_LEFT.bits();
-pub(crate) const EVENT_BRANCH_RIGHT: u32 = MonitoringEvents::BRANCH_RIGHT.bits();
-pub(crate) const EVENT_RAISE: u32 = MonitoringEvents::RAISE.bits();
-pub(crate) const EVENT_EXCEPTION_HANDLED: u32 = MonitoringEvents::EXCEPTION_HANDLED.bits();
-pub(crate) const EVENT_PY_UNWIND: u32 = MonitoringEvents::PY_UNWIND.bits();
-pub(crate) const EVENT_C_RETURN: u32 = MonitoringEvents::C_RETURN.bits();
-const EVENT_C_RAISE: u32 = MonitoringEvents::C_RAISE.bits();
-pub(crate) const EVENT_STOP_ITERATION: u32 = MonitoringEvents::STOP_ITERATION.bits();
-pub(crate) const EVENT_PY_THROW: u32 = MonitoringEvents::PY_THROW.bits();
-const EVENT_BRANCH: u32 = MonitoringEvents::BRANCH.bits();
-pub(crate) const EVENT_RERAISE: u32 = MonitoringEvents::RERAISE.bits();
+/// Event identifier (`PY_MONITORING_EVENT_*`), stored in `tstate->what_event`.
+/// `None` on the VM field is the `< 0` sentinel (not in a monitoring callback).
+#[repr(i32)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MonitoringEvent {
+    PyStart = 0,
+    PyResume = 1,
+    PyReturn = 2,
+    PyYield = 3,
+    Call = 4,
+    Line = 5,
+    Instruction = 6,
+    Jump = 7,
+    BranchLeft = 8,
+    BranchRight = 9,
+    StopIteration = 10,
+    Raise = 11,
+    ExceptionHandled = 12,
+    PyUnwind = 13,
+    PyThrow = 14,
+    Reraise = 15,
+    CReturn = 16,
+    CRaise = 17,
+    Branch = 18,
+}
 
-/// `tstate->what_event` values, the event currently being monitored.
-pub(crate) const WHAT_PY_START: i32 = 0;
-pub(crate) const WHAT_PY_RESUME: i32 = 1;
-pub(crate) const WHAT_PY_RETURN: i32 = 2;
-pub(crate) const WHAT_PY_YIELD: i32 = 3;
-pub(crate) const WHAT_CALL: i32 = 4;
-pub(crate) const WHAT_LINE: i32 = 5;
-pub(crate) const WHAT_INSTRUCTION: i32 = 6;
-pub(crate) const WHAT_JUMP: i32 = 7;
-pub(crate) const WHAT_BRANCH_LEFT: i32 = 8;
-pub(crate) const WHAT_BRANCH_RIGHT: i32 = 9;
-#[allow(dead_code)]
-pub(crate) const WHAT_STOP_ITERATION: i32 = 10;
-pub(crate) const WHAT_RAISE: i32 = 11;
-pub(crate) const WHAT_EXCEPTION_HANDLED: i32 = 12;
-pub(crate) const WHAT_PY_UNWIND: i32 = 13;
-pub(crate) const WHAT_PY_THROW: i32 = 14;
-#[allow(dead_code)]
-pub(crate) const WHAT_RERAISE: i32 = 15;
-pub(crate) const WHAT_C_RETURN: i32 = 16;
-pub(crate) const WHAT_C_RAISE: i32 = 17;
-pub(crate) const WHAT_BRANCH: i32 = 18;
+impl MonitoringEvent {
+    pub(crate) const fn mask(self) -> u32 {
+        1 << (self as u32)
+    }
+
+    pub(crate) const fn from_id(id: usize) -> Option<Self> {
+        match id {
+            0 => Some(Self::PyStart),
+            1 => Some(Self::PyResume),
+            2 => Some(Self::PyReturn),
+            3 => Some(Self::PyYield),
+            4 => Some(Self::Call),
+            5 => Some(Self::Line),
+            6 => Some(Self::Instruction),
+            7 => Some(Self::Jump),
+            8 => Some(Self::BranchLeft),
+            9 => Some(Self::BranchRight),
+            10 => Some(Self::StopIteration),
+            11 => Some(Self::Raise),
+            12 => Some(Self::ExceptionHandled),
+            13 => Some(Self::PyUnwind),
+            14 => Some(Self::PyThrow),
+            15 => Some(Self::Reraise),
+            16 => Some(Self::CReturn),
+            17 => Some(Self::CRaise),
+            18 => Some(Self::Branch),
+            _ => None,
+        }
+    }
+}
+
+// Re-export as plain u32 constants for use in frame.rs hot-path checks
+pub(crate) const EVENT_PY_START: u32 = MonitoringEvent::PyStart.mask();
+pub(crate) const EVENT_PY_RESUME: u32 = MonitoringEvent::PyResume.mask();
+pub(crate) const EVENT_PY_RETURN: u32 = MonitoringEvent::PyReturn.mask();
+pub(crate) const EVENT_PY_YIELD: u32 = MonitoringEvent::PyYield.mask();
+pub(crate) const EVENT_CALL: u32 = MonitoringEvent::Call.mask();
+pub(crate) const EVENT_LINE: u32 = MonitoringEvent::Line.mask();
+pub(crate) const EVENT_INSTRUCTION: u32 = MonitoringEvent::Instruction.mask();
+pub(crate) const EVENT_JUMP: u32 = MonitoringEvent::Jump.mask();
+pub(crate) const EVENT_BRANCH_LEFT: u32 = MonitoringEvent::BranchLeft.mask();
+pub(crate) const EVENT_BRANCH_RIGHT: u32 = MonitoringEvent::BranchRight.mask();
+pub(crate) const EVENT_RAISE: u32 = MonitoringEvent::Raise.mask();
+pub(crate) const EVENT_EXCEPTION_HANDLED: u32 = MonitoringEvent::ExceptionHandled.mask();
+pub(crate) const EVENT_PY_UNWIND: u32 = MonitoringEvent::PyUnwind.mask();
+pub(crate) const EVENT_C_RETURN: u32 = MonitoringEvent::CReturn.mask();
+const EVENT_C_RAISE: u32 = MonitoringEvent::CRaise.mask();
+pub(crate) const EVENT_STOP_ITERATION: u32 = MonitoringEvent::StopIteration.mask();
+pub(crate) const EVENT_PY_THROW: u32 = MonitoringEvent::PyThrow.mask();
+const EVENT_BRANCH: u32 = MonitoringEvent::Branch.mask();
+pub(crate) const EVENT_RERAISE: u32 = MonitoringEvent::Reraise.mask();
+
 const EVENT_C_RETURN_MASK: u32 = EVENT_C_RETURN | EVENT_C_RAISE;
 
 const EVENT_NAMES: [&str; EVENTS_COUNT] = [
@@ -911,7 +946,7 @@ fn fire(
 
     FIRING.with(|f| f.set(true));
     vm.enter_tracing();
-    let old_what = vm.what_event.replace(event_id as i32);
+    let old_what = vm.what_event.replace(MonitoringEvent::from_id(event_id));
     let result = (|| {
         for (tool, cb) in callbacks {
             let result = cb.call(args.clone(), vm)?;

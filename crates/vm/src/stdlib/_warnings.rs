@@ -28,7 +28,7 @@ mod _warnings {
 
     #[pyattr]
     fn filters(vm: &VirtualMachine) -> PyListRef {
-        vm.state.warnings.filters.clone()
+        vm.state.warnings.filters.lock().clone()
     }
 
     #[pyattr]
@@ -181,13 +181,20 @@ mod _warnings {
 
         let module = args.module.into_option();
 
-        // Validate module_globals: must be None or a dict
-        if let Some(ref mg) = args.module_globals.into_option()
-            && !vm.is_none(mg)
-            && !mg.class().is(vm.ctx.types.dict_type)
-        {
-            return Err(vm.new_type_error("module_globals must be a dict"));
-        }
+        let source_line = if let Some(mg) = args.module_globals.into_option() {
+            if vm.is_none(&mg) {
+                None
+            } else if !mg.class().is(vm.ctx.types.dict_type) {
+                return Err(vm.new_type_error(format!(
+                    "module_globals must be a dict, not '{}'",
+                    mg.class().name()
+                )));
+            } else {
+                crate::warn::get_source_line(&mg, args.lineno, vm)?
+            }
+        } else {
+            None
+        };
 
         let category = if vm.is_none(&args.category) {
             None
@@ -205,7 +212,7 @@ mod _warnings {
             args.lineno,
             module,
             registry,
-            None, // source_line
+            source_line,
             args.source.into_option(),
             vm,
         )

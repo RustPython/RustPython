@@ -943,7 +943,6 @@ def requireSocket(*args):
 
 class GeneralModuleTests(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; gc.is_tracked not implemented
     @unittest.skipUnless(_socket is not None, 'need _socket module')
     def test_socket_type(self):
         self.assertTrue(gc.is_tracked(_socket.socket))
@@ -1007,7 +1006,6 @@ class GeneralModuleTests(unittest.TestCase):
         with self.assertRaises(OSError, msg=msg % 'socket.gaierror'):
             raise socket.gaierror
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message format differs
     def testSendtoErrors(self):
         # Testing that sendto doesn't mask failures. See #10169.
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -2230,7 +2228,6 @@ class GeneralModuleTests(unittest.TestCase):
                 source=_socket)
         enum._test_simple_enum(CheckedAddressInfo, socket.AddressInfo)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'Mut' found
     @unittest.skipUnless(hasattr(socket.socket, "sendmsg"),"sendmsg not supported")
     def test_sendmsg_reentrant_ancillary_mutation(self):
 
@@ -2448,14 +2445,12 @@ class ISOTPTest(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: AF_CAN address must be a tuple (interface,) or (interface, addr)
     def testTooLongInterfaceName(self):
         # most systems limit IFNAMSIZ to 16, take 1024 to be sure
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             with self.assertRaisesRegex(OSError, 'interface name too long'):
                 s.bind(('x' * 1024, 1, 2))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: AF_CAN address must be a tuple (interface,) or (interface, addr)
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
@@ -2477,7 +2472,6 @@ class J1939Test(unittest.TestCase):
         super().__init__(*args, **kwargs)
         self.interface = "vcan0"
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - J1939 constants not fully implemented
     @unittest.skipUnless(hasattr(socket, "CAN_J1939"),
                          'socket.CAN_J1939 required for this test.')
     def testJ1939Constants(self):
@@ -2519,7 +2513,6 @@ class J1939Test(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_J1939) as s:
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_CAN J1939 address format not fully implemented
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_J1939) as s:
@@ -7519,7 +7512,6 @@ class ReentrantMutationTests(unittest.TestCase):
     See: https://github.com/python/cpython/issues/143988
     """
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'Hello' != b'HelloWorldTest'
     @unittest.skipUnless(hasattr(socket.socket, "sendmsg"),
                          "sendmsg not supported")
     def test_sendmsg_reentrant_data_mutation(self):

@@ -365,6 +365,12 @@ pub(crate) mod _struct {
             let spec = self.ready(vm)?.spec.clone();
             UnpackIterator::with_buffer(vm, spec, buffer)
         }
+
+        #[pymethod]
+        fn __sizeof__(&self, vm: &VirtualMachine) -> PyResult<usize> {
+            let inner = self.ready(vm)?;
+            Ok(core::mem::size_of::<Self>() + inner.spec.codes_sizeof())
+        }
     }
 
     impl Representable for PyStruct {

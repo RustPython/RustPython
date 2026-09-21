@@ -1,9 +1,13 @@
 #[cfg(all(not(unix), feature = "threading"))]
 use super::FramePtr;
 #[cfg(feature = "threading")]
+use crate::PyObjectRef;
+#[cfg(feature = "threading")]
 use crate::builtins::PyBaseExceptionRef;
 #[cfg(feature = "threading")]
 use alloc::sync::Arc;
+#[cfg(feature = "threading")]
+use rustpython_common::lock::PyMutex;
 
 use crate::frame::InterpreterFrame;
 #[cfg(feature = "threading")]
@@ -23,20 +27,36 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::thread_local;
 
-// Thread states for stop-the-world support (`_Py_THREAD_*`).
-//   DETACHED: not executing Python bytecode (in native code, or idle)
-//   ATTACHED: actively executing Python bytecode
-//   SUSPENDED: parked by a stop-the-world request
-//   SHUTTING_DOWN: interpreter is finalizing; the OS thread must hang
-//   (`_PyThreadState_HangThread`) and must not look done to `_ThreadHandle`.
+/// Thread states for stop-the-world support (`_Py_THREAD_*`).
+///
+/// DETACHED: not executing Python bytecode (in native code, or idle)
+/// ATTACHED: actively executing Python bytecode
+/// SUSPENDED: parked by a stop-the-world request
+/// SHUTTING_DOWN: interpreter is finalizing; the OS thread must hang
+/// (`_PyThreadState_HangThread`) and must not look done to `_ThreadHandle`.
 #[cfg(feature = "threading")]
-pub const THREAD_DETACHED: i32 = 0;
+#[repr(i32)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ThreadState {
+    Detached = 0,
+    Attached = 1,
+    Suspended = 2,
+    ShuttingDown = 3,
+}
+
 #[cfg(feature = "threading")]
-pub const THREAD_ATTACHED: i32 = 1;
-#[cfg(feature = "threading")]
-pub const THREAD_SUSPENDED: i32 = 2;
-#[cfg(feature = "threading")]
-pub const THREAD_SHUTTING_DOWN: i32 = 3;
+impl ThreadState {
+    #[must_use]
+    pub const fn from_i32(v: i32) -> Option<Self> {
+        match v {
+            0 => Some(Self::Detached),
+            1 => Some(Self::Attached),
+            2 => Some(Self::Suspended),
+            3 => Some(Self::ShuttingDown),
+            _ => None,
+        }
+    }
+}
 
 /// Per-thread shared state for sys._current_frames() and sys._current_exceptions().
 /// The exception field uses atomic operations for lock-free cross-thread reads.
@@ -62,6 +82,12 @@ pub struct ThreadSlot {
     #[cfg(not(unix))]
     pub frames: parking_lot::Mutex<Vec<FramePtr>>,
     pub exception: crate::PyAtomicRef<Option<crate::exceptions::types::PyBaseException>>,
+    /// `tstate->c_traceobj`. Cross-thread source of truth for sys.gettrace /
+    /// sys._settraceallthreads.
+    pub trace_func: PyMutex<PyObjectRef>,
+    /// `tstate->c_profileobj`. Cross-thread source of truth for sys.getprofile /
+    /// sys._setprofileallthreads.
+    pub profile_func: PyMutex<PyObjectRef>,
     /// Thread state for stop-the-world: DETACHED / ATTACHED / SUSPENDED / SHUTTING_DOWN
     pub state: core::sync::atomic::AtomicI32,
     /// Per-thread stop request bit (eval breaker equivalent).
@@ -416,13 +442,27 @@ fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
             #[cfg(not(unix))]
             frames: parking_lot::Mutex::new(Vec::new()),
             exception: crate::PyAtomicRef::from(None::<PyBaseExceptionRef>),
+            trace_func: PyMutex::new(
+                vm.state
+                    .global_trace_func
+                    .lock()
+                    .clone()
+                    .unwrap_or_else(|| vm.ctx.none()),
+            ),
+            profile_func: PyMutex::new(
+                vm.state
+                    .global_profile_func
+                    .lock()
+                    .clone()
+                    .unwrap_or_else(|| vm.ctx.none()),
+            ),
             state: core::sync::atomic::AtomicI32::new(
                 if vm.state.stop_the_world.requested.load(Ordering::Acquire) {
                     // Match init_threadstate(): new thread-state starts
                     // suspended while stop-the-world is active.
-                    THREAD_SUSPENDED
+                    ThreadState::Suspended as i32
                 } else {
-                    THREAD_DETACHED
+                    ThreadState::Detached as i32
                 },
             ),
             stop_requested: core::sync::atomic::AtomicBool::new(false),
@@ -434,6 +474,12 @@ fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
         slots.insert(interp_id, new_slot.clone());
         new_slot
     })
+}
+
+/// The current thread's `ThreadSlot` for the entered interpreter, if any.
+#[cfg(feature = "threading")]
+pub fn current_thread_slot() -> Option<CurrentFrameSlot> {
+    CURRENT_THREAD_SLOT.with(|slot| slot.borrow().clone())
 }
 
 /// Make `slot` the current thread slot (and the cached top-frame pointer).
@@ -456,7 +502,7 @@ fn current_slot_is_attached() -> bool {
     CURRENT_THREAD_SLOT.with(|slot| {
         slot.borrow()
             .as_ref()
-            .is_some_and(|s| s.state.load(Ordering::Acquire) == THREAD_ATTACHED)
+            .is_some_and(|s| s.state.load(Ordering::Acquire) == ThreadState::Attached as i32)
     })
 }
 
@@ -515,7 +561,7 @@ fn end_interpreter_section(switched: bool) {
 #[cfg(feature = "threading")]
 fn wait_while_suspended(slot: &ThreadSlot) -> u64 {
     let mut wait_yields = 0u64;
-    while slot.state.load(Ordering::Acquire) == THREAD_SUSPENDED {
+    while slot.state.load(Ordering::Acquire) == ThreadState::Suspended as i32 {
         wait_yields = wait_yields.saturating_add(1);
         std::thread::park();
     }
@@ -539,8 +585,10 @@ fn hang_thread() -> ! {
 pub fn hang_current_thread(state: &PyGlobalState) -> ! {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
-            let prev = s.state.swap(THREAD_SHUTTING_DOWN, Ordering::AcqRel);
-            if prev == THREAD_ATTACHED {
+            let prev = s
+                .state
+                .swap(ThreadState::ShuttingDown as i32, Ordering::AcqRel);
+            if prev == ThreadState::Attached as i32 {
                 crate::object::qsbr::QSBR.offline(&s.qsbr);
             }
             s.stop_requested.store(false, Ordering::Release);
@@ -570,7 +618,8 @@ pub fn set_other_threads_shutting_down(state: &PyGlobalState) {
             continue;
         }
         slot.stop_requested.store(false, Ordering::Release);
-        slot.state.store(THREAD_SHUTTING_DOWN, Ordering::Release);
+        slot.state
+            .store(ThreadState::ShuttingDown as i32, Ordering::Release);
         slot.thread.unpark();
     }
 }
@@ -582,8 +631,8 @@ fn attach_thread(vm: &VirtualMachine) {
             super::stw_trace(format_args!("attach begin"));
             loop {
                 match s.state.compare_exchange(
-                    THREAD_DETACHED,
-                    THREAD_ATTACHED,
+                    ThreadState::Detached as i32,
+                    ThreadState::Attached as i32,
                     Ordering::AcqRel,
                     Ordering::Relaxed,
                 ) {
@@ -592,21 +641,23 @@ fn attach_thread(vm: &VirtualMachine) {
                         super::stw_trace(format_args!("attach DETACHED->ATTACHED"));
                         break;
                     }
-                    Err(THREAD_SUSPENDED) => {
-                        // Parked by stop-the-world — wait until released to DETACHED
-                        super::stw_trace(format_args!("attach wait-suspended"));
-                        let wait_yields = wait_while_suspended(s);
-                        vm.state.stop_the_world.add_attach_wait_yields(wait_yields);
-                        // Retry CAS
-                    }
-                    Err(THREAD_SHUTTING_DOWN) => {
-                        super::stw_trace(format_args!("attach hang shutting-down"));
-                        hang_thread();
-                    }
-                    Err(state) => {
-                        debug_assert!(false, "unexpected thread state in attach: {state}");
-                        break;
-                    }
+                    Err(state) => match ThreadState::from_i32(state) {
+                        Some(ThreadState::Suspended) => {
+                            // Parked by stop-the-world — wait until released to DETACHED
+                            super::stw_trace(format_args!("attach wait-suspended"));
+                            let wait_yields = wait_while_suspended(s);
+                            vm.state.stop_the_world.add_attach_wait_yields(wait_yields);
+                            // Retry CAS
+                        }
+                        Some(ThreadState::ShuttingDown) => {
+                            super::stw_trace(format_args!("attach hang shutting-down"));
+                            hang_thread();
+                        }
+                        _ => {
+                            debug_assert!(false, "unexpected thread state in attach: {state}");
+                            break;
+                        }
+                    },
                 }
             }
         }
@@ -628,20 +679,19 @@ fn detach_thread() {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
             match s.state.compare_exchange(
-                THREAD_ATTACHED,
-                THREAD_DETACHED,
+                ThreadState::Attached as i32,
+                ThreadState::Detached as i32,
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
                 Ok(_) => {
                     crate::object::qsbr::QSBR.offline(&s.qsbr);
                 }
-                Err(THREAD_DETACHED) => {
-                    debug_assert!(false, "detach called while already DETACHED");
-                    return;
-                }
                 Err(state) => {
-                    debug_assert!(false, "unexpected thread state in detach: {state}");
+                    debug_assert!(
+                        matches!(ThreadState::from_i32(state), Some(ThreadState::Detached)),
+                        "unexpected thread state in detach: {state}"
+                    );
                     return;
                 }
             }
@@ -663,7 +713,7 @@ pub fn allow_threads<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     let should_transition = CURRENT_THREAD_SLOT.with(|slot| {
         slot.borrow()
             .as_ref()
-            .is_some_and(|s| s.state.load(Ordering::Acquire) == THREAD_ATTACHED)
+            .is_some_and(|s| s.state.load(Ordering::Acquire) == ThreadState::Attached as i32)
     });
     if !should_transition {
         return f();
@@ -700,7 +750,7 @@ pub fn attach_for_callback<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     let should_transition = CURRENT_THREAD_SLOT.with(|slot| {
         slot.borrow()
             .as_ref()
-            .is_some_and(|s| s.state.load(Ordering::Acquire) != THREAD_ATTACHED)
+            .is_some_and(|s| s.state.load(Ordering::Acquire) != ThreadState::Attached as i32)
     });
     if !should_transition {
         return f();
@@ -795,8 +845,8 @@ fn do_suspend(state: &PyGlobalState) {
             let _registry = state.thread_frames.lock();
             if stw.requested.load(Ordering::Acquire) {
                 Some(s.state.compare_exchange(
-                    THREAD_ATTACHED,
-                    THREAD_SUSPENDED,
+                    ThreadState::Attached as i32,
+                    ThreadState::Suspended as i32,
                     Ordering::AcqRel,
                     Ordering::Acquire,
                 ))
@@ -816,26 +866,28 @@ fn do_suspend(state: &PyGlobalState) {
                 // Consumed this thread's stop request bit.
                 s.stop_requested.store(false, Ordering::Release);
             }
-            Some(Err(THREAD_DETACHED)) => {
-                // Leaving VM; caller will re-check on next entry.
-                super::stw_trace(format_args!("suspend skip DETACHED"));
-                return;
-            }
-            Some(Err(THREAD_SUSPENDED)) => {
-                // Already parked by another path.
-                s.stop_requested.store(false, Ordering::Release);
-                super::stw_trace(format_args!("suspend skip already-suspended"));
-                return;
-            }
-            Some(Err(THREAD_SHUTTING_DOWN)) => {
-                s.stop_requested.store(false, Ordering::Release);
-                super::stw_trace(format_args!("suspend hang shutting-down"));
-                hang_thread();
-            }
-            Some(Err(state)) => {
-                debug_assert!(false, "unexpected thread state in suspend: {state}");
-                return;
-            }
+            Some(Err(state)) => match ThreadState::from_i32(state) {
+                Some(ThreadState::Detached) => {
+                    // Leaving VM; caller will re-check on next entry.
+                    super::stw_trace(format_args!("suspend skip DETACHED"));
+                    return;
+                }
+                Some(ThreadState::Suspended) => {
+                    // Already parked by another path.
+                    s.stop_requested.store(false, Ordering::Release);
+                    super::stw_trace(format_args!("suspend skip already-suspended"));
+                    return;
+                }
+                Some(ThreadState::ShuttingDown) => {
+                    s.stop_requested.store(false, Ordering::Release);
+                    super::stw_trace(format_args!("suspend hang shutting-down"));
+                    hang_thread();
+                }
+                _ => {
+                    debug_assert!(false, "unexpected thread state in suspend: {state}");
+                    return;
+                }
+            },
         }
         super::stw_trace(format_args!("suspend ATTACHED->SUSPENDED"));
 
@@ -853,25 +905,27 @@ fn do_suspend(state: &PyGlobalState) {
         // Re-attach (DETACHED → ATTACHED), tstate_wait_attach CAS loop.
         loop {
             match s.state.compare_exchange(
-                THREAD_DETACHED,
-                THREAD_ATTACHED,
+                ThreadState::Detached as i32,
+                ThreadState::Attached as i32,
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
                 Ok(_) => break,
-                Err(THREAD_SUSPENDED) => {
-                    let extra_wait = wait_while_suspended(s);
-                    stw.add_suspend_wait_yields(extra_wait);
-                }
-                Err(THREAD_ATTACHED) => break,
-                Err(THREAD_SHUTTING_DOWN) => {
-                    super::stw_trace(format_args!("suspend resume hang shutting-down"));
-                    hang_thread();
-                }
-                Err(state) => {
-                    debug_assert!(false, "unexpected post-suspend state: {state}");
-                    break;
-                }
+                Err(state) => match ThreadState::from_i32(state) {
+                    Some(ThreadState::Suspended) => {
+                        let extra_wait = wait_while_suspended(s);
+                        stw.add_suspend_wait_yields(extra_wait);
+                    }
+                    Some(ThreadState::Attached) => break,
+                    Some(ThreadState::ShuttingDown) => {
+                        super::stw_trace(format_args!("suspend resume hang shutting-down"));
+                        hang_thread();
+                    }
+                    _ => {
+                        debug_assert!(false, "unexpected post-suspend state: {state}");
+                        break;
+                    }
+                },
             }
         }
         s.stop_requested.store(false, Ordering::Release);
@@ -941,7 +995,7 @@ pub(crate) fn debug_assert_current_thread_attached() {
         if let Some(s) = slot.borrow().as_ref() {
             debug_assert_eq!(
                 s.state.load(Ordering::Relaxed),
-                THREAD_ATTACHED,
+                ThreadState::Attached as i32,
                 "type cache read while thread not ATTACHED"
             );
         }
@@ -1075,8 +1129,8 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
     // thread-state slot is being removed.
     if let Some(slot) = &slot_to_clean {
         let _ = slot.state.compare_exchange(
-            THREAD_ATTACHED,
-            THREAD_DETACHED,
+            ThreadState::Attached as i32,
+            ThreadState::Detached as i32,
             Ordering::AcqRel,
             Ordering::Acquire,
         );
@@ -1097,7 +1151,7 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
     if let Some(slot) = &_removed
         && vm.state.stop_the_world.requested.load(Ordering::Acquire)
         && thread_id != vm.state.stop_the_world.requester_ident()
-        && slot.state.load(Ordering::Relaxed) != THREAD_SUSPENDED
+        && slot.state.load(Ordering::Relaxed) != ThreadState::Suspended as i32
     {
         // A non-requester thread disappeared while stop-the-world is pending.
         // Unblock requester countdown progress.
@@ -1175,7 +1229,9 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
         #[cfg(not(unix))]
         frames: parking_lot::Mutex::new(current_frames),
         exception: crate::PyAtomicRef::from(vm.topmost_exception()),
-        state: core::sync::atomic::AtomicI32::new(THREAD_ATTACHED),
+        trace_func: PyMutex::new(vm.trace_func.borrow().clone()),
+        profile_func: PyMutex::new(vm.profile_func.borrow().clone()),
+        state: core::sync::atomic::AtomicI32::new(ThreadState::Attached as i32),
         stop_requested: core::sync::atomic::AtomicBool::new(false),
         thread: std::thread::current(),
         qsbr: crate::object::qsbr::QSBR.register(),
@@ -1412,7 +1468,7 @@ impl VirtualMachine {
             profile_func: RefCell::new(global_profile.unwrap_or_else(|| self.ctx.none())),
             trace_func: RefCell::new(global_trace.unwrap_or_else(|| self.ctx.none())),
             use_tracing: Cell::new(use_tracing),
-            what_event: Cell::new(-1),
+            what_event: Cell::new(None),
             tracing_depth: Cell::new(0),
             recursion_limit: self.recursion_limit.clone(),
             signal_handlers: core::cell::OnceCell::new(),

@@ -187,6 +187,8 @@ numkwonly
 numposorkw
 nvars
 obmalloc
+odict
+ODICT
 opname
 opnames
 orelse

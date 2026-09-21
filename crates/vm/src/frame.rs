@@ -3327,9 +3327,9 @@ impl ExecutingFrame<'_> {
         }
         // RESUME oparg 0 is PY_START; nonzero is PY_RESUME.
         let what = if resume_type == 0 {
-            monitoring::WHAT_PY_START
+            monitoring::MonitoringEvent::PyStart
         } else {
-            monitoring::WHAT_PY_RESUME
+            monitoring::MonitoringEvent::PyResume
         };
         let trace_result = vm.trace_event_what(crate::protocol::TraceEvent::Call, what, None)?;
         if let Some(local_trace) = trace_result {
@@ -3449,7 +3449,7 @@ impl ExecutingFrame<'_> {
             let value = self.top_value().to_owned();
             vm.trace_event_what(
                 crate::protocol::TraceEvent::Return,
-                monitoring::WHAT_PY_YIELD,
+                monitoring::MonitoringEvent::PyYield,
                 Some(value),
             )?;
             if self.lasti() != lasti_before {
@@ -4113,7 +4113,7 @@ impl ExecutingFrame<'_> {
         // Fire PY_THROW and RAISE events before raising the exception.
         // If a monitoring callback fails, its exception replaces the original.
         if vm.use_tracing.get() {
-            let what = monitoring::WHAT_PY_THROW;
+            let what = monitoring::MonitoringEvent::PyThrow;
             if let Some(local_trace) =
                 vm.trace_event_what(crate::protocol::TraceEvent::Call, what, None)?
             {
@@ -5556,7 +5556,7 @@ impl ExecutingFrame<'_> {
                 if vm.use_tracing.get() {
                     vm.trace_event_what(
                         crate::protocol::TraceEvent::Return,
-                        monitoring::WHAT_PY_RETURN,
+                        monitoring::MonitoringEvent::PyReturn,
                         Some(value.clone()),
                     )?;
                 }
@@ -8029,7 +8029,7 @@ impl ExecutingFrame<'_> {
                 if vm.use_tracing.get() {
                     vm.trace_event_what(
                         crate::protocol::TraceEvent::Return,
-                        monitoring::WHAT_PY_RETURN,
+                        monitoring::MonitoringEvent::PyReturn,
                         Some(value.clone()),
                     )?;
                 }

@@ -1616,10 +1616,6 @@ pub fn read_pstring<R: Read>(rdr: &mut R) -> Result<&[u8]> {
     rdr.read_slice(n as u32)
 }
 
-const CO_FAST_LOCAL: u8 = 0x20;
-const CO_FAST_CELL: u8 = 0x40;
-const CO_FAST_FREE: u8 = 0x80;
-
 pub struct LocalsPlusResult<S> {
     pub varnames: Vec<S>,
     pub cellvars: Vec<S>,
@@ -1645,10 +1641,11 @@ pub fn split_localplus<S: Clone>(
 
     // First pass: collect varnames (LOCAL entries) and freevars
     for (name, &kind) in names.iter().zip(kinds.iter()) {
-        if kind & CO_FAST_LOCAL != 0 {
+        let kind = CoFastFlags::from_bits_retain(kind);
+        if kind.contains(&CoFastFlag::Local) {
             varnames.push(name.clone());
         }
-        if kind & CO_FAST_FREE != 0 {
+        if kind.contains(&CoFastFlag::Free) {
             freevars.push(name.clone());
         }
     }
@@ -1659,8 +1656,9 @@ pub fn split_localplus<S: Clone>(
     // This preserves the original ordering from localsplusnames.
     let mut arg_cell_positions = Vec::new(); // (cell_idx, localplus_idx)
     for (i, (name, &kind)) in names.iter().zip(kinds.iter()).enumerate() {
-        let is_local = kind & CO_FAST_LOCAL != 0;
-        let is_cell = kind & CO_FAST_CELL != 0;
+        let kind = CoFastFlags::from_bits_retain(kind);
+        let is_local = kind.contains(&CoFastFlag::Local);
+        let is_cell = kind.contains(&CoFastFlag::Cell);
         if is_cell {
             let cell_idx = cellvars.len();
             cellvars.push(name.clone());
@@ -1701,7 +1699,7 @@ pub fn split_localplus<S: Clone>(
     let mut deref_map = alloc::vec![u32::MAX; names.len()];
     let mut cell_idx = 0u32;
     for (i, &kind) in kinds.iter().enumerate() {
-        if kind & CO_FAST_CELL != 0 {
+        if CoFastFlags::from_bits_retain(kind).contains(&CoFastFlag::Cell) {
             deref_map[i] = cell_idx;
             cell_idx += 1;
         }
@@ -1709,7 +1707,7 @@ pub fn split_localplus<S: Clone>(
     let ncells = cellvars.len();
     let mut free_idx = 0u32;
     for (i, &kind) in kinds.iter().enumerate() {
-        if kind & CO_FAST_FREE != 0 {
+        if CoFastFlags::from_bits_retain(kind).contains(&CoFastFlag::Free) {
             deref_map[i] = ncells as u32 + free_idx;
             free_idx += 1;
         }

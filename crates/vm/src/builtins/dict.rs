@@ -423,7 +423,7 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn __sizeof__(&self) -> usize {
+    pub(crate) fn __sizeof__(&self) -> usize {
         core::mem::size_of::<Self>() + self.entries.sizeof()
     }
 

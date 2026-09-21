@@ -1018,7 +1018,6 @@ class ThreadTests(BaseTestCase):
         finally:
             threading.settrace(old_trace)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gettrace_all_threads(self):
         def fn(*args): pass
         old_trace = threading.gettrace()
@@ -1057,7 +1056,6 @@ class ThreadTests(BaseTestCase):
         finally:
             threading.setprofile(old_profile)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_getprofile_all_threads(self):
         def fn(*args): pass
         old_profile = threading.getprofile()

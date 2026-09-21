@@ -14,7 +14,7 @@ pub(crate) mod _interpqueues {
         builtins::{PyBaseExceptionRef, PyModule, PyType, PyTypeRef},
         function::{ArgSpec, FuncArgs},
         types::Constructor,
-        vm::crossinterp::{self, Fallback, SharedValue, UNBOUND_REMOVE, UNBOUND_REPLACE},
+        vm::crossinterp::{Fallback, SharedValue, UnboundOp},
     };
     use alloc::{collections::BTreeMap, collections::VecDeque, sync::Arc};
     use core::cell::Cell;
@@ -160,14 +160,14 @@ pub(crate) mod _interpqueues {
     struct QueueItem {
         interpid: i64,
         data: Option<SharedValue>,
-        unboundop: i32,
+        unboundop: UnboundOp,
     }
 
     struct Queue {
         alive: bool,
         maxsize: isize,
         items: VecDeque<QueueItem>,
-        unboundop: i32,
+        unboundop: UnboundOp,
         fallback: Fallback,
     }
 
@@ -206,7 +206,7 @@ pub(crate) mod _interpqueues {
             .ok_or(QueueErr::NotFound)
     }
 
-    fn queue_create(maxsize: isize, unboundop: i32, fallback: Fallback) -> QueueResult<i64> {
+    fn queue_create(maxsize: isize, unboundop: UnboundOp, fallback: Fallback) -> QueueResult<i64> {
         let mut queues = queues().lock();
         let qid = queues.next_id;
         if qid < 0 {
@@ -244,7 +244,7 @@ pub(crate) mod _interpqueues {
         Ok(())
     }
 
-    fn queue_defaults(qid: i64) -> QueueResult<(i32, Fallback)> {
+    fn queue_defaults(qid: i64) -> QueueResult<(UnboundOp, Fallback)> {
         let queue = queue_lookup(qid)?;
         let state = queue.lock();
         if !state.alive {
@@ -281,16 +281,12 @@ pub(crate) mod _interpqueues {
         Ok(())
     }
 
-    fn resolve_unboundop(arg: i32, default: i32, vm: &VirtualMachine) -> PyResult<i32> {
+    fn resolve_unboundop(arg: i32, default: UnboundOp, vm: &VirtualMachine) -> PyResult<UnboundOp> {
         if arg < 0 {
             return Ok(default);
         }
-        match arg {
-            crossinterp::UNBOUND_REMOVE
-            | crossinterp::UNBOUND_ERROR
-            | crossinterp::UNBOUND_REPLACE => Ok(arg),
-            _ => Err(vm.new_value_error(format!("unsupported unboundop {arg}"))),
-        }
+        UnboundOp::from_i32(arg)
+            .ok_or_else(|| vm.new_value_error(format!("unsupported unboundop {arg}")))
     }
 
     fn resolve_fallback(arg: i32, default: i32, vm: &VirtualMachine) -> PyResult<Fallback> {
@@ -393,7 +389,7 @@ pub(crate) mod _interpqueues {
             },
             vm,
         )?;
-        let unboundop = resolve_unboundop(unboundarg.get().unwrap_or(-1), UNBOUND_REPLACE, vm)?;
+        let unboundop = resolve_unboundop(unboundarg.get().unwrap_or(-1), UnboundOp::Replace, vm)?;
         let fallback =
             resolve_fallback(fallbackarg.get().unwrap_or(-1), Fallback::Full.as_i32(), vm)?;
         queue_create(maxsize.get().unwrap(), unboundop, fallback).map_err(|err| err.into_py(-1, vm))
@@ -431,7 +427,7 @@ pub(crate) mod _interpqueues {
                     vm.ctx
                         .new_tuple(vec![
                             vm.ctx.new_int(qid).into(),
-                            vm.ctx.new_int(state.unboundop).into(),
+                            vm.ctx.new_int(state.unboundop.as_i32()).into(),
                             vm.ctx.new_int(state.fallback.as_i32()).into(),
                         ])
                         .into(),
@@ -474,7 +470,7 @@ pub(crate) mod _interpqueues {
             let (unboundop, fallback) = queue_defaults(qid).map_err(|err| err.into_py(qid, vm))?;
             (unboundop, fallback.as_i32())
         } else {
-            (-1, -1)
+            (UnboundOp::Replace, -1)
         };
         let unboundop = resolve_unboundop(unboundarg, default_unboundop, vm)?;
         let fallback = resolve_fallback(fallbackarg, default_fallback, vm)?;
@@ -515,7 +511,10 @@ pub(crate) mod _interpqueues {
         };
         let (obj, unboundop) = match item.data {
             Some(data) => (data.into_object(vm)?, vm.ctx.none()),
-            None => (vm.ctx.none(), vm.ctx.new_int(item.unboundop).into()),
+            None => (
+                vm.ctx.none(),
+                vm.ctx.new_int(item.unboundop.as_i32()).into(),
+            ),
         };
         Ok(vm.ctx.new_tuple(vec![obj, unboundop]).into())
     }
@@ -550,7 +549,7 @@ pub(crate) mod _interpqueues {
         Ok(vm
             .ctx
             .new_tuple(vec![
-                vm.ctx.new_int(unboundop).into(),
+                vm.ctx.new_int(unboundop.as_i32()).into(),
                 vm.ctx.new_int(fallback.as_i32()).into(),
             ])
             .into())
@@ -665,7 +664,7 @@ pub(crate) mod _interpqueues {
                     index += 1;
                     continue;
                 }
-                if state.items[index].unboundop == UNBOUND_REMOVE {
+                if state.items[index].unboundop == UnboundOp::Remove {
                     dropped.push(state.items.remove(index).and_then(|item| item.data));
                 } else {
                     dropped.push(state.items[index].data.take());

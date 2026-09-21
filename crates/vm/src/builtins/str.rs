@@ -1170,7 +1170,11 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    pub(crate) fn splitlines(
+        &self,
+        args: anystr::SplitLinesArgs,
+        vm: &VirtualMachine,
+    ) -> Vec<PyObjectRef> {
         let into_wrapper = |s: &Wtf8| self.new_substr(s.to_owned()).to_pyobject(vm);
         let mut elements = Vec::new();
         let mut last_i = 0;
