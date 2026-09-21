@@ -832,6 +832,50 @@ pub mod module {
         }
     }
 
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    #[pyfunction]
+    fn forkpty(vm: &VirtualMachine) -> PyResult<(i32, i32)> {
+        if vm
+            .state
+            .finalizing
+            .load(core::sync::atomic::Ordering::Acquire)
+        {
+            return Err(vm.new_exception_msg(
+                vm.ctx.exceptions.python_finalization_error.to_owned(),
+                "can't fork at interpreter shutdown".into(),
+            ));
+        }
+        if !vm.state.allow_fork() {
+            return Err(
+                vm.new_runtime_error("fork not supported for isolated subinterpreters".to_owned())
+            );
+        }
+
+        vm.sys_module
+            .get_attr("audit", vm)?
+            .call(("os.forkpty",), vm)?;
+
+        py_os_before_fork(vm);
+        let result = rustpython_host_env::posix::forkpty();
+
+        match result {
+            Ok((0, master)) => {
+                py_os_after_fork_child(vm);
+                Ok((0, master))
+            }
+            Ok((pid, master)) => {
+                let num_os_threads = get_number_of_os_threads();
+                py_os_after_fork_parent(vm);
+                warn_if_multi_threaded("forkpty", num_os_threads, vm);
+                Ok((pid, master))
+            }
+            Err(err) => {
+                py_os_after_fork_parent(vm);
+                Err(err.into_pyexception(vm))
+            }
+        }
+    }
+
     #[cfg(not(target_os = "redox"))]
     const MKNOD_DIR_FD: bool = cfg!(not(target_vendor = "apple"));
 
