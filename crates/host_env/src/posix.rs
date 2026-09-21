@@ -617,10 +617,7 @@ impl From<std::io::Error> for AccessError {
     }
 }
 
-const F_OK: u8 = 0;
-const R_OK: u8 = 4;
-const W_OK: u8 = 2;
-const X_OK: u8 = 1;
+pub use crate::os::{F_OK, R_OK, W_OK, X_OK};
 
 fn get_permissions(mode: u32) -> Permissions {
     Permissions {

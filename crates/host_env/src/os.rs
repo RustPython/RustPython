@@ -30,6 +30,11 @@ use {
     },
 };
 
+pub const F_OK: u8 = 0;
+pub const R_OK: u8 = 4;
+pub const W_OK: u8 = 2;
+pub const X_OK: u8 = 1;
+
 #[cfg(not(any(unix, windows, target_os = "wasi")))]
 pub fn rename(
     from: impl AsRef<std::path::Path>,

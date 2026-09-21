@@ -47,8 +47,13 @@ pub enum ProtoVersion {
     MaxSupported = -1,
 }
 
+pub const PROTO_SSL3: i32 = ProtoVersion::Ssl3 as i32;
+pub const PROTO_TLSV1: i32 = ProtoVersion::Tls1 as i32;
+pub const PROTO_TLSV1_1: i32 = ProtoVersion::Tls1_1 as i32;
 pub const PROTO_TLSV1_2: i32 = ProtoVersion::Tls1_2 as i32;
 pub const PROTO_TLSV1_3: i32 = ProtoVersion::Tls1_3 as i32;
+pub const PROTO_MINIMUM_SUPPORTED: i32 = ProtoVersion::MinSupported as i32;
+pub const PROTO_MAXIMUM_SUPPORTED: i32 = ProtoVersion::MaxSupported as i32;
 
 /// `X509_V_FLAG_*` bitmasks from `x509_vfy.h`.
 pub const VERIFY_DEFAULT: i32 = 0;
@@ -168,8 +173,13 @@ mod tests {
         assert_eq!(CERT_NONE, 0);
         assert_eq!(CERT_OPTIONAL, 1);
         assert_eq!(CERT_REQUIRED, 2);
+        assert_eq!(PROTO_SSL3, 0x0300);
+        assert_eq!(PROTO_TLSV1, 0x0301);
+        assert_eq!(PROTO_TLSV1_1, 0x0302);
         assert_eq!(PROTO_TLSV1_2, 0x0303);
         assert_eq!(PROTO_TLSV1_3, 0x0304);
+        assert_eq!(PROTO_MINIMUM_SUPPORTED, -2);
+        assert_eq!(PROTO_MAXIMUM_SUPPORTED, -1);
         assert_eq!(ProtoVersion::Ssl3 as i32, 0x0300);
         assert_eq!(ProtoVersion::Tls1 as i32, 0x0301);
         assert_eq!(ProtoVersion::Tls1_1 as i32, 0x0302);

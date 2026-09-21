@@ -10,6 +10,16 @@ use crate::os::CheckLibcZero;
 #[cfg(any(unix, windows))]
 pub use libc::sighandler_t;
 
+#[cfg(all(unix, not(target_os = "android")))]
+pub use libc::{ITIMER_PROF, ITIMER_REAL, ITIMER_VIRTUAL};
+
+#[cfg(target_os = "android")]
+pub const ITIMER_REAL: libc::c_int = 0;
+#[cfg(target_os = "android")]
+pub const ITIMER_VIRTUAL: libc::c_int = 1;
+#[cfg(target_os = "android")]
+pub const ITIMER_PROF: libc::c_int = 2;
+
 #[cfg(unix)]
 #[must_use]
 pub fn timeval_to_double(tv: &libc::timeval) -> f64 {
