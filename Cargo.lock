@@ -4096,6 +4096,7 @@ dependencies = [
  "rustpython-wtf8",
  "unicode_names2 3.1.0",
  "writeable",
+ "zlib-rs",
 ]
 
 [[package]]
