@@ -21,6 +21,11 @@ mod decl {
         function::{Either, FuncArgs, OptionalArg},
         types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
     };
+    #[cfg(target_os = "wasi")]
+    use crate::{
+        PyRef,
+        builtins::{PyNamespace, PyUtf8StrRef},
+    };
     #[cfg(any(unix, windows))]
     use crate::{
         common::wtf8::Wtf8Buf,
@@ -73,6 +78,40 @@ mod decl {
     #[cfg(target_os = "wasi")]
     fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
         get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+    }
+
+    #[cfg(target_os = "wasi")]
+    fn clock_getres(id: ClockId, vm: &VirtualMachine) -> PyResult<f64> {
+        host_time::clock_getres(id)
+            .map(|d| d.as_secs_f64())
+            .map_err(|err| vm.new_os_error(err.to_string()))
+    }
+
+    #[cfg(target_os = "wasi")]
+    #[pyfunction]
+    fn get_clock_info(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
+        let (adj, imp, mono, res) = match name.as_str() {
+            "monotonic" | "perf_counter" => (
+                false,
+                "time.clock_gettime(CLOCK_MONOTONIC)",
+                true,
+                clock_getres(ClockId::CLOCK_MONOTONIC, vm)?,
+            ),
+            "time" => (
+                true,
+                "time.clock_gettime(CLOCK_REALTIME)",
+                false,
+                clock_getres(ClockId::CLOCK_REALTIME, vm)?,
+            ),
+            _ => return Err(vm.new_value_error("unknown clock")),
+        };
+
+        Ok(py_namespace!(vm, {
+            "implementation" => vm.new_pyobj(imp),
+            "monotonic" => vm.ctx.new_bool(mono),
+            "adjustable" => vm.ctx.new_bool(adj),
+            "resolution" => vm.ctx.new_float(res),
+        }))
     }
 
     #[cfg(not(any(unix, windows, target_os = "wasi")))]

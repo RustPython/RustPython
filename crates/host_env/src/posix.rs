@@ -177,6 +177,16 @@ pub fn chroot(path: &Path) -> std::io::Result<()> {
     nix::unistd::chroot(path).map_err(std::io::Error::from)
 }
 
+#[cfg(all(unix, not(target_os = "redox")))]
+pub fn fchmodat(dirfd: i32, path: &CStr, mode: libc::mode_t, flags: i32) -> std::io::Result<()> {
+    let ret = unsafe { libc::fchmodat(dirfd, path.as_ptr(), mode, flags) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
 pub fn lchmod(path: &CStr, mode: libc::mode_t) -> std::io::Result<()> {
     unsafe extern "C" {

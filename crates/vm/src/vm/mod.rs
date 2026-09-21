@@ -24,8 +24,9 @@ mod vm_ops;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        self, PyBaseExceptionRef, PyBaseObject, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr,
-        PyStrInterned, PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned, PyWeak,
+        self, PyBaseExceptionRef, PyBaseObject, PyDict, PyDictRef, PyFrozenSet, PyInt, PyList,
+        PyModule, PySet, PyStr, PyStrInterned, PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned,
+        PyWeak,
         code::PyCode,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
         pystr::AsPyStr,
@@ -3288,6 +3289,12 @@ impl VirtualMachine {
                 i += 1;
             }
             return Ok(results);
+        } else if cls.is(self.ctx.types.set_type) {
+            let keys = value.downcast_ref::<PySet>().unwrap().elements();
+            return map_known_len(keys.into_iter(), func);
+        } else if cls.is(self.ctx.types.frozenset_type) {
+            let keys = value.downcast_ref::<PyFrozenSet>().unwrap().elements();
+            return map_known_len(keys.into_iter(), func);
         } else if cls.is(self.ctx.types.dict_type) {
             let keys = value.downcast_ref::<PyDict>().unwrap().keys_vec();
             return map_known_len(keys.into_iter(), func);

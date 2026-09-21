@@ -614,8 +614,8 @@ pub mod module {
         #[cfg(feature = "threading")]
         crate::stdlib::_thread::after_fork_child(vm);
 
-        // CPython parity: reinit import lock ownership metadata in child
-        // and release the lock acquired by PyOS_BeforeFork().
+        // Reinit import lock ownership metadata in child and release the lock
+        // acquired before fork.
         #[cfg(feature = "threading")]
         unsafe {
             crate::stdlib::_imp::after_fork_child_imp_lock_release()
@@ -817,15 +817,18 @@ pub mod module {
                 Ok(0)
             }
             Ok(pid) => {
-                // Match CPython timing: capture this before parent after-fork hooks
-                // in case those hooks start threads.
+                // Capture this before parent after-fork hooks in case those
+                // hooks start threads.
                 let num_os_threads = get_number_of_os_threads();
                 py_os_after_fork_parent(vm);
-                // Match CPython timing: warn only after parent callback path resumes world.
+                // Warn only after parent callback path resumes the world.
                 warn_if_multi_threaded("fork", num_os_threads, vm);
                 Ok(pid)
             }
-            Err(err) => Err(err.into_pyexception(vm)),
+            Err(err) => {
+                py_os_after_fork_parent(vm);
+                Err(err.into_pyexception(vm))
+            }
         }
     }
 
@@ -1002,6 +1005,32 @@ pub mod module {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let [] = dir_fd.0;
+        #[cfg(all(
+            unix,
+            not(target_os = "redox"),
+            not(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))
+        ))]
+        if !follow_symlinks.0 {
+            let err_path = path.clone();
+            let c_path = path.into_cstring(vm)?;
+            return rustpython_host_env::posix::fchmodat(
+                libc::AT_FDCWD,
+                &c_path,
+                mode as libc::mode_t,
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+            .map_err(|err| {
+                let enotsup = err.raw_os_error() == Some(libc::EOPNOTSUPP)
+                    || err.raw_os_error() == Some(libc::ENOTSUP);
+                if enotsup {
+                    vm.new_not_implemented_error(
+                        "chmod: follow_symlinks unavailable on this platform".to_owned(),
+                    )
+                } else {
+                    OSErrorBuilder::with_filename(&err, err_path, vm)
+                }
+            });
+        }
         let err_path = path.clone();
         let body = move || {
             use std::os::unix::fs::PermissionsExt;

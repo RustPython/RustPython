@@ -302,6 +302,17 @@ pub fn clock_getres(id: ClockId) -> std::io::Result<Duration> {
         .map_err(std::io::Error::from)
 }
 
+#[cfg(target_os = "wasi")]
+pub fn clock_getres(id: ClockId) -> std::io::Result<Duration> {
+    let mut ts = core::mem::MaybeUninit::<libc::timespec>::uninit();
+    let ret = unsafe { libc::clock_getres(id.as_raw(), ts.as_mut_ptr()) };
+    if ret != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let ts = unsafe { ts.assume_init() };
+    Ok(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+}
+
 #[cfg(all(unix, not(target_os = "redox"), not(target_vendor = "apple")))]
 pub fn clock_settime(id: ClockId, time: Duration) -> std::io::Result<()> {
     let ts = nix::sys::time::TimeSpec::from(time);
