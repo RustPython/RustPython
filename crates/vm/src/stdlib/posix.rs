@@ -1005,6 +1005,32 @@ pub mod module {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let [] = dir_fd.0;
+        #[cfg(all(
+            unix,
+            not(target_os = "redox"),
+            not(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))
+        ))]
+        if !follow_symlinks.0 {
+            let err_path = path.clone();
+            let c_path = path.into_cstring(vm)?;
+            return rustpython_host_env::posix::fchmodat(
+                libc::AT_FDCWD,
+                &c_path,
+                mode as libc::mode_t,
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+            .map_err(|err| {
+                let enotsup = err.raw_os_error() == Some(libc::EOPNOTSUPP)
+                    || err.raw_os_error() == Some(libc::ENOTSUP);
+                if enotsup {
+                    vm.new_not_implemented_error(
+                        "chmod: follow_symlinks unavailable on this platform".to_owned(),
+                    )
+                } else {
+                    OSErrorBuilder::with_filename(&err, err_path, vm)
+                }
+            });
+        }
         let err_path = path.clone();
         let body = move || {
             use std::os::unix::fs::PermissionsExt;
