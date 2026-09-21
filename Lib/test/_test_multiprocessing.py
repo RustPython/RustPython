@@ -6269,7 +6269,6 @@ class TestResourceTracker(unittest.TestCase):
             # restore sigmask to what it was before executing test
             signal.pthread_sigmask(signal.SIG_SETMASK, orig_sigmask)
 
-    @unittest.expectedFailureIf(not hasattr(os, "killpg"), "TODO: RUSTPYTHON")
     @only_run_in_forkserver_testsuite("avoids redundant testing.")
     def test_resource_tracker_fork_deadlock(self):
         # gh-146313: ResourceTracker.__del__ used to deadlock if a forked

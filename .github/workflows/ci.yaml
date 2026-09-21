@@ -454,11 +454,6 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
-      # Tests that can be flaky when running with multiple processes `-j 2`. We will use `-j 1` for these.
-      FLAKY_MP_TESTS: >-
-        test_multiprocessing_fork
-        test_multiprocessing_forkserver
-        test_multiprocessing_spawn
     # Named after the matrix entry rather than left to be named for it: a
     # generated name lists every value in the entry, so adding or removing one
     # renames the check and drops it from the required list.
@@ -472,7 +467,6 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          extra_flaky_mp_tests: []
           env_polluting_tests: []
           skips: []
           timeout: 50
@@ -481,7 +475,6 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          extra_flaky_mp_tests: []
           env_polluting_tests: []
           skips: []
           timeout: 60
@@ -490,7 +483,6 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          extra_flaky_mp_tests: []
           env_polluting_tests: []
           skips: []
           timeout: 50
@@ -552,40 +544,14 @@ jobs:
 
       - name: Run CPython tests
         run: |
-          target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS -x $FLAKY_MP_TESTS $EXTRA_FLAKY_MP_TESTS $SKIPS
+          target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS $SKIPS
         timeout-minutes: ${{ matrix.timeout }}
         shell: bash
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
           CORES: ${{ steps.cores.outputs.cores }}
           EXTRA_TEST_ARGS: ${{ join(matrix.extra_test_args, ' ') }}
-          EXTRA_FLAKY_MP_TESTS: ${{ join(matrix.extra_flaky_mp_tests, ' ') }}
           SKIPS: ${{ join(matrix.skips, ' ') }}
-
-      - name: Run flaky MP CPython tests
-        run: |
-          for attempt in $(seq 1 5); do
-            echo "::group::Attempt ${attempt}"
-
-            set +e
-            target/release/rustpython -u -m test --slow-ci -j 1 $EXTRA_TEST_ARGS $FLAKY_MP_TESTS $EXTRA_FLAKY_MP_TESTS
-            status=$?
-            set -e
-
-            echo "::endgroup::"
-
-            if [ $status -eq 0 ]; then
-              exit 0
-            fi
-          done
-
-          exit 1
-        timeout-minutes: ${{ matrix.timeout }}
-        shell: bash
-        env:
-          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-          EXTRA_TEST_ARGS: ${{ join(matrix.extra_test_args, ' ') }}
-          EXTRA_FLAKY_MP_TESTS: ${{ join(matrix.extra_flaky_mp_tests, ' ') }}
 
       - name: run cpython tests to check if env polluters have stopped polluting
         shell: bash
