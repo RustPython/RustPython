@@ -248,28 +248,11 @@ pub(crate) mod _ctypes {
     const SIZEOF_TIME_T: usize = rustpython_host_env::ctypes::SIZEOF_TIME_T;
 
     #[pyattr]
-    const CTYPES_MAX_ARGCOUNT: usize = 1024;
-
-    #[pyattr]
-    const FUNCFLAG_STDCALL: u32 = 0x0;
-    #[pyattr]
-    const FUNCFLAG_CDECL: u32 = 0x1;
-    #[pyattr]
-    const FUNCFLAG_HRESULT: u32 = 0x2;
-    #[pyattr]
-    const FUNCFLAG_PYTHONAPI: u32 = 0x4;
-    #[pyattr]
-    const FUNCFLAG_USE_ERRNO: u32 = 0x8;
-    #[pyattr]
-    const FUNCFLAG_USE_LASTERROR: u32 = 0x10;
-
-    #[pyattr]
-    const TYPEFLAG_ISPOINTER: u32 = 0x100;
-    #[pyattr]
-    const TYPEFLAG_HASPOINTER: u32 = 0x200;
-
-    #[pyattr]
-    const DICTFLAG_FINAL: u32 = 0x1000;
+    use rustpython_host_env::ctypes::{
+        CTYPES_MAX_ARGCOUNT, DICTFLAG_FINAL, FUNCFLAG_CDECL, FUNCFLAG_HRESULT, FUNCFLAG_PYTHONAPI,
+        FUNCFLAG_STDCALL, FUNCFLAG_USE_ERRNO, FUNCFLAG_USE_LASTERROR, TYPEFLAG_HASPOINTER,
+        TYPEFLAG_ISPOINTER,
+    };
 
     #[pyattr(name = "ArgumentError", once)]
     fn argument_error(vm: &VirtualMachine) -> PyTypeRef {

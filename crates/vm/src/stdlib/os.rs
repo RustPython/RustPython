@@ -30,14 +30,7 @@ pub struct TargetIsDirectory {
     pub(crate) target_is_directory: bool,
 }
 
-cfg_select! {
-    any(unix, target_os = "wasi") => {
-        use libc::AT_FDCWD;
-    }
-    _ => {
-        const AT_FDCWD: i32 = -100;
-    }
-}
+use crate::host_env::os::AT_FDCWD;
 
 const DEFAULT_DIR_FD: crt_fd::Borrowed<'static> = unsafe { crt_fd::Borrowed::borrow_raw(AT_FDCWD) };
 

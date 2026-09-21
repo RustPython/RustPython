@@ -319,45 +319,14 @@ mod _stat {
     );
 
     #[pyattr]
-    pub const SF_SETTABLE: u32 = if cfg!(target_os = "macos") {
-        0x3fff0000
-    } else {
-        0xffff0000
+    pub use rustpython_host_env::os::{
+        SF_DATALESS, SF_FIRMLINK, SF_NOUNLINK, SF_SETTABLE, SF_SNAPSHOT, UF_DATAVAULT, UF_NOUNLINK,
+        UF_SETTABLE, UF_TRACKED,
     };
 
-    #[pyattr]
-    pub const UF_SETTABLE: u32 = 0x0000ffff;
-
-    #[pyattr]
-    pub const UF_NOUNLINK: u32 = 0x00000010;
-
-    #[pyattr]
-    pub const UF_TRACKED: u32 = 0x00000040;
-
-    #[pyattr]
-    pub const UF_DATAVAULT: u32 = 0x00000080;
-
-    #[pyattr]
-    pub const SF_NOUNLINK: u32 = 0x00100000;
-
-    #[pyattr]
-    pub const SF_SNAPSHOT: u32 = 0x00200000;
-
-    #[pyattr]
-    pub const SF_FIRMLINK: u32 = 0x00800000;
-
-    #[pyattr]
-    pub const SF_DATALESS: u32 = 0x40000000;
-
-    // MacOS specific
-
     #[cfg(target_os = "macos")]
     #[pyattr]
-    pub const SF_SUPPORTED: u32 = 0x009f0000;
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const SF_SYNTHETIC: u32 = 0xc0000000;
+    pub use rustpython_host_env::os::{SF_SUPPORTED, SF_SYNTHETIC};
 
     // Stat result indices
 
