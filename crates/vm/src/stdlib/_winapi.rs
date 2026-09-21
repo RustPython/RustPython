@@ -64,7 +64,7 @@ mod _winapi {
     const NULL: isize = 0;
 
     #[pyattr]
-    const INVALID_HANDLE_VALUE: isize = -1;
+    const INVALID_HANDLE_VALUE: isize = host_overlapped::INVALID_HANDLE_VALUE_ISIZE;
 
     #[pyattr]
     const INFINITE: u32 = host_winapi::INFINITE_TIMEOUT;

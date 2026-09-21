@@ -88,37 +88,13 @@ mod _ssl {
         rustpython_host_env::ssl::HOSTFLAG_NEVER_CHECK_SUBJECT;
 
     #[pyattr]
-    const OP_NO_SSLv2: i32 = 0x00000000;
-    #[pyattr]
-    const OP_NO_SSLv3: i32 = 0x02000000;
-    #[pyattr]
-    const OP_NO_TLSv1: i32 = 0x04000000;
-    #[pyattr]
-    const OP_NO_TLSv1_1: i32 = 0x10000000;
-    #[pyattr]
-    const OP_NO_TLSv1_2: i32 = rustpython_host_env::ssl::OP_NO_TLSV1_2;
-    #[pyattr]
-    const OP_NO_TLSv1_3: i32 = rustpython_host_env::ssl::OP_NO_TLSV1_3;
-    #[pyattr]
-    const OP_NO_COMPRESSION: i32 = 0x00020000;
-    #[pyattr]
-    const OP_CIPHER_SERVER_PREFERENCE: i32 = 0x00400000;
-    #[pyattr]
-    const OP_SINGLE_DH_USE: i32 = 0x00000000;
-    #[pyattr]
-    const OP_SINGLE_ECDH_USE: i32 = 0x00000000;
-    #[pyattr]
-    const OP_NO_TICKET: i32 = 0x00004000;
-    #[pyattr]
-    const OP_LEGACY_SERVER_CONNECT: i32 = 0x00000004;
-    #[pyattr]
-    const OP_NO_RENEGOTIATION: i32 = 0x40000000;
-    #[pyattr]
-    const OP_IGNORE_UNEXPECTED_EOF: i32 = 0x00000080;
-    #[pyattr]
-    const OP_ENABLE_MIDDLEBOX_COMPAT: i32 = 0x00100000;
-    #[pyattr]
-    const OP_ALL: i32 = 0x00000BFB;
+    use rustpython_host_env::ssl::{
+        OP_ALL, OP_CIPHER_SERVER_PREFERENCE, OP_ENABLE_MIDDLEBOX_COMPAT, OP_IGNORE_UNEXPECTED_EOF,
+        OP_LEGACY_SERVER_CONNECT, OP_NO_COMPRESSION, OP_NO_RENEGOTIATION, OP_NO_SSLv2, OP_NO_SSLv3,
+        OP_NO_TICKET, OP_NO_TLSV1 as OP_NO_TLSv1, OP_NO_TLSV1_1 as OP_NO_TLSv1_1,
+        OP_NO_TLSV1_2 as OP_NO_TLSv1_2, OP_NO_TLSV1_3 as OP_NO_TLSv1_3, OP_SINGLE_DH_USE,
+        OP_SINGLE_ECDH_USE,
+    };
 
     #[pyattr]
     const ALERT_DESCRIPTION_CLOSE_NOTIFY: i32 = 0;

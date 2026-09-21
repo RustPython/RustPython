@@ -9,55 +9,16 @@ mod winsound {
     use crate::convert::{IntoPyException, ToPyException};
     use crate::protocol::{BufferFlags, PyBuffer};
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
+    use rustpython_host_env::winsound as host_winsound;
     use rustpython_host_env::winsound::{PlaySoundError, PlaySoundSource, play_sound};
 
-    // PlaySound flags
     #[pyattr]
-    const SND_SYNC: u32 = 0x0000;
-    #[pyattr]
-    const SND_ASYNC: u32 = 0x0001;
-    #[pyattr]
-    const SND_NODEFAULT: u32 = 0x0002;
-    #[pyattr]
-    const SND_MEMORY: u32 = 0x0004;
-    #[pyattr]
-    const SND_LOOP: u32 = 0x0008;
-    #[pyattr]
-    const SND_NOSTOP: u32 = 0x0010;
-    #[pyattr]
-    const SND_PURGE: u32 = 0x0040;
-    #[pyattr]
-    const SND_APPLICATION: u32 = 0x0080;
-    #[pyattr]
-    const SND_NOWAIT: u32 = 0x00002000;
-    #[pyattr]
-    const SND_ALIAS: u32 = 0x00010000;
-    #[pyattr]
-    const SND_FILENAME: u32 = 0x00020000;
-    #[pyattr]
-    const SND_SENTRY: u32 = 0x00080000;
-    #[pyattr]
-    const SND_SYSTEM: u32 = 0x00200000;
-
-    // MessageBeep types
-    #[pyattr]
-    const MB_OK: u32 = 0x00000000;
-    #[pyattr]
-    const MB_ICONHAND: u32 = 0x00000010;
-    #[pyattr]
-    const MB_ICONQUESTION: u32 = 0x00000020;
-    #[pyattr]
-    const MB_ICONEXCLAMATION: u32 = 0x00000030;
-    #[pyattr]
-    const MB_ICONASTERISK: u32 = 0x00000040;
-    #[pyattr]
-    const MB_ICONERROR: u32 = MB_ICONHAND;
-    #[pyattr]
-    const MB_ICONSTOP: u32 = MB_ICONHAND;
-    #[pyattr]
-    const MB_ICONINFORMATION: u32 = MB_ICONASTERISK;
-    #[pyattr]
-    const MB_ICONWARNING: u32 = MB_ICONEXCLAMATION;
+    use host_winsound::{
+        MB_ICONASTERISK, MB_ICONERROR, MB_ICONEXCLAMATION, MB_ICONHAND, MB_ICONINFORMATION,
+        MB_ICONQUESTION, MB_ICONSTOP, MB_ICONWARNING, MB_OK, SND_ALIAS, SND_APPLICATION, SND_ASYNC,
+        SND_FILENAME, SND_LOOP, SND_MEMORY, SND_NODEFAULT, SND_NOSTOP, SND_NOWAIT, SND_PURGE,
+        SND_SENTRY, SND_SYNC, SND_SYSTEM,
+    };
 
     #[derive(FromArgs)]
     struct PlaySoundArgs {
