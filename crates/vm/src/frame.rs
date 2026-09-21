@@ -4033,7 +4033,19 @@ impl ExecutingFrame<'_> {
                         Either::A(coro) => coro
                             .throw(jen, exc_type, exc_val, exc_tb, vm)
                             .to_pyresult(vm),
-                        Either::B(meth) => meth.call((exc_type, exc_val, exc_tb), vm),
+                        Either::B(meth) => {
+                            // Omit trailing None so a 1-arg throw() stays 1-arg.
+                            // Passing None fillers makes throw() look like the
+                            // deprecated 3-arg form and warns under -W error.
+                            let args = if !vm.is_none(&exc_tb) {
+                                vec![exc_type, exc_val, exc_tb]
+                            } else if !vm.is_none(&exc_val) {
+                                vec![exc_type, exc_val]
+                            } else {
+                                vec![exc_type]
+                            };
+                            meth.call(args, vm)
+                        }
                     };
                     return ret.map(ExecutionResult::Yield).or_else(|err| {
                         // Add traceback entry for the yield-from/await point.

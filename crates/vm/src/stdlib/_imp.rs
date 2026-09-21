@@ -51,33 +51,27 @@ mod lock {
         }
     }
 
-    /// Reset import lock after fork() — only if held by a dead thread.
+    /// Reset the import lock after `fork()`.
     ///
-    /// `IMP_LOCK` is a reentrant mutex. If the *current* (surviving) thread
-    /// held it at fork time, the child must be able to release it normally.
-    /// Only reset if a now-dead thread was the owner.
+    /// Always zero the lock. Other threads may have been parked on it at
+    /// fork time; `unlock()` would walk those waiter queues. The child is
+    /// single-threaded, so the lock starts unlocked.
     ///
     /// # Safety
     ///
     /// Must only be called from single-threaded child after fork().
     #[cfg(all(unix, feature = "host_env"))]
     pub(crate) unsafe fn reinit_after_fork() {
-        if IMP_LOCK.is_locked() && !IMP_LOCK.is_owned_by_current_thread() {
-            // Held by a dead thread — reset to unlocked.
-            unsafe { rustpython_common::lock::zero_reinit_after_fork(&IMP_LOCK) };
-        }
+        // Do NOT call unlock() here — after fork(), unlock_slow() would try
+        // to unpark stale waiters.
+        unsafe { rustpython_common::lock::zero_reinit_after_fork(&IMP_LOCK) };
     }
 
-    /// Match CPython's `_PyImport_ReInitLock()` + `_PyImport_ReleaseLock()`
-    /// behavior in the post-fork child:
-    /// 1) if ownership metadata is stale (dead owner / changed tid), reset;
-    /// 2) if current thread owns the lock, release it.
+    /// Import lock is unlocked after [`reinit_after_fork`]. Kept as a named
+    /// step in the child after-fork sequence.
     #[cfg(all(unix, feature = "host_env"))]
     pub(super) unsafe fn after_fork_child_reinit_and_release() {
         unsafe { reinit_after_fork() };
-        if IMP_LOCK.is_locked() && IMP_LOCK.is_owned_by_current_thread() {
-            unsafe { IMP_LOCK.unlock() };
-        }
     }
 }
 

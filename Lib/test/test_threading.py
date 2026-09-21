@@ -1568,7 +1568,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
         self.assertEqual(out.strip(), b"OK")
         self.assertEqual(rc, 0)
 
-    @unittest.skip("TODO: RUSTPYTHON; - flaky, parking_lot mutex not fork-safe")
     @skip_unless_reliable_fork
     def test_reinit_tls_after_fork(self):
         # Issue #13817: fork() would deadlock in a multithreaded program with

@@ -4108,7 +4108,6 @@ class ConfigDictTest(BaseTest):
         # log a message (this creates a record put in the queue)
         logging.getLogger().info(message_to_log)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; SemLock not implemented on Windows")
     @skip_if_tsan_fork
     @support.requires_subprocess()
     def test_multiprocessing_queues(self):
