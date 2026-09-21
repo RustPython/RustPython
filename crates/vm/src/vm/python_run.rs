@@ -1,7 +1,7 @@
 //! Python code execution functions.
 
 use crate::{
-    Py, PyRef, PyResult, VirtualMachine,
+    Py, PyObjectRef, PyResult, VirtualMachine,
     builtins::PyCode,
     compiler::{self},
     scope::Scope,
@@ -35,7 +35,10 @@ impl VirtualMachine {
         let register = linecache.get_attr("_register_code", self)?;
         let source_str = self.ctx.new_str(source);
         let filename = self.ctx.new_str(code.source_path().as_str());
-        register.call((code.to_owned().into(), source_str, filename), self)?;
+        register.call(
+            (PyObjectRef::from(code.to_owned()), source_str, filename),
+            self,
+        )?;
         Ok(())
     }
 
