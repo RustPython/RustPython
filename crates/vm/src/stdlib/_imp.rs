@@ -11,8 +11,21 @@ pub(super) use crate::vm::resolve_frozen_alias;
 #[pymodule(sub)]
 mod lock {
     use crate::{PyResult, VirtualMachine, stdlib::_thread::RawRMutex};
+    use core::cell::Cell;
 
     static IMP_LOCK: RawRMutex = RawRMutex::INIT;
+
+    thread_local! {
+        static IMP_LOCK_DEPTH: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn bump_depth() {
+        IMP_LOCK_DEPTH.with(|c| c.set(c.get() + 1));
+    }
+
+    fn drop_depth() {
+        IMP_LOCK_DEPTH.with(|c| c.set(c.get().saturating_sub(1)));
+    }
 
     #[pyfunction]
     fn acquire_lock(vm: &VirtualMachine) {
@@ -27,10 +40,11 @@ mod lock {
 
     #[pyfunction]
     fn release_lock(vm: &VirtualMachine) -> PyResult<()> {
-        if !IMP_LOCK.is_locked() {
+        if !IMP_LOCK.is_locked() || !IMP_LOCK.is_owned_by_current_thread() {
             Err(vm.new_runtime_error("Global import lock not held"))
         } else {
             unsafe { IMP_LOCK.unlock() };
+            drop_depth();
             Ok(())
         }
     }
@@ -42,36 +56,45 @@ mod lock {
 
     pub(super) fn acquire_lock_for_fork() {
         IMP_LOCK.lock();
+        bump_depth();
     }
 
     #[cfg(all(unix, feature = "host_env"))]
     pub(super) fn release_lock_after_fork_parent() {
         if IMP_LOCK.is_locked() && IMP_LOCK.is_owned_by_current_thread() {
             unsafe { IMP_LOCK.unlock() };
+            drop_depth();
         }
     }
 
     /// Reset the import lock after `fork()`.
     ///
-    /// Always zero the lock. Other threads may have been parked on it at
-    /// fork time; `unlock()` would walk those waiter queues. The child is
-    /// single-threaded, so the lock starts unlocked.
+    /// Zero the lock so waiter queues from dead threads are discarded, then
+    /// re-acquire it as many times as this thread held it. `unlock()` on the
+    /// inherited lock would unpark those waiters.
     ///
     /// # Safety
     ///
     /// Must only be called from single-threaded child after fork().
     #[cfg(all(unix, feature = "host_env"))]
     pub(crate) unsafe fn reinit_after_fork() {
-        // Do NOT call unlock() here — after fork(), unlock_slow() would try
-        // to unpark stale waiters.
+        let depth = IMP_LOCK_DEPTH.with(Cell::get);
         unsafe { rustpython_common::lock::zero_reinit_after_fork(&IMP_LOCK) };
+        for _ in 0..depth {
+            IMP_LOCK.lock();
+        }
     }
 
-    /// Import lock is unlocked after [`reinit_after_fork`]. Kept as a named
-    /// step in the child after-fork sequence.
+    /// Restore the child's import lock, then drop the extra hold taken
+    /// before `fork()`. Nested `imp.acquire_lock()` holds stay so the
+    /// child's `release_lock()` can unwind them.
     #[cfg(all(unix, feature = "host_env"))]
     pub(super) unsafe fn after_fork_child_reinit_and_release() {
         unsafe { reinit_after_fork() };
+        if IMP_LOCK.is_locked() && IMP_LOCK.is_owned_by_current_thread() {
+            unsafe { IMP_LOCK.unlock() };
+            drop_depth();
+        }
     }
 }
 
