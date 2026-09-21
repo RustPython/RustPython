@@ -468,12 +468,12 @@ impl FrameObject {
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(Py, Representable))]
 impl FrameObject {
     #[pygetset]
-    fn f_globals(&self) -> PyDictRef {
+    pub fn f_globals(&self) -> PyDictRef {
         self.iframe().globals().to_owned()
     }
 
     #[pygetset]
-    fn f_builtins(&self) -> PyObjectRef {
+    pub fn f_builtins(&self) -> PyObjectRef {
         self.iframe().builtins().to_owned()
     }
 
@@ -892,7 +892,7 @@ impl Py<FrameObject> {
     }
 
     #[pygetset]
-    fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
         if self.uses_locals_proxy(vm)? {
             let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
             Ok(proxy.into_ref(&vm.ctx).into())
