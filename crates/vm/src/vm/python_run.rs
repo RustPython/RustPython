@@ -30,7 +30,7 @@ impl VirtualMachine {
 
     /// Register a code object's source in linecache._interactive_cache
     /// so that traceback can display source lines and caret indicators.
-    fn register_code_in_linecache(&self, code: &PyRef<PyCode>, source: &str) -> PyResult<()> {
+    pub fn register_code_in_linecache(&self, code: &PyRef<PyCode>, source: &str) -> PyResult<()> {
         let linecache = self.import("linecache", 0)?;
         let register = linecache.get_attr("_register_code", self)?;
         let source_str = self.ctx.new_str(source);

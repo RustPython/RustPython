@@ -214,11 +214,9 @@ class CmdLineTest(unittest.TestCase):
     def test_repl_stdout_flush_separate_stderr(self):
         self.check_repl_stdout_flush(True)
 
-    @unittest.skip("TODO: RUSTPYTHON; <stdin> traceback omits the source line and caret")
     def test_repl_stderr_flush(self):
         self.check_repl_stderr_flush()
 
-    @unittest.skip("TODO: RUSTPYTHON; <stdin> traceback omits the source line and caret")
     def test_repl_stderr_flush_separate_stderr(self):
         self.check_repl_stderr_flush(True)
 

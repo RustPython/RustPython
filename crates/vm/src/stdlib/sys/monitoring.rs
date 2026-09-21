@@ -1156,11 +1156,7 @@ pub(crate) fn fire_stop_iteration(
     let exc: PyObjectRef = if value.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
         value.clone()
     } else {
-        vm.ctx
-            .exceptions
-            .stop_iteration
-            .as_object()
-            .call(vec![value.clone()], vm)?
+        vm.new_stop_iteration(Some(value.clone())).into()
     };
     fire(
         vm,
