@@ -6188,6 +6188,25 @@ pub fn leading_byte_order_mark_error(source_file: &SourceFile) -> Option<Compile
     })
 }
 
+/// Whether `source` nests brackets deeper than a compile of it would accept.
+///
+/// Lets a caller that parses for its own purposes skip source the compile
+/// rejects anyway, rather than build a tree that deep only to drop it.
+#[must_use]
+pub fn exceeds_max_nesting(source: &str) -> bool {
+    too_many_nested_parentheses_error(source).is_some()
+}
+
+/// Source-level errors raised before parsing, as CPython's tokenizer does.
+///
+/// Checking after the parse would build the tree first, and one nested that
+/// deep exhausts the native stack when it is dropped.
+#[must_use]
+pub fn pre_parse_source_error(source_file: &SourceFile) -> Option<CompileError> {
+    too_many_nested_parentheses_error(source_file.source_text())
+        .map(|error| CompileError::from_source_error(source_file, error))
+}
+
 fn post_parse_source_error(
     source_file: &SourceFile,
     tokens: &Tokens,
@@ -6195,9 +6214,6 @@ fn post_parse_source_error(
 ) -> Option<CompileError> {
     if let Some(error) = leading_byte_order_mark_error(source_file) {
         return Some(error);
-    }
-    if let Some(error) = too_many_nested_parentheses_error(source_file.source_text()) {
-        return Some(CompileError::from_source_error(source_file, error));
     }
     if let Some(error) = too_many_nested_interpolated_strings(source_file.source_text()) {
         return Some(CompileError::from_source_error(source_file, error));
@@ -6227,6 +6243,81 @@ fn is_compound_stmt(stmt: &ast::Stmt) -> bool {
             | ast::Stmt::Try(_)
             | ast::Stmt::Match(_)
     )
+}
+
+/// Rejects an AST nested deeper than `limit`.
+///
+/// The parser grows its own stack, so it returns trees deeper than the passes
+/// after it can walk, and each of those recurses without a limit of its own.
+/// The symbol table applies the same limit, but `compile(..., PyCF_ONLY_AST)`
+/// returns before reaching it.
+#[must_use]
+pub fn too_deeply_nested_error(
+    ast: &ast::Mod,
+    source_file: &SourceFile,
+    limit: usize,
+) -> Option<CompileError> {
+    use ast::visitor::Visitor;
+
+    struct DepthChecker {
+        depth: usize,
+        limit: usize,
+        too_deep: Option<ruff_text_size::TextRange>,
+    }
+
+    impl DepthChecker {
+        fn descend(&mut self, range: ruff_text_size::TextRange, walk: impl FnOnce(&mut Self)) {
+            if self.too_deep.is_some() {
+                return;
+            }
+            if self.depth >= self.limit {
+                self.too_deep = Some(range);
+                return;
+            }
+            self.depth += 1;
+            walk(self);
+            self.depth -= 1;
+        }
+    }
+
+    impl<'a> Visitor<'a> for DepthChecker {
+        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+            self.descend(stmt.range(), |checker| {
+                ast::visitor::walk_stmt(checker, stmt);
+            });
+        }
+
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            self.descend(expr.range(), |checker| {
+                ast::visitor::walk_expr(checker, expr);
+            });
+        }
+
+        fn visit_pattern(&mut self, pattern: &'a ast::Pattern) {
+            self.descend(pattern.range(), |checker| {
+                ast::visitor::walk_pattern(checker, pattern);
+            });
+        }
+    }
+
+    let mut checker = DepthChecker {
+        depth: 0,
+        limit,
+        too_deep: None,
+    };
+    match ast {
+        ast::Mod::Module(module) => checker.visit_body(&module.body),
+        ast::Mod::Expression(expression) => checker.visit_expr(&expression.body),
+    }
+
+    let range = checker.too_deep?;
+    let (location, end_location) = source_locations(source_file, range.start(), range.end());
+    Some(CompileError::Codegen(codegen::error::CodegenError {
+        location: Some(location),
+        end_location: Some(end_location),
+        error: codegen::error::CodegenErrorType::RecursionError,
+        source_path: source_file.name().to_owned(),
+    }))
 }
 
 /// Syntax the reference grammar has no rule for, but that this parser accepts.
@@ -6584,6 +6675,9 @@ fn _compile_with_syntax_warning_handler<'a>(
         opts.future_features
             .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
+    if let Some(error) = pre_parse_source_error(&source_file) {
+        return Err(error);
+    }
     let parsed = parser::parse(barry_source.source(), parser_options);
     if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
         return Err(error);
@@ -6600,6 +6694,9 @@ fn _compile_with_syntax_warning_handler<'a>(
         return Err(error);
     }
     let ast = parsed.into_syntax();
+    if let Some(error) = too_deeply_nested_error(&ast, &source_file, opts.recursion_limit) {
+        return Err(error);
+    }
     if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
         return Err(error);
     }
@@ -6880,6 +6977,9 @@ pub fn _compile_symtable(
         prepare_barry_as_flufl_source(source_file.source_text(), parser_options.clone(), false);
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
+            if let Some(error) = pre_parse_source_error(&source_file) {
+                return Err(error);
+            }
             let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
             if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
                 return Err(error);
@@ -6892,6 +6992,11 @@ pub fn _compile_symtable(
                 return Err(error);
             }
             let ast = ast.into_syntax();
+            if let Some(error) =
+                too_deeply_nested_error(&ast, &source_file, CompileOpts::default().recursion_limit)
+            {
+                return Err(error);
+            }
             if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
                 return Err(error);
             }
@@ -6906,6 +7011,9 @@ pub fn _compile_symtable(
             symboltable::SymbolTable::scan_program(&ast, source_file.clone())
         }
         Mode::Eval => {
+            if let Some(error) = pre_parse_source_error(&source_file) {
+                return Err(error);
+            }
             let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
             if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
                 return Err(error);
@@ -6918,6 +7026,11 @@ pub fn _compile_symtable(
                 return Err(error);
             }
             let ast = ast.into_syntax();
+            if let Some(error) =
+                too_deeply_nested_error(&ast, &source_file, CompileOpts::default().recursion_limit)
+            {
+                return Err(error);
+            }
             if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
                 return Err(error);
             }
