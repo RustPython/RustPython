@@ -262,40 +262,12 @@ mod _socket {
         TCP_SYNCNT, TCP_WINDOW_CLAMP,
     };
 
-    // gated on presence of AF_VSOCK:
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]
-    const SO_VM_SOCKETS_BUFFER_SIZE: u32 = 0;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const SO_VM_SOCKETS_BUFFER_MIN_SIZE: u32 = 1;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const SO_VM_SOCKETS_BUFFER_MAX_SIZE: u32 = 2;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VMADDR_CID_ANY: u32 = 0xffffffff; // 0xffffffff
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VMADDR_PORT_ANY: u32 = 0xffffffff; // 0xffffffff
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VMADDR_CID_HOST: u32 = 2;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VM_SOCKETS_INVALID_VERSION: u32 = 0xffffffff; // 0xffffffff
+    use host_socket::{
+        SO_VM_SOCKETS_BUFFER_MAX_SIZE, SO_VM_SOCKETS_BUFFER_MIN_SIZE, SO_VM_SOCKETS_BUFFER_SIZE,
+        VM_SOCKETS_INVALID_VERSION, VMADDR_CID_ANY, VMADDR_CID_HOST, VMADDR_PORT_ANY,
+    };
 
     // TODO: gated on https://github.com/rust-lang/libc/pull/1662
     // // gated on presence of AF_VSOCK:
@@ -307,11 +279,7 @@ mod _socket {
 
     #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
     #[pyattr]
-    const SOL_IP: i32 = 0;
-
-    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
-    #[pyattr]
-    const SOL_UDP: i32 = 17;
+    use host_socket::{SOL_IP, SOL_UDP};
 
     #[cfg(any(target_os = "android", target_os = "linux", windows))]
     #[pyattr]
@@ -345,16 +313,7 @@ mod _socket {
         target_os = "linux"
     ))]
     #[pyattr]
-    const UDPLITE_SEND_CSCOV: i32 = 10;
-
-    #[cfg(any(
-        target_os = "android",
-        target_os = "fuchsia",
-        target_os = "freebsd",
-        target_os = "linux"
-    ))]
-    #[pyattr]
-    const UDPLITE_RECV_CSCOV: i32 = 11;
+    use host_socket::{UDPLITE_RECV_CSCOV, UDPLITE_SEND_CSCOV};
 
     #[cfg(any(
         target_os = "android",
@@ -693,7 +652,7 @@ mod _socket {
         windows
     )))]
     #[pyattr]
-    const SOMAXCONN: i32 = 5; // Common value
+    use host_socket::SOMAXCONN;
 
     // HERE IS WHERE THE BLUETOOTH CONSTANTS START
     // TODO: there should be a more intelligent way of detecting bluetooth on a platform.
@@ -716,16 +675,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    const BDADDR_ANY: &str = "00:00:00:00:00:00";
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "fuchsia",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
-    #[pyattr]
-    const BDADDR_LOCAL: &str = "00:00:00:FF:FF:FF";
+    use host_socket::{BDADDR_ANY, BDADDR_LOCAL};
     // HERE IS WHERE THE BLUETOOTH CONSTANTS END
 
     #[cfg(windows)]
