@@ -1,4 +1,7 @@
 // cspell:ignore pyperformance nqueens pidigits
+
+#![allow(clippy::tests_outside_test_module)]
+
 use rustpython::{InterpreterBuilder, InterpreterBuilderExt};
 use std::{fs, path::Path};
 

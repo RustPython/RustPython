@@ -1,4 +1,4 @@
-use core::f64;
+use core::f64::consts::LOG10_2;
 use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{Signed, ToPrimitive};
 
@@ -240,9 +240,8 @@ pub fn round_float_digits(x: f64, ndigits: i32) -> Option<f64> {
         return Some(x);
     }
 
-    const NDIGITS_MAX: i32 =
-        ((f64::MANTISSA_DIGITS as i32 - f64::MIN_EXP) as f64 * f64::consts::LOG10_2) as i32;
-    const NDIGITS_MIN: i32 = -(((f64::MAX_EXP + 1) as f64 * f64::consts::LOG10_2) as i32);
+    const NDIGITS_MAX: i32 = ((f64::MANTISSA_DIGITS as i32 - f64::MIN_EXP) as f64 * LOG10_2) as i32;
+    const NDIGITS_MIN: i32 = -(((f64::MAX_EXP + 1) as f64 * LOG10_2) as i32);
 
     if ndigits > NDIGITS_MAX {
         return Some(x);

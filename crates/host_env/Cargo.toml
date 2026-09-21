@@ -50,7 +50,7 @@ nix = { workspace = true }
 rustix = { workspace = true }
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
-num_cpus = "1.17.0"
+num_cpus = { workspace = true }
 
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
 mac_address = { workspace = true }
@@ -67,8 +67,8 @@ which = { workspace = true }
 termios = { workspace = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
-memmap2 = "0.9.10"
-libloading = "0.9"
+memmap2 = { workspace = true }
+libloading = { workspace = true }
 
 [target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
 libffi = { workspace = true, features = ["system"] }

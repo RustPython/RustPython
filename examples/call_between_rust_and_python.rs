@@ -34,7 +34,7 @@ mod rust_py_module {
         s: String,
         python_person: PythonPerson,
         _vm: &VirtualMachine,
-    ) -> PyResult<RustStruct> {
+    ) -> RustStruct {
         println!(
             "Calling standalone rust function from python passing args:
 num: {},
@@ -42,9 +42,9 @@ string: {},
 python_person.name: {}",
             num, s, python_person.name
         );
-        Ok(RustStruct {
+        RustStruct {
             numbers: NumVec(vec![1, 2, 3, 4]),
-        })
+        }
     }
 
     #[derive(Debug, Clone)]
