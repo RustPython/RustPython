@@ -223,7 +223,12 @@ pub const UDPLITE_RECV_CSCOV: i32 = 11;
     windows
 )))]
 pub const SOL_IP: i32 = 0;
-#[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "linux",
+    windows
+)))]
 pub const SOL_UDP: i32 = 17;
 
 /// `SOMAXCONN` when neither libc nor WinSock publishes it.
