@@ -707,10 +707,11 @@ pub(crate) fn check_int_to_str_digits(value: &BigInt, vm: &VirtualMachine) -> Py
         return Ok(());
     }
     // Upper bound on decimal digit count: ⌈bits × log10(2)⌉ + 1, with log10(2) ≈ 0.30103.
-    // Multiply in u64: `bits as usize * 30103` wraps on 32-bit (wasm32) once
-    // bits ≳ 142_500, which silently accepts over-limit conversions.
-    let digits_upper = (bits as u64).saturating_mul(30103) / 100_000 + 1;
-    if digits_upper > limit as u64 {
+    // Multiply with the u64 bit count: `bits as usize * 30103` wraps on
+    // 32-bit (wasm32) once bits ≳ 142_500, which silently accepts over-limit
+    // conversions.
+    let digits_upper = bits.saturating_mul(30103) / 100_000 + 1;
+    if digits_upper > u64::try_from(limit).unwrap_or(u64::MAX) {
         return Err(vm.new_value_error(format!(
             "Exceeds the limit ({limit} digits) for integer string conversion; \
              use sys.set_int_max_str_digits() to increase the limit"
