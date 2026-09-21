@@ -1,6 +1,7 @@
-//! Socket constant surface for `wasm32-unknown-unknown`.
+//! Socket constant surface for `wasm32-unknown-unknown` and WASI.
 //!
-//! There are no BSD sockets on this target. The numbers are the Linux ABI
+//! There are no BSD sockets on unknown-unknown, and WASI does not use the
+//! unix/windows socket engine yet. The numbers are the Linux ABI
 //! `Lib/socket.py` expects so the stdlib can import.
 
 pub const AF_UNSPEC: i32 = 0;
