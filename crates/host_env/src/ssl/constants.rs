@@ -63,9 +63,26 @@ pub const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
 /// use SAN only and never fall back to the certificate Common Name.
 pub const HOSTFLAG_NEVER_CHECK_SUBJECT: i32 = 0x20;
 
+/// `SSL_OP_*` from `ssl.h`. Values the `_ssl` module publishes.
+#[allow(non_upper_case_globals)]
+pub const OP_NO_SSLv2: i32 = 0;
+#[allow(non_upper_case_globals)]
+pub const OP_NO_SSLv3: i32 = 0x0200_0000;
+pub const OP_NO_TLSV1: i32 = 0x0400_0000;
+pub const OP_NO_TLSV1_1: i32 = 0x1000_0000;
 /// `SSL_OP_NO_TLSv1_2` / `SSL_OP_NO_TLSv1_3` from `ssl.h`.
 pub const OP_NO_TLSV1_2: i32 = 0x0800_0000;
 pub const OP_NO_TLSV1_3: i32 = 0x2000_0000;
+pub const OP_NO_COMPRESSION: i32 = 0x0002_0000;
+pub const OP_CIPHER_SERVER_PREFERENCE: i32 = 0x0040_0000;
+pub const OP_SINGLE_DH_USE: i32 = 0;
+pub const OP_SINGLE_ECDH_USE: i32 = 0;
+pub const OP_NO_TICKET: i32 = 0x0000_4000;
+pub const OP_LEGACY_SERVER_CONNECT: i32 = 0x0000_0004;
+pub const OP_NO_RENEGOTIATION: i32 = 0x4000_0000;
+pub const OP_IGNORE_UNEXPECTED_EOF: i32 = 0x0000_0080;
+pub const OP_ENABLE_MIDDLEBOX_COMPAT: i32 = 0x0010_0000;
+pub const OP_ALL: i32 = 0x0000_0BFB;
 
 pub const SSL3_RT_CHANGE_CIPHER_SPEC: i32 = 20;
 pub const SSL3_RT_ALERT: i32 = 21;
