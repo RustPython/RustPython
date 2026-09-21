@@ -88,48 +88,17 @@ mod _ssl {
     };
 
     #[pyattr]
-    const ALERT_DESCRIPTION_CLOSE_NOTIFY: i32 = 0;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNEXPECTED_MESSAGE: i32 = 10;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_RECORD_MAC: i32 = 20;
-    #[pyattr]
-    const ALERT_DESCRIPTION_HANDSHAKE_FAILURE: i32 = 40;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_CERTIFICATE: i32 = 42;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_EXPIRED: i32 = 45;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNKNOWN_CA: i32 = 48;
-    #[pyattr]
-    const ALERT_DESCRIPTION_DECODE_ERROR: i32 = 50;
-    #[pyattr]
-    const ALERT_DESCRIPTION_PROTOCOL_VERSION: i32 = 70;
-    #[pyattr]
-    const ALERT_DESCRIPTION_INTERNAL_ERROR: i32 = 80;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNRECOGNIZED_NAME: i32 = 112;
-
-    #[pyattr]
-    const SSL_ERROR_NONE: i32 = 0;
-    #[pyattr]
-    const SSL_ERROR_SSL: i32 = 1;
-    #[pyattr]
-    const SSL_ERROR_WANT_READ: i32 = 2;
-    #[pyattr]
-    const SSL_ERROR_WANT_WRITE: i32 = 3;
-    #[pyattr]
-    const SSL_ERROR_WANT_X509_LOOKUP: i32 = 4;
-    #[pyattr]
-    const SSL_ERROR_SYSCALL: i32 = 5;
-    #[pyattr]
-    const SSL_ERROR_ZERO_RETURN: i32 = 6;
-    #[pyattr]
-    const SSL_ERROR_WANT_CONNECT: i32 = 7;
-    #[pyattr]
-    const SSL_ERROR_EOF: i32 = 8;
-    #[pyattr]
-    const SSL_ERROR_INVALID_ERROR_CODE: i32 = 10;
+    use host_ssl::{
+        ALERT_DESCRIPTION_BAD_CERTIFICATE, ALERT_DESCRIPTION_BAD_RECORD_MAC,
+        ALERT_DESCRIPTION_CERTIFICATE_EXPIRED, ALERT_DESCRIPTION_CLOSE_NOTIFY,
+        ALERT_DESCRIPTION_DECODE_ERROR, ALERT_DESCRIPTION_HANDSHAKE_FAILURE,
+        ALERT_DESCRIPTION_INTERNAL_ERROR, ALERT_DESCRIPTION_PROTOCOL_VERSION,
+        ALERT_DESCRIPTION_UNEXPECTED_MESSAGE, ALERT_DESCRIPTION_UNKNOWN_CA,
+        ALERT_DESCRIPTION_UNRECOGNIZED_NAME, SSL_ERROR_EOF, SSL_ERROR_INVALID_ERROR_CODE,
+        SSL_ERROR_NONE, SSL_ERROR_SSL, SSL_ERROR_SYSCALL, SSL_ERROR_WANT_CONNECT,
+        SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE, SSL_ERROR_WANT_X509_LOOKUP,
+        SSL_ERROR_ZERO_RETURN,
+    };
 
     #[pyattr]
     const OPENSSL_VERSION_NUMBER: i32 = 0x3030_0000;
@@ -173,11 +142,7 @@ mod _ssl {
     const HAS_PHA: bool = false;
 
     #[pyattr]
-    const ENCODING_PEM: i32 = 1;
-    #[pyattr]
-    const ENCODING_DER: i32 = 2;
-    #[pyattr]
-    const ENCODING_PEM_AUX: i32 = 0x101;
+    use host_ssl::{ENCODING_DER, ENCODING_PEM, ENCODING_PEM_AUX};
 
     #[pyattr]
     #[pyexception(name = "SSLError", base = PyOSError)]

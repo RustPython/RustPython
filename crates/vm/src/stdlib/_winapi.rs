@@ -466,12 +466,8 @@ mod _winapi {
         WindowsSysResult(host_winapi::release_mutex(handle.0))
     }
 
-    // LOCALE_NAME_INVARIANT is an empty string in Windows API
     #[pyattr]
-    const LOCALE_NAME_INVARIANT: &str = "";
-
-    #[pyattr]
-    const LOCALE_NAME_SYSTEM_DEFAULT: &str = "!x-sys-default-locale";
+    use host_winapi::{LOCALE_NAME_INVARIANT, LOCALE_NAME_SYSTEM_DEFAULT};
 
     #[pyattr(name = "LOCALE_NAME_USER_DEFAULT")]
     fn locale_name_user_default(vm: &VirtualMachine) -> PyObjectRef {
