@@ -181,6 +181,83 @@ pub const CAN_BCM_RX_RTR_FRAME: i32 = 0x0400;
 #[cfg(target_os = "linux")]
 pub const CAN_BCM_CAN_FD_FRAME: i32 = 0x0800;
 
+/// `linux/vm_sockets.h`. libc does not bind the vsock sockopt / cid names.
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const SO_VM_SOCKETS_BUFFER_SIZE: u32 = 0;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const SO_VM_SOCKETS_BUFFER_MIN_SIZE: u32 = 1;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const SO_VM_SOCKETS_BUFFER_MAX_SIZE: u32 = 2;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const VMADDR_CID_ANY: u32 = 0xffff_ffff;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const VMADDR_PORT_ANY: u32 = 0xffff_ffff;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const VMADDR_CID_HOST: u32 = 2;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const VM_SOCKETS_INVALID_VERSION: u32 = 0xffff_ffff;
+
+/// `netinet/udplite.h`. libc does not bind the coverage sockopts.
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "freebsd",
+    target_os = "linux"
+))]
+pub const UDPLITE_SEND_CSCOV: i32 = 10;
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "freebsd",
+    target_os = "linux"
+))]
+pub const UDPLITE_RECV_CSCOV: i32 = 11;
+
+/// `SOL_IP` / `SOL_UDP` when libc does not bind them. Linux takes the
+/// header names; Windows takes WinSock `SOL_IP`. Elsewhere they are the
+/// IANA protocol numbers.
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "linux",
+    windows
+)))]
+pub const SOL_IP: i32 = 0;
+#[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
+pub const SOL_UDP: i32 = 17;
+
+/// `SOMAXCONN` when neither libc nor WinSock publishes it.
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple",
+    windows
+)))]
+pub const SOMAXCONN: i32 = 5;
+
+/// Bluetooth wildcard / local addresses. Header strings, not libc names.
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+pub const BDADDR_ANY: &str = "00:00:00:00:00:00";
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+pub const BDADDR_LOCAL: &str = "00:00:00:FF:FF:FF";
+
 /// RFC 3542 IPv6 socket options (`netinet6/in6.h`). Not in libc.
 #[cfg(target_vendor = "apple")]
 pub const IPV6_RECVHOPLIMIT: i32 = 37;

@@ -9,6 +9,9 @@ pub use macros::*;
 pub mod ctypes;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod errno;
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+#[path = "errno_wasm.rs"]
+pub mod errno;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod io;
 #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
@@ -43,6 +46,9 @@ pub mod fcntl;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod select;
 #[cfg(any(unix, windows))]
+pub mod socket;
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+#[path = "socket_wasm.rs"]
 pub mod socket;
 #[cfg(unix)]
 pub mod syslog;

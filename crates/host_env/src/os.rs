@@ -60,6 +60,42 @@ pub const SF_SUPPORTED: u32 = 0x009f0000;
 #[cfg(target_os = "macos")]
 pub const SF_SYNTHETIC: u32 = 0xc0000000;
 
+/// BSD `chflags` bits libc binds on macOS and `_stat.c` falls back to
+/// elsewhere. Published by `_stat` on every platform.
+#[cfg(target_os = "macos")]
+pub use libc::{
+    SF_APPEND, SF_ARCHIVED, SF_IMMUTABLE, UF_APPEND, UF_COMPRESSED, UF_HIDDEN, UF_IMMUTABLE,
+    UF_NODUMP, UF_OPAQUE,
+};
+#[cfg(not(target_os = "macos"))]
+pub const UF_NODUMP: u32 = 0x00000001;
+#[cfg(not(target_os = "macos"))]
+pub const UF_IMMUTABLE: u32 = 0x00000002;
+#[cfg(not(target_os = "macos"))]
+pub const UF_APPEND: u32 = 0x00000004;
+#[cfg(not(target_os = "macos"))]
+pub const UF_OPAQUE: u32 = 0x00000008;
+#[cfg(not(target_os = "macos"))]
+pub const UF_COMPRESSED: u32 = 0x00000020;
+#[cfg(not(target_os = "macos"))]
+pub const UF_HIDDEN: u32 = 0x00008000;
+#[cfg(not(target_os = "macos"))]
+pub const SF_ARCHIVED: u32 = 0x00010000;
+#[cfg(not(target_os = "macos"))]
+pub const SF_IMMUTABLE: u32 = 0x00020000;
+#[cfg(not(target_os = "macos"))]
+pub const SF_APPEND: u32 = 0x00040000;
+
+/// Solaris door/port and BSD whiteout. `_stat` publishes 0 where the
+/// platform has no such file type.
+pub const S_IFDOOR: u32 = 0;
+pub const S_IFPORT: u32 = 0;
+pub const S_IFWHT: u32 = if cfg!(target_os = "macos") {
+    0o160000
+} else {
+    0
+};
+
 #[cfg(not(any(unix, windows, target_os = "wasi")))]
 pub fn rename(
     from: impl AsRef<std::path::Path>,
