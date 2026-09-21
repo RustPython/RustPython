@@ -493,7 +493,6 @@ class BugsTestCase(unittest.TestCase):
         unicode_string = 'T'
         self.assertRaises(TypeError, marshal.loads, unicode_string)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_reader(self):
         class BadReader(io.BytesIO):
             def readinto(self, buf):
@@ -510,7 +509,7 @@ class BugsTestCase(unittest.TestCase):
         for i in range(len(data)):
             self.assertRaises(EOFError, marshal.loads, data[0: i])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; set iteration is insertion order, so PYTHONHASHSEED does not scramble repr
     def test_deterministic_sets(self):
         # bpo-37596: To support reproducible builds, sets and frozensets need to
         # have their elements serialized in a consistent order (even when they
