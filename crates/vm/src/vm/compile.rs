@@ -1381,6 +1381,10 @@ mod escape_warnings {
         filename: &'a str,
         vm: &'a VirtualMachine,
         error: Option<CompileWarningError>,
+        /// This pass runs before the compile that rejects an over-nested
+        /// tree, so it has to stop itself.
+        depth: usize,
+        depth_limit: usize,
     }
 
     impl<'a> EscapeWarningVisitor<'a> {
@@ -1525,7 +1529,13 @@ mod escape_warnings {
                         }
                     }
                 }
-                _ => ast::visitor::walk_expr(self, expr),
+                _ => {
+                    if self.depth < self.depth_limit {
+                        self.depth += 1;
+                        ast::visitor::walk_expr(self, expr);
+                        self.depth -= 1;
+                    }
+                }
             }
         }
     }
@@ -1548,6 +1558,11 @@ mod escape_warnings {
             source: &str,
             filename: &str,
         ) -> Result<(), CompileWarningError> {
+            // The compile that follows rejects this source; parsing it here
+            // would build a tree that exhausts the stack when dropped.
+            if compiler::exceeds_max_nesting(source) {
+                return Ok(());
+            }
             let Ok(parsed) =
                 ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
             else {
@@ -1559,6 +1574,8 @@ mod escape_warnings {
                 filename,
                 vm: self,
                 error: None,
+                depth: 0,
+                depth_limit: compiler::CompileOpts::default().recursion_limit,
             };
             match &ast {
                 ast::Mod::Module(module) => {
