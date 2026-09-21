@@ -372,6 +372,18 @@ pub const RTLD_LOCAL: i32 = 0;
 pub const RTLD_GLOBAL: i32 = 0;
 pub const SIZEOF_TIME_T: usize = core::mem::size_of::<TimeT>();
 
+/// `_ctypes` call flags (`_flags_` on a function pointer).
+pub const FUNCFLAG_STDCALL: u32 = 0x0;
+pub const FUNCFLAG_CDECL: u32 = 0x1;
+pub const FUNCFLAG_HRESULT: u32 = 0x2;
+pub const FUNCFLAG_PYTHONAPI: u32 = 0x4;
+pub const FUNCFLAG_USE_ERRNO: u32 = 0x8;
+pub const FUNCFLAG_USE_LASTERROR: u32 = 0x10;
+pub const TYPEFLAG_ISPOINTER: u32 = 0x100;
+pub const TYPEFLAG_HASPOINTER: u32 = 0x200;
+pub const DICTFLAG_FINAL: u32 = 0x1000;
+pub const CTYPES_MAX_ARGCOUNT: usize = 1024;
+
 #[cfg(all(unix, not(target_os = "wasi")))]
 pub fn dlopen_mode(load_flags: Option<i32>) -> i32 {
     load_flags.unwrap_or(libc::RTLD_NOW | libc::RTLD_LOCAL) | libc::RTLD_NOW
