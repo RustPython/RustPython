@@ -1149,9 +1149,12 @@ To fix this, add the stdlib path manually:\n\
 \n\
     let settings = rustpython_vm::Settings::default().with_path(\"/path/to/stdlib\".to_owned());\n\
 \n\
-Alternatively, set the RUSTPYTHONPATH environment variable and load it explicitly:\n\
+If `RUSTPYTHONPATH` is already set, explicitly load it to path:\n\
 \n\
-    settings.path_list.extend(std::env::var(\"RUSTPYTHONPATH\").unwrap_or_default().split(':').map(String::from));\n\
+    settings.path_list.extend(\n\
+        std::env::split_paths(&std::env::var_os(\"RUSTPYTHONPATH\").unwrap_or_default())\n\
+            .map(|path| path.to_string_lossy().into_owned()),\n\
+    );\n\
 \n\
 If you are developing the RustPython interpreter itself, this might be a bug during development."
 
