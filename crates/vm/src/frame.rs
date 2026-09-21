@@ -3445,7 +3445,7 @@ impl ExecutingFrame<'_> {
     /// instead of suspending.
     fn yield_value_event(&mut self, vm: &VirtualMachine) -> PyResult<bool> {
         let lasti_before = self.lasti();
-        if vm.use_tracing.get() && self.trace_is_set(vm) {
+        if vm.use_tracing.get() {
             let value = self.top_value().to_owned();
             vm.trace_event_what(
                 crate::protocol::TraceEvent::Return,
@@ -5541,7 +5541,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ReturnValue => {
                 let value = self.pop_value();
-                if vm.use_tracing.get() && self.trace_is_set(vm) {
+                if vm.use_tracing.get() {
                     vm.trace_event_what(
                         crate::protocol::TraceEvent::Return,
                         monitoring::WHAT_PY_RETURN,
@@ -8014,7 +8014,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedReturnValue => {
                 let value = self.pop_value();
-                if vm.use_tracing.get() && self.trace_is_set(vm) {
+                if vm.use_tracing.get() {
                     vm.trace_event_what(
                         crate::protocol::TraceEvent::Return,
                         monitoring::WHAT_PY_RETURN,
