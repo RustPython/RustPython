@@ -349,18 +349,18 @@ pub(crate) mod stack_analysis {
                         }
                     }
                     _ => {
-                        // Default: use stack_effect
-                        let effect: StackEffect = opcode.stack_effect_info(oparg);
-                        let popped = effect.popped() as i64;
-                        let pushed = effect.pushed() as i64;
-                        let mut ns = next_stack;
-                        for _ in 0..popped {
-                            ns = pop_value(ns);
+                        // PyCompile_OpcodeStackEffect: apply the net delta so
+                        // overlapping in/out (GET_ANEXT: aiter -- aiter, awaitable)
+                        // keep the original kind of the surviving entries.
+                        let mut delta = opcode.stack_effect(oparg);
+                        while delta < 0 {
+                            next_stack = pop_value(next_stack);
+                            delta += 1;
                         }
-                        for _ in 0..pushed {
-                            ns = push_value(ns, Kind::Object as i64);
+                        while delta > 0 {
+                            next_stack = push_value(next_stack, Kind::Object as i64);
+                            delta -= 1;
                         }
-                        next_stack = ns;
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
                         }
@@ -498,18 +498,7 @@ impl FrameObject {
 
     /// Current line, or -1 when the linetable has no line for lasti.
     pub fn lineno(&self) -> i32 {
-        let lasti_bytes = self.f_lasti() as i32;
-        // If lasti is 0, execution hasn't started yet - use first line number.
-        // Read the live iframe so a materialized copy that still has lasti==0
-        // does not hide the current line while the frame is running.
-        if lasti_bytes == 0 {
-            return self
-                .iframe()
-                .code()
-                .first_line_number
-                .map_or(1, |n| n.get() as i32);
-        }
-        self.f_code().addr2line(lasti_bytes)
+        self.f_code().addr2line(self.f_lasti() as i32)
     }
 
     #[pygetset]

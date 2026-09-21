@@ -276,32 +276,49 @@ impl VirtualMachine {
             return Ok(None);
         }
 
-        let frame: PyObjectRef = frame_ref.into();
-        let event = self.ctx.new_str(event.to_string()).into();
-        let args = vec![frame, event, arg.unwrap_or_else(|| self.ctx.none())];
+        // trace_trampoline: CALL uses the global callback; every other
+        // event uses the per-frame f_trace (and is a no-op if that is unset).
+        let callback = if event == TraceEvent::Call {
+            if self.is_none(&trace_func) {
+                None
+            } else {
+                Some(trace_func)
+            }
+        } else {
+            frame_ref
+                .iframe()
+                .cold_opt()
+                .and_then(|c| c.trace.lock().clone())
+        };
+
+        let frame: PyObjectRef = frame_ref.to_owned().into();
+        let event_str: PyObjectRef = self.ctx.new_str(event.to_string()).into();
+        let args = vec![frame, event_str, arg.unwrap_or_else(|| self.ctx.none())];
 
         let mut trace_result = None;
 
         // temporarily disable tracing, during the call to the
         // tracing function itself.
-        if is_trace_event && !self.is_none(&trace_func) {
+        if is_trace_event && let Some(callback) = callback {
             self.use_tracing.set(false);
             self.enter_tracing();
-            let res = trace_func.call(args.clone(), self);
+            let res = callback.call(args.clone(), self);
             self.leave_tracing();
             self.use_tracing.set(true);
             match res {
                 Ok(result) => {
                     if !self.is_none(&result) {
+                        *frame_ref.iframe().cold().trace.lock() = Some(result.clone());
                         trace_result = Some(result);
                     }
                 }
                 Err(e) => {
-                    // trace_trampoline behavior: clear per-frame f_trace
-                    // and propagate the error.
-                    if let Some(frame_ref) = self.current_frame() {
-                        *frame_ref.iframe().cold().trace.lock() = None;
-                    }
+                    // trace_trampoline: disable the global tracer and clear
+                    // this frame's f_trace, then propagate.
+                    *self.trace_func.borrow_mut() = self.ctx.none();
+                    *frame_ref.iframe().cold().trace.lock() = None;
+                    let profile_is_none = self.is_none(&self.profile_func.borrow());
+                    self.use_tracing.set(!profile_is_none);
                     return Err(e);
                 }
             }

@@ -432,17 +432,14 @@ class TraceTestCase(unittest.TestCase):
     def test_07_raise(self):
         self.run_test(test_raise)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_08_settrace_and_return(self):
         self.run_test2(settrace_and_return)
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_09_settrace_and_raise(self):
         self.run_test2(settrace_and_raise)
     def test_10_ireturn(self):
         self.run_test(ireturn_example)
     def test_11_tightloop(self):
         self.run_test(tightloop_example)
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_12_tighterloop(self):
         self.run_test(tighterloop_example)
 
@@ -1706,7 +1703,6 @@ class TraceTestCase(unittest.TestCase):
             func()
         self.run_and_compare(func, EXPECTED_EVENTS)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_settrace_error(self):
         raised = False
         def error_once(frame, event, arg):
@@ -1761,7 +1757,6 @@ class TraceTestCase(unittest.TestCase):
         finally:
             sys.settrace(None)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_very_large_function(self):
         # There is a separate code path when the number of lines > (1 << 15).
         d = {}
@@ -1896,16 +1891,12 @@ class RaisingTraceFuncTestCase(unittest.TestCase):
             self.fail("recursion counter not reset")
 
     # Test the handling of exceptions raised by each kind of trace event.
-    @unittest.skip("TODO: RUSTPYTHON; spurious error?")
     def test_call(self):
         self.run_test_for_event('call')
-    @unittest.skip("TODO: RUSTPYTHON; spurious error?")
     def test_line(self):
         self.run_test_for_event('line')
-    @unittest.skip("TODO: RUSTPYTHON; spurious error?")
     def test_return(self):
         self.run_test_for_event('return')
-    @unittest.skip("TODO: RUSTPYTHON; spurious error?")
     def test_exception(self):
         self.run_test_for_event('exception')
 
@@ -1953,7 +1944,6 @@ class RaisingTraceFuncTestCase(unittest.TestCase):
         finally:
             sys.settrace(existing)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_line_event_raises_before_opcode_event(self):
         exception = ValueError("BOOM!")
         def trace(frame, event, arg):
@@ -2249,7 +2239,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(11)
         output.append(12)
 
-    @unittest.skip("TODO: RUSTPYTHON; infinite loop never exits")
     @jump_test(3, 4, [1], (ValueError, 'after'))
     def test_no_jump_infinite_while_loop(output):
         output.append(1)
@@ -2576,7 +2565,6 @@ class JumpTestCase(unittest.TestCase):
         for i in 1, 2:
             output.append(3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @async_jump_test(1, 3, [], (ValueError, 'into'))
     async def test_no_jump_forwards_into_async_for_block(output):
         output.append(1)
@@ -2591,7 +2579,6 @@ class JumpTestCase(unittest.TestCase):
         output.append(3)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @async_jump_test(3, 2, [2, 2], (ValueError, "can't jump into the body of a for loop"))
     async def test_no_jump_backwards_into_async_for_block(output):
         async for i in asynciter([1, 2]):
@@ -2789,7 +2776,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(7)
         output.append(8)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @async_jump_test(7, 4, [1, 6], (ValueError, 'into'))
     async def test_no_jump_into_async_for_block_before_else(output):
         output.append(1)
@@ -2823,7 +2809,6 @@ class JumpTestCase(unittest.TestCase):
         f = d['f']
         self.run_test(f, 2, 1007, [0], warning=(RuntimeWarning, self.unbound_locals))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_jump_to_firstlineno(self):
         # This tests that PDB can jump back to the first line in a
         # file.  See issue #1689458.  It can only be triggered in a
@@ -2864,7 +2849,6 @@ output.append(4)
         output.append(1)
         1 / 0
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @jump_test(3, 2, [2, 2, 5], event='return')
     def test_jump_from_yield(output):
         def gen():
@@ -3097,7 +3081,6 @@ class TestEdgeCases(unittest.TestCase):
 
 class TestLinesAfterTraceStarted(TraceTestCase):
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_events(self):
         tracer = Tracer()
         sys._getframe().f_trace = tracer.trace

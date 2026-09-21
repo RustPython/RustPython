@@ -2661,9 +2661,13 @@ pub(crate) fn trampoline_handle_exception(
 ) -> FrameResult {
     let mut exec = exec_iframe(iframe, Flatten::Nothing, vm);
 
-    // lasti points past the CallPyExactArgs instruction (+ cache entries).
-    // The exception occurred at the previous instruction (the call site).
-    let idx = (exec.lasti() as usize).saturating_sub(1);
+    // lasti points past the call opcode and its inline caches. Walk back
+    // over CACHE units so traceback / raise events use the call itself.
+    let mut idx = (exec.lasti() as usize).saturating_sub(1);
+    while idx > 0 && matches!(exec.code.instructions.read_op(idx), Instruction::Cache) {
+        idx -= 1;
+    }
+    exec.update_lasti(|i| *i = idx as u32 + 1);
 
     // Add traceback entry at the call site.
     if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {
@@ -2672,10 +2676,25 @@ pub(crate) fn trampoline_handle_exception(
         exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
     }
 
+    exec.fire_exception_trace(exception, vm)?;
+    let exception = {
+        let mon_events = vm.state.monitoring_events.load();
+        if mon_events & monitoring::EVENT_RAISE != 0 {
+            let offset = idx as u32 * 2;
+            let exc_obj: PyObjectRef = exception.clone().into();
+            match monitoring::fire_raise(vm, exec.code, offset, &exc_obj) {
+                Ok(()) => exception.clone(),
+                Err(monitor_exc) => monitor_exc,
+            }
+        } else {
+            exception.clone()
+        }
+    };
+
     exec.unwind_blocks(
         vm,
         UnwindReason::Raising {
-            exception: exception.clone(),
+            exception,
             offset: idx as u32,
         },
     )
@@ -3415,6 +3434,45 @@ impl ExecutingFrame<'_> {
             .expect("cell slot is not a PyCell")
     }
 
+    /// Apply a pending `f_lineno` jump's stack pops, if any.
+    fn apply_pending_lineno_jump(&mut self, vm: &VirtualMachine) {
+        let pops = self.pending_stack_pops();
+        if pops > 0 {
+            let from_stack = self.pending_unwind_from_stack();
+            self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
+            self.set_pending_stack_pops(0);
+        }
+    }
+
+    /// `_YIELD_VALUE_EVENT`: fire PY_YIELD while the value is still on the
+    /// stack. If the tracer assigned `f_lineno`, continue at the new lasti
+    /// instead of suspending.
+    fn yield_value_event(&mut self, vm: &VirtualMachine) -> PyResult<bool> {
+        let lasti_before = self.lasti();
+        if vm.use_tracing.get() && self.trace_is_set(vm) {
+            let value = self.top_value().to_owned();
+            vm.trace_event_what(
+                crate::protocol::TraceEvent::Return,
+                monitoring::WHAT_PY_YIELD,
+                Some(value),
+            )?;
+            if self.lasti() != lasti_before {
+                self.apply_pending_lineno_jump(vm);
+                return Ok(true);
+            }
+        }
+        if self.monitoring_mask & monitoring::EVENT_PY_YIELD != 0 {
+            let value = self.top_value().to_owned();
+            let offset = (self.lasti() - 1) * 2;
+            monitoring::fire_py_yield(vm, self.code, offset, &value)?;
+            if self.lasti() != lasti_before {
+                self.apply_pending_lineno_jump(vm);
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Perform deferred stack unwinding after set_f_lineno.
     ///
     /// set_f_lineno cannot pop the value stack directly because the execution
@@ -3530,6 +3588,16 @@ impl ExecutingFrame<'_> {
                     match vm.trace_event(crate::protocol::TraceEvent::Line, None) {
                         Ok(_) => {}
                         Err(exception) => {
+                            if let Some((loc, _end_loc)) = self.code.locations.get(idx) {
+                                let next = exception.__traceback__();
+                                let new_traceback = PyTraceback::new(
+                                    next,
+                                    self.frame_object(vm),
+                                    idx as u32 * 2,
+                                    loc.line,
+                                );
+                                exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
+                            }
                             match self.unwind_blocks(
                                 vm,
                                 UnwindReason::Raising {
@@ -4797,15 +4865,15 @@ impl ExecutingFrame<'_> {
                         .instructions
                         .replace_op(instr_idx, Instruction::JumpBackwardNoJit);
                 }
-                self.jump_relative_backward(u32::from(arg), 1);
+                self.jump_relative_backward_and_trace_line(u32::from(arg), 1, vm)?;
                 Ok(None)
             }
             Instruction::JumpBackwardJit | Instruction::JumpBackwardNoJit => {
-                self.jump_relative_backward(u32::from(arg), 1);
+                self.jump_relative_backward_and_trace_line(u32::from(arg), 1, vm)?;
                 Ok(None)
             }
             Instruction::JumpBackwardNoInterrupt { .. } => {
-                self.jump_relative_backward(u32::from(arg), 0);
+                self.jump_relative_backward_and_trace_line(u32::from(arg), 0, vm)?;
                 Ok(None)
             }
             Instruction::ListAppend { i } => {
@@ -5477,6 +5545,13 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ReturnValue => {
                 let value = self.pop_value();
+                if vm.use_tracing.get() && self.trace_is_set(vm) {
+                    vm.trace_event_what(
+                        crate::protocol::TraceEvent::Return,
+                        monitoring::WHAT_PY_RETURN,
+                        Some(value.clone()),
+                    )?;
+                }
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
             Instruction::SetAdd { i } => {
@@ -5720,6 +5795,11 @@ impl ExecutingFrame<'_> {
                         .all(|sr| !sr.is_borrowed()),
                     "borrowed refs on stack at yield point"
                 );
+                // _YIELD_VALUE_EVENT: if f_lineno jumped, DISPATCH to the
+                // new instruction instead of suspending.
+                if self.yield_value_event(vm)? {
+                    return Ok(None);
+                }
                 Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::Send { .. } => {
@@ -7938,6 +8018,13 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedReturnValue => {
                 let value = self.pop_value();
+                if vm.use_tracing.get() && self.trace_is_set(vm) {
+                    vm.trace_event_what(
+                        crate::protocol::TraceEvent::Return,
+                        monitoring::WHAT_PY_RETURN,
+                        Some(value.clone()),
+                    )?;
+                }
                 if self.monitoring_mask & monitoring::EVENT_PY_RETURN != 0 {
                     let offset = (self.lasti() - 1) * 2;
                     monitoring::fire_py_return(vm, self.code, offset, &value)?;
@@ -7954,12 +8041,10 @@ impl ExecutingFrame<'_> {
                         .all(|sr| !sr.is_borrowed()),
                     "borrowed refs on stack at yield point"
                 );
-                let value = self.pop_value();
-                if self.monitoring_mask & monitoring::EVENT_PY_YIELD != 0 {
-                    let offset = (self.lasti() - 1) * 2;
-                    monitoring::fire_py_yield(vm, self.code, offset, &value)?;
+                if self.yield_value_event(vm)? {
+                    return Ok(None);
                 }
-                Ok(Some(ExecutionResult::Yield(value)))
+                Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::InstrumentedCall => {
                 let args = self.collect_positional_args(u32::from(arg));
@@ -8029,12 +8114,14 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedJumpBackward => {
                 let src_offset = (self.lasti() - 1) * 2;
+                let from_idx = self.lasti().saturating_sub(1) as usize;
                 let target_idx = self.lasti() + 1 - u32::from(arg);
                 let target = bytecode::Label::from_u32(target_idx);
                 self.jump(target);
                 if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
                     monitoring::fire_jump(vm, self.code, src_offset, target.as_u32() * 2)?;
                 }
+                self.trace_backward_same_line(from_idx, vm)?;
                 Ok(None)
             }
             Instruction::InstrumentedForIter => {
@@ -9130,6 +9217,42 @@ impl ExecutingFrame<'_> {
     fn jump_relative_backward(&mut self, delta: u32, caches: u32) {
         let target = self.lasti() + caches - delta;
         self.update_lasti(|i| *i = target);
+    }
+
+    /// JUMP_BACKWARD plus the settrace LINE event for a backward edge that
+    /// stays on the same source line (`sys_trace_jump_func`).
+    fn jump_relative_backward_and_trace_line(
+        &mut self,
+        delta: u32,
+        caches: u32,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let from_idx = self.lasti().saturating_sub(1) as usize;
+        self.jump_relative_backward(delta, caches);
+        self.trace_backward_same_line(from_idx, vm)
+    }
+
+    /// sys.settrace generates line events for all backward edges, even if on
+    /// the same line.
+    fn trace_backward_same_line(&mut self, from_idx: usize, vm: &VirtualMachine) -> PyResult<()> {
+        if !(vm.use_tracing.get() && self.trace_is_set(vm) && self.trace_lines_is_set()) {
+            return Ok(());
+        }
+        let to_idx = self.lasti() as usize;
+        let from_line = self.code.addr2line(from_idx as i32 * 2);
+        let to_line = self.code.addr2line(to_idx as i32 * 2);
+        if to_line >= 0 && to_line == from_line {
+            self.prev_line.set(to_line as u32);
+            // lasti currently names the destination instruction; f_lineno
+            // reads lasti-1 (the in-flight opcode), so point past dest for
+            // the duration of the callback.
+            let dest = self.lasti();
+            self.update_lasti(|i| *i = dest + 1);
+            let result = vm.trace_event(crate::protocol::TraceEvent::Line, None);
+            self.update_lasti(|i| *i = dest);
+            result?;
+        }
+        Ok(())
     }
 
     /// Step over the `NOT_TAKEN` marker on a conditional jump's fall-through edge.

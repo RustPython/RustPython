@@ -2928,35 +2928,22 @@ impl VirtualMachine {
 
         let result = f(frame);
 
-        // Fire 'return' event if frame is being traced or profiled.
-        // PY_UNWIND fires PyTrace_RETURN with arg=None — so we fire for
-        // both Ok and Err, matching `call_trace_protected` behavior.
-        if self.use_tracing.get()
+        // PY_RETURN / PY_YIELD are fired from RETURN_VALUE / YIELD_VALUE.
+        // PY_UNWIND fires PyTrace_RETURN with arg=None when the exception
+        // leaves this frame.
+        if result.is_err()
+            && self.use_tracing.get()
             && (!self.is_none(&self.profile_func.borrow())
                 || frame
                     .iframe()
                     .cold_opt()
                     .is_some_and(|c| c.trace.lock().is_some()))
         {
-            let what = if result.is_err() {
-                crate::stdlib::sys::monitoring::WHAT_PY_UNWIND
-            } else {
-                #[allow(unused_imports)]
-                use rustpython_common::atomic::Radium;
-                let lasti = frame
-                    .iframe()
-                    .lasti
-                    .load(core::sync::atomic::Ordering::Relaxed);
-                let idx = lasti.saturating_sub(1) as usize;
-                match frame.iframe().code().instructions.read_op(idx).into() {
-                    crate::bytecode::Opcode::YieldValue
-                    | crate::bytecode::Opcode::InstrumentedYieldValue => {
-                        crate::stdlib::sys::monitoring::WHAT_PY_YIELD
-                    }
-                    _ => crate::stdlib::sys::monitoring::WHAT_PY_RETURN,
-                }
-            };
-            let ret_result = self.trace_event_what(TraceEvent::Return, what, None);
+            let ret_result = self.trace_event_what(
+                TraceEvent::Return,
+                crate::stdlib::sys::monitoring::WHAT_PY_UNWIND,
+                None,
+            );
             // call_trace_protected: if trace function raises, its error
             // replaces the original exception.
             ret_result?;
