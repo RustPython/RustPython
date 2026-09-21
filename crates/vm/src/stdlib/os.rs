@@ -252,13 +252,7 @@ pub(super) mod _os {
     use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
 
     #[pyattr]
-    pub(crate) const F_OK: u8 = 0;
-    #[pyattr]
-    pub(crate) const R_OK: u8 = 1 << 2;
-    #[pyattr]
-    pub(crate) const W_OK: u8 = 1 << 1;
-    #[pyattr]
-    pub(crate) const X_OK: u8 = 1 << 0;
+    pub(crate) use crate::host_env::os::{F_OK, R_OK, W_OK, X_OK};
 
     // ST_RDONLY and ST_NOSUID flags for statvfs
     #[cfg(all(unix, not(target_os = "redox")))]

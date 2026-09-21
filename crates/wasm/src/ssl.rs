@@ -6,8 +6,8 @@ mod _ssl {
     use rustls::pki_types::ServerName;
     use rustls::{ClientConfig, ClientConnection, Connection};
     use rustpython_host_env::ssl::{
-        self as host_ssl, MemoryBio, ProtoVersion, TlsConnection, TlsError, cipher, oid,
-        providers::CryptoExt, rustls_versions, validate_hostname, verify::NoVerifier,
+        self as host_ssl, MemoryBio, TlsConnection, TlsError, cipher, oid, providers::CryptoExt,
+        rustls_versions, validate_hostname, verify::NoVerifier,
     };
     use rustpython_vm::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -40,19 +40,11 @@ mod _ssl {
     const PROTOCOL_TLSv1_3: i32 = host_ssl::PROTOCOL_TLSV1_3;
 
     #[pyattr]
-    const PROTO_SSLv3: i32 = ProtoVersion::Ssl3 as i32;
-    #[pyattr]
-    const PROTO_TLSv1: i32 = ProtoVersion::Tls1 as i32;
-    #[pyattr]
-    const PROTO_TLSv1_1: i32 = ProtoVersion::Tls1_1 as i32;
-    #[pyattr]
-    const PROTO_TLSv1_2: i32 = host_ssl::PROTO_TLSV1_2;
-    #[pyattr]
-    const PROTO_TLSv1_3: i32 = host_ssl::PROTO_TLSV1_3;
-    #[pyattr]
-    const PROTO_MINIMUM_SUPPORTED: i32 = ProtoVersion::MinSupported as i32;
-    #[pyattr]
-    const PROTO_MAXIMUM_SUPPORTED: i32 = ProtoVersion::MaxSupported as i32;
+    use host_ssl::{
+        PROTO_MAXIMUM_SUPPORTED, PROTO_MINIMUM_SUPPORTED, PROTO_SSL3 as PROTO_SSLv3,
+        PROTO_TLSV1 as PROTO_TLSv1, PROTO_TLSV1_1 as PROTO_TLSv1_1, PROTO_TLSV1_2 as PROTO_TLSv1_2,
+        PROTO_TLSV1_3 as PROTO_TLSv1_3,
+    };
 
     #[pyattr]
     const CERT_NONE: i32 = host_ssl::CERT_NONE;

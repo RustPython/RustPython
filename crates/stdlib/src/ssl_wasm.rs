@@ -48,19 +48,11 @@ mod _ssl {
     const PROTOCOL_TLSv1_3: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1_3;
 
     #[pyattr]
-    const PROTO_SSLv3: i32 = 0x0300;
-    #[pyattr]
-    const PROTO_TLSv1: i32 = 0x0301;
-    #[pyattr]
-    const PROTO_TLSv1_1: i32 = 0x0302;
-    #[pyattr]
-    const PROTO_TLSv1_2: i32 = rustpython_host_env::ssl::PROTO_TLSV1_2;
-    #[pyattr]
-    const PROTO_TLSv1_3: i32 = rustpython_host_env::ssl::PROTO_TLSV1_3;
-    #[pyattr]
-    const PROTO_MINIMUM_SUPPORTED: i32 = -2;
-    #[pyattr]
-    const PROTO_MAXIMUM_SUPPORTED: i32 = -1;
+    use rustpython_host_env::ssl::{
+        PROTO_MAXIMUM_SUPPORTED, PROTO_MINIMUM_SUPPORTED, PROTO_SSL3 as PROTO_SSLv3,
+        PROTO_TLSV1 as PROTO_TLSv1, PROTO_TLSV1_1 as PROTO_TLSv1_1, PROTO_TLSV1_2 as PROTO_TLSv1_2,
+        PROTO_TLSV1_3 as PROTO_TLSv1_3,
+    };
 
     #[pyattr]
     const CERT_NONE: i32 = rustpython_host_env::ssl::CERT_NONE;

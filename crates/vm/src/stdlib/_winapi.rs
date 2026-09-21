@@ -907,7 +907,7 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    const MAXIMUM_WAIT_OBJECTS: usize = 64;
+    const MAXIMUM_WAIT_OBJECTS: usize = host_winapi::MAXIMUM_WAIT_OBJECTS as usize;
 
     /// BatchedWaitForMultipleObjects - Wait for multiple handles, supporting more than 64.
     #[pyfunction]
