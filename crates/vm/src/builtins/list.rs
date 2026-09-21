@@ -14,7 +14,6 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgSize, Either, FuncArgs, OptionalArg, PyComparisonValue},
-    iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
@@ -590,11 +589,21 @@ impl Comparable for PyList {
             return Ok(res.into());
         }
         let other = class_or_notimplemented!(Self, other);
-        let a = &*zelf.borrow_vec();
-        let b = &*other.borrow_vec();
-        a.iter()
-            .richcompare(b.iter(), op, vm)
-            .map(PyComparisonValue::Implemented)
+        // Item comparison can mutate either list (clear, resize). Holding the
+        // element lock across that callback deadlocks on the write side.
+        crate::iter::richcompare_mutating_seqs(
+            |i| {
+                let a = zelf.borrow_vec();
+                (a.len(), a.get(i).cloned())
+            },
+            |i| {
+                let b = other.borrow_vec();
+                (b.len(), b.get(i).cloned())
+            },
+            op,
+            vm,
+        )
+        .map(PyComparisonValue::Implemented)
     }
 }
 

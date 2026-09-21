@@ -113,6 +113,14 @@ fn shell_exec(
     }
 }
 
+fn flush_stdio(vm: &VirtualMachine) {
+    for name in ["stdout", "stderr"] {
+        if let Ok(stream) = vm.sys_module.get_attr(name, vm) {
+            let _ = vm.call_method(&stream, "flush", ());
+        }
+    }
+}
+
 /// Enter a repl loop
 pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     let mut repl = Readline::new(helper::ShellHelper::new(vm, scope.globals.clone()));
@@ -128,9 +136,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         None => ".repl_history.txt".into(),
     };
 
-    if repl.load_history(&repl_history_path).is_err() {
-        println!("No previous history.");
-    }
+    let _ = repl.load_history(&repl_history_path);
 
     // We might either be waiting to know if a block is complete, or waiting to know if a multiline
     // statement is complete. In the former case, we need to ensure that we read one extra new line
@@ -245,6 +251,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
             }
             vm.print_exception(exc);
         }
+        flush_stdio(vm);
     }
     repl.save_history(&repl_history_path).unwrap();
 

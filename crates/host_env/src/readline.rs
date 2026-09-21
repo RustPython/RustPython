@@ -18,6 +18,22 @@ pub enum ReadlineResult {
     Other(OtherError),
 }
 
+fn stdio_readline(prompt: &str) -> ReadlineResult {
+    use std::io::prelude::*;
+    eprint!("{prompt}");
+    if let Err(e) = io::stderr().flush() {
+        return ReadlineResult::Io(e);
+    }
+
+    let line = io::stdin().lock().lines().next();
+    match line {
+        Some(Ok(line)) => ReadlineResult::Line(line),
+        None => ReadlineResult::Eof,
+        Some(Err(e)) if e.kind() == io::ErrorKind::Interrupted => ReadlineResult::Interrupt,
+        Some(Err(e)) => ReadlineResult::Io(e),
+    }
+}
+
 #[allow(unused)]
 pub mod basic_readline {
     use super::*;
@@ -48,19 +64,7 @@ pub mod basic_readline {
         }
 
         pub fn readline(&mut self, prompt: &str) -> ReadlineResult {
-            use std::io::prelude::*;
-            print!("{prompt}");
-            if let Err(e) = io::stdout().flush() {
-                return ReadlineResult::Io(e);
-            }
-
-            let next_line = io::stdin().lock().lines().next();
-            match next_line {
-                Some(Ok(line)) => ReadlineResult::Line(line),
-                None => ReadlineResult::Eof,
-                Some(Err(e)) if e.kind() == io::ErrorKind::Interrupted => ReadlineResult::Interrupt,
-                Some(Err(e)) => ReadlineResult::Io(e),
-            }
+            stdio_readline(prompt)
         }
     }
 }
@@ -126,6 +130,13 @@ pub mod rustyline_readline {
         }
 
         pub fn readline(&mut self, prompt: &str) -> ReadlineResult {
+            use std::io::IsTerminal;
+            // Pipes have no termios. Write the prompt to stderr and read
+            // stdin, matching PyOS_StdioReadline, so `python -i` under
+            // spawn still emits `>>> `.
+            if !io::stdin().is_terminal() {
+                return stdio_readline(prompt);
+            }
             use rustyline::error::ReadlineError;
             loop {
                 break match self.repl.readline(prompt) {
