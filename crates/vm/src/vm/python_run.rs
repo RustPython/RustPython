@@ -1,7 +1,7 @@
 //! Python code execution functions.
 
 use crate::{
-    AsObject, PyRef, PyResult, VirtualMachine,
+    Py, PyRef, PyResult, VirtualMachine,
     builtins::PyCode,
     compiler::{self},
     scope::Scope,
@@ -30,12 +30,12 @@ impl VirtualMachine {
 
     /// Register a code object's source in linecache._interactive_cache
     /// so that traceback can display source lines and caret indicators.
-    pub fn register_code_in_linecache(&self, code: &PyRef<PyCode>, source: &str) -> PyResult<()> {
+    pub fn register_code_in_linecache(&self, code: &Py<PyCode>, source: &str) -> PyResult<()> {
         let linecache = self.import("linecache", 0)?;
         let register = linecache.get_attr("_register_code", self)?;
         let source_str = self.ctx.new_str(source);
         let filename = self.ctx.new_str(code.source_path().as_str());
-        register.call((code.as_object().to_owned(), source_str, filename), self)?;
+        register.call((code.to_owned().into(), source_str, filename), self)?;
         Ok(())
     }
 
