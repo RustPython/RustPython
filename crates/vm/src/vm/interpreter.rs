@@ -669,6 +669,7 @@ impl Interpreter {
             // Wait for thread shutdown - call threading._shutdown() if available.
             // This waits for all non-daemon threads to complete.
             // threading module may not be imported, so ignore import errors.
+            #[cfg(feature = "threading")]
             if let Ok(threading) = vm.import("threading", 0)
                 && let Ok(shutdown) = threading.get_attr("_shutdown", vm)
                 && let Err(e) = shutdown.call((), vm)

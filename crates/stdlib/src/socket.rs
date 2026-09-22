@@ -762,6 +762,160 @@ mod _socket {
     #[cfg(target_os = "freebsd")]
     #[pyattr]
     const SOL_RFCOMM: i32 = 0x0816;
+
+    // Linux <bluetooth/bluetooth.h> / <bluetooth/hci.h> / <bluetooth/l2cap.h>
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const SOL_BLUETOOTH: i32 = 274;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_DEV_NONE: i32 = 0xffff;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_RAW: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_USER: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_MONITOR: i32 = 2;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_CONTROL: i32 = 3;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_LOGGING: i32 = 4;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_TIME_STAMP: i32 = 3;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY: i32 = 4;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_SDP: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_LOW: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_MEDIUM: i32 = 2;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_HIGH: i32 = 3;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_FIPS: i32 = 4;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_FLUSHABLE: i32 = 8;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_FLUSHABLE_OFF: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_FLUSHABLE_ON: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_POWER: i32 = 9;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_POWER_FORCE_ACTIVE_OFF: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_POWER_FORCE_ACTIVE_ON: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY: i32 = 10;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY_BREDR_ONLY: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY_BREDR_PREFERRED: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY_AMP_PREFERRED: i32 = 2;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_VOICE: i32 = 11;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_VOICE_TRANSPARENT: i32 = 0x0003;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_VOICE_CVSD_16BIT: i32 = 0x0060;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SNDMTU: i32 = 12;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_RCVMTU: i32 = 13;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_PHY: i32 = 14;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_PHY_BR_1M_1SLOT: i32 = 0x0001;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_MODE: i32 = 16;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_MODE_BASIC: i32 = 0x00;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM: i32 = 0x03;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_MASTER: i32 = 0x0001;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_AUTH: i32 = 0x0002;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_ENCRYPT: i32 = 0x0004;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_TRUSTED: i32 = 0x0008;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_RELIABLE: i32 = 0x0010;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_SECURE: i32 = 0x0020;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const BDADDR_BREDR: i32 = 0x00;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const BDADDR_LE_PUBLIC: i32 = 0x01;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const BDADDR_LE_RANDOM: i32 = 0x02;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const HCI_FILTER: i32 = 2;
     // HERE IS WHERE THE BLUETOOTH CONSTANTS END
 
     #[cfg(windows)]

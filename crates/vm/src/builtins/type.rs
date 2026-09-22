@@ -245,7 +245,10 @@ unsafe impl crate::object::Traverse for PyType {
         if let Some(base) = self.base.deref() {
             tracer_fn(base.as_object());
         }
-        tracer_fn(self.bases.read_recursive().as_untyped().as_object());
+        // Skip when a writer holds `bases` (same rule as `Traverse for PyRwLock`).
+        if let Some(bases) = self.bases.try_read_recursive() {
+            tracer_fn(bases.as_untyped().as_object());
+        }
         self.mro.traverse(tracer_fn);
         self.subclasses.traverse(tracer_fn);
         self.attributes.traverse(tracer_fn);
@@ -260,8 +263,11 @@ unsafe impl crate::object::Traverse for PyType {
         if let Some(base) = unsafe { self.base.swap(None) } {
             out.push(base.into());
         }
+        // Clone the empty tuple before taking the write lock: `object`'s
+        // `bases` is this same lock, and `.read()` while exclusive panics
+        // on CellRwLock (and hangs on parking_lot).
+        let empty = object::PyBaseObject::static_type().bases.read().clone();
         if let Some(mut bases) = self.bases.try_write() {
-            let empty = object::PyBaseObject::static_type().bases.read().clone();
             let old_bases = core::mem::replace(&mut *bases, empty);
             out.push(old_bases.into_untyped().into());
         }
@@ -411,7 +417,11 @@ pub enum TypeNamespace {
 unsafe impl Traverse for TypeNamespace {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         match self {
-            Self::Attributes(attrs) => attrs.read_recursive().traverse(tracer_fn),
+            Self::Attributes(attrs) => {
+                if let Some(attrs) = attrs.try_read_recursive() {
+                    attrs.traverse(tracer_fn);
+                }
+            }
             Self::Dict(dict) => tracer_fn(dict.as_object()),
         }
     }
@@ -475,18 +485,7 @@ impl TypeNamespace {
 
     /// Bind `name` to `value`, dropping whatever it displaced.
     pub fn set(&self, name: &'static PyStrInterned, value: PyObjectRef) {
-        match self {
-            Self::Attributes(attrs) => {
-                attrs.write().insert(name, value);
-            }
-            Self::Dict(dict) => {
-                if let Some(Err(_)) | None =
-                    crate::vm::thread::try_with_current_vm(|vm| dict.set_item(name, value, vm))
-                {
-                    debug_assert!(false, "type namespace write without a running VM");
-                }
-            }
-        }
+        drop(self.insert(name, value));
     }
 
     /// Bind `name` to `value` and hand back what it displaced, so the caller
@@ -496,7 +495,11 @@ impl TypeNamespace {
             Self::Attributes(attrs) => attrs.write().insert(name, value),
             Self::Dict(dict) => {
                 let previous = dict_get(dict, name);
-                self.set(name, value);
+                if let Some(Err(_)) | None =
+                    crate::vm::thread::try_with_current_vm(|vm| dict.set_item(name, value, vm))
+                {
+                    debug_assert!(false, "type namespace write without a running VM");
+                }
                 previous
             }
         }

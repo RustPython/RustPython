@@ -198,6 +198,15 @@ mod mt {
     pub(crate) fn take_gc_scheduled() -> bool {
         EVAL_BREAKER.remove(EvalBreakerFlag::Gc)
     }
+
+    /// Drop every process-wide eval-breaker bit. Tests that assert a single
+    /// thread's `stop_requested` must not trip `eval_breaker_pending` have to
+    /// start from a clean word: cargo's Windows runner shares the process
+    /// across `#[test]` functions, so a sibling can leave SIGNAL/QSBR/GC/STOP.
+    #[cfg(test)]
+    pub(crate) fn clear_eval_breaker_for_test() {
+        EVAL_BREAKER.clear();
+    }
 }
 
 #[cfg(feature = "threading")]
@@ -205,6 +214,9 @@ pub(crate) use mt::{
     clear_qsbr_bit, clear_stop_bit, qsbr_bit_set, schedule_gc, set_finalizing_bit, set_qsbr_bit,
     set_stop_bit, take_gc_scheduled,
 };
+
+#[cfg(all(test, feature = "threading"))]
+pub(crate) use mt::clear_eval_breaker_for_test;
 
 /// Reset all signal trigger state after fork in child process.
 /// Stale triggers from the parent must not fire in the child.
