@@ -10,14 +10,21 @@
 //! Only the slots that can currently be filled from C are listed. Adding one
 //! means adding a field here, a trampoline beside the ones below, and a
 //! [`CSlotId`] entry.
+//!
+//! The reverse direction pairs a Rust slot function with an `extern "C"`
+//! function instantiated for it in [`StaticCSlots`]. The pair is stored
+//! on the type that defines the slot. [`PyType::c_tp_new`] walks the MRO and
+//! returns that C function, so a subclass reports the base implementation
+//! rather than its own.
 
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyRef, PyResult,
-    builtins::{PyDictRef, PyTuple, PyTypeRef},
-    function::FuncArgs,
-    types::CNewFunc,
-    vm::VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult,
+    builtins::{PyDict, PyDictRef, PyStr, PyTuple, PyType, PyTypeRef},
+    function::{FuncArgs, KwArgs},
+    types::{CNewFunc, NewFunc},
+    vm::{VirtualMachine, thread::with_current_vm},
 };
+use core::marker::PhantomData;
 use core::ptr::NonNull;
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -90,6 +97,60 @@ pub fn ret_ptr_to_pyresult(vm: &VirtualMachine, ret_ptr: *mut PyObject) -> PyRes
     Ok(unsafe { PyObjectRef::from_raw(ret_ptr) })
 }
 
+/// Build [`FuncArgs`] from the `(args, kwds)` pair a C caller passes.
+///
+/// `kwds == NULL` means there are no keywords. A keyword name that is not a
+/// `str` is a `TypeError`.
+///
+/// # Safety
+/// `args` must point at a live object and `kwds` must be NULL or point at a
+/// live object.
+pub(crate) unsafe fn func_args_from_ptrs(
+    vm: &VirtualMachine,
+    args: *mut PyObject,
+    kwds: *mut PyObject,
+) -> PyResult<FuncArgs> {
+    let pos_args = unsafe { &*args }
+        .try_downcast_ref::<PyTuple>(vm)?
+        .iter()
+        .cloned()
+        .collect();
+    let kwargs = if kwds.is_null() {
+        KwArgs::default()
+    } else {
+        kwargs_from_dict(vm, unsafe { &*kwds }.try_downcast_ref::<PyDict>(vm)?)?
+    };
+    Ok(FuncArgs {
+        args: pos_args,
+        kwargs,
+    })
+}
+
+fn kwargs_from_dict(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> {
+    dict.items_vec()
+        .into_iter()
+        .map(|(key, value)| {
+            // Keep WTF-8 so a lone-surrogate key round-trips.
+            let key = key
+                .downcast_ref::<PyStr>()
+                .map(|key| key.as_wtf8().to_owned())
+                .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
+            Ok((key, value))
+        })
+        .collect()
+}
+
+/// Hand a `PyResult` back to C. `NULL` means `exc` is now the pending exception.
+pub(crate) fn pyresult_to_ret_ptr(vm: &VirtualMachine, result: PyResult) -> *mut PyObject {
+    match result {
+        Ok(obj) => obj.into_raw().as_ptr(),
+        Err(exc) => {
+            vm.set_exception(Some(exc));
+            core::ptr::null_mut()
+        }
+    }
+}
+
 /// Drives the C tp_new of the type it is called with. Installed in the `new`
 /// slot, which every instantiation path goes through.
 ///
@@ -112,6 +173,117 @@ pub fn c_new_trampoline(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> 
     ret_ptr_to_pyresult(vm, ret_ptr)
 }
 
+/// A Rust `tp_new` that has a single statically instantiated C entry point.
+pub trait StaticNew {
+    fn call(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult;
+}
+
+/// [`StaticNew`] for a payload whose `tp_new` is [`Constructor::slot_new`].
+pub struct ViaConstructor<T>(PhantomData<T>);
+
+impl<T> StaticNew for ViaConstructor<T>
+where
+    T: crate::types::Constructor,
+{
+    fn call(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        <T as crate::types::Constructor>::slot_new(cls, args, vm)
+    }
+}
+
+/// [`StaticNew`] for a Python-level `__new__`, dispatched through [`new_wrapper`].
+pub struct PythonNew;
+
+impl StaticNew for PythonNew {
+    fn call(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        super::slot::new_wrapper(cls, args, vm)
+    }
+}
+
+/// C ABI `newfunc` for the Rust implementation `S`.
+///
+/// Instantiated once per `S`, so the function pointer identifies that
+/// implementation. A caller passes `subtype` through; `S` must run its own
+/// body with that class rather than reading `subtype`'s slot again.
+///
+/// # Safety
+/// `subtype` must point at a live type, `args` at a tuple, and `kwds` must be
+/// NULL or a dict. The current thread must have a VM attached.
+pub unsafe extern "C" fn c_new_for<S: StaticNew>(
+    subtype: *mut Py<PyType>,
+    args: *mut PyObject,
+    kwds: *mut PyObject,
+) -> *mut PyObject {
+    with_current_vm(|vm| {
+        let result = (|| {
+            let cls = unsafe { &*subtype }.to_owned();
+            let func_args = unsafe { func_args_from_ptrs(vm, args, kwds) }?;
+            S::call(cls, func_args, vm)
+        })();
+        pyresult_to_ret_ptr(vm, result)
+    })
+}
+
+/// One Rust slot function and the C function that calls it.
+#[derive(Copy, Clone)]
+pub struct CSlotPair<R, C> {
+    pub rust: R,
+    pub c: C,
+}
+
+/// The Rust slot functions a type defines, each paired with its C twin.
+///
+/// Another slot is another field. Only `new` is filled in today.
+pub struct StaticCSlots {
+    pub new: Option<CSlotPair<NewFunc, CNewFunc>>,
+}
+
+/// `new_wrapper` and the C function that calls it.
+///
+/// A heap type whose `new` slot is the Python `__new__` dispatcher resolves
+/// here when no defining type recorded that function in its own table.
+pub static PYTHON_C_SLOTS: StaticCSlots = StaticCSlots {
+    new: Some(CSlotPair {
+        rust: super::slot::new_wrapper as NewFunc,
+        c: c_new_for::<PythonNew> as CNewFunc,
+    }),
+};
+
+/// Associated [`StaticCSlots`] for the payload that defines a Rust `tp_new`.
+///
+/// Generated next to `#[pyclass(with(Constructor))]`. The const is what
+/// promotes the table to `'static`.
+pub trait HasStaticCSlots {
+    const TABLE: StaticCSlots;
+}
+
+fn c_new_matching(table: Option<&StaticCSlots>, addr: usize) -> Option<CNewFunc> {
+    let pair = table?.new.as_ref()?;
+    (super::slot::fn_addr(pair.rust) == addr).then_some(pair.c)
+}
+
+impl PyType {
+    /// The C `newfunc` for this type's `tp_new`.
+    ///
+    /// A slot installed from C is the function stored in [`CSlots`]. A Rust
+    /// slot is the C twin recorded for the type in the MRO that defines that
+    /// same Rust function. A Python-level `__new__` resolves to
+    /// [`PYTHON_C_SLOTS`].
+    #[must_use]
+    pub fn c_tp_new(&self) -> Option<CNewFunc> {
+        let new = self.slots.new.load()?;
+        if is_c_trampoline(new) {
+            return self.slots.c_slots().and_then(|c| c.new.load());
+        }
+        let addr = super::slot::fn_addr(new);
+        let defined = c_new_matching(self.slots.static_c_slots.load(), addr).or_else(|| {
+            let mro = self.mro.read();
+            mro.iter()
+                .find_map(|cls| c_new_matching(cls.slots.static_c_slots.load(), addr))
+        });
+        defined.or_else(|| c_new_matching(Some(&PYTHON_C_SLOTS), addr))
+    }
+}
+
 /// A pointer to the [`CSlots`] a type reaches, shared with every type that
 /// inherited from its owner.
 ///
@@ -121,7 +293,7 @@ pub fn c_new_trampoline(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> 
 pub(crate) type CSlotsPtr = NonNull<CSlots>;
 
 /// Wrappers a type's C slots are reached through, one per slot that can be
-/// filled from C. Recognising these is how a slot that is only a trampoline is
+/// filled from C. Recognizing these is how a slot that is only a trampoline is
 /// told apart from one a type implements itself.
 pub(crate) fn is_c_trampoline(func: crate::types::NewFunc) -> bool {
     crate::types::fn_addr(func) == crate::types::fn_addr(c_new_trampoline as crate::types::NewFunc)

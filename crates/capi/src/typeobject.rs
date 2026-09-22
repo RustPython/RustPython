@@ -1,10 +1,11 @@
 //! C level type slots.
 //!
-//! The slot table keeps its Rust signatures, so a `newfunc` from an extension
+//! Slots cross the boundary in both directions. A `newfunc` from an extension
 //! goes into the type's [`CSlots`] table and `new` gets the trampoline that
-//! reads it. The table pointer is inherited alongside the trampoline, so a
-//! subclass reaches the C function without a lookup, the way an inherited
-//! `tp_new` pointer does.
+//! reads it; the table pointer is inherited alongside the trampoline. A slot
+//! implemented in Rust is paired with a static C function of that same
+//! implementation, and [`PyType_GetSlot`] returns it — for a subclass, the
+//! base's function — so the caller can run that body with its own subtype.
 //!
 //! `__new__` is the same wrapper a native type gets, so a call through it is
 //! checked by `PyType::__new__` before it reaches the slot.
@@ -42,21 +43,16 @@ pub fn set_tp_new(vm: &VirtualMachine, ty: &Py<PyType>, tp_new: newfunc) -> PyRe
     Ok(())
 }
 
-/// Only slots installed from C are reported. A slot backed by a Rust function
-/// has no C ABI entry point yet and reads as empty, as does a slot id this
-/// layer does not handle.
+/// The C function installed in `slot`.
+///
+/// `Py_tp_new` is reported for a function installed from C and for a Rust
+/// `tp_new`, including one a subclass inherited. Any other id reads as empty.
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
 pub unsafe extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c_void {
     let ty = unsafe { &*ty };
-    let Some(c_slots) = ty.slots.c_slots() else {
-        return ptr::null_mut();
-    };
     match CSlotId::from_raw(slot) {
-        Some(CSlotId::TpNew) => c_slots
-            .new
-            .load()
-            .map_or(ptr::null_mut(), |f| f as *mut c_void),
+        Some(CSlotId::TpNew) => ty.c_tp_new().map_or(ptr::null_mut(), |f| f as *mut c_void),
         None => ptr::null_mut(),
     }
 }
@@ -65,11 +61,38 @@ pub unsafe extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) ->
 mod tests {
     use super::*;
     use crate::PyObject;
+    use core::ptr::NonNull;
     use pyo3::Python;
-    use rustpython_vm::builtins::{PyStrRef, PyTuple, PyTypeRef};
+    use rustpython_vm::builtins::{PyInt, PyStrRef, PyTuple, PyTypeRef};
     use rustpython_vm::function::{FuncArgs, KwArgs};
     use rustpython_vm::vm::thread::{current_vm_is_set, with_current_vm};
     use rustpython_vm::{AsObject, PyObjectRef, PyRef};
+
+    fn load_tp_new(ty: &PyTypeObject) -> newfunc {
+        let slot = unsafe { PyType_GetSlot(ty, Py_tp_new) };
+        assert!(!slot.is_null());
+        unsafe { core::mem::transmute::<*mut c_void, newfunc>(slot) }
+    }
+
+    fn call_tp_new(tp_new: newfunc, subtype: &PyTypeObject, args: PyRef<PyTuple>) -> PyObjectRef {
+        let ptr = unsafe {
+            tp_new(
+                core::ptr::from_ref(subtype).cast_mut(),
+                args.as_object().as_raw().cast_mut(),
+                core::ptr::null_mut(),
+            )
+        };
+        let Some(ptr) = NonNull::new(ptr) else {
+            let msg = with_current_vm(|vm| {
+                vm.take_raised_exception()
+                    .and_then(|exc| exc.as_object().str(vm).ok())
+                    .map(|msg| msg.to_string())
+                    .unwrap_or_else(|| "no exception".to_owned())
+            });
+            panic!("tp_new returned NULL: {msg}");
+        };
+        unsafe { PyObjectRef::from_raw(ptr) }
+    }
 
     /// Returns `(subtype.__name__, args, kwds is NULL)`.
     unsafe extern "C" fn echo_new(
@@ -270,7 +293,10 @@ mod tests {
         Python::attach(|_py| {
             with_current_vm(|vm| {
                 let ty = heap_type("CGet", vm.ctx.types.object_type, vm);
-                assert!(unsafe { PyType_GetSlot(&*ty, Py_tp_new) }.is_null());
+                // Inherits object's Rust tp_new until a C function is installed.
+                assert_eq!(unsafe { PyType_GetSlot(&*ty, Py_tp_new) }, unsafe {
+                    PyType_GetSlot(vm.ctx.types.object_type, Py_tp_new)
+                },);
 
                 set_tp_new(vm, &ty, echo_new).unwrap();
                 assert_eq!(
@@ -284,6 +310,99 @@ mod tests {
                     unsafe { PyType_GetSlot(&*sub, Py_tp_new) },
                     echo_new as *mut c_void
                 );
+            })
+        })
+    }
+
+    #[test]
+    fn rust_int_tp_new_builds_an_int_and_a_subclass() {
+        Python::attach(|_py| {
+            with_current_vm(|vm| {
+                let int_type = vm.ctx.types.int_type;
+                let tp_new = load_tp_new(int_type);
+
+                let args = vm.ctx.new_tuple(vec![vm.ctx.new_str("42").into()]);
+                let value: PyRef<PyInt> = call_tp_new(tp_new, int_type, args).downcast().unwrap();
+                assert_eq!(value.as_bigint().to_string(), "42");
+
+                let sub = heap_type("SubInt", int_type, vm);
+                let args = vm.ctx.new_tuple(vec![vm.ctx.new_str("42").into()]);
+                let obj = call_tp_new(tp_new, &sub, args);
+                assert!(obj.class().is(&sub));
+            })
+        })
+    }
+
+    #[test]
+    fn rust_object_tp_new_is_callable() {
+        Python::attach(|_py| {
+            with_current_vm(|vm| {
+                let object_type = vm.ctx.types.object_type;
+                let tp_new = load_tp_new(object_type);
+                let obj = call_tp_new(tp_new, object_type, vm.ctx.new_tuple(vec![]));
+                assert!(obj.class().is(object_type));
+            })
+        })
+    }
+
+    #[test]
+    fn inherited_int_tp_new_matches_int() {
+        Python::attach(|_py| {
+            with_current_vm(|vm| {
+                let int_type = vm.ctx.types.int_type;
+                let int_slot = unsafe { PyType_GetSlot(int_type, Py_tp_new) };
+                let sub = heap_type("InheritedInt", int_type, vm);
+                assert!(!int_slot.is_null());
+                assert_eq!(unsafe { PyType_GetSlot(&*sub, Py_tp_new) }, int_slot);
+            })
+        })
+    }
+
+    #[test]
+    fn python_level_new_is_callable_from_c() {
+        Python::attach(|_py| {
+            with_current_vm(|vm| {
+                let sub = heap_type("PyNew", vm.ctx.types.object_type, vm);
+                let py_new = vm.ctx.new_method_def(
+                    "__new__",
+                    |_args: FuncArgs, vm: &VirtualMachine| -> PyResult {
+                        Ok(vm.ctx.new_str("from python").into())
+                    },
+                    PyMethodFlags::STATIC,
+                    None,
+                );
+                let py_new = py_new.build_function(vm, None);
+                sub.as_object()
+                    .set_attr(identifier!(vm, __new__), py_new, vm)
+                    .unwrap();
+
+                let tp_new = load_tp_new(&sub);
+                let obj = call_tp_new(tp_new, &sub, vm.ctx.new_tuple(vec![]));
+                let obj: PyStrRef = obj.downcast().unwrap();
+                assert_eq!(obj.to_string(), "from python");
+            })
+        })
+    }
+
+    #[test]
+    fn rust_int_tp_new_sets_value_error() {
+        Python::attach(|_py| {
+            with_current_vm(|vm| {
+                let int_type = vm.ctx.types.int_type;
+                let tp_new = load_tp_new(int_type);
+                let args = vm
+                    .ctx
+                    .new_tuple(vec![vm.ctx.new_str("not a number").into()]);
+                let ptr = unsafe {
+                    tp_new(
+                        core::ptr::from_ref(int_type).cast_mut(),
+                        args.as_object().as_raw().cast_mut(),
+                        core::ptr::null_mut(),
+                    )
+                };
+                assert!(ptr.is_null());
+                let exc = vm.take_raised_exception().expect("exception pending");
+                assert!(exc.fast_isinstance(vm.ctx.exceptions.value_error));
             })
         })
     }
