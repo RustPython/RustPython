@@ -2,19 +2,8 @@ use core::ffi::CStr;
 use std::io;
 
 use crate::crt_fd;
-
-const EBADF: i32 = 9;
-const EAGAIN: i32 = 11;
-const EINTR: i32 = 4;
-const EISDIR: i32 = 21;
-
-const O_RDONLY: i32 = 0;
-const O_WRONLY: i32 = 1;
-const O_RDWR: i32 = 2;
-const O_APPEND: i32 = 0x0008;
-const O_CREAT: i32 = 0x0200;
-const O_TRUNC: i32 = 0x0400;
-const O_EXCL: i32 = 0x0800;
+use crate::errno::errors::{EAGAIN, EBADF, EINTR, EISDIR};
+use crate::os::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
 
 bitflags::bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
