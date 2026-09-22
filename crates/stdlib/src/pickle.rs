@@ -462,7 +462,11 @@ mod _pickle {
     }
 
     #[pyattr]
-    #[pyclass(module = "_pickle", name = "Unpickler")]
+    #[pyclass(
+        module = "_pickle",
+        name = "Unpickler",
+        text_signature = "(file, *, fix_imports=True, encoding='ASCII', errors='strict', buffers=())"
+    )]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyUnpickler {
         read_state: PyMutex<ReadState>,
@@ -1662,7 +1666,9 @@ mod _pickle {
         })
     }
 
-    #[pyfunction]
+    #[pyfunction(
+        text_signature = "(data, /, *, fix_imports=True, encoding='ASCII', errors='strict', buffers=())"
+    )]
     fn loads(args: LoadsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         if args.data.downcastable::<PyStr>() {
             return Err(vm.new_type_error("Can't load pickle from unicode string"));
@@ -1709,7 +1715,9 @@ mod _pickle {
         buffers: OptionalArg<PyObjectRef>,
     }
 
-    #[pyfunction]
+    #[pyfunction(
+        text_signature = "(file, *, fix_imports=True, encoding='ASCII', errors='strict', buffers=())"
+    )]
     fn load(args: LoadArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let peek = vm.get_attribute_opt(args.file.clone(), "peek")?;
         let read = vm.get_attribute_opt(args.file.clone(), "read")?;
@@ -3781,7 +3789,9 @@ mod _pickle {
         buffer_callback: OptionalArg<PyObjectRef>,
     }
 
-    #[pyfunction]
+    #[pyfunction(
+        text_signature = "(obj, file, protocol=None, *, fix_imports=True, buffer_callback=None)"
+    )]
     fn dump(args: DumpArgs, vm: &VirtualMachine) -> PyResult<()> {
         let new_args = PicklerNewArgs {
             file: args.file,
@@ -3821,7 +3831,9 @@ mod _pickle {
         buffer_callback: OptionalArg<PyObjectRef>,
     }
 
-    #[pyfunction]
+    #[pyfunction(
+        text_signature = "(obj, protocol=None, *, fix_imports=True, buffer_callback=None)"
+    )]
     fn dumps(args: DumpsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let new_args = PicklerNewArgs {
             file: vm.ctx.none(),

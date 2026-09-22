@@ -1474,7 +1474,7 @@ pub(super) mod _os {
         Ok(StatResultData::from_stat(&stat, vm).to_pyobject(vm))
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(path, *, dir_fd=None)")]
     fn lstat(
         path: OsPath,
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
