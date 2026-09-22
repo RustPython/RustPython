@@ -1457,7 +1457,7 @@ pub(super) mod _os {
         }
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(path, *, dir_fd=None, follow_symlinks=True)")]
     #[pyfunction(name = "fstat")]
     fn stat(
         path: OsPathOrFd<'_>,

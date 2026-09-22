@@ -1931,7 +1931,11 @@ mod _pickle {
     }
 
     #[pyattr]
-    #[pyclass(module = "_pickle", name = "Pickler")]
+    #[pyclass(
+        module = "_pickle",
+        name = "Pickler",
+        text_signature = "(file, protocol=None, fix_imports=True, buffer_callback=None)"
+    )]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyPickler {
         out: PyMutex<Output>,
@@ -1945,9 +1949,9 @@ mod _pickle {
         file: PyObjectRef,
         #[pyarg(any, optional)]
         protocol: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(any, optional)]
         fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
+        #[pyarg(any, optional)]
         buffer_callback: OptionalArg<PyObjectRef>,
     }
 

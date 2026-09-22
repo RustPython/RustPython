@@ -14,7 +14,7 @@ import linecache
 import os
 import dis
 from os.path import normcase
-# import _pickle # TODO: RUSTPYTHON
+import _pickle
 import pickle
 import shutil
 import stat
@@ -1363,7 +1363,6 @@ class TestClassesAndFunctions(unittest.TestCase):
         spec = inspect.getfullargspec(test)
         self.assertEqual(test.__annotations__, spec.annotations)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name '_pickle' is not defined. Did you mean: 'pickle'? Or did you forget to import '_pickle'?
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_getfullargspec_builtin_methods(self):
@@ -4613,7 +4612,6 @@ class TestSignatureObject(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "callable.*is not supported"):
             self.assertEqual(inspect.signature(D), None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name '_pickle' is not defined. Did you mean: 'pickle'? Or did you forget to import '_pickle'?
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_signature_on_builtin_class(self):
@@ -5155,7 +5153,6 @@ class TestSignatureObject(unittest.TestCase):
         foo_sig = MySignature.from_callable(foo)
         self.assertIsInstance(foo_sig, MySignature)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; NameError: name '_pickle' is not defined. Did you mean: 'pickle'? Or did you forget to import '_pickle'?
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_signature_from_callable_builtin_obj(self):

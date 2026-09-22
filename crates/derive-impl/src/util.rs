@@ -315,6 +315,26 @@ impl ItemMeta for SimpleItemMeta {
     }
 }
 
+pub(crate) struct FunctionItemMeta(pub ItemMetaInner);
+
+impl ItemMeta for FunctionItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "text_signature"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+impl FunctionItemMeta {
+    pub(crate) fn text_signature(&self) -> Result<Option<String>> {
+        self.inner()._optional_str("text_signature")
+    }
+}
+
 pub(crate) struct ModuleItemMeta(pub ItemMetaInner);
 
 impl ItemMeta for ModuleItemMeta {
