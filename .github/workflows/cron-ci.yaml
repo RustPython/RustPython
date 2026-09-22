@@ -22,6 +22,7 @@ jobs:
   codecov:
     name: Collect code coverage data
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     env:
@@ -41,15 +42,18 @@ jobs:
 
       - run: sudo apt-get update && sudo apt-get -y install lcov
 
+      # llvm-cov of a debug binary makes `-m test -u all` take many hours per
+      # dozen tests. Release + per-test timeout keeps the job under 6h.
       - name: Run cargo-llvm-cov with Rust tests.
-        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi --verbose --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env
+        run: cargo llvm-cov --no-report --release --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi --verbose --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env
 
       - name: Run cargo-llvm-cov with Python snippets.
         run: python scripts/cargo-llvm-cov.py
         continue-on-error: true
 
       - name: Run cargo-llvm-cov with Python test suite.
-        run: cargo llvm-cov --no-report run -- -m test -u all --slowest --fail-env-changed
+        timeout-minutes: 180
+        run: cargo llvm-cov --no-report --release run -- -m test -u all --timeout 120 --slowest --fail-env-changed -j0
         continue-on-error: true
 
       - name: Prepare code coverage data
