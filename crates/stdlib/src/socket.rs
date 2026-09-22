@@ -970,30 +970,23 @@ mod _socket {
         where
             F: FnMut() -> io::Result<R>,
         {
-            let timeout = self.get_timeout().ok();
-            self.sock_op_timeout_err(vm, wait_kind, timeout, f)
+            let deadline = self.get_timeout().ok().map(Deadline::new);
+            self.sock_op_timeout_err(vm, wait_kind, deadline, f)
         }
 
         fn sock_op_timeout_err<F, R>(
             &self,
             vm: &VirtualMachine,
             wait_kind: SockWaitKind,
-            timeout: Option<Duration>,
+            deadline: Option<Deadline>,
             mut f: F,
         ) -> Result<R, IoOrPyException>
         where
             F: FnMut() -> io::Result<R>,
         {
-            // Start the deadline after the first snapshot, so lock/scheduling
-            // delay is not subtracted from a short timeout before poll.
-            let mut deadline = None;
-
             loop {
-                if timeout.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
+                if deadline.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
                     let sock = self.sock_snapshot()?;
-                    if deadline.is_none() {
-                        deadline = timeout.map(Deadline::new);
-                    }
                     sock_wait_deadline(&sock, wait_kind, deadline.as_ref(), vm)?;
                 }
 
@@ -1006,7 +999,7 @@ mod _socket {
                         Err(e) => break e,
                     }
                 };
-                if timeout.is_some() && err.kind() == io::ErrorKind::WouldBlock {
+                if deadline.is_some() && err.kind() == io::ErrorKind::WouldBlock {
                     continue;
                 }
                 return Err(err.into());
@@ -1732,8 +1725,7 @@ mod _socket {
             let mut buf_offset = 0;
             // now we have like 3 layers of interrupt loop :)
             while buf_offset < buf.len() {
-                let interval = deadline.as_ref().map(|d| d.time_until()).transpose()?;
-                self.sock_op_timeout_err(vm, SockWaitKind::Write, interval, || {
+                self.sock_op_timeout_err(vm, SockWaitKind::Write, deadline, || {
                     let subbuf = &buf[buf_offset..];
                     buf_offset += self.sock_snapshot()?.send_with_flags(subbuf, flags)?;
                     Ok(())
@@ -3043,6 +3035,7 @@ mod _socket {
         vm.new_os_subtype_error(timeout(vm), None, msg)
     }
 
+    #[derive(Copy, Clone)]
     pub(crate) struct Deadline {
         deadline: Instant,
     }
@@ -3055,12 +3048,6 @@ mod _socket {
         }
         fn instant(&self) -> Instant {
             self.deadline
-        }
-        fn time_until(&self) -> Result<Duration, IoOrPyException> {
-            self.deadline
-                .checked_duration_since(Instant::now())
-                // past the deadline already
-                .ok_or(IoOrPyException::Timeout)
         }
     }
 

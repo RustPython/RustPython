@@ -1851,6 +1851,30 @@ for _ in range(40):
         worker.join().expect("worker panicked");
     }
 
+    /// Per-thread `stop_requested` must trip the eval breaker even when the
+    /// process-wide `STOP_BIT` is clear.
+    #[cfg(feature = "threading")]
+    #[test]
+    fn eval_breaker_tripped_when_stop_requested_and_stop_bit_clear() {
+        let interp = Interpreter::without_stdlib(Default::default());
+        interp.enter(|vm| {
+            crate::signal::clear_stop_bit();
+            assert!(
+                crate::vm::thread::set_stop_requested_for_current_thread(true),
+                "current thread has no stop_requested flag"
+            );
+            crate::signal::clear_stop_bit();
+            let pending = crate::signal::eval_breaker_pending();
+            let tripped = vm.eval_breaker_tripped();
+            crate::vm::thread::set_stop_requested_for_current_thread(false);
+            assert!(
+                !pending,
+                "STOP_BIT or another process-wide breaker bit was set"
+            );
+            assert!(tripped);
+        });
+    }
+
     /// Entering a subinterpreter from inside the parent's `enter` must attach
     /// the subinterpreter's thread slot (and detach the parent's). Otherwise the
     /// thread runs the sub's bytecode with a DETACHED slot, and a collector
