@@ -1,6 +1,10 @@
+// cspell:ignore odict
+
 pub(crate) use _collections::module_def;
 
-#[pymodule]
+pub(crate) mod ordered_dict;
+
+#[pymodule(with(ordered_dict::ordered_dict))]
 mod _collections {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
