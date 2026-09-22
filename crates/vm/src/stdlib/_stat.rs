@@ -94,6 +94,7 @@ mod _stat {
 
     bitflagset::bitflag! {
         #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+        #[allow(non_camel_case_types)]
         #[repr(u8)]
         enum StatPerm {
             S_IXOTH = 0,

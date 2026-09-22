@@ -6557,7 +6557,6 @@ class TestRepl(unittest.TestCase):
             raise ValueError("Process didn't exit properly.")
         return output
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; REPL piped stdin does not buffer incomplete blocks
     @unittest.skipIf(not has_subprocess_support, "test requires subprocess")
     def test_getsource(self):
         output = self.run_on_interactive_mode(textwrap.dedent("""\
