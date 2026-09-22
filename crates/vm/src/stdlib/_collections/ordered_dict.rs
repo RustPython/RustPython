@@ -347,6 +347,7 @@ pub(crate) mod ordered_dict {
         with(
             AsMapping,
             AsNumber,
+            AsSequence,
             Comparable,
             Constructor,
             Initializer,
@@ -662,6 +663,21 @@ pub(crate) mod ordered_dict {
                 }),
             };
             &AS_MAPPING
+        }
+    }
+
+    impl AsSequence for PyOrderedDict {
+        fn as_sequence() -> &'static PySequenceMethods {
+            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+                contains: atomic_func!(|seq, target, vm| {
+                    PyOrderedDict::sequence_downcast(seq)
+                        .dict
+                        .inner_getitem_opt(target, vm)
+                        .map(|v| v.is_some())
+                }),
+                ..PySequenceMethods::NOT_IMPLEMENTED
+            };
+            &AS_SEQUENCE
         }
     }
 

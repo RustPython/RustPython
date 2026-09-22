@@ -920,10 +920,6 @@ mod _socket {
 
     #[cfg(windows)]
     #[pyattr]
-    const BTPROTO_RFCOMM: i32 = host_socket::BTHPROTO_RFCOMM;
-
-    #[cfg(windows)]
-    #[pyattr]
     use host_socket::{
         AF_BLUETOOTH, AF_HYPERV, AF_IRDA, AF_SNA, BTHPROTO_RFCOMM,
         BTHPROTO_RFCOMM as BTPROTO_RFCOMM, HV_PROTOCOL_RAW, HVSOCKET_ADDRESS_FLAG_PASSTHRU,
