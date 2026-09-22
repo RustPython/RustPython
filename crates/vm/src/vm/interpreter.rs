@@ -1860,6 +1860,7 @@ for _ in range(40):
     fn eval_breaker_tripped_when_stop_requested() {
         let interp = Interpreter::without_stdlib(Default::default());
         interp.enter(|vm| {
+            crate::signal::clear_eval_breaker_for_test();
             assert!(
                 crate::vm::thread::set_stop_requested_for_current_thread(true),
                 "current thread has no stop_requested flag"
