@@ -793,7 +793,7 @@ jobs:
 
       - name: reviewdog
         if: ${{ !cancelled() }}
-        uses: reviewdog/action-suggester@2558ba17e65a9039e73764a73009fc05fef28a46 # v1.24.3
+        uses: reviewdog/action-suggester@4553543bea739d9d503379d786148cfd561de5fa # v1.25.0
         with:
           level: warning
           fail_level: error
