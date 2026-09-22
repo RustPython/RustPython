@@ -92,140 +92,99 @@ mod _stat {
     #[pyattr]
     pub const S_IFWHT: Mode = rustpython_host_env::os::S_IFWHT as Mode;
 
-    // Permission bits
+    bitflagset::bitflag! {
+        #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+        #[repr(u8)]
+        enum StatPerm {
+            S_IXOTH = 0,
+            S_IWOTH = 1,
+            S_IROTH = 2,
+            S_IXGRP = 3,
+            S_IWGRP = 4,
+            S_IRGRP = 5,
+            S_IXUSR = 6,
+            S_IWUSR = 7,
+            S_IRUSR = 8,
+            S_ISVTX = 9,
+            S_ISGID = 10,
+            S_ISUID = 11,
+        }
+    }
+
+    bitflagset::bitflagset! {
+        #[derive(Copy, Clone, PartialEq, Eq)]
+        struct StatPerms(u32): StatPerm
+    }
+
+    impl StatPerms {
+        const S_IRWXO: Self =
+            Self::from_slice(&[StatPerm::S_IXOTH, StatPerm::S_IWOTH, StatPerm::S_IROTH]);
+        const S_IRWXG: Self =
+            Self::from_slice(&[StatPerm::S_IXGRP, StatPerm::S_IWGRP, StatPerm::S_IRGRP]);
+        const S_IRWXU: Self =
+            Self::from_slice(&[StatPerm::S_IXUSR, StatPerm::S_IWUSR, StatPerm::S_IRUSR]);
+    }
+
+    const fn perm(flag: StatPerm) -> Mode {
+        StatPerms::from_element(flag).bits() as Mode
+    }
 
     #[pyattr]
-    pub const S_ISUID: Mode = libc_const!(
-        #[cfg(unix)]
-        S_ISUID,
-        0o4000
-    );
-
+    pub const S_IXOTH: Mode = perm(StatPerm::S_IXOTH);
     #[pyattr]
-    pub const S_ISGID: Mode = libc_const!(
-        #[cfg(unix)]
-        S_ISGID,
-        0o2000
-    );
-
+    pub const S_IWOTH: Mode = perm(StatPerm::S_IWOTH);
     #[pyattr]
-    pub const S_ENFMT: Mode = libc_const!(
-        #[cfg(unix)]
-        S_ISGID,
-        0o2000
-    );
-
+    pub const S_IROTH: Mode = perm(StatPerm::S_IROTH);
     #[pyattr]
-    pub const S_ISVTX: Mode = libc_const!(
-        #[cfg(unix)]
-        S_ISVTX,
-        0o1000
-    );
-
+    pub const S_IRWXO: Mode = StatPerms::S_IRWXO.bits() as Mode;
     #[pyattr]
-    pub const S_IRWXU: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRWXU,
-        0o0700
-    );
-
+    pub const S_IXGRP: Mode = perm(StatPerm::S_IXGRP);
     #[pyattr]
-    pub const S_IRUSR: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRUSR,
-        0o0400
-    );
-
+    pub const S_IWGRP: Mode = perm(StatPerm::S_IWGRP);
     #[pyattr]
-    pub const S_IREAD: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRUSR,
-        0o0400
-    );
-
+    pub const S_IRGRP: Mode = perm(StatPerm::S_IRGRP);
     #[pyattr]
-    pub const S_IWUSR: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IWUSR,
-        0o0200
-    );
-
+    pub const S_IRWXG: Mode = StatPerms::S_IRWXG.bits() as Mode;
     #[pyattr]
-    pub const S_IXUSR: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IXUSR,
-        0o0100
-    );
-
+    pub const S_IXUSR: Mode = perm(StatPerm::S_IXUSR);
     #[pyattr]
-    pub const S_IRWXG: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRWXG,
-        0o0070
-    );
-
+    pub const S_IWUSR: Mode = perm(StatPerm::S_IWUSR);
     #[pyattr]
-    pub const S_IRGRP: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRGRP,
-        0o0040
-    );
-
+    pub const S_IRUSR: Mode = perm(StatPerm::S_IRUSR);
     #[pyattr]
-    pub const S_IWGRP: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IWGRP,
-        0o0020
-    );
-
+    pub const S_IRWXU: Mode = StatPerms::S_IRWXU.bits() as Mode;
     #[pyattr]
-    pub const S_IXGRP: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IXGRP,
-        0o0010
-    );
-
+    pub const S_ISVTX: Mode = perm(StatPerm::S_ISVTX);
     #[pyattr]
-    pub const S_IRWXO: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IRWXO,
-        0o0007
-    );
-
+    pub const S_ISGID: Mode = perm(StatPerm::S_ISGID);
     #[pyattr]
-    pub const S_IROTH: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IROTH,
-        0o0004
-    );
-
+    pub const S_ISUID: Mode = perm(StatPerm::S_ISUID);
     #[pyattr]
-    pub const S_IWOTH: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IWOTH,
-        0o0002
-    );
-
+    pub const S_ENFMT: Mode = S_ISGID;
     #[pyattr]
-    pub const S_IXOTH: Mode = libc_const!(
-        #[cfg(unix)]
-        S_IXOTH,
-        0o0001
-    );
-
+    pub const S_IREAD: Mode = S_IRUSR;
     #[pyattr]
-    pub const S_IWRITE: Mode = libc_const!(
-        #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))]
-        S_IWRITE,
-        0o0200
-    );
-
+    pub const S_IWRITE: Mode = S_IWUSR;
     #[pyattr]
-    pub const S_IEXEC: Mode = libc_const!(
-        #[cfg(all(unix, not(target_os = "android"), not(target_os = "redox")))]
-        S_IEXEC,
-        0o0100
-    );
+    pub const S_IEXEC: Mode = S_IXUSR;
+
+    const _: () = {
+        assert!(S_IXOTH as u32 == 0o0001);
+        assert!(S_IWOTH as u32 == 0o0002);
+        assert!(S_IROTH as u32 == 0o0004);
+        assert!(S_IRWXO as u32 == 0o0007);
+        assert!(S_IXGRP as u32 == 0o0010);
+        assert!(S_IWGRP as u32 == 0o0020);
+        assert!(S_IRGRP as u32 == 0o0040);
+        assert!(S_IRWXG as u32 == 0o0070);
+        assert!(S_IXUSR as u32 == 0o0100);
+        assert!(S_IWUSR as u32 == 0o0200);
+        assert!(S_IRUSR as u32 == 0o0400);
+        assert!(S_IRWXU as u32 == 0o0700);
+        assert!(S_ISVTX as u32 == 0o1000);
+        assert!(S_ISGID as u32 == 0o2000);
+        assert!(S_ISUID as u32 == 0o4000);
+    };
 
     // Windows file attributes (if on Windows)
 

@@ -30,19 +30,25 @@ use {
     },
 };
 
-bitflags::bitflags! {
+bitflagset::bitflag! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub struct AccessMode: u8 {
-        const X_OK = 1 << 0;
-        const W_OK = 1 << 1;
-        const R_OK = 1 << 2;
+    #[repr(u8)]
+    pub enum AccessFlag {
+        X = 0,
+        W = 1,
+        R = 2,
     }
 }
 
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct AccessMode(u8): AccessFlag
+}
+
 pub const F_OK: u8 = AccessMode::empty().bits();
-pub const R_OK: u8 = AccessMode::R_OK.bits();
-pub const W_OK: u8 = AccessMode::W_OK.bits();
-pub const X_OK: u8 = AccessMode::X_OK.bits();
+pub const X_OK: u8 = AccessMode::from_element(AccessFlag::X).bits();
+pub const W_OK: u8 = AccessMode::from_element(AccessFlag::W).bits();
+pub const R_OK: u8 = AccessMode::from_element(AccessFlag::R).bits();
 
 #[cfg(any(unix, target_os = "wasi"))]
 pub use libc::AT_FDCWD;

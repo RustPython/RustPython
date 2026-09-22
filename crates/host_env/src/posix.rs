@@ -986,9 +986,9 @@ pub fn check_access(path: &Path, mode: u8) -> Result<bool, AccessError> {
 
     let perm = get_right_permission(metadata.mode(), metadata.uid(), metadata.gid())?;
 
-    let r_ok = !mode.contains(AccessMode::R_OK) || perm.is_readable;
-    let w_ok = !mode.contains(AccessMode::W_OK) || perm.is_writable;
-    let x_ok = !mode.contains(AccessMode::X_OK) || perm.is_executable;
+    let r_ok = !mode.contains(&crate::os::AccessFlag::R) || perm.is_readable;
+    let w_ok = !mode.contains(&crate::os::AccessFlag::W) || perm.is_writable;
+    let x_ok = !mode.contains(&crate::os::AccessFlag::X) || perm.is_executable;
 
     Ok(r_ok && w_ok && x_ok)
 }
