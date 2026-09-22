@@ -242,7 +242,7 @@ pub(super) mod _os {
     const SCANDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
     #[pyattr]
-    use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
+    use crate::host_env::os::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
 
     #[pyattr]
     pub(crate) use crate::host_env::os::{F_OK, R_OK, W_OK, X_OK};
@@ -299,14 +299,14 @@ pub(super) mod _os {
         let fd = {
             let [] = dir_fd.0;
             let name = name.to_wide_cstring(vm)?;
-            let flags = flags | libc::O_NOINHERIT;
+            let flags = flags | crate::host_env::os::O_NOINHERIT;
             crt_fd::wopen(&name, flags, mode)
         };
         #[cfg(not(windows))]
         let fd = {
             let name = name.clone().into_cstring(vm)?;
             #[cfg(not(target_os = "wasi"))]
-            let flags = flags | libc::O_CLOEXEC;
+            let flags = flags | crate::host_env::os::O_CLOEXEC;
             #[cfg(not(target_os = "redox"))]
             if let Some(dir_fd) = dir_fd.get_opt() {
                 crt_fd::openat(dir_fd, &name, flags, mode)

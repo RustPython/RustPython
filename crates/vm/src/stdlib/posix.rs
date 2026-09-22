@@ -53,9 +53,13 @@ pub mod module {
     #[cfg(target_os = "macos")]
     #[pyattr]
     use libc::{
-        COPYFILE_DATA as _COPYFILE_DATA, O_EVTONLY, O_NOFOLLOW_ANY, PRIO_DARWIN_BG,
-        PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS, PRIO_DARWIN_THREAD,
+        COPYFILE_DATA as _COPYFILE_DATA, PRIO_DARWIN_BG, PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS,
+        PRIO_DARWIN_THREAD,
     };
+
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    use rustpython_host_env::os::{O_EVTONLY, O_NOFOLLOW_ANY};
 
     #[cfg(target_os = "freebsd")]
     #[pyattr]
@@ -66,18 +70,25 @@ pub mod module {
     use libc::{
         CLONE_FILES, CLONE_FS, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS,
         CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS, CLONE_SIGHAND, CLONE_SYSVSEM, CLONE_THREAD,
-        CLONE_VM, MFD_HUGE_SHIFT, O_NOATIME, O_TMPFILE, P_PIDFD, SCHED_BATCH, SCHED_DEADLINE,
-        SCHED_IDLE, SCHED_NORMAL, SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE,
-        SPLICE_F_NONBLOCK,
+        CLONE_VM, MFD_HUGE_SHIFT, P_PIDFD, SCHED_BATCH, SCHED_DEADLINE, SCHED_IDLE, SCHED_NORMAL,
+        SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE, SPLICE_F_NONBLOCK,
     };
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use rustpython_host_env::os::{O_NOATIME, O_TMPFILE};
 
     #[cfg(any(target_os = "macos", target_os = "redox"))]
     #[pyattr]
-    use libc::O_SYMLINK;
+    use rustpython_host_env::os::O_SYMLINK;
 
     #[cfg(any(target_os = "android", target_os = "redox", unix))]
     #[pyattr]
-    use libc::{O_NOFOLLOW, PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+    use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+
+    #[cfg(any(target_os = "android", target_os = "redox", unix))]
+    #[pyattr]
+    use rustpython_host_env::os::O_NOFOLLOW;
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "netbsd"))]
     #[pyattr]
@@ -85,7 +96,7 @@ pub mod module {
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "netbsd"))]
     #[pyattr]
-    use libc::O_RSYNC;
+    use rustpython_host_env::os::O_RSYNC;
 
     #[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
     #[pyattr]
@@ -110,7 +121,7 @@ pub mod module {
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::O_PATH;
+    use rustpython_host_env::os::O_PATH;
 
     #[cfg(any(
         target_os = "android",
@@ -141,7 +152,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::{F_OK, R_OK, W_OK, X_OK};
+    use rustpython_host_env::os::{F_OK, R_OK, W_OK, X_OK};
 
     #[cfg(any(
         target_os = "android",
@@ -151,7 +162,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::O_NONBLOCK;
+    use rustpython_host_env::os::O_NONBLOCK;
 
     #[cfg(any(
         target_os = "android",
@@ -161,7 +172,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::O_DSYNC;
+    use rustpython_host_env::os::O_DSYNC;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -191,7 +202,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::O_DIRECT;
+    use rustpython_host_env::os::O_DIRECT;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -201,7 +212,7 @@ pub mod module {
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::{O_EXLOCK, O_FSYNC, O_SHLOCK};
+    use rustpython_host_env::os::{O_EXLOCK, O_FSYNC, O_SHLOCK};
 
     #[cfg(any(
         target_os = "android",
@@ -235,9 +246,20 @@ pub mod module {
     ))]
     #[pyattr]
     use libc::{
-        CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, O_SYNC, P_ALL,
-        P_PGID, P_PID, SCHED_FIFO, SCHED_RR,
+        CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, P_ALL, P_PGID,
+        P_PID, SCHED_FIFO, SCHED_RR,
     };
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use rustpython_host_env::os::O_SYNC;
 
     #[cfg(any(
         target_os = "android",
@@ -249,7 +271,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::O_DIRECTORY;
+    use rustpython_host_env::os::O_DIRECTORY;
 
     #[cfg(any(
         target_os = "android",
@@ -261,10 +283,19 @@ pub mod module {
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::{
-        F_LOCK, F_TEST, F_TLOCK, F_ULOCK, O_ASYNC, O_NDELAY, O_NOCTTY, RTLD_NOLOAD, WEXITED,
-        WNOWAIT, WSTOPPED,
-    };
+    use libc::{F_LOCK, F_TEST, F_TLOCK, F_ULOCK, RTLD_NOLOAD, WEXITED, WNOWAIT, WSTOPPED};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use rustpython_host_env::os::{O_ASYNC, O_NDELAY, O_NOCTTY};
 
     #[cfg(any(
         target_os = "android",
@@ -277,7 +308,20 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::{O_CLOEXEC, WCONTINUED};
+    use libc::WCONTINUED;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "redox",
+        unix
+    ))]
+    #[pyattr]
+    use rustpython_host_env::os::O_CLOEXEC;
 
     #[pyattr]
     use rustpython_host_env::posix::{

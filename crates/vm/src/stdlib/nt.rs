@@ -25,7 +25,9 @@ pub(crate) mod module {
     use std::os::windows::io::AsRawHandle;
 
     #[pyattr]
-    use libc::{O_BINARY, O_NOINHERIT, O_RANDOM, O_SEQUENTIAL, O_TEMPORARY, O_TEXT};
+    use rustpython_host_env::os::{
+        O_BINARY, O_NOINHERIT, O_RANDOM, O_SEQUENTIAL, O_TEMPORARY, O_TEXT,
+    };
 
     #[pyattr]
     use host_msvcrt::{
