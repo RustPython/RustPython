@@ -1,6 +1,6 @@
 // export through sliceable module, not slice.
 use crate::{
-    PyObject, PyResult, VirtualMachine,
+    Py, PyObject, PyResult, VirtualMachine,
     builtins::{int::PyInt, slice::PySlice},
 };
 use core::ops::Range;
@@ -387,7 +387,7 @@ impl SaturatedSlice {
     }
 
     // Equivalent to PySlice_Unpack.
-    pub fn with_slice(slice: &PySlice, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn with_slice(slice: &Py<PySlice>, vm: &VirtualMachine) -> PyResult<Self> {
         let step = to_isize_index(vm, slice.step_ref(vm))?.unwrap_or(1);
         if step == 0 {
             return Err(vm.new_value_error("slice step cannot be zero"));

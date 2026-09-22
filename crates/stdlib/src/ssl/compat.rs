@@ -329,7 +329,7 @@ pub(super) fn is_blocking_io_error(err: &Py<PyBaseException>, vm: &VirtualMachin
 /// inside `f`; rustls is sans-I/O and another thread may need this lock to
 /// encrypt or decrypt while we wait on the transport.
 fn with_conn_mut<R>(
-    socket: &PySSLSocket,
+    socket: &Py<PySSLSocket>,
     vm: &VirtualMachine,
     f: impl FnOnce(&mut TlsConnection) -> SslResult<R>,
 ) -> SslResult<R> {
@@ -347,7 +347,7 @@ fn with_conn_mut<R>(
 /// if no progress can be made.
 /// Optional deadline parameter allows respecting a read deadline during flush.
 pub(super) fn send_all_bytes(
-    socket: &PySSLSocket,
+    socket: &Py<PySSLSocket>,
     buf: Vec<u8>,
     vm: &VirtualMachine,
     deadline: Option<std::time::Instant>,
@@ -374,7 +374,7 @@ pub(super) fn send_all_bytes(
 ///
 /// Drains all pending TLS data from rustls and sends it to the peer.
 /// Returns whether any progress was made.
-fn handshake_write_loop(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<bool> {
+fn handshake_write_loop(socket: &Py<PySSLSocket>, vm: &VirtualMachine) -> SslResult<bool> {
     let mut made_progress = false;
 
     // Flush any previously pending TLS data before generating new output
@@ -416,7 +416,7 @@ fn handshake_write_loop(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<
 /// and recv() only that many bytes.  Any remaining data stays in the kernel
 /// buffer and remains visible to select().
 pub(super) fn recv_at_most_one_tls_record(
-    socket: &PySSLSocket,
+    socket: &Py<PySSLSocket>,
     vm: &VirtualMachine,
 ) -> SslResult<PyObjectRef> {
     let bytes = socket.sock_recv_at_most_one_tls_record(vm).map_err(|e| {
@@ -441,7 +441,7 @@ pub(super) fn recv_at_most_one_tls_record(
 /// Read up to a single TLS record for post-handshake I/O while preserving the
 /// SSL-vs-socket error precedence from the old sock_recv() path.
 fn recv_at_most_one_tls_record_for_data(
-    socket: &PySSLSocket,
+    socket: &Py<PySSLSocket>,
     vm: &VirtualMachine,
 ) -> SslResult<PyObjectRef> {
     match recv_at_most_one_tls_record(socket, vm) {
@@ -467,7 +467,7 @@ fn recv_at_most_one_tls_record_for_data(
     }
 }
 
-fn handshake_read_data(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<()> {
+fn handshake_read_data(socket: &Py<PySSLSocket>, vm: &VirtualMachine) -> SslResult<()> {
     if socket
         .sock_wait_for_io_impl(SockWaitKind::Read, vm)
         .map_err(SslError::Py)?
@@ -496,7 +496,7 @@ fn try_read_plaintext(conn: &mut TlsConnection, buf: &mut [u8]) -> SslResult<Opt
 /// This abstracts away the low-level rustls read_tls/write_tls loop.
 ///
 /// = SSL_do_handshake()
-pub(super) fn ssl_do_handshake(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<()> {
+pub(super) fn ssl_do_handshake(socket: &Py<PySSLSocket>, vm: &VirtualMachine) -> SslResult<()> {
     loop {
         // Both transports drain writes first and feed complete/partial records
         // through the same path. An empty BIO naturally returns WantRead.
@@ -534,7 +534,7 @@ pub(super) fn ssl_do_handshake(socket: &PySSLSocket, vm: &VirtualMachine) -> Ssl
 ///
 /// = SSL_read_ex()
 pub(super) fn ssl_read(
-    socket: &PySSLSocket,
+    socket: &Py<PySSLSocket>,
     buf: &mut [u8],
     vm: &VirtualMachine,
 ) -> SslResult<usize> {
@@ -739,7 +739,7 @@ pub(super) fn ssl_read(
 ///
 /// = SSL_write_ex()
 pub(super) fn ssl_write(
-    socket: &PySSLSocket,
+    socket: &Py<PySSLSocket>,
     data: &[u8],
     vm: &VirtualMachine,
 ) -> SslResult<usize> {
@@ -944,7 +944,7 @@ fn is_connection_closed_error(exc: &Py<PyBaseException>, vm: &VirtualMachine) ->
 
 /// Ensure TLS data is available for reading
 /// Returns the number of bytes read from the socket
-fn ssl_ensure_data_available(socket: &PySSLSocket, vm: &VirtualMachine) -> SslResult<usize> {
+fn ssl_ensure_data_available(socket: &Py<PySSLSocket>, vm: &VirtualMachine) -> SslResult<usize> {
     // Unlike OpenSSL's SSL_read, rustls requires explicit I/O
     if with_conn_mut(socket, vm, |conn| Ok(conn.wants_read()))? {
         let is_bio = socket.is_bio_mode();

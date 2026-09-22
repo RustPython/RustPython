@@ -52,7 +52,7 @@ use rustpython_unicode::{self as unicode, case};
 
 impl<'a> TryFromBorrowedObject<'a> for String {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-        obj.try_value_with(|pystr: &PyUtf8Str| Ok(pystr.as_str().to_owned()), vm)
+        obj.try_value_with(|pystr: &Py<PyUtf8Str>| Ok(pystr.as_str().to_owned()), vm)
     }
 }
 
