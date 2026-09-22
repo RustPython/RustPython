@@ -42,6 +42,7 @@ fn shell_exec(
     match vm.compile_with_opts(source, compiler::Mode::Single, "<stdin>", opts) {
         Ok(code) => {
             *future_features |= code.code.flags & CodeFlags::FUTURE_MASK;
+            let _ = vm.register_code_in_linecache(&code, source);
             if empty_line_given || !continuing_block {
                 // We want to execute the full code
                 match vm.run_code_obj(code, scope) {

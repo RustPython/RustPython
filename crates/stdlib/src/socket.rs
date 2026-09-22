@@ -1034,11 +1034,16 @@ mod _socket {
         where
             F: FnMut() -> io::Result<R>,
         {
-            let deadline = timeout.map(Deadline::new);
+            // Start the deadline after the first snapshot, so lock/scheduling
+            // delay is not subtracted from a short timeout before poll.
+            let mut deadline = None;
 
             loop {
-                if deadline.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
+                if timeout.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
                     let sock = self.sock_snapshot()?;
+                    if deadline.is_none() {
+                        deadline = timeout.map(Deadline::new);
+                    }
                     sock_wait_deadline(&sock, wait_kind, deadline.as_ref(), vm)?;
                 }
 

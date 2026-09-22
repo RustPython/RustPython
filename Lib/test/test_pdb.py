@@ -743,7 +743,7 @@ def test_list_commands():
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
     ...     ret = test_function_2('baz')
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON; Flaky # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...     'step',      # go to the test function line
     ...     'list',      # list first function
     ...     'step',      # step into second function
@@ -1867,7 +1867,7 @@ def test_pdb_skip_modules_with_callback():
     ...     import pdb; pdb.Pdb(skip=['module_to_skip*'], nosigint=True, readrc=False).set_trace()
     ...     mod.foo_pony(callback)
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+    >>> with PdbTestInput([
     ...     'step',
     ...     'step',
     ...     'step',
@@ -2336,7 +2336,7 @@ if not SKIP_CORO_TESTS:
         ...     run_yielding_async_fn(test_main)
         ...     print("finished")
 
-        >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+        >>> with PdbTestInput(['step',
         ...                    'step',
         ...                    'step',
         ...                    'next',
@@ -2515,7 +2515,7 @@ if not SKIP_CORO_TESTS:
         ...     run_yielding_async_fn(test_main)
         ...     print("finished")
 
-        >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+        >>> with PdbTestInput(['step',
         ...                    'step',
         ...                    'step',
         ...                    'next',
@@ -2555,7 +2555,7 @@ def test_pdb_until_command_for_generator():
     ...         print(i)
     ...     print("finished")
 
-    >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+    >>> with PdbTestInput(['step',
     ...                    'step',
     ...                    'until 4',
     ...                    'step',
@@ -2612,7 +2612,7 @@ if not SKIP_CORO_TESTS:
         ...     run_yielding_async_fn(test_main)
         ...     print("finished")
 
-        >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+        >>> with PdbTestInput(['step',
         ...                    'step',
         ...                    'until 8',
         ...                    'continue']):
@@ -2695,7 +2695,7 @@ def test_pdb_next_command_subiterator():
     ...         print('value', i)
     ...     x = 123
 
-    >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+    >>> with PdbTestInput(['step',
     ...                    'step',
     ...                    'step',
     ...                    'next',
@@ -3445,7 +3445,7 @@ def test_pdb_issue_gh_65052():
 
     >>> def test_function():
     ...     A()
-    >>> with PdbTestInput([ # TODO: RUSTPYTHON; Flaky # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([ # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE
     ...     's',
     ...     's',
     ...     'retval',
@@ -4614,7 +4614,6 @@ def bœr():
             self.assertIn('42', stdout)
             self.assertIn('return x + 1', stdout)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_zipimport(self):
         with os_helper.temp_dir() as temp_dir:
             os.mkdir(os.path.join(temp_dir, 'source'))

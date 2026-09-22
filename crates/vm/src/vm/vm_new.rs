@@ -1060,7 +1060,12 @@ impl VirtualMachine {
     }
 
     pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
-        let args: FuncArgs = value.map(|v| vec![v]).unwrap_or_default().into();
+        // None (or omitted) is PyErr_SetNone: args stay empty so
+        // format_exception_only prints "StopIteration" not "StopIteration: None".
+        let args: FuncArgs = match value {
+            Some(v) if !self.is_none(&v) => vec![v].into(),
+            _ => Vec::<PyObjectRef>::new().into(),
+        };
         self.new_payload_exception::<PyStopIteration>(
             self.ctx.exceptions.stop_iteration.to_owned(),
             args,
