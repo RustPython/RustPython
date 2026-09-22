@@ -1113,6 +1113,34 @@ pub fn openpty() -> std::io::Result<(OwnedFd, OwnedFd)> {
     Ok((pty.master, pty.slave))
 }
 
+/// `forkpty(3)`. The child is a session leader with the slave as its
+/// controlling terminal. The parent receives the master fd. The child may
+/// see `master_fd == -1` (Apple's `forkpty`); that is returned as `-1`.
+///
+/// rustix has no `forkpty`. `nix::pty::forkpty` wraps the master in
+/// `OwnedFd`, which panics on Apple's child `-1`, and its `Child` arm
+/// drops the master fd the caller returns as the second item.
+#[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+pub fn forkpty() -> std::io::Result<(pid_t, i32)> {
+    let mut master_fd: libc::c_int = -1;
+    let pid = unsafe {
+        libc::forkpty(
+            &mut master_fd,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+        )
+    };
+    if pid < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if pid != 0 && master_fd >= 0 {
+        let fd = unsafe { BorrowedFd::borrow_raw(master_fd) };
+        set_inheritable(fd, false)?;
+    }
+    Ok((pid, master_fd))
+}
+
 pub fn ttyname(fd: BorrowedFd<'_>) -> std::io::Result<OsString> {
     nix::unistd::ttyname(fd)
         .map(std::path::PathBuf::into_os_string)
