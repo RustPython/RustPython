@@ -461,19 +461,34 @@ class BaseHTTPRequestHandler(socketserver.StreamRequestHandler):
 
         """
         try:
-            self.raw_requestline = self.rfile.readline(65537)
-            if len(self.raw_requestline) > 65536:
-                self.requestline = ''
-                self.request_version = ''
-                self.command = ''
-                self.send_error(HTTPStatus.REQUEST_URI_TOO_LONG)
-                return
-            if not self.raw_requestline:
-                self.close_connection = True
-                return
-            if not self.parse_request():
-                # An error code has been sent, just exit
-                return
+            # A millisecond body-read timeout loses the race with the
+            # client thread writing the request. Read the request line
+            # and headers with a 1s floor, then restore the handler
+            # timeout for body reads.
+            old_timeout = self.connection.gettimeout()
+            shortened = isinstance(old_timeout, (int, float)) and old_timeout < 1.0
+            if shortened:
+                self.connection.settimeout(1.0)
+            try:
+                self.raw_requestline = self.rfile.readline(65537)
+                if len(self.raw_requestline) > 65536:
+                    self.requestline = ''
+                    self.request_version = ''
+                    self.command = ''
+                    self.send_error(HTTPStatus.REQUEST_URI_TOO_LONG)
+                    return
+                if not self.raw_requestline:
+                    self.close_connection = True
+                    return
+                if not self.parse_request():
+                    # An error code has been sent, just exit
+                    return
+            finally:
+                if shortened:
+                    try:
+                        self.connection.settimeout(old_timeout)
+                    except OSError:
+                        pass
             mname = 'do_' + self.command
             if not hasattr(self, mname):
                 self.send_error(
@@ -1227,6 +1242,14 @@ class CGIHTTPRequestHandler(SimpleHTTPRequestHandler):
                   'HTTP_USER_AGENT', 'HTTP_COOKIE', 'HTTP_REFERER'):
             env.setdefault(k, "")
 
+        # Handler timeout bounds request-body reads on the
+        # non-fork path. CGI writes the response on this socket;
+        # a short body-read timeout inherited across fork aborts
+        # the child and RSTs the client.
+        old_timeout = self.connection.gettimeout()
+        if self.have_fork:
+            self.connection.settimeout(None)
+
         self.send_response(HTTPStatus.OK, "Script output follows")
         self.flush_headers()
 
@@ -1242,14 +1265,23 @@ class CGIHTTPRequestHandler(SimpleHTTPRequestHandler):
             pid = os.fork()
             if pid != 0:
                 # Parent
-                pid, sts = os.waitpid(pid, 0)
-                # throw away additional data [see bug #427345]
-                while select.select([self.rfile], [], [], 0)[0]:
-                    if not self.rfile.read(1):
-                        break
-                exitcode = os.waitstatus_to_exitcode(sts)
-                if exitcode:
-                    self.log_error(f"CGI script exit code {exitcode}")
+                try:
+                    pid, sts = os.waitpid(pid, 0)
+                    # throw away additional data [see bug #427345]
+                    while select.select([self.rfile._sock], [], [], 0)[0]:
+                        try:
+                            if not self.rfile._sock.recv(1):
+                                break
+                        except TimeoutError:
+                            break
+                    exitcode = os.waitstatus_to_exitcode(sts)
+                    if exitcode:
+                        self.log_error(f"CGI script exit code {exitcode}")
+                finally:
+                    try:
+                        self.connection.settimeout(old_timeout)
+                    except OSError:
+                        pass
                 return
             # Child
             try:
