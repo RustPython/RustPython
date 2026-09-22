@@ -739,7 +739,7 @@ jobs:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@d290e336d5a743810aef4404f757dc862276d2ae # v1.73.4
+        uses: reviewdog/action-actionlint@8b682e1e7e512151d73a6b9449cbff173846226e # v1.74.0
 
       - name: zizmor
         uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
