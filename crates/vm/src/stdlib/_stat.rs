@@ -246,8 +246,6 @@ mod _stat {
         IO_REPARSE_TAG_APPEXECLINK, IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
     };
 
-    // Unix file flags (if on Unix)
-
     #[pyattr]
     pub use rustpython_host_env::os::{
         SF_APPEND, SF_ARCHIVED, SF_DATALESS, SF_FIRMLINK, SF_IMMUTABLE, SF_NOUNLINK, SF_SETTABLE,
