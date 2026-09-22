@@ -44,13 +44,16 @@ pub const AT_FDCWD: i32 = -100;
 pub use libc::{AT_REMOVEDIR, AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW};
 
 #[cfg(any(
-    target_os = "android",
     target_os = "freebsd",
     target_os = "linux",
     target_os = "netbsd",
     target_vendor = "apple"
 ))]
 pub use libc::AT_EACCESS;
+
+/// bionic does not export `AT_EACCESS`; the value is the Linux `fcntl.h` one.
+#[cfg(target_os = "android")]
+pub const AT_EACCESS: i32 = 0x200;
 
 #[cfg(all(unix, not(target_os = "redox")))]
 pub use libc::{ST_NOSUID, ST_RDONLY};
