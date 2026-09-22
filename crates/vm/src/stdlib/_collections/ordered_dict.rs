@@ -7,27 +7,126 @@ pub(crate) mod ordered_dict {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         atomic_func,
         builtins::{
-            IterStatus::Active,
-            PositionIterInternal, PyDict, PyGenericAlias, PyMappingProxy, PyStrRef, PyTuple,
-            PyTupleRef, PyType, PyTypeRef,
+            PyDict, PyGenericAlias, PyMappingProxy, PyTuple, PyTypeRef,
             dict::{
                 PyDictItems, set_inner_number_or, set_inner_number_subtract, set_inner_number_xor,
                 set_item_view_number_xor, set_view_number_and,
             },
             iter::builtins_iter,
-            locked_step,
         },
-        common::{ascii, lock::PyMutex},
-        dict_inner,
-        function::{ArgIterable, IntoFuncArgs, KwArgs, OptionalArg, PyComparisonValue},
+        class::StaticType,
+        common::{hash::PyHash, lock::PyMutex},
+        convert::ToPyObject,
+        dict_inner::DictKey,
+        function::{ArgIterable, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
         object::{Traverse, TraverseFn},
         protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
         types::{
-            AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, DefaultConstructor,
+            AsMapping, AsNumber, AsSequence, Comparable, Constructor, DefaultConstructor,
             Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
         },
     };
+    use std::collections::HashMap;
+
+    const ODICT_ITER_REVERSED: u8 = 1;
+    const ODICT_ITER_KEYS: u8 = 2;
+    const ODICT_ITER_VALUES: u8 = 4;
+    const ODICT_ITER_ITEMS: u8 = ODICT_ITER_KEYS | ODICT_ITER_VALUES;
+
+    #[derive(Debug)]
+    struct ODictNode {
+        key: PyObjectRef,
+        hash: PyHash,
+        prev: Option<usize>,
+        next: Option<usize>,
+    }
+
+    #[derive(Debug, Default)]
+    struct ODictLinks {
+        first: Option<usize>,
+        last: Option<usize>,
+        nodes: Vec<Option<ODictNode>>,
+        free: Vec<usize>,
+        by_hash: HashMap<PyHash, Vec<usize>>,
+        state: usize,
+    }
+
+    impl ODictLinks {
+        fn alloc_node(&mut self, node: ODictNode) -> usize {
+            if let Some(idx) = self.free.pop() {
+                self.nodes[idx] = Some(node);
+                idx
+            } else {
+                let idx = self.nodes.len();
+                self.nodes.push(Some(node));
+                idx
+            }
+        }
+
+        fn add_tail(&mut self, key: PyObjectRef, hash: PyHash) {
+            let prev = self.last;
+            let idx = self.alloc_node(ODictNode {
+                key,
+                hash,
+                prev,
+                next: None,
+            });
+            if let Some(prev) = prev {
+                if let Some(node) = self.nodes[prev].as_mut() {
+                    node.next = Some(idx);
+                }
+            } else {
+                self.first = Some(idx);
+            }
+            self.last = Some(idx);
+            self.by_hash.entry(hash).or_default().push(idx);
+            self.state += 1;
+        }
+
+        fn unlink(&mut self, idx: usize) -> Option<ODictNode> {
+            let node = self.nodes[idx].take()?;
+            self.free.push(idx);
+            if let Some(prev) = node.prev {
+                if let Some(prev_node) = self.nodes[prev].as_mut() {
+                    prev_node.next = node.next;
+                }
+            } else {
+                self.first = node.next;
+            }
+            if let Some(next) = node.next {
+                if let Some(next_node) = self.nodes[next].as_mut() {
+                    next_node.prev = node.prev;
+                }
+            } else {
+                self.last = node.prev;
+            }
+            if let Some(bucket) = self.by_hash.get_mut(&node.hash) {
+                bucket.retain(|&i| i != idx);
+            }
+            self.state += 1;
+            Some(node)
+        }
+
+        fn key_at(&self, idx: usize) -> Option<PyObjectRef> {
+            self.nodes[idx].as_ref().map(|n| n.key.clone())
+        }
+
+        fn next_after(&self, key: &PyObject, reversed: bool) -> Option<PyObjectRef> {
+            let mut idx = if reversed { self.last } else { self.first };
+            while let Some(i) = idx {
+                let Some(node) = self.nodes[i].as_ref() else {
+                    break;
+                };
+                if node.key.is(key) {
+                    let nxt = if reversed { node.prev } else { node.next };
+                    return nxt.and_then(|j| self.key_at(j));
+                }
+                idx = if reversed { node.prev } else { node.next };
+            }
+            None
+        }
+    }
 
     #[pyattr]
     #[pyclass(
@@ -37,40 +136,177 @@ pub(crate) mod ordered_dict {
         unhashable = true,
         traverse = "manual"
     )]
-    #[derive(Debug, Default)]
+    #[derive(Debug)]
     struct PyOrderedDict {
-        inner: PyDict,
+        dict: PyDict,
+        links: PyMutex<ODictLinks>,
     }
 
-    type PyOrderedDictRef = PyRef<PyOrderedDict>;
+    impl Default for PyOrderedDict {
+        fn default() -> Self {
+            Self {
+                dict: PyDict::default(),
+                links: PyMutex::new(ODictLinks::default()),
+            }
+        }
+    }
 
     // SAFETY: Traverse visits each owned Python reference at most once.
     unsafe impl Traverse for PyOrderedDict {
         fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-            self.inner.traverse(tracer_fn);
+            self.dict.traverse(tracer_fn);
+            if let Some(links) = self.links.try_lock() {
+                for node in links.nodes.iter().flatten() {
+                    node.key.traverse(tracer_fn);
+                }
+            }
         }
 
         fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-            Traverse::clear(&mut self.inner, out);
+            Traverse::clear(&mut self.dict, out);
+            let links = self.links.get_mut();
+            for node in links.nodes.drain(..).flatten() {
+                out.push(node.key);
+            }
+            links.first = None;
+            links.last = None;
+            links.free.clear();
+            links.by_hash.clear();
+            links.state += 1;
+        }
+    }
+
+    impl PyOrderedDict {
+        fn is_exact(zelf: &Py<Self>) -> bool {
+            zelf.class().is(Self::static_type())
+        }
+
+        fn mutated_error(vm: &VirtualMachine) -> crate::builtins::PyBaseExceptionRef {
+            vm.new_runtime_error("OrderedDict mutated during iteration")
+        }
+
+        fn find_node(
+            &self,
+            key: &PyObject,
+            hash: PyHash,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<usize>> {
+            let candidates: Vec<(usize, PyObjectRef)>;
+            {
+                let links = self.links.lock();
+                let Some(idxs) = links.by_hash.get(&hash) else {
+                    return Ok(None);
+                };
+                for &i in idxs {
+                    if let Some(node) = links.nodes[i].as_ref()
+                        && node.key.is(key)
+                    {
+                        return Ok(Some(i));
+                    }
+                }
+                candidates = idxs
+                    .iter()
+                    .filter_map(|&i| links.nodes[i].as_ref().map(|n| (i, n.key.clone())))
+                    .collect();
+            }
+            for (i, k) in candidates {
+                if vm.bool_eq(&k, key)? {
+                    return Ok(Some(i));
+                }
+            }
+            Ok(None)
+        }
+
+        fn setitem_impl(
+            &self,
+            key: PyObjectRef,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let hash = key.key_hash(vm)?;
+            self.dict.inner_setitem(&*key, value, vm)?;
+            if self.find_node(&key, hash, vm)?.is_none() {
+                self.links.lock().add_tail(key, hash);
+            }
+            Ok(())
+        }
+
+        fn delitem_impl(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let hash = key.key_hash(vm)?;
+            let Some(idx) = self.find_node(&key, hash, vm)? else {
+                return Err(vm.new_key_error(key));
+            };
+            self.links.lock().unlink(idx);
+            self.dict.inner_delitem(&*key, vm)
+        }
+
+        fn dicts_equal(a: &PyDict, b: &PyDict, vm: &VirtualMachine) -> PyResult<bool> {
+            if a.__len__() != b.__len__() {
+                return Ok(false);
+            }
+            for (k, v1) in a {
+                match b.inner_getitem_opt(&*k, vm)? {
+                    Some(v2) if v1.is(&v2) || vm.bool_eq(&v1, &v2)? => {}
+                    _ => return Ok(false),
+                }
+            }
+            Ok(true)
+        }
+
+        fn keys_equal(&self, other: &Self, vm: &VirtualMachine) -> PyResult<bool> {
+            if core::ptr::eq(self, other) {
+                return Ok(true);
+            }
+            let (state_a, state_b, mut key_a, mut key_b) = {
+                let la = self.links.lock();
+                let lb = other.links.lock();
+                (
+                    la.state,
+                    lb.state,
+                    la.first.and_then(|i| la.key_at(i)),
+                    lb.first.and_then(|i| lb.key_at(i)),
+                )
+            };
+            loop {
+                match (key_a, key_b) {
+                    (None, None) => return Ok(true),
+                    (None, Some(_)) | (Some(_), None) => return Ok(false),
+                    (Some(a), Some(b)) => {
+                        let eq = vm.bool_eq(&a, &b)?;
+                        let (next_a, next_b, mutated) = {
+                            let la = self.links.lock();
+                            let lb = other.links.lock();
+                            if la.state != state_a || lb.state != state_b {
+                                (None, None, true)
+                            } else if !eq {
+                                return Ok(false);
+                            } else {
+                                (la.next_after(&a, false), lb.next_after(&b, false), false)
+                            }
+                        };
+                        if mutated {
+                            return Err(Self::mutated_error(vm));
+                        }
+                        key_a = next_a;
+                        key_b = next_b;
+                    }
+                }
+            }
+        }
+
+        fn first_or_last_key(&self, last: bool) -> Option<PyObjectRef> {
+            let links = self.links.lock();
+            let idx = if last { links.last } else { links.first }?;
+            links.key_at(idx)
+        }
+
+        fn iter_kind(zelf: PyRef<Self>, kind: u8, vm: &VirtualMachine) -> PyObjectRef {
+            PyODictIter::new(zelf, kind).to_pyobject(vm)
         }
     }
 
     #[derive(FromArgs)]
-    struct MoveToEndArgs {
-        #[pyarg(any)]
-        key: PyObjectRef,
-        #[pyarg(any, default = true)]
-        last: bool,
-    }
-
-    #[derive(FromArgs)]
-    struct PopItemArgs {
-        #[pyarg(any, default = true)]
-        last: bool,
-    }
-
-    #[derive(FromArgs)]
-    struct SetDefaultArgs {
+    struct ODictPopArgs {
         #[pyarg(any)]
         key: PyObjectRef,
         #[pyarg(any, optional)]
@@ -78,7 +314,13 @@ pub(crate) mod ordered_dict {
     }
 
     #[derive(FromArgs)]
-    struct PopArgs {
+    struct ODictPopItemArgs {
+        #[pyarg(any, optional)]
+        last: OptionalArg<bool>,
+    }
+
+    #[derive(FromArgs)]
+    struct ODictSetDefaultArgs {
         #[pyarg(any)]
         key: PyObjectRef,
         #[pyarg(any, optional)]
@@ -86,231 +328,260 @@ pub(crate) mod ordered_dict {
     }
 
     #[derive(FromArgs)]
-    struct FromKeysArgs {
+    struct ODictMoveToEndArgs {
         #[pyarg(any)]
-        iterable: ArgIterable,
+        key: PyObjectRef,
+        #[pyarg(any, optional)]
+        last: OptionalArg<bool>,
+    }
+
+    #[derive(FromArgs)]
+    struct ODictFromKeysArgs {
+        #[pyarg(positional)]
+        iterable: PyObjectRef,
         #[pyarg(any, optional)]
         value: OptionalArg<PyObjectRef>,
     }
 
     #[pyclass(
-        flags(BASETYPE, MAPPING, HAS_DICT, HAS_WEAKREF),
         with(
+            AsMapping,
+            AsNumber,
+            Comparable,
             Constructor,
             Initializer,
-            Comparable,
             Iterable,
-            AsMapping,
-            AsSequence,
-            AsNumber,
             Representable
-        )
+        ),
+        flags(BASETYPE, MAPPING, HAS_DICT, HAS_WEAKREF)
     )]
     impl PyOrderedDict {
-        /// Move an existing element to the end (or beginning if last is false).
-        #[pymethod]
-        fn move_to_end(&self, args: MoveToEndArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let entries = self.inner._as_dict_inner();
-            if entries.move_to_end(vm, &*args.key, args.last)? {
-                Ok(())
-            } else {
-                Err(vm.new_key_error(args.key))
-            }
-        }
-
-        /// Remove and return a (key, value) pair from the dictionary.
-        /// Pairs are returned in LIFO order if last is true or FIFO order if false.
-        #[pymethod]
-        fn popitem(
-            &self,
-            args: PopItemArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<(PyObjectRef, PyObjectRef)> {
-            let entries = self.inner._as_dict_inner();
-            let result = if args.last {
-                entries.pop_back() // LIFO - existing method
-            } else {
-                entries.pop_front() // FIFO - new method
-            };
-            result.ok_or_else(|| {
-                let err_msg = vm.ctx.new_str(ascii!("dictionary is empty")).into();
-                vm.new_key_error(err_msg)
-            })
-        }
-
-        #[pymethod]
-        fn setdefault(zelf: PyRef<Self>, args: SetDefaultArgs, vm: &VirtualMachine) -> PyResult {
-            if let Some(value) = zelf.inner._as_dict_inner().get(vm, &*args.key)? {
-                return Ok(value);
-            }
-            let value = args.default.unwrap_or_none(vm);
-            zelf.as_object().set_item(&*args.key, value.clone(), vm)?;
-            Ok(value)
-        }
-
-        #[pymethod]
-        fn pop(&self, args: PopArgs, vm: &VirtualMachine) -> PyResult {
-            match self.inner._as_dict_inner().pop(vm, &*args.key)? {
-                Some(value) => Ok(value),
-                None => args.default.ok_or_else(|| vm.new_key_error(args.key)),
-            }
-        }
-
-        #[pymethod]
-        fn get(
-            &self,
-            key: PyObjectRef,
-            default: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            match self.inner._as_dict_inner().get(vm, &*key)? {
-                Some(value) => Ok(value),
-                None => Ok(default.unwrap_or_none(vm)),
-            }
-        }
-
-        fn merge_object(
-            target: &PyObject,
-            other: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            match other.get_attr(vm.ctx.intern_str("keys"), vm) {
-                Ok(keys_method) => {
-                    let keys = keys_method.call((), vm)?.get_iter(vm)?;
-                    while let PyIterReturn::Return(key) = keys.next(vm)? {
-                        let value = other.get_item(&*key, vm)?;
-                        target.set_item(&*key, value, vm)?;
-                    }
-                }
-                Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
-                    let iter = other.get_iter(vm)?;
-                    for (index, element) in iter.iter::<PyObjectRef>(vm)?.enumerate() {
-                        let (key, value) = PyDict::update_sequence_pair(element?, index, vm)?;
-                        target.set_item(&*key, value, vm)?;
-                    }
-                }
-                Err(exc) => return Err(exc),
-            }
-            Ok(())
-        }
-
-        fn merge_kwargs(target: &PyObject, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult<()> {
-            for (key, value) in kwargs {
-                target.set_item(&key, value, vm)?;
-            }
-            Ok(())
-        }
-
-        #[pymethod]
-        fn update(
-            zelf: PyRef<Self>,
-            dict_obj: OptionalArg<PyObjectRef>,
-            kwargs: KwArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            if let OptionalArg::Present(dict_obj) = dict_obj {
-                Self::merge_object(zelf.as_object(), dict_obj, vm)?;
-            }
-            Self::merge_kwargs(zelf.as_object(), kwargs, vm)
-        }
-
         #[pymethod]
         fn clear(&self) {
-            self.inner._as_dict_inner().clear()
+            self.dict.clear();
+            let mut links = self.links.lock();
+            *links = ODictLinks {
+                state: links.state.wrapping_add(1),
+                ..ODictLinks::default()
+            };
         }
 
         #[pymethod]
         fn copy(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let copied = PyType::call(zelf.class(), ().into_args(vm), vm)?;
-            let entries = zelf.inner._as_dict_inner();
-            let (size, mutation_version, keys) = entries.keys_versioned_snapshot();
-            for key in keys {
-                let value = zelf.as_object().get_item(&*key, vm)?;
-                if entries.has_changed_size_or_version(&size, mutation_version) {
-                    return Err(vm.new_runtime_error("OrderedDict mutated during iteration"));
-                }
-                copied.set_item(&*key, value, vm)?;
-                if entries.has_changed_size_or_version(&size, mutation_version) {
-                    return Err(vm.new_runtime_error("OrderedDict mutated during iteration"));
-                }
-            }
-            Ok(copied)
-        }
-
-        #[pyclassmethod]
-        fn fromkeys(class: PyTypeRef, args: FromKeysArgs, vm: &VirtualMachine) -> PyResult {
-            let value = args.value.unwrap_or_none(vm);
-            let d = PyType::call(&class, ().into(), vm)?;
-            match d.downcast_exact::<Self>(vm) {
-                Ok(ordered_dict) => {
-                    for key in args.iterable.iter(vm)? {
-                        let key: PyObjectRef = key?;
-                        ordered_dict
-                            .inner
-                            ._as_dict_inner()
-                            .insert(vm, &*key, value.clone())?;
+            let exact = Self::is_exact(&zelf);
+            let od_copy = if exact {
+                Self::default().into_pyobject(vm)
+            } else {
+                let cls = zelf.class().to_owned();
+                cls.as_object().call((), vm)?
+            };
+            let state = zelf.links.lock().state;
+            let mut current = zelf.first_or_last_key(false);
+            while let Some(key) = current {
+                let value = if exact {
+                    zelf.dict
+                        .inner_getitem_opt(&*key, vm)?
+                        .ok_or_else(|| vm.new_key_error(key.clone()))?
+                } else {
+                    zelf.as_object().get_item(&*key, vm)?
+                };
+                od_copy.set_item(&*key, value, vm)?;
+                let (next, mutated) = {
+                    let links = zelf.links.lock();
+                    if links.state != state {
+                        (None, true)
+                    } else {
+                        (links.next_after(&key, false), false)
                     }
-                    Ok(ordered_dict.into_pyref().into())
+                };
+                if mutated {
+                    return Err(Self::mutated_error(vm));
                 }
-                Err(pyobj) => {
-                    for key in args.iterable.iter(vm)? {
-                        let key: PyObjectRef = key?;
-                        pyobj.set_item(&*key, value.clone(), vm)?;
-                    }
-                    Ok(pyobj)
+                current = next;
+            }
+            Ok(od_copy)
+        }
+
+        #[pymethod]
+        fn update(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            if args.args.len() > 1 {
+                return Err(vm.new_type_error(format!(
+                    "update expected at most 1 argument, got {}",
+                    args.args.len()
+                )));
+            }
+            if let Some(arg) = args.args.first() {
+                odict_update_arg(zelf.as_object(), arg.clone(), vm)?;
+            }
+            for (key, value) in args.kwargs {
+                zelf.as_object().set_item(&key, value, vm)?;
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn pop(zelf: PyRef<Self>, args: ODictPopArgs, vm: &VirtualMachine) -> PyResult {
+            let key = args.key;
+            let hash = key.key_hash(vm)?;
+            match zelf.find_node(&key, hash, vm)? {
+                Some(idx) => {
+                    zelf.links.lock().unlink(idx);
+                    let value = zelf
+                        .dict
+                        .inner_getitem_opt(&*key, vm)?
+                        .ok_or_else(|| vm.new_key_error(key.clone()))?;
+                    zelf.dict.inner_delitem(&*key, vm)?;
+                    Ok(value)
                 }
+                None => args.default.ok_or_else(|| vm.new_key_error(key)),
             }
         }
 
         #[pymethod]
-        fn __sizeof__(&self) -> usize {
-            // Add overhead for OrderedDict's conceptual linked-list structure
-            // In CPython, each entry has an additional _ODictNode with prev/next pointers
-            let base_size = core::mem::size_of::<Self>() + self.inner._as_dict_inner().sizeof();
-            // Add overhead: 2 pointers (prev, next) per entry + head/tail pointers
-            let num_entries = self.inner._as_dict_inner().len();
-            let pointer_size = core::mem::size_of::<usize>();
-            let linked_list_overhead = 2 * pointer_size + num_entries * 2 * pointer_size;
-            base_size + linked_list_overhead
+        fn popitem(
+            zelf: PyRef<Self>,
+            args: ODictPopItemArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<(PyObjectRef, PyObjectRef)> {
+            let last = args.last.unwrap_or(true);
+            let Some(key) = zelf.first_or_last_key(last) else {
+                return Err(vm.new_key_error(vm.ctx.new_str("dictionary is empty").into()));
+            };
+            let hash = key.key_hash(vm)?;
+            if let Some(idx) = zelf.find_node(&key, hash, vm)? {
+                zelf.links.lock().unlink(idx);
+            }
+            let value = zelf
+                .dict
+                .inner_getitem_opt(&*key, vm)?
+                .ok_or_else(|| vm.new_key_error(key.clone()))?;
+            zelf.dict.inner_delitem(&*key, vm)?;
+            Ok((key, value))
         }
 
-        /// Return a reverse iterator over the dict keys.
         #[pymethod]
-        fn __reversed__(zelf: PyRef<Self>) -> PyOrderedDictReverseKeyIterator {
-            PyOrderedDictReverseKeyIterator::new(zelf)
+        fn setdefault(
+            zelf: PyRef<Self>,
+            args: ODictSetDefaultArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let key = args.key;
+            let default = args.default.unwrap_or_none(vm);
+            if Self::is_exact(&zelf) {
+                if let Some(value) = zelf.dict.inner_getitem_opt(&*key, vm)? {
+                    return Ok(value);
+                }
+                zelf.setitem_impl(key, default.clone(), vm)?;
+                Ok(default)
+            } else if zelf.as_object().sequence_unchecked().contains(&key, vm)? {
+                zelf.as_object().get_item(&*key, vm)
+            } else {
+                zelf.as_object().set_item(&*key, default.clone(), vm)?;
+                Ok(default)
+            }
         }
 
-        /// Return the OrderedDict keys view.
         #[pymethod]
-        fn keys(zelf: PyRef<Self>) -> PyOrderedDictKeys {
-            PyOrderedDictKeys { ordered_dict: zelf }
+        fn move_to_end(&self, args: ODictMoveToEndArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let key = args.key;
+            let last = args.last.unwrap_or(true);
+            let hash = key.key_hash(vm)?;
+            let Some(idx) = self.find_node(&key, hash, vm)? else {
+                return Err(vm.new_key_error(key));
+            };
+            let mut links = self.links.lock();
+            let already = if last {
+                links.last == Some(idx)
+            } else {
+                links.first == Some(idx)
+            };
+            if already {
+                return Ok(());
+            }
+            let Some(node) = links.unlink(idx) else {
+                return Err(vm.new_key_error(key));
+            };
+            if last {
+                links.add_tail(node.key, node.hash);
+            } else {
+                let next = links.first;
+                let new_idx = links.alloc_node(ODictNode {
+                    key: node.key,
+                    hash: node.hash,
+                    prev: None,
+                    next,
+                });
+                if let Some(next) = next {
+                    if let Some(next_node) = links.nodes[next].as_mut() {
+                        next_node.prev = Some(new_idx);
+                    }
+                } else {
+                    links.last = Some(new_idx);
+                }
+                links.first = Some(new_idx);
+                links.by_hash.entry(node.hash).or_default().push(new_idx);
+                links.state += 1;
+            }
+            Ok(())
         }
 
-        /// Return the OrderedDict values view.
         #[pymethod]
-        fn values(zelf: PyRef<Self>) -> PyOrderedDictValues {
-            PyOrderedDictValues { ordered_dict: zelf }
+        fn keys(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+            PyODictKeys { od: zelf }.to_pyobject(vm)
         }
 
-        /// Return the OrderedDict items view.
         #[pymethod]
-        fn items(zelf: PyRef<Self>) -> PyOrderedDictItems {
-            PyOrderedDictItems { ordered_dict: zelf }
+        fn values(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+            PyODictValues { od: zelf }.to_pyobject(vm)
+        }
+
+        #[pymethod]
+        fn items(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+            PyOrderedDictItems { od: zelf }.to_pyobject(vm)
+        }
+
+        #[pymethod]
+        fn __reversed__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+            Self::iter_kind(zelf, ODICT_ITER_KEYS | ODICT_ITER_REVERSED, vm)
         }
 
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let items = zelf.as_object().get_attr("items", vm)?.call((), vm)?;
+            let items_iter = items.get_iter(vm)?;
             let state = vm.call_method(zelf.as_object(), "__getstate__", ())?;
-            let items = PyOrderedDictItemIterator::new(zelf.clone()).into_pyobject(vm);
+            let state = match state.downcast_ref::<PyDict>() {
+                Some(d) if d.__len__() == 0 => vm.ctx.none(),
+                _ => state,
+            };
             Ok(vm
-                .new_tuple((
-                    zelf.class().to_owned(),
-                    vm.ctx.empty_tuple.clone(),
+                .ctx
+                .new_tuple(vec![
+                    zelf.class().to_owned().into(),
+                    vm.ctx.empty_tuple.clone().into(),
                     state,
                     vm.ctx.none(),
-                    items,
-                ))
+                    items_iter.into(),
+                ])
                 .into())
+        }
+
+        #[pymethod]
+        fn __sizeof__(&self) -> usize {
+            self.dict.__sizeof__()
+                + core::mem::size_of::<ODictLinks>()
+                + self.links.lock().nodes.capacity() * core::mem::size_of::<Option<ODictNode>>()
+        }
+
+        #[pyclassmethod]
+        fn fromkeys(cls: PyTypeRef, args: ODictFromKeysArgs, vm: &VirtualMachine) -> PyResult {
+            let value = args.value.unwrap_or_none(vm);
+            let inst = cls.as_object().call((), vm)?;
+            let iter = args.iterable.get_iter(vm)?;
+            for key in iter.iter::<PyObjectRef>(vm)? {
+                inst.set_item(&*key?, value.clone(), vm)?;
+            }
+            Ok(inst)
         }
 
         #[pyclassmethod]
@@ -326,24 +597,104 @@ pub(crate) mod ordered_dict {
     impl DefaultConstructor for PyOrderedDict {}
 
     impl Initializer for PyOrderedDict {
-        type Args = (OptionalArg<PyObjectRef>, KwArgs);
+        type Args = FuncArgs;
 
-        fn init(
-            zelf: PyRef<Self>,
-            (dict_obj, kwargs): Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            // Do NOT clear existing data - just merge/update
-            // This matches CPython behavior where __init__ updates existing dict
-            // rather than replacing it
-
-            // First add positional argument
-            if let OptionalArg::Present(dict_obj) = dict_obj {
-                Self::merge_object(zelf.as_object(), dict_obj, vm)?;
+        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            if args.args.len() > 1 {
+                return Err(vm.new_type_error(format!(
+                    "OrderedDict expected at most 1 argument, got {}",
+                    args.args.len()
+                )));
             }
+            Self::update(zelf, args, vm)
+        }
+    }
 
-            // Then add keyword arguments (in order)
-            Self::merge_kwargs(zelf.as_object(), kwargs, vm)
+    impl Representable for PyOrderedDict {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            if zelf.dict.__len__() == 0 {
+                return Ok(format!("{}()", zelf.class().name()));
+            }
+            let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) else {
+                return Ok("...".to_owned());
+            };
+            let tmp = PyDict::default();
+            let mut current = zelf.first_or_last_key(false);
+            while let Some(key) = current {
+                let value = zelf
+                    .dict
+                    .inner_getitem_opt(&*key, vm)?
+                    .ok_or_else(|| vm.new_key_error(key.clone()))?;
+                tmp.inner_setitem(&*key, value, vm)?;
+                current = zelf.links.lock().next_after(&key, false);
+            }
+            let dcopy = tmp.into_ref(&vm.ctx);
+            let dict_repr = dcopy.as_object().repr(vm)?;
+            Ok(format!("{}({dict_repr})", zelf.class().name()))
+        }
+    }
+
+    impl AsMapping for PyOrderedDict {
+        fn as_mapping() -> &'static PyMappingMethods {
+            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, _vm| Ok(PyOrderedDict::mapping_downcast(mapping)
+                    .dict
+                    .__len__())),
+                subscript: atomic_func!(|mapping, needle, vm| {
+                    let zelf = PyOrderedDict::mapping_downcast(mapping);
+                    if let Some(value) = zelf.dict.inner_getitem_opt(needle, vm)? {
+                        return Ok(value);
+                    }
+                    if let Some(missing) =
+                        vm.get_method(zelf.to_owned().into(), identifier!(vm, __missing__))
+                    {
+                        return missing?.call((needle.to_owned(),), vm);
+                    }
+                    Err(vm.new_key_error(needle.to_owned()))
+                }),
+                ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                    let zelf = PyOrderedDict::mapping_downcast(mapping);
+                    if let Some(value) = value {
+                        zelf.setitem_impl(needle.to_owned(), value, vm)
+                    } else {
+                        zelf.delitem_impl(needle.to_owned(), vm)
+                    }
+                }),
+            };
+            &AS_MAPPING
+        }
+    }
+
+    impl AsNumber for PyOrderedDict {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                or: Some(|a, b, vm| {
+                    if !a.fast_isinstance(vm.ctx.types.dict_type)
+                        || !b.fast_isinstance(vm.ctx.types.dict_type)
+                    {
+                        return Ok(vm.ctx.not_implemented());
+                    }
+                    let cls = if let Some(od) = a.downcast_ref::<PyOrderedDict>() {
+                        od.class().to_owned()
+                    } else if let Some(od) = b.downcast_ref::<PyOrderedDict>() {
+                        od.class().to_owned()
+                    } else {
+                        return Ok(vm.ctx.not_implemented());
+                    };
+                    let new = cls.as_object().call((a.to_owned(),), vm)?;
+                    odict_update_arg(&new, b.to_owned(), vm)?;
+                    Ok(new)
+                }),
+                inplace_or: Some(|a, b, vm| {
+                    let Some(od) = a.downcast_ref::<PyOrderedDict>() else {
+                        return Ok(vm.ctx.not_implemented());
+                    };
+                    odict_update_arg(od.as_object(), b.to_owned(), vm)?;
+                    Ok(od.as_object().to_owned())
+                }),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
         }
     }
 
@@ -354,321 +705,247 @@ pub(crate) mod ordered_dict {
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
-            // Check for identity optimization
-            if let Some(res) = op.identical_optimization(zelf, other) {
-                return Ok(res.into());
+            if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
+                return Ok(PyArithmeticValue::NotImplemented);
             }
-
-            // Order-sensitive comparison when comparing two OrderedDicts
-            if let Some(other_ordered_dict) = other.downcast_ref::<Self>()
-                && (op == PyComparisonOp::Eq || op == PyComparisonOp::Ne)
-            {
-                let self_entries = zelf.inner._as_dict_inner();
-                let other_entries = other_ordered_dict.inner._as_dict_inner();
-                let (self_size, self_version) = self_entries.versioned_size();
-                let (other_size, other_version) = other_entries.versioned_size();
-                let self_dict = zelf
-                    .as_object()
-                    .downcast_ref::<PyDict>()
-                    .expect("OrderedDict must retain its dict base payload");
-                let other_dict = other_ordered_dict
-                    .as_object()
-                    .downcast_ref::<PyDict>()
-                    .expect("OrderedDict must retain its dict base payload");
-                let mapping_equal = self_dict
-                    .inner_cmp(other_dict, PyComparisonOp::Eq, true, vm)?
-                    .unwrap();
-                if !mapping_equal {
-                    return Ok(PyComparisonValue::Implemented(op == PyComparisonOp::Ne));
-                }
-                if self_entries.has_changed_size_or_version(&self_size, self_version)
-                    || other_entries.has_changed_size_or_version(&other_size, other_version)
-                {
-                    return Err(vm.new_runtime_error("OrderedDict mutated during iteration"));
-                }
-
-                let mut self_position = 0;
-                let mut other_position = 0;
-                loop {
-                    let self_key = self_entries
-                        .next_entry_version_checked(
-                            self_position,
-                            &self_size,
-                            self_version,
-                            |key, _| key.clone(),
-                        )
-                        .map_err(|_| {
-                            vm.new_runtime_error("OrderedDict mutated during iteration")
-                        })?;
-                    let other_key = other_entries
-                        .next_entry_version_checked(
-                            other_position,
-                            &other_size,
-                            other_version,
-                            |key, _| key.clone(),
-                        )
-                        .map_err(|_| {
-                            vm.new_runtime_error("OrderedDict mutated during iteration")
-                        })?;
-                    let (
-                        Some((next_self_position, self_key)),
-                        Some((next_other_position, other_key)),
-                    ) = (self_key, other_key)
-                    else {
-                        break;
-                    };
-                    let keys_equal = vm.identical_or_equal(&self_key, &other_key)?;
-                    if self_entries.has_changed_size_or_version(&self_size, self_version)
-                        || other_entries.has_changed_size_or_version(&other_size, other_version)
-                    {
-                        return Err(vm.new_runtime_error("OrderedDict mutated during iteration"));
-                    }
-                    if !keys_equal {
-                        return Ok(PyComparisonValue::Implemented(op == PyComparisonOp::Ne));
-                    }
-                    self_position = next_self_position;
-                    other_position = next_other_position;
-                }
-                return Ok(PyComparisonValue::Implemented(op == PyComparisonOp::Eq));
+            if !other.fast_isinstance(vm.ctx.types.dict_type) {
+                return Ok(PyArithmeticValue::NotImplemented);
             }
-
-            // Fall back to dict comparison (order-insensitive) for other types
-            if let Some(other_dict) = other.downcast_ref::<PyDict>() {
-                op.eq_only(|| {
-                    let self_entries = zelf.inner._as_dict_inner();
-                    let other_entries = other_dict._as_dict_inner();
-
-                    if self_entries.len() != other_entries.len() {
-                        return Ok(PyComparisonValue::Implemented(false));
-                    }
-
-                    for (k, v1) in self_entries.items() {
-                        match other_entries.get(vm, &*k)? {
-                            Some(v2) => {
-                                if !vm.identical_or_equal(&v1, &v2)? {
-                                    return Ok(PyComparisonValue::Implemented(false));
-                                }
-                            }
-                            None => return Ok(PyComparisonValue::Implemented(false)),
-                        }
-                    }
-                    Ok(PyComparisonValue::Implemented(true))
-                })
+            let dict_eq = if let Some(other_od) = other.downcast_ref::<Self>() {
+                let eq = Self::dicts_equal(&zelf.dict, &other_od.dict, vm)?;
+                if (op == PyComparisonOp::Eq && !eq) || (op == PyComparisonOp::Ne && !eq) {
+                    return Ok(PyArithmeticValue::Implemented(op == PyComparisonOp::Ne));
+                }
+                let keys_eq = zelf.keys_equal(other_od, vm)?;
+                return Ok(PyArithmeticValue::Implemented(
+                    if op == PyComparisonOp::Eq {
+                        keys_eq
+                    } else {
+                        !keys_eq
+                    },
+                ));
+            } else if let Some(other_d) = other.downcast_ref::<PyDict>() {
+                Self::dicts_equal(&zelf.dict, other_d, vm)?
             } else {
-                Ok(PyComparisonValue::NotImplemented)
-            }
+                return Ok(PyArithmeticValue::NotImplemented);
+            };
+            Ok(PyArithmeticValue::Implemented(
+                if op == PyComparisonOp::Eq {
+                    dict_eq
+                } else {
+                    !dict_eq
+                },
+            ))
         }
     }
 
     impl Iterable for PyOrderedDict {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Ok(PyOrderedDictKeyIterator::new(zelf).into_pyobject(vm))
+            Ok(Self::iter_kind(zelf, ODICT_ITER_KEYS, vm))
         }
     }
 
-    impl AsMapping for PyOrderedDict {
-        fn as_mapping() -> &'static PyMappingMethods {
-            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: atomic_func!(|mapping, _vm| Ok(PyOrderedDict::mapping_downcast(mapping)
-                    .inner
-                    ._as_dict_inner()
-                    .len())),
-                subscript: atomic_func!(|mapping, needle, vm| {
-                    let zelf = PyOrderedDict::mapping_downcast(mapping);
-                    match zelf.inner._as_dict_inner().get(vm, needle)? {
-                        Some(value) => Ok(value),
-                        None => match vm
-                            .get_method(zelf.as_object().to_owned(), identifier!(vm, __missing__))
-                        {
-                            Some(method) => method?.call((needle.to_owned(),), vm),
-                            None => Err(vm.new_key_error(needle.to_owned())),
-                        },
-                    }
-                }),
-                ass_subscript: atomic_func!(|mapping, needle, value, vm| {
-                    let zelf = PyOrderedDict::mapping_downcast(mapping);
-                    if let Some(value) = value {
-                        zelf.inner._as_dict_inner().insert(vm, needle, value)
-                    } else {
-                        zelf.inner._as_dict_inner().delete(vm, needle)
-                    }
-                }),
-            };
-            &AS_MAPPING
-        }
-    }
-
-    impl AsSequence for PyOrderedDict {
-        fn as_sequence() -> &'static PySequenceMethods {
-            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                contains: atomic_func!(|seq, target, vm| PyOrderedDict::sequence_downcast(seq)
-                    .inner
-                    ._as_dict_inner()
-                    .contains(vm, target)),
-                ..PySequenceMethods::NOT_IMPLEMENTED
-            };
-            &AS_SEQUENCE
-        }
-    }
-
-    impl AsNumber for PyOrderedDict {
-        fn as_number() -> &'static PyNumberMethods {
-            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-                // Handle both __or__ and __ror__ in the same function
-                // This function is used for both `or` and `right_or` slots via copy_from
-                or: Some(|a, b, vm| {
-                    let a_is_ordered_dict = a.downcast_ref::<PyOrderedDict>().is_some();
-                    let b_is_ordered_dict = b.downcast_ref::<PyOrderedDict>().is_some();
-                    let a_is_dict = a.class().fast_issubclass(vm.ctx.types.dict_type);
-                    let b_is_dict = b.class().fast_issubclass(vm.ctx.types.dict_type);
-
-                    if a_is_ordered_dict {
-                        // This is __or__: OrderedDict | other
-                        // other must be a dict or dict subclass
-                        if !b_is_dict {
-                            return Ok(vm.ctx.not_implemented());
-                        }
-                        let result = PyType::call(a.class(), (a.to_owned(),).into_args(vm), vm)?;
-                        PyOrderedDict::merge_object(&result, b.to_owned(), vm)?;
-                        Ok(result)
-                    } else if b_is_ordered_dict {
-                        // This is __ror__: other | OrderedDict
-                        // other must be a dict or dict subclass
-                        if !a_is_dict {
-                            return Ok(vm.ctx.not_implemented());
-                        }
-                        let result = PyType::call(b.class(), (a.to_owned(),).into_args(vm), vm)?;
-                        PyOrderedDict::merge_object(&result, b.to_owned(), vm)?;
-                        Ok(result)
-                    } else {
-                        Ok(vm.ctx.not_implemented())
-                    }
-                }),
-                inplace_or: Some(|a, b, vm| {
-                    if a.downcast_ref::<PyOrderedDict>().is_some() {
-                        PyOrderedDict::merge_object(a, b.to_owned(), vm)?;
-                        Ok(a.to_owned())
-                    } else {
-                        Ok(vm.ctx.not_implemented())
-                    }
-                }),
-                ..PyNumberMethods::NOT_IMPLEMENTED
-            };
-            &AS_NUMBER
-        }
-    }
-
-    impl Representable for PyOrderedDict {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let class = zelf.class();
-            let class_name = class.name();
-
-            if zelf.inner._as_dict_inner().len() == 0 {
-                return Ok(format!("{class_name}()"));
+    fn odict_update_arg(zelf: &PyObject, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(dict) = arg.downcast_ref_if_exact::<PyDict>(vm) {
+            for (key, value) in dict {
+                zelf.set_item(&*key, value, vm)?;
             }
-
-            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let mut str_parts = Vec::with_capacity(zelf.inner._as_dict_inner().len());
-                for (key, value) in zelf.inner._as_dict_inner().items() {
-                    let key_repr: PyStrRef = key.repr(vm)?;
-                    let value_repr: PyStrRef = value.repr(vm)?;
-                    str_parts.push(format!("{key_repr}: {value_repr}"));
+            return Ok(());
+        }
+        match arg.get_attr("keys", vm) {
+            Ok(keys_fn) => {
+                let keys = keys_fn.call((), vm)?;
+                let iter = keys.get_iter(vm)?;
+                for key in iter.iter::<PyObjectRef>(vm)? {
+                    let key = key?;
+                    let value = arg.get_item(&*key, vm)?;
+                    zelf.set_item(&*key, value, vm)?;
                 }
-                Ok(format!("{class_name}({{{}}})", str_parts.join(", ")))
+                return Ok(());
+            }
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+            Err(e) => return Err(e),
+        }
+        let iter = arg.get_iter(vm)?;
+        for (index, element) in iter.iter::<PyObjectRef>(vm)?.enumerate() {
+            let (key, value) = PyDict::update_sequence_pair(element?, index, vm)?;
+            zelf.set_item(&*key, value, vm)?;
+        }
+        Ok(())
+    }
+
+    #[pyattr]
+    #[pyclass(name = "odict_iterator", traverse = "manual")]
+    #[derive(Debug, PyPayload)]
+    struct PyODictIter {
+        od: Option<PyRef<PyOrderedDict>>,
+        kind: u8,
+        size: usize,
+        state: usize,
+        current: PyMutex<Option<PyObjectRef>>,
+    }
+
+    impl PyODictIter {
+        fn new(od: PyRef<PyOrderedDict>, kind: u8) -> Self {
+            let reversed = kind & ODICT_ITER_REVERSED != 0;
+            let (state, current) = {
+                let links = od.links.lock();
+                let idx = if reversed { links.last } else { links.first };
+                (links.state, idx.and_then(|i| links.key_at(i)))
+            };
+            Self {
+                size: od.dict.__len__(),
+                state,
+                current: PyMutex::new(current),
+                od: Some(od),
+                kind,
+            }
+        }
+
+        fn od(&self) -> Option<&Py<PyOrderedDict>> {
+            self.od.as_deref()
+        }
+
+        fn project(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let Some(od) = self.od() else {
+                return Err(vm.new_runtime_error("OrderedDict iterator is cleared"));
+            };
+            let want_key = self.kind & ODICT_ITER_KEYS != 0;
+            let want_value = self.kind & ODICT_ITER_VALUES != 0;
+            if want_key && want_value {
+                let value = od
+                    .dict
+                    .inner_getitem_opt(&*key, vm)?
+                    .ok_or_else(|| vm.new_key_error(key.clone()))?;
+                Ok(vm.ctx.new_tuple(vec![key, value]).into())
+            } else if want_value {
+                od.dict
+                    .inner_getitem_opt(&*key, vm)?
+                    .ok_or_else(|| vm.new_key_error(key))
             } else {
-                // Recursion detected - return just "..." as CPython does
-                Ok("...".to_owned())
+                Ok(key)
             }
         }
     }
 
-    // OrderedDict Views
+    // SAFETY: visits each owned reference at most once.
+    unsafe impl Traverse for PyODictIter {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.od.traverse(tracer_fn);
+            if let Some(cur) = self.current.try_lock()
+                && let Some(key) = cur.as_ref()
+            {
+                key.traverse(tracer_fn);
+            }
+        }
 
-    fn is_set_like_view(other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        if other.fast_isinstance(vm.ctx.types.set_type)
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            if let Some(key) = self.current.get_mut().take() {
+                out.push(key);
+            }
+            if let Some(od) = self.od.take() {
+                out.push(od.into());
+            }
+        }
+    }
+
+    #[pyclass(with(IterNext, Iterable), flags(DISALLOW_INSTANTIATION))]
+    impl PyODictIter {
+        #[pymethod]
+        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+            let remaining = self.collect_remaining(vm)?;
+            Ok(vm
+                .ctx
+                .new_tuple(vec![
+                    builtins_iter(vm)?,
+                    vm.ctx
+                        .new_tuple(vec![vm.ctx.new_list(remaining).into()])
+                        .into(),
+                ])
+                .into())
+        }
+    }
+
+    impl PyODictIter {
+        fn collect_remaining(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+            let Some(od) = self.od() else {
+                return Ok(Vec::new());
+            };
+            let mut out = Vec::new();
+            let mut current = self.current.lock().clone();
+            let reversed = self.kind & ODICT_ITER_REVERSED != 0;
+            while let Some(key) = current {
+                out.push(self.project(key.clone(), vm)?);
+                current = od.links.lock().next_after(&key, reversed);
+            }
+            Ok(out)
+        }
+    }
+
+    impl SelfIter for PyODictIter {}
+
+    impl IterNext for PyODictIter {
+        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let Some(od) = zelf.od() else {
+                return Ok(PyIterReturn::StopIteration(None));
+            };
+            let mut current_guard = zelf.current.lock();
+            let Some(key) = current_guard.clone() else {
+                return Ok(PyIterReturn::StopIteration(None));
+            };
+            let links = od.links.lock();
+            if links.state != zelf.state {
+                return Err(PyOrderedDict::mutated_error(vm));
+            }
+            if od.dict.__len__() != zelf.size {
+                return Err(vm.new_runtime_error("OrderedDict changed size during iteration"));
+            }
+            let reversed = zelf.kind & ODICT_ITER_REVERSED != 0;
+            let next = links.next_after(&key, reversed);
+            drop(links);
+            *current_guard = next;
+            drop(current_guard);
+            Ok(PyIterReturn::Return(zelf.project(key, vm)?))
+        }
+    }
+
+    fn odict_view_eq(
+        od: &PyRef<PyOrderedDict>,
+        kind: u8,
+        other: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        if kind == ODICT_ITER_VALUES {
+            return Ok(PyArithmeticValue::NotImplemented);
+        }
+        let set_like = other.fast_isinstance(vm.ctx.types.set_type)
             || other.fast_isinstance(vm.ctx.types.frozenset_type)
             || other.class().is(vm.ctx.types.dict_keys_type)
             || other.class().is(vm.ctx.types.dict_items_type)
-            || other.downcast_ref::<PyOrderedDictKeys>().is_some()
-            || other.downcast_ref::<PyOrderedDictItems>().is_some()
-        {
-            return Ok(true);
+            || other.downcast_ref::<PyODictKeys>().is_some()
+            || other.downcast_ref::<PyOrderedDictItems>().is_some();
+        if !set_like {
+            return Ok(PyArithmeticValue::NotImplemented);
         }
-        let abc = vm.import("_collections_abc", 0)?;
-        let set_abc = abc.get_attr("Set", vm)?;
-        other.is_instance(&set_abc, vm)
-    }
-
-    fn set_like_view_cmp(
-        self_len: usize,
-        self_items: Vec<PyObjectRef>,
-        self_contains: impl Fn(&PyObject, &VirtualMachine) -> PyResult<bool>,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        if op == PyComparisonOp::Ne {
-            return set_like_view_cmp(
-                self_len,
-                self_items,
-                self_contains,
-                other,
-                PyComparisonOp::Eq,
-                vm,
-            )
-            .map(|result| result.map(|equal| !equal));
+        let Ok(other_len) = other.length(vm) else {
+            return Ok(PyArithmeticValue::NotImplemented);
+        };
+        if od.dict.__len__() != other_len {
+            return Ok(PyArithmeticValue::Implemented(false));
         }
-        if !is_set_like_view(other, vm)? {
-            return Ok(PyComparisonValue::NotImplemented);
-        }
-
-        let other_len = other.length(vm)?;
-        if !op.eval_ord(self_len.cmp(&other_len)) {
-            return Ok(PyComparisonValue::Implemented(false));
-        }
-
-        let self_is_subset = matches!(
-            op,
-            PyComparisonOp::Eq | PyComparisonOp::Lt | PyComparisonOp::Le
-        );
-        if self_is_subset {
-            for item in self_items {
-                if !other.sequence_unchecked().contains(&item, vm)? {
-                    return Ok(PyComparisonValue::Implemented(false));
-                }
-            }
-        } else {
-            let iter = other.get_iter(vm)?;
-            for item in iter.iter::<PyObjectRef>(vm)? {
-                let item = item?;
-                if !self_contains(&item, vm)? {
-                    return Ok(PyComparisonValue::Implemented(false));
-                }
+        let iter_obj = PyODictIter::new(od.clone(), kind).to_pyobject(vm);
+        let a_iter = iter_obj.get_iter(vm)?;
+        for item in a_iter.iter::<PyObjectRef>(vm)? {
+            let item = item?;
+            if !other.sequence_unchecked().contains(&item, vm)? {
+                return Ok(PyArithmeticValue::Implemented(false));
             }
         }
-        Ok(PyComparisonValue::Implemented(true))
-    }
-
-    fn ordered_items_contains(
-        ordered_dict: &PyOrderedDict,
-        needle: &PyObject,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
-        let Some(needle) = needle.downcast_ref::<PyTuple>() else {
-            return Ok(false);
-        };
-        if needle.len() != 2 {
-            return Ok(false);
-        }
-        let Some(value) = ordered_dict.inner._as_dict_inner().get(vm, &*needle[0])? else {
-            return Ok(false);
-        };
-        vm.identical_or_equal(&value, &needle[1])
+        Ok(PyArithmeticValue::Implemented(true))
     }
 
     fn ordered_view_number_and(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let a_is_view = a.downcast_ref::<PyOrderedDictKeys>().is_some()
+        let a_is_view = a.downcast_ref::<PyODictKeys>().is_some()
             || a.downcast_ref::<PyOrderedDictItems>().is_some();
         let (view, other) = if a_is_view { (a, b) } else { (b, a) };
         set_view_number_and(view, other, vm)
@@ -683,33 +960,28 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_keys", traverse)]
+    #[pyclass(name = "odict_keys", traverse)]
     #[derive(Debug, PyPayload)]
-    struct PyOrderedDictKeys {
-        ordered_dict: PyOrderedDictRef,
+    struct PyODictKeys {
+        od: PyRef<PyOrderedDict>,
     }
 
-    #[pyclass(with(Iterable, Comparable, AsSequence, AsNumber, Representable))]
-    impl PyOrderedDictKeys {
+    #[pyclass(with(Iterable, Comparable, AsMapping, AsSequence, AsNumber))]
+    impl PyODictKeys {
         #[pymethod]
-        fn __reversed__(&self) -> PyOrderedDictReverseKeyIterator {
-            PyOrderedDictReverseKeyIterator::new(self.ordered_dict.clone())
+        fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
+            PyODictIter::new(self.od.clone(), ODICT_ITER_KEYS | ODICT_ITER_REVERSED).to_pyobject(vm)
         }
 
         #[pygetset]
         fn mapping(&self, vm: &VirtualMachine) -> PyResult<PyMappingProxy> {
-            PyMappingProxy::from_object(self.ordered_dict.as_object().to_owned(), vm)
+            PyMappingProxy::from_object(self.od.as_object().to_owned(), vm)
         }
 
         #[pymethod]
         fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
             for item in other.iter(vm)? {
-                if self
-                    .ordered_dict
-                    .inner
-                    ._as_dict_inner()
-                    .contains(vm, &*item?)?
-                {
+                if self.od.dict.inner_getitem_opt(&*item?, vm)?.is_some() {
                     return Ok(false);
                 }
             }
@@ -717,51 +989,57 @@ pub(crate) mod ordered_dict {
         }
     }
 
-    impl AsSequence for PyOrderedDictKeys {
+    impl AsMapping for PyODictKeys {
+        fn as_mapping() -> &'static PyMappingMethods {
+            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, _vm| Ok(PyODictKeys::mapping_downcast(mapping)
+                    .od
+                    .dict
+                    .__len__())),
+                ..PyMappingMethods::NOT_IMPLEMENTED
+            };
+            &AS_MAPPING
+        }
+    }
+
+    impl AsSequence for PyODictKeys {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                length: atomic_func!(|seq, _vm| Ok(PyOrderedDictKeys::sequence_downcast(seq)
-                    .ordered_dict
-                    .inner
-                    ._as_dict_inner()
-                    .len())),
-                contains: atomic_func!(|seq, target, vm| PyOrderedDictKeys::sequence_downcast(seq)
-                    .ordered_dict
-                    .inner
-                    ._as_dict_inner()
-                    .contains(vm, target)),
+                length: atomic_func!(|seq, _vm| Ok(PyODictKeys::sequence_downcast(seq)
+                    .od
+                    .dict
+                    .__len__())),
+                contains: atomic_func!(|seq, target, vm| {
+                    PyODictKeys::sequence_downcast(seq)
+                        .od
+                        .dict
+                        .inner_getitem_opt(target, vm)
+                        .map(|v| v.is_some())
+                }),
                 ..PySequenceMethods::NOT_IMPLEMENTED
             };
             &AS_SEQUENCE
         }
     }
 
-    impl Iterable for PyOrderedDictKeys {
+    impl Iterable for PyODictKeys {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Ok(PyOrderedDictKeyIterator::new(zelf.ordered_dict.clone()).into_pyobject(vm))
+            Ok(PyODictIter::new(zelf.od.clone(), ODICT_ITER_KEYS).to_pyobject(vm))
         }
     }
 
-    impl Comparable for PyOrderedDictKeys {
+    impl Comparable for PyODictKeys {
         fn cmp(
             zelf: &Py<Self>,
             other: &PyObject,
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
-            let entries = zelf.ordered_dict.inner._as_dict_inner();
-            set_like_view_cmp(
-                entries.len(),
-                entries.keys(),
-                |needle, vm| entries.contains(vm, needle),
-                other,
-                op,
-                vm,
-            )
+            op.eq_only(|| odict_view_eq(&zelf.od, ODICT_ITER_KEYS, other, vm))
         }
     }
 
-    impl AsNumber for PyOrderedDictKeys {
+    impl AsNumber for PyODictKeys {
         fn as_number() -> &'static PyNumberMethods {
             static AS_NUMBER: PyNumberMethods = PyNumberMethods {
                 subtract: Some(set_inner_number_subtract),
@@ -774,104 +1052,91 @@ pub(crate) mod ordered_dict {
         }
     }
 
-    impl Representable for PyOrderedDictKeys {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let mut str_parts =
-                    Vec::with_capacity(zelf.ordered_dict.inner._as_dict_inner().len());
-                for key in zelf.ordered_dict.inner._as_dict_inner().keys() {
-                    let repr: PyStrRef = key.repr(vm)?;
-                    str_parts.push(repr.to_string());
-                }
-                Ok(format!("odict_keys([{}])", str_parts.join(", ")))
-            } else {
-                Ok("odict_keys(...)".to_owned())
-            }
-        }
-    }
-
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_values", traverse)]
+    #[pyclass(name = "odict_values", traverse)]
     #[derive(Debug, PyPayload)]
-    struct PyOrderedDictValues {
-        ordered_dict: PyOrderedDictRef,
+    struct PyODictValues {
+        od: PyRef<PyOrderedDict>,
     }
 
-    #[pyclass(with(Iterable, AsSequence, Representable))]
-    impl PyOrderedDictValues {
+    #[pyclass(with(Iterable, Comparable, AsMapping))]
+    impl PyODictValues {
         #[pymethod]
-        fn __reversed__(&self) -> PyOrderedDictReverseValueIterator {
-            PyOrderedDictReverseValueIterator::new(self.ordered_dict.clone())
+        fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
+            PyODictIter::new(self.od.clone(), ODICT_ITER_VALUES | ODICT_ITER_REVERSED)
+                .to_pyobject(vm)
         }
 
         #[pygetset]
         fn mapping(&self, vm: &VirtualMachine) -> PyResult<PyMappingProxy> {
-            PyMappingProxy::from_object(self.ordered_dict.as_object().to_owned(), vm)
+            PyMappingProxy::from_object(self.od.as_object().to_owned(), vm)
         }
     }
 
-    impl AsSequence for PyOrderedDictValues {
-        fn as_sequence() -> &'static PySequenceMethods {
-            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                length: atomic_func!(|seq, _vm| Ok(PyOrderedDictValues::sequence_downcast(seq)
-                    .ordered_dict
-                    .inner
-                    ._as_dict_inner()
-                    .len())),
-                ..PySequenceMethods::NOT_IMPLEMENTED
+    impl AsMapping for PyODictValues {
+        fn as_mapping() -> &'static PyMappingMethods {
+            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, _vm| Ok(PyODictValues::mapping_downcast(mapping)
+                    .od
+                    .dict
+                    .__len__())),
+                ..PyMappingMethods::NOT_IMPLEMENTED
             };
-            &AS_SEQUENCE
+            &AS_MAPPING
         }
     }
 
-    impl Iterable for PyOrderedDictValues {
+    impl Iterable for PyODictValues {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Ok(PyOrderedDictValueIterator::new(zelf.ordered_dict.clone()).into_pyobject(vm))
+            Ok(PyODictIter::new(zelf.od.clone(), ODICT_ITER_VALUES).to_pyobject(vm))
         }
     }
 
-    impl Representable for PyOrderedDictValues {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let mut str_parts =
-                    Vec::with_capacity(zelf.ordered_dict.inner._as_dict_inner().len());
-                for value in zelf.ordered_dict.inner._as_dict_inner().values() {
-                    let repr: PyStrRef = value.repr(vm)?;
-                    str_parts.push(repr.to_string());
-                }
-                Ok(format!("odict_values([{}])", str_parts.join(", ")))
-            } else {
-                Ok("odict_values(...)".to_owned())
-            }
+    impl Comparable for PyODictValues {
+        fn cmp(
+            zelf: &Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            op.eq_only(|| odict_view_eq(&zelf.od, ODICT_ITER_VALUES, other, vm))
         }
     }
 
     #[pyattr]
-    #[pyclass(module = "_collections", name = "odict_items", traverse)]
+    #[pyclass(name = "odict_items", traverse)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct PyOrderedDictItems {
-        ordered_dict: PyOrderedDictRef,
+        od: PyRef<PyOrderedDict>,
     }
 
-    #[pyclass(with(Iterable, Comparable, AsSequence, AsNumber, Representable))]
+    #[pyclass(with(Iterable, Comparable, AsMapping, AsSequence, AsNumber))]
     impl PyOrderedDictItems {
         #[pymethod]
-        fn __reversed__(&self) -> PyOrderedDictReverseItemIterator {
-            PyOrderedDictReverseItemIterator::new(self.ordered_dict.clone())
+        fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
+            PyODictIter::new(self.od.clone(), ODICT_ITER_ITEMS | ODICT_ITER_REVERSED)
+                .to_pyobject(vm)
         }
 
         #[pygetset]
         fn mapping(&self, vm: &VirtualMachine) -> PyResult<PyMappingProxy> {
-            PyMappingProxy::from_object(self.ordered_dict.as_object().to_owned(), vm)
+            PyMappingProxy::from_object(self.od.as_object().to_owned(), vm)
         }
 
         #[pymethod]
         fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
             for item in other.iter(vm)? {
                 let item = item?;
-                if ordered_items_contains(&self.ordered_dict, &item, vm)? {
+                let Some(needle) = item.downcast_ref::<PyTuple>() else {
+                    continue;
+                };
+                if needle.len() != 2 {
+                    continue;
+                }
+                let Some(found) = self.od.dict.inner_getitem_opt(&*needle[0], vm)? else {
+                    continue;
+                };
+                if vm.identical_or_equal(&found, &needle[1])? {
                     return Ok(false);
                 }
             }
@@ -879,17 +1144,42 @@ pub(crate) mod ordered_dict {
         }
     }
 
+    impl AsMapping for PyOrderedDictItems {
+        fn as_mapping() -> &'static PyMappingMethods {
+            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, _vm| Ok(PyOrderedDictItems::mapping_downcast(
+                    mapping
+                )
+                .od
+                .dict
+                .__len__())),
+                ..PyMappingMethods::NOT_IMPLEMENTED
+            };
+            &AS_MAPPING
+        }
+    }
+
     impl AsSequence for PyOrderedDictItems {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
                 length: atomic_func!(|seq, _vm| Ok(PyOrderedDictItems::sequence_downcast(seq)
-                    .ordered_dict
-                    .inner
-                    ._as_dict_inner()
-                    .len())),
+                    .od
+                    .dict
+                    .__len__())),
                 contains: atomic_func!(|seq, target, vm| {
+                    let needle: &Py<PyTuple> = match target.downcast_ref() {
+                        Some(needle) => needle,
+                        None => return Ok(false),
+                    };
+                    if needle.len() != 2 {
+                        return Ok(false);
+                    }
                     let zelf = PyOrderedDictItems::sequence_downcast(seq);
-                    ordered_items_contains(&zelf.ordered_dict, target, vm)
+                    let key = &needle[0];
+                    let Some(found) = zelf.od.dict.inner_getitem_opt(&**key, vm)? else {
+                        return Ok(false);
+                    };
+                    vm.identical_or_equal(&found, &needle[1])
                 }),
                 ..PySequenceMethods::NOT_IMPLEMENTED
             };
@@ -899,7 +1189,7 @@ pub(crate) mod ordered_dict {
 
     impl Iterable for PyOrderedDictItems {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Ok(PyOrderedDictItemIterator::new(zelf.ordered_dict.clone()).into_pyobject(vm))
+            Ok(PyODictIter::new(zelf.od.clone(), ODICT_ITER_ITEMS).to_pyobject(vm))
         }
     }
 
@@ -910,20 +1200,7 @@ pub(crate) mod ordered_dict {
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
-            let entries = zelf.ordered_dict.inner._as_dict_inner();
-            let self_items = entries
-                .items()
-                .into_iter()
-                .map(|(k, v)| vm.new_tuple((k, v)).into())
-                .collect();
-            set_like_view_cmp(
-                entries.len(),
-                self_items,
-                |needle, vm| ordered_items_contains(&zelf.ordered_dict, needle, vm),
-                other,
-                op,
-                vm,
-            )
+            op.eq_only(|| odict_view_eq(&zelf.od, ODICT_ITER_ITEMS, other, vm))
         }
     }
 
@@ -939,547 +1216,4 @@ pub(crate) mod ordered_dict {
             &AS_NUMBER
         }
     }
-
-    impl Representable for PyOrderedDictItems {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let mut str_parts =
-                    Vec::with_capacity(zelf.ordered_dict.inner._as_dict_inner().len());
-                for (key, value) in zelf.ordered_dict.inner._as_dict_inner().items() {
-                    let key_repr: PyStrRef = key.repr(vm)?;
-                    let value_repr: PyStrRef = value.repr(vm)?;
-                    str_parts.push(format!("({key_repr}, {value_repr})"));
-                }
-                Ok(format!("odict_items([{}])", str_parts.join(", ")))
-            } else {
-                Ok("odict_items(...)".to_owned())
-            }
-        }
-    }
-
-    // OrderedDict Iterators
-
-    fn reduce_forward_iterator(
-        internal: &PyMutex<PositionIterInternal<PyOrderedDictRef>>,
-        size: &dict_inner::DictSize,
-        mutation_version: usize,
-        project: impl Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyTupleRef> {
-        let internal = internal.lock();
-        let mut result = Vec::new();
-        if let Active(ordered_dict) = &internal.status {
-            let entries = ordered_dict.inner._as_dict_inner();
-            let remaining = entries
-                .remaining_items_version_checked(internal.position, size, mutation_version, false)
-                .map_err(|_| vm.new_runtime_error("OrderedDict mutated during iteration"))?;
-            for (key, value) in remaining {
-                result.push(project(vm, key, value));
-            }
-        }
-        Ok(vm.new_tuple((builtins_iter(vm)?, (vm.ctx.new_list(result),))))
-    }
-
-    fn reduce_reverse_iterator(
-        internal: &PyMutex<PositionIterInternal<PyOrderedDictRef>>,
-        size: &dict_inner::DictSize,
-        mutation_version: usize,
-        project: impl Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyTupleRef> {
-        let internal = internal.lock();
-        let mut result = Vec::new();
-        if let Active(ordered_dict) = &internal.status {
-            let entries = ordered_dict.inner._as_dict_inner();
-            let remaining = entries
-                .remaining_items_version_checked(internal.position, size, mutation_version, true)
-                .map_err(|_| vm.new_runtime_error("OrderedDict mutated during iteration"))?;
-            for (key, value) in remaining {
-                result.push(project(vm, key, value));
-            }
-        }
-        Ok(vm.new_tuple((builtins_iter(vm)?, (vm.ctx.new_list(result),))))
-    }
-
-    #[pyattr]
-    #[pyclass(
-        module = "_collections",
-        name = "odict_keyiterator",
-        traverse = "manual"
-    )]
-    #[derive(Debug, PyPayload)]
-    struct PyOrderedDictKeyIterator {
-        size: dict_inner::DictSize,
-        mutation_version: usize,
-        internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
-    }
-
-    impl PyOrderedDictKeyIterator {
-        fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
-            Self {
-                size,
-                mutation_version,
-                internal: PyMutex::new(PositionIterInternal::new(ordered_dict, 0)),
-            }
-        }
-    }
-
-    #[pyclass(with(IterNext, Iterable))]
-    impl PyOrderedDictKeyIterator {
-        #[pymethod]
-        fn __length_hint__(&self) -> usize {
-            self.internal.lock().length_hint(|_| self.size.entries_size)
-        }
-
-        #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            reduce_forward_iterator(
-                &self.internal,
-                &self.size,
-                self.mutation_version,
-                |_vm, key, _value| key,
-                vm,
-            )
-        }
-    }
-
-    impl SelfIter for PyOrderedDictKeyIterator {}
-    impl IterNext for PyOrderedDictKeyIterator {
-        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            locked_step(&zelf.internal, |internal| {
-                let Active(ordered_dict) = &internal.status else {
-                    return (Ok(PyIterReturn::StopIteration(None)), None);
-                };
-                let entries = ordered_dict.inner._as_dict_inner();
-                match entries.next_entry_version_checked(
-                    internal.position,
-                    &zelf.size,
-                    zelf.mutation_version,
-                    |key, _value| key.clone(),
-                ) {
-                    Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
-                        internal.exhaust(),
-                    ),
-                    Ok(Some((position, key))) => {
-                        internal.position = position;
-                        (Ok(PyIterReturn::Return(key)), None)
-                    }
-                    Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
-                }
-            })
-        }
-    }
-
-    #[pyattr]
-    #[pyclass(
-        module = "_collections",
-        name = "odict_valueiterator",
-        traverse = "manual"
-    )]
-    #[derive(Debug, PyPayload)]
-    struct PyOrderedDictValueIterator {
-        size: dict_inner::DictSize,
-        mutation_version: usize,
-        internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
-    }
-
-    impl PyOrderedDictValueIterator {
-        fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
-            Self {
-                size,
-                mutation_version,
-                internal: PyMutex::new(PositionIterInternal::new(ordered_dict, 0)),
-            }
-        }
-    }
-
-    #[pyclass(with(IterNext, Iterable))]
-    impl PyOrderedDictValueIterator {
-        #[pymethod]
-        fn __length_hint__(&self) -> usize {
-            self.internal.lock().length_hint(|_| self.size.entries_size)
-        }
-
-        #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            reduce_forward_iterator(
-                &self.internal,
-                &self.size,
-                self.mutation_version,
-                |_vm, _key, value| value,
-                vm,
-            )
-        }
-    }
-
-    impl SelfIter for PyOrderedDictValueIterator {}
-    impl IterNext for PyOrderedDictValueIterator {
-        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            locked_step(&zelf.internal, |internal| {
-                let Active(ordered_dict) = &internal.status else {
-                    return (Ok(PyIterReturn::StopIteration(None)), None);
-                };
-                let entries = ordered_dict.inner._as_dict_inner();
-                match entries.next_entry_version_checked(
-                    internal.position,
-                    &zelf.size,
-                    zelf.mutation_version,
-                    |_key, value| value.clone(),
-                ) {
-                    Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
-                        internal.exhaust(),
-                    ),
-                    Ok(Some((position, value))) => {
-                        internal.position = position;
-                        (Ok(PyIterReturn::Return(value)), None)
-                    }
-                    Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
-                }
-            })
-        }
-    }
-
-    #[pyattr]
-    #[pyclass(
-        module = "_collections",
-        name = "odict_itemiterator",
-        traverse = "manual"
-    )]
-    #[derive(Debug, PyPayload)]
-    struct PyOrderedDictItemIterator {
-        size: dict_inner::DictSize,
-        mutation_version: usize,
-        internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
-    }
-
-    impl PyOrderedDictItemIterator {
-        fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
-            Self {
-                size,
-                mutation_version,
-                internal: PyMutex::new(PositionIterInternal::new(ordered_dict, 0)),
-            }
-        }
-    }
-
-    #[pyclass(with(IterNext, Iterable))]
-    impl PyOrderedDictItemIterator {
-        #[pymethod]
-        fn __length_hint__(&self) -> usize {
-            self.internal.lock().length_hint(|_| self.size.entries_size)
-        }
-
-        #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            reduce_forward_iterator(
-                &self.internal,
-                &self.size,
-                self.mutation_version,
-                |vm, key, value| vm.new_tuple((key, value)).into(),
-                vm,
-            )
-        }
-    }
-
-    impl SelfIter for PyOrderedDictItemIterator {}
-    impl IterNext for PyOrderedDictItemIterator {
-        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            locked_step(&zelf.internal, |internal| {
-                let Active(ordered_dict) = &internal.status else {
-                    return (Ok(PyIterReturn::StopIteration(None)), None);
-                };
-                let entries = ordered_dict.inner._as_dict_inner();
-                match entries.next_entry_version_checked(
-                    internal.position,
-                    &zelf.size,
-                    zelf.mutation_version,
-                    |key, value| (key.clone(), value.clone()),
-                ) {
-                    Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
-                        internal.exhaust(),
-                    ),
-                    Ok(Some((position, (key, value)))) => {
-                        internal.position = position;
-                        (
-                            Ok(PyIterReturn::Return(vm.new_tuple((key, value)).into())),
-                            None,
-                        )
-                    }
-                    Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
-                }
-            })
-        }
-    }
-
-    // Reverse iterators
-
-    #[pyattr]
-    #[pyclass(
-        module = "_collections",
-        name = "odict_reverse_keyiterator",
-        traverse = "manual"
-    )]
-    #[derive(Debug, PyPayload)]
-    struct PyOrderedDictReverseKeyIterator {
-        size: dict_inner::DictSize,
-        mutation_version: usize,
-        internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
-    }
-
-    impl PyOrderedDictReverseKeyIterator {
-        fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
-            let position = size.entries_size.saturating_sub(1);
-            Self {
-                size,
-                mutation_version,
-                internal: PyMutex::new(PositionIterInternal::new(ordered_dict, position)),
-            }
-        }
-    }
-
-    #[pyclass(with(IterNext, Iterable))]
-    impl PyOrderedDictReverseKeyIterator {
-        #[pymethod]
-        fn __length_hint__(&self) -> usize {
-            self.internal
-                .lock()
-                .rev_length_hint(|_| self.size.entries_size)
-        }
-
-        #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            reduce_reverse_iterator(
-                &self.internal,
-                &self.size,
-                self.mutation_version,
-                |_vm, key, _value| key,
-                vm,
-            )
-        }
-    }
-
-    impl SelfIter for PyOrderedDictReverseKeyIterator {}
-    impl IterNext for PyOrderedDictReverseKeyIterator {
-        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            locked_step(&zelf.internal, |internal| {
-                let Active(ordered_dict) = &internal.status else {
-                    return (Ok(PyIterReturn::StopIteration(None)), None);
-                };
-                let entries = ordered_dict.inner._as_dict_inner();
-                match entries.prev_entry_version_checked(
-                    internal.position,
-                    &zelf.size,
-                    zelf.mutation_version,
-                    |key, _value| key.clone(),
-                ) {
-                    Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
-                        internal.exhaust(),
-                    ),
-                    Ok(Some((position, key))) => {
-                        let released = if position == 0 {
-                            internal.exhaust()
-                        } else {
-                            internal.position = position - 1;
-                            None
-                        };
-                        (Ok(PyIterReturn::Return(key)), released)
-                    }
-                    Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
-                }
-            })
-        }
-    }
-
-    #[pyattr]
-    #[pyclass(
-        module = "_collections",
-        name = "odict_reverse_valueiterator",
-        traverse = "manual"
-    )]
-    #[derive(Debug, PyPayload)]
-    struct PyOrderedDictReverseValueIterator {
-        size: dict_inner::DictSize,
-        mutation_version: usize,
-        internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
-    }
-
-    impl PyOrderedDictReverseValueIterator {
-        fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
-            let position = size.entries_size.saturating_sub(1);
-            Self {
-                size,
-                mutation_version,
-                internal: PyMutex::new(PositionIterInternal::new(ordered_dict, position)),
-            }
-        }
-    }
-
-    #[pyclass(with(IterNext, Iterable))]
-    impl PyOrderedDictReverseValueIterator {
-        #[pymethod]
-        fn __length_hint__(&self) -> usize {
-            self.internal
-                .lock()
-                .rev_length_hint(|_| self.size.entries_size)
-        }
-
-        #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            reduce_reverse_iterator(
-                &self.internal,
-                &self.size,
-                self.mutation_version,
-                |_vm, _key, value| value,
-                vm,
-            )
-        }
-    }
-
-    impl SelfIter for PyOrderedDictReverseValueIterator {}
-    impl IterNext for PyOrderedDictReverseValueIterator {
-        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            locked_step(&zelf.internal, |internal| {
-                let Active(ordered_dict) = &internal.status else {
-                    return (Ok(PyIterReturn::StopIteration(None)), None);
-                };
-                let entries = ordered_dict.inner._as_dict_inner();
-                match entries.prev_entry_version_checked(
-                    internal.position,
-                    &zelf.size,
-                    zelf.mutation_version,
-                    |_key, value| value.clone(),
-                ) {
-                    Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
-                        internal.exhaust(),
-                    ),
-                    Ok(Some((position, value))) => {
-                        let released = if position == 0 {
-                            internal.exhaust()
-                        } else {
-                            internal.position = position - 1;
-                            None
-                        };
-                        (Ok(PyIterReturn::Return(value)), released)
-                    }
-                    Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
-                }
-            })
-        }
-    }
-
-    #[pyattr]
-    #[pyclass(
-        module = "_collections",
-        name = "odict_reverse_itemiterator",
-        traverse = "manual"
-    )]
-    #[derive(Debug, PyPayload)]
-    struct PyOrderedDictReverseItemIterator {
-        size: dict_inner::DictSize,
-        mutation_version: usize,
-        internal: PyMutex<PositionIterInternal<PyOrderedDictRef>>,
-    }
-
-    impl PyOrderedDictReverseItemIterator {
-        fn new(ordered_dict: PyOrderedDictRef) -> Self {
-            let (size, mutation_version) = ordered_dict.inner._as_dict_inner().versioned_size();
-            let position = size.entries_size.saturating_sub(1);
-            Self {
-                size,
-                mutation_version,
-                internal: PyMutex::new(PositionIterInternal::new(ordered_dict, position)),
-            }
-        }
-    }
-
-    #[pyclass(with(IterNext, Iterable))]
-    impl PyOrderedDictReverseItemIterator {
-        #[pymethod]
-        fn __length_hint__(&self) -> usize {
-            self.internal
-                .lock()
-                .rev_length_hint(|_| self.size.entries_size)
-        }
-
-        #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            reduce_reverse_iterator(
-                &self.internal,
-                &self.size,
-                self.mutation_version,
-                |vm, key, value| vm.new_tuple((key, value)).into(),
-                vm,
-            )
-        }
-    }
-
-    impl SelfIter for PyOrderedDictReverseItemIterator {}
-    impl IterNext for PyOrderedDictReverseItemIterator {
-        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            locked_step(&zelf.internal, |internal| {
-                let Active(ordered_dict) = &internal.status else {
-                    return (Ok(PyIterReturn::StopIteration(None)), None);
-                };
-                let entries = ordered_dict.inner._as_dict_inner();
-                match entries.prev_entry_version_checked(
-                    internal.position,
-                    &zelf.size,
-                    zelf.mutation_version,
-                    |key, value| (key.clone(), value.clone()),
-                ) {
-                    Err(dict_inner::DictChanged) => (
-                        Err(vm.new_runtime_error("OrderedDict mutated during iteration")),
-                        internal.exhaust(),
-                    ),
-                    Ok(Some((position, (key, value)))) => {
-                        let released = if position == 0 {
-                            internal.exhaust()
-                        } else {
-                            internal.position = position - 1;
-                            None
-                        };
-                        (
-                            Ok(PyIterReturn::Return(vm.new_tuple((key, value)).into())),
-                            released,
-                        )
-                    }
-                    Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
-                }
-            })
-        }
-    }
-
-    macro_rules! impl_ordered_iterator_traverse {
-        ($($iterator:ty),* $(,)?) => {
-            $(
-                // SAFETY: the iterator owns exactly the OrderedDict reference
-                // stored in its PositionIterInternal and visits it once.
-                unsafe impl Traverse for $iterator {
-                    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-                        self.internal.traverse(tracer_fn);
-                    }
-                }
-            )*
-        };
-    }
-
-    impl_ordered_iterator_traverse!(
-        PyOrderedDictKeyIterator,
-        PyOrderedDictValueIterator,
-        PyOrderedDictItemIterator,
-        PyOrderedDictReverseKeyIterator,
-        PyOrderedDictReverseValueIterator,
-        PyOrderedDictReverseItemIterator,
-    );
 }
