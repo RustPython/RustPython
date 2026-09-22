@@ -4614,7 +4614,6 @@ def bœr():
             self.assertIn('42', stdout)
             self.assertIn('return x + 1', stdout)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_zipimport(self):
         with os_helper.temp_dir() as temp_dir:
             os.mkdir(os.path.join(temp_dir, 'source'))
