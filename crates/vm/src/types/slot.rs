@@ -12,7 +12,7 @@ use crate::{
         BufferFlags, PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyMappingSlots, PyNumber,
         PyNumberMethods, PyNumberSlots, PySequence, PySequenceMethods, PySequenceSlots,
     },
-    types::c_slots::{CSlots, CSlotsPtr, is_c_trampoline},
+    types::c_slots::{CSlots, CSlotsPtr, StaticCSlots, is_c_trampoline},
     types::slot_defs::{SlotAccessor, find_slot_defs_by_name},
     vm::Context,
 };
@@ -190,6 +190,11 @@ pub struct PyTypeSlots {
     /// them. Reached through the trampolines held in the matching Rust slots,
     /// never read directly by the interpreter.
     pub(crate) c_slots: AtomicCell<Option<CSlotsPtr>>,
+    /// C ABI entry points for the Rust slots this type defines.
+    ///
+    /// Written once, on the type that defines the slot. Subclasses do not copy
+    /// it; the MRO walk in [`PyType::c_tp_new`] finds the definition.
+    pub static_c_slots: AtomicCell<Option<&'static StaticCSlots>>,
     // tp_free
     // tp_is_gc
     // tp_bases
