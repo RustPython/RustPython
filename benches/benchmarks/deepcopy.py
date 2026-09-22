@@ -66,6 +66,7 @@ def benchmark(n):
                     dc.boolean = b
                     _ = copy.deepcopy(dc)
 
-benchmark(1)
-benchmark_reduce(5)
-benchmark_memo(1)
+N = 10
+benchmark(N)
+benchmark_reduce(5 * N)
+benchmark_memo(N)
