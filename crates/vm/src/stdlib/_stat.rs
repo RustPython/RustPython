@@ -84,20 +84,13 @@ mod _stat {
     );
 
     #[pyattr]
-    pub const S_IFDOOR: Mode = 0; // TODO: RUSTPYTHON Support Solaris
+    pub const S_IFDOOR: Mode = rustpython_host_env::os::S_IFDOOR as Mode;
 
     #[pyattr]
-    pub const S_IFPORT: Mode = 0; // TODO: RUSTPYTHON Support Solaris
-
-    // TODO: RUSTPYTHON Support BSD
-    // https://man.freebsd.org/cgi/man.cgi?stat(2)
+    pub const S_IFPORT: Mode = rustpython_host_env::os::S_IFPORT as Mode;
 
     #[pyattr]
-    pub const S_IFWHT: Mode = if cfg!(target_os = "macos") {
-        0o160000
-    } else {
-        0
-    };
+    pub const S_IFWHT: Mode = rustpython_host_env::os::S_IFWHT as Mode;
 
     // Permission bits
 
@@ -256,72 +249,10 @@ mod _stat {
     // Unix file flags (if on Unix)
 
     #[pyattr]
-    pub const UF_NODUMP: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_NODUMP,
-        0x00000001
-    );
-
-    #[pyattr]
-    pub const UF_IMMUTABLE: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_IMMUTABLE,
-        0x00000002
-    );
-
-    #[pyattr]
-    pub const UF_APPEND: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_APPEND,
-        0x00000004
-    );
-
-    #[pyattr]
-    pub const UF_OPAQUE: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_OPAQUE,
-        0x00000008
-    );
-
-    #[pyattr]
-    pub const UF_COMPRESSED: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_COMPRESSED,
-        0x00000020
-    );
-
-    #[pyattr]
-    pub const UF_HIDDEN: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_HIDDEN,
-        0x00008000
-    );
-
-    #[pyattr]
-    pub const SF_ARCHIVED: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        SF_ARCHIVED,
-        0x00010000
-    );
-
-    #[pyattr]
-    pub const SF_IMMUTABLE: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        SF_IMMUTABLE,
-        0x00020000
-    );
-
-    #[pyattr]
-    pub const SF_APPEND: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        SF_APPEND,
-        0x00040000
-    );
-
-    #[pyattr]
     pub use rustpython_host_env::os::{
-        SF_DATALESS, SF_FIRMLINK, SF_NOUNLINK, SF_SETTABLE, SF_SNAPSHOT, UF_DATAVAULT, UF_NOUNLINK,
-        UF_SETTABLE, UF_TRACKED,
+        SF_APPEND, SF_ARCHIVED, SF_DATALESS, SF_FIRMLINK, SF_IMMUTABLE, SF_NOUNLINK, SF_SETTABLE,
+        SF_SNAPSHOT, UF_APPEND, UF_COMPRESSED, UF_DATAVAULT, UF_HIDDEN, UF_IMMUTABLE, UF_NODUMP,
+        UF_NOUNLINK, UF_OPAQUE, UF_SETTABLE, UF_TRACKED,
     };
 
     #[cfg(target_os = "macos")]

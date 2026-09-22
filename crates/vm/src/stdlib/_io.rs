@@ -15,7 +15,7 @@ cfg_select! {
     _ => {
         type Offset = i64;
         // EAGAIN constant for BlockingIOError
-        const EAGAIN: i32 = 11; // Standard POSIX value
+        const EAGAIN: i32 = rustpython_host_env::errno::errors::EAGAIN;
     }
 }
 

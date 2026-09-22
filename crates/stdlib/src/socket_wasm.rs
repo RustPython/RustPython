@@ -20,99 +20,15 @@ mod _socket {
     use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 
     #[pyattr]
-    const AF_UNSPEC: i32 = 0;
-    #[pyattr]
-    const AF_UNIX: i32 = 1;
-    #[pyattr]
-    const AF_INET: i32 = 2;
-    #[pyattr]
-    const AF_INET6: i32 = 10;
-
-    #[pyattr]
-    const SOCK_STREAM: i32 = 1;
-    #[pyattr]
-    const SOCK_DGRAM: i32 = 2;
-    #[pyattr]
-    const SOCK_RAW: i32 = 3;
-
-    #[pyattr]
-    const SOL_SOCKET: i32 = 1;
-    #[pyattr]
-    const SO_REUSEADDR: i32 = 2;
-    #[pyattr]
-    const SO_TYPE: i32 = 3;
-    #[pyattr]
-    const SO_ERROR: i32 = 4;
-    #[pyattr]
-    const SO_BROADCAST: i32 = 6;
-    #[pyattr]
-    const SO_KEEPALIVE: i32 = 9;
-    #[pyattr]
-    const SO_RCVBUF: i32 = 8;
-    #[pyattr]
-    const SO_SNDBUF: i32 = 7;
-
-    #[pyattr]
-    const IPPROTO_IP: i32 = 0;
-    #[pyattr]
-    const IPPROTO_TCP: i32 = 6;
-    #[pyattr]
-    const IPPROTO_UDP: i32 = 17;
-    #[pyattr]
-    const IPPROTO_IPV6: i32 = 41;
-    #[pyattr]
-    const SOL_TCP: i32 = IPPROTO_TCP;
-
-    #[pyattr]
-    const SHUT_RD: i32 = 0;
-    #[pyattr]
-    const SHUT_WR: i32 = 1;
-    #[pyattr]
-    const SHUT_RDWR: i32 = 2;
-
-    #[pyattr]
-    const MSG_OOB: i32 = 1;
-    #[pyattr]
-    const MSG_PEEK: i32 = 2;
-    #[pyattr]
-    const MSG_DONTROUTE: i32 = 4;
-
-    #[pyattr]
-    const AI_PASSIVE: i32 = 1;
-    #[pyattr]
-    const AI_CANONNAME: i32 = 2;
-    #[pyattr]
-    const AI_NUMERICHOST: i32 = 4;
-    #[pyattr]
-    const AI_NUMERICSERV: i32 = 8;
-    #[pyattr]
-    const AI_ADDRCONFIG: i32 = 32;
-
-    #[pyattr]
-    const NI_NUMERICHOST: i32 = 1;
-    #[pyattr]
-    const NI_NUMERICSERV: i32 = 2;
-    #[pyattr]
-    const NI_NOFQDN: i32 = 4;
-    #[pyattr]
-    const NI_NAMEREQD: i32 = 8;
-    #[pyattr]
-    const NI_DGRAM: i32 = 16;
-
-    #[pyattr]
-    const INADDR_ANY: u32 = 0;
-    #[pyattr]
-    const INADDR_LOOPBACK: u32 = 0x7f00_0001;
-    #[pyattr]
-    const INADDR_BROADCAST: u32 = 0xffff_ffff;
-    #[pyattr]
-    const INADDR_NONE: u32 = 0xffff_ffff;
-    #[pyattr]
-    const IPPORT_RESERVED: i32 = 1024;
-    #[pyattr]
-    const IPPORT_USERRESERVED: i32 = 5000;
-    #[pyattr]
-    const TCP_NODELAY: i32 = 1;
+    use rustpython_host_env::socket::{
+        AF_INET, AF_INET6, AF_UNIX, AF_UNSPEC, AI_ADDRCONFIG, AI_CANONNAME, AI_NUMERICHOST,
+        AI_NUMERICSERV, AI_PASSIVE, INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
+        IPPORT_RESERVED, IPPORT_USERRESERVED, IPPROTO_IP, IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_UDP,
+        MSG_DONTROUTE, MSG_OOB, MSG_PEEK, NI_DGRAM, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST,
+        NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR, SO_BROADCAST, SO_ERROR, SO_KEEPALIVE,
+        SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SOCK_DGRAM, SOCK_RAW, SOCK_STREAM, SOL_SOCKET,
+        SOL_TCP, TCP_NODELAY,
+    };
     #[pyattr(name = "has_ipv6")]
     const HAS_IPV6: bool = true;
 
