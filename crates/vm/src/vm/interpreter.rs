@@ -1773,37 +1773,78 @@ for _ in range(40):
             })
         });
 
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
         while progress.load(Ordering::Acquire) == 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "worker never started making progress"
+            );
             std::thread::yield_now();
         }
 
         let flip_flag = Arc::clone(&flip);
+        let flicker_cycles = Arc::new(AtomicU64::new(0));
+        let flicker_cycles_thread = Arc::clone(&flicker_cycles);
         let flicker = std::thread::spawn(move || {
             while flip_flag.load(Ordering::Acquire) {
                 crate::signal::set_stop_bit();
                 crate::signal::clear_stop_bit();
+                flicker_cycles_thread.fetch_add(1, Ordering::Release);
             }
         });
 
-        main.enter(|_vm| {
-            sub_state.stop_the_world.stop_the_world(&sub_state);
-
-            let parked_at = progress.load(Ordering::Acquire);
-            std::thread::sleep(Duration::from_millis(50));
-            assert_eq!(
-                progress.load(Ordering::Acquire),
-                parked_at,
-                "subinterpreter thread kept running after STOP_BIT was cleared"
+        while flicker_cycles.load(Ordering::Acquire) == 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "STOP_BIT flicker never ran"
             );
+            std::thread::yield_now();
+        }
 
-            sub_state.stop_the_world.start_the_world(&sub_state);
+        // Stop from a thread of its own so a hang fails the test instead of
+        // stalling the suite. Keep flickering until after the stop completes.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stop_state = sub_state.clone();
+        let stopper = std::thread::spawn(move || {
+            stop_state.stop_the_world.stop_the_world(&stop_state);
+            let stopped = tx.send(());
+            (stop_state, stopped)
         });
 
+        let stopped = rx.recv_timeout(Duration::from_secs(10));
+
+        let parked_at = progress.load(Ordering::Acquire);
+        std::thread::sleep(Duration::from_millis(50));
+        let parked_after = progress.load(Ordering::Acquire);
+
+        // Release before joining: if the stop hung, stopping the worker lets
+        // its slot go away so the stopper can finish.
         flip.store(false, Ordering::Release);
+        if stopped.is_err() {
+            stop.store(true, Ordering::Release);
+        }
         flicker.join().expect("stop-bit flicker panicked");
+        let (stop_state, sent) = stopper.join().expect("stopper panicked");
+        if stopped.is_ok() {
+            stop_state.stop_the_world.start_the_world(&stop_state);
+        }
+        sent.expect("send");
+        assert!(
+            stopped.is_ok(),
+            "stop-the-world hung while STOP_BIT was flickering"
+        );
+        assert_eq!(
+            parked_after, parked_at,
+            "subinterpreter thread kept running after STOP_BIT was cleared"
+        );
 
         let resumed_from = progress.load(Ordering::Acquire);
+        let resume_deadline = std::time::Instant::now() + Duration::from_secs(10);
         while progress.load(Ordering::Acquire) == resumed_from {
+            assert!(
+                std::time::Instant::now() < resume_deadline,
+                "worker never resumed after start_the_world"
+            );
             std::thread::yield_now();
         }
 
