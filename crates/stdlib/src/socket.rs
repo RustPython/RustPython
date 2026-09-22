@@ -725,6 +725,17 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
+    const HCI_DATA_DIR: i32 = 1;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const HCI_DATA_DIR: i32 = 2;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
     const SOL_L2CAP: i32 = 6;
     #[cfg(target_os = "freebsd")]
     #[pyattr]

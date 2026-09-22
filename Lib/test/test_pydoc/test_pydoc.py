@@ -1573,7 +1573,6 @@ class TestDescriptions(unittest.TestCase):
             "dump(obj, /) method of _pickle.Pickler instance")
 
     # this should *never* include self!
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_module_level_callable(self):
         self.assertEqual(self._get_summary_line(os.stat),
@@ -1994,7 +1993,6 @@ class PydocFodderTest(unittest.TestCase):
         self.assertIn(' |  B_classmethod(x)', lines)
         self.assertIn(' |  B_classmethod_alias = B_classmethod(x)', lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_html_doc_routines_in_class(self, cls=pydocfodder.B):
         doc = pydoc.HTMLDoc()
         result = doc.docclass(cls)
@@ -2033,7 +2031,6 @@ class PydocFodderTest(unittest.TestCase):
     def test_text_doc_inherited_routines_in_class(self):
         self.test_text_doc_routines_in_class(pydocfodder.D)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_html_doc_inherited_routines_in_class(self):
         self.test_html_doc_routines_in_class(pydocfodder.D)
 

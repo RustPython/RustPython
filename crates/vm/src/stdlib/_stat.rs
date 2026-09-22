@@ -170,21 +170,21 @@ mod _stat {
     pub const S_IEXEC: Mode = S_IXUSR;
 
     const _: () = {
-        assert!(S_IXOTH as u32 == 0o0001);
-        assert!(S_IWOTH as u32 == 0o0002);
-        assert!(S_IROTH as u32 == 0o0004);
-        assert!(S_IRWXO as u32 == 0o0007);
-        assert!(S_IXGRP as u32 == 0o0010);
-        assert!(S_IWGRP as u32 == 0o0020);
-        assert!(S_IRGRP as u32 == 0o0040);
-        assert!(S_IRWXG as u32 == 0o0070);
-        assert!(S_IXUSR as u32 == 0o0100);
-        assert!(S_IWUSR as u32 == 0o0200);
-        assert!(S_IRUSR as u32 == 0o0400);
-        assert!(S_IRWXU as u32 == 0o0700);
-        assert!(S_ISVTX as u32 == 0o1000);
-        assert!(S_ISGID as u32 == 0o2000);
-        assert!(S_ISUID as u32 == 0o4000);
+        assert!(S_IXOTH == 0o0001 as Mode);
+        assert!(S_IWOTH == 0o0002 as Mode);
+        assert!(S_IROTH == 0o0004 as Mode);
+        assert!(S_IRWXO == 0o0007 as Mode);
+        assert!(S_IXGRP == 0o0010 as Mode);
+        assert!(S_IWGRP == 0o0020 as Mode);
+        assert!(S_IRGRP == 0o0040 as Mode);
+        assert!(S_IRWXG == 0o0070 as Mode);
+        assert!(S_IXUSR == 0o0100 as Mode);
+        assert!(S_IWUSR == 0o0200 as Mode);
+        assert!(S_IRUSR == 0o0400 as Mode);
+        assert!(S_IRWXU == 0o0700 as Mode);
+        assert!(S_ISVTX == 0o1000 as Mode);
+        assert!(S_ISGID == 0o2000 as Mode);
+        assert!(S_ISUID == 0o4000 as Mode);
     };
 
     // Windows file attributes (if on Windows)
