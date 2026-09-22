@@ -40,6 +40,21 @@ pub use libc::AT_FDCWD;
 #[cfg(not(any(unix, target_os = "wasi")))]
 pub const AT_FDCWD: i32 = -100;
 
+#[cfg(unix)]
+pub use libc::{AT_REMOVEDIR, AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_vendor = "apple"
+))]
+pub use libc::AT_EACCESS;
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub use libc::{ST_NOSUID, ST_RDONLY};
+
 /// `open(2)` flags. libc on hosts that bind them; Darwin/BSD numbers on
 /// `wasm32-unknown-unknown`, matching the guest errno table.
 #[cfg(any(unix, windows, target_os = "wasi"))]
