@@ -361,7 +361,9 @@ impl Context {
             names.__new__.as_str(),
             PyType::__new__,
             PyMethodFlags::METHOD,
-            None,
+            Some(
+                "__new__($type, /, *args, **kwargs)\n--\n\nCreate and return a new object.  See help(type) for accurate signature.",
+            ),
         );
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);

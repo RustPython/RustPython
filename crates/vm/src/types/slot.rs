@@ -250,6 +250,7 @@ bitflags! {
         const HEAPTYPE = 1 << 9;
         const BASETYPE = 1 << 10;
         const METHOD_DESCRIPTOR = 1 << 17;
+        const IS_ABSTRACT = 1 << 20;
         // For built-in types that match the subject itself in pattern matching
         // (bool, int, float, str, bytes, bytearray, list, tuple, dict, set, frozenset)
         // This is not a stable API
@@ -1123,6 +1124,9 @@ impl PyType {
                                         // Check if it's a Python function (not a native descriptor)
                                         !attr.class().is(ctx.types.wrapper_descriptor_type)
                                             && !attr.class().is(ctx.types.method_descriptor_type)
+                                            && !attr
+                                                .class()
+                                                .is(ctx.types.classmethod_descriptor_type)
                                     })
                                 })
                             })

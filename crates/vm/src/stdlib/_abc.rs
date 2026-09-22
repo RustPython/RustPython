@@ -206,6 +206,11 @@ mod _abc {
         let data = AbcData::new();
         cls.set_attr("_abc_impl", data.to_pyobject(vm), vm)?;
 
+        if let Some(cls_type) = cls.downcast_ref::<PyType>() {
+            let abstracts = cls.get_attr("__abstractmethods__", vm)?;
+            cls_type.set_is_abstract(abstracts.try_to_bool(vm)?);
+        }
+
         Ok(())
     }
 

@@ -16,7 +16,7 @@ mod _collections {
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
-        function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
+        function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue},
         object::{Traverse, TraverseFn},
         protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
@@ -889,23 +889,33 @@ mod _collections {
         flags(BASETYPE, MAPPING, HAS_DICT)
     )]
     impl PyDefaultDict {
-        #[pygetset]
-        fn default_factory(&self) -> Option<PyObjectRef> {
-            self.default_factory.read().clone()
+        #[pymember(type = "object")]
+        fn default_factory(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+            let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+            Ok(zelf
+                .default_factory
+                .read()
+                .clone()
+                .unwrap_or_else(|| vm.ctx.none()))
         }
 
-        #[pygetset(name = "default_factory", setter)]
-        fn default_factory_setter(&self, value: PyObjectRef, vm: &VirtualMachine) {
-            *self.default_factory.write() = if value.is(&vm.ctx.none()) {
-                None
-            } else {
-                Some(value)
+        #[pymember(type = "object", setter)]
+        fn set_default_factory(
+            vm: &VirtualMachine,
+            zelf: PyObjectRef,
+            value: PySetterValue,
+        ) -> PyResult<()> {
+            let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+            *zelf.default_factory.write() = match value {
+                PySetterValue::Assign(v) if !v.is(&vm.ctx.none()) => Some(v),
+                _ => None,
             };
+            Ok(())
         }
 
         #[pymethod]
         fn __missing__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let factory = self.default_factory();
+            let factory = self.default_factory.read().clone();
 
             if let Some(f) = factory {
                 let value = f.call((), vm)?;
@@ -918,7 +928,7 @@ mod _collections {
         #[pymethod]
         #[pymethod(name = "__copy__")]
         fn copy(&self) -> Self {
-            let default_factory = self.default_factory();
+            let default_factory = self.default_factory.read().clone();
 
             Self {
                 dict: self.dict.copy(),
@@ -930,7 +940,7 @@ mod _collections {
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let cls = zelf.class().to_owned();
 
-            let default_factory = zelf.default_factory();
+            let default_factory = zelf.default_factory.read().clone();
             let factory_tuple_elements =
                 default_factory.map_or_else(Vec::new, |factory| vec![factory]);
             let factory_tuple = vm.ctx.new_tuple(factory_tuple_elements);
@@ -962,13 +972,13 @@ mod _collections {
                     return not_implemented();
                 }
 
-                (zelf.default_factory(), zelf.dict.copy())
+                (zelf.default_factory.read().clone(), zelf.dict.copy())
             } else if let Some(zelf) = rhs.downcast_ref::<Self>() {
                 let Some(dict) = lhs.downcast_ref::<PyDict>() else {
                     return not_implemented();
                 };
 
-                (zelf.default_factory(), dict.copy())
+                (zelf.default_factory.read().clone(), dict.copy())
             } else {
                 return Err(vm.new_type_error(format!(
                     "unsupported operand type(s) for |: '{}' and '{}'",

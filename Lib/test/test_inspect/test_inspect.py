@@ -123,7 +123,6 @@ class IsTestBase(unittest.TestCase):
             else:
                 self.assertFalse(other(obj), 'not %s(%s)' % (other.__name__, exp))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; First has 0, Second has 1:  'iskeyword'
     def test__all__(self):
         support.check__all__(self, inspect, not_exported=("modulesbyfile",), extra=("get_annotations",))
 
@@ -176,7 +175,7 @@ class custom_descriptor:
 
 class TestPredicates(IsTestBase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'defaultdict' has no attribute 'default_factory'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; datetime.timedelta.days is a property until _datetime members exist
     def test_excluding_predicates(self):
         global tb
         self.istest(inspect.isbuiltin, 'sys.exit')
@@ -480,7 +479,6 @@ class TestPredicates(IsTestBase):
         self.assertIn('a', members)
         self.assertNotIn('b', members)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_isabstract(self):
         from abc import ABCMeta, abstractmethod
 
@@ -503,7 +501,6 @@ class TestPredicates(IsTestBase):
         self.assertFalse(inspect.isabstract(int))
         self.assertFalse(inspect.isabstract(5))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + [True, False]
     def test_isabstract_during_init_subclass(self):
         from abc import ABCMeta, abstractmethod
         isabstract_checks = []
@@ -1531,7 +1528,6 @@ class TestClassesAndFunctions(unittest.TestCase):
         self.assertIn(('md', 'method', A), attrs, 'missing method descriptor')
         self.assertIn(('dd', 'data', A), attrs, 'missing data descriptor')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ('to_bytes', 'method', <class 'int'>) not found in [('__abs__', 'method', <class 'bool'>), ('__add__', 'method', <class 'bool'>), ('__and__', 'method', <class 'bool'>), ('__bool__', 'method', <class 'bool'>), ('__ceil__', 'class method', <class 'int'>), ('__class__', 'data', <class 'object'>), ('__delattr__', 'class method', <class 'object'>), ('__dir__', 'class method', <class 'object'>), ('__divmod__', 'method', <class 'bool'>), ('__doc__', 'data', <class 'bool'>), ('__eq__', 'class method', <class 'int'>), ('__float__', 'method', <class 'bool'>), ('__floor__', 'class method', <class 'int'>), ('__floordiv__', 'method', <class 'bool'>), ('__format__', 'class method', <class 'bool'>), ('__ge__', 'class method', <class 'int'>), ('__getattribute__', 'class method', <class 'object'>), ('__getnewargs__', 'class method', <class 'int'>), ('__getstate__', 'class method', <class 'object'>), ('__gt__', 'class method', <class 'int'>), ('__hash__', 'method', <class 'int'>), ('__index__', 'method', <class 'bool'>), ('__init__', 'method', <class 'object'>), ('__init_subclass__', 'class method', <class 'object'>), ('__int__', 'method', <class 'bool'>), ('__invert__', 'method', <class 'bool'>), ('__le__', 'class method', <class 'int'>), ('__lshift__', 'method', <class 'bool'>), ('__lt__', 'class method', <class 'int'>), ('__mod__', 'method', <class 'bool'>), ('__mul__', 'method', <class 'bool'>), ('__ne__', 'class method', <class 'int'>), ('__neg__', 'method', <class 'bool'>), ('__new__', 'static method', <class 'bool'>), ('__or__', 'method', <class 'bool'>), ('__pos__', 'method', <class 'bool'>), ('__pow__', 'method', <class 'bool'>), ('__radd__', 'method', <class 'bool'>), ('__rand__', 'method', <class 'bool'>), ('__rdivmod__', 'method', <class 'bool'>), ('__reduce__', 'class method', <class 'object'>), ('__reduce_ex__', 'class method', <class 'object'>), ('__repr__', 'method', <class 'bool'>), ('__rfloordiv__', 'method', <class 'bool'>), ('__rlshift__', 'method', <class 'bool'>), ('__rmod__', 'method', <class 'bool'>), ('__rmul__', 'method', <class 'bool'>), ('__ror__', 'method', <class 'bool'>), ('__round__', 'class method', <class 'int'>), ('__rpow__', 'method', <class 'bool'>), ('__rrshift__', 'method', <class 'bool'>), ('__rshift__', 'method', <class 'bool'>), ('__rsub__', 'method', <class 'bool'>), ('__rtruediv__', 'method', <class 'bool'>), ('__rxor__', 'method', <class 'bool'>), ('__setattr__', 'class method', <class 'object'>), ('__sizeof__', 'class method', <class 'int'>), ('__str__', 'method', <class 'object'>), ('__sub__', 'method', <class 'bool'>), ('__subclasshook__', 'class method', <class 'object'>), ('__truediv__', 'method', <class 'bool'>), ('__trunc__', 'class method', <class 'int'>), ('__xor__', 'method', <class 'bool'>), ('as_integer_ratio', 'class method', <class 'int'>), ('bit_count', 'class method', <class 'int'>), ('bit_length', 'class method', <class 'int'>), ('conjugate', 'class method', <class 'int'>), ('denominator', 'data', <class 'int'>), ('from_bytes', 'class method', <class 'int'>), ('imag', 'data', <class 'int'>), ('is_integer', 'class method', <class 'int'>), ('numerator', 'data', <class 'int'>), ('real', 'data', <class 'int'>), ('to_bytes', 'class method', <class 'int'>)] : missing plain method
     def test_classify_builtin_types(self):
         # Simple sanity check that all built-in types can have their
         # attributes classified.
@@ -3516,7 +3512,6 @@ class TestSignatureObject(unittest.TestCase):
                            ('arg2', 1, ..., "positional_or_keyword")),
                           int))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: no signature found for builtin type <class 'classmethod'>
     def test_signature_on_classmethod(self):
         if not support.MISSING_C_DOCSTRINGS:
             self.assertEqual(self.signature(classmethod),
@@ -3540,7 +3535,6 @@ class TestSignatureObject(unittest.TestCase):
                            ('arg2', 1, ..., "keyword_only")),
                           ...))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: no signature found for builtin type <class 'staticmethod'>
     def test_signature_on_staticmethod(self):
         if not support.MISSING_C_DOCSTRINGS:
             self.assertEqual(self.signature(staticmethod),
@@ -4210,7 +4204,6 @@ class TestSignatureObject(unittest.TestCase):
             self.assertEqual(self.signature(C.__call__, follow_wrapped=False),
                              varargs_signature)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_signature_on_class_with_wrapped_init(self):
         class C:
             @identity_wrapper
@@ -4460,7 +4453,6 @@ class TestSignatureObject(unittest.TestCase):
                             ((('a', ..., ..., "positional_or_keyword"),),
                             ...))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_signature_on_class_with_new(self):
         with self.subTest('FunctionType'):
             class C:
@@ -4647,7 +4639,6 @@ class TestSignatureObject(unittest.TestCase):
             pass
         self.assertEqual(str(inspect.signature(P4)), '(foo, bar)')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_signature_on_callable_objects(self):
         class Foo:
             def __call__(self, a):
@@ -6335,7 +6326,6 @@ class TestSignatureDefinitions(unittest.TestCase):
         with self.assertRaises(ValueError):
             inspect.signature(func)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None != '(raw, buffer_size=DEFAULT_BUFFER_SIZE)'
     @support.requires_docstrings
     def test_base_class_have_text_signature(self):
         # see issue 43118
@@ -6567,7 +6557,7 @@ class TestRepl(unittest.TestCase):
             raise ValueError("Process didn't exit properly.")
         return output
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'The source is: <<<def f():\n    print(0)\n    return 1 + 2\n>>>' not found in 'Traceback (most recent call last):\n  File "<stdin>", line 1, in <module>\n  File "crates/pylib/Lib/inspect.py", line 1161, in getsource\n    lines, lnum = getsourcelines(object)\n                  ~~~~~~~~~~~~~~^^^^^^^^\n  File "crates/pylib/Lib/inspect.py", line 1143, in getsourcelines\n    lines, lnum = findsource(object)\n                  ~~~~~~~~~~^^^^^^^^\n  File "crates/pylib/Lib/inspect.py", line 978, in findsource\n    raise OSError(\'could not get source code\')\nOSError: could not get source code\n'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; REPL piped stdin does not buffer incomplete blocks
     @unittest.skipIf(not has_subprocess_support, "test requires subprocess")
     def test_getsource(self):
         output = self.run_on_interactive_mode(textwrap.dedent("""\

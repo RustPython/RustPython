@@ -363,6 +363,7 @@ impl ItemMeta for ClassItemMeta {
         "traverse",
         "clear", // tp_clear
         "payload",
+        "text_signature",
     ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
@@ -418,6 +419,10 @@ impl ClassItemMeta {
 
     pub(crate) fn metaclass(&self) -> Result<Option<String>> {
         self.inner()._optional_str("metaclass")
+    }
+
+    pub(crate) fn text_signature(&self) -> Result<Option<String>> {
+        self.inner()._optional_str("text_signature")
     }
 
     pub(crate) fn module(&self) -> Result<Option<String>> {

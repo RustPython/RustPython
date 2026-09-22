@@ -659,6 +659,11 @@ impl PySet {
         self.inner.contains(needle, vm)
     }
 
+    #[pymethod(name = "__contains__", coexist)]
+    fn contains_method(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.__contains__(&needle, vm)
+    }
+
     #[pymethod]
     fn __sizeof__(&self) -> usize {
         core::mem::size_of::<Self>() + self.inner.sizeof()
@@ -1150,6 +1155,11 @@ impl PyFrozenSet {
 
     pub fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
+    }
+
+    #[pymethod(name = "__contains__", coexist)]
+    fn contains_method(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.__contains__(&needle, vm)
     }
 
     #[pymethod]

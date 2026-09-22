@@ -3,7 +3,7 @@ use crate::{
     builtins::{
         PyType,
         builtin_func::{PyNativeFunction, PyNativeMethod},
-        descriptor::PyMethodDescriptor,
+        descriptor::{PyClassMethodDescriptor, PyMethodDescriptor},
     },
     class::PyClassDef,
     function::{IntoPyNativeFn, PyNativeFn},
@@ -202,12 +202,9 @@ impl PyMethodDef {
         &'static self,
         ctx: &Context,
         class: &'static Py<PyType>,
-    ) -> PyRef<PyMethodDescriptor> {
-        PyRef::new_ref(
-            self.to_method(class, ctx),
-            ctx.types.method_descriptor_type.to_owned(),
-            None,
-        )
+    ) -> PyRef<PyClassMethodDescriptor> {
+        debug_assert!(self.flags.contains(PyMethodFlags::CLASS));
+        PyClassMethodDescriptor::new(self, class, ctx).into_ref(ctx)
     }
 
     pub fn build_staticmethod(

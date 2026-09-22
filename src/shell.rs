@@ -45,6 +45,7 @@ fn shell_exec(
             let _ = vm.register_code_in_linecache(&code, source);
             if empty_line_given || !continuing_block {
                 // We want to execute the full code
+                let _ = vm.register_code_in_linecache(&code, source);
                 match vm.run_code_obj(code, scope) {
                     Ok(_val) => ShellExecResult::Ok,
                     Err(err) => ShellExecResult::PyErr(err),

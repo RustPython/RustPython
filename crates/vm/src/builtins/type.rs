@@ -881,6 +881,16 @@ impl PyType {
         PyTypeFlags::from_bits_truncate(self.abc_tpflags.load(Ordering::Acquire)).contains(flag)
     }
 
+    pub fn set_is_abstract(&self, is_abstract: bool) {
+        const MASK: u64 = PyTypeFlags::IS_ABSTRACT.bits();
+        let _ = self
+            .abc_tpflags
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+                Some(if is_abstract { old | MASK } else { old & !MASK })
+            });
+        self.modified();
+    }
+
     pub fn set_abc_collection_flags_recursive(&self, flags: PyTypeFlags) {
         const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
             PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
@@ -1892,8 +1902,46 @@ impl PyType {
     }
 
     #[pygetset]
-    const fn __flags__(&self) -> u64 {
+    fn __flags__(&self) -> u64 {
         self.slots.flags.bits()
+            | (self.abc_tpflags.load(Ordering::Acquire) & PyTypeFlags::IS_ABSTRACT.bits())
+    }
+
+    #[pygetset]
+    fn __abstractmethods__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        if zelf.is(vm.ctx.types.type_type) {
+            return Err(vm.new_attribute_error("__abstractmethods__"));
+        }
+        zelf.get_direct_attr(identifier!(vm, __abstractmethods__))
+            .ok_or_else(|| vm.new_attribute_error("__abstractmethods__"))
+    }
+
+    #[pygetset(setter)]
+    fn set___abstractmethods__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let key = identifier!(vm, __abstractmethods__);
+        let is_abstract = match &value {
+            PySetterValue::Assign(val) => val.try_to_bool(vm)?,
+            PySetterValue::Delete => false,
+        };
+        match value {
+            PySetterValue::Assign(val) => {
+                let _prev = Self::with_type_lock(vm, || {
+                    self.modified_inner();
+                    self.attributes.insert(key, val)
+                });
+            }
+            PySetterValue::Delete => {
+                let removed = Self::with_type_lock(vm, || {
+                    self.modified_inner();
+                    self.attributes.remove(key)
+                });
+                if removed.is_none() {
+                    return Err(vm.new_attribute_error("__abstractmethods__"));
+                }
+            }
+        }
+        self.set_is_abstract(is_abstract);
+        Ok(())
     }
 
     #[pygetset]
@@ -2295,11 +2343,22 @@ impl PyType {
     }
 
     #[pygetset]
-    fn __text_signature__(&self) -> Option<String> {
-        self.slots
-            .doc
-            .and_then(|doc| get_text_signature_from_internal_doc(&self.name(), doc))
-            .map(|signature| signature.to_string())
+    fn __text_signature__(&self, vm: &VirtualMachine) -> Option<String> {
+        let name = self.name();
+        if let Some(doc) = self.slots.doc
+            && let Some(signature) = get_text_signature_from_internal_doc(&name, doc)
+        {
+            return Some(signature.to_string());
+        }
+        if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+            && let Some(doc_attr) = self.get_direct_attr(identifier!(vm, __doc__))
+            && let Some(doc) = doc_attr.downcast_ref::<PyStr>()
+            && let Some(doc) = doc.to_str()
+            && let Some(signature) = get_text_signature_from_internal_doc(&name, doc)
+        {
+            return Some(signature.to_string());
+        }
+        None
     }
 
     #[pygetset]

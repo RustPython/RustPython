@@ -12,7 +12,12 @@ use crate::{
     types::{Callable, Constructor, GetDescriptor, Initializer, Representable},
 };
 
-#[pyclass(module = false, name = "staticmethod", traverse)]
+#[pyclass(
+    module = false,
+    name = "staticmethod",
+    text_signature = "(function, /)",
+    traverse
+)]
 #[derive(Debug)]
 pub struct PyStaticMethod {
     pub callable: PyMutex<PyObjectRef>,
