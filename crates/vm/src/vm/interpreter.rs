@@ -1733,6 +1733,84 @@ for _ in range(40):
         worker.join().expect("worker panicked");
     }
 
+    /// `STOP_BIT` is process-wide and `start_the_world` in any interpreter
+    /// clears it. A worker must still park from its own `stop_requested`.
+    #[cfg(all(feature = "threading", feature = "rustpython-compiler"))]
+    #[test]
+    fn stop_the_world_parks_when_global_stop_bit_is_cleared() {
+        use crate::compiler::Mode;
+        use alloc::sync::Arc;
+        use core::{
+            sync::atomic::{AtomicBool, AtomicU64, Ordering},
+            time::Duration,
+        };
+
+        let main = Interpreter::without_stdlib(Default::default());
+        let sub = main.create_subinterpreter();
+        let sub_state = sub.enter(|vm| vm.state.clone());
+
+        let progress = Arc::new(AtomicU64::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let flip = Arc::new(AtomicBool::new(true));
+
+        let progress_worker = Arc::clone(&progress);
+        let stop_worker = Arc::clone(&stop);
+        let worker = sub.enter(|vm| {
+            let thread_vm = vm.new_thread();
+            std::thread::spawn(move || {
+                thread_vm.run(|vm| {
+                    let source = "x = 1 + 1\n";
+                    let code = vm
+                        .compile(source, Mode::Exec, "<spin>")
+                        .map_err(|err| err.into_pyexception(vm, Some(source)))
+                        .unwrap();
+                    while !stop_worker.load(Ordering::Acquire) {
+                        let scope = vm.new_scope_with_builtins();
+                        vm.run_code_obj(code.clone(), scope).unwrap();
+                        progress_worker.fetch_add(1, Ordering::Release);
+                    }
+                });
+            })
+        });
+
+        while progress.load(Ordering::Acquire) == 0 {
+            std::thread::yield_now();
+        }
+
+        let flip_flag = Arc::clone(&flip);
+        let flicker = std::thread::spawn(move || {
+            while flip_flag.load(Ordering::Acquire) {
+                crate::signal::set_stop_bit();
+                crate::signal::clear_stop_bit();
+            }
+        });
+
+        main.enter(|_vm| {
+            sub_state.stop_the_world.stop_the_world(&sub_state);
+
+            let parked_at = progress.load(Ordering::Acquire);
+            std::thread::sleep(Duration::from_millis(50));
+            assert_eq!(
+                progress.load(Ordering::Acquire),
+                parked_at,
+                "subinterpreter thread kept running after STOP_BIT was cleared"
+            );
+
+            sub_state.stop_the_world.start_the_world(&sub_state);
+        });
+
+        flip.store(false, Ordering::Release);
+        flicker.join().expect("stop-bit flicker panicked");
+
+        let resumed_from = progress.load(Ordering::Acquire);
+        while progress.load(Ordering::Acquire) == resumed_from {
+            std::thread::yield_now();
+        }
+
+        stop.store(true, Ordering::Release);
+        worker.join().expect("worker panicked");
+    }
+
     /// Entering a subinterpreter from inside the parent's `enter` must attach
     /// the subinterpreter's thread slot (and detach the parent's). Otherwise the
     /// thread runs the sub's bytecode with a DETACHED slot, and a collector

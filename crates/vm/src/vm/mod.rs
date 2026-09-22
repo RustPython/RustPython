@@ -567,11 +567,9 @@ impl StopTheWorldState {
         drop(registry);
         self.thread_countdown.store(0, Ordering::Release);
         self.requester.store(0, Ordering::Relaxed);
-        // Every non-requester thread's `stop_requested` was just cleared
-        // above, so the shared fast-path bit can be cleared too. Safe here
-        // (and only here / `reset_after_fork`) because both run under the
-        // single stop-the-world exclusion, released below, so no new
-        // requester can be setting the bit concurrently.
+        // Drop the process-wide stop hint. Another interpreter may still
+        // have `stop_requested` threads; those keep parking via the
+        // per-thread check in `eval_breaker_tripped`.
         crate::signal::clear_stop_bit();
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_detached(state);
@@ -3500,20 +3498,20 @@ impl VirtualMachine {
         self.get_method(obj, method_name)
     }
 
-    /// Single relaxed load of the shared eval-breaker word, folding in every
-    /// condition that used to require its own check: pending signals, QSBR
-    /// reclamation, scheduled GC, and (under `threading`) finalization and
-    /// stop-the-world. Finalizing sets `FINALIZING_BIT` and any per-thread
-    /// `stop_requested` store also sets `STOP_BIT` (see signal.rs), so this
-    /// no longer needs to read `state.finalizing` or the
-    /// `CURRENT_STOP_REQUESTED` thread-local itself — both are folded into
-    /// the same atomic word `eval_breaker_pending` already loads for
-    /// signals/QSBR/GC. The slow path (`check_signals`) re-derives the exact
-    /// per-thread answer (this thread's own `stop_requested`, `finalizing` +
-    /// `is_main_thread`) once it is taken, so semantics are unchanged; only
-    /// the common (nothing pending) case gets cheaper.
+    /// Fast path for the bytecode loop: pending signals, QSBR, scheduled GC,
+    /// finalization, and stop-the-world.
+    ///
+    /// `STOP_BIT` is a process-wide hint set when any interpreter asks a
+    /// thread to park. Each interpreter's `start_the_world` clears that hint,
+    /// even if another interpreter still has `stop_requested` threads, so the
+    /// per-thread flag is checked first. Missing it lets a worker skip
+    /// `check_signals` and never park, so `stop_the_world` waits forever.
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
+        #[cfg(feature = "threading")]
+        if thread::stop_requested_for_current_thread() {
+            return true;
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
             crate::signal::eval_breaker_pending()
