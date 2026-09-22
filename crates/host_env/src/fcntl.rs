@@ -7,6 +7,17 @@ use crate::os::CheckLibcResult;
 
 pub use libc::{F_GETFD, F_GETFL, F_SETFD, F_SETFL, FD_CLOEXEC};
 
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::{F_LOCK, F_TEST, F_TLOCK, F_ULOCK};
+
 #[cfg(not(target_os = "wasi"))]
 pub use libc::{F_DUPFD, F_DUPFD_CLOEXEC, F_GETLK, F_SETLK, F_SETLKW};
 

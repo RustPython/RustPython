@@ -466,7 +466,7 @@ pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut CFile> 
 
         // Convert File handle to CRT file descriptor
         let handle = file.into_raw_handle();
-        let fd = unsafe { libc::open_osfhandle(handle as isize, libc::O_RDONLY) };
+        let fd = unsafe { libc::open_osfhandle(handle as isize, crate::os::O_RDONLY) };
         if fd == -1 {
             return Err(std::io::Error::last_os_error());
         }

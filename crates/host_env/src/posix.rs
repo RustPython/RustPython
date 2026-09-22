@@ -33,6 +33,145 @@ pub const EX_PROTOCOL: i32 = 76;
 pub const EX_NOPERM: i32 = 77;
 pub const EX_CONFIG: i32 = 78;
 
+/// Remaining `posix` integer names the VM still took from `libc`.
+#[cfg(any(target_os = "android", target_os = "redox", unix))]
+pub use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+
+#[cfg(target_os = "macos")]
+pub use libc::{
+    COPYFILE_ACL, COPYFILE_DATA, COPYFILE_STAT, COPYFILE_XATTR, PRIO_DARWIN_BG, PRIO_DARWIN_NONUI,
+    PRIO_DARWIN_PROCESS, PRIO_DARWIN_THREAD, TMP_MAX,
+};
+
+#[cfg(target_os = "linux")]
+pub use libc::PIDFD_NONBLOCK;
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub use libc::{
+    CLONE_FILES, CLONE_FS, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID,
+    CLONE_NEWUSER, CLONE_NEWUTS, CLONE_SIGHAND, CLONE_SYSVSEM, CLONE_THREAD, CLONE_VM,
+    MFD_HUGE_SHIFT, P_PIDFD, SCHED_BATCH, SCHED_DEADLINE, SCHED_IDLE, SCHED_NORMAL,
+    SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE, SPLICE_F_NONBLOCK,
+};
+
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "netbsd"))]
+pub use libc::{XATTR_CREATE, XATTR_REPLACE};
+
+#[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
+pub use libc::{
+    MFD_ALLOW_SEALING, MFD_CLOEXEC, MFD_HUGE_MASK, MFD_HUGETLB, POSIX_FADV_DONTNEED,
+    POSIX_FADV_NOREUSE, POSIX_FADV_NORMAL, POSIX_FADV_RANDOM, POSIX_FADV_SEQUENTIAL,
+    POSIX_FADV_WILLNEED,
+};
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "redox", unix))]
+pub use libc::{RTLD_LAZY, RTLD_NOW, WNOHANG};
+
+#[cfg(any(target_os = "android", target_os = "macos", target_os = "redox", unix))]
+pub use libc::RTLD_GLOBAL;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
+pub use libc::{
+    EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, TFD_CLOEXEC, TFD_NONBLOCK, TFD_TIMER_ABSTIME,
+    TFD_TIMER_CANCEL_ON_SET,
+};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
+pub use libc::{GRND_NONBLOCK, GRND_RANDOM};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd"
+))]
+pub use libc::SCHED_OTHER;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos"
+))]
+pub use libc::{RTLD_NODELETE, SEEK_DATA, SEEK_HOLE};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox",
+    unix
+))]
+pub use libc::RTLD_LOCAL;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "redox",
+    unix
+))]
+pub use libc::WUNTRACED;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd"
+))]
+pub use libc::{
+    CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, P_ALL, P_PGID,
+    P_PID, SCHED_FIFO, SCHED_RR,
+};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::{RTLD_NOLOAD, WEXITED, WNOWAIT, WSTOPPED};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox",
+    unix
+))]
+pub use libc::WCONTINUED;
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub use libc::RTLD_DEEPBIND;
+
+#[cfg(unix)]
+pub use libc::{UTIME_NOW, UTIME_OMIT};
+
+#[cfg(target_os = "freebsd")]
+pub use libc::{SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
+
 pub struct UnameInfo {
     pub sysname: String,
     pub nodename: String,

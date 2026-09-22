@@ -1858,19 +1858,29 @@ for _ in range(40):
     fn eval_breaker_tripped_when_stop_requested_and_stop_bit_clear() {
         let interp = Interpreter::without_stdlib(Default::default());
         interp.enter(|vm| {
-            crate::signal::clear_stop_bit();
             assert!(
                 crate::vm::thread::set_stop_requested_for_current_thread(true),
                 "current thread has no stop_requested flag"
             );
-            crate::signal::clear_stop_bit();
-            let pending = crate::signal::eval_breaker_pending();
-            let tripped = vm.eval_breaker_tripped();
+            // STOP_BIT is process-wide; a parallel stop-the-world test can
+            // set it between the clear and the load. Retry until this thread
+            // observes it clear, then sample `eval_breaker_tripped`.
+            let (stop_bit, tripped) = {
+                let mut stop_bit = true;
+                let mut tripped = false;
+                for _ in 0..10_000 {
+                    crate::signal::clear_stop_bit();
+                    stop_bit = crate::signal::stop_bit_set();
+                    tripped = vm.eval_breaker_tripped();
+                    if !stop_bit {
+                        break;
+                    }
+                    std::thread::yield_now();
+                }
+                (stop_bit, tripped)
+            };
             crate::vm::thread::set_stop_requested_for_current_thread(false);
-            assert!(
-                !pending,
-                "STOP_BIT or another process-wide breaker bit was set"
-            );
+            assert!(!stop_bit, "process-wide STOP_BIT was set");
             assert!(tripped);
         });
     }

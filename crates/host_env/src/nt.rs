@@ -1369,7 +1369,7 @@ pub fn pipe() -> io::Result<(i32, i32)> {
 
     let write_fd = match crate::msvcrt::open_osfhandle(
         write_handle.as_raw_handle() as isize,
-        libc::O_WRONLY | O_NOINHERIT,
+        crate::os::O_WRONLY | O_NOINHERIT,
     ) {
         Ok(fd) => {
             let _ = write_handle.into_raw_handle();
@@ -2370,9 +2370,9 @@ pub fn open_console_path_fd(path: &widestring::WideCStr, writable: bool) -> io::
     }
 
     let osf_flags = if writable {
-        libc::O_WRONLY | libc::O_BINARY | 0x80
+        crate::os::O_WRONLY | crate::os::O_BINARY | 0x80
     } else {
-        libc::O_RDONLY | libc::O_BINARY | 0x80
+        crate::os::O_RDONLY | crate::os::O_BINARY | 0x80
     };
     match crate::msvcrt::open_osfhandle(handle as isize, osf_flags) {
         Ok(fd) => Ok(fd),
