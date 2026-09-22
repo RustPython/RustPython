@@ -250,11 +250,7 @@ pub(super) mod _os {
     // ST_RDONLY and ST_NOSUID flags for statvfs
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyattr]
-    const ST_RDONLY: libc::c_ulong = libc::ST_RDONLY;
-
-    #[cfg(all(unix, not(target_os = "redox")))]
-    #[pyattr]
-    const ST_NOSUID: libc::c_ulong = libc::ST_NOSUID;
+    use crate::host_env::os::{ST_NOSUID, ST_RDONLY};
 
     #[pyfunction]
     fn close(fd: crt_fd::Owned) -> io::Result<()> {

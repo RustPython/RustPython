@@ -48,11 +48,11 @@ pub mod module {
 
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use libc::PIDFD_NONBLOCK;
+    use rustpython_host_env::posix::PIDFD_NONBLOCK;
 
     #[cfg(target_os = "macos")]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::posix::{
         COPYFILE_DATA as _COPYFILE_DATA, PRIO_DARWIN_BG, PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS,
         PRIO_DARWIN_THREAD,
     };
@@ -63,11 +63,11 @@ pub mod module {
 
     #[cfg(target_os = "freebsd")]
     #[pyattr]
-    use libc::{SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
+    use rustpython_host_env::posix::{SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::posix::{
         CLONE_FILES, CLONE_FS, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS,
         CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS, CLONE_SIGHAND, CLONE_SYSVSEM, CLONE_THREAD,
         CLONE_VM, MFD_HUGE_SHIFT, P_PIDFD, SCHED_BATCH, SCHED_DEADLINE, SCHED_IDLE, SCHED_NORMAL,
@@ -84,7 +84,7 @@ pub mod module {
 
     #[cfg(any(target_os = "android", target_os = "redox", unix))]
     #[pyattr]
-    use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+    use rustpython_host_env::posix::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
 
     #[cfg(any(target_os = "android", target_os = "redox", unix))]
     #[pyattr]
@@ -92,7 +92,7 @@ pub mod module {
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "netbsd"))]
     #[pyattr]
-    use libc::{XATTR_CREATE, XATTR_REPLACE};
+    use rustpython_host_env::posix::{XATTR_CREATE, XATTR_REPLACE};
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "netbsd"))]
     #[pyattr]
@@ -100,7 +100,7 @@ pub mod module {
 
     #[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::posix::{
         MFD_ALLOW_SEALING, MFD_CLOEXEC, MFD_HUGE_MASK, MFD_HUGETLB, POSIX_FADV_DONTNEED,
         POSIX_FADV_NOREUSE, POSIX_FADV_NORMAL, POSIX_FADV_RANDOM, POSIX_FADV_SEQUENTIAL,
         POSIX_FADV_WILLNEED,
@@ -108,11 +108,11 @@ pub mod module {
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "redox", unix))]
     #[pyattr]
-    use libc::{RTLD_LAZY, RTLD_NOW, WNOHANG};
+    use rustpython_host_env::posix::{RTLD_LAZY, RTLD_NOW, WNOHANG};
 
     #[cfg(any(target_os = "android", target_os = "macos", target_os = "redox", unix))]
     #[pyattr]
-    use libc::RTLD_GLOBAL;
+    use rustpython_host_env::posix::RTLD_GLOBAL;
 
     #[cfg(any(
         target_os = "android",
@@ -130,7 +130,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::posix::{
         EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, TFD_CLOEXEC, TFD_NONBLOCK, TFD_TIMER_ABSTIME,
         TFD_TIMER_CANCEL_ON_SET,
     };
@@ -142,7 +142,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::{GRND_NONBLOCK, GRND_RANDOM};
+    use rustpython_host_env::posix::{GRND_NONBLOCK, GRND_RANDOM};
 
     #[cfg(any(
         target_os = "android",
@@ -182,7 +182,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::SCHED_OTHER;
+    use rustpython_host_env::posix::SCHED_OTHER;
 
     #[cfg(any(
         target_os = "android",
@@ -192,7 +192,7 @@ pub mod module {
         target_os = "macos"
     ))]
     #[pyattr]
-    use libc::{RTLD_NODELETE, SEEK_DATA, SEEK_HOLE};
+    use rustpython_host_env::posix::{RTLD_NODELETE, SEEK_DATA, SEEK_HOLE};
 
     #[cfg(any(
         target_os = "android",
@@ -223,7 +223,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::RTLD_LOCAL;
+    use rustpython_host_env::posix::RTLD_LOCAL;
 
     #[cfg(any(
         target_os = "android",
@@ -234,7 +234,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::WUNTRACED;
+    use rustpython_host_env::posix::WUNTRACED;
 
     #[cfg(any(
         target_os = "android",
@@ -245,7 +245,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::posix::{
         CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, P_ALL, P_PGID,
         P_PID, SCHED_FIFO, SCHED_RR,
     };
@@ -283,7 +283,18 @@ pub mod module {
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::{F_LOCK, F_TEST, F_TLOCK, F_ULOCK, RTLD_NOLOAD, WEXITED, WNOWAIT, WSTOPPED};
+    use rustpython_host_env::fcntl::{F_LOCK, F_TEST, F_TLOCK, F_ULOCK};
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use rustpython_host_env::posix::{RTLD_NOLOAD, WEXITED, WNOWAIT, WSTOPPED};
 
     #[cfg(any(
         target_os = "android",
@@ -308,7 +319,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::WCONTINUED;
+    use rustpython_host_env::posix::WCONTINUED;
 
     #[cfg(any(
         target_os = "android",
