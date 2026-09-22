@@ -76,9 +76,6 @@ unsafe impl RawRwLock for RawCellRwLock {
     #[inline]
     fn lock_shared(&self) {
         if !self.try_lock_shared() {
-            if self.is_exclusive() {
-                panic!("deadlock: tried to lock a CellRwLock shared while exclusive lock is held")
-            }
             deadlock("sharedly ", "RwLock")
         }
     }
