@@ -478,6 +478,7 @@ fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
 
 /// The current thread's `ThreadSlot` for the entered interpreter, if any.
 #[cfg(feature = "threading")]
+#[must_use]
 pub fn current_thread_slot() -> Option<CurrentFrameSlot> {
     CURRENT_THREAD_SLOT.with(|slot| slot.borrow().clone())
 }

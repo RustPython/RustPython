@@ -24,8 +24,9 @@ use crate::{
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
-        AsNumber, Callable, Constructor, GetAttr, Initializer, PyTypeFlags, PyTypeSlots,
-        Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
+        AsNumber, Callable, Constructor, GetAttr, Initializer, NewFunc, PyTypeFlags, PyTypeSlots,
+        Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot, fn_addr,
+        new_wrapper,
     },
 };
 use core::{
@@ -1925,22 +1926,26 @@ impl PyType {
         };
         match value {
             PySetterValue::Assign(val) => {
-                let _prev = Self::with_type_lock(vm, || {
+                Self::with_type_lock(vm, || {
                     self.modified_inner();
-                    self.attributes.insert(key, val)
+                    let _prev = self.attributes.insert(key, val);
+                    self.set_is_abstract(is_abstract);
                 });
             }
             PySetterValue::Delete => {
                 let removed = Self::with_type_lock(vm, || {
                     self.modified_inner();
-                    self.attributes.remove(key)
+                    let removed = self.attributes.remove(key);
+                    if removed.is_some() {
+                        self.set_is_abstract(false);
+                    }
+                    removed
                 });
                 if removed.is_none() {
                     return Err(vm.new_attribute_error("__abstractmethods__"));
                 }
             }
         }
-        self.set_is_abstract(is_abstract);
         Ok(())
     }
 
@@ -3431,24 +3436,25 @@ pub(crate) fn call_slot_new(
         return Err(vm.new_type_error(format!("cannot create '{}' instances", subtype.slot_name())));
     }
 
-    // "is not safe" check (tp_new_wrapper logic)
-    // Check that the user doesn't do something silly and unsafe like
-    // object.__new__(dict). To do this, we check that the most derived base
-    // that's not a heap type is this type.
+    // "is not safe" check (tp_new_wrapper). Walk past bases whose tp_new is
+    // new_wrapper so a Python subclass of a native heap type still reaches
+    // that type's tp_new; reject object.__new__(dict) and similar.
     let mut staticbase = subtype.clone();
-    while staticbase.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-        if let Some(base) = staticbase.base.to_owned() {
-            staticbase = base;
-        } else {
-            break;
+    while staticbase
+        .slots
+        .new
+        .load()
+        .is_some_and(|f| fn_addr(f) == fn_addr(new_wrapper as NewFunc))
+    {
+        match staticbase.base.to_owned() {
+            Some(base) => staticbase = base,
+            None => break,
         }
     }
 
-    // Check if staticbase's tp_new differs from typ's tp_new
     let typ_new = typ.slots.new.load();
     let staticbase_new = staticbase.slots.new.load();
-    if typ_new.map(|f| crate::types::fn_addr(f)) != staticbase_new.map(|f| crate::types::fn_addr(f))
-    {
+    if typ_new.map(fn_addr) != staticbase_new.map(fn_addr) {
         return Err(vm.new_type_error(format!(
             "{}.__new__({}) is not safe, use {}.__new__()",
             typ.slot_name(),

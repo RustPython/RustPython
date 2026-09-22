@@ -269,13 +269,17 @@ impl GetDescriptor for PyClassMethodDescriptor {
 
 impl Callable for PyClassMethodDescriptor {
     type Args = FuncArgs;
-    #[inline]
-    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        (zelf.method.func)(
-            vm,
-            args,
-            Callee::named(zelf.method.name).with_instance_arg(true),
-        )
+    fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let Some(owner) = args.args.first().cloned() else {
+            return Err(vm.new_type_error(format!(
+                "descriptor '{}' of '{}' object needs an argument",
+                zelf.method.name,
+                zelf.common.typ.name()
+            )));
+        };
+        let bound = Self::descr_get(zelf.to_owned().into(), None, Some(owner), vm)?;
+        args.args.remove(0);
+        bound.call(args, vm)
     }
 }
 

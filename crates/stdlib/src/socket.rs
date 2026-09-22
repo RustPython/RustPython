@@ -665,76 +665,92 @@ mod _socket {
 
     #[cfg(any(
         target_os = "android",
-        target_os = "freebsd",
         target_os = "fuchsia",
         target_os = "linux",
         target_os = "openbsd"
     ))]
     #[pyattr]
     const BTPROTO_L2CAP: i32 = 0;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_L2CAP: i32 = 135;
     #[cfg(any(
         target_os = "android",
-        target_os = "freebsd",
         target_os = "fuchsia",
         target_os = "linux",
         target_os = "openbsd"
     ))]
     #[pyattr]
     const BTPROTO_HCI: i32 = 1;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_HCI: i32 = 134;
     #[cfg(any(
         target_os = "android",
-        target_os = "freebsd",
         target_os = "fuchsia",
         target_os = "linux",
         target_os = "openbsd"
     ))]
     #[pyattr]
     const BTPROTO_SCO: i32 = 2;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_SCO: i32 = 137;
     #[cfg(any(
         target_os = "android",
-        target_os = "freebsd",
         target_os = "fuchsia",
         target_os = "linux",
         target_os = "openbsd"
     ))]
     #[pyattr]
     const BTPROTO_RFCOMM: i32 = 3;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_RFCOMM: i32 = 136;
     #[cfg(any(
         target_os = "android",
-        target_os = "freebsd",
         target_os = "fuchsia",
         target_os = "linux",
         target_os = "openbsd"
     ))]
     #[pyattr]
     const SOL_HCI: i32 = 0;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_HCI: i32 = 0x0802;
     #[cfg(any(
         target_os = "android",
-        target_os = "freebsd",
         target_os = "fuchsia",
         target_os = "linux",
         target_os = "openbsd"
     ))]
     #[pyattr]
     const SOL_L2CAP: i32 = 6;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_L2CAP: i32 = 0x1609;
     #[cfg(any(
         target_os = "android",
-        target_os = "freebsd",
         target_os = "fuchsia",
         target_os = "linux",
         target_os = "openbsd"
     ))]
     #[pyattr]
     const SOL_SCO: i32 = 17;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_SCO: i32 = 0x0209;
     #[cfg(any(
         target_os = "android",
-        target_os = "freebsd",
         target_os = "fuchsia",
         target_os = "linux",
         target_os = "openbsd"
     ))]
     #[pyattr]
     const SOL_RFCOMM: i32 = 18;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_RFCOMM: i32 = 0x0816;
     // HERE IS WHERE THE BLUETOOTH CONSTANTS END
 
     #[cfg(windows)]

@@ -1307,6 +1307,10 @@ pub mod sys {
         #[cfg(feature = "threading")]
         {
             let registry = vm.state.thread_frames.lock();
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "every thread slot, order is irrelevant"
+            )]
             for slot in registry.values() {
                 *slot.trace_func.lock() = function.clone();
             }
@@ -1322,6 +1326,10 @@ pub mod sys {
         #[cfg(feature = "threading")]
         {
             let registry = vm.state.thread_frames.lock();
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "every thread slot, order is irrelevant"
+            )]
             for slot in registry.values() {
                 *slot.profile_func.lock() = function.clone();
             }
