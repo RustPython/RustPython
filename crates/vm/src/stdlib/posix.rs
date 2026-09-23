@@ -39,6 +39,7 @@ pub mod module {
     use alloc::ffi::CString;
     use core::ffi::CStr;
     use rustpython_host_env::os::ffi::OsStringExt;
+    use rustpython_host_env::posix as host_posix;
     use std::{
         fs, io,
         os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
@@ -2149,26 +2150,26 @@ pub mod module {
         ))]
         /// Minimum number of bits needed to represent, as a signed integer value,
         /// the maximum size of a regular file allowed in the specified directory.
-        PC_FILESIZEBITS = libc::_PC_FILESIZEBITS,
+        PC_FILESIZEBITS = host_posix::_PC_FILESIZEBITS,
         /// Maximum number of links to a single file.
-        PC_LINK_MAX = libc::_PC_LINK_MAX,
+        PC_LINK_MAX = host_posix::_PC_LINK_MAX,
         /// Maximum number of bytes in a terminal canonical input line.
-        PC_MAX_CANON = libc::_PC_MAX_CANON,
+        PC_MAX_CANON = host_posix::_PC_MAX_CANON,
         /// Minimum number of bytes for which space is available in a terminal input
         /// queue; therefore, the maximum number of bytes a conforming application
         /// may require to be typed as input before reading them.
-        PC_MAX_INPUT = libc::_PC_MAX_INPUT,
+        PC_MAX_INPUT = host_posix::_PC_MAX_INPUT,
         /// Maximum number of bytes in a filename (not including the terminating
         /// null of a filename string).
-        PC_NAME_MAX = libc::_PC_NAME_MAX,
+        PC_NAME_MAX = host_posix::_PC_NAME_MAX,
         /// Maximum number of bytes the implementation will store as a pathname in a
         /// user-supplied buffer of unspecified size, including the terminating null
         /// character. Minimum number the implementation will accept as the maximum
         /// number of bytes in a pathname.
-        PC_PATH_MAX = libc::_PC_PATH_MAX,
+        PC_PATH_MAX = host_posix::_PC_PATH_MAX,
         /// Maximum number of bytes that is guaranteed to be atomic when writing to
         /// a pipe.
-        PC_PIPE_BUF = libc::_PC_PIPE_BUF,
+        PC_PIPE_BUF = host_posix::_PC_PIPE_BUF,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2180,7 +2181,7 @@ pub mod module {
             target_os = "solaris"
         ))]
         /// Symbolic links can be created.
-        PC_2_SYMLINKS = libc::_PC_2_SYMLINKS,
+        PC_2_SYMLINKS = host_posix::_PC_2_SYMLINKS,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2191,7 +2192,7 @@ pub mod module {
         ))]
         /// Minimum number of bytes of storage actually allocated for any portion of
         /// a file.
-        PC_ALLOC_SIZE_MIN = libc::_PC_ALLOC_SIZE_MIN,
+        PC_ALLOC_SIZE_MIN = host_posix::_PC_ALLOC_SIZE_MIN,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2201,7 +2202,7 @@ pub mod module {
         ))]
         /// Recommended increment for file transfer sizes between the
         /// `POSIX_REC_MIN_XFER_SIZE` and `POSIX_REC_MAX_XFER_SIZE` values.
-        PC_REC_INCR_XFER_SIZE = libc::_PC_REC_INCR_XFER_SIZE,
+        PC_REC_INCR_XFER_SIZE = host_posix::_PC_REC_INCR_XFER_SIZE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2211,7 +2212,7 @@ pub mod module {
             target_os = "redox"
         ))]
         /// Maximum recommended file transfer size.
-        PC_REC_MAX_XFER_SIZE = libc::_PC_REC_MAX_XFER_SIZE,
+        PC_REC_MAX_XFER_SIZE = host_posix::_PC_REC_MAX_XFER_SIZE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2221,7 +2222,7 @@ pub mod module {
             target_os = "redox"
         ))]
         /// Minimum recommended file transfer size.
-        PC_REC_MIN_XFER_SIZE = libc::_PC_REC_MIN_XFER_SIZE,
+        PC_REC_MIN_XFER_SIZE = host_posix::_PC_REC_MIN_XFER_SIZE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2231,7 +2232,7 @@ pub mod module {
             target_os = "redox"
         ))]
         ///  Recommended file transfer buffer alignment.
-        PC_REC_XFER_ALIGN = libc::_PC_REC_XFER_ALIGN,
+        PC_REC_XFER_ALIGN = host_posix::_PC_REC_XFER_ALIGN,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2244,17 +2245,17 @@ pub mod module {
             target_os = "solaris"
         ))]
         /// Maximum number of bytes in a symbolic link.
-        PC_SYMLINK_MAX = libc::_PC_SYMLINK_MAX,
+        PC_SYMLINK_MAX = host_posix::_PC_SYMLINK_MAX,
         /// The use of `chown` and `fchown` is restricted to a process with
         /// appropriate privileges, and to changing the group ID of a file only to
         /// the effective group ID of the process or to one of its supplementary
         /// group IDs.
-        PC_CHOWN_RESTRICTED = libc::_PC_CHOWN_RESTRICTED,
+        PC_CHOWN_RESTRICTED = host_posix::_PC_CHOWN_RESTRICTED,
         /// Pathname components longer than {NAME_MAX} generate an error.
-        PC_NO_TRUNC = libc::_PC_NO_TRUNC,
+        PC_NO_TRUNC = host_posix::_PC_NO_TRUNC,
         /// This symbol shall be defined to be the value of a character that shall
         /// disable terminal special character handling.
-        PC_VDISABLE = libc::_PC_VDISABLE,
+        PC_VDISABLE = host_posix::_PC_VDISABLE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2267,7 +2268,7 @@ pub mod module {
         ))]
         /// Asynchronous input or output operations may be performed for the
         /// associated file.
-        PC_ASYNC_IO = libc::_PC_ASYNC_IO,
+        PC_ASYNC_IO = host_posix::_PC_ASYNC_IO,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2280,7 +2281,7 @@ pub mod module {
         ))]
         /// Prioritized input or output operations may be performed for the
         /// associated file.
-        PC_PRIO_IO = libc::_PC_PRIO_IO,
+        PC_PRIO_IO = host_posix::_PC_PRIO_IO,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2294,10 +2295,10 @@ pub mod module {
         ))]
         /// Synchronized input or output operations may be performed for the
         /// associated file.
-        PC_SYNC_IO = libc::_PC_SYNC_IO,
+        PC_SYNC_IO = host_posix::_PC_SYNC_IO,
         #[cfg(any(target_os = "dragonfly", target_os = "openbsd"))]
         /// The resolution in nanoseconds for all file timestamps.
-        PC_TIMESTAMP_RESOLUTION = libc::_PC_TIMESTAMP_RESOLUTION,
+        PC_TIMESTAMP_RESOLUTION = host_posix::_PC_TIMESTAMP_RESOLUTION,
     }
 
     #[cfg(unix)]
@@ -2347,124 +2348,124 @@ pub mod module {
     #[repr(i32)]
     #[allow(non_camel_case_types)]
     pub enum SysconfVar {
-        SC_2_CHAR_TERM = libc::_SC_2_CHAR_TERM,
-        SC_2_C_BIND = libc::_SC_2_C_BIND,
-        SC_2_C_DEV = libc::_SC_2_C_DEV,
-        SC_2_FORT_DEV = libc::_SC_2_FORT_DEV,
-        SC_2_FORT_RUN = libc::_SC_2_FORT_RUN,
-        SC_2_LOCALEDEF = libc::_SC_2_LOCALEDEF,
-        SC_2_SW_DEV = libc::_SC_2_SW_DEV,
-        SC_2_UPE = libc::_SC_2_UPE,
-        SC_2_VERSION = libc::_SC_2_VERSION,
-        SC_AIO_LISTIO_MAX = libc::_SC_AIO_LISTIO_MAX,
-        SC_AIO_MAX = libc::_SC_AIO_MAX,
-        SC_AIO_PRIO_DELTA_MAX = libc::_SC_AIO_PRIO_DELTA_MAX,
-        SC_ARG_MAX = libc::_SC_ARG_MAX,
-        SC_ASYNCHRONOUS_IO = libc::_SC_ASYNCHRONOUS_IO,
-        SC_ATEXIT_MAX = libc::_SC_ATEXIT_MAX,
-        SC_BC_BASE_MAX = libc::_SC_BC_BASE_MAX,
-        SC_BC_DIM_MAX = libc::_SC_BC_DIM_MAX,
-        SC_BC_SCALE_MAX = libc::_SC_BC_SCALE_MAX,
-        SC_BC_STRING_MAX = libc::_SC_BC_STRING_MAX,
-        SC_CHILD_MAX = libc::_SC_CHILD_MAX,
-        SC_CLK_TCK = libc::_SC_CLK_TCK,
-        SC_COLL_WEIGHTS_MAX = libc::_SC_COLL_WEIGHTS_MAX,
-        SC_DELAYTIMER_MAX = libc::_SC_DELAYTIMER_MAX,
-        SC_EXPR_NEST_MAX = libc::_SC_EXPR_NEST_MAX,
-        SC_FSYNC = libc::_SC_FSYNC,
-        SC_GETGR_R_SIZE_MAX = libc::_SC_GETGR_R_SIZE_MAX,
-        SC_GETPW_R_SIZE_MAX = libc::_SC_GETPW_R_SIZE_MAX,
-        SC_IOV_MAX = libc::_SC_IOV_MAX,
-        SC_JOB_CONTROL = libc::_SC_JOB_CONTROL,
-        SC_LINE_MAX = libc::_SC_LINE_MAX,
-        SC_LOGIN_NAME_MAX = libc::_SC_LOGIN_NAME_MAX,
-        SC_MAPPED_FILES = libc::_SC_MAPPED_FILES,
-        SC_MEMLOCK = libc::_SC_MEMLOCK,
-        SC_MEMLOCK_RANGE = libc::_SC_MEMLOCK_RANGE,
-        SC_MEMORY_PROTECTION = libc::_SC_MEMORY_PROTECTION,
-        SC_MESSAGE_PASSING = libc::_SC_MESSAGE_PASSING,
-        SC_MQ_OPEN_MAX = libc::_SC_MQ_OPEN_MAX,
-        SC_MQ_PRIO_MAX = libc::_SC_MQ_PRIO_MAX,
-        SC_NGROUPS_MAX = libc::_SC_NGROUPS_MAX,
-        SC_NPROCESSORS_CONF = libc::_SC_NPROCESSORS_CONF,
-        SC_NPROCESSORS_ONLN = libc::_SC_NPROCESSORS_ONLN,
-        SC_OPEN_MAX = libc::_SC_OPEN_MAX,
-        SC_PAGE_SIZE = libc::_SC_PAGE_SIZE,
+        SC_2_CHAR_TERM = host_posix::_SC_2_CHAR_TERM,
+        SC_2_C_BIND = host_posix::_SC_2_C_BIND,
+        SC_2_C_DEV = host_posix::_SC_2_C_DEV,
+        SC_2_FORT_DEV = host_posix::_SC_2_FORT_DEV,
+        SC_2_FORT_RUN = host_posix::_SC_2_FORT_RUN,
+        SC_2_LOCALEDEF = host_posix::_SC_2_LOCALEDEF,
+        SC_2_SW_DEV = host_posix::_SC_2_SW_DEV,
+        SC_2_UPE = host_posix::_SC_2_UPE,
+        SC_2_VERSION = host_posix::_SC_2_VERSION,
+        SC_AIO_LISTIO_MAX = host_posix::_SC_AIO_LISTIO_MAX,
+        SC_AIO_MAX = host_posix::_SC_AIO_MAX,
+        SC_AIO_PRIO_DELTA_MAX = host_posix::_SC_AIO_PRIO_DELTA_MAX,
+        SC_ARG_MAX = host_posix::_SC_ARG_MAX,
+        SC_ASYNCHRONOUS_IO = host_posix::_SC_ASYNCHRONOUS_IO,
+        SC_ATEXIT_MAX = host_posix::_SC_ATEXIT_MAX,
+        SC_BC_BASE_MAX = host_posix::_SC_BC_BASE_MAX,
+        SC_BC_DIM_MAX = host_posix::_SC_BC_DIM_MAX,
+        SC_BC_SCALE_MAX = host_posix::_SC_BC_SCALE_MAX,
+        SC_BC_STRING_MAX = host_posix::_SC_BC_STRING_MAX,
+        SC_CHILD_MAX = host_posix::_SC_CHILD_MAX,
+        SC_CLK_TCK = host_posix::_SC_CLK_TCK,
+        SC_COLL_WEIGHTS_MAX = host_posix::_SC_COLL_WEIGHTS_MAX,
+        SC_DELAYTIMER_MAX = host_posix::_SC_DELAYTIMER_MAX,
+        SC_EXPR_NEST_MAX = host_posix::_SC_EXPR_NEST_MAX,
+        SC_FSYNC = host_posix::_SC_FSYNC,
+        SC_GETGR_R_SIZE_MAX = host_posix::_SC_GETGR_R_SIZE_MAX,
+        SC_GETPW_R_SIZE_MAX = host_posix::_SC_GETPW_R_SIZE_MAX,
+        SC_IOV_MAX = host_posix::_SC_IOV_MAX,
+        SC_JOB_CONTROL = host_posix::_SC_JOB_CONTROL,
+        SC_LINE_MAX = host_posix::_SC_LINE_MAX,
+        SC_LOGIN_NAME_MAX = host_posix::_SC_LOGIN_NAME_MAX,
+        SC_MAPPED_FILES = host_posix::_SC_MAPPED_FILES,
+        SC_MEMLOCK = host_posix::_SC_MEMLOCK,
+        SC_MEMLOCK_RANGE = host_posix::_SC_MEMLOCK_RANGE,
+        SC_MEMORY_PROTECTION = host_posix::_SC_MEMORY_PROTECTION,
+        SC_MESSAGE_PASSING = host_posix::_SC_MESSAGE_PASSING,
+        SC_MQ_OPEN_MAX = host_posix::_SC_MQ_OPEN_MAX,
+        SC_MQ_PRIO_MAX = host_posix::_SC_MQ_PRIO_MAX,
+        SC_NGROUPS_MAX = host_posix::_SC_NGROUPS_MAX,
+        SC_NPROCESSORS_CONF = host_posix::_SC_NPROCESSORS_CONF,
+        SC_NPROCESSORS_ONLN = host_posix::_SC_NPROCESSORS_ONLN,
+        SC_OPEN_MAX = host_posix::_SC_OPEN_MAX,
+        SC_PAGE_SIZE = host_posix::_SC_PAGE_SIZE,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_PASS_MAX = libc::_SC_PASS_MAX,
-        SC_PHYS_PAGES = libc::_SC_PHYS_PAGES,
-        SC_PRIORITIZED_IO = libc::_SC_PRIORITIZED_IO,
-        SC_PRIORITY_SCHEDULING = libc::_SC_PRIORITY_SCHEDULING,
-        SC_REALTIME_SIGNALS = libc::_SC_REALTIME_SIGNALS,
-        SC_RE_DUP_MAX = libc::_SC_RE_DUP_MAX,
-        SC_RTSIG_MAX = libc::_SC_RTSIG_MAX,
-        SC_SAVED_IDS = libc::_SC_SAVED_IDS,
-        SC_SEMAPHORES = libc::_SC_SEMAPHORES,
-        SC_SEM_NSEMS_MAX = libc::_SC_SEM_NSEMS_MAX,
-        SC_SEM_VALUE_MAX = libc::_SC_SEM_VALUE_MAX,
-        SC_SHARED_MEMORY_OBJECTS = libc::_SC_SHARED_MEMORY_OBJECTS,
-        SC_SIGQUEUE_MAX = libc::_SC_SIGQUEUE_MAX,
-        SC_STREAM_MAX = libc::_SC_STREAM_MAX,
-        SC_SYNCHRONIZED_IO = libc::_SC_SYNCHRONIZED_IO,
-        SC_THREADS = libc::_SC_THREADS,
-        SC_THREAD_ATTR_STACKADDR = libc::_SC_THREAD_ATTR_STACKADDR,
-        SC_THREAD_ATTR_STACKSIZE = libc::_SC_THREAD_ATTR_STACKSIZE,
-        SC_THREAD_DESTRUCTOR_ITERATIONS = libc::_SC_THREAD_DESTRUCTOR_ITERATIONS,
-        SC_THREAD_KEYS_MAX = libc::_SC_THREAD_KEYS_MAX,
-        SC_THREAD_PRIORITY_SCHEDULING = libc::_SC_THREAD_PRIORITY_SCHEDULING,
-        SC_THREAD_PRIO_INHERIT = libc::_SC_THREAD_PRIO_INHERIT,
-        SC_THREAD_PRIO_PROTECT = libc::_SC_THREAD_PRIO_PROTECT,
-        SC_THREAD_PROCESS_SHARED = libc::_SC_THREAD_PROCESS_SHARED,
-        SC_THREAD_SAFE_FUNCTIONS = libc::_SC_THREAD_SAFE_FUNCTIONS,
-        SC_THREAD_STACK_MIN = libc::_SC_THREAD_STACK_MIN,
-        SC_THREAD_THREADS_MAX = libc::_SC_THREAD_THREADS_MAX,
-        SC_TIMERS = libc::_SC_TIMERS,
-        SC_TIMER_MAX = libc::_SC_TIMER_MAX,
-        SC_TTY_NAME_MAX = libc::_SC_TTY_NAME_MAX,
-        SC_TZNAME_MAX = libc::_SC_TZNAME_MAX,
-        SC_VERSION = libc::_SC_VERSION,
-        SC_XOPEN_CRYPT = libc::_SC_XOPEN_CRYPT,
-        SC_XOPEN_ENH_I18N = libc::_SC_XOPEN_ENH_I18N,
-        SC_XOPEN_LEGACY = libc::_SC_XOPEN_LEGACY,
-        SC_XOPEN_REALTIME = libc::_SC_XOPEN_REALTIME,
-        SC_XOPEN_REALTIME_THREADS = libc::_SC_XOPEN_REALTIME_THREADS,
-        SC_XOPEN_SHM = libc::_SC_XOPEN_SHM,
-        SC_XOPEN_UNIX = libc::_SC_XOPEN_UNIX,
-        SC_XOPEN_VERSION = libc::_SC_XOPEN_VERSION,
-        SC_XOPEN_XCU_VERSION = libc::_SC_XOPEN_XCU_VERSION,
+        SC_PASS_MAX = host_posix::_SC_PASS_MAX,
+        SC_PHYS_PAGES = host_posix::_SC_PHYS_PAGES,
+        SC_PRIORITIZED_IO = host_posix::_SC_PRIORITIZED_IO,
+        SC_PRIORITY_SCHEDULING = host_posix::_SC_PRIORITY_SCHEDULING,
+        SC_REALTIME_SIGNALS = host_posix::_SC_REALTIME_SIGNALS,
+        SC_RE_DUP_MAX = host_posix::_SC_RE_DUP_MAX,
+        SC_RTSIG_MAX = host_posix::_SC_RTSIG_MAX,
+        SC_SAVED_IDS = host_posix::_SC_SAVED_IDS,
+        SC_SEMAPHORES = host_posix::_SC_SEMAPHORES,
+        SC_SEM_NSEMS_MAX = host_posix::_SC_SEM_NSEMS_MAX,
+        SC_SEM_VALUE_MAX = host_posix::_SC_SEM_VALUE_MAX,
+        SC_SHARED_MEMORY_OBJECTS = host_posix::_SC_SHARED_MEMORY_OBJECTS,
+        SC_SIGQUEUE_MAX = host_posix::_SC_SIGQUEUE_MAX,
+        SC_STREAM_MAX = host_posix::_SC_STREAM_MAX,
+        SC_SYNCHRONIZED_IO = host_posix::_SC_SYNCHRONIZED_IO,
+        SC_THREADS = host_posix::_SC_THREADS,
+        SC_THREAD_ATTR_STACKADDR = host_posix::_SC_THREAD_ATTR_STACKADDR,
+        SC_THREAD_ATTR_STACKSIZE = host_posix::_SC_THREAD_ATTR_STACKSIZE,
+        SC_THREAD_DESTRUCTOR_ITERATIONS = host_posix::_SC_THREAD_DESTRUCTOR_ITERATIONS,
+        SC_THREAD_KEYS_MAX = host_posix::_SC_THREAD_KEYS_MAX,
+        SC_THREAD_PRIORITY_SCHEDULING = host_posix::_SC_THREAD_PRIORITY_SCHEDULING,
+        SC_THREAD_PRIO_INHERIT = host_posix::_SC_THREAD_PRIO_INHERIT,
+        SC_THREAD_PRIO_PROTECT = host_posix::_SC_THREAD_PRIO_PROTECT,
+        SC_THREAD_PROCESS_SHARED = host_posix::_SC_THREAD_PROCESS_SHARED,
+        SC_THREAD_SAFE_FUNCTIONS = host_posix::_SC_THREAD_SAFE_FUNCTIONS,
+        SC_THREAD_STACK_MIN = host_posix::_SC_THREAD_STACK_MIN,
+        SC_THREAD_THREADS_MAX = host_posix::_SC_THREAD_THREADS_MAX,
+        SC_TIMERS = host_posix::_SC_TIMERS,
+        SC_TIMER_MAX = host_posix::_SC_TIMER_MAX,
+        SC_TTY_NAME_MAX = host_posix::_SC_TTY_NAME_MAX,
+        SC_TZNAME_MAX = host_posix::_SC_TZNAME_MAX,
+        SC_VERSION = host_posix::_SC_VERSION,
+        SC_XOPEN_CRYPT = host_posix::_SC_XOPEN_CRYPT,
+        SC_XOPEN_ENH_I18N = host_posix::_SC_XOPEN_ENH_I18N,
+        SC_XOPEN_LEGACY = host_posix::_SC_XOPEN_LEGACY,
+        SC_XOPEN_REALTIME = host_posix::_SC_XOPEN_REALTIME,
+        SC_XOPEN_REALTIME_THREADS = host_posix::_SC_XOPEN_REALTIME_THREADS,
+        SC_XOPEN_SHM = host_posix::_SC_XOPEN_SHM,
+        SC_XOPEN_UNIX = host_posix::_SC_XOPEN_UNIX,
+        SC_XOPEN_VERSION = host_posix::_SC_XOPEN_VERSION,
+        SC_XOPEN_XCU_VERSION = host_posix::_SC_XOPEN_XCU_VERSION,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_ILP32_OFF32 = libc::_SC_XBS5_ILP32_OFF32,
+        SC_XBS5_ILP32_OFF32 = host_posix::_SC_XBS5_ILP32_OFF32,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_ILP32_OFFBIG = libc::_SC_XBS5_ILP32_OFFBIG,
+        SC_XBS5_ILP32_OFFBIG = host_posix::_SC_XBS5_ILP32_OFFBIG,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_LP64_OFF64 = libc::_SC_XBS5_LP64_OFF64,
+        SC_XBS5_LP64_OFF64 = host_posix::_SC_XBS5_LP64_OFF64,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_LPBIG_OFFBIG = libc::_SC_XBS5_LPBIG_OFFBIG,
+        SC_XBS5_LPBIG_OFFBIG = host_posix::_SC_XBS5_LPBIG_OFFBIG,
     }
 
     #[cfg(target_os = "redox")]
@@ -2472,20 +2473,20 @@ pub mod module {
     #[repr(i32)]
     #[allow(non_camel_case_types)]
     pub enum SysconfVar {
-        SC_ARG_MAX = libc::_SC_ARG_MAX,
-        SC_CHILD_MAX = libc::_SC_CHILD_MAX,
-        SC_CLK_TCK = libc::_SC_CLK_TCK,
-        SC_NGROUPS_MAX = libc::_SC_NGROUPS_MAX,
-        SC_OPEN_MAX = libc::_SC_OPEN_MAX,
-        SC_STREAM_MAX = libc::_SC_STREAM_MAX,
-        SC_TZNAME_MAX = libc::_SC_TZNAME_MAX,
-        SC_VERSION = libc::_SC_VERSION,
-        SC_PAGE_SIZE = libc::_SC_PAGE_SIZE,
-        SC_RE_DUP_MAX = libc::_SC_RE_DUP_MAX,
-        SC_LOGIN_NAME_MAX = libc::_SC_LOGIN_NAME_MAX,
-        SC_TTY_NAME_MAX = libc::_SC_TTY_NAME_MAX,
-        SC_SYMLOOP_MAX = libc::_SC_SYMLOOP_MAX,
-        SC_HOST_NAME_MAX = libc::_SC_HOST_NAME_MAX,
+        SC_ARG_MAX = host_posix::_SC_ARG_MAX,
+        SC_CHILD_MAX = host_posix::_SC_CHILD_MAX,
+        SC_CLK_TCK = host_posix::_SC_CLK_TCK,
+        SC_NGROUPS_MAX = host_posix::_SC_NGROUPS_MAX,
+        SC_OPEN_MAX = host_posix::_SC_OPEN_MAX,
+        SC_STREAM_MAX = host_posix::_SC_STREAM_MAX,
+        SC_TZNAME_MAX = host_posix::_SC_TZNAME_MAX,
+        SC_VERSION = host_posix::_SC_VERSION,
+        SC_PAGE_SIZE = host_posix::_SC_PAGE_SIZE,
+        SC_RE_DUP_MAX = host_posix::_SC_RE_DUP_MAX,
+        SC_LOGIN_NAME_MAX = host_posix::_SC_LOGIN_NAME_MAX,
+        SC_TTY_NAME_MAX = host_posix::_SC_TTY_NAME_MAX,
+        SC_SYMLOOP_MAX = host_posix::_SC_SYMLOOP_MAX,
+        SC_HOST_NAME_MAX = host_posix::_SC_HOST_NAME_MAX,
     }
 
     impl SysconfVar {

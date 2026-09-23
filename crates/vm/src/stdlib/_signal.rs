@@ -84,7 +84,7 @@ pub(crate) mod _signal {
     // pthread_sigmask 'how' constants
     #[cfg(unix)]
     #[pyattr]
-    use libc::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
+    use host_signal::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 
     #[cfg(not(any(unix, windows)))]
     #[pyattr]
@@ -103,7 +103,7 @@ pub(crate) mod _signal {
 
     #[cfg(any(unix, windows))]
     #[pyattr]
-    pub use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
+    pub use host_signal::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
 
     #[cfg(windows)]
     #[pyattr]
@@ -120,7 +120,7 @@ pub(crate) mod _signal {
 
     #[cfg(unix)]
     #[pyattr]
-    use libc::{
+    use host_signal::{
         SIGALRM, SIGBUS, SIGCHLD, SIGCONT, SIGHUP, SIGIO, SIGKILL, SIGPIPE, SIGPROF, SIGQUIT,
         SIGSTOP, SIGSYS, SIGTRAP, SIGTSTP, SIGTTIN, SIGTTOU, SIGURG, SIGUSR1, SIGUSR2, SIGVTALRM,
         SIGWINCH, SIGXCPU, SIGXFSZ,
@@ -134,7 +134,7 @@ pub(crate) mod _signal {
         target_os = "netbsd"
     )))]
     #[pyattr]
-    use libc::{SIGPWR, SIGSTKFLT};
+    use host_signal::{SIGPWR, SIGSTKFLT};
 
     // Interval timer constants
     #[cfg(unix)]

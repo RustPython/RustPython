@@ -93,7 +93,7 @@ mod _socket {
     const HAS_IPV6: bool = true;
     #[pyattr]
     // put IPPROTO_MAX later
-    use c::{
+    use host_socket::{
         AF_INET, AF_INET6, AF_UNSPEC, INADDR_ANY, INADDR_LOOPBACK, INADDR_NONE, IPPROTO_ICMP,
         IPPROTO_ICMPV6, IPPROTO_IP, IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_TCP as SOL_TCP, IPPROTO_UDP,
         MSG_CTRUNC, MSG_DONTROUTE, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST,
@@ -104,7 +104,7 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_APPLETALK, AF_DECnet, AF_IPX, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
         IPPROTO_FRAGMENT, IPPROTO_HOPOPTS, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IPIP, IPPROTO_NONE,
         IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_ROUTING,
@@ -112,14 +112,14 @@ mod _socket {
 
     #[cfg(unix)]
     #[pyattr]
-    use c::{AF_UNIX, SO_REUSEPORT};
+    use host_socket::{AF_UNIX, SO_REUSEPORT};
 
     #[pyattr]
-    use c::{AI_ADDRCONFIG, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE};
+    use host_socket::{AI_ADDRCONFIG, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE};
 
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
-    use c::{SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET};
+    use host_socket::{SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET};
 
     #[cfg(target_os = "android")]
     #[pyattr]
