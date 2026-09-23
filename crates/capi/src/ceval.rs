@@ -1,6 +1,7 @@
 use crate::pyframe::PyFrameObject;
 use crate::pystate::with_vm;
 use crate::unicodeobject::decode_fsdefault_and_size;
+use crate::util::CStrExt;
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyCode, PyDict};
@@ -155,6 +156,16 @@ pub unsafe extern "C" fn PyEval_GetFuncDesc(func: *mut PyObject) -> *const c_cha
             c" object"
         }
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_EnterRecursiveCall(where_: *const c_char) -> c_int {
+    with_vm(|vm| vm.enter_recursive_call(unsafe { where_.try_as_str(vm)? }))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_LeaveRecursiveCall() {
+    with_vm(|vm| vm.leave_recursive_call())
 }
 
 #[cfg(test)]
