@@ -2698,7 +2698,9 @@ class BasicVSOCKTest(unittest.TestCase):
                      'Bluetooth sockets required for this test.')
 class BasicBluetoothTest(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'socket' has no attribute 'BTPROTO_RFCOMM'
+    # Windows publishes the names below. Other platforms still miss
+    # BTPROTO_HCI and the rest of the non-Windows set.
+    @(unittest.expectedFailure if sys.platform != "win32" else (lambda func: func))
     def testBluetoothConstants(self):
         socket.BDADDR_ANY
         socket.BDADDR_LOCAL
