@@ -215,6 +215,9 @@ pub(crate) use mt::{
     set_stop_bit, take_gc_scheduled,
 };
 
+#[cfg(all(test, feature = "threading"))]
+pub(crate) use mt::clear_eval_breaker_for_test;
+
 /// Reset all signal trigger state after fork in child process.
 /// Stale triggers from the parent must not fire in the child.
 #[cfg(all(unix, feature = "host_env"))]
