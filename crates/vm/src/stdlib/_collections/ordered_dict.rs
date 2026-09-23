@@ -244,7 +244,9 @@ pub(crate) mod ordered_dict {
             if a.__len__() != b.__len__() {
                 return Ok(false);
             }
-            for (k, v1) in a {
+            let mut pos = 0;
+            while let Some((next, k, v1)) = a.next_entry(pos) {
+                pos = next;
                 match b.inner_getitem_opt(&*k, vm)? {
                     Some(v2) if v1.is(&v2) || vm.bool_eq(&v1, &v2)? => {}
                     _ => return Ok(false),
