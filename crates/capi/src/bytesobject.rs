@@ -39,7 +39,14 @@ pub unsafe extern "C" fn PyBytes_FromString(s: *const c_char) -> *mut PyObject {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyBytes_FromObject(obj: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*obj }.try_bytes_like(vm, |bytes| vm.ctx.new_bytes(bytes.to_vec())))
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        if let Some(bytes) = obj.downcast_ref::<PyBytes>() {
+            Ok(bytes.to_owned())
+        } else {
+            obj.try_bytes_like(vm, |bytes| vm.ctx.new_bytes(bytes.to_vec()))
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
