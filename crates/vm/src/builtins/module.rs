@@ -176,7 +176,7 @@ impl Py<PyModule> {
             .flatten()
             .filter(|s| !vm.is_none(s));
 
-        let origin = get_spec_file_origin(spec.as_ref(), vm);
+        let origin = get_spec_file_origin(spec.as_deref(), vm);
 
         let is_possibly_shadowing = origin
             .as_ref()
@@ -389,7 +389,7 @@ impl PyModule {
     }
 
     /// Check if module is initializing via __spec__._initializing
-    fn is_initializing(dict: &PyDictRef, vm: &VirtualMachine) -> bool {
+    fn is_initializing(dict: &Py<PyDict>, vm: &VirtualMachine) -> bool {
         if let Ok(Some(spec)) = dict.get_item_opt(vm.ctx.intern_str("__spec__"), vm)
             && let Ok(initializing) = spec.get_attr(vm.ctx.intern_str("_initializing"), vm)
         {

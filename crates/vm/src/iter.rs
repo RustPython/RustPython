@@ -1,7 +1,7 @@
-use crate::{PyObjectRef, PyResult, types::PyComparisonOp, vm::VirtualMachine};
+use crate::{PyObject, PyObjectRef, PyResult, types::PyComparisonOp, vm::VirtualMachine};
 use itertools::Itertools;
 
-pub trait PyExactSizeIterator<'a>: ExactSizeIterator<Item = &'a PyObjectRef> + Sized {
+pub trait PyExactSizeIterator<'a>: ExactSizeIterator<Item = &'a PyObject> + Sized {
     fn eq(self, other: impl PyExactSizeIterator<'a>, vm: &VirtualMachine) -> PyResult<bool> {
         let lhs = self;
         let rhs = other;
@@ -50,7 +50,7 @@ pub trait PyExactSizeIterator<'a>: ExactSizeIterator<Item = &'a PyObjectRef> + S
     }
 }
 
-impl<'a, T> PyExactSizeIterator<'a> for T where T: ExactSizeIterator<Item = &'a PyObjectRef> + Sized {}
+impl<'a, T> PyExactSizeIterator<'a> for T where T: ExactSizeIterator<Item = &'a PyObject> + Sized {}
 
 /// Compare two sequences whose item-comparison callbacks may mutate the
 /// containers. `get(i)` must snapshot `(len, item_at_i)` and drop any

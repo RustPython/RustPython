@@ -242,7 +242,7 @@ mod _csv {
         })
     }
 
-    fn parse_lineterminator<'a>(vm: &VirtualMachine, s: &'a PyStr) -> PyResult<&'a str> {
+    fn parse_lineterminator<'a>(vm: &VirtualMachine, s: &'a Py<PyStr>) -> PyResult<&'a str> {
         s.to_str()
             .ok_or_else(|| new_csv_error(vm, r#""lineterminator" must be a string"#))
     }

@@ -701,7 +701,7 @@ fn classify(class: &Py<PyType>, vm: &VirtualMachine) -> Elem {
 }
 
 fn pre_sort_check<'a>(
-    mut keys: impl Iterator<Item = &'a PyObjectRef>,
+    mut keys: impl Iterator<Item = &'a PyObject>,
     vm: &VirtualMachine,
 ) -> PreSort {
     let Some(first) = keys.next() else {
@@ -724,8 +724,8 @@ fn pre_sort_check<'a>(
 }
 
 fn pre_sort_check_tuples<'a>(
-    first_elem: &PyObjectRef,
-    keys: impl Iterator<Item = &'a PyObjectRef>,
+    first_elem: &PyObject,
+    keys: impl Iterator<Item = &'a PyObject>,
     vm: &VirtualMachine,
 ) -> PreSort {
     let class = first_elem.class();
@@ -751,22 +751,22 @@ fn pre_sort_check_tuples<'a>(
     PreSort::Tuple(elem)
 }
 
-fn str_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
+fn str_lt(a: &PyObject, b: &PyObject) -> bool {
     a.downcast_ref::<PyStr>().unwrap().as_bytes() < b.downcast_ref::<PyStr>().unwrap().as_bytes()
 }
 
-fn int_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
+fn int_lt(a: &PyObject, b: &PyObject) -> bool {
     a.downcast_ref::<PyInt>().unwrap().as_bigint() < b.downcast_ref::<PyInt>().unwrap().as_bigint()
 }
 
-fn float_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
+fn float_lt(a: &PyObject, b: &PyObject) -> bool {
     a.downcast_ref::<PyFloat>().unwrap().to_f64() < b.downcast_ref::<PyFloat>().unwrap().to_f64()
 }
 
 fn object_lt(
     cmp: RichCompareFunc,
-    a: &PyObjectRef,
-    b: &PyObjectRef,
+    a: &PyObject,
+    b: &PyObject,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
     #[allow(unpredictable_function_pointer_comparisons)]
@@ -788,7 +788,7 @@ fn object_lt(
     }
 }
 
-fn elem_lt(elem: &Elem, a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+fn elem_lt(elem: &Elem, a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     match elem {
         Elem::Str => Ok(str_lt(a, b)),
         Elem::Int => Ok(int_lt(a, b)),
@@ -798,7 +798,7 @@ fn elem_lt(elem: &Elem, a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine) -
     }
 }
 
-fn tuple_lt(elem: &Elem, a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+fn tuple_lt(elem: &Elem, a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     let a = a.downcast_ref::<PyTuple>().unwrap().as_slice();
     let b = b.downcast_ref::<PyTuple>().unwrap().as_slice();
 
@@ -822,8 +822,8 @@ fn tuple_lt(elem: &Elem, a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine) 
 fn timsort_by<T, K, L>(items: &mut [T], reverse: bool, key: &K, mut lt: L) -> PyResult<()>
 where
     T: Clone,
-    K: Fn(&T) -> &PyObjectRef,
-    L: FnMut(&PyObjectRef, &PyObjectRef) -> PyResult<bool>,
+    K: Fn(&T) -> &PyObject,
+    L: FnMut(&PyObject, &PyObject) -> PyResult<bool>,
 {
     timsort(items, &mut |a, b| {
         let (a, b) = if reverse {
@@ -843,7 +843,7 @@ fn timsort_specialized<T, K>(
 ) -> PyResult<()>
 where
     T: Clone,
-    K: Fn(&T) -> &PyObjectRef,
+    K: Fn(&T) -> &PyObject,
 {
     match pre_sort_check(items.iter().map(&key), vm) {
         PreSort::Str => timsort_by(items, reverse, &key, |a, b| Ok(str_lt(a, b))),
@@ -872,11 +872,11 @@ fn do_sort(
             vm,
             &mut items,
             reverse,
-            |item: &(PyObjectRef, PyObjectRef)| &item.1,
+            |item: &(PyObjectRef, PyObjectRef)| &*item.1,
         )?;
         *values = items.into_iter().map(|(val, _)| val).collect();
     } else {
-        timsort_specialized(vm, values, reverse, |x: &PyObjectRef| x)?
+        timsort_specialized(vm, values, reverse, |x| x)?
     }
 
     Ok(())

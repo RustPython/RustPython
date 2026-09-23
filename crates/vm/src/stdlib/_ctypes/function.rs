@@ -955,13 +955,14 @@ fn extract_arg_types(argtypes: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<P
 /// prior `ffi_return_type` + `is_pointer_return` dispatch.
 fn compute_ret_spec(
     restype_is_none: bool,
-    restype_obj: Option<&PyObjectRef>,
+    restype_obj: Option<&PyObject>,
     vm: &VirtualMachine,
 ) -> RetSpec {
     if restype_is_none {
         return RetSpec::Void;
     }
-    let Some(restype_type) = restype_obj.and_then(|t| t.clone().downcast::<PyType>().ok()) else {
+    let Some(restype_type) = restype_obj.and_then(|t| t.to_owned().downcast::<PyType>().ok())
+    else {
         return RetSpec::Code('i');
     };
 
@@ -1042,8 +1043,8 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
     });
 
     // Check if restype is explicitly None (return void)
-    let restype_is_none = restype_obj.as_ref().is_some_and(|t| vm.is_none(t));
-    let ret = compute_ret_spec(restype_is_none, restype_obj.as_ref(), vm);
+    let restype_is_none = restype_obj.as_deref().is_some_and(|t| vm.is_none(t));
+    let ret = compute_ret_spec(restype_is_none, restype_obj.as_deref(), vm);
 
     Ok(CallInfo {
         explicit_arg_types,
@@ -1154,7 +1155,7 @@ struct Argument {
 type OutBuffers = Vec<(usize, PyObjectRef)>;
 
 /// Get buffer address from a ctypes object
-fn get_buffer_addr(obj: &PyObjectRef) -> Option<usize> {
+fn get_buffer_addr(obj: &PyObject) -> Option<usize> {
     obj.downcast_ref::<PyCSimple>()
         .map(|s| s.0.buffer.read().as_ptr() as usize)
         .or_else(|| {
@@ -1168,7 +1169,7 @@ fn get_buffer_addr(obj: &PyObjectRef) -> Option<usize> {
 }
 
 /// Create OUT buffer for a parameter type
-fn create_out_buffer(arg_type: &PyTypeRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+fn create_out_buffer(arg_type: &Py<PyType>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     // For POINTER(T) types, create T instance (the pointed-to type)
     if arg_type.fast_issubclass(PyCPointer::static_type())
         && let Some(stg_info) = arg_type.stg_info_opt()
@@ -1361,7 +1362,7 @@ fn check_hresult(hresult: i32, zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> Py
             .new_str(format!("HRESULT: 0x{:08X}", hresult as u32))
             .into();
         let details: PyObjectRef = vm.ctx.none();
-        let exc = vm.invoke_exception(&com_error_type, vec![text.clone(), details.clone()])?;
+        let exc = vm.invoke_exception(&com_error_type, vec![text.to_owned(), details.clone()])?;
         let _ = exc.as_object().set_attr("hresult", hresult_obj, vm);
         let _ = exc.as_object().set_attr("text", text, vm);
         let _ = exc.as_object().set_attr("details", details, vm);
@@ -1493,7 +1494,7 @@ fn convert_raw_result(
 
 /// Create a ctypes instance from FFI result (PyCData_FromBaseObj equivalent)
 fn pycdata_from_ffi_result(
-    typ: &PyTypeRef,
+    typ: &Py<PyType>,
     result_bytes: &[u8],
     size: usize,
     vm: &VirtualMachine,
@@ -1536,7 +1537,7 @@ fn build_result(
         let is_hresult = call_info
             .restype_obj
             .as_ref()
-            .and_then(|t| t.clone().downcast::<PyType>().ok())
+            .and_then(|t| t.to_owned().downcast::<PyType>().ok())
             .is_some_and(|t| t.name().to_string() == "HRESULT");
         if is_hresult {
             let mut word = [0u8; size_of::<usize>()];
@@ -1951,7 +1952,7 @@ impl PyCThunk {
 
         let res_type_ref: Option<PyTypeRef> = match res_type {
             Some(ref rt) if !vm.is_none(rt) => Some(
-                rt.clone()
+                rt.to_owned()
                     .downcast::<PyType>()
                     .map_err(|_| vm.new_type_error("restype must be a ctypes type"))?,
             ),

@@ -272,7 +272,7 @@ impl PyPayload for PyAsyncGenWrappedValue {
 impl PyAsyncGenWrappedValue {}
 
 impl PyAsyncGenWrappedValue {
-    fn unbox(ag: &PyAsyncGen, val: PyResult<PyIterReturn>, vm: &VirtualMachine) -> PyResult {
+    fn unbox(ag: &Py<PyAsyncGen>, val: PyResult<PyIterReturn>, vm: &VirtualMachine) -> PyResult {
         let (frame_done, mark_ag_closed, async_done) = match &val {
             Ok(PyIterReturn::StopIteration(_)) => (true, true, true),
             Err(e) if e.fast_isinstance(vm.ctx.exceptions.generator_exit) => (true, true, true),

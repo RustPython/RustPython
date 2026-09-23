@@ -1073,7 +1073,7 @@ pub(crate) mod module {
 
     const DLL_DIRECTORY_COOKIE: &core::ffi::CStr = c"DLL directory cookie";
 
-    fn pystr_to_wide(s: &PyStrRef, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
+    fn pystr_to_wide(s: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
         widestring::WideCString::from_vec(s.as_wtf8().encode_wide().collect::<Vec<_>>())
             .map_err(|_| vm.new_value_error("embedded null character"))
     }

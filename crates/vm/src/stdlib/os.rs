@@ -2,7 +2,7 @@
 #![allow(unreachable_pub)]
 
 use crate::{
-    AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyModule, PySet},
     convert::{IntoPyException, ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
@@ -147,7 +147,7 @@ fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ff
     })
 }
 
-pub(crate) fn warn_if_bool_fd(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+pub(crate) fn warn_if_bool_fd(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
     use crate::class::StaticType;
     if obj
         .class()

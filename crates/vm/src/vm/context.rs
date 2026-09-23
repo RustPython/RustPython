@@ -474,7 +474,7 @@ impl Context {
 
     /// Borrow a cached small integer whose lifetime is tied to this context.
     #[inline(always)]
-    pub(crate) fn cached_int(&self, i: i32) -> &PyIntRef {
+    pub(crate) fn cached_int(&self, i: i32) -> &Py<PyInt> {
         debug_assert!(Self::INT_CACHE_POOL_RANGE.contains(&i));
         let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
         &self.int_cache_pool[inner_idx]

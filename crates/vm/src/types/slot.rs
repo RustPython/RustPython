@@ -1738,7 +1738,7 @@ impl PyType {
         // Helper to extract slot from an attribute if it's a wrapper descriptor
         // and the wrapper's type is compatible with the given class.
         // bpo-37619: wrapper descriptor from wrong class should not be used directly.
-        let try_extract = |attr: &PyObjectRef, for_class_mro: &[PyRef<Self>]| -> Option<T> {
+        let try_extract = |attr: &PyObject, for_class_mro: &[PyRef<Self>]| -> Option<T> {
             if attr.class().is(ctx.types.wrapper_descriptor_type) {
                 attr.downcast_ref::<PyWrapper>().and_then(|wrapper| {
                     // Only extract slot if for_class is a subclass of wrapper.typ

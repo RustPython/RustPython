@@ -380,7 +380,14 @@ impl PySetInner {
 
     fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let empty = format!("{}()", class_name.unwrap_or("set"));
-        collection_repr(class_name, "{", "}", &empty, self.elements().iter(), vm)
+        collection_repr(
+            class_name,
+            "{",
+            "}",
+            &empty,
+            self.elements().iter().map(|o| &**o),
+            vm,
+        )
     }
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -1573,7 +1580,7 @@ impl IterNext for PySetIterator {
             let entry = set.as_inner().content.next_entry_checked(
                 internal.position,
                 &zelf.size,
-                |key, ()| key.clone(),
+                |key, ()| key.to_owned(),
             );
             match entry {
                 Err(crate::dict_inner::DictChanged) => {

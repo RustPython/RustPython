@@ -1,7 +1,7 @@
 use super::*;
 use rustpython_compiler_core::SourceFile;
 
-fn ensure_excepthandler_node(vm: &VirtualMachine, object: &PyObjectRef) -> PyResult<()> {
+fn ensure_excepthandler_node(vm: &VirtualMachine, object: &PyObject) -> PyResult<()> {
     if vm.is_none(object)
         || !is_node_instance(
             vm,

@@ -684,7 +684,7 @@ fn object_getstate(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyRes
 }
 
 /// Get list items iterator if obj is a list (or subclass), None iterator otherwise
-fn get_items_iter(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+fn get_items_iter(obj: &PyObject, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
     let listitems: PyObjectRef = if obj.fast_isinstance(vm.ctx.types.list_type) {
         obj.get_iter(vm)?.into()
     } else {

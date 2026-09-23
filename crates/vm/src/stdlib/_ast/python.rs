@@ -8,7 +8,7 @@ use super::{
 pub(crate) mod _ast {
     use crate::{
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PySet, PyStr, PyTupleRef, PyType, PyTypeRef},
+        builtins::{PyDict, PyDictRef, PySet, PyStr, PyTupleRef, PyType, PyTypeRef},
         class::{PyClassImpl, StaticType},
         function::{ArgIterable, FuncArgs, KwArgs, PyMethodDef, PyMethodFlags},
         stdlib::_ast::repr,
@@ -135,9 +135,9 @@ pub(crate) mod _ast {
     }
 
     fn ast_replace_update_payload(
-        payload: &PyDictRef,
-        keys: Option<&PyObjectRef>,
-        dict: &PyDictRef,
+        payload: &Py<PyDict>,
+        keys: Option<&PyObject>,
+        dict: &Py<PyDict>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let Some(keys) = keys else {
@@ -155,14 +155,14 @@ pub(crate) mod _ast {
     }
 
     fn ast_replace_set_update(
-        expecting: &PyRef<PySet>,
-        iterable: Option<&PyObjectRef>,
+        expecting: &Py<PySet>,
+        iterable: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let Some(iterable) = iterable else {
             return Ok(());
         };
-        let iterable = iterable.clone().try_into_value::<ArgIterable>(vm)?;
+        let iterable = iterable.to_owned().try_into_value::<ArgIterable>(vm)?;
         for item in iterable.iter(vm)? {
             expecting.add(item?, vm)?;
         }
@@ -170,7 +170,7 @@ pub(crate) mod _ast {
     }
 
     fn ast_replace_set_discard(
-        expecting: &PyRef<PySet>,
+        expecting: &Py<PySet>,
         key: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
@@ -185,14 +185,14 @@ pub(crate) mod _ast {
     }
 
     fn ast_replace_set_difference_update(
-        expecting: &PyRef<PySet>,
-        iterable: Option<&PyObjectRef>,
+        expecting: &Py<PySet>,
+        iterable: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let Some(iterable) = iterable else {
             return Ok(());
         };
-        let iterable = iterable.clone().try_into_value::<ArgIterable>(vm)?;
+        let iterable = iterable.to_owned().try_into_value::<ArgIterable>(vm)?;
         for item in iterable.iter(vm)? {
             let item = item?;
             ast_replace_set_discard(expecting, &item, vm)?;
@@ -224,8 +224,8 @@ pub(crate) mod _ast {
         let dict = zelf.as_object().dict();
 
         let expecting = PySet::default().into_ref(&vm.ctx);
-        ast_replace_set_update(&expecting, fields.as_ref(), vm)?;
-        ast_replace_set_update(&expecting, attributes.as_ref(), vm)?;
+        ast_replace_set_update(&expecting, fields.as_deref(), vm)?;
+        ast_replace_set_update(&expecting, attributes.as_deref(), vm)?;
 
         for (key, _value) in &args.kwargs {
             let key_obj: PyObjectRef = vm.ctx.new_str(key.as_ref()).into();
@@ -238,11 +238,11 @@ pub(crate) mod _ast {
             }
         }
 
-        if let Some(dict) = dict.as_ref() {
+        if let Some(dict) = dict.as_deref() {
             for (key, _value) in dict.items_vec() {
                 ast_replace_set_discard(&expecting, &key, vm)?;
             }
-            ast_replace_set_difference_update(&expecting, attributes.as_ref(), vm)?;
+            ast_replace_set_difference_update(&expecting, attributes.as_deref(), vm)?;
         }
 
         // Discard optional fields (T | None).
@@ -276,8 +276,8 @@ pub(crate) mod _ast {
 
         let payload = vm.ctx.new_dict();
         if let Some(dict) = dict {
-            ast_replace_update_payload(&payload, fields.as_ref(), &dict, vm)?;
-            ast_replace_update_payload(&payload, attributes.as_ref(), &dict, vm)?;
+            ast_replace_update_payload(&payload, fields.as_deref(), &dict, vm)?;
+            ast_replace_update_payload(&payload, attributes.as_deref(), &dict, vm)?;
         }
         for (key, value) in args.kwargs {
             payload.set_item(vm.ctx.intern_str(key), value, vm)?;
@@ -339,7 +339,7 @@ pub(crate) mod _ast {
     }
 
     pub(crate) fn ast_repr(zelf: &crate::PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        let repr = repr::repr_ast_node(vm, &zelf.to_owned(), 3)?;
+        let repr = repr::repr_ast_node(vm, zelf, 3)?;
         Ok(vm.ctx.new_str(repr))
     }
 
@@ -441,7 +441,7 @@ pub(crate) mod _ast {
                                 ))
                             })?;
                         attributes = Some(attrs);
-                        attributes.as_ref().unwrap()
+                        attributes.as_deref().unwrap()
                     };
                     if !attrs.sequence_unchecked().contains(&key_obj, vm)? {
                         let message = vm.ctx.new_str(format!(

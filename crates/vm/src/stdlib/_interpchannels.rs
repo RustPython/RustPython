@@ -396,7 +396,7 @@ pub(crate) mod _interpchannels {
         let Some(entry) = table.refs.get_mut(&cid) else {
             return;
         };
-        let Some(chan) = entry.chan.as_ref() else {
+        let Some(chan) = entry.chan.as_deref() else {
             return;
         };
         let done = {
@@ -575,9 +575,9 @@ pub(crate) mod _interpchannels {
     }
 
     /// The `p` converter: a predicate that only reads truthiness.
-    fn flag(slot: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn flag(slot: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<bool> {
         match slot {
-            Some(o) => o.clone().is_true(vm),
+            Some(o) => o.to_owned().is_true(vm),
             None => Ok(false),
         }
     }
@@ -749,13 +749,13 @@ pub(crate) mod _interpchannels {
             vm,
         )?;
         let (cid, mut end) = parse_cid(parsed[0].as_deref().unwrap(), vm)?;
-        let tri = |slot: Option<&PyObjectRef>| -> PyResult<Option<bool>> {
-            slot.map(|o| o.clone().is_true(vm)).transpose()
+        let tri = |slot: Option<&PyObject>| -> PyResult<Option<bool>> {
+            slot.map(|o| o.to_owned().is_true(vm)).transpose()
         };
-        let send = tri(parsed[1].as_ref())?;
-        let recv = tri(parsed[2].as_ref())?;
-        let force = flag(parsed[3].as_ref(), vm)?;
-        let resolve = flag(parsed[4].as_ref(), vm)?;
+        let send = tri(parsed[1].as_deref())?;
+        let recv = tri(parsed[2].as_deref())?;
+        let force = flag(parsed[3].as_deref(), vm)?;
+        let resolve = flag(parsed[4].as_deref(), vm)?;
         match (send, recv) {
             (Some(false), Some(false)) => {
                 return Err(vm.new_value_error("'send' and 'recv' cannot both be False"));
@@ -845,7 +845,7 @@ pub(crate) mod _interpchannels {
             .refs
             .iter()
             .filter_map(|(&cid, r)| {
-                let state = r.chan.as_ref()?.state.lock();
+                let state = r.chan.as_deref()?.state.lock();
                 Some((cid, state.unboundop, state.fallback))
             })
             .collect();
@@ -881,7 +881,7 @@ pub(crate) mod _interpchannels {
             vm,
         )?;
         let cid = parse_cid(parsed[0].as_deref().unwrap(), vm)?.0;
-        let send = flag(parsed[1].as_ref(), vm)?;
+        let send = flag(parsed[1].as_deref(), vm)?;
         let chan = channels_lookup(cid).map_err(|e| e.into_py(cid, vm))?;
         let state = chan.state.lock();
         if send && state.closing {
@@ -1022,7 +1022,7 @@ pub(crate) mod _interpchannels {
         let unboundarg = int_arg(parsed[2].as_deref(), vm)?.unwrap_or(-1);
         let fallbackarg = int_arg(parsed[3].as_deref(), vm)?.unwrap_or(-1);
         let blocking = match &parsed[4] {
-            Some(o) => o.clone().is_true(vm)?,
+            Some(o) => o.to_owned().is_true(vm)?,
             None => true,
         };
         let timeout = parse_timeout(parsed[5].as_deref(), blocking, vm)?;
@@ -1144,9 +1144,9 @@ pub(crate) mod _interpchannels {
     fn close(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         let parsed = end_args(&args, "channel_close", vm)?;
         let cid = parse_cid(parsed[0].as_deref().unwrap(), vm)?.0;
-        let send = flag(parsed[1].as_ref(), vm)?;
-        let recv = flag(parsed[2].as_ref(), vm)?;
-        let force = flag(parsed[3].as_ref(), vm)?;
+        let send = flag(parsed[1].as_deref(), vm)?;
+        let recv = flag(parsed[2].as_deref(), vm)?;
+        let force = flag(parsed[3].as_deref(), vm)?;
         let end = i32::from(send) - i32::from(recv);
         let waiters = channel_close(cid, end, force).map_err(|e| e.into_py(cid, vm))?;
         release_waiters(waiters, vm);
@@ -1157,8 +1157,8 @@ pub(crate) mod _interpchannels {
     fn release(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         let parsed = end_args(&args, "channel_release", vm)?;
         let cid = parse_cid(parsed[0].as_deref().unwrap(), vm)?.0;
-        let mut send = flag(parsed[1].as_ref(), vm)?;
-        let mut recv = flag(parsed[2].as_ref(), vm)?;
+        let mut send = flag(parsed[1].as_deref(), vm)?;
+        let mut recv = flag(parsed[2].as_deref(), vm)?;
         if !send && !recv {
             send = true;
             recv = true;
@@ -1201,7 +1201,7 @@ pub(crate) mod _interpchannels {
             recv_associated: false,
             recv_released: false,
         };
-        let Some(chan) = entry.chan.as_ref() else {
+        let Some(chan) = entry.chan.as_deref() else {
             return Ok(info);
         };
         let state = chan.state.lock();
@@ -1292,7 +1292,7 @@ pub(crate) mod _interpchannels {
         }
         .parse(&args, vm)?;
         for (slot, name) in parsed.iter().zip(["send", "recv"]) {
-            if !slot.as_ref().unwrap().downcastable::<PyType>() {
+            if !slot.as_deref().unwrap().downcastable::<PyType>() {
                 return Err(vm.new_type_error(format!("expected a type for '{name}'")));
             }
         }

@@ -167,7 +167,7 @@ impl IntoPyTuple for Vec<PyObjectRef> {
 }
 
 pub trait FromPyTuple<'a>: Sized {
-    fn from_pytuple(tuple: &'a PyTuple, vm: &VirtualMachine) -> PyResult<Self>;
+    fn from_pytuple(tuple: &'a Py<PyTuple>, vm: &VirtualMachine) -> PyResult<Self>;
 }
 
 macro_rules! impl_from_into_pytuple {
@@ -183,7 +183,7 @@ macro_rules! impl_from_into_pytuple {
         // TODO: figure out a way to let PyObjectRef implement TryFromBorrowedObject, and
         //       have this be a TryFromBorrowedObject bound
         impl<'a, $($T: TryFromObject),*> FromPyTuple<'a> for ($($T,)*) {
-            fn from_pytuple(tuple: &'a PyTuple, vm: &VirtualMachine) -> PyResult<Self> {
+            fn from_pytuple(tuple: &'a Py<PyTuple>, vm: &VirtualMachine) -> PyResult<Self> {
                 #[allow(non_snake_case)]
                 let &[$(ref $T),+] = tuple.as_slice().try_into().map_err(|_| {
                     vm.new_type_error(format!("expected tuple with {} elements", impl_from_into_pytuple!(@count $($T)+)))
@@ -368,7 +368,9 @@ impl PyTuple<PyObjectRef> {
             .into_ref(&vm.ctx)
         })
     }
+}
 
+impl Py<PyTuple> {
     pub fn extract_tuple<'a, T: FromPyTuple<'a>>(&'a self, vm: &VirtualMachine) -> PyResult<T> {
         T::from_pytuple(self, vm)
     }
@@ -604,7 +606,8 @@ impl Comparable for PyTuple {
         }
         let other = class_or_notimplemented!(Self, other);
         zelf.iter()
-            .richcompare(other.iter(), op, vm)
+            .map(|o| &**o)
+            .richcompare(other.iter().map(|o| &**o), op, vm)
             .map(PyComparisonValue::Implemented)
     }
 }
@@ -627,7 +630,7 @@ impl Representable for PyTuple {
             let s = if zelf.len() == 1 {
                 wtf8_concat!("(", zelf.elements[0].repr(vm)?.as_wtf8(), ",)")
             } else {
-                collection_repr(None, "(", ")", "()", zelf.elements.iter(), vm)?
+                collection_repr(None, "(", ")", "()", zelf.elements.iter().map(|o| &**o), vm)?
             };
             vm.ctx.new_str(s)
         } else {
@@ -779,7 +782,7 @@ pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyRes
 /// dict keys (e.g. state tuples in `pyperformance`'s `mdp` benchmark) are
 /// often deeply nested namedtuples whose leaves are plain ints.
 #[inline]
-fn element_hash(val: &PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
+fn element_hash(val: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
     if val.class().is(vm.ctx.types.int_type)
         && let Some(i) = val.downcast_ref::<PyInt>()
     {

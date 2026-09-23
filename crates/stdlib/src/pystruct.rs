@@ -385,6 +385,6 @@ pub(crate) mod _struct {
 
     #[pyattr(name = "error")]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        struct_error_type(vm).clone()
+        struct_error_type(vm).to_owned()
     }
 }

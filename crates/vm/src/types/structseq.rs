@@ -511,6 +511,7 @@ fn struct_sequence_richcompare(
     // Use the same comparison logic as regular tuples
     zelf_visible
         .iter()
-        .richcompare(other_visible.iter(), op, vm)
+        .map(|o| &**o)
+        .richcompare(other_visible.iter().map(|o| &**o), op, vm)
         .map(|v| Either::B(PyComparisonValue::Implemented(v)))
 }

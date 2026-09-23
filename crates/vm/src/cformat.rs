@@ -324,7 +324,7 @@ fn try_conversion_flag_from_tuple(
     }
 }
 
-fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
+fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObject>>(
     vm: &VirtualMachine,
     elements: &mut I,
     q: &mut Option<CFormatQuantity>,
@@ -335,16 +335,13 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     };
 
     let element = elements.next();
-    f.insert(try_conversion_flag_from_tuple(
-        vm,
-        element.map(|v| v.as_ref()),
-    )?);
-    let quantity = try_update_quantity_from_element(vm, element.map(|v| v.as_ref()))?;
+    f.insert(try_conversion_flag_from_tuple(vm, element)?);
+    let quantity = try_update_quantity_from_element(vm, element)?;
     *q = Some(quantity);
     Ok(())
 }
 
-fn try_update_precision_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
+fn try_update_precision_from_tuple<'a, I: Iterator<Item = &'a PyObject>>(
     vm: &VirtualMachine,
     elements: &mut I,
     p: &mut Option<CFormatPrecision>,
@@ -353,7 +350,7 @@ fn try_update_precision_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
         return Ok(());
     };
 
-    let quantity = try_update_quantity_from_element(vm, elements.next().map(|v| v.as_ref()))?;
+    let quantity = try_update_quantity_from_element(vm, elements.next())?;
     *p = Some(CFormatPrecision::Quantity(quantity));
     Ok(())
 }
@@ -428,7 +425,7 @@ pub(crate) fn cformat_bytes(
     } else {
         core::slice::from_ref(&values_obj)
     };
-    let mut value_iter = values.iter();
+    let mut value_iter = values.iter().map(|v| &**v);
 
     for (_, part) in format {
         match part {
@@ -446,7 +443,7 @@ pub(crate) fn cformat_bytes(
                     return Err(vm.new_type_error("not enough arguments for format string"));
                 };
 
-                let part_result = spec_format_bytes(vm, &spec, value.clone())?;
+                let part_result = spec_format_bytes(vm, &spec, value.to_owned())?;
                 result.extend(part_result);
             }
         }
@@ -525,7 +522,7 @@ pub(crate) fn cformat_string(
         core::slice::from_ref(&values_obj)
     };
 
-    let mut value_iter = values.iter();
+    let mut value_iter = values.iter().map(|v| &**v);
 
     for (_, part) in format {
         match part {
@@ -543,7 +540,7 @@ pub(crate) fn cformat_string(
                     return Err(vm.new_type_error("not enough arguments for format string"));
                 };
 
-                let part_result = spec_format_string(vm, &spec, value.clone())?;
+                let part_result = spec_format_string(vm, &spec, value.to_owned())?;
                 result.push_wtf8(&part_result);
             }
         }

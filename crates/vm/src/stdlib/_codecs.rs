@@ -625,8 +625,10 @@ fn delegate_pycodecs(
 #[cfg(windows)]
 #[pymodule(sub)]
 mod _codecs_windows {
-    use crate::{PyResult, VirtualMachine};
-    use crate::{builtins::PyStrRef, builtins::PyUtf8StrRef, function::ArgBytesLike};
+    use crate::{Py, PyResult, VirtualMachine};
+    use crate::{
+        builtins::PyStr, builtins::PyStrRef, builtins::PyUtf8StrRef, function::ArgBytesLike,
+    };
     use rustpython_host_env::windows as host_windows;
     use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
 
@@ -973,7 +975,7 @@ mod _codecs_windows {
     /// Encode character by character with error handling.
     fn encode_code_page_errors(
         code_page: u32,
-        s: &PyStrRef,
+        s: &Py<PyStr>,
         errors: &str,
         encoding_name: &str,
         vm: &VirtualMachine,
@@ -1024,7 +1026,7 @@ mod _codecs_windows {
             }
             return Err(vm.new_unicode_encode_error(
                 encoding_str,
-                s.clone(),
+                s.to_owned(),
                 fail_pos,
                 fail_pos + 1,
                 reason_str,
@@ -1075,7 +1077,7 @@ mod _codecs_windows {
             // Character can't be encoded - call error handler
             let exc = vm.new_unicode_encode_error(
                 encoding_str.clone(),
-                s.clone(),
+                s.to_owned(),
                 pos,
                 pos + 1,
                 reason_str.clone(),
@@ -1102,7 +1104,7 @@ mod _codecs_windows {
                     if rch > 127 {
                         return Err(vm.new_unicode_encode_error(
                             encoding_str,
-                            s.clone(),
+                            s.to_owned(),
                             pos,
                             pos + 1,
                             vm.ctx

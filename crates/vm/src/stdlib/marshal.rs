@@ -7,7 +7,7 @@ mod decl {
     use crate::class::StaticType;
     use crate::common::wtf8::Wtf8;
     use crate::{
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyBool, PyByteArray, PyBytes, PyCode, PyComplex, PyDict,
             PyEllipsis, PyFloat, PyFrozenSet, PyInt, PyList, PyNone, PySet, PyStopIteration, PyStr,
@@ -149,7 +149,7 @@ mod decl {
         /// `w_ref`: write a back-reference to an object already in the table.
         /// Reaching an entry that is still being written is a recursion the
         /// reader could not rebuild, so it is an error rather than a `TYPE_REF`.
-        fn try_ref(&mut self, buf: &mut Vec<u8>, obj: &PyObjectRef) -> Result<bool, ()> {
+        fn try_ref(&mut self, buf: &mut Vec<u8>, obj: &PyObject) -> Result<bool, ()> {
             use marshal::Write;
             let Some(entry) = self.map.get(&obj.get_id()) else {
                 return Ok(false);
@@ -161,7 +161,7 @@ mod decl {
             buf.write_u32(entry.idx);
             Ok(true)
         }
-        fn reserve(&mut self, obj: &PyObjectRef, incomplete: bool) -> u32 {
+        fn reserve(&mut self, obj: &PyObject, incomplete: bool) -> u32 {
             let idx = self.next_idx;
             self.map
                 .insert(obj.get_id(), WriterRefEntry { idx, incomplete });
@@ -170,7 +170,7 @@ mod decl {
         }
         /// `w_complete`: the object's contents are on the stream, so a later
         /// occurrence may reference it.
-        fn complete(&mut self, obj: &PyObjectRef) {
+        fn complete(&mut self, obj: &PyObject) {
             if let Some(entry) = self.map.get_mut(&obj.get_id()) {
                 entry.incomplete = false;
             }
@@ -179,7 +179,7 @@ mod decl {
 
     fn write_object(
         buf: &mut Vec<u8>,
-        obj: &PyObjectRef,
+        obj: &PyObject,
         refs: &mut Option<WriterRefTable>,
         version: i32,
         allow_code: bool,
@@ -220,7 +220,7 @@ mod decl {
 
     fn write_object_depth(
         buf: &mut Vec<u8>,
-        obj: &PyObjectRef,
+        obj: &PyObject,
         refs: &mut Option<WriterRefTable>,
         version: i32,
         allow_code: bool,
@@ -436,7 +436,7 @@ mod decl {
                 vm,
                 depth - 1,
             )?;
-        } else if let Ok(bytes_like) = ArgBytesLike::try_from_object(vm, obj.clone()) {
+        } else if let Ok(bytes_like) = ArgBytesLike::try_from_object(vm, obj.to_owned()) {
             buf.write_u8(b's');
             let data = bytes_like.borrow_buf();
             buf.write_u32(data.len() as u32);
@@ -798,7 +798,7 @@ mod decl {
     }
 
     /// Reject subclasses of marshallable types (int, float, complex, tuple, etc.).
-    fn check_exact_type(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn check_exact_type(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         let cls = obj.class();
         // bool is a subclass of int but is marshallable
         if cls.is(PyBool::static_type()) {

@@ -415,7 +415,7 @@ impl CodecsRegistry {
     /// `_is_text_encoding` attribute probe, and the round trip through the
     /// pure-Python `encodings.*.decode` wrapper and its 2-tuple result.
     fn decode_fast(
-        obj: &PyObjectRef,
+        obj: &PyObject,
         encoding: &str,
         errors: Option<&Py<PyUtf8Str>>,
         vm: &VirtualMachine,
@@ -423,7 +423,7 @@ impl CodecsRegistry {
         let Some(fast) = FastCodec::classify(encoding) else {
             return Ok(None);
         };
-        let Ok(data) = ArgBytesLike::try_from_object(vm, obj.clone()) else {
+        let Ok(data) = ArgBytesLike::try_from_object(vm, obj.to_owned()) else {
             return Ok(None);
         };
         let errors_handler = ErrorsHandler::new(errors, vm);

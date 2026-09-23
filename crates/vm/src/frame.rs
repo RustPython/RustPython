@@ -2656,7 +2656,7 @@ pub(crate) fn datastack_iframe_total_bytes(nlocalsplus: usize, stacksize: usize)
 /// - `Err(exc)` — no handler, exception propagates to the next caller
 pub(crate) fn trampoline_handle_exception(
     iframe: &mut InterpreterFrame,
-    exception: &PyBaseExceptionRef,
+    exception: &Py<PyBaseException>,
     vm: &VirtualMachine,
 ) -> FrameResult {
     let mut exec = exec_iframe(iframe, Flatten::Nothing, vm);
@@ -2677,13 +2677,13 @@ pub(crate) fn trampoline_handle_exception(
         let mon_events = vm.state.monitoring_events.load();
         if mon_events & monitoring::EVENT_RAISE != 0 {
             let offset = idx as u32 * 2;
-            let exc_obj: PyObjectRef = exception.clone().into();
+            let exc_obj: PyObjectRef = exception.to_owned().into();
             match monitoring::fire_raise(vm, exec.code, offset, &exc_obj) {
-                Ok(()) => exception.clone(),
+                Ok(()) => exception.to_owned(),
                 Err(monitor_exc) => monitor_exc,
             }
         } else {
-            exception.clone()
+            exception.to_owned()
         }
     };
 
@@ -3505,10 +3505,10 @@ impl ExecutingFrame<'_> {
     /// Fire 'exception' trace event (sys.settrace) with (type, value, traceback) tuple.
     /// Matches `_PyEval_MonitorRaise` → `PY_MONITORING_EVENT_RAISE` →
     /// `sys_trace_exception_func` in legacy_tracing.c.
-    fn fire_exception_trace(&self, exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn fire_exception_trace(&self, exc: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<()> {
         if vm.use_tracing.get() && self.trace_is_set(vm) {
             let exc_type: PyObjectRef = exc.class().to_owned().into();
-            let exc_value: PyObjectRef = exc.clone().into();
+            let exc_value: PyObjectRef = exc.to_owned().into();
             let exc_tb: PyObjectRef = exc
                 .__traceback__()
                 .map_or_else(|| vm.ctx.none(), |tb| -> PyObjectRef { tb.into() });
@@ -6665,8 +6665,8 @@ impl ExecutingFrame<'_> {
                 if !self_or_null_is_some
                     && let Some(bound_method) = callable.downcast_ref_if_exact::<PyBoundMethod>(vm)
                 {
-                    let bound_function = bound_method.function_obj().clone();
-                    let bound_self = bound_method.self_obj().clone();
+                    let bound_function = bound_method.function_obj().to_owned();
+                    let bound_self = bound_method.self_obj().to_owned();
                     if let Some(func) = bound_function.downcast_ref_if_exact::<PyFunction>(vm)
                         && func.func_version() == cached_version
                         && cached_version != 0
@@ -6928,8 +6928,8 @@ impl ExecutingFrame<'_> {
                 if !self_or_null_is_some
                     && let Some(bound_method) = callable.downcast_ref_if_exact::<PyBoundMethod>(vm)
                 {
-                    let bound_function = bound_method.function_obj().clone();
-                    let bound_self = bound_method.self_obj().clone();
+                    let bound_function = bound_method.function_obj().to_owned();
+                    let bound_self = bound_method.self_obj().to_owned();
                     if let Some(func) = bound_function.downcast_ref_if_exact::<PyFunction>(vm)
                         && func.func_version() == cached_version
                         && cached_version != 0
@@ -7350,8 +7350,8 @@ impl ExecutingFrame<'_> {
                 if !self_or_null_is_some
                     && let Some(bound_method) = callable.downcast_ref_if_exact::<PyBoundMethod>(vm)
                 {
-                    let bound_function = bound_method.function_obj().clone();
-                    let bound_self = bound_method.self_obj().clone();
+                    let bound_function = bound_method.function_obj().to_owned();
+                    let bound_self = bound_method.self_obj().to_owned();
                     if let Some(func) = bound_function.downcast_ref_if_exact::<PyFunction>(vm)
                         && func.func_version() == cached_version
                         && cached_version != 0
@@ -8377,7 +8377,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn mapping_get_optional(
         &self,
-        mapping: &PyObjectRef,
+        mapping: &PyObject,
         name: &Py<PyStr>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
@@ -8471,7 +8471,7 @@ impl ExecutingFrame<'_> {
             .ok()
             .filter(|s| !vm.is_none(s));
 
-        let origin = get_spec_file_origin(spec.as_ref(), vm);
+        let origin = get_spec_file_origin(spec.as_deref(), vm);
 
         let is_possibly_shadowing = origin
             .as_ref()
@@ -12526,7 +12526,7 @@ impl fmt::Debug for FrameObject {
 
 /// _PyEval_SpecialMethodCanSuggest
 fn special_method_can_suggest(
-    obj: &PyObjectRef,
+    obj: &PyObject,
     oparg: SpecialMethod,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
