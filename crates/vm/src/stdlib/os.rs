@@ -2,7 +2,7 @@
 #![allow(unreachable_pub)]
 
 use crate::{
-    AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyModule, PySet},
     convert::{IntoPyException, ToPyException, ToPyObject},
     function::{ArgumentError, FromArgs, FuncArgs},
@@ -30,14 +30,7 @@ pub struct TargetIsDirectory {
     pub(crate) target_is_directory: bool,
 }
 
-cfg_select! {
-    any(unix, target_os = "wasi") => {
-        use libc::AT_FDCWD;
-    }
-    _ => {
-        const AT_FDCWD: i32 = -100;
-    }
-}
+use crate::host_env::os::AT_FDCWD;
 
 const DEFAULT_DIR_FD: crt_fd::Borrowed<'static> = unsafe { crt_fd::Borrowed::borrow_raw(AT_FDCWD) };
 
@@ -154,7 +147,7 @@ fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ff
     })
 }
 
-pub(crate) fn warn_if_bool_fd(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+pub(crate) fn warn_if_bool_fd(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
     use crate::class::StaticType;
     if obj
         .class()
@@ -249,25 +242,15 @@ pub(super) mod _os {
     const SCANDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
     #[pyattr]
-    use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
+    use crate::host_env::os::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
 
     #[pyattr]
-    pub(crate) const F_OK: u8 = 0;
-    #[pyattr]
-    pub(crate) const R_OK: u8 = 1 << 2;
-    #[pyattr]
-    pub(crate) const W_OK: u8 = 1 << 1;
-    #[pyattr]
-    pub(crate) const X_OK: u8 = 1 << 0;
+    pub(crate) use crate::host_env::os::{F_OK, R_OK, W_OK, X_OK};
 
     // ST_RDONLY and ST_NOSUID flags for statvfs
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyattr]
-    const ST_RDONLY: libc::c_ulong = libc::ST_RDONLY;
-
-    #[cfg(all(unix, not(target_os = "redox")))]
-    #[pyattr]
-    const ST_NOSUID: libc::c_ulong = libc::ST_NOSUID;
+    use crate::host_env::os::{ST_NOSUID, ST_RDONLY};
 
     #[pyfunction]
     fn close(fd: crt_fd::Owned) -> io::Result<()> {
@@ -312,14 +295,14 @@ pub(super) mod _os {
         let fd = {
             let [] = dir_fd.0;
             let name = name.to_wide_cstring(vm)?;
-            let flags = flags | libc::O_NOINHERIT;
+            let flags = flags | crate::host_env::os::O_NOINHERIT;
             crt_fd::wopen(&name, flags, mode)
         };
         #[cfg(not(windows))]
         let fd = {
             let name = name.clone().into_cstring(vm)?;
             #[cfg(not(target_os = "wasi"))]
-            let flags = flags | libc::O_CLOEXEC;
+            let flags = flags | crate::host_env::os::O_CLOEXEC;
             #[cfg(not(target_os = "redox"))]
             if let Some(dir_fd) = dir_fd.get_opt() {
                 crt_fd::openat(dir_fd, &name, flags, mode)

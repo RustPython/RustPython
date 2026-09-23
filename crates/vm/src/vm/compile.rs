@@ -204,6 +204,104 @@ impl VirtualMachine {
         name == "utf-8"
     }
 
+    /// Load the source line for a compiler SyntaxError. Tokenizer errors keep
+    /// the in-memory line; compiler errors read the file named by the
+    /// exception, and get None when that file cannot be opened.
+    #[cfg(any(feature = "parser", feature = "compiler"))]
+    pub(crate) fn program_text(&self, filename: &str, lineno: usize) -> Option<String> {
+        if lineno == 0 {
+            return None;
+        }
+        #[cfg(feature = "host_env")]
+        {
+            let buf = crate::host_env::fs::read(filename).ok()?;
+            let decoded = {
+                #[cfg(feature = "parser")]
+                {
+                    let encoding = Self::detect_source_encoding(&buf);
+                    if encoding.as_deref().is_none_or(Self::is_utf8_encoding) {
+                        String::from_utf8_lossy(&buf).into_owned()
+                    } else if encoding.as_deref() == Some("iso-8859-1") {
+                        buf.iter().copied().map(char::from).collect()
+                    } else {
+                        let name = encoding.as_deref()?;
+                        let bytes = self.ctx.new_bytes(buf);
+                        self.state
+                            .codec_registry
+                            .decode_text(bytes.into(), name, None, self)
+                            .ok()?
+                            .to_string_lossy()
+                            .into_owned()
+                    }
+                }
+                #[cfg(not(feature = "parser"))]
+                {
+                    String::from_utf8_lossy(&buf).into_owned()
+                }
+            };
+            let mut remaining = decoded.as_str();
+            if remaining.starts_with('\u{feff}') {
+                remaining = &remaining['\u{feff}'.len_utf8()..];
+            }
+            remaining
+                .split_inclusive('\n')
+                .nth(lineno.checked_sub(1)?)
+                .map(str::to_owned)
+        }
+        #[cfg(not(feature = "host_env"))]
+        {
+            let _ = filename;
+            None
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    fn new_non_utf8_syntax_error(
+        &self,
+        filename: &str,
+        src: &[u8],
+        error_at: usize,
+    ) -> PyBaseExceptionRef {
+        let bad_byte = src[error_at];
+        let line_start = src[..error_at]
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |i| i + 1);
+        let lineno = src[..error_at].iter().filter(|&&b| b == b'\n').count() + 1;
+        let offset =
+            core::str::from_utf8(&src[line_start..error_at]).map_or(1, |s| s.chars().count() + 1);
+        let line_end = src[line_start..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(src.len(), |i| line_start + i);
+        let text = String::from_utf8_lossy(&src[line_start..line_end]).into_owned();
+        let in_file = if filename.starts_with('<') {
+            String::new()
+        } else {
+            format!(" in file {filename}")
+        };
+        let msg = format!(
+            "Non-UTF-8 code starting with '\\x{bad_byte:02x}'{in_file} \
+             on line {lineno}, but no encoding declared; \
+             see https://peps.python.org/pep-0263/ for details"
+        );
+        let location = self.ctx.new_tuple(vec![
+            self.ctx.new_str(filename).into(),
+            self.ctx.new_int(lineno).into(),
+            self.ctx.new_int(offset).into(),
+            self.ctx.new_str(text).into(),
+            self.ctx.new_int(lineno).into(),
+            self.ctx.new_int(offset).into(),
+        ]);
+        self.invoke_exception(
+            self.ctx.exceptions.syntax_error,
+            vec![self.ctx.new_str(msg.as_str()).into(), location.into()],
+        )
+        .unwrap_or_else(|_| {
+            self.new_exception_msg(self.ctx.exceptions.syntax_error.to_owned(), msg.into())
+        })
+    }
+
     #[cfg(feature = "parser")]
     pub(crate) fn decode_source_bytes(
         &self,
@@ -223,34 +321,37 @@ impl VirtualMachine {
         let is_utf8 = encoding.as_deref().is_none_or(Self::is_utf8_encoding);
         if has_bom && !is_utf8 {
             let enc = encoding.as_deref().unwrap_or("utf-8");
-            return Err(self.new_exception_msg(
-                self.ctx.exceptions.syntax_error.to_owned(),
-                format!("encoding problem: {enc} with BOM").into(),
-            ));
+            let after_bom = &source[3..];
+            let line_end = after_bom
+                .iter()
+                .position(|&b| b == b'\n')
+                .unwrap_or(after_bom.len());
+            let text = String::from_utf8_lossy(&after_bom[..line_end]).into_owned();
+            let end_offset = text.chars().count() as i32;
+            let msg = format!("encoding problem: {enc} with BOM");
+            let location = self.ctx.new_tuple(vec![
+                self.ctx.new_str(filename).into(),
+                self.ctx.new_int(1).into(),
+                self.ctx.new_int(0).into(),
+                self.ctx.new_str(text).into(),
+                self.ctx.new_int(1).into(),
+                self.ctx.new_int(end_offset).into(),
+            ]);
+            return Err(self
+                .invoke_exception(
+                    self.ctx.exceptions.syntax_error,
+                    vec![self.ctx.new_str(msg.as_str()).into(), location.into()],
+                )
+                .unwrap_or_else(|_| {
+                    self.new_exception_msg(self.ctx.exceptions.syntax_error.to_owned(), msg.into())
+                }));
         }
 
         if is_utf8 {
             let src = if has_bom { &source[3..] } else { source };
             match core::str::from_utf8(src) {
                 Ok(s) => Ok(s.to_owned()),
-                Err(e) => {
-                    let bad_byte = src[e.valid_up_to()];
-                    let line = src[..e.valid_up_to()]
-                        .iter()
-                        .filter(|&&b| b == b'\n')
-                        .count()
-                        + 1;
-                    Err(self.new_exception_msg(
-                        self.ctx.exceptions.syntax_error.to_owned(),
-                        format!(
-                            "Non-UTF-8 code starting with '\\x{bad_byte:02x}' \
-                             on line {line}, but no encoding declared; \
-                             see https://peps.python.org/pep-0263/ for details \
-                             ({filename}, line {line})"
-                        )
-                        .into(),
-                    ))
-                }
+                Err(e) => Err(self.new_non_utf8_syntax_error(filename, src, e.valid_up_to())),
             }
         } else {
             let encoding = encoding.as_deref().unwrap();

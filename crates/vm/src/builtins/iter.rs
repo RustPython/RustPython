@@ -216,12 +216,12 @@ where
     locked_step(internal, |internal| internal.rev_next(f))
 }
 
-pub fn builtins_iter(vm: &VirtualMachine) -> PyObjectRef {
-    vm.builtins.get_attr("iter", vm).unwrap()
+pub fn builtins_iter(vm: &VirtualMachine) -> PyResult {
+    vm.eval_get_builtin(vm.ctx.intern_str("iter"))
 }
 
-pub fn builtins_reversed(vm: &VirtualMachine) -> PyObjectRef {
-    vm.builtins.get_attr("reversed", vm).unwrap()
+pub fn builtins_reversed(vm: &VirtualMachine) -> PyResult {
+    vm.eval_get_builtin(vm.ctx.intern_str("reversed"))
 }
 
 #[pyclass(module = false, name = "iterator", traverse)]
@@ -271,14 +271,14 @@ impl PySequenceIterator {
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let func = builtins_iter(vm);
-        self.internal.lock().reduce(
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let func = builtins_iter(vm)?;
+        Ok(self.internal.lock().reduce(
             func,
             |x| x.clone(),
             |vm| vm.ctx.empty_tuple.clone().into(),
             vm,
-        )
+        ))
     }
 
     #[pymethod]
@@ -322,14 +322,14 @@ impl PyCallableIterator {
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let func = builtins_iter(vm);
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let func = builtins_iter(vm)?;
         let status = self.status.read();
         if let IterStatus::Active(callable) = &*status {
             let callable_obj: PyObjectRef = callable.clone().into();
-            vm.new_tuple((func, (callable_obj, self.sentinel.clone())))
+            Ok(vm.new_tuple((func, (callable_obj, self.sentinel.clone()))))
         } else {
-            vm.new_tuple((func, (vm.ctx.empty_tuple.clone(),)))
+            Ok(vm.new_tuple((func, (vm.ctx.empty_tuple.clone(),))))
         }
     }
 }

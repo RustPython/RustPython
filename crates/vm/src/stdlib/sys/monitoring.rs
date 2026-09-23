@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyCode, PyDictRef, PyNamespace, PyUtf8StrRef, code::CoMonitoringData},
     function::FuncArgs,
 };
@@ -58,6 +58,29 @@ pub(crate) const EVENT_STOP_ITERATION: u32 = MonitoringEvents::STOP_ITERATION.bi
 pub(crate) const EVENT_PY_THROW: u32 = MonitoringEvents::PY_THROW.bits();
 const EVENT_BRANCH: u32 = MonitoringEvents::BRANCH.bits();
 pub(crate) const EVENT_RERAISE: u32 = MonitoringEvents::RERAISE.bits();
+
+/// `tstate->what_event` values, the event currently being monitored.
+pub(crate) const WHAT_PY_START: i32 = 0;
+pub(crate) const WHAT_PY_RESUME: i32 = 1;
+pub(crate) const WHAT_PY_RETURN: i32 = 2;
+pub(crate) const WHAT_PY_YIELD: i32 = 3;
+pub(crate) const WHAT_CALL: i32 = 4;
+pub(crate) const WHAT_LINE: i32 = 5;
+pub(crate) const WHAT_INSTRUCTION: i32 = 6;
+pub(crate) const WHAT_JUMP: i32 = 7;
+pub(crate) const WHAT_BRANCH_LEFT: i32 = 8;
+pub(crate) const WHAT_BRANCH_RIGHT: i32 = 9;
+#[allow(dead_code)]
+pub(crate) const WHAT_STOP_ITERATION: i32 = 10;
+pub(crate) const WHAT_RAISE: i32 = 11;
+pub(crate) const WHAT_EXCEPTION_HANDLED: i32 = 12;
+pub(crate) const WHAT_PY_UNWIND: i32 = 13;
+pub(crate) const WHAT_PY_THROW: i32 = 14;
+#[allow(dead_code)]
+pub(crate) const WHAT_RERAISE: i32 = 15;
+pub(crate) const WHAT_C_RETURN: i32 = 16;
+pub(crate) const WHAT_C_RAISE: i32 = 17;
+pub(crate) const WHAT_BRANCH: i32 = 18;
 const EVENT_C_RETURN_MASK: u32 = EVENT_C_RETURN | EVENT_C_RAISE;
 
 const EVENT_NAMES: [&str; EVENTS_COUNT] = [
@@ -268,7 +291,7 @@ fn opcode_event_is_active(
 /// Walk real instructions, skipping specialization CACHE payloads.
 /// Cache slots may contain pointer bits that are not valid opcodes.
 fn for_each_instruction(
-    code: &PyCode,
+    code: &Py<PyCode>,
     mut f: impl FnMut(usize, rustpython_compiler_core::bytecode::Instruction, u8),
 ) {
     let len = code.code.instructions.len();
@@ -291,7 +314,7 @@ fn for_each_instruction(
 ///
 /// De-instrumentation peels layers in reverse order.
 /// Specialized opcodes are restored to base only when their EVENT_FOR_OPCODE is active.
-pub(crate) fn instrument_code(code: &PyCode, events: u32) {
+pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
     use rustpython_compiler_core::bytecode::{self, Instruction};
 
     let len = code.code.instructions.len();
@@ -883,6 +906,7 @@ fn fire(
 
     FIRING.with(|f| f.set(true));
     vm.enter_tracing();
+    let old_what = vm.what_event.replace(event_id as i32);
     let result = (|| {
         for (tool, cb) in callbacks {
             let result = cb.call(args.clone(), vm)?;
@@ -905,6 +929,7 @@ fn fire(
         }
         Ok(())
     })();
+    vm.what_event.set(old_what);
     vm.leave_tracing();
     FIRING.with(|f| f.set(false));
     result
@@ -936,14 +961,14 @@ pub(crate) fn fire_py_return(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    retval: &PyObjectRef,
+    retval: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_RETURN,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), retval.clone()],
+        &[vm.ctx.new_int(offset).into(), retval.to_owned()],
     )
 }
 
@@ -951,14 +976,14 @@ pub(crate) fn fire_py_yield(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    retval: &PyObjectRef,
+    retval: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_YIELD,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), retval.clone()],
+        &[vm.ctx.new_int(offset).into(), retval.to_owned()],
     )
 }
 
@@ -966,7 +991,7 @@ pub(crate) fn fire_call(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    callable: &PyObjectRef,
+    callable: &PyObject,
     arg0: PyObjectRef,
 ) -> PyResult<()> {
     fire(
@@ -974,7 +999,7 @@ pub(crate) fn fire_call(
         EVENT_CALL,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), callable.clone(), arg0],
+        &[vm.ctx.new_int(offset).into(), callable.to_owned(), arg0],
     )
 }
 
@@ -982,7 +1007,7 @@ pub(crate) fn fire_c_return(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    callable: &PyObjectRef,
+    callable: &PyObject,
     arg0: PyObjectRef,
 ) -> PyResult<()> {
     fire(
@@ -990,7 +1015,7 @@ pub(crate) fn fire_c_return(
         EVENT_C_RETURN,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), callable.clone(), arg0],
+        &[vm.ctx.new_int(offset).into(), callable.to_owned(), arg0],
     )
 }
 
@@ -998,7 +1023,7 @@ pub(crate) fn fire_c_raise(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    callable: &PyObjectRef,
+    callable: &PyObject,
     arg0: PyObjectRef,
 ) -> PyResult<()> {
     fire(
@@ -1006,7 +1031,7 @@ pub(crate) fn fire_c_raise(
         EVENT_C_RAISE,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), callable.clone(), arg0],
+        &[vm.ctx.new_int(offset).into(), callable.to_owned(), arg0],
     )
 }
 
@@ -1037,14 +1062,14 @@ pub(crate) fn fire_raise(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
         EVENT_RAISE,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
@@ -1054,7 +1079,7 @@ pub(crate) fn fire_reraise(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     if RERAISE_PENDING.with(|f| f.get()) {
         return Ok(());
@@ -1065,7 +1090,7 @@ pub(crate) fn fire_reraise(
         EVENT_RERAISE,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     );
     if result.is_err() {
         RERAISE_PENDING.with(|f| f.set(false));
@@ -1077,7 +1102,7 @@ pub(crate) fn fire_exception_handled(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     RERAISE_PENDING.with(|f| f.set(false));
     fire(
@@ -1085,7 +1110,7 @@ pub(crate) fn fire_exception_handled(
         EVENT_EXCEPTION_HANDLED,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
@@ -1093,7 +1118,7 @@ pub(crate) fn fire_py_unwind(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     RERAISE_PENDING.with(|f| f.set(false));
     fire(
@@ -1101,7 +1126,7 @@ pub(crate) fn fire_py_unwind(
         EVENT_PY_UNWIND,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
@@ -1109,14 +1134,14 @@ pub(crate) fn fire_py_throw(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_THROW,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
@@ -1126,16 +1151,12 @@ pub(crate) fn fire_stop_iteration(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    value: &PyObjectRef,
+    value: &PyObject,
 ) -> PyResult<()> {
     let exc: PyObjectRef = if value.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
-        value.clone()
+        value.to_owned()
     } else {
-        vm.ctx
-            .exceptions
-            .stop_iteration
-            .as_object()
-            .call(vec![value.clone()], vm)?
+        vm.new_stop_iteration(Some(value.to_owned())).into()
     };
     fire(
         vm,

@@ -10,7 +10,7 @@ mod _lzma {
     use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytesRef, PyDict, PyType, PyTypeRef};
     use rustpython_vm::function::ArgBytesLike;
     use rustpython_vm::types::Constructor;
-    use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+    use rustpython_vm::{Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 
     #[pyattr]
     const CHECK_NONE: i32 = backend::CHECK_NONE;
@@ -97,11 +97,7 @@ mod _lzma {
         }
     }
 
-    fn get_dict_opt_u32(
-        spec: &PyObjectRef,
-        key: &str,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<u32>> {
+    fn get_dict_opt_u32(spec: &PyObject, key: &str, vm: &VirtualMachine) -> PyResult<Option<u32>> {
         let dict = spec.downcast_ref::<PyDict>().ok_or_else(|| {
             vm.new_type_error("Filter specifier must be a dict or dict-like object")
         })?;
@@ -111,11 +107,7 @@ mod _lzma {
         }
     }
 
-    fn get_dict_opt_u64(
-        spec: &PyObjectRef,
-        key: &str,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<u64>> {
+    fn get_dict_opt_u64(spec: &PyObject, key: &str, vm: &VirtualMachine) -> PyResult<Option<u64>> {
         let dict = spec.downcast_ref::<PyDict>().ok_or_else(|| {
             vm.new_type_error("Filter specifier must be a dict or dict-like object")
         })?;
@@ -125,10 +117,7 @@ mod _lzma {
         }
     }
 
-    fn filter_spec_with_id(
-        spec: &PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<backend::FilterSpec> {
+    fn filter_spec_with_id(spec: &PyObject, vm: &VirtualMachine) -> PyResult<backend::FilterSpec> {
         let id = get_dict_opt_u64(spec, "id", vm)?
             .ok_or_else(|| vm.new_value_error("Filter specifier must have an \"id\" entry"))?;
         Ok(backend::FilterSpec {
@@ -138,7 +127,7 @@ mod _lzma {
     }
 
     fn parse_filter_chain_item(
-        spec: &PyObjectRef,
+        spec: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<backend::FilterSpec> {
         let mut parsed = filter_spec_with_id(spec, vm)?;
@@ -165,7 +154,7 @@ mod _lzma {
     }
 
     fn parse_filter_properties(
-        spec: &PyObjectRef,
+        spec: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<backend::FilterSpec> {
         let mut parsed = filter_spec_with_id(spec, vm)?;

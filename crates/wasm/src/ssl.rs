@@ -6,8 +6,8 @@ mod _ssl {
     use rustls::pki_types::ServerName;
     use rustls::{ClientConfig, ClientConnection, Connection};
     use rustpython_host_env::ssl::{
-        self as host_ssl, MemoryBio, ProtoVersion, TlsConnection, TlsError, cipher, oid,
-        providers::CryptoExt, rustls_versions, validate_hostname, verify::NoVerifier,
+        self as host_ssl, MemoryBio, TlsConnection, TlsError, cipher, oid, providers::CryptoExt,
+        rustls_versions, validate_hostname, verify::NoVerifier,
     };
     use rustpython_vm::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -40,19 +40,11 @@ mod _ssl {
     const PROTOCOL_TLSv1_3: i32 = host_ssl::PROTOCOL_TLSV1_3;
 
     #[pyattr]
-    const PROTO_SSLv3: i32 = ProtoVersion::Ssl3 as i32;
-    #[pyattr]
-    const PROTO_TLSv1: i32 = ProtoVersion::Tls1 as i32;
-    #[pyattr]
-    const PROTO_TLSv1_1: i32 = ProtoVersion::Tls1_1 as i32;
-    #[pyattr]
-    const PROTO_TLSv1_2: i32 = host_ssl::PROTO_TLSV1_2;
-    #[pyattr]
-    const PROTO_TLSv1_3: i32 = host_ssl::PROTO_TLSV1_3;
-    #[pyattr]
-    const PROTO_MINIMUM_SUPPORTED: i32 = ProtoVersion::MinSupported as i32;
-    #[pyattr]
-    const PROTO_MAXIMUM_SUPPORTED: i32 = ProtoVersion::MaxSupported as i32;
+    use host_ssl::{
+        PROTO_MAXIMUM_SUPPORTED, PROTO_MINIMUM_SUPPORTED, PROTO_SSL3 as PROTO_SSLv3,
+        PROTO_TLSV1 as PROTO_TLSv1, PROTO_TLSV1_1 as PROTO_TLSv1_1, PROTO_TLSV1_2 as PROTO_TLSv1_2,
+        PROTO_TLSV1_3 as PROTO_TLSv1_3,
+    };
 
     #[pyattr]
     const CERT_NONE: i32 = host_ssl::CERT_NONE;
@@ -79,81 +71,26 @@ mod _ssl {
     const HOSTFLAG_NEVER_CHECK_SUBJECT: i32 = host_ssl::HOSTFLAG_NEVER_CHECK_SUBJECT;
 
     #[pyattr]
-    const OP_NO_SSLv2: i32 = 0;
-    #[pyattr]
-    const OP_NO_SSLv3: i32 = 0x0200_0000;
-    #[pyattr]
-    const OP_NO_TLSv1: i32 = 0x0400_0000;
-    #[pyattr]
-    const OP_NO_TLSv1_1: i32 = 0x1000_0000;
-    #[pyattr]
-    const OP_NO_TLSv1_2: i32 = host_ssl::OP_NO_TLSV1_2;
-    #[pyattr]
-    const OP_NO_TLSv1_3: i32 = host_ssl::OP_NO_TLSV1_3;
-    #[pyattr]
-    const OP_NO_COMPRESSION: i32 = 0x0002_0000;
-    #[pyattr]
-    const OP_CIPHER_SERVER_PREFERENCE: i32 = 0x0040_0000;
-    #[pyattr]
-    const OP_SINGLE_DH_USE: i32 = 0;
-    #[pyattr]
-    const OP_SINGLE_ECDH_USE: i32 = 0;
-    #[pyattr]
-    const OP_NO_TICKET: i32 = 0x0000_4000;
-    #[pyattr]
-    const OP_LEGACY_SERVER_CONNECT: i32 = 0x0000_0004;
-    #[pyattr]
-    const OP_NO_RENEGOTIATION: i32 = 0x4000_0000;
-    #[pyattr]
-    const OP_IGNORE_UNEXPECTED_EOF: i32 = 0x0000_0080;
-    #[pyattr]
-    const OP_ENABLE_MIDDLEBOX_COMPAT: i32 = 0x0010_0000;
-    #[pyattr]
-    const OP_ALL: i32 = 0x0000_0BFB;
+    use host_ssl::{
+        OP_ALL, OP_CIPHER_SERVER_PREFERENCE, OP_ENABLE_MIDDLEBOX_COMPAT, OP_IGNORE_UNEXPECTED_EOF,
+        OP_LEGACY_SERVER_CONNECT, OP_NO_COMPRESSION, OP_NO_RENEGOTIATION, OP_NO_SSLv2, OP_NO_SSLv3,
+        OP_NO_TICKET, OP_NO_TLSV1 as OP_NO_TLSv1, OP_NO_TLSV1_1 as OP_NO_TLSv1_1,
+        OP_NO_TLSV1_2 as OP_NO_TLSv1_2, OP_NO_TLSV1_3 as OP_NO_TLSv1_3, OP_SINGLE_DH_USE,
+        OP_SINGLE_ECDH_USE,
+    };
 
     #[pyattr]
-    const ALERT_DESCRIPTION_CLOSE_NOTIFY: i32 = 0;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNEXPECTED_MESSAGE: i32 = 10;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_RECORD_MAC: i32 = 20;
-    #[pyattr]
-    const ALERT_DESCRIPTION_HANDSHAKE_FAILURE: i32 = 40;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_CERTIFICATE: i32 = 42;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_EXPIRED: i32 = 45;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNKNOWN_CA: i32 = 48;
-    #[pyattr]
-    const ALERT_DESCRIPTION_DECODE_ERROR: i32 = 50;
-    #[pyattr]
-    const ALERT_DESCRIPTION_PROTOCOL_VERSION: i32 = 70;
-    #[pyattr]
-    const ALERT_DESCRIPTION_INTERNAL_ERROR: i32 = 80;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNRECOGNIZED_NAME: i32 = 112;
-
-    #[pyattr]
-    const SSL_ERROR_NONE: i32 = 0;
-    #[pyattr]
-    const SSL_ERROR_SSL: i32 = 1;
-    #[pyattr]
-    const SSL_ERROR_WANT_READ: i32 = 2;
-    #[pyattr]
-    const SSL_ERROR_WANT_WRITE: i32 = 3;
-    #[pyattr]
-    const SSL_ERROR_WANT_X509_LOOKUP: i32 = 4;
-    #[pyattr]
-    const SSL_ERROR_SYSCALL: i32 = 5;
-    #[pyattr]
-    const SSL_ERROR_ZERO_RETURN: i32 = 6;
-    #[pyattr]
-    const SSL_ERROR_WANT_CONNECT: i32 = 7;
-    #[pyattr]
-    const SSL_ERROR_EOF: i32 = 8;
-    #[pyattr]
-    const SSL_ERROR_INVALID_ERROR_CODE: i32 = 10;
+    use host_ssl::{
+        ALERT_DESCRIPTION_BAD_CERTIFICATE, ALERT_DESCRIPTION_BAD_RECORD_MAC,
+        ALERT_DESCRIPTION_CERTIFICATE_EXPIRED, ALERT_DESCRIPTION_CLOSE_NOTIFY,
+        ALERT_DESCRIPTION_DECODE_ERROR, ALERT_DESCRIPTION_HANDSHAKE_FAILURE,
+        ALERT_DESCRIPTION_INTERNAL_ERROR, ALERT_DESCRIPTION_PROTOCOL_VERSION,
+        ALERT_DESCRIPTION_UNEXPECTED_MESSAGE, ALERT_DESCRIPTION_UNKNOWN_CA,
+        ALERT_DESCRIPTION_UNRECOGNIZED_NAME, SSL_ERROR_EOF, SSL_ERROR_INVALID_ERROR_CODE,
+        SSL_ERROR_NONE, SSL_ERROR_SSL, SSL_ERROR_SYSCALL, SSL_ERROR_WANT_CONNECT,
+        SSL_ERROR_WANT_READ, SSL_ERROR_WANT_WRITE, SSL_ERROR_WANT_X509_LOOKUP,
+        SSL_ERROR_ZERO_RETURN,
+    };
 
     #[pyattr]
     const OPENSSL_VERSION_NUMBER: i32 = 0x3030_0000;
@@ -197,11 +134,7 @@ mod _ssl {
     const HAS_PHA: bool = false;
 
     #[pyattr]
-    const ENCODING_PEM: i32 = 1;
-    #[pyattr]
-    const ENCODING_DER: i32 = 2;
-    #[pyattr]
-    const ENCODING_PEM_AUX: i32 = 0x101;
+    use host_ssl::{ENCODING_DER, ENCODING_PEM, ENCODING_PEM_AUX};
 
     #[pyattr]
     #[pyexception(name = "SSLError", base = PyOSError)]

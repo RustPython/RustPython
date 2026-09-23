@@ -398,7 +398,36 @@ impl PyBaseObject {
 
     #[pymethod]
     pub fn __dir__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-        zelf.dir(vm)
+        let mut names: Vec<PyObjectRef> = Vec::new();
+
+        match zelf.get_attr(identifier!(vm, __dict__), vm) {
+            Ok(obj) => {
+                if let Ok(dict) = obj.downcast::<PyDict>() {
+                    names.extend(
+                        dict.into_iter()
+                            .filter_map(|(k, _)| k.downcast_ref::<PyStr>().is_some().then_some(k)),
+                    );
+                }
+            }
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+            Err(e) => return Err(e),
+        }
+
+        match zelf.get_attr(identifier!(vm, __class__), vm) {
+            Ok(cls_obj) => {
+                if let Some(cls) = cls_obj.downcast_ref::<PyType>() {
+                    for (name, _) in cls.get_attributes(&vm.ctx) {
+                        names.push(name.to_object());
+                    }
+                }
+            }
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+            Err(e) => return Err(e),
+        }
+
+        let lst = PyList::from(names);
+        lst.sort(Default::default(), vm)?;
+        Ok(lst)
     }
 
     #[pymethod]
@@ -655,7 +684,7 @@ fn object_getstate(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyRes
 }
 
 /// Get list items iterator if obj is a list (or subclass), None iterator otherwise
-fn get_items_iter(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+fn get_items_iter(obj: &PyObject, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
     let listitems: PyObjectRef = if obj.fast_isinstance(vm.ctx.types.list_type) {
         obj.get_iter(vm)?.into()
     } else {

@@ -5,12 +5,14 @@ pub(crate) use _heapq::module_def;
 mod _heapq {
 
     use crate::vm::{
-        PyObjectRef, PyResult, VirtualMachine, builtins::PyListRef, types::PyComparisonOp,
+        Py, PyObjectRef, PyResult, VirtualMachine,
+        builtins::{PyList, PyListRef},
+        types::PyComparisonOp,
     };
 
     /// [CPython's siftdown](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L25-L68)
     fn siftdown(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         startpos: usize,
         mut pos: usize,
         vm: &VirtualMachine,
@@ -53,7 +55,7 @@ mod _heapq {
     }
 
     /// [CPython's siftup](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L70-L118)
-    fn siftup(heap: &PyListRef, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn siftup(heap: &Py<PyList>, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
         let endpos = heap.__len__();
         let startpos = pos;
 
@@ -104,13 +106,13 @@ mod _heapq {
     /// - [CPython's _heapq_heappush_impl](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L131-L150)
     /// - [CPython's _heapq_heappush_max_impl](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L512-L532)
     fn heappush_internal<F>(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         item: PyObjectRef,
         siftdown_func: F,
         vm: &VirtualMachine,
     ) -> PyResult<()>
     where
-        F: Fn(&PyListRef, usize, usize, &VirtualMachine) -> PyResult<()>,
+        F: Fn(&Py<PyList>, usize, usize, &VirtualMachine) -> PyResult<()>,
     {
         {
             let mut vec = heap.borrow_vec_mut();
@@ -129,12 +131,12 @@ mod _heapq {
 
     /// [CPython's heappop_internal](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L152-L183)
     fn heappop_internal<F>(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         siftup_func: F,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef>
     where
-        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+        F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
         let Some(lastelt) = heap.borrow_vec_mut().pop() else {
             return Err(vm.new_index_error("index out of range"));
@@ -162,13 +164,13 @@ mod _heapq {
 
     /// [CPython's heapreplace_internal](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L202-L220)
     fn heapreplace_internal<F>(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         item: PyObjectRef,
         siftup_func: F,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef>
     where
-        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+        F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
         let returnitem = {
             let mut vec = heap.borrow_vec_mut();
@@ -242,12 +244,12 @@ mod _heapq {
 
     /// [CPython's cache_friendly_heapify](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L311-L362)
     fn cache_friendly_heapify<F>(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         siftup_func: F,
         vm: &VirtualMachine,
     ) -> PyResult<()>
     where
-        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+        F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
         let m = heap.__len__() >> 1; // index of first childless node
         let leftmost = keep_top_bit(m + 1) - 1; // leftmost node in row of m 
@@ -285,9 +287,9 @@ mod _heapq {
     }
 
     /// [CPython's heapify_internal](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L364-L388)
-    fn heapify_internal<F>(heap: &PyListRef, siftup_func: F, vm: &VirtualMachine) -> PyResult<()>
+    fn heapify_internal<F>(heap: &Py<PyList>, siftup_func: F, vm: &VirtualMachine) -> PyResult<()>
     where
-        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+        F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
         let n = heap.__len__();
 
@@ -309,7 +311,7 @@ mod _heapq {
 
     /// [CPython's siftdown_max](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L407-L449)
     fn siftdown_max(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         startpos: usize,
         mut pos: usize,
         vm: &VirtualMachine,
@@ -352,7 +354,7 @@ mod _heapq {
     }
 
     /// [CPython's siftup_max](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L451-L499)
-    fn siftup_max(heap: &PyListRef, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn siftup_max(heap: &Py<PyList>, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
         let endpos = heap.__len__();
         let startpos = pos;
 

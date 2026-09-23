@@ -134,8 +134,7 @@ mod _multiprocessing {
                 }
             }
 
-            // Poll with signal checking (CPython uses WaitForMultipleObjectsEx
-            // with sigint_event; we poll since RustPython has no sigint event)
+            // Poll with signal checking. There is no sigint event to wait on.
             let poll_ms: u32 = 100;
             let mut elapsed: u32 = 0;
             loop {

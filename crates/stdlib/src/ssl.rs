@@ -168,24 +168,12 @@ mod _ssl {
     #[pyattr]
     const PROTOCOL_TLSv1_3: i32 = rustpython_host_env::ssl::PROTOCOL_TLSV1_3;
 
-    // Protocol version constants for TLSVersion enum
     #[pyattr]
-    const PROTO_SSLv3: i32 = 0x0300;
-    #[pyattr]
-    const PROTO_TLSv1: i32 = 0x0301;
-    #[pyattr]
-    const PROTO_TLSv1_1: i32 = 0x0302;
-    #[pyattr]
-    const PROTO_TLSv1_2: i32 = rustpython_host_env::ssl::PROTO_TLSV1_2;
-    #[pyattr]
-    const PROTO_TLSv1_3: i32 = rustpython_host_env::ssl::PROTO_TLSV1_3;
-
-    // Minimum and maximum supported protocol versions for rustls
-    // Use special values -2 and -1 to avoid enum name conflicts
-    #[pyattr]
-    const PROTO_MINIMUM_SUPPORTED: i32 = -2; // special value
-    #[pyattr]
-    const PROTO_MAXIMUM_SUPPORTED: i32 = -1; // special value
+    use rustpython_host_env::ssl::{
+        PROTO_MAXIMUM_SUPPORTED, PROTO_MINIMUM_SUPPORTED, PROTO_SSL3 as PROTO_SSLv3,
+        PROTO_TLSV1 as PROTO_TLSv1, PROTO_TLSV1_1 as PROTO_TLSv1_1, PROTO_TLSV1_2 as PROTO_TLSv1_2,
+        PROTO_TLSV1_3 as PROTO_TLSv1_3,
+    };
 
     // Internal constants for rustls actual supported versions
     // rustls only supports TLS 1.2 and TLS 1.3
@@ -231,109 +219,36 @@ mod _ssl {
     const HOSTFLAG_NEVER_CHECK_SUBJECT: i32 =
         rustpython_host_env::ssl::HOSTFLAG_NEVER_CHECK_SUBJECT;
 
-    // Options (OpenSSL-compatible flags, mostly no-op in rustls)
     #[pyattr]
-    const OP_NO_SSLv2: i32 = 0x00000000; // Not supported anyway
-    #[pyattr]
-    const OP_NO_SSLv3: i32 = 0x02000000;
-    #[pyattr]
-    const OP_NO_TLSv1: i32 = 0x04000000;
-    #[pyattr]
-    const OP_NO_TLSv1_1: i32 = 0x10000000;
-    #[pyattr]
-    const OP_NO_TLSv1_2: i32 = rustpython_host_env::ssl::OP_NO_TLSV1_2;
-    #[pyattr]
-    const OP_NO_TLSv1_3: i32 = rustpython_host_env::ssl::OP_NO_TLSV1_3;
-    #[pyattr]
-    const OP_NO_COMPRESSION: i32 = 0x00020000;
-    #[pyattr]
-    const OP_CIPHER_SERVER_PREFERENCE: i32 = 0x00400000;
-    #[pyattr]
-    const OP_SINGLE_DH_USE: i32 = 0x00000000; // No-op in rustls
-    #[pyattr]
-    const OP_SINGLE_ECDH_USE: i32 = 0x00000000; // No-op in rustls
-    #[pyattr]
-    const OP_NO_TICKET: i32 = 0x00004000;
-    #[pyattr]
-    const OP_LEGACY_SERVER_CONNECT: i32 = 0x00000004;
-    #[pyattr]
-    const OP_NO_RENEGOTIATION: i32 = 0x40000000;
-    #[pyattr]
-    const OP_IGNORE_UNEXPECTED_EOF: i32 = 0x00000080;
-    #[pyattr]
-    const OP_ENABLE_MIDDLEBOX_COMPAT: i32 = 0x00100000;
-    #[pyattr]
-    const OP_ALL: i32 = 0x00000BFB; // Combined "safe" options (reduced for i32, excluding OP_LEGACY_SERVER_CONNECT for OpenSSL 3.0.0+ compatibility)
+    use rustpython_host_env::ssl::{
+        OP_ALL, OP_CIPHER_SERVER_PREFERENCE, OP_ENABLE_MIDDLEBOX_COMPAT, OP_IGNORE_UNEXPECTED_EOF,
+        OP_LEGACY_SERVER_CONNECT, OP_NO_COMPRESSION, OP_NO_RENEGOTIATION, OP_NO_SSLv2, OP_NO_SSLv3,
+        OP_NO_TICKET, OP_NO_TLSV1 as OP_NO_TLSv1, OP_NO_TLSV1_1 as OP_NO_TLSv1_1,
+        OP_NO_TLSV1_2 as OP_NO_TLSv1_2, OP_NO_TLSV1_3 as OP_NO_TLSv1_3, OP_SINGLE_DH_USE,
+        OP_SINGLE_ECDH_USE,
+    };
 
-    // Alert types (matching _TLSAlertType enum)
     #[pyattr]
-    const ALERT_DESCRIPTION_CLOSE_NOTIFY: i32 = 0;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNEXPECTED_MESSAGE: i32 = 10;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_RECORD_MAC: i32 = 20;
-    #[pyattr]
-    const ALERT_DESCRIPTION_DECRYPTION_FAILED: i32 = 21;
-    #[pyattr]
-    const ALERT_DESCRIPTION_RECORD_OVERFLOW: i32 = 22;
-    #[pyattr]
-    const ALERT_DESCRIPTION_DECOMPRESSION_FAILURE: i32 = 30;
-    #[pyattr]
-    const ALERT_DESCRIPTION_HANDSHAKE_FAILURE: i32 = 40;
-    #[pyattr]
-    const ALERT_DESCRIPTION_NO_CERTIFICATE: i32 = 41;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_CERTIFICATE: i32 = 42;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNSUPPORTED_CERTIFICATE: i32 = 43;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_REVOKED: i32 = 44;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_EXPIRED: i32 = 45;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_UNKNOWN: i32 = 46;
-    #[pyattr]
-    const ALERT_DESCRIPTION_ILLEGAL_PARAMETER: i32 = 47;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNKNOWN_CA: i32 = 48;
-    #[pyattr]
-    const ALERT_DESCRIPTION_ACCESS_DENIED: i32 = 49;
-    #[pyattr]
-    const ALERT_DESCRIPTION_DECODE_ERROR: i32 = 50;
-    #[pyattr]
-    const ALERT_DESCRIPTION_DECRYPT_ERROR: i32 = 51;
-    #[pyattr]
-    const ALERT_DESCRIPTION_EXPORT_RESTRICTION: i32 = 60;
-    #[pyattr]
-    const ALERT_DESCRIPTION_PROTOCOL_VERSION: i32 = 70;
-    #[pyattr]
-    const ALERT_DESCRIPTION_INSUFFICIENT_SECURITY: i32 = 71;
-    #[pyattr]
-    const ALERT_DESCRIPTION_INTERNAL_ERROR: i32 = 80;
-    #[pyattr]
-    const ALERT_DESCRIPTION_INAPPROPRIATE_FALLBACK: i32 = 86;
-    #[pyattr]
-    const ALERT_DESCRIPTION_USER_CANCELLED: i32 = 90;
-    #[pyattr]
-    const ALERT_DESCRIPTION_NO_RENEGOTIATION: i32 = 100;
-    #[pyattr]
-    const ALERT_DESCRIPTION_MISSING_EXTENSION: i32 = 109;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNSUPPORTED_EXTENSION: i32 = 110;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_UNOBTAINABLE: i32 = 111;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNRECOGNIZED_NAME: i32 = 112;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_CERTIFICATE_STATUS_RESPONSE: i32 = 113;
-    #[pyattr]
-    const ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE: i32 = 114;
-    #[pyattr]
-    const ALERT_DESCRIPTION_UNKNOWN_PSK_IDENTITY: i32 = 115;
-    #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_REQUIRED: i32 = 116;
-    #[pyattr]
-    const ALERT_DESCRIPTION_NO_APPLICATION_PROTOCOL: i32 = 120;
+    use rustpython_host_env::ssl::{
+        ALERT_DESCRIPTION_ACCESS_DENIED, ALERT_DESCRIPTION_BAD_CERTIFICATE,
+        ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE,
+        ALERT_DESCRIPTION_BAD_CERTIFICATE_STATUS_RESPONSE, ALERT_DESCRIPTION_BAD_RECORD_MAC,
+        ALERT_DESCRIPTION_CERTIFICATE_EXPIRED, ALERT_DESCRIPTION_CERTIFICATE_REQUIRED,
+        ALERT_DESCRIPTION_CERTIFICATE_REVOKED, ALERT_DESCRIPTION_CERTIFICATE_UNKNOWN,
+        ALERT_DESCRIPTION_CERTIFICATE_UNOBTAINABLE, ALERT_DESCRIPTION_CLOSE_NOTIFY,
+        ALERT_DESCRIPTION_DECODE_ERROR, ALERT_DESCRIPTION_DECOMPRESSION_FAILURE,
+        ALERT_DESCRIPTION_DECRYPT_ERROR, ALERT_DESCRIPTION_DECRYPTION_FAILED,
+        ALERT_DESCRIPTION_EXPORT_RESTRICTION, ALERT_DESCRIPTION_HANDSHAKE_FAILURE,
+        ALERT_DESCRIPTION_ILLEGAL_PARAMETER, ALERT_DESCRIPTION_INAPPROPRIATE_FALLBACK,
+        ALERT_DESCRIPTION_INSUFFICIENT_SECURITY, ALERT_DESCRIPTION_INTERNAL_ERROR,
+        ALERT_DESCRIPTION_MISSING_EXTENSION, ALERT_DESCRIPTION_NO_APPLICATION_PROTOCOL,
+        ALERT_DESCRIPTION_NO_CERTIFICATE, ALERT_DESCRIPTION_NO_RENEGOTIATION,
+        ALERT_DESCRIPTION_PROTOCOL_VERSION, ALERT_DESCRIPTION_RECORD_OVERFLOW,
+        ALERT_DESCRIPTION_UNEXPECTED_MESSAGE, ALERT_DESCRIPTION_UNKNOWN_CA,
+        ALERT_DESCRIPTION_UNKNOWN_PSK_IDENTITY, ALERT_DESCRIPTION_UNRECOGNIZED_NAME,
+        ALERT_DESCRIPTION_UNSUPPORTED_CERTIFICATE, ALERT_DESCRIPTION_UNSUPPORTED_EXTENSION,
+        ALERT_DESCRIPTION_USER_CANCELLED,
+    };
 
     // `ssl.py` still requires OpenSSL-shaped numeric compatibility fields even
     // for non-OpenSSL TLS providers. Keep them in the supported 3.x ABI range,
@@ -380,13 +295,8 @@ mod _ssl {
     #[pyattr]
     const HAS_PHA: bool = false; // Post-Handshake Auth not supported in rustls
 
-    // Encoding constants (matching OpenSSL)
     #[pyattr]
-    const ENCODING_PEM: i32 = 1;
-    #[pyattr]
-    const ENCODING_DER: i32 = 2;
-    #[pyattr]
-    const ENCODING_PEM_AUX: i32 = 0x101; // PEM + 0x100
+    use rustpython_host_env::ssl::{ENCODING_DER, ENCODING_PEM, ENCODING_PEM_AUX};
 
     /// Validate server hostname for TLS SNI.
     fn validate_hostname(hostname: &str, vm: &VirtualMachine) -> PyResult<()> {
@@ -2527,7 +2437,7 @@ mod _ssl {
                 // Use select with the effective timeout
                 let py_socket: PyRef<PySocket> = self.io.socket_object(vm).try_into_value(vm)?;
                 let socket = py_socket
-                    .sock()
+                    .sock_snapshot()
                     .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
 
                 sock_wait(&socket, wait_kind, timeout, vm)
@@ -2563,7 +2473,7 @@ mod _ssl {
 
                 let py_socket: PyRef<PySocket> = self.io.socket_object(vm).try_into_value(vm)?;
                 let socket = py_socket
-                    .sock()
+                    .sock_snapshot()
                     .map_err(|e| vm.new_os_error(format!("Failed to get socket: {e}")))?;
 
                 sock_wait(&socket, wait_kind, timeout, vm).map_err(|e| e.into_pyexception(vm))
@@ -3043,37 +2953,37 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn do_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn do_handshake(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Check if handshake already done
-            if self.handshake_completed() {
+            if zelf.handshake_completed() {
                 return Ok(());
             }
 
-            let accepted = self.accept_client_hello(vm)?;
-            let mut conn_guard = self.connection.lock();
+            let accepted = zelf.accept_client_hello(vm)?;
+            let mut conn_guard = zelf.connection.lock();
 
             // Initialize connection if not already done
             if conn_guard.is_none() {
-                if self.server_side {
-                    if let Err(error) = self.initialize_server_connection(
+                if zelf.server_side {
+                    if let Err(error) = zelf.initialize_server_connection(
                         &mut conn_guard,
                         accepted
                             .ok_or_else(|| vm.new_value_error("TLS connection is not available"))?,
                         vm,
                     ) {
                         drop(conn_guard);
-                        if matches!(*self.state.lock(), TlsState::SendingAlert { .. }) {
+                        if matches!(*zelf.state.lock(), TlsState::SendingAlert { .. }) {
                             return Err(error);
                         }
-                        self.reject_connection(error, super::handshake::sni_alert(40), vm);
-                        return self.accept_client_hello(vm).map(|_| ());
+                        zelf.reject_connection(error, super::handshake::sni_alert(40), vm);
+                        return zelf.accept_client_hello(vm).map(|_| ());
                     }
                 } else {
                     // Client-side connection
-                    let ctx = self.context.read();
+                    let ctx = zelf.context.read();
 
                     // Prepare common protocol settings (TLS versions, ECDH curve, cipher suites, ALPN)
-                    let protocol_settings = self.prepare_protocol_settings(vm)?;
+                    let protocol_settings = zelf.prepare_protocol_settings(vm)?;
 
                     // Clone values we need before building config
                     let verify_mode = *ctx.verify_mode.read();
@@ -3108,7 +3018,7 @@ mod _ssl {
                     // Parse server name for SNI
                     // Convert to ServerName
                     use rustls::pki_types::ServerName;
-                    let hostname_opt = self.server_hostname.read().clone();
+                    let hostname_opt = zelf.server_hostname.read().clone();
 
                     let server_name = if let Some(ref hostname) = hostname_opt {
                         // Use the provided hostname for SNI
@@ -3123,7 +3033,7 @@ mod _ssl {
                         )
                     };
 
-                    let explicit_session = self.session.read().clone();
+                    let explicit_session = zelf.session.read().clone();
                     let session_store = Arc::new(CapturingClientSessionStore::new(session_cache));
                     let (mut config, chain_builder) = if let Some(session) = explicit_session {
                         let session = session
@@ -3165,11 +3075,11 @@ mod _ssl {
                         };
                         create_client_config(config_options).map_err(|e| vm.new_value_error(e))?
                     };
-                    Arc::make_mut(&mut config).key_log = self.key_log.clone();
+                    Arc::make_mut(&mut config).key_log = zelf.key_log.clone();
 
-                    *self.chain_builder.write() = Some(chain_builder);
-                    *self.client_config.write() = Some(config.clone());
-                    *self.client_session_store.write() = Some(session_store);
+                    *zelf.chain_builder.write() = Some(chain_builder);
+                    *zelf.client_config.write() = Some(config.clone());
+                    *zelf.client_session_store.write() = Some(session_store);
 
                     let mut conn = ClientConnection::new(config, server_name).map_err(|e| {
                         vm.new_value_error(format!("Failed to create client connection: {e}"))
@@ -3182,30 +3092,30 @@ mod _ssl {
             drop(conn_guard);
 
             // Perform the actual handshake by exchanging data with the socket/BIO
-            let handshake_result = ssl_do_handshake(self, vm);
+            let handshake_result = ssl_do_handshake(zelf, vm);
             if let Err(error @ (SslError::Rustls(_) | SslError::PreauthData)) = handshake_result {
                 // rustls queued the fatal alert while processing the failing
                 // record. Retain it and the original error across output retries.
-                let bytes = self
+                let bytes = zelf
                     .connection
                     .lock()
                     .as_mut()
                     .and_then(|conn| conn.drain_tls().ok())
                     .unwrap_or_default();
-                self.reject_connection(error.into_py_err(vm), bytes, vm);
-                return self.accept_client_hello(vm).map(|_| ());
+                zelf.reject_connection(error.into_py_err(vm), bytes, vm);
+                return zelf.accept_client_hello(vm).map(|_| ());
             }
             handshake_result.map_err(|e| e.into_py_err(vm))?;
-            if let Some(exc) = self.take_msg_exc() {
+            if let Some(exc) = zelf.take_msg_exc() {
                 return Err(exc);
             }
-            self.complete_handshake(vm);
+            zelf.complete_handshake(vm);
             Ok(())
         }
 
         #[pymethod]
         fn read(
-            &self,
+            zelf: &Py<Self>,
             len: OptionalArg<isize>,
             buffer: OptionalArg<ArgMemoryBuffer>,
             vm: &VirtualMachine,
@@ -3245,13 +3155,13 @@ mod _ssl {
 
             // Ensure handshake is done - if not, complete it first
             // This matches OpenSSL behavior where SSL_read() auto-completes handshake
-            if !self.handshake_completed() {
-                self.do_handshake(vm)?;
+            if !zelf.handshake_completed() {
+                Self::do_handshake(zelf, vm)?;
             }
 
             // Check if connection has been shut down
             // Only block after shutdown is COMPLETED, not during shutdown process
-            if matches!(*self.state.lock(), TlsState::ShutDown) {
+            if matches!(*zelf.state.lock(), TlsState::ShutDown) {
                 return Err(vm
                     .new_os_subtype_error(
                         PySSLError::class(&vm.ctx).to_owned(),
@@ -3288,13 +3198,13 @@ mod _ssl {
             // Use compat layer for unified read logic with proper EOF handling
             // This matches SSL_read_ex() approach
             let mut buf = vm.new_zeroed_bytes(len)?;
-            let read_result = crate::ssl::compat::ssl_read(self, &mut buf, vm);
+            let read_result = crate::ssl::compat::ssl_read(zelf, &mut buf, vm);
             match read_result {
                 Ok(n) => {
                     // Check for deferred certificate verification errors (TLS 1.3)
                     // Must be checked AFTER ssl_read, as the error is set during I/O
-                    self.check_deferred_cert_error(vm)?;
-                    if let Some(exc) = self.take_msg_exc() {
+                    zelf.check_deferred_cert_error(vm)?;
+                    if let Some(exc) = zelf.take_msg_exc() {
                         return Err(exc);
                     }
                     buf.truncate(n);
@@ -3303,7 +3213,7 @@ mod _ssl {
                 Err(error) if error.is_eof() => {
                     // If plaintext is still buffered, return it before EOF.
                     let pending = {
-                        let mut conn_guard = self.connection.lock();
+                        let mut conn_guard = zelf.connection.lock();
                         let conn = match conn_guard.as_mut() {
                             Some(conn) => conn,
                             None => return Err(create_ssl_eof_error(vm).upcast()),
@@ -3312,7 +3222,7 @@ mod _ssl {
                     };
                     if pending > 0 {
                         let mut buf = vec![0u8; pending.min(len)];
-                        let read_retry = crate::ssl::compat::ssl_read(self, &mut buf, vm);
+                        let read_retry = crate::ssl::compat::ssl_read(zelf, &mut buf, vm);
                         if let Ok(n) = read_retry {
                             buf.truncate(n);
                             return return_data(buf, &buffer, vm);
@@ -3324,7 +3234,7 @@ mod _ssl {
                 Err(error) if error.is_zero_return() => {
                     // If plaintext is still buffered, return it before clean EOF.
                     let pending = {
-                        let mut conn_guard = self.connection.lock();
+                        let mut conn_guard = zelf.connection.lock();
                         let conn = match conn_guard.as_mut() {
                             Some(conn) => conn,
                             None => return Err(create_ssl_zero_return_error(vm).upcast()),
@@ -3333,7 +3243,7 @@ mod _ssl {
                     };
                     if pending > 0 {
                         let mut buf = vec![0u8; pending.min(len)];
-                        let read_retry = crate::ssl::compat::ssl_read(self, &mut buf, vm);
+                        let read_retry = crate::ssl::compat::ssl_read(zelf, &mut buf, vm);
                         if let Ok(n) = read_retry {
                             buf.truncate(n);
                             return return_data(buf, &buffer, vm);
@@ -3345,7 +3255,7 @@ mod _ssl {
                     // Otherwise return empty bytes, which callers (asyncore,
                     // asyncio sslproto) interpret as EOF.
                     if matches!(
-                        *self.state.lock(),
+                        *zelf.state.lock(),
                         TlsState::ShuttingDown | TlsState::ShutDown
                     ) {
                         Err(create_ssl_zero_return_error(vm).upcast())
@@ -3388,7 +3298,7 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn write(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(zelf: &Py<Self>, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
             let data_bytes = data.borrow_buf();
             let data_len = data_bytes.len();
 
@@ -3397,13 +3307,13 @@ mod _ssl {
             }
 
             // Ensure handshake is done (SSL_write auto-completes handshake)
-            if !self.handshake_completed() {
-                self.do_handshake(vm)?;
+            if !zelf.handshake_completed() {
+                Self::do_handshake(zelf, vm)?;
             }
 
             // Application data cannot follow our close_notify.
             if matches!(
-                *self.state.lock(),
+                *zelf.state.lock(),
                 TlsState::ShuttingDown | TlsState::ShutDown
             ) {
                 return Err(vm
@@ -3416,12 +3326,12 @@ mod _ssl {
             }
 
             // Call ssl_write (matches CPython's SSL_write_ex loop)
-            let result = crate::ssl::compat::ssl_write(self, data_bytes.as_ref(), vm);
+            let result = crate::ssl::compat::ssl_write(zelf, data_bytes.as_ref(), vm);
 
             match result {
                 Ok(n) => {
-                    self.check_deferred_cert_error(vm)?;
-                    if let Some(exc) = self.take_msg_exc() {
+                    zelf.check_deferred_cert_error(vm)?;
+                    if let Some(exc) = zelf.take_msg_exc() {
                         return Err(exc);
                     }
                     Ok(n)
@@ -3699,17 +3609,17 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn shutdown(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn shutdown(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             // A failed shutdown may still owe the peer a fatal alert. Resume
             // that output on unwrap retries before reporting the saved error.
-            if matches!(*self.state.lock(), TlsState::SendingAlert { .. })
-                && !self.pending_tls_output.lock().is_empty()
+            if matches!(*zelf.state.lock(), TlsState::SendingAlert { .. })
+                && !zelf.pending_tls_output.lock().is_empty()
             {
-                return self
+                return zelf
                     .accept_client_hello(vm)
-                    .map(|_| self.io.socket_object(vm));
+                    .map(|_| zelf.io.socket_object(vm));
             }
-            if !self.handshake_completed() {
+            if !zelf.handshake_completed() {
                 return Err(SslError::create_ssl_error_with_reason(
                     vm,
                     Some("SSL"),
@@ -3717,43 +3627,43 @@ mod _ssl {
                     "[SSL: SHUTDOWN_WHILE_IN_INIT] shutdown while in init",
                 ));
             }
-            if matches!(*self.state.lock(), TlsState::ShutDown) {
-                return Ok(self.io.socket_object(vm));
+            if matches!(*zelf.state.lock(), TlsState::ShutDown) {
+                return Ok(zelf.io.socket_object(vm));
             }
 
-            let timeout = self.get_socket_timeout(vm)?;
+            let timeout = zelf.get_socket_timeout(vm)?;
             let deadline = timeout
                 .filter(|timeout| !timeout.is_zero())
                 .map(|timeout| std::time::Instant::now() + timeout);
             {
-                let mut conn_guard = self.connection.lock();
+                let mut conn_guard = zelf.connection.lock();
                 let conn = conn_guard
                     .as_mut()
                     .ok_or_else(|| vm.new_value_error("Connection not established"))?;
 
-                if matches!(*self.state.lock(), TlsState::Connected) {
+                if matches!(*zelf.state.lock(), TlsState::Connected) {
                     // rustls queues close_notify after previously buffered data.
                     // Record this before any fallible write so retries never queue
                     // another alert, even if the transport cannot accept output.
                     conn.send_close_notify();
-                    *self.state.lock() = TlsState::ShuttingDown;
+                    *zelf.state.lock() = TlsState::ShuttingDown;
                 }
             }
 
             let result = (|| loop {
                 let bytes = {
-                    let mut conn_guard = self.connection.lock();
+                    let mut conn_guard = zelf.connection.lock();
                     let conn = conn_guard
                         .as_mut()
                         .ok_or_else(|| vm.new_value_error("Connection not established"))?;
                     conn.drain_tls()
                         .map_err(|e| SslError::from(e).into_py_err(vm))?
                 };
-                super::compat::send_all_bytes(self, bytes, vm, deadline)
+                super::compat::send_all_bytes(zelf, bytes, vm, deadline)
                     .map_err(|e| e.into_py_err(vm))?;
 
                 let io_state = {
-                    let mut conn_guard = self.connection.lock();
+                    let mut conn_guard = zelf.connection.lock();
                     let conn = conn_guard
                         .as_mut()
                         .ok_or_else(|| vm.new_value_error("Connection not established"))?;
@@ -3769,8 +3679,8 @@ mod _ssl {
                     ));
                 }
                 if io_state.peer_has_closed() {
-                    *self.state.lock() = TlsState::ShutDown;
-                    return Ok(self.io.socket_object(vm));
+                    *zelf.state.lock() = TlsState::ShutDown;
+                    return Ok(zelf.io.socket_object(vm));
                 }
 
                 let remaining = match deadline {
@@ -3784,20 +3694,20 @@ mod _ssl {
                     ),
                     None => timeout,
                 };
-                if self.sock_wait_for_io_with_timeout(SockWaitKind::Read, remaining, vm)? {
+                if zelf.sock_wait_for_io_with_timeout(SockWaitKind::Read, remaining, vm)? {
                     return Err(
                         timeout_error_msg(vm, "The read operation timed out".to_owned()).upcast(),
                     );
                 }
                 // Stop at each TLS record boundary, leaving an unencrypted
                 // trailer after close_notify in the socket or incoming BIO.
-                let data = super::compat::recv_at_most_one_tls_record(self, vm)
+                let data = super::compat::recv_at_most_one_tls_record(zelf, vm)
                     .map_err(|e| e.into_py_err(vm))?;
-                let mut conn_guard = self.connection.lock();
+                let mut conn_guard = zelf.connection.lock();
                 let conn = conn_guard
                     .as_mut()
                     .ok_or_else(|| vm.new_value_error("Connection not established"))?;
-                super::compat::ssl_read_tls_records(conn, data, self.is_bio_mode(), vm)
+                super::compat::ssl_read_tls_records(conn, data, zelf.is_bio_mode(), vm)
                     .map_err(|e| e.into_py_err(vm))?;
             })();
             if let Err(error) = &result
@@ -3807,16 +3717,16 @@ mod _ssl {
             {
                 // A protocol failure cannot resume as a normal shutdown. Keep
                 // any fatal alert rustls queued and preserve the original error.
-                let bytes = self
+                let bytes = zelf
                     .connection
                     .lock()
                     .as_mut()
                     .and_then(|conn| conn.drain_tls().ok())
                     .unwrap_or_default();
-                self.reject_connection(error.clone(), bytes, vm);
-                return self
+                zelf.reject_connection(error.clone(), bytes, vm);
+                return zelf
                     .accept_client_hello(vm)
-                    .map(|_| self.io.socket_object(vm));
+                    .map(|_| zelf.io.socket_object(vm));
             }
             result
         }

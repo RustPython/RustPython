@@ -1,7 +1,7 @@
 //! Import mechanics
 
 use crate::{
-    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{PyCode, PyStr, PyUtf8Str, PyUtf8StrRef, traceback::PyTraceback},
     exceptions::types::PyBaseException,
     scope::Scope,
@@ -163,8 +163,8 @@ pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> P
 /// not yet safe to hand out as a finished result (used both by the slow
 /// import path below and by [`crate::VirtualMachine::import`]'s
 /// `sys.modules`-cache fast path).
-pub(crate) fn is_module_initializing(module: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-    match vm.get_attribute_opt(module.clone(), vm.ctx.intern_str("__spec__"))? {
+pub(crate) fn is_module_initializing(module: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    match vm.get_attribute_opt(module.to_owned(), vm.ctx.intern_str("__spec__"))? {
         Some(spec) => match vm.get_attribute_opt(spec, vm.ctx.intern_str("_initializing"))? {
             Some(v) => v.try_to_bool(vm),
             None => Ok(false),
@@ -176,7 +176,7 @@ pub(crate) fn is_module_initializing(module: &PyObjectRef, vm: &VirtualMachine) 
 /// If `__spec__._initializing` is true, wait for the module to finish
 /// initializing by calling `_lock_unlock_module`.
 fn import_ensure_initialized(
-    module: &PyObjectRef,
+    module: &PyObject,
     name: &Py<PyUtf8Str>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
@@ -269,15 +269,12 @@ pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &Py<PyBaseException>) {
 
     if let Some(tb) = exc.__traceback__() {
         let trimmed_tb = remove_importlib_frames_inner(vm, Some(tb), always_trim).0;
-        exc.set_traceback_typed(trimmed_tb);
+        exc.set_traceback(trimmed_tb);
     }
 }
 
 /// Get origin path from a module spec, checking has_location first.
-pub(crate) fn get_spec_file_origin(
-    spec: Option<&PyObjectRef>,
-    vm: &VirtualMachine,
-) -> Option<String> {
+pub(crate) fn get_spec_file_origin(spec: Option<&PyObject>, vm: &VirtualMachine) -> Option<String> {
     let spec = spec?;
 
     let has_location = spec
@@ -363,7 +360,7 @@ pub(crate) fn is_possibly_shadowing_path(origin: &str, vm: &VirtualMachine) -> b
 /// Check if a module name is in sys.stdlib_module_names.
 /// Takes the original __name__ object to preserve str subclass behavior.
 /// Propagates errors (e.g. TypeError for unhashable str subclass).
-pub(crate) fn is_stdlib_module_name(name: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+pub(crate) fn is_stdlib_module_name(name: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
     let stdlib_names = match vm.sys_module.get_attr("stdlib_module_names", vm) {
         Ok(names) => names,
         Err(_) => return Ok(false),
@@ -375,7 +372,7 @@ pub(crate) fn is_stdlib_module_name(name: &PyObjectRef, vm: &VirtualMachine) -> 
     {
         return Ok(false);
     }
-    let result = vm.call_method(&stdlib_names, "__contains__", (name.clone(),))?;
+    let result = vm.call_method(&stdlib_names, "__contains__", (name.to_owned(),))?;
     result.try_to_bool(vm)
 }
 
@@ -539,7 +536,7 @@ fn resolve_name(
 }
 
 /// _calc___package__ - calculate package from globals for relative imports
-fn calc_package(globals: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyUtf8StrRef> {
+fn calc_package(globals: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<PyUtf8StrRef> {
     let globals = globals.ok_or_else(|| {
         vm.new_import_error(
             "attempted relative import with no known parent package",

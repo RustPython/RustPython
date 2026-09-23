@@ -20,7 +20,7 @@ pub fn warn(
 #[pymodule]
 mod _warnings {
     use crate::{
-        AsObject, PyObjectRef, PyResult, VirtualMachine,
+        AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::TryFromObject,
         function::OptionalArg,
@@ -97,7 +97,7 @@ mod _warnings {
 
     /// Validate and resolve the category argument, matching get_category() in C.
     fn get_category(
-        message: &PyObjectRef,
+        message: &PyObject,
         category: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyTypeRef>> {

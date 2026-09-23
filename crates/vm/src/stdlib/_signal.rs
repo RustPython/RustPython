@@ -73,28 +73,28 @@ pub(crate) mod _signal {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[allow(unused_imports)]
-    pub use libc::SIG_ERR;
+    pub use host_signal::SIG_ERR;
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[pyattr]
-    pub use libc::{SIG_DFL, SIG_IGN};
+    pub use host_signal::{SIG_DFL, SIG_IGN};
 
     // pthread_sigmask 'how' constants
     #[cfg(unix)]
     #[pyattr]
-    use libc::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
+    use host_signal::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     #[pyattr]
     pub const SIG_DFL: sighandler_t = 0;
 
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     #[pyattr]
     pub const SIG_IGN: sighandler_t = 1;
 
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     #[allow(dead_code)]
     pub const SIG_ERR: sighandler_t = -1 as _;
 
@@ -103,7 +103,7 @@ pub(crate) mod _signal {
 
     #[cfg(any(unix, windows))]
     #[pyattr]
-    pub use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
+    pub use host_signal::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
 
     #[cfg(windows)]
     #[pyattr]
@@ -120,7 +120,7 @@ pub(crate) mod _signal {
 
     #[cfg(unix)]
     #[pyattr]
-    use libc::{
+    use host_signal::{
         SIGALRM, SIGBUS, SIGCHLD, SIGCONT, SIGHUP, SIGIO, SIGKILL, SIGPIPE, SIGPROF, SIGQUIT,
         SIGSTOP, SIGSYS, SIGTRAP, SIGTSTP, SIGTTIN, SIGTTOU, SIGURG, SIGUSR1, SIGUSR2, SIGVTALRM,
         SIGWINCH, SIGXCPU, SIGXFSZ,
@@ -134,24 +134,12 @@ pub(crate) mod _signal {
         target_os = "netbsd"
     )))]
     #[pyattr]
-    use libc::{SIGPWR, SIGSTKFLT};
+    use host_signal::{SIGPWR, SIGSTKFLT};
 
     // Interval timer constants
-    #[cfg(all(unix, not(target_os = "android")))]
+    #[cfg(unix)]
     #[pyattr]
-    use libc::{ITIMER_PROF, ITIMER_REAL, ITIMER_VIRTUAL};
-
-    #[cfg(target_os = "android")]
-    #[pyattr]
-    const ITIMER_REAL: libc::c_int = 0;
-
-    #[cfg(target_os = "android")]
-    #[pyattr]
-    const ITIMER_VIRTUAL: libc::c_int = 1;
-
-    #[cfg(target_os = "android")]
-    #[pyattr]
-    const ITIMER_PROF: libc::c_int = 2;
+    use host_signal::{ITIMER_PROF, ITIMER_REAL, ITIMER_VIRTUAL};
 
     #[cfg(unix)]
     #[pyattr(name = "ItimerError", once)]

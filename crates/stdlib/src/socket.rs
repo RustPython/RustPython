@@ -45,6 +45,7 @@ mod _socket {
     }
 
     use core::{
+        mem::ManuallyDrop,
         net::{Ipv4Addr, Ipv6Addr, SocketAddr},
         time::Duration,
     };
@@ -62,29 +63,13 @@ mod _socket {
     use libc as c;
     #[cfg(windows)]
     mod c {
+        // Syscall/type names the shared body still reads as `c::`. Integer
+        // pyattrs come from `host_socket` directly.
         pub(super) use rustpython_host_env::socket::{
-            AF_APPLETALK, AF_BLUETOOTH, AF_DECnet, AF_HYPERV, AF_INET, AF_INET6, AF_IPX, AF_LINK,
-            AF_UNSPEC, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME, AI_NUMERICHOST, AI_NUMERICSERV,
-            AI_PASSIVE, AI_V4MAPPED, EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY,
-            EAI_NODATA, EAI_NONAME, EAI_SERVICE, EAI_SOCKTYPE, INADDR_ANY, INADDR_BROADCAST,
-            INADDR_LOOPBACK, INADDR_NONE, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL,
-            IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_OPTIONS, IP_RECVDSTADDR,
-            IP_TOS, IP_TTL, IPPORT_RESERVED, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
-            IPPROTO_FRAGMENT, IPPROTO_GGP, IPPROTO_HOPOPTS, IPPROTO_ICMP, IPPROTO_ICMPV6,
-            IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV4,
-            IPPROTO_IPV6, IPPROTO_ND, IPPROTO_NONE, IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW,
-            IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_UDP, IPV6_CHECKSUM, IPV6_DONTFRAG, IPV6_HOPLIMIT,
-            IPV6_HOPOPTS, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, IPV6_MULTICAST_HOPS,
-            IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP, IPV6_PKTINFO, IPV6_RECVRTHDR, IPV6_RECVTCLASS,
-            IPV6_RTHDR, IPV6_TCLASS, IPV6_UNICAST_HOPS, IPV6_V6ONLY, MSG_BCAST, MSG_CTRUNC,
-            MSG_DONTROUTE, MSG_MCAST, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM,
-            NI_MAXHOST, NI_MAXSERV, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV,
-            RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH as SHUT_RDWR,
-            SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH,
-            SIO_RCVALL, SO_BROADCAST, SO_ERROR, SO_EXCLUSIVEADDRUSE, SO_KEEPALIVE, SO_LINGER,
-            SO_OOBINLINE, SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM,
-            SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SOMAXCONN, TCP_NODELAY,
-            WSAEBADF, WSAENOTSOCK, WSAEWOULDBLOCK, getprotobyname, getservbyname, getservbyport,
+            AF_BLUETOOTH, AF_HYPERV, AF_INET, AF_INET6, AF_UNSPEC, AI_NUMERICHOST, AI_PASSIVE,
+            INADDR_BROADCAST, SHUT_RD, SHUT_RDWR, SHUT_WR, SIO_KEEPALIVE_VALS,
+            SIO_LOOPBACK_FAST_PATH, SIO_RCVALL, SOCK_DGRAM, SOCK_STREAM, WSAEBADF, WSAENOTSOCK,
+            WSAEWOULDBLOCK, getprotobyname, getservbyname, getservbyport,
         };
     }
     // constants
@@ -92,7 +77,7 @@ mod _socket {
     const HAS_IPV6: bool = true;
     #[pyattr]
     // put IPPROTO_MAX later
-    use c::{
+    use host_socket::{
         AF_INET, AF_INET6, AF_UNSPEC, INADDR_ANY, INADDR_LOOPBACK, INADDR_NONE, IPPROTO_ICMP,
         IPPROTO_ICMPV6, IPPROTO_IP, IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_TCP as SOL_TCP, IPPROTO_UDP,
         MSG_CTRUNC, MSG_DONTROUTE, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST,
@@ -103,7 +88,7 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_APPLETALK, AF_DECnet, AF_IPX, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
         IPPROTO_FRAGMENT, IPPROTO_HOPOPTS, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IPIP, IPPROTO_NONE,
         IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_ROUTING,
@@ -111,26 +96,26 @@ mod _socket {
 
     #[cfg(unix)]
     #[pyattr]
-    use c::{AF_UNIX, SO_REUSEPORT};
+    use host_socket::{AF_UNIX, SO_REUSEPORT};
 
     #[pyattr]
-    use c::{AI_ADDRCONFIG, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE};
+    use host_socket::{AI_ADDRCONFIG, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE};
 
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
-    use c::{SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET};
+    use host_socket::{SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET};
 
     #[cfg(target_os = "android")]
     #[pyattr]
-    use c::{SOL_ATALK, SOL_AX25, SOL_IPX, SOL_NETROM, SOL_ROSE};
+    use host_socket::{SOL_ATALK, SOL_AX25, SOL_IPX, SOL_NETROM, SOL_ROSE};
 
     #[cfg(target_os = "freebsd")]
     #[pyattr]
-    use c::SO_SETFIB;
+    use host_socket::SO_SETFIB;
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    use c::{
+    use host_socket::{
         IP_ADD_SOURCE_MEMBERSHIP, IP_BLOCK_SOURCE, IP_DROP_SOURCE_MEMBERSHIP, IP_PKTINFO,
         IP_RECVTTL, IP_UNBLOCK_SOURCE, IPPROTO_MAX, IPPROTO_SCTP, MSG_NOSIGNAL,
         TCP_CONNECTION_INFO,
@@ -138,7 +123,7 @@ mod _socket {
 
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use c::{
+    use host_socket::{
         CAN_BCM, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_ISOTP, CAN_J1939,
         CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER, CAN_RAW_JOIN_FILTERS,
         CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, CAN_RTR_FLAG, CAN_SFF_MASK, IPPROTO_MPTCP,
@@ -150,139 +135,40 @@ mod _socket {
         SOL_CAN_RAW,
     };
 
-    // CAN BCM opcodes
     #[cfg(target_os = "linux")]
     #[pyattr]
-    const CAN_BCM_TX_SETUP: i32 = 1;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_DELETE: i32 = 2;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_READ: i32 = 3;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_SEND: i32 = 4;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_SETUP: i32 = 5;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_DELETE: i32 = 6;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_READ: i32 = 7;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_STATUS: i32 = 8;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_EXPIRED: i32 = 9;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_STATUS: i32 = 10;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_TIMEOUT: i32 = 11;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_CHANGED: i32 = 12;
-
-    // CAN BCM flags (linux/can/bcm.h)
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_SETTIMER: i32 = 0x0001;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_STARTTIMER: i32 = 0x0002;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_COUNTEVT: i32 = 0x0004;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_ANNOUNCE: i32 = 0x0008;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_CP_CAN_ID: i32 = 0x0010;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_FILTER_ID: i32 = 0x0020;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_CHECK_DLC: i32 = 0x0040;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_NO_AUTOTIMER: i32 = 0x0080;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_ANNOUNCE_RESUME: i32 = 0x0100;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_RESET_MULTI_IDX: i32 = 0x0200;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_RTR_FRAME: i32 = 0x0400;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_CAN_FD_FRAME: i32 = 0x0800;
+    use host_socket::{
+        CAN_BCM_CAN_FD_FRAME, CAN_BCM_RX_ANNOUNCE_RESUME, CAN_BCM_RX_CHANGED, CAN_BCM_RX_CHECK_DLC,
+        CAN_BCM_RX_DELETE, CAN_BCM_RX_FILTER_ID, CAN_BCM_RX_NO_AUTOTIMER, CAN_BCM_RX_READ,
+        CAN_BCM_RX_RTR_FRAME, CAN_BCM_RX_SETUP, CAN_BCM_RX_STATUS, CAN_BCM_RX_TIMEOUT,
+        CAN_BCM_SETTIMER, CAN_BCM_STARTTIMER, CAN_BCM_TX_ANNOUNCE, CAN_BCM_TX_COUNTEVT,
+        CAN_BCM_TX_CP_CAN_ID, CAN_BCM_TX_DELETE, CAN_BCM_TX_EXPIRED, CAN_BCM_TX_READ,
+        CAN_BCM_TX_RESET_MULTI_IDX, CAN_BCM_TX_SEND, CAN_BCM_TX_SETUP, CAN_BCM_TX_STATUS,
+    };
 
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     #[pyattr]
-    use c::SOL_RDS;
+    use host_socket::SOL_RDS;
 
     #[cfg(target_os = "netbsd")]
     #[pyattr]
-    use c::IPPROTO_VRRP;
+    use host_socket::IPPROTO_VRRP;
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    use c::{AF_SYSTEM, PF_SYSTEM, SYSPROTO_CONTROL, TCP_KEEPALIVE};
+    use host_socket::{AF_SYSTEM, PF_SYSTEM, SYSPROTO_CONTROL, TCP_KEEPALIVE};
 
-    // RFC3542 IPv6 socket options for macOS (netinet6/in6.h)
-    // Not available in libc, define manually
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    const IPV6_RECVHOPLIMIT: i32 = 37;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVRTHDR: i32 = 38;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVHOPOPTS: i32 = 39;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVDSTOPTS: i32 = 40;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_USE_MIN_MTU: i32 = 42;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVPATHMTU: i32 = 43;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_PATHMTU: i32 = 44;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_NEXTHOP: i32 = 48;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_HOPOPTS: i32 = 49;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_DSTOPTS: i32 = 50;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RTHDR: i32 = 51;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RTHDRDSTOPTS: i32 = 57;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RTHDR_TYPE_0: i32 = 0;
+    use host_socket::{
+        IPV6_DSTOPTS, IPV6_HOPOPTS, IPV6_NEXTHOP, IPV6_PATHMTU, IPV6_RECVDSTOPTS,
+        IPV6_RECVHOPLIMIT, IPV6_RECVHOPOPTS, IPV6_RECVPATHMTU, IPV6_RECVRTHDR, IPV6_RTHDR,
+        IPV6_RTHDR_TYPE_0, IPV6_RTHDRDSTOPTS, IPV6_USE_MIN_MTU,
+    };
 
     #[cfg(windows)]
     #[pyattr]
-    use c::{
+    use host_socket::{
         IPPORT_RESERVED, IPPROTO_IPV4, RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON,
         RCVALL_SOCKETLEVELONLY, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL,
         SO_EXCLUSIVEADDRUSE,
@@ -290,21 +176,21 @@ mod _socket {
 
     #[cfg(not(windows))]
     #[pyattr]
-    const IPPORT_RESERVED: i32 = 1024;
+    use host_socket::IPPORT_RESERVED;
 
     #[pyattr]
-    const IPPORT_USERRESERVED: i32 = 5000;
+    use host_socket::IPPORT_USERRESERVED;
 
     #[cfg(any(unix, target_os = "android"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         EAI_SYSTEM, MSG_EOR, SO_ACCEPTCONN, SO_DEBUG, SO_DONTROUTE, SO_RCVLOWAT, SO_RCVTIMEO,
         SO_SNDLOWAT, SO_SNDTIMEO,
     };
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         ALG_OP_DECRYPT, ALG_OP_ENCRYPT, ALG_SET_AEAD_ASSOCLEN, ALG_SET_AEAD_AUTHSIZE, ALG_SET_IV,
         ALG_SET_KEY, ALG_SET_OP, IP_DEFAULT_MULTICAST_LOOP, IP_RECVOPTS, IP_RETOPTS, IPV6_DSTOPTS,
         IPV6_NEXTHOP, IPV6_PATHMTU, IPV6_RECVDSTOPTS, IPV6_RECVHOPLIMIT, IPV6_RECVHOPOPTS,
@@ -315,39 +201,35 @@ mod _socket {
 
     #[cfg(any(target_os = "android", target_vendor = "apple"))]
     #[pyattr]
-    use c::{AI_DEFAULT, AI_MASK, AI_V4MAPPED_CFG};
+    use host_socket::{AI_DEFAULT, AI_MASK, AI_V4MAPPED_CFG};
 
     #[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
     #[pyattr]
-    use c::MSG_NOTIFICATION;
+    use host_socket::MSG_NOTIFICATION;
 
     #[cfg(any(target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]
-    use c::TCP_USER_TIMEOUT;
+    use host_socket::TCP_USER_TIMEOUT;
 
     #[cfg(any(unix, target_os = "android", windows))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         INADDR_BROADCAST, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_MULTICAST_IF,
         IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_TTL, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF,
         IPV6_MULTICAST_LOOP, IPV6_UNICAST_HOPS, IPV6_V6ONLY,
     };
 
-    #[cfg(any(unix, target_os = "android", windows))]
+    #[cfg(unix)]
     #[pyattr]
-    const INADDR_UNSPEC_GROUP: u32 = 0xe0000000;
+    use host_socket::{INADDR_ALLHOSTS_GROUP, INADDR_MAX_LOCAL_GROUP, INADDR_UNSPEC_GROUP};
 
-    #[cfg(any(unix, target_os = "android", windows))]
+    #[cfg(windows)]
     #[pyattr]
-    const INADDR_ALLHOSTS_GROUP: u32 = 0xe0000001;
-
-    #[cfg(any(unix, target_os = "android", windows))]
-    #[pyattr]
-    const INADDR_MAX_LOCAL_GROUP: u32 = 0xe00000ff;
+    use host_socket::{INADDR_ALLHOSTS_GROUP, INADDR_MAX_LOCAL_GROUP, INADDR_UNSPEC_GROUP};
 
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_ALG, AF_ASH, AF_ATMPVC, AF_ATMSVC, AF_AX25, AF_BRIDGE, AF_CAN, AF_ECONET, AF_IRDA,
         AF_LLC, AF_NETBEUI, AF_NETLINK, AF_NETROM, AF_PACKET, AF_PPPOX, AF_RDS, AF_SECURITY,
         AF_TIPC, AF_VSOCK, AF_WANPIPE, AF_X25, IP_TRANSPARENT, MSG_CONFIRM, MSG_ERRQUEUE,
@@ -356,40 +238,12 @@ mod _socket {
         TCP_SYNCNT, TCP_WINDOW_CLAMP,
     };
 
-    // gated on presence of AF_VSOCK:
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]
-    const SO_VM_SOCKETS_BUFFER_SIZE: u32 = 0;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const SO_VM_SOCKETS_BUFFER_MIN_SIZE: u32 = 1;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const SO_VM_SOCKETS_BUFFER_MAX_SIZE: u32 = 2;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VMADDR_CID_ANY: u32 = 0xffffffff; // 0xffffffff
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VMADDR_PORT_ANY: u32 = 0xffffffff; // 0xffffffff
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VMADDR_CID_HOST: u32 = 2;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VM_SOCKETS_INVALID_VERSION: u32 = 0xffffffff; // 0xffffffff
+    use host_socket::{
+        SO_VM_SOCKETS_BUFFER_MAX_SIZE, SO_VM_SOCKETS_BUFFER_MIN_SIZE, SO_VM_SOCKETS_BUFFER_SIZE,
+        VM_SOCKETS_INVALID_VERSION, VMADDR_CID_ANY, VMADDR_CID_HOST, VMADDR_PORT_ANY,
+    };
 
     // TODO: gated on https://github.com/rust-lang/libc/pull/1662
     // // gated on presence of AF_VSOCK:
@@ -401,15 +255,11 @@ mod _socket {
 
     #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
     #[pyattr]
-    const SOL_IP: i32 = 0;
-
-    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
-    #[pyattr]
-    const SOL_UDP: i32 = 17;
+    use host_socket::{SOL_IP, SOL_UDP};
 
     #[cfg(any(target_os = "android", target_os = "linux", windows))]
     #[pyattr]
-    use c::{IP_OPTIONS, IPV6_HOPOPTS, IPV6_RECVRTHDR, IPV6_RTHDR};
+    use host_socket::{IP_OPTIONS, IPV6_HOPOPTS, IPV6_RECVRTHDR, IPV6_RTHDR};
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -417,11 +267,11 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{IPPROTO_HELLO, IPPROTO_XTP, LOCAL_PEERCRED, MSG_EOF};
+    use host_socket::{IPPROTO_HELLO, IPPROTO_XTP, LOCAL_PEERCRED, MSG_EOF};
 
     #[cfg(any(target_os = "netbsd", target_os = "openbsd", windows))]
     #[pyattr]
-    use c::{MSG_BCAST, MSG_MCAST};
+    use host_socket::{MSG_BCAST, MSG_MCAST};
 
     #[cfg(any(
         target_os = "android",
@@ -430,7 +280,7 @@ mod _socket {
         target_os = "linux"
     ))]
     #[pyattr]
-    use c::{IPPROTO_UDPLITE, TCP_CONGESTION};
+    use host_socket::{IPPROTO_UDPLITE, TCP_CONGESTION};
 
     #[cfg(any(
         target_os = "android",
@@ -439,16 +289,7 @@ mod _socket {
         target_os = "linux"
     ))]
     #[pyattr]
-    const UDPLITE_SEND_CSCOV: i32 = 10;
-
-    #[cfg(any(
-        target_os = "android",
-        target_os = "fuchsia",
-        target_os = "freebsd",
-        target_os = "linux"
-    ))]
-    #[pyattr]
-    const UDPLITE_RECV_CSCOV: i32 = 11;
+    use host_socket::{UDPLITE_RECV_CSCOV, UDPLITE_SEND_CSCOV};
 
     #[cfg(any(
         target_os = "android",
@@ -457,7 +298,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::AF_KEY;
+    use host_socket::AF_KEY;
 
     #[cfg(any(
         target_os = "android",
@@ -466,7 +307,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::SO_DOMAIN;
+    use host_socket::SO_DOMAIN;
 
     #[cfg(any(
         target_os = "android",
@@ -488,7 +329,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::SO_PRIORITY;
+    use host_socket::SO_PRIORITY;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -497,7 +338,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::IPPROTO_MOBILE;
+    use host_socket::IPPROTO_MOBILE;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -506,7 +347,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::SCM_CREDS;
+    use host_socket::SCM_CREDS;
 
     #[cfg(any(
         target_os = "freebsd",
@@ -515,7 +356,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::TCP_FASTOPEN;
+    use host_socket::TCP_FASTOPEN;
 
     #[cfg(any(
         target_os = "android",
@@ -538,7 +379,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::SO_PROTOCOL;
+    use host_socket::SO_PROTOCOL;
 
     #[cfg(any(
         target_os = "android",
@@ -549,7 +390,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::IPV6_DONTFRAG;
+    use host_socket::IPV6_DONTFRAG;
 
     #[cfg(any(
         target_os = "android",
@@ -559,7 +400,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::{SO_PASSCRED, SO_PEERCRED};
+    use host_socket::{SO_PASSCRED, SO_PEERCRED};
 
     #[cfg(any(
         target_os = "android",
@@ -569,7 +410,7 @@ mod _socket {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use c::TCP_INFO;
+    use host_socket::TCP_INFO;
 
     #[cfg(any(
         target_os = "android",
@@ -579,7 +420,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::IP_RECVTOS;
+    use host_socket::IP_RECVTOS;
 
     #[cfg(any(
         target_os = "android",
@@ -589,7 +430,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::NI_MAXSERV;
+    use host_socket::NI_MAXSERV;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -599,7 +440,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{IPPROTO_EON, IPPROTO_IPCOMP};
+    use host_socket::{IPPROTO_EON, IPPROTO_IPCOMP};
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -609,7 +450,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::IPPROTO_ND;
+    use host_socket::IPPROTO_ND;
 
     #[cfg(any(
         target_os = "android",
@@ -620,7 +461,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{IPV6_CHECKSUM, IPV6_HOPLIMIT};
+    use host_socket::{IPV6_CHECKSUM, IPV6_HOPLIMIT};
 
     #[cfg(any(
         target_os = "android",
@@ -630,7 +471,7 @@ mod _socket {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use c::IPPROTO_SCTP; // also in windows
+    use host_socket::IPPROTO_SCTP; // also in windows
 
     #[cfg(any(
         target_os = "android",
@@ -641,7 +482,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{AI_ALL, AI_V4MAPPED};
+    use host_socket::{AI_ALL, AI_V4MAPPED};
 
     #[cfg(any(
         target_os = "android",
@@ -652,7 +493,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::EAI_NODATA;
+    use host_socket::EAI_NODATA;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -663,7 +504,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_LINK, IP_RECVDSTADDR, IPPROTO_GGP, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, SO_USELOOPBACK,
     };
 
@@ -677,7 +518,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::{MSG_CMSG_CLOEXEC, MSG_NOSIGNAL};
+    use host_socket::{MSG_CMSG_CLOEXEC, MSG_NOSIGNAL};
 
     #[cfg(any(
         target_os = "android",
@@ -689,7 +530,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::TCP_KEEPIDLE;
+    use host_socket::TCP_KEEPIDLE;
 
     #[cfg(any(
         target_os = "android",
@@ -701,7 +542,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{TCP_KEEPCNT, TCP_KEEPINTVL};
+    use host_socket::{TCP_KEEPCNT, TCP_KEEPINTVL};
 
     #[cfg(any(
         target_os = "android",
@@ -714,7 +555,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::{SOCK_CLOEXEC, SOCK_NONBLOCK};
+    use host_socket::{SOCK_CLOEXEC, SOCK_NONBLOCK};
 
     #[cfg(any(
         target_os = "android",
@@ -727,7 +568,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_ROUTE, AF_SNA, EAI_OVERFLOW, IPPROTO_GRE, IPPROTO_RSVP, IPPROTO_TP, IPV6_RECVPKTINFO,
         MSG_DONTWAIT, SCM_RIGHTS, TCP_MAXSEG,
     };
@@ -743,7 +584,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::IPV6_PKTINFO;
+    use host_socket::IPV6_PKTINFO;
 
     #[cfg(any(
         target_os = "android",
@@ -756,7 +597,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::AI_CANONNAME;
+    use host_socket::AI_CANONNAME;
 
     #[cfg(any(
         target_os = "android",
@@ -770,7 +611,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NONAME, EAI_SERVICE,
         EAI_SOCKTYPE, IP_HDRINCL, IP_TOS, IPV6_RECVTCLASS, IPV6_TCLASS, SOMAXCONN,
     };
@@ -787,7 +628,7 @@ mod _socket {
         windows
     )))]
     #[pyattr]
-    const SOMAXCONN: i32 = 5; // Common value
+    use host_socket::SOMAXCONN;
 
     // HERE IS WHERE THE BLUETOOTH CONSTANTS START
     // TODO: there should be a more intelligent way of detecting bluetooth on a platform.
@@ -800,7 +641,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::AF_BLUETOOTH;
+    use host_socket::AF_BLUETOOTH;
 
     #[cfg(any(
         target_os = "android",
@@ -810,26 +651,30 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    const BDADDR_ANY: &str = "00:00:00:00:00:00";
-    #[cfg(any(
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "fuchsia",
-        target_os = "linux",
-        target_os = "openbsd"
-    ))]
-    #[pyattr]
-    const BDADDR_LOCAL: &str = "00:00:00:FF:FF:FF";
+    use host_socket::{BDADDR_ANY, BDADDR_LOCAL};
     // HERE IS WHERE THE BLUETOOTH CONSTANTS END
 
     #[cfg(windows)]
     #[pyattr]
     use host_socket::{
-        AF_BLUETOOTH, AF_HYPERV, AF_IRDA, AF_SNA, BTHPROTO_RFCOMM, HV_PROTOCOL_RAW,
-        HVSOCKET_ADDRESS_FLAG_PASSTHRU, HVSOCKET_CONNECT_TIMEOUT, HVSOCKET_CONNECT_TIMEOUT_MAX,
-        HVSOCKET_CONNECTED_SUSPEND, IPPROTO_CBT, IPPROTO_ICLFXBM, IPPROTO_IGP, IPPROTO_L2TP,
-        IPPROTO_PGM, IPPROTO_RDP, IPPROTO_SCTP, IPPROTO_ST, SIO_TCP_SET_ACK_FREQUENCY,
+        AF_BLUETOOTH, AF_HYPERV, AF_IRDA, AF_SNA, BTHPROTO_RFCOMM,
+        BTHPROTO_RFCOMM as BTPROTO_RFCOMM, HV_PROTOCOL_RAW, HVSOCKET_ADDRESS_FLAG_PASSTHRU,
+        HVSOCKET_CONNECT_TIMEOUT, HVSOCKET_CONNECT_TIMEOUT_MAX, HVSOCKET_CONNECTED_SUSPEND,
+        IP_ADD_SOURCE_MEMBERSHIP, IP_BLOCK_SOURCE, IP_DROP_SOURCE_MEMBERSHIP, IP_PKTINFO,
+        IP_RECVERR, IP_RECVTOS, IP_RECVTTL, IP_UNBLOCK_SOURCE, IPPROTO_CBT, IPPROTO_ICLFXBM,
+        IPPROTO_IGP, IPPROTO_L2TP, IPPROTO_PGM, IPPROTO_RDP, IPPROTO_SCTP, IPPROTO_ST,
+        IPV6_RECVERR, MSG_ERRQUEUE, RCVALL_MAX, SIO_TCP_SET_ACK_FREQUENCY, SO_ACCEPTCONN,
+        SO_BTH_ENCRYPT, SO_BTH_MTU, SO_BTH_MTU_MAX, SO_BTH_MTU_MIN, SO_DEBUG, SO_DONTROUTE,
+        SO_ORIGINAL_DST, SO_RCVLOWAT, SO_RCVTIMEO, SO_SNDLOWAT, SO_SNDTIMEO, SOL_RFCOMM,
+        TCP_FASTOPEN, TCP_KEEPCNT, TCP_KEEPIDLE, TCP_KEEPINTVL,
     };
+
+    #[cfg(windows)]
+    #[pyattr]
+    const BDADDR_ANY: &str = host_socket::BDADDR_ANY;
+    #[cfg(windows)]
+    #[pyattr]
+    const BDADDR_LOCAL: &str = host_socket::BDADDR_LOCAL;
 
     #[cfg(windows)]
     #[pyattr]
@@ -981,17 +826,17 @@ mod _socket {
 
     impl Read for &PySocket {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            (&mut &*self.sock()?).read(buf)
+            (&mut &*self.sock_snapshot()?).read(buf)
         }
     }
 
     impl Write for &PySocket {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            (&mut &*self.sock()?).write(buf)
+            (&mut &*self.sock_snapshot()?).write(buf)
         }
 
         fn flush(&mut self) -> std::io::Result<()> {
-            (&mut &*self.sock()?).flush()
+            (&mut &*self.sock_snapshot()?).flush()
         }
     }
 
@@ -1004,6 +849,21 @@ mod _socket {
         pub fn sock(&self) -> io::Result<PyMappedRwLockReadGuard<'_, Socket>> {
             self.sock_opt()
                 .ok_or_else(|| io::Error::from_raw_os_error(CLOSED_ERR))
+        }
+
+        /// Snapshot the inner socket without holding `self.sock` across a syscall.
+        ///
+        /// Blocking accept/recv/send must not keep the RwLock: `close()` needs
+        /// the write side, and a lock held by a thread that did not survive
+        /// `fork()` stays locked forever in the child.
+        pub(crate) fn sock_snapshot(&self) -> io::Result<ManuallyDrop<Socket>> {
+            let guard = self.sock()?;
+            let fd = sock_fileno(&guard);
+            drop(guard);
+            // SAFETY: PySocket remains the owner of `fd`. Drop is suppressed so
+            // this wrapper does not close it. A concurrent close() may
+            // invalidate `fd`; the syscall then fails with EBADF.
+            Ok(ManuallyDrop::new(unsafe { sock_from_raw_unchecked(fd) }))
         }
 
         fn init_inner(
@@ -1100,24 +960,29 @@ mod _socket {
             F: FnMut() -> io::Result<R>,
         {
             let timeout = self.get_timeout().ok();
-            self.sock_op_timeout_err(vm, wait_kind, timeout, f)
+            let mut deadline = None;
+            self.sock_op_timeout_err(vm, wait_kind, &mut deadline, timeout, f)
         }
 
         fn sock_op_timeout_err<F, R>(
             &self,
             vm: &VirtualMachine,
             wait_kind: SockWaitKind,
+            deadline: &mut Option<Deadline>,
             timeout: Option<Duration>,
             mut f: F,
         ) -> Result<R, IoOrPyException>
         where
             F: FnMut() -> io::Result<R>,
         {
-            let deadline = timeout.map(Deadline::new);
-
             loop {
-                if deadline.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
-                    let sock = self.sock()?;
+                if timeout.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
+                    let sock = self.sock_snapshot()?;
+                    // Start the clock after the snapshot so lock/scheduling
+                    // delay is not subtracted from a short timeout before poll.
+                    if deadline.is_none() {
+                        *deadline = timeout.map(Deadline::new);
+                    }
                     sock_wait_deadline(&sock, wait_kind, deadline.as_ref(), vm)?;
                 }
 
@@ -1441,7 +1306,7 @@ mod _socket {
         ) -> Result<(), IoOrPyException> {
             let sock_addr = self.extract_address(address, caller, vm)?;
 
-            let sock = self.sock()?;
+            let sock = self.sock_snapshot()?;
             let err = match vm.allow_threads(|| sock.connect(&sock_addr)) {
                 Ok(()) => return Ok(()),
                 Err(e) => e,
@@ -1461,7 +1326,7 @@ mod _socket {
 
             if wait_connect {
                 self.sock_op(vm, SockWaitKind::Connect, || {
-                    let sock = self.sock()?;
+                    let sock = self.sock_snapshot()?;
                     let err = sock.take_error()?;
                     match err {
                         Some(e) => Err(e),
@@ -1710,8 +1575,9 @@ mod _socket {
         ) -> Result<(RawSocket, PyObjectRef), IoOrPyException> {
             // Use accept_raw() instead of accept() to avoid socket2's set_common_flags()
             // which tries to set SO_NOSIGPIPE and fails with EINVAL on Unix domain sockets on macOS
-            let (sock, addr) =
-                self.sock_op(vm, SockWaitKind::Read, || self.sock()?.accept_raw())?;
+            let (sock, addr) = self.sock_op(vm, SockWaitKind::Read, || {
+                self.sock_snapshot()?.accept_raw()
+            })?;
             let fd = into_sock_fileno(sock);
             Ok((fd, get_addr_tuple(&addr, vm)))
         }
@@ -1728,9 +1594,9 @@ mod _socket {
             buffer
                 .try_reserve_exact(bufsize)
                 .map_err(|_| vm.no_memory_error())?;
-            let sock = self.sock()?;
             let n = self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_with_flags(buffer.spare_capacity_mut(), flags)
+                self.sock_snapshot()?
+                    .recv_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
             Ok(buffer)
@@ -1745,7 +1611,6 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let sock = self.sock()?;
 
             // Handle nbytes parameter
             let read_len = if let OptionalArg::Present(nbytes) = nbytes {
@@ -1759,7 +1624,8 @@ mod _socket {
 
             let mut scratch = alloc_recv_scratch(read_len, vm)?;
             let n = self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
+                self.sock_snapshot()?
+                    .recv_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
             })?;
             unsafe { scratch.set_len(n) };
             buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
@@ -1782,7 +1648,7 @@ mod _socket {
                 .try_reserve_exact(bufsize)
                 .map_err(|_| vm.no_memory_error())?;
             let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
-                self.sock()?
+                self.sock_snapshot()?
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
@@ -1812,10 +1678,10 @@ mod _socket {
                 OptionalArg::Missing => buf.len(),
             };
             let flags = flags.unwrap_or(0);
-            let sock = self.sock()?;
             let mut scratch = alloc_recv_scratch(read_len, vm)?;
             let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_from_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
+                self.sock_snapshot()?
+                    .recv_from_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
             })?;
             unsafe { scratch.set_len(n) };
             buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
@@ -1833,7 +1699,7 @@ mod _socket {
             let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             self.sock_op(vm, SockWaitKind::Write, || {
-                self.sock()?.send_with_flags(buf, flags)
+                self.sock_snapshot()?.send_with_flags(buf, flags)
             })
         }
 
@@ -1847,18 +1713,16 @@ mod _socket {
             let flags = flags.unwrap_or(0);
 
             let timeout = self.get_timeout().ok();
-
-            let deadline = timeout.map(Deadline::new);
+            let mut deadline = None;
 
             let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             let mut buf_offset = 0;
             // now we have like 3 layers of interrupt loop :)
             while buf_offset < buf.len() {
-                let interval = deadline.as_ref().map(|d| d.time_until()).transpose()?;
-                self.sock_op_timeout_err(vm, SockWaitKind::Write, interval, || {
+                self.sock_op_timeout_err(vm, SockWaitKind::Write, &mut deadline, timeout, || {
                     let subbuf = &buf[buf_offset..];
-                    buf_offset += self.sock()?.send_with_flags(subbuf, flags)?;
+                    buf_offset += self.sock_snapshot()?.send_with_flags(subbuf, flags)?;
                     Ok(())
                 })?;
                 vm.check_signals()?;
@@ -1890,7 +1754,7 @@ mod _socket {
             let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             self.sock_op(vm, SockWaitKind::Write, || {
-                self.sock()?.send_to_with_flags(buf, &addr, flags)
+                self.sock_snapshot()?.send_to_with_flags(buf, &addr, flags)
             })
         }
 
@@ -1948,7 +1812,7 @@ mod _socket {
             }
 
             self.sock_op(vm, SockWaitKind::Write, || {
-                let sock = self.sock()?;
+                let sock = self.sock_snapshot()?;
                 sock.sendmsg(&msg, flags)
             })
             .map_err(|e| e.into_pyexception(vm))
@@ -1984,7 +1848,7 @@ mod _socket {
             let iv = iv.map(|iv| iv.borrow_buf().to_vec());
 
             self.sock_op(vm, SockWaitKind::Write, || {
-                let sock = self.sock()?;
+                let sock = self.sock_snapshot()?;
                 let fd = unsafe { BorrowedFd::borrow_raw(sock_fileno(&sock)) };
                 host_socket::sendmsg_afalg(fd, &buffers, op, iv.as_deref(), assoclen, flags)
             })
@@ -2017,7 +1881,7 @@ mod _socket {
 
             let msg = self
                 .sock_op(vm, SockWaitKind::Read, || {
-                    let sock = self.sock()?;
+                    let sock = self.sock_snapshot()?;
                     let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock_fileno(&sock)) };
                     host_socket::recvmsg(fd, bufsize, ancbufsize, flags)
                 })
@@ -2724,7 +2588,7 @@ mod _socket {
                                     .code_points()
                                     .position(|c| c.to_char().is_none())
                                     .unwrap();
-                                vm.new_unicode_encode_error_real(
+                                vm.new_unicode_encode_error(
                                     vm.ctx.new_str("utf-8"),
                                     (*s).clone(),
                                     start,
@@ -3166,6 +3030,7 @@ mod _socket {
         vm.new_os_subtype_error(timeout(vm), None, msg)
     }
 
+    #[derive(Copy, Clone)]
     pub(crate) struct Deadline {
         deadline: Instant,
     }
@@ -3178,12 +3043,6 @@ mod _socket {
         }
         fn instant(&self) -> Instant {
             self.deadline
-        }
-        fn time_until(&self) -> Result<Duration, IoOrPyException> {
-            self.deadline
-                .checked_duration_since(Instant::now())
-                // past the deadline already
-                .ok_or(IoOrPyException::Timeout)
         }
     }
 

@@ -808,6 +808,16 @@ impl SymbolTableAnalyzer {
         sub_tables: &[SymbolTable],
         class_entry: Option<&SymbolMap>,
     ) -> SymbolTableResult {
+        if symbol
+            .flags
+            .contains(SymbolFlags::DEF_GLOBAL | SymbolFlags::DEF_NONLOCAL)
+        {
+            return Err(SymbolTableError {
+                error: format!("name '{}' is nonlocal and global", symbol.name),
+                location: symbol.location,
+                end_location: symbol.end_location,
+            });
+        }
         match symbol.scope {
             // Only an explicit `nonlocal` has to name a binding. Every other free
             // variable was already resolved by the scope it travelled up from.
@@ -3285,7 +3295,8 @@ impl SymbolTableBuilder {
                 .or_insert(symbol)
         };
 
-        if matches!(role, SymbolUsage::Global | SymbolUsage::Nonlocal) {
+        if matches!(role, SymbolUsage::Global | SymbolUsage::Nonlocal) && symbol.location.is_none()
+        {
             symbol.location = location;
             symbol.end_location = end_location;
         }

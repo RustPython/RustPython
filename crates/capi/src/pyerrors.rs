@@ -5,7 +5,7 @@ use core::convert::Infallible;
 use core::ffi::{c_char, c_int};
 use core::ptr::NonNull;
 use core::slice;
-use rustpython_vm::builtins::{PyBaseException, PyTuple, PyType};
+use rustpython_vm::builtins::{PyBaseException, PyTraceback, PyTuple, PyType};
 use rustpython_vm::convert::IntoObject;
 use rustpython_vm::exceptions::ExceptionZoo;
 use rustpython_vm::{AsObject, PyObjectRef, PyResult};
@@ -298,7 +298,7 @@ pub unsafe extern "C" fn PyException_SetCause(exc: *mut PyObject, cause: *mut Py
         let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
         let cause = NonNull::new(cause)
             .map(|obj| unsafe { PyObjectRef::from_raw(obj).downcast_unchecked() });
-        exc.set___cause__(cause);
+        exc.set_cause(cause);
         Ok(())
     })
 }
@@ -309,7 +309,7 @@ pub unsafe extern "C" fn PyException_SetContext(exc: *mut PyObject, context: *mu
         let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
         let context = NonNull::new(context)
             .map(|obj| unsafe { PyObjectRef::from_raw(obj).downcast_unchecked() });
-        exc.set___context__(context);
+        exc.set_context(context);
         Ok(())
     })
 }
@@ -362,8 +362,16 @@ pub unsafe extern "C" fn PyUnicodeDecodeError_Create(
 pub unsafe extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
-        let traceback = unsafe { tb.as_ref() }.map(|obj| obj.to_owned());
-        exc.set___traceback__(vm.unwrap_or_none(traceback), vm)
+        let traceback = match unsafe { tb.as_ref() }.map(|obj| obj.to_owned()) {
+            None => None,
+            Some(obj) if vm.is_none(&obj) => None,
+            Some(obj) => Some(
+                obj.downcast::<PyTraceback>()
+                    .map_err(|_| vm.new_type_error("__traceback__ must be a traceback or None"))?,
+            ),
+        };
+        exc.set_traceback(traceback);
+        Ok(())
     })
 }
 

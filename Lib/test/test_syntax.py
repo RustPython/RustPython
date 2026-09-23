@@ -1013,7 +1013,7 @@ Misuse of the nonlocal and global statement can lead to a few unique syntax erro
      ...
    SyntaxError: name 'x' is parameter and nonlocal
 
-   >>> def f():  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> def f():
    ...     global x
    ...     nonlocal x
    Traceback (most recent call last):

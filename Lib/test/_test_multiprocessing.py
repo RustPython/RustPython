@@ -3166,7 +3166,6 @@ class _TestPool(BaseTestCase):
         # check that we indeed waited for all jobs
         self.assertGreater(time.monotonic() - t_start, 0.9)
 
-    @unittest.skip("TODO: RUSTPYTHON; reference counting differences")
     def test_release_task_refs(self):
         # Issue #29861: task arguments and results should not be kept
         # alive after we are done with them.
@@ -4084,7 +4083,6 @@ class _TestPicklingConnections(BaseTestCase):
 
         conn.close()
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_pickling(self):
         families = self.connection.families
 
@@ -4306,7 +4304,6 @@ class _TestSharedCTypes(BaseTestCase):
         for i in range(len(arr)):
             arr[i] *= 2
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - ctypes Structure shared memory not working
     def test_sharedctypes(self, lock=False):
         x = Value('i', 7, lock=lock)
         y = Value(c_double, 1.0/3.0, lock=lock)
@@ -4330,7 +4327,6 @@ class _TestSharedCTypes(BaseTestCase):
             self.assertAlmostEqual(arr[i], i*2)
         self.assertEqual(string.value, latin('hellohello'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - calls test_sharedctypes which fails
     def test_synchronize(self):
         self.test_sharedctypes(lock=True)
 
@@ -6273,7 +6269,6 @@ class TestResourceTracker(unittest.TestCase):
             # restore sigmask to what it was before executing test
             signal.pthread_sigmask(signal.SIG_SETMASK, orig_sigmask)
 
-    @unittest.expectedFailureIf(not hasattr(os, "killpg"), "TODO: RUSTPYTHON")
     @only_run_in_forkserver_testsuite("avoids redundant testing.")
     def test_resource_tracker_fork_deadlock(self):
         # gh-146313: ResourceTracker.__del__ used to deadlock if a forked

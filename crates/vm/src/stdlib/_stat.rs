@@ -84,20 +84,13 @@ mod _stat {
     );
 
     #[pyattr]
-    pub const S_IFDOOR: Mode = 0; // TODO: RUSTPYTHON Support Solaris
+    pub const S_IFDOOR: Mode = rustpython_host_env::os::S_IFDOOR as Mode;
 
     #[pyattr]
-    pub const S_IFPORT: Mode = 0; // TODO: RUSTPYTHON Support Solaris
-
-    // TODO: RUSTPYTHON Support BSD
-    // https://man.freebsd.org/cgi/man.cgi?stat(2)
+    pub const S_IFPORT: Mode = rustpython_host_env::os::S_IFPORT as Mode;
 
     #[pyattr]
-    pub const S_IFWHT: Mode = if cfg!(target_os = "macos") {
-        0o160000
-    } else {
-        0
-    };
+    pub const S_IFWHT: Mode = rustpython_host_env::os::S_IFWHT as Mode;
 
     // Permission bits
 
@@ -247,122 +240,24 @@ mod _stat {
         FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
     };
 
-    // Windows reparse point tags
     #[cfg(windows)]
     #[pyattr]
-    pub const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
-    #[cfg(windows)]
-    #[pyattr]
-    pub const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA0000003;
-    #[cfg(windows)]
-    #[pyattr]
-    pub const IO_REPARSE_TAG_APPEXECLINK: u32 = 0x8000001B;
+    pub use host_nt::{
+        IO_REPARSE_TAG_APPEXECLINK, IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
+    };
 
     // Unix file flags (if on Unix)
 
     #[pyattr]
-    pub const UF_NODUMP: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_NODUMP,
-        0x00000001
-    );
-
-    #[pyattr]
-    pub const UF_IMMUTABLE: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_IMMUTABLE,
-        0x00000002
-    );
-
-    #[pyattr]
-    pub const UF_APPEND: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_APPEND,
-        0x00000004
-    );
-
-    #[pyattr]
-    pub const UF_OPAQUE: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_OPAQUE,
-        0x00000008
-    );
-
-    #[pyattr]
-    pub const UF_COMPRESSED: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_COMPRESSED,
-        0x00000020
-    );
-
-    #[pyattr]
-    pub const UF_HIDDEN: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        UF_HIDDEN,
-        0x00008000
-    );
-
-    #[pyattr]
-    pub const SF_ARCHIVED: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        SF_ARCHIVED,
-        0x00010000
-    );
-
-    #[pyattr]
-    pub const SF_IMMUTABLE: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        SF_IMMUTABLE,
-        0x00020000
-    );
-
-    #[pyattr]
-    pub const SF_APPEND: u32 = libc_const!(
-        #[cfg(target_os = "macos")]
-        SF_APPEND,
-        0x00040000
-    );
-
-    #[pyattr]
-    pub const SF_SETTABLE: u32 = if cfg!(target_os = "macos") {
-        0x3fff0000
-    } else {
-        0xffff0000
+    pub use rustpython_host_env::os::{
+        SF_APPEND, SF_ARCHIVED, SF_DATALESS, SF_FIRMLINK, SF_IMMUTABLE, SF_NOUNLINK, SF_SETTABLE,
+        SF_SNAPSHOT, UF_APPEND, UF_COMPRESSED, UF_DATAVAULT, UF_HIDDEN, UF_IMMUTABLE, UF_NODUMP,
+        UF_NOUNLINK, UF_OPAQUE, UF_SETTABLE, UF_TRACKED,
     };
 
-    #[pyattr]
-    pub const UF_SETTABLE: u32 = 0x0000ffff;
-
-    #[pyattr]
-    pub const UF_NOUNLINK: u32 = 0x00000010;
-
-    #[pyattr]
-    pub const UF_TRACKED: u32 = 0x00000040;
-
-    #[pyattr]
-    pub const UF_DATAVAULT: u32 = 0x00000080;
-
-    #[pyattr]
-    pub const SF_NOUNLINK: u32 = 0x00100000;
-
-    #[pyattr]
-    pub const SF_SNAPSHOT: u32 = 0x00200000;
-
-    #[pyattr]
-    pub const SF_FIRMLINK: u32 = 0x00800000;
-
-    #[pyattr]
-    pub const SF_DATALESS: u32 = 0x40000000;
-
-    // MacOS specific
-
     #[cfg(target_os = "macos")]
     #[pyattr]
-    pub const SF_SUPPORTED: u32 = 0x009f0000;
-
-    #[cfg(target_os = "macos")]
-    #[pyattr]
-    pub const SF_SYNTHETIC: u32 = 0xc0000000;
+    pub use rustpython_host_env::os::{SF_SUPPORTED, SF_SYNTHETIC};
 
     // Stat result indices
 

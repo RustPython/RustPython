@@ -30,6 +30,190 @@ use {
     },
 };
 
+pub const F_OK: u8 = 0;
+pub const R_OK: u8 = 4;
+pub const W_OK: u8 = 2;
+pub const X_OK: u8 = 1;
+
+#[cfg(any(unix, target_os = "wasi"))]
+pub use libc::AT_FDCWD;
+#[cfg(not(any(unix, target_os = "wasi")))]
+pub const AT_FDCWD: i32 = -100;
+
+#[cfg(unix)]
+pub use libc::{AT_REMOVEDIR, AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW};
+
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_vendor = "apple"
+))]
+pub use libc::AT_EACCESS;
+
+/// bionic does not export `AT_EACCESS`; the value is the Linux `fcntl.h` one.
+#[cfg(target_os = "android")]
+pub const AT_EACCESS: i32 = 0x200;
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub use libc::{ST_NOSUID, ST_RDONLY};
+
+/// `open(2)` flags. libc on hosts that bind them; Darwin/BSD numbers on
+/// `wasm32-unknown-unknown`, matching the guest errno table.
+#[cfg(any(unix, windows, target_os = "wasi"))]
+pub use libc::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
+
+#[cfg(unix)]
+pub use libc::{O_ACCMODE, O_CLOEXEC, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::{O_ASYNC, O_NDELAY, O_NOCTTY};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd"
+))]
+pub use libc::O_DSYNC;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd"
+))]
+pub use libc::O_SYNC;
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::O_FSYNC;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub use libc::{O_DIRECT, O_LARGEFILE, O_NOATIME, O_PATH, O_RSYNC, O_TMPFILE};
+
+#[cfg(target_os = "freebsd")]
+pub use libc::{O_DIRECT, O_PATH};
+
+#[cfg(target_os = "redox")]
+pub use libc::O_PATH;
+
+#[cfg(target_os = "netbsd")]
+pub use libc::{O_DIRECT, O_RSYNC};
+
+#[cfg(target_os = "dragonfly")]
+pub use libc::O_DIRECT;
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub use libc::{O_EVTONLY, O_EXEC, O_EXLOCK, O_NOFOLLOW_ANY, O_SEARCH, O_SHLOCK, O_SYMLINK};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::{O_EXLOCK, O_SHLOCK};
+
+#[cfg(target_os = "redox")]
+pub use libc::O_SYMLINK;
+
+#[cfg(windows)]
+pub use libc::{O_BINARY, O_NOINHERIT, O_RANDOM, O_SEQUENTIAL, O_TEMPORARY, O_TEXT};
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod wasm_oflag {
+    pub const O_RDONLY: i32 = 0x0000;
+    pub const O_WRONLY: i32 = 0x0001;
+    pub const O_RDWR: i32 = 0x0002;
+    pub const O_ACCMODE: i32 = 0x0003;
+    pub const O_NONBLOCK: i32 = 0x0004;
+    pub const O_APPEND: i32 = 0x0008;
+    pub const O_SYNC: i32 = 0x0080;
+    pub const O_NOFOLLOW: i32 = 0x0100;
+    pub const O_CREAT: i32 = 0x0200;
+    pub const O_TRUNC: i32 = 0x0400;
+    pub const O_EXCL: i32 = 0x0800;
+    pub const O_DIRECTORY: i32 = 0x0010_0000;
+    pub const O_CLOEXEC: i32 = 0x0100_0000;
+    pub const O_NDELAY: i32 = O_NONBLOCK;
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+pub use wasm_oflag::*;
+
+/// BSD `chflags` bits the `libc` crate does not bind. Published by `_stat`
+/// on every platform.
+pub const UF_SETTABLE: u32 = 0x0000ffff;
+pub const UF_NOUNLINK: u32 = 0x00000010;
+pub const UF_TRACKED: u32 = 0x00000040;
+pub const UF_DATAVAULT: u32 = 0x00000080;
+pub const SF_NOUNLINK: u32 = 0x00100000;
+pub const SF_SNAPSHOT: u32 = 0x00200000;
+pub const SF_FIRMLINK: u32 = 0x00800000;
+pub const SF_DATALESS: u32 = 0x40000000;
+pub const SF_SETTABLE: u32 = if cfg!(target_os = "macos") {
+    0x3fff0000
+} else {
+    0xffff0000
+};
+#[cfg(target_os = "macos")]
+pub const SF_SUPPORTED: u32 = 0x009f0000;
+#[cfg(target_os = "macos")]
+pub const SF_SYNTHETIC: u32 = 0xc0000000;
+
+/// BSD `chflags` bits libc binds on macOS and `_stat.c` falls back to
+/// elsewhere. Published by `_stat` on every platform.
+#[cfg(target_os = "macos")]
+pub use libc::{
+    SF_APPEND, SF_ARCHIVED, SF_IMMUTABLE, UF_APPEND, UF_COMPRESSED, UF_HIDDEN, UF_IMMUTABLE,
+    UF_NODUMP, UF_OPAQUE,
+};
+#[cfg(not(target_os = "macos"))]
+pub const UF_NODUMP: u32 = 0x00000001;
+#[cfg(not(target_os = "macos"))]
+pub const UF_IMMUTABLE: u32 = 0x00000002;
+#[cfg(not(target_os = "macos"))]
+pub const UF_APPEND: u32 = 0x00000004;
+#[cfg(not(target_os = "macos"))]
+pub const UF_OPAQUE: u32 = 0x00000008;
+#[cfg(not(target_os = "macos"))]
+pub const UF_COMPRESSED: u32 = 0x00000020;
+#[cfg(not(target_os = "macos"))]
+pub const UF_HIDDEN: u32 = 0x00008000;
+#[cfg(not(target_os = "macos"))]
+pub const SF_ARCHIVED: u32 = 0x00010000;
+#[cfg(not(target_os = "macos"))]
+pub const SF_IMMUTABLE: u32 = 0x00020000;
+#[cfg(not(target_os = "macos"))]
+pub const SF_APPEND: u32 = 0x00040000;
+
+/// Solaris door/port and BSD whiteout. `_stat` publishes 0 where the
+/// platform has no such file type.
+pub const S_IFDOOR: u32 = 0;
+pub const S_IFPORT: u32 = 0;
+pub const S_IFWHT: u32 = if cfg!(target_os = "macos") {
+    0o160000
+} else {
+    0
+};
+
 #[cfg(not(any(unix, windows, target_os = "wasi")))]
 pub fn rename(
     from: impl AsRef<std::path::Path>,
@@ -769,5 +953,18 @@ pub fn winerror_to_errno(winerror: i32) -> i32 {
         | ERROR_INVALID_PARAMETER
         | ERROR_NEGATIVE_SEEK => EINVAL,
         _ => EINVAL,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn o_rdonly_is_zero() {
+        assert_eq!(super::O_RDONLY, 0);
+    }
+
+    #[test]
+    fn o_wronly_is_one() {
+        assert_eq!(super::O_WRONLY, 1);
     }
 }

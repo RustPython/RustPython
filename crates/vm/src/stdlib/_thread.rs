@@ -353,6 +353,24 @@ pub(crate) mod _thread {
         current_thread_id()
     }
 
+    #[cfg(all(
+        feature = "host_env",
+        any(
+            windows,
+            target_os = "linux",
+            target_os = "android",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "freebsd",
+            target_os = "openbsd",
+            target_os = "netbsd",
+        )
+    ))]
+    #[pyfunction]
+    fn get_native_id() -> u64 {
+        host_thread::native_id()
+    }
+
     #[cfg(all(unix, feature = "threading"))]
     #[pyfunction]
     fn _stop_the_world_stats(vm: &VirtualMachine) -> PyResult<PyDictRef> {
@@ -1381,14 +1399,20 @@ pub(crate) mod _thread {
                 }
 
                 inner_guard.state = ThreadHandleState::Done;
-                inner_guard.join_handle = None;
+                // The OS thread did not survive the fork. Dropping JoinHandle
+                // would pthread_detach a copied thread descriptor.
+                if let Some(handle) = inner_guard.join_handle.take() {
+                    core::mem::forget(handle);
+                }
                 drop(inner_guard);
 
-                // Reinit and set the done event
+                // Reinit and set the done event. Do not notify: no other
+                // thread exists in the child, and notify_all would unpark
+                // waiters that did not survive the fork.
                 let (lock, cvar) = &*done_event;
                 reinit_parking_lot_mutex(lock);
+                reinit_parking_lot_condvar(cvar);
                 *lock.lock() = true;
-                cvar.notify_all();
 
                 true
             });
@@ -1420,8 +1444,8 @@ pub(crate) mod _thread {
 
                 let (lock, cvar) = &*done_event;
                 reinit_parking_lot_mutex(lock);
+                reinit_parking_lot_condvar(cvar);
                 *lock.lock() = true;
-                cvar.notify_all();
 
                 false
             });
@@ -1445,6 +1469,14 @@ pub(crate) mod _thread {
     #[cfg(all(unix, feature = "host_env"))]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
         unsafe { rustpython_common::lock::zero_reinit_after_fork(mutex.raw()) };
+    }
+
+    /// Reset a parking_lot::Condvar after fork.
+    ///
+    /// `notify_all()` would unpark waiters that did not survive the fork.
+    #[cfg(all(unix, feature = "host_env"))]
+    fn reinit_parking_lot_condvar(cvar: &parking_lot::Condvar) {
+        unsafe { rustpython_common::lock::zero_reinit_after_fork(cvar) };
     }
 
     // Thread handle state enum

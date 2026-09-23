@@ -512,11 +512,34 @@ pub const EXCEPTION_CONTINUE_SEARCH: i32 =
 pub const EXCEPTION_ACCESS_VIOLATION: u32 =
     windows_sys::Win32::Foundation::EXCEPTION_ACCESS_VIOLATION as u32;
 #[cfg(windows)]
+pub const EXCEPTION_ARRAY_BOUNDS_EXCEEDED: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_ARRAY_BOUNDS_EXCEEDED as u32;
+#[cfg(windows)]
+pub const EXCEPTION_BREAKPOINT: u32 = windows_sys::Win32::Foundation::EXCEPTION_BREAKPOINT as u32;
+#[cfg(windows)]
+pub const EXCEPTION_DATATYPE_MISALIGNMENT: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_DATATYPE_MISALIGNMENT as u32;
+#[cfg(windows)]
+pub const EXCEPTION_FLT_DENORMAL_OPERAND: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_FLT_DENORMAL_OPERAND as u32;
+#[cfg(windows)]
 pub const EXCEPTION_FLT_DIVIDE_BY_ZERO: u32 =
     windows_sys::Win32::Foundation::EXCEPTION_FLT_DIVIDE_BY_ZERO as u32;
 #[cfg(windows)]
+pub const EXCEPTION_FLT_INEXACT_RESULT: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_FLT_INEXACT_RESULT as u32;
+#[cfg(windows)]
+pub const EXCEPTION_FLT_INVALID_OPERATION: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_FLT_INVALID_OPERATION as u32;
+#[cfg(windows)]
 pub const EXCEPTION_FLT_OVERFLOW: u32 =
     windows_sys::Win32::Foundation::EXCEPTION_FLT_OVERFLOW as u32;
+#[cfg(windows)]
+pub const EXCEPTION_FLT_STACK_CHECK: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_FLT_STACK_CHECK as u32;
+#[cfg(windows)]
+pub const EXCEPTION_FLT_UNDERFLOW: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_FLT_UNDERFLOW as u32;
 #[cfg(windows)]
 pub const EXCEPTION_INT_DIVIDE_BY_ZERO: u32 =
     windows_sys::Win32::Foundation::EXCEPTION_INT_DIVIDE_BY_ZERO as u32;
@@ -526,6 +549,11 @@ pub const EXCEPTION_INT_OVERFLOW: u32 =
 #[cfg(windows)]
 pub const EXCEPTION_IN_PAGE_ERROR: u32 =
     windows_sys::Win32::Foundation::EXCEPTION_IN_PAGE_ERROR as u32;
+#[cfg(windows)]
+pub const EXCEPTION_PRIV_INSTRUCTION: u32 =
+    windows_sys::Win32::Foundation::EXCEPTION_PRIV_INSTRUCTION as u32;
+#[cfg(windows)]
+pub const EXCEPTION_SINGLE_STEP: u32 = windows_sys::Win32::Foundation::EXCEPTION_SINGLE_STEP as u32;
 #[cfg(windows)]
 pub const EXCEPTION_STACK_OVERFLOW: u32 =
     windows_sys::Win32::Foundation::EXCEPTION_STACK_OVERFLOW as u32;

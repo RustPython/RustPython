@@ -17,7 +17,10 @@ mod _suggestions {
             .map_err(|_| vm.new_type_error("candidates must be a list"))?;
         let candidates = candidates.borrow_vec();
         Ok(
-            match crate::vm::suggestion::calculate_suggestions(candidates.iter(), &name) {
+            match crate::vm::suggestion::calculate_suggestions(
+                candidates.iter().map(|o| &**o),
+                &name,
+            ) {
                 Some(suggestion) => suggestion.into(),
                 None => vm.ctx.none(),
             },

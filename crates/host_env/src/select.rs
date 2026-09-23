@@ -311,12 +311,16 @@ fn wait_fd_poll(
         let (timeout, is_capped) = match deadline {
             None => (-1, false),
             Some(deadline) => {
-                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                    return Ok(WaitFd::Timeout);
-                };
-                match duration_as_millis_ceiling(remaining) {
-                    Some(ms) => (ms, false),
-                    None => (i32::MAX, true),
+                match deadline.checked_duration_since(Instant::now()) {
+                    // Deadline already passed: still poll once with 0 so a
+                    // readable/writable socket is not reported as timed out
+                    // after scheduling delay between starting the timer and
+                    // entering poll.
+                    None => (0, false),
+                    Some(remaining) => match duration_as_millis_ceiling(remaining) {
+                        Some(ms) => (ms, false),
+                        None => (i32::MAX, true),
+                    },
                 }
             }
         };
@@ -357,9 +361,9 @@ fn wait_fd_select(
     let mut timeout = match deadline {
         None => None,
         Some(deadline) => {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return Ok(WaitFd::Timeout);
-            };
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .unwrap_or(Duration::ZERO);
             Some(duration_to_timeval(remaining))
         }
     };
@@ -697,6 +701,38 @@ mod tests {
         let tv = duration_to_timeval(Duration::from_micros(1_500_250));
         assert_eq!(tv.tv_sec as u64, 1);
         assert_eq!(tv.tv_usec as u32, 500_250);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_fd_sees_ready_socket_after_deadline() {
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let (r, w): (i32, i32) = fds.into();
+        let n = unsafe { libc::write(w, b"x".as_ptr().cast(), 1) };
+        assert_eq!(n, 1);
+        let past = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        let result = wait_fd(r, WaitKind::Read, Some(past));
+        unsafe {
+            libc::close(r);
+            libc::close(w);
+        }
+        assert!(matches!(result, Ok(WaitFd::Ready)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_fd_times_out_when_deadline_passed_and_not_ready() {
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let (r, w): (i32, i32) = fds.into();
+        let past = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        let result = wait_fd(r, WaitKind::Read, Some(past));
+        unsafe {
+            libc::close(r);
+            libc::close(w);
+        }
+        assert!(matches!(result, Ok(WaitFd::Timeout)));
     }
 
     #[cfg(unix)]

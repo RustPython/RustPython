@@ -16,10 +16,15 @@ mod decl {
     use crate::builtins::PyBaseExceptionRef;
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyTypeRef},
+        builtins::{PyStr, PyStrRef, PyTypeRef},
         class::PyClassDef,
         function::{Either, FuncArgs, OptionalArg},
         types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
+    };
+    #[cfg(target_os = "wasi")]
+    use crate::{
+        PyRef,
+        builtins::{PyNamespace, PyUtf8StrRef},
     };
     #[cfg(any(unix, windows))]
     use crate::{
@@ -73,6 +78,40 @@ mod decl {
     #[cfg(target_os = "wasi")]
     fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
         get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+    }
+
+    #[cfg(target_os = "wasi")]
+    fn clock_getres(id: ClockId, vm: &VirtualMachine) -> PyResult<f64> {
+        host_time::clock_getres(id)
+            .map(|d| d.as_secs_f64())
+            .map_err(|err| vm.new_os_error(err.to_string()))
+    }
+
+    #[cfg(target_os = "wasi")]
+    #[pyfunction]
+    fn get_clock_info(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
+        let (adj, imp, mono, res) = match name.as_str() {
+            "monotonic" | "perf_counter" => (
+                false,
+                "time.clock_gettime(CLOCK_MONOTONIC)",
+                true,
+                clock_getres(ClockId::CLOCK_MONOTONIC, vm)?,
+            ),
+            "time" => (
+                true,
+                "time.clock_gettime(CLOCK_REALTIME)",
+                false,
+                clock_getres(ClockId::CLOCK_REALTIME, vm)?,
+            ),
+            _ => return Err(vm.new_value_error("unknown clock")),
+        };
+
+        Ok(py_namespace!(vm, {
+            "implementation" => vm.new_pyobj(imp),
+            "monotonic" => vm.ctx.new_bool(mono),
+            "adjustable" => vm.ctx.new_bool(adj),
+            "resolution" => vm.ctx.new_float(res),
+        }))
     }
 
     #[cfg(not(any(unix, windows, target_os = "wasi")))]
@@ -555,7 +594,7 @@ mod decl {
 
     #[cfg(any(unix, windows))]
     fn strftime_crt(
-        format: &PyStrRef,
+        format: &Py<PyStr>,
         checked_tm: host_time::CheckedTm,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -937,10 +976,10 @@ mod platform {
 
     #[cfg(target_os = "solaris")]
     #[pyattr]
-    use libc::CLOCK_HIGHRES;
+    use host_time::CLOCK_HIGHRES;
     #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[pyattr]
-    use libc::CLOCK_MONOTONIC_RAW;
+    use host_time::CLOCK_MONOTONIC_RAW;
     #[cfg(not(any(
         target_os = "illumos",
         target_os = "netbsd",
@@ -949,7 +988,7 @@ mod platform {
         target_os = "wasi",
     )))]
     #[pyattr]
-    use libc::CLOCK_PROCESS_CPUTIME_ID;
+    use host_time::CLOCK_PROCESS_CPUTIME_ID;
     #[cfg(not(any(
         target_os = "illumos",
         target_os = "netbsd",
@@ -958,18 +997,18 @@ mod platform {
         target_os = "redox",
     )))]
     #[pyattr]
-    use libc::CLOCK_THREAD_CPUTIME_ID;
+    use host_time::CLOCK_THREAD_CPUTIME_ID;
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use libc::{CLOCK_BOOTTIME, CLOCK_TAI};
+    use host_time::{CLOCK_BOOTTIME, CLOCK_TAI};
     #[pyattr]
-    use libc::{CLOCK_MONOTONIC, CLOCK_REALTIME};
+    use host_time::{CLOCK_MONOTONIC, CLOCK_REALTIME};
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    use libc::{CLOCK_MONOTONIC_RAW_APPROX, CLOCK_UPTIME_RAW, CLOCK_UPTIME_RAW_APPROX};
+    use host_time::{CLOCK_MONOTONIC_RAW_APPROX, CLOCK_UPTIME_RAW, CLOCK_UPTIME_RAW_APPROX};
     #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "dragonfly"))]
     #[pyattr]
-    use libc::{CLOCK_PROF, CLOCK_UPTIME};
+    use host_time::{CLOCK_PROF, CLOCK_UPTIME};
 
     impl<'a> TryFromBorrowedObject<'a> for ClockId {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {

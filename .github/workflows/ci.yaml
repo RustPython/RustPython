@@ -454,11 +454,6 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
-      # Tests that can be flaky when running with multiple processes `-j 2`. We will use `-j 1` for these.
-      FLAKY_MP_TESTS: >-
-        test_multiprocessing_fork
-        test_multiprocessing_forkserver
-        test_multiprocessing_spawn
     # Named after the matrix entry rather than left to be named for it: a
     # generated name lists every value in the entry, so adding or removing one
     # renames the check and drops it from the required list.
@@ -472,7 +467,6 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          extra_flaky_mp_tests: []
           env_polluting_tests: []
           skips: []
           timeout: 50
@@ -481,7 +475,6 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          extra_flaky_mp_tests: []
           env_polluting_tests: []
           skips: []
           timeout: 60
@@ -490,7 +483,6 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          extra_flaky_mp_tests: []
           env_polluting_tests: []
           skips: []
           timeout: 50
@@ -552,40 +544,14 @@ jobs:
 
       - name: Run CPython tests
         run: |
-          target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS -x $FLAKY_MP_TESTS $EXTRA_FLAKY_MP_TESTS $SKIPS
+          target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS $SKIPS
         timeout-minutes: ${{ matrix.timeout }}
         shell: bash
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
           CORES: ${{ steps.cores.outputs.cores }}
           EXTRA_TEST_ARGS: ${{ join(matrix.extra_test_args, ' ') }}
-          EXTRA_FLAKY_MP_TESTS: ${{ join(matrix.extra_flaky_mp_tests, ' ') }}
           SKIPS: ${{ join(matrix.skips, ' ') }}
-
-      - name: Run flaky MP CPython tests
-        run: |
-          for attempt in $(seq 1 5); do
-            echo "::group::Attempt ${attempt}"
-
-            set +e
-            target/release/rustpython -u -m test --slow-ci -j 1 $EXTRA_TEST_ARGS $FLAKY_MP_TESTS $EXTRA_FLAKY_MP_TESTS
-            status=$?
-            set -e
-
-            echo "::endgroup::"
-
-            if [ $status -eq 0 ]; then
-              exit 0
-            fi
-          done
-
-          exit 1
-        timeout-minutes: ${{ matrix.timeout }}
-        shell: bash
-        env:
-          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-          EXTRA_TEST_ARGS: ${{ join(matrix.extra_test_args, ' ') }}
-          EXTRA_FLAKY_MP_TESTS: ${{ join(matrix.extra_flaky_mp_tests, ' ') }}
 
       - name: run cpython tests to check if env polluters have stopped polluting
         shell: bash
@@ -773,10 +739,10 @@ jobs:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@d290e336d5a743810aef4404f757dc862276d2ae # v1.73.4
+        uses: reviewdog/action-actionlint@8b682e1e7e512151d73a6b9449cbff173846226e # v1.74.0
 
       - name: zizmor
-        uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99 # v0.6.3
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
 
       - name: restore prek cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -827,7 +793,7 @@ jobs:
 
       - name: reviewdog
         if: ${{ !cancelled() }}
-        uses: reviewdog/action-suggester@2558ba17e65a9039e73764a73009fc05fef28a46 # v1.24.3
+        uses: reviewdog/action-suggester@4553543bea739d9d503379d786148cfd561de5fa # v1.25.0
         with:
           level: warning
           fail_level: error
@@ -1024,6 +990,23 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       RUN_WASM_WASI: ${{ needs.determine_changes.outputs.rust_code == 'true' || github.ref == 'refs/heads/main' }}
+      # Passing snippets under wasm32-wasip1.
+      WASM_WASI_SNIPPETS: >-
+        stdlib_random
+        stdlib_time
+      # Passing Lib/test files under wasm32-wasip1
+      WASM_WASI_TEST_FILES: >-
+        test_int
+        test_dict
+        test_exceptions
+        test_copy
+        test_isinstance
+        test_dynamic
+        test_dictviews
+        test_glob
+        test_class
+        test_genericpath
+        test_grammar
     steps:
       - name: Skip wasm-wasi when rust sources did not change
         if: env.RUN_WASM_WASI != 'true'
@@ -1072,11 +1055,19 @@ jobs:
       - name: run snippets
         if: env.RUN_WASM_WASI == 'true'
         run: |
-          wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
-          wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_time.py"
+          for name in $WASM_WASI_SNIPPETS; do
+            echo "::group::extra_tests/snippets/${name}.py"
+            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/${name}.py"
+            echo "::endgroup::"
+          done
       - name: run cpython unittest
         if: env.RUN_WASM_WASI == 'true'
-        run: wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
+        run: |
+          for name in $WASM_WASI_TEST_FILES; do
+            echo "::group::Lib/test/${name}.py"
+            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/${name}.py"
+            echo "::endgroup::"
+          done
 
   cargo_doc:
     needs:

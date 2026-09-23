@@ -122,8 +122,8 @@ macro_rules! create_property {
         let attr = $ctx.new_static_getset(
             $name,
             $class,
-            move |this: &PyExpatLikeXmlParser| this.$element.read().clone(),
-            move |this: &PyExpatLikeXmlParser, func: PyObjectRef| *this.$element.write() = func,
+            move |this: &Py<PyExpatLikeXmlParser>| this.$element.read().clone(),
+            move |this: &Py<PyExpatLikeXmlParser>, func: PyObjectRef| *this.$element.write() = func,
         );
 
         $attributes.insert($ctx.intern_str($name), attr.into());
@@ -133,7 +133,7 @@ macro_rules! create_property {
 macro_rules! create_readonly_int_property {
     ($ctx: expr, $attributes: expr, $name: expr, $class: expr, $element: ident) => {
         let getset = crate::vm::builtins::PyGetSet::new($name, $class).with_get(
-            move |this: &PyExpatLikeXmlParser, vm: &VirtualMachine| -> PyObjectRef {
+            move |this: &Py<PyExpatLikeXmlParser>, vm: &VirtualMachine| -> PyObjectRef {
                 vm.ctx.new_int(*this.$element.read()).into()
             },
         );
@@ -148,8 +148,8 @@ macro_rules! create_bool_property {
         let attr = $ctx.new_static_getset(
             $name,
             $class,
-            move |this: &PyExpatLikeXmlParser| this.$element.read().clone(),
-            move |this: &PyExpatLikeXmlParser,
+            move |this: &Py<PyExpatLikeXmlParser>| this.$element.read().clone(),
+            move |this: &Py<PyExpatLikeXmlParser>,
                   value: PyObjectRef,
                   vm: &VirtualMachine|
                   -> PyResult<()> {

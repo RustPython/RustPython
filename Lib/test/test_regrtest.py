@@ -915,7 +915,6 @@ class ProgramsTestCase(BaseTestCase):
         args = [*self.python_args, script, *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_test(self):
         # -m test
         args = [*self.python_args, '-m', 'test',
@@ -928,14 +927,12 @@ class ProgramsTestCase(BaseTestCase):
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_autotest(self):
         # -m test.autotest
         args = [*self.python_args, '-m', 'test.autotest',
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_module_from_test_autotest(self):
         # from test import autotest
         code = 'from test import autotest'
@@ -943,7 +940,6 @@ class ProgramsTestCase(BaseTestCase):
                 *self.regrtest_args, *self.tests]
         self.run_tests(args)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_script_autotest(self):
         # Lib/test/autotest.py
         script = os.path.join(self.testdir, 'autotest.py')
@@ -1226,7 +1222,6 @@ class ArgsTestCase(BaseTestCase):
                 regex = ('10 slowest tests:\n')
                 self.check_line(output, regex)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Regex didn't match: '^lines +cov% +module +\\(path\\)\\n(?: *[0-9]+ *[0-9]{1,2}\\.[0-9]% *[^ ]+ +\\([^)]+\\)+)+' not found in 'Warning: collecting coverage without -j is imprecise. Configure --with-pydebug and run -m test -T -j for best results.\nUsing random seed: 2780369491\n0:00:00 Run 1 test sequentially in a single process\n0:00:00 [1/1] test_regrtest_coverage\n0:00:00 [1/1] test_regrtest_coverage passed\n\n== Tests result: SUCCESS ==\n\n1 test OK.\n\nTotal duration: 102 ms\nTotal tests: run=1\nTotal test files: run=1/1\nResult: SUCCESS\n'
     def test_coverage(self):
         # test --coverage
         test = self.create_test('coverage')
@@ -2034,7 +2029,6 @@ class ArgsTestCase(BaseTestCase):
         for name in names:
             self.assertFalse(os.path.exists(name), name)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @unittest.skipIf(support.is_wasi,
                      'checking temp files is not implemented on WASI')
     def test_leak_tmp_file(self):
@@ -2186,11 +2180,9 @@ class ArgsTestCase(BaseTestCase):
     def test_random_seed(self):
         self._check_random_seed(run_workers=False)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_random_seed_workers(self):
         self._check_random_seed(run_workers=True)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     def test_python_command(self):
         code = textwrap.dedent(r"""
             import sys

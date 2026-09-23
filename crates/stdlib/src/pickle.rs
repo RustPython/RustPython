@@ -727,7 +727,7 @@ mod _pickle {
                 let err = vm.new_attribute_error(format!(
                     "Can't resolve path {name_repr} on module {module_repr}"
                 ));
-                err.set___context__(Some(e));
+                err.set_context(Some(e));
                 err
             })
         } else {
@@ -3528,7 +3528,7 @@ mod _pickle {
                             safe_repr(module.as_object(), vm)
                         ),
                     );
-                    err.set___context__(Some(e));
+                    err.set_context(Some(e));
                     err
                 })?;
             let name_bytes = vm
@@ -3543,7 +3543,7 @@ mod _pickle {
                             safe_repr(global_name.as_object(), vm)
                         ),
                     );
-                    err.set___context__(Some(e));
+                    err.set_context(Some(e));
                     err
                 })?;
             let mut buf = vec![GLOBAL as u8];
@@ -3647,7 +3647,7 @@ mod _pickle {
                     .map_or_else(|_| String::new(), |s| s.to_string_lossy().into_owned());
                 let err =
                     new_pickling_error(vm, format!("Can't pickle {}: {msg}", safe_repr(obj, vm)));
-                err.set___context__(Some(e));
+                err.set_context(Some(e));
                 return Err(err);
             }
         };
@@ -3670,7 +3670,7 @@ mod _pickle {
                         module_name.to_string_lossy()
                     ),
                 );
-                err.set___context__(Some(e));
+                err.set_context(Some(e));
                 Err(err)
             }
         }

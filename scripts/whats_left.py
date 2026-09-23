@@ -5,7 +5,8 @@
 
 # This script generates Lib/snippets/whats_left_data.py with these variables defined:
 # expected_methods - a dictionary mapping builtin objects to their methods
-# cpymods - a dictionary mapping module names to their contents
+# cpymods - a dictionary mapping module names to their contents, including
+#           the members of native classes as "Class.member"
 # libdir - the location of RustPython's Lib/ directory.
 
 #
@@ -24,6 +25,7 @@ import platform
 import re
 import subprocess
 import sys
+import types
 import warnings
 from pydoc import ModuleScanner
 
@@ -109,12 +111,11 @@ def attr_is_not_inherited(type_, attr):
     """
     returns True if type_'s attr is not inherited from any of its base classes
     """
-    bases = type_.__mro__[1:]
-    return getattr(type_, attr) not in (getattr(base, attr, None) for base in bases)
+    return attr in type_.__dict__
 
 
 def extra_info(obj):
-    if callable(obj) and not inspect._signature_is_builtin(obj):
+    if callable(obj):
         doc = inspect.getdoc(obj)
         try:
             sig = str(inspect.signature(obj))
@@ -151,36 +152,70 @@ def name_sort_key(name):
     return name + "2"
 
 
+BUILTIN_TYPES = [
+    bool,
+    bytearray,
+    bytes,
+    complex,
+    dict,
+    enumerate,
+    filter,
+    float,
+    frozenset,
+    int,
+    list,
+    map,
+    memoryview,
+    range,
+    set,
+    slice,
+    str,
+    super,
+    tuple,
+    object,
+    zip,
+    classmethod,
+    staticmethod,
+    property,
+    Exception,
+    BaseException,
+]
+
+
+# CPython's per-class annotations cache and its vectorcall C API offset
+CPYTHON_INTERNAL_ATTRS = {"__annotations_cache__", "__vectorcalloffset__"}
+
+
+def own_attrs(typ):
+    attrs = []
+    for attr in dir(typ):
+        if attr in CPYTHON_INTERNAL_ATTRS:
+            continue
+        # Skip attributes in dir() but not actually accessible (e.g., descriptor that raises)
+        if not hasattr(typ, attr):
+            continue
+        if attr_is_not_inherited(typ, attr):
+            attrs.append((attr, extra_info(getattr(typ, attr))))
+    return attrs
+
+
+def is_native_class(obj):
+    # A class statement records __firstlineno__. A class made by calling
+    # type(), like a namedtuple, still has Python functions.
+    if not isinstance(obj, type) or "__firstlineno__" in obj.__dict__:
+        return False
+    for value in obj.__dict__.values():
+        if isinstance(value, (classmethod, staticmethod)):
+            value = value.__func__
+        if isinstance(value, property):
+            value = value.fget
+        if isinstance(value, types.FunctionType):
+            return False
+    return True
+
+
 def gen_methods():
-    types = [
-        bool,
-        bytearray,
-        bytes,
-        complex,
-        dict,
-        enumerate,
-        filter,
-        float,
-        frozenset,
-        int,
-        list,
-        map,
-        memoryview,
-        range,
-        set,
-        slice,
-        str,
-        super,
-        tuple,
-        object,
-        zip,
-        classmethod,
-        staticmethod,
-        property,
-        Exception,
-        BaseException,
-    ]
-    objects = [t.__name__ for t in types]
+    objects = [t.__name__ for t in BUILTIN_TYPES]
     objects.append("type(None)")
 
     iters = [
@@ -202,14 +237,7 @@ def gen_methods():
     methods = {}
     for typ_code in objects + iters:
         typ = eval(typ_code)
-        attrs = []
-        for attr in dir(typ):
-            # Skip attributes in dir() but not actually accessible (e.g., descriptor that raises)
-            if not hasattr(typ, attr):
-                continue
-            if attr_is_not_inherited(typ, attr):
-                attrs.append((attr, extra_info(getattr(typ, attr))))
-        methods[typ.__name__] = (typ_code, extra_info(typ), attrs)
+        methods[typ.__name__] = (typ_code, extra_info(typ), own_attrs(typ))
 
     output = "expected_methods = {\n"
     for name in sorted(methods.keys(), key=name_sort_key):
@@ -272,9 +300,21 @@ def is_child(module, item):
 
 def dir_of_mod_or_error(module_name, keep_other=True):
     module = import_module(module_name)
+    if isinstance(module, Exception):
+        return module
     item_names = sorted(set(dir(module)))
     result = {}
     for item_name in item_names:
+        # eval() adds __builtins__ to its globals, and inspect.signature() evals
+        # defaults in the module's namespace, so whether it exists depends on
+        # what was inspected before.
+        if item_name == "__builtins__":
+            continue
+        if item_name == "__doc__":
+            # extra_info() reports a docstring for a callable only, and a module
+            # is not one. getdoc() matches how a callable's is normalized.
+            result[item_name] = {"sig": None, "doc": inspect.getdoc(module)}
+            continue
         item = getattr(module, item_name)
         # don't repeat items imported from other modules
         if keep_other or is_child(module, item) or inspect.getmodule(item) is None:
@@ -297,6 +337,17 @@ def gen_modules():
                 file=sys.stderr,
             )
             continue
+        module = import_module(mod_name)
+        for item_name in list(dir_result):
+            item = getattr(module, item_name)
+            # an alias such as array.ArrayType is scanned under its real name
+            if (
+                is_native_class(item)
+                and item not in BUILTIN_TYPES
+                and item.__name__ == item_name
+            ):
+                for attr, info in own_attrs(item):
+                    dir_result[f"{item_name}.{attr}"] = info
         modules[mod_name] = dir_result
     return modules
 
@@ -352,22 +403,34 @@ def compare():
             return ""
 
         is_inherited = not attr_is_not_inherited(typ, method_name)
-        if is_inherited:
+        # Inheriting something that reads the same as CPython's own member
+        # leaves nothing to implement.
+        if is_inherited and extra_info(getattr(typ, method_name)) != real_method_value:
             return "(inherited)"
-
-        value = extra_info(getattr(typ, method_name))
-        if value != real_method_value:
-            return f"{value} != {real_method_value}"
 
         return None
 
     not_implementeds = {}
+    mismatched_methods = {}
+    mismatched_method_docs = {}
     for name, (typ, real_value, methods) in expected_methods.items():
         missing_methods = {}
         for method, real_method_value in methods:
             reason = method_incompatibility_reason(typ, method, real_method_value)
             if reason is not None:
                 missing_methods[method] = reason
+                continue
+            # A method that exists but differs is a mismatch, not a missing one.
+            value = extra_info(getattr(typ, method))
+            item = f"{name}.{method}"
+            if value["sig"] != real_method_value["sig"]:
+                mismatched_methods.setdefault(name, []).append(
+                    (item, value["sig"], real_method_value["sig"])
+                )
+            if value["doc"] != real_method_value["doc"]:
+                mismatched_method_docs.setdefault(name, []).append(
+                    (item, value["doc"], real_method_value["doc"])
+                )
         if missing_methods:
             not_implementeds[name] = missing_methods
 
@@ -394,22 +457,44 @@ def compare():
         "not_implemented": {},
         "failed_to_import": {},
         "missing_items": {},
-        "mismatched_items": {},
-        "mismatched_doc_items": {},
+        # builtin types first, keyed by type name, then modules
+        "mismatched_items": mismatched_methods,
+        "mismatched_doc_items": mismatched_method_docs,
     }
     for modname, cpymod in cpymods.items():
         rustpymod = rustpymods.get(modname)
         if rustpymod is None:
             result["not_implemented"][modname] = None
         elif isinstance(rustpymod, Exception):
-            result["failed_to_import"][modname] = rustpymod.__class__.__name__ + str(
-                rustpymod
+            result["failed_to_import"][modname] = (
+                f"{rustpymod.__class__.__name__}: {rustpymod}"
             )
         else:
+            module = import_module(modname)
+            skipped = set()
+            inherited = set()
+            for item in cpymod:
+                cls_name, dot, attr = item.partition(".")
+                if not dot:
+                    continue
+                cls = getattr(module, cls_name, None)
+                if not isinstance(cls, type):
+                    # The class line already reports a missing class or one
+                    # implemented as something else.
+                    skipped.add(item)
+                elif not hasattr(cls, attr):
+                    continue
+                elif attr_is_not_inherited(cls, attr):
+                    rustpymod[item] = extra_info(getattr(cls, attr))
+                elif extra_info(getattr(cls, attr)) == cpymod[item]:
+                    rustpymod[item] = cpymod[item]
+                else:
+                    inherited.add(item)
             implemented_items = sorted(set(cpymod) & set(rustpymod))
-            mod_missing_items = set(cpymod) - set(rustpymod)
+            mod_missing_items = set(cpymod) - set(rustpymod) - skipped
             mod_missing_items = sorted(
-                f"{modname}.{item}" for item in mod_missing_items
+                f"{modname}.{item}" + (" (inherited)" if item in inherited else "")
+                for item in mod_missing_items
             )
             mod_mismatched_items = [
                 (f"{modname}.{item}", rustpymod[item]["sig"], cpymod[item]["sig"])
@@ -422,14 +507,13 @@ def compare():
                 for item in implemented_items
                 if rustpymod[item]["doc"] != cpymod[item]["doc"]
             ]
-            if mod_missing_items or mod_mismatched_items:
-                if mod_missing_items:
-                    result["missing_items"][modname] = mod_missing_items
-                if mod_mismatched_items:
-                    result["mismatched_items"][modname] = mod_mismatched_items
-                if mod_mismatched_doc_items:
-                    result["mismatched_doc_items"][modname] = mod_mismatched_doc_items
-            else:
+            if mod_missing_items:
+                result["missing_items"][modname] = mod_missing_items
+            if mod_mismatched_items:
+                result["mismatched_items"][modname] = mod_mismatched_items
+            if mod_mismatched_doc_items:
+                result["mismatched_doc_items"][modname] = mod_mismatched_doc_items
+            if not (mod_missing_items or mod_mismatched_items):
                 result["implemented"][modname] = None
 
     result["cpython_modules"] = cpymods

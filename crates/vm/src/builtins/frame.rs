@@ -349,18 +349,18 @@ pub(crate) mod stack_analysis {
                         }
                     }
                     _ => {
-                        // Default: use stack_effect
-                        let effect: StackEffect = opcode.stack_effect_info(oparg);
-                        let popped = effect.popped() as i64;
-                        let pushed = effect.pushed() as i64;
-                        let mut ns = next_stack;
-                        for _ in 0..popped {
-                            ns = pop_value(ns);
+                        // PyCompile_OpcodeStackEffect: apply the net delta so
+                        // overlapping in/out (GET_ANEXT: aiter -- aiter, awaitable)
+                        // keep the original kind of the surviving entries.
+                        let mut delta = opcode.stack_effect(oparg);
+                        while delta < 0 {
+                            next_stack = pop_value(next_stack);
+                            delta += 1;
                         }
-                        for _ in 0..pushed {
-                            ns = push_value(ns, Kind::Object as i64);
+                        while delta > 0 {
+                            next_stack = push_value(next_stack, Kind::Object as i64);
+                            delta -= 1;
                         }
-                        next_stack = ns;
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
                         }
@@ -436,7 +436,7 @@ impl Representable for FrameObject {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let code = zelf.iframe().code();
         let file_repr = code.source_path().to_owned().as_object().repr(vm)?;
-        let lineno = zelf.f_lineno();
+        let lineno = zelf.lineno();
         let name = code.code.obj_name.as_wtf8();
         let ptr = zelf as *const Py<Self> as usize;
         Ok(format!(
@@ -468,12 +468,12 @@ impl FrameObject {
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(Py, Representable))]
 impl FrameObject {
     #[pygetset]
-    fn f_globals(&self) -> PyDictRef {
+    pub fn f_globals(&self) -> PyDictRef {
         self.iframe().globals().to_owned()
     }
 
     #[pygetset]
-    fn f_builtins(&self) -> PyObjectRef {
+    pub fn f_builtins(&self) -> PyObjectRef {
         self.iframe().builtins().to_owned()
     }
 
@@ -484,48 +484,27 @@ impl FrameObject {
 
     #[pygetset]
     fn f_lasti(&self) -> u32 {
-        // Return byte offset (each instruction is 2 bytes) for compatibility.
-        // For materialized frames, read live lasti from the source iframe on
-        // the TLS chain so f_lasti reflects the current execution position.
+        // Byte offset of the current opcode. lasti is stored as the next
+        // instruction index (see FrameObject::run), so the executing unit
+        // is lasti-1.
         let live = self.find_live_source_iframe();
         let val = if !live.is_null() {
             unsafe { (*live).lasti.load(Relaxed) }
         } else {
             self.lasti()
         };
-        val * 2
+        if val == 0 { 0 } else { (val - 1) * 2 }
+    }
+
+    /// Current line, or -1 when the linetable has no line for lasti.
+    pub fn lineno(&self) -> i32 {
+        self.f_code().addr2line(self.f_lasti() as i32)
     }
 
     #[pygetset]
-    pub fn f_lineno(&self) -> usize {
-        // For executing frames (on the TLS chain), read the live iframe's
-        // lasti directly rather than `self.lasti()`, which may reflect a
-        // stale snapshot taken before a nested call. lasti always points
-        // just past the last-fetched instruction (see the bytecode loop in
-        // `ExecutingFrame::run`), so `locations[lasti - 1]` is the source
-        // line of the instruction currently in flight — correct even when
-        // observed mid-CALL (e.g. sys._getframe, warnings.warn).
-        let live = self.find_live_source_iframe();
-        let lasti = if !live.is_null() {
-            unsafe { (*live).lasti.load(Relaxed) }
-        } else {
-            self.lasti()
-        };
-        // If lasti is 0, execution hasn't started yet - use first line number
-        if lasti == 0 {
-            return self
-                .iframe()
-                .code()
-                .first_line_number
-                .map_or(1, |n| n.get());
-        }
-        // This lookup also covers returned frames (e.g. exception
-        // tracebacks), where `live` is null and `self.lasti()` reflects the
-        // frame's final position.
-        self.iframe().code().locations[lasti as usize - 1]
-            .0
-            .line
-            .get()
+    fn f_lineno(&self) -> Option<usize> {
+        let lineno = self.lineno();
+        (lineno >= 0).then_some(lineno as usize)
     }
 
     #[pygetset(setter)]
@@ -544,6 +523,47 @@ impl FrameObject {
             }
         };
 
+        let what_event = vm.what_event.get();
+        if what_event < 0 {
+            return Err(
+                vm.new_value_error("f_lineno can only be set in a trace function".to_owned())
+            );
+        }
+        {
+            use crate::stdlib::sys::monitoring as mon;
+            match what_event {
+                mon::WHAT_PY_RESUME
+                | mon::WHAT_JUMP
+                | mon::WHAT_BRANCH
+                | mon::WHAT_BRANCH_LEFT
+                | mon::WHAT_BRANCH_RIGHT
+                | mon::WHAT_LINE
+                | mon::WHAT_PY_YIELD => {}
+                mon::WHAT_PY_START => {
+                    return Err(vm.new_value_error(
+                        "can't jump from the 'call' trace event of a new frame".to_owned(),
+                    ));
+                }
+                mon::WHAT_CALL | mon::WHAT_C_RETURN => {
+                    return Err(vm.new_value_error("can't jump during a call".to_owned()));
+                }
+                mon::WHAT_PY_RETURN
+                | mon::WHAT_PY_UNWIND
+                | mon::WHAT_PY_THROW
+                | mon::WHAT_RAISE
+                | mon::WHAT_C_RAISE
+                | mon::WHAT_INSTRUCTION
+                | mon::WHAT_EXCEPTION_HANDLED => {
+                    return Err(
+                        vm.new_value_error("can only jump from a 'line' trace event".to_owned())
+                    );
+                }
+                _ => {
+                    return Err(vm.new_system_error("unexpected event type".to_owned()));
+                }
+            }
+        }
+
         let first_line = self
             .iframe()
             .code()
@@ -556,7 +576,7 @@ impl FrameObject {
             )));
         }
 
-        let py_code: &PyCode = self.iframe().code();
+        let py_code: &Py<PyCode> = self.iframe().code();
         let code = &py_code.code;
         let lines = mark_lines(code);
 
@@ -583,7 +603,7 @@ impl FrameObject {
             self.lasti() as usize
         };
         let start_idx = current_lasti.saturating_sub(1);
-        let start_stack = if start_idx < stacks.len() {
+        let mut start_stack = if start_idx < stacks.len() {
             stacks[start_idx]
         } else {
             OVERFLOWED
@@ -619,6 +639,18 @@ impl FrameObject {
             return Err(vm.new_value_error(msg.to_owned()));
         }
 
+        // Yield leaves the yielded value on the modeled stack; the eval
+        // loop has already popped it for a suspended generator.
+        let is_suspended = live.is_null()
+            && current_lasti > 0
+            && matches!(
+                FrameOwner::from_i8(self.iframe().owner.load(Relaxed)),
+                FrameOwner::Generator
+            );
+        if is_suspended {
+            start_stack = pop_value(start_stack);
+        }
+
         // Count how many entries to pop
         let mut pop_count = 0usize;
         {
@@ -645,6 +677,37 @@ impl FrameObject {
             .cold()
             .pending_unwind_from_stack
             .store(start_stack, Relaxed);
+        // Bind None into any NULL localsplus slots the jump target may
+        // assume exist, rather than leaving LOAD_FAST to raise later.
+        let unbound = {
+            let fastlocals = unsafe {
+                let ptr = target as *const crate::frame::InterpreterFrame
+                    as *mut crate::frame::InterpreterFrame;
+                (*ptr).localsplus.fastlocals()
+            };
+            fastlocals.iter().filter(|slot| slot.is_none()).count()
+        };
+        if unbound > 0 {
+            let s = if unbound == 1 { "" } else { "s" };
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.runtime_warning,
+                format!("assigning None to {unbound} unbound local{s}"),
+                1,
+                vm,
+            )?;
+            let none = vm.ctx.none();
+            let fastlocals = unsafe {
+                let ptr = target as *const crate::frame::InterpreterFrame
+                    as *mut crate::frame::InterpreterFrame;
+                (*ptr).localsplus.fastlocals_mut()
+            };
+            for slot in fastlocals.iter_mut() {
+                if slot.is_none() {
+                    *slot = Some(none.clone());
+                }
+            }
+        }
+
         target.lasti.store(best_addr as u32, Relaxed);
         Ok(())
     }
@@ -869,7 +932,7 @@ impl Py<FrameObject> {
     }
 
     #[pygetset]
-    fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
         if self.uses_locals_proxy(vm)? {
             let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
             Ok(proxy.into_ref(&vm.ctx).into())

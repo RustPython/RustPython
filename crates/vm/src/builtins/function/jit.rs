@@ -158,7 +158,7 @@ fn get_jit_value(vm: &VirtualMachine, obj: &PyObject) -> Result<AbiValue, ArgsEr
 /// `fill_locals_from_args` which will raise the actual exception if needed.
 #[cfg(feature = "jit")]
 pub(crate) fn get_jit_args<'a>(
-    func: &PyFunction,
+    func: &Py<PyFunction>,
     func_args: &FuncArgs,
     jitted_code: &'a CompiledCode,
     vm: &VirtualMachine,

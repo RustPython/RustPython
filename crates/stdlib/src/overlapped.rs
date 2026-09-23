@@ -9,7 +9,9 @@ mod _overlapped {
 
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyBytesRef, PyModule, PyStrRef, PyTupleRef, PyType},
+        builtins::{
+            PyBaseExceptionRef, PyBytesRef, PyModule, PyStrRef, PyTuple, PyTupleRef, PyType,
+        },
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg},
@@ -205,7 +207,7 @@ mod _overlapped {
     }
 
     /// Parse a Python address tuple to SOCKADDR
-    fn parse_address(addr_obj: &PyTupleRef, vm: &VirtualMachine) -> PyResult<(Vec<u8>, i32)> {
+    fn parse_address(addr_obj: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<(Vec<u8>, i32)> {
         match addr_obj.len() {
             2 => {
                 // IPv4: (host, port)

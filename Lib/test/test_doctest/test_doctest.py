@@ -2129,7 +2129,7 @@ if not hasattr(sys, 'gettrace') or not sys.gettrace():
           ...    'list',     # list source from example 3
           ...    'continue', # stop debugging
           ...    ''])
-          >>> try: runner.run(test)  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+          >>> try: runner.run(test)
           ... finally: sys.stdin = real_stdin
           ... # doctest: +NORMALIZE_WHITESPACE
           > <doctest foo-bar@baz[1]>(3)g()

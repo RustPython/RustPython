@@ -272,7 +272,7 @@ impl Py<PyModule> {
             .flatten()
             .filter(|s| !vm.is_none(s));
 
-        let origin = get_spec_file_origin(spec.as_ref(), vm);
+        let origin = get_spec_file_origin(spec.as_deref(), vm);
 
         let is_possibly_shadowing = origin
             .as_ref()
@@ -387,6 +387,13 @@ impl PyModule {
         Self::new().into_ref_with_type(vm, cls).map(Into::into)
     }
 
+    #[pymember]
+    fn __dict__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        zelf.dict()
+            .map(Into::into)
+            .ok_or_else(|| vm.new_attribute_error("module has no __dict__"))
+    }
+
     #[pymethod]
     fn __dir__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // First check if __dict__ attribute exists and is actually a dictionary
@@ -478,7 +485,7 @@ impl PyModule {
     }
 
     /// Check if module is initializing via __spec__._initializing
-    fn is_initializing(dict: &PyDictRef, vm: &VirtualMachine) -> bool {
+    fn is_initializing(dict: &Py<PyDict>, vm: &VirtualMachine) -> bool {
         if let Ok(Some(spec)) = dict.get_item_opt(vm.ctx.intern_str("__spec__"), vm)
             && let Ok(initializing) = spec.get_attr(vm.ctx.intern_str("_initializing"), vm)
         {

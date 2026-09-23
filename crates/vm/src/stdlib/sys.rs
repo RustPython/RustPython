@@ -248,9 +248,9 @@ pub mod sys {
     };
 
     #[pyattr(name = "ps1")]
-    const PS1: &str = ">>>>> ";
+    const PS1: &str = ">>> ";
     #[pyattr(name = "ps2")]
-    const PS2: &str = "..... ";
+    const PS2: &str = "... ";
 
     #[cfg(windows)]
     #[pyattr(name = "_vpath")]
@@ -1276,6 +1276,12 @@ pub mod sys {
     fn settrace(function: PyObjectRef, vm: &VirtualMachine) {
         vm.trace_func.replace(function);
         update_use_tracing(vm);
+        // The rest of the current line already started before tracing was
+        // enabled; sync prev_line so leftover opcodes on this line do not
+        // emit a spurious 'line' event.
+        if let Some(frame) = vm.current_frame() {
+            frame.iframe().sync_prev_line_from_lasti();
+        }
     }
 
     #[pyfunction]
@@ -1738,7 +1744,7 @@ pub mod sys {
 
     pub(crate) fn run_audit_hooks(
         event: PyStrRef,
-        args: &PyObjectRef,
+        args: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let hooks = vm.audit_hooks.borrow().clone();
@@ -1754,7 +1760,7 @@ pub mod sys {
         Ok(())
     }
 
-    fn audit_hook_can_trace(hook: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn audit_hook_can_trace(hook: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         match hook.get_attr("__cantrace__", vm) {
             Ok(can_trace) => can_trace.try_to_bool(vm),
             Err(exc)
@@ -1769,9 +1775,9 @@ pub mod sys {
     }
 
     fn call_audit_hook(
-        hook: &PyObjectRef,
+        hook: &PyObject,
         event: PyObjectRef,
-        args: &PyObjectRef,
+        args: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Tracing is suppressed while dispatching Python audit hooks,
@@ -1783,7 +1789,7 @@ pub mod sys {
                 if can_trace {
                     vm.leave_tracing();
                 }
-                let result = hook.call((event, args.clone()), vm).map(|_| ());
+                let result = hook.call((event, args.to_owned()), vm).map(|_| ());
                 if can_trace {
                     vm.enter_tracing();
                 }
@@ -1802,7 +1808,7 @@ pub mod sys {
             return Ok(());
         }
 
-        let args_tup = vm.ctx.new_tuple(args.into_vec()).into();
+        let args_tup: PyObjectRef = vm.ctx.new_tuple(args.into_vec()).into();
         run_audit_hooks(event, &args_tup, vm)
     }
 

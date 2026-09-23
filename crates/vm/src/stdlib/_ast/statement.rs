@@ -1532,7 +1532,7 @@ fn stmt_import_from_from_object_with_range(
 
 fn import_from_level_from_field(
     vm: &VirtualMachine,
-    object: &PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<(u32, Option<i32>)> {
     let Some(value) = get_node_field_opt(vm, object, "level")? else {
         return Ok((0, None));

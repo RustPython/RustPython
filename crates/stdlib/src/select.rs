@@ -112,44 +112,29 @@ mod decl {
             Ok((v, fds))
         };
 
-        let (rlist, mut r) = seq2set(&rlist)?;
-        let (wlist, mut w) = seq2set(&wlist)?;
-        let (xlist, mut x) = seq2set(&xlist)?;
+        let (rlist, _) = seq2set(&rlist)?;
+        let (wlist, _) = seq2set(&wlist)?;
+        let (xlist, _) = seq2set(&xlist)?;
 
         let nfds = cfg_select! {
             windows => 0, // value is ignored on windows
 
-            _ => [&mut r, &mut w, &mut x]
-                .iter_mut()
-                .filter_map(|set| set.highest())
+            _ => rlist
+                .iter()
+                .chain(&wlist)
+                .chain(&xlist)
+                .map(|fd| fd.fno)
                 .max()
                 .map_or(0, |n| n + 1) as _,
         };
 
-        loop {
-            let mut tv = timeout.map(host_select::sec_to_timeval);
-            let res =
-                vm.allow_threads(|| host_select::select(nfds, &mut r, &mut w, &mut x, tv.as_mut()));
-
-            match res {
-                Ok(_) => break,
-                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
-                Err(err) => return Err(err.to_pyexception(vm)),
+        let fill = |list: &[Selectable]| {
+            let mut fds = FdSet::new();
+            for fd in list {
+                fds.insert(fd.fno);
             }
-
-            vm.check_signals()?;
-
-            if let Some(ref mut timeout) = timeout {
-                *timeout = deadline.unwrap() - time::time(vm).unwrap();
-                if *timeout < 0.0 {
-                    r.clear();
-                    w.clear();
-                    x.clear();
-                    break;
-                }
-                // retry select() if we haven't reached the deadline yet
-            }
-        }
+            fds
+        };
 
         let set2list = |list: Vec<Selectable>, mut set: FdSet| {
             vm.ctx.new_list(
@@ -160,11 +145,39 @@ mod decl {
             )
         };
 
-        let rlist = set2list(rlist, r);
-        let wlist = set2list(wlist, w);
-        let xlist = set2list(xlist, x);
+        loop {
+            // `select(2)` updates the fd sets in place. Rebuild them on every
+            // attempt, including EINTR retries; otherwise an interrupted call
+            // can leave empty sets and a NULL timeout, which blocks forever.
+            let mut r = fill(&rlist);
+            let mut w = fill(&wlist);
+            let mut x = fill(&xlist);
 
-        Ok((rlist, wlist, xlist))
+            let mut tv = timeout.map(host_select::sec_to_timeval);
+            let res =
+                vm.allow_threads(|| host_select::select(nfds, &mut r, &mut w, &mut x, tv.as_mut()));
+
+            match res {
+                Ok(_) => {
+                    return Ok((set2list(rlist, r), set2list(wlist, w), set2list(xlist, x)));
+                }
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) => return Err(err.to_pyexception(vm)),
+            }
+
+            vm.check_signals()?;
+
+            if let Some(ref mut timeout) = timeout {
+                *timeout = deadline.unwrap() - time::time(vm).unwrap();
+                if *timeout < 0.0 {
+                    return Ok((
+                        vm.ctx.new_list(Vec::new()),
+                        vm.ctx.new_list(Vec::new()),
+                        vm.ctx.new_list(Vec::new()),
+                    ));
+                }
+            }
+        }
     }
 
     #[cfg(unix)]

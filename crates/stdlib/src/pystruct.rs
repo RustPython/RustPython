@@ -41,7 +41,7 @@ pub(crate) mod _struct {
                             .code_points()
                             .position(|cp| !cp.to_char().is_some_and(|c| c.is_ascii()))
                             .unwrap_or(0);
-                        return Err(vm.new_unicode_encode_error_real(
+                        return Err(vm.new_unicode_encode_error(
                             vm.ctx.new_str("ascii"),
                             s,
                             start,
@@ -385,6 +385,6 @@ pub(crate) mod _struct {
 
     #[pyattr(name = "error")]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        struct_error_type(vm).clone()
+        struct_error_type(vm).to_owned()
     }
 }

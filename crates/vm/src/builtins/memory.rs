@@ -309,7 +309,7 @@ impl PyMemoryView {
         self.unpack_single(self.desc.fast_position(&[index]) as usize, vm)
     }
 
-    fn getitem_by_slice(&self, slice: &PySlice, vm: &VirtualMachine) -> PyResult {
+    fn getitem_by_slice(&self, slice: &Py<PySlice>, vm: &VirtualMachine) -> PyResult {
         self.try_not_restricted(vm)?;
         let mut other = self.new_view();
         other.init_slice(slice, 0, vm)?;
@@ -438,7 +438,7 @@ impl PyMemoryView {
     }
 
     // init_slice
-    fn init_slice(&mut self, slice: &PySlice, dim: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn init_slice(&mut self, slice: &Py<PySlice>, dim: usize, vm: &VirtualMachine) -> PyResult<()> {
         let (shape, stride, _) = self.desc.dim_desc[dim];
         let slice = slice.to_saturated(vm)?;
         let (start, slice_len) = slice.adjust_indices_start(shape);
@@ -615,7 +615,7 @@ impl PyMemoryView {
 impl Py<PyMemoryView> {
     fn setitem_by_slice(
         &self,
-        slice: &PySlice,
+        slice: &Py<PySlice>,
         src: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -1699,14 +1699,14 @@ impl PyPayload for PyMemoryViewIterator {
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PyMemoryViewIterator {
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let func = builtins_iter(vm);
-        self.internal.lock().reduce(
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let func = builtins_iter(vm)?;
+        Ok(self.internal.lock().reduce(
             func,
             |x| x.clone().into(),
             |vm| vm.ctx.empty_tuple.clone().into(),
             vm,
-        )
+        ))
     }
 }
 

@@ -311,7 +311,7 @@ pub fn warn(
 /// format the creation traceback. If that helper is missing, broken, or
 /// not a RuntimeWarning-as-error, fall back to a plain RuntimeWarning.
 /// Never raises; leftover exceptions become unraisable.
-pub fn warn_unawaited_coroutine(coro: &PyObject, qualname: &PyStrRef, vm: &VirtualMachine) {
+pub fn warn_unawaited_coroutine(coro: &PyObject, qualname: &Py<PyStr>, vm: &VirtualMachine) {
     let unraisable_msg = format!(
         "Exception ignored while finalizing coroutine {}",
         coro.repr(vm)
@@ -357,7 +357,7 @@ pub fn warn_with_skip(
         stack_level = 2;
     }
     let (filename, lineno, module, registry) =
-        setup_context(stack_level, skip_file_prefixes.as_ref(), vm)?;
+        setup_context(stack_level, skip_file_prefixes.as_deref(), vm)?;
     warn_explicit(
         category, message, filename, lineno, module, registry, None, source, vm,
     )
@@ -549,7 +549,7 @@ fn show_warning(
 }
 
 /// Check if a frame's filename starts with any of the given prefixes.
-fn is_filename_to_skip(frame: &crate::frame::FrameObject, prefixes: &PyTupleRef) -> bool {
+fn is_filename_to_skip(frame: &crate::frame::FrameObject, prefixes: &Py<PyTuple>) -> bool {
     let filename = frame.f_code().co_filename();
     let filename_bytes = filename.as_bytes();
     prefixes.iter().any(|prefix| {
@@ -562,7 +562,7 @@ fn is_filename_to_skip(frame: &crate::frame::FrameObject, prefixes: &PyTupleRef)
 /// Like FrameObject::next_external_frame but also skips frames matching prefixes.
 fn next_external_frame_with_skip(
     frame: &crate::frame::FrameObjectRef,
-    skip_file_prefixes: Option<&PyTupleRef>,
+    skip_file_prefixes: Option<&Py<PyTuple>>,
     vm: &VirtualMachine,
 ) -> Option<crate::frame::FrameObjectRef> {
     let mut f = frame.f_back(vm);
@@ -582,7 +582,7 @@ fn next_external_frame_with_skip(
 /// Returns `Ok` on success, or `Err` on error (no new refs)
 fn setup_context(
     mut stack_level: isize,
-    skip_file_prefixes: Option<&PyTupleRef>,
+    skip_file_prefixes: Option<&Py<PyTuple>>,
     vm: &VirtualMachine,
 ) -> PyResult<(PyStrRef, usize, Option<PyObjectRef>, PyObjectRef)> {
     // Materialize the topmost frame (including light frames) so stack
@@ -617,7 +617,7 @@ fn setup_context(
         (
             f.iframe().globals().to_owned(),
             f.iframe().code().source_path(),
-            f.f_lineno(),
+            f.lineno().max(0) as usize,
         )
     } else if let Some(frame) = vm.current_frame() {
         // We have a frame but it wasn't found during stack walking

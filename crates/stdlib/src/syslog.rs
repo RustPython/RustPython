@@ -5,7 +5,7 @@ pub(crate) use syslog::module_def;
 #[pymodule(name = "syslog")]
 mod syslog {
     use crate::vm::{
-        PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyStr, PyStrRef},
         convert::ToPyException,
         function::{OptionalArg, OptionalOption},
@@ -30,7 +30,7 @@ mod syslog {
     use host_syslog::{LOG_FTP, LOG_INSTALL, LOG_LAUNCHD, LOG_NETINFO, LOG_RAS, LOG_REMOTEAUTH};
 
     fn ident_to_utf8_cstring(
-        ident: &PyStrRef,
+        ident: &Py<PyStr>,
         vm: &VirtualMachine,
     ) -> PyResult<alloc::ffi::CString> {
         let utf8 = ident.to_str().ok_or_else(|| {
@@ -39,9 +39,9 @@ mod syslog {
                 .code_points()
                 .position(|c| c.to_char().is_none())
                 .unwrap_or(0);
-            vm.new_unicode_encode_error_real(
+            vm.new_unicode_encode_error(
                 vm.ctx.new_str("utf-8"),
-                ident.clone(),
+                ident.to_owned(),
                 start,
                 start + 1,
                 vm.ctx.new_str("surrogates not allowed"),

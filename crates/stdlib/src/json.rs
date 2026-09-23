@@ -3,7 +3,7 @@ pub(crate) use _json::module_def;
 #[pymodule]
 mod _json {
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyDict, PyFloat, PyInt, PyList, PyStr, PyStrRef, PyTuple, PyType,
         },
@@ -258,7 +258,7 @@ mod _json {
             pystr: PyStrRef,
             start_char_idx: usize,
             start_byte_idx: usize,
-            scan_once: &PyObjectRef,
+            scan_once: &PyObject,
             memo: &mut HashMap<Wtf8Buf, PyStrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, usize, usize)> {
@@ -420,7 +420,7 @@ mod _json {
             pystr: PyStrRef,
             start_char_idx: usize,
             start_byte_idx: usize,
-            scan_once: &PyObjectRef,
+            scan_once: &PyObject,
             memo: &mut HashMap<Wtf8Buf, PyStrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, usize, usize)> {
@@ -534,7 +534,7 @@ mod _json {
         /// Returns (value, end_char_idx, end_byte_idx).
         fn call_scan_once(
             &self,
-            scan_once: &PyObjectRef,
+            scan_once: &PyObject,
             pystr: PyStrRef,
             char_idx: usize,
             byte_idx: usize,
@@ -893,7 +893,7 @@ mod _json {
         /// Python dict object). Returns the id to later pass to
         /// `pop_marker`, or `None` if circular-reference checking is
         /// disabled.
-        fn push_marker(&self, obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+        fn push_marker(&self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<usize>> {
             if !self.check_circular {
                 return Ok(None);
             }
@@ -974,7 +974,7 @@ mod _json {
         /// and any subclass) instead of allocating a fresh `str`.
         fn write_str_obj(
             &self,
-            obj: &PyObjectRef,
+            obj: &PyObject,
             s: &Py<PyStr>,
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
@@ -988,7 +988,7 @@ mod _json {
                     out.push_wtf8(&json::encode_string(s.as_wtf8(), false));
                     Ok(())
                 }
-                EncoderKind::Generic => self.write_via_encoder(obj.clone(), out, vm),
+                EncoderKind::Generic => self.write_via_encoder(obj.to_owned(), out, vm),
             }
         }
 
@@ -1011,7 +1011,7 @@ mod _json {
         /// (`skipkeys=True`).
         fn write_dict_key(
             &self,
-            key: &PyObjectRef,
+            key: &PyObject,
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
@@ -1083,7 +1083,7 @@ mod _json {
         /// list's length catches up with the read cursor).
         fn encode_list(
             &self,
-            obj: &PyObjectRef,
+            obj: &PyObject,
             level: isize,
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
@@ -1133,8 +1133,8 @@ mod _json {
         /// subclass's custom ordering/behavior is respected.
         fn dict_items(
             &self,
-            obj: &PyObjectRef,
-            dict: &PyDict,
+            obj: &PyObject,
+            dict: &Py<PyDict>,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<(PyObjectRef, PyObjectRef)>> {
             if obj.class().is(vm.ctx.types.dict_type) {
@@ -1154,8 +1154,8 @@ mod _json {
 
         fn encode_dict(
             &self,
-            obj: &PyObjectRef,
-            dict: &PyDict,
+            obj: &PyObject,
+            dict: &Py<PyDict>,
             level: isize,
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
@@ -1223,13 +1223,13 @@ mod _json {
 
         fn encode_default(
             &self,
-            obj: &PyObjectRef,
+            obj: &PyObject,
             level: isize,
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let marker = self.push_marker(obj, vm)?;
-            let new_obj = match self.default.call((obj.clone(),), vm) {
+            let new_obj = match self.default.call((obj.to_owned(),), vm) {
                 Ok(v) => v,
                 Err(e) => {
                     self.pop_marker(marker);
@@ -1249,7 +1249,7 @@ mod _json {
 
         fn encode_value(
             &self,
-            obj: &PyObjectRef,
+            obj: &PyObject,
             level: isize,
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,

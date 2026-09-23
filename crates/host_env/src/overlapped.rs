@@ -108,9 +108,8 @@ impl Operation {
     }
 
     pub fn get_result(&mut self, wait: bool) -> io::Result<TransferResult> {
-        use windows_sys::Win32::Foundation::{
-            ERROR_IO_INCOMPLETE, ERROR_OPERATION_ABORTED, ERROR_SUCCESS, GetLastError,
-        };
+        use crate::winapi::{ERROR_IO_INCOMPLETE, ERROR_OPERATION_ABORTED, ERROR_SUCCESS};
+        use windows_sys::Win32::Foundation::GetLastError;
 
         let mut transferred = 0;
         let ret = unsafe {

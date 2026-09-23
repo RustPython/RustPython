@@ -166,6 +166,7 @@ def foo():
     a = 5
     return 10 + a
 
+
 foo.__jit__()  # this will compile foo to native code and subsequent calls will execute that native code
 assert foo() == 15
 ```

@@ -9,7 +9,7 @@ pub(crate) use unicodedata::module_def;
 use rustpython_unicode::{self as unicode_core, NormalizeForm};
 
 use crate::vm::{
-    PyObject, PyResult, VirtualMachine, builtins::PyStr, convert::TryFromBorrowedObject,
+    Py, PyObject, PyResult, VirtualMachine, builtins::PyStr, convert::TryFromBorrowedObject,
 };
 
 struct NormalizeFormArg(NormalizeForm);
@@ -17,7 +17,7 @@ struct NormalizeFormArg(NormalizeForm);
 impl<'a> TryFromBorrowedObject<'a> for NormalizeFormArg {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         obj.try_value_with(
-            |form: &PyStr| match form.as_bytes() {
+            |form: &Py<PyStr>| match form.as_bytes() {
                 b"NFC" => Ok(Self(NormalizeForm::Nfc)),
                 b"NFKC" => Ok(Self(NormalizeForm::Nfkc)),
                 b"NFD" => Ok(Self(NormalizeForm::Nfd)),

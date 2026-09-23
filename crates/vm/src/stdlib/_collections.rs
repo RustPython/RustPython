@@ -13,7 +13,6 @@ mod _collections {
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
         function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
-        iter::PyExactSizeIterator,
         object::{Traverse, TraverseFn},
         protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
@@ -587,11 +586,19 @@ mod _collections {
             }
 
             let other = class_or_notimplemented!(Self, other);
-            let lhs = zelf.borrow_deque();
-            let rhs = other.borrow_deque();
-            lhs.iter()
-                .richcompare(rhs.iter(), op, vm)
-                .map(PyComparisonValue::Implemented)
+            crate::iter::richcompare_mutating_seqs(
+                |i| {
+                    let lhs = zelf.borrow_deque();
+                    (lhs.len(), lhs.get(i).cloned())
+                },
+                |i| {
+                    let rhs = other.borrow_deque();
+                    (rhs.len(), rhs.get(i).cloned())
+                },
+                op,
+                vm,
+            )
+            .map(PyComparisonValue::Implemented)
         }
     }
 
@@ -622,7 +629,7 @@ mod _collections {
                     "[",
                     &closing_part,
                     &empty,
-                    deque.iter(),
+                    deque.iter().map(|o| &**o),
                     vm,
                 )?))
             } else {

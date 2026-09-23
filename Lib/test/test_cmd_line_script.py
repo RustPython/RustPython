@@ -208,19 +208,15 @@ class CmdLineTest(unittest.TestCase):
             self.assertIn(b'    ~^~', stderr.readline())
             self.assertIn(b'ZeroDivisionError', stderr.readline())
 
-    @unittest.skip("TODO: RUSTPYTHON; test hang in middle")
     def test_repl_stdout_flush(self):
         self.check_repl_stdout_flush()
 
-    @unittest.skip("TODO: RUSTPYTHON; test hang in middle")
     def test_repl_stdout_flush_separate_stderr(self):
         self.check_repl_stdout_flush(True)
 
-    @unittest.skip("TODO: RUSTPYTHON; test hang in middle")
     def test_repl_stderr_flush(self):
         self.check_repl_stderr_flush()
 
-    @unittest.skip("TODO: RUSTPYTHON; test hang in middle")
     def test_repl_stderr_flush_separate_stderr(self):
         self.check_repl_stderr_flush(True)
 

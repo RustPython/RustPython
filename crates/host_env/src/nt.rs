@@ -59,7 +59,6 @@ use windows_sys::{
                 FILE_DEVICE_VIRTUAL_DISK, FSCTL_GET_REPARSE_POINT,
                 FSCTL_QUERY_PERSISTENT_VOLUME_STATE,
             },
-            SystemServices::IO_REPARSE_TAG_MOUNT_POINT,
             Threading,
             WindowsProgramming::{DRIVE_FIXED, GetUserNameW},
         },
@@ -90,6 +89,10 @@ pub const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 =
 pub const LOAD_LIBRARY_SEARCH_USER_DIRS: u32 =
     windows_sys::Win32::System::LibraryLoader::LOAD_LIBRARY_SEARCH_USER_DIRS;
 
+pub use windows_sys::Win32::System::SystemServices::{
+    IO_REPARSE_TAG_APPEXECLINK, IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
+};
+
 #[cfg(target_env = "msvc")]
 unsafe extern "C" {
     fn _cwait(termstat: *mut i32, procHandle: intptr_t, action: i32) -> intptr_t;
@@ -114,7 +117,6 @@ pub enum TestType {
     RegularReparsePoint,
 }
 
-const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000000C;
 const S_IFMT: u16 = libc::S_IFMT as u16;
 const S_IFDIR_MODE: u16 = libc::S_IFDIR as u16;
 const S_IFCHR_MODE: u16 = libc::S_IFCHR as u16;
@@ -1367,7 +1369,7 @@ pub fn pipe() -> io::Result<(i32, i32)> {
 
     let write_fd = match crate::msvcrt::open_osfhandle(
         write_handle.as_raw_handle() as isize,
-        libc::O_WRONLY | O_NOINHERIT,
+        crate::os::O_WRONLY | O_NOINHERIT,
     ) {
         Ok(fd) => {
             let _ = write_handle.into_raw_handle();
@@ -2368,9 +2370,9 @@ pub fn open_console_path_fd(path: &widestring::WideCStr, writable: bool) -> io::
     }
 
     let osf_flags = if writable {
-        libc::O_WRONLY | libc::O_BINARY | 0x80
+        crate::os::O_WRONLY | crate::os::O_BINARY | 0x80
     } else {
-        libc::O_RDONLY | libc::O_BINARY | 0x80
+        crate::os::O_RDONLY | crate::os::O_BINARY | 0x80
     };
     match crate::msvcrt::open_osfhandle(handle as isize, osf_flags) {
         Ok(fd) => Ok(fd),

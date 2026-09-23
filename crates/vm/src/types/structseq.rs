@@ -373,7 +373,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             let i = i as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &PyTuple| {
+                ctx.new_readonly_getset(name, class, move |zelf: &Py<PyTuple>| {
                     zelf[i as usize].to_owned()
                 })
                 .into(),
@@ -386,7 +386,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             let idx = (visible_count + i) as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &PyTuple| {
+                ctx.new_readonly_getset(name, class, move |zelf: &Py<PyTuple>| {
                     zelf[idx as usize].to_owned()
                 })
                 .into(),
@@ -511,6 +511,7 @@ fn struct_sequence_richcompare(
     // Use the same comparison logic as regular tuples
     zelf_visible
         .iter()
-        .richcompare(other_visible.iter(), op, vm)
+        .map(|o| &**o)
+        .richcompare(other_visible.iter().map(|o| &**o), op, vm)
         .map(|v| Either::B(PyComparisonValue::Implemented(v)))
 }

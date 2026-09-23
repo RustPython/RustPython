@@ -892,6 +892,19 @@ pub fn stop_requested_for_current_thread() -> bool {
     })
 }
 
+#[cfg(all(test, feature = "threading"))]
+pub(crate) fn set_stop_requested_for_current_thread(value: bool) -> bool {
+    CURRENT_STOP_REQUESTED.with(|cached| {
+        let flag = cached.get();
+        if flag.is_null() {
+            return false;
+        }
+        // SAFETY: same lifetime as `stop_requested_for_current_thread`.
+        unsafe { &*flag }.store(value, Ordering::Release);
+        true
+    })
+}
+
 /// Whether the QSBR subsystem asked this thread to pass a checkpoint.
 /// A missed or racing read of this flag is harmless: the pending
 /// retirement is still processed at the next checkpoint or by the GC
@@ -1399,6 +1412,7 @@ impl VirtualMachine {
             profile_func: RefCell::new(global_profile.unwrap_or_else(|| self.ctx.none())),
             trace_func: RefCell::new(global_trace.unwrap_or_else(|| self.ctx.none())),
             use_tracing: Cell::new(use_tracing),
+            what_event: Cell::new(-1),
             tracing_depth: Cell::new(0),
             recursion_limit: self.recursion_limit.clone(),
             signal_handlers: core::cell::OnceCell::new(),

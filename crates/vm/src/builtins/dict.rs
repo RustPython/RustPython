@@ -193,7 +193,7 @@ impl PyDict {
         match vm.call_method(exc.as_object(), "add_note", (vm.ctx.new_str(note),)) {
             Ok(_) => exc,
             Err(note_err) => {
-                note_err.set___context__(Some(exc));
+                note_err.set_context(Some(exc));
                 note_err
             }
         }
@@ -1036,15 +1036,6 @@ impl<'a> IntoIterator for &'a Py<PyDict> {
     }
 }
 
-impl<'a> IntoIterator for &'a PyDict {
-    type Item = (PyObjectRef, PyObjectRef);
-    type IntoIter = DictIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        DictIter::new(self)
-    }
-}
-
 pub struct DictIntoIter {
     dict: PyDictRef,
     position: usize,
@@ -1078,12 +1069,12 @@ impl ExactSizeIterator for DictIntoIter {
 }
 
 pub struct DictIter<'a> {
-    dict: &'a PyDict,
+    dict: &'a Py<PyDict>,
     position: usize,
 }
 
 impl<'a> DictIter<'a> {
-    pub const fn new(dict: &'a PyDict) -> Self {
+    pub const fn new(dict: &'a Py<PyDict>) -> Self {
         DictIter { dict, position: 0 }
     }
 }
@@ -1252,8 +1243,8 @@ macro_rules! dict_view {
             }
 
             #[pymethod]
-            fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-                let iter = builtins_iter(vm);
+            fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+                let iter = builtins_iter(vm)?;
                 let internal = self.internal.lock();
                 let entries = match &internal.status {
                     IterStatus::Active(dict) => {
@@ -1269,7 +1260,7 @@ macro_rules! dict_view {
                     }
                     IterStatus::Exhausted => vec![],
                 };
-                vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
+                Ok(vm.new_tuple((iter, (vm.ctx.new_list(entries),))))
             }
         }
 
@@ -1336,8 +1327,8 @@ macro_rules! dict_view {
             }
 
             #[pymethod]
-            fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-                let iter = builtins_iter(vm);
+            fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+                let iter = builtins_iter(vm)?;
                 let internal = self.internal.lock();
                 let entries = match &internal.status {
                     IterStatus::Active(dict) => {
@@ -1356,7 +1347,7 @@ macro_rules! dict_view {
                     }
                     IterStatus::Exhausted => vec![],
                 };
-                vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
+                Ok(vm.new_tuple((iter, (vm.ctx.new_list(entries),))))
             }
 
             #[pymethod]
@@ -1426,7 +1417,7 @@ dict_view! {
     "dict_keys",
     "dict_keyiterator",
     "dict_reversekeyiterator",
-    |key: &PyObjectRef, _value: &PyObjectRef| key.clone(),
+    |key: &PyObject, _value| key.to_owned(),
     |_vm: &VirtualMachine, key: PyObjectRef| key
 }
 
@@ -1440,7 +1431,7 @@ dict_view! {
     "dict_values",
     "dict_valueiterator",
     "dict_reversevalueiterator",
-    |_key: &PyObjectRef, value: &PyObjectRef| value.clone(),
+    |_key: &PyObject, value: &PyObjectRef| value.clone(),
     |_vm: &VirtualMachine, value: PyObjectRef| value
 }
 
@@ -1454,7 +1445,7 @@ dict_view! {
     "dict_items",
     "dict_itemiterator",
     "dict_reverseitemiterator",
-    |key: &PyObjectRef, value: &PyObjectRef| (key.clone(), value.clone()),
+    |key: &PyObject, value: &PyObjectRef| (key.to_owned(), value.clone()),
     // Builds a tuple, so it runs after the dict's read guard is released.
     |vm: &VirtualMachine, (key, value): (PyObjectRef, PyObjectRef)|
         vm.new_tuple((key, value)).into()
@@ -1530,7 +1521,8 @@ trait ViewSetOps: DictView {
         let lhs: Vec<PyObjectRef> = zelf.as_object().to_owned().try_into_value(vm)?;
         let rhs: Vec<PyObjectRef> = other.to_owned().try_into_value(vm)?;
         lhs.iter()
-            .richcompare(rhs.iter(), op, vm)
+            .map(|o| &**o)
+            .richcompare(rhs.iter().map(|o| &**o), op, vm)
             .map(PyComparisonValue::Implemented)
     }
 

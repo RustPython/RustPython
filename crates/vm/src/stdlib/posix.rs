@@ -39,6 +39,7 @@ pub mod module {
     use alloc::ffi::CString;
     use core::ffi::CStr;
     use rustpython_host_env::os::ffi::OsStringExt;
+    use rustpython_host_env::posix as host_posix;
     use std::{
         fs, io,
         os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
@@ -48,48 +49,59 @@ pub mod module {
 
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use libc::PIDFD_NONBLOCK;
+    use rustpython_host_env::posix::PIDFD_NONBLOCK;
 
     #[cfg(target_os = "macos")]
     #[pyattr]
-    use libc::{
-        COPYFILE_DATA as _COPYFILE_DATA, O_EVTONLY, O_NOFOLLOW_ANY, PRIO_DARWIN_BG,
-        PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS, PRIO_DARWIN_THREAD,
+    use rustpython_host_env::posix::{
+        COPYFILE_DATA as _COPYFILE_DATA, PRIO_DARWIN_BG, PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS,
+        PRIO_DARWIN_THREAD,
     };
+
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    use rustpython_host_env::os::{O_EVTONLY, O_NOFOLLOW_ANY};
 
     #[cfg(target_os = "freebsd")]
     #[pyattr]
-    use libc::{SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
+    use rustpython_host_env::posix::{SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::posix::{
         CLONE_FILES, CLONE_FS, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS,
         CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS, CLONE_SIGHAND, CLONE_SYSVSEM, CLONE_THREAD,
-        CLONE_VM, MFD_HUGE_SHIFT, O_NOATIME, O_TMPFILE, P_PIDFD, SCHED_BATCH, SCHED_DEADLINE,
-        SCHED_IDLE, SCHED_NORMAL, SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE,
-        SPLICE_F_NONBLOCK,
+        CLONE_VM, MFD_HUGE_SHIFT, P_PIDFD, SCHED_BATCH, SCHED_DEADLINE, SCHED_IDLE, SCHED_NORMAL,
+        SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE, SPLICE_F_NONBLOCK,
     };
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use rustpython_host_env::os::{O_NOATIME, O_TMPFILE};
 
     #[cfg(any(target_os = "macos", target_os = "redox"))]
     #[pyattr]
-    use libc::O_SYMLINK;
+    use rustpython_host_env::os::O_SYMLINK;
 
     #[cfg(any(target_os = "android", target_os = "redox", unix))]
     #[pyattr]
-    use libc::{O_NOFOLLOW, PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+    use rustpython_host_env::posix::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+
+    #[cfg(any(target_os = "android", target_os = "redox", unix))]
+    #[pyattr]
+    use rustpython_host_env::os::O_NOFOLLOW;
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "netbsd"))]
     #[pyattr]
-    use libc::{XATTR_CREATE, XATTR_REPLACE};
+    use rustpython_host_env::posix::{XATTR_CREATE, XATTR_REPLACE};
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "netbsd"))]
     #[pyattr]
-    use libc::O_RSYNC;
+    use rustpython_host_env::os::O_RSYNC;
 
     #[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::posix::{
         MFD_ALLOW_SEALING, MFD_CLOEXEC, MFD_HUGE_MASK, MFD_HUGETLB, POSIX_FADV_DONTNEED,
         POSIX_FADV_NOREUSE, POSIX_FADV_NORMAL, POSIX_FADV_RANDOM, POSIX_FADV_SEQUENTIAL,
         POSIX_FADV_WILLNEED,
@@ -97,11 +109,11 @@ pub mod module {
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "redox", unix))]
     #[pyattr]
-    use libc::{RTLD_LAZY, RTLD_NOW, WNOHANG};
+    use rustpython_host_env::posix::{RTLD_LAZY, RTLD_NOW, WNOHANG};
 
     #[cfg(any(target_os = "android", target_os = "macos", target_os = "redox", unix))]
     #[pyattr]
-    use libc::RTLD_GLOBAL;
+    use rustpython_host_env::posix::RTLD_GLOBAL;
 
     #[cfg(any(
         target_os = "android",
@@ -110,7 +122,7 @@ pub mod module {
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::O_PATH;
+    use rustpython_host_env::os::O_PATH;
 
     #[cfg(any(
         target_os = "android",
@@ -119,7 +131,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::posix::{
         EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, TFD_CLOEXEC, TFD_NONBLOCK, TFD_TIMER_ABSTIME,
         TFD_TIMER_CANCEL_ON_SET,
     };
@@ -131,7 +143,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::{GRND_NONBLOCK, GRND_RANDOM};
+    use rustpython_host_env::posix::{GRND_NONBLOCK, GRND_RANDOM};
 
     #[cfg(any(
         target_os = "android",
@@ -141,7 +153,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::{F_OK, R_OK, W_OK, X_OK};
+    use rustpython_host_env::os::{F_OK, R_OK, W_OK, X_OK};
 
     #[cfg(any(
         target_os = "android",
@@ -151,7 +163,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::O_NONBLOCK;
+    use rustpython_host_env::os::O_NONBLOCK;
 
     #[cfg(any(
         target_os = "android",
@@ -161,7 +173,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::O_DSYNC;
+    use rustpython_host_env::os::O_DSYNC;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -171,7 +183,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::SCHED_OTHER;
+    use rustpython_host_env::posix::SCHED_OTHER;
 
     #[cfg(any(
         target_os = "android",
@@ -181,7 +193,7 @@ pub mod module {
         target_os = "macos"
     ))]
     #[pyattr]
-    use libc::{RTLD_NODELETE, SEEK_DATA, SEEK_HOLE};
+    use rustpython_host_env::posix::{RTLD_NODELETE, SEEK_DATA, SEEK_HOLE};
 
     #[cfg(any(
         target_os = "android",
@@ -191,7 +203,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::O_DIRECT;
+    use rustpython_host_env::os::O_DIRECT;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -201,7 +213,7 @@ pub mod module {
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::{O_EXLOCK, O_FSYNC, O_SHLOCK};
+    use rustpython_host_env::os::{O_EXLOCK, O_FSYNC, O_SHLOCK};
 
     #[cfg(any(
         target_os = "android",
@@ -212,7 +224,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::RTLD_LOCAL;
+    use rustpython_host_env::posix::RTLD_LOCAL;
 
     #[cfg(any(
         target_os = "android",
@@ -223,7 +235,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::WUNTRACED;
+    use rustpython_host_env::posix::WUNTRACED;
 
     #[cfg(any(
         target_os = "android",
@@ -234,10 +246,21 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::{
-        CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, O_SYNC, P_ALL,
-        P_PGID, P_PID, SCHED_FIFO, SCHED_RR,
+    use rustpython_host_env::posix::{
+        CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, P_ALL, P_PGID,
+        P_PID, SCHED_FIFO, SCHED_RR,
     };
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use rustpython_host_env::os::O_SYNC;
 
     #[cfg(any(
         target_os = "android",
@@ -249,7 +272,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::O_DIRECTORY;
+    use rustpython_host_env::os::O_DIRECTORY;
 
     #[cfg(any(
         target_os = "android",
@@ -261,10 +284,30 @@ pub mod module {
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::{
-        F_LOCK, F_TEST, F_TLOCK, F_ULOCK, O_ASYNC, O_NDELAY, O_NOCTTY, RTLD_NOLOAD, WEXITED,
-        WNOWAIT, WSTOPPED,
-    };
+    use rustpython_host_env::fcntl::{F_LOCK, F_TEST, F_TLOCK, F_ULOCK};
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use rustpython_host_env::posix::{RTLD_NOLOAD, WEXITED, WNOWAIT, WSTOPPED};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use rustpython_host_env::os::{O_ASYNC, O_NDELAY, O_NOCTTY};
 
     #[cfg(any(
         target_os = "android",
@@ -277,55 +320,27 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::{O_CLOEXEC, WCONTINUED};
+    use rustpython_host_env::posix::WCONTINUED;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "redox",
+        unix
+    ))]
+    #[pyattr]
+    use rustpython_host_env::os::O_CLOEXEC;
 
     #[pyattr]
-    const EX_OK: i8 = exitcode::OK as i8;
-
-    #[pyattr]
-    const EX_USAGE: i8 = exitcode::USAGE as i8;
-
-    #[pyattr]
-    const EX_DATAERR: i8 = exitcode::DATAERR as i8;
-
-    #[pyattr]
-    const EX_NOINPUT: i8 = exitcode::NOINPUT as i8;
-
-    #[pyattr]
-    const EX_NOUSER: i8 = exitcode::NOUSER as i8;
-
-    #[pyattr]
-    const EX_NOHOST: i8 = exitcode::NOHOST as i8;
-
-    #[pyattr]
-    const EX_UNAVAILABLE: i8 = exitcode::UNAVAILABLE as i8;
-
-    #[pyattr]
-    const EX_SOFTWARE: i8 = exitcode::SOFTWARE as i8;
-
-    #[pyattr]
-    const EX_OSERR: i8 = exitcode::OSERR as i8;
-
-    #[pyattr]
-    const EX_OSFILE: i8 = exitcode::OSFILE as i8;
-
-    #[pyattr]
-    const EX_CANTCREAT: i8 = exitcode::CANTCREAT as i8;
-
-    #[pyattr]
-    const EX_IOERR: i8 = exitcode::IOERR as i8;
-
-    #[pyattr]
-    const EX_TEMPFAIL: i8 = exitcode::TEMPFAIL as i8;
-
-    #[pyattr]
-    const EX_PROTOCOL: i8 = exitcode::PROTOCOL as i8;
-
-    #[pyattr]
-    const EX_NOPERM: i8 = exitcode::NOPERM as i8;
-
-    #[pyattr]
-    const EX_CONFIG: i8 = exitcode::CONFIG as i8;
+    use rustpython_host_env::posix::{
+        EX_CANTCREAT, EX_CONFIG, EX_DATAERR, EX_IOERR, EX_NOHOST, EX_NOINPUT, EX_NOPERM, EX_NOUSER,
+        EX_OK, EX_OSERR, EX_OSFILE, EX_PROTOCOL, EX_SOFTWARE, EX_TEMPFAIL, EX_UNAVAILABLE,
+        EX_USAGE,
+    };
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
@@ -655,8 +670,8 @@ pub mod module {
         #[cfg(feature = "threading")]
         crate::stdlib::_thread::after_fork_child(vm);
 
-        // CPython parity: reinit import lock ownership metadata in child
-        // and release the lock acquired by PyOS_BeforeFork().
+        // Reinit import lock ownership metadata in child and release the lock
+        // acquired before fork.
         #[cfg(feature = "threading")]
         unsafe {
             crate::stdlib::_imp::after_fork_child_imp_lock_release()
@@ -858,15 +873,62 @@ pub mod module {
                 Ok(0)
             }
             Ok(pid) => {
-                // Match CPython timing: capture this before parent after-fork hooks
-                // in case those hooks start threads.
+                // Capture this before parent after-fork hooks in case those
+                // hooks start threads.
                 let num_os_threads = get_number_of_os_threads();
                 py_os_after_fork_parent(vm);
-                // Match CPython timing: warn only after parent callback path resumes world.
+                // Warn only after parent callback path resumes the world.
                 warn_if_multi_threaded("fork", num_os_threads, vm);
                 Ok(pid)
             }
-            Err(err) => Err(err.into_pyexception(vm)),
+            Err(err) => {
+                py_os_after_fork_parent(vm);
+                Err(err.into_pyexception(vm))
+            }
+        }
+    }
+
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    #[pyfunction]
+    fn forkpty(vm: &VirtualMachine) -> PyResult<(i32, i32)> {
+        if vm
+            .state
+            .finalizing
+            .load(core::sync::atomic::Ordering::Acquire)
+        {
+            return Err(vm.new_exception_msg(
+                vm.ctx.exceptions.python_finalization_error.to_owned(),
+                "can't fork at interpreter shutdown".into(),
+            ));
+        }
+        if !vm.state.allow_fork() {
+            return Err(
+                vm.new_runtime_error("fork not supported for isolated subinterpreters".to_owned())
+            );
+        }
+
+        vm.sys_module
+            .get_attr("audit", vm)?
+            .call(("os.forkpty",), vm)?;
+
+        py_os_before_fork(vm);
+        let result = rustpython_host_env::posix::forkpty();
+
+        match result {
+            Ok((0, master)) => {
+                py_os_after_fork_child(vm);
+                Ok((0, master))
+            }
+            Ok((pid, master)) => {
+                let num_os_threads = get_number_of_os_threads();
+                py_os_after_fork_parent(vm);
+                warn_if_multi_threaded("forkpty", num_os_threads, vm);
+                Ok((pid, master))
+            }
+            Err(err) => {
+                py_os_after_fork_parent(vm);
+                Err(err.into_pyexception(vm))
+            }
         }
     }
 
@@ -1043,6 +1105,32 @@ pub mod module {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let [] = dir_fd.0;
+        #[cfg(all(
+            unix,
+            not(target_os = "redox"),
+            not(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))
+        ))]
+        if !follow_symlinks.0 {
+            let err_path = path.clone();
+            let c_path = path.into_cstring(vm)?;
+            return rustpython_host_env::posix::fchmodat(
+                libc::AT_FDCWD,
+                &c_path,
+                mode as libc::mode_t,
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+            .map_err(|err| {
+                let enotsup = err.raw_os_error() == Some(libc::EOPNOTSUPP)
+                    || err.raw_os_error() == Some(libc::ENOTSUP);
+                if enotsup {
+                    vm.new_not_implemented_error(
+                        "chmod: follow_symlinks unavailable on this platform".to_owned(),
+                    )
+                } else {
+                    OSErrorBuilder::with_filename(&err, err_path, vm)
+                }
+            });
+        }
         let err_path = path.clone();
         let body = move || {
             use std::os::unix::fs::PermissionsExt;
@@ -2062,26 +2150,26 @@ pub mod module {
         ))]
         /// Minimum number of bits needed to represent, as a signed integer value,
         /// the maximum size of a regular file allowed in the specified directory.
-        PC_FILESIZEBITS = libc::_PC_FILESIZEBITS,
+        PC_FILESIZEBITS = host_posix::_PC_FILESIZEBITS,
         /// Maximum number of links to a single file.
-        PC_LINK_MAX = libc::_PC_LINK_MAX,
+        PC_LINK_MAX = host_posix::_PC_LINK_MAX,
         /// Maximum number of bytes in a terminal canonical input line.
-        PC_MAX_CANON = libc::_PC_MAX_CANON,
+        PC_MAX_CANON = host_posix::_PC_MAX_CANON,
         /// Minimum number of bytes for which space is available in a terminal input
         /// queue; therefore, the maximum number of bytes a conforming application
         /// may require to be typed as input before reading them.
-        PC_MAX_INPUT = libc::_PC_MAX_INPUT,
+        PC_MAX_INPUT = host_posix::_PC_MAX_INPUT,
         /// Maximum number of bytes in a filename (not including the terminating
         /// null of a filename string).
-        PC_NAME_MAX = libc::_PC_NAME_MAX,
+        PC_NAME_MAX = host_posix::_PC_NAME_MAX,
         /// Maximum number of bytes the implementation will store as a pathname in a
         /// user-supplied buffer of unspecified size, including the terminating null
         /// character. Minimum number the implementation will accept as the maximum
         /// number of bytes in a pathname.
-        PC_PATH_MAX = libc::_PC_PATH_MAX,
+        PC_PATH_MAX = host_posix::_PC_PATH_MAX,
         /// Maximum number of bytes that is guaranteed to be atomic when writing to
         /// a pipe.
-        PC_PIPE_BUF = libc::_PC_PIPE_BUF,
+        PC_PIPE_BUF = host_posix::_PC_PIPE_BUF,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2093,7 +2181,7 @@ pub mod module {
             target_os = "solaris"
         ))]
         /// Symbolic links can be created.
-        PC_2_SYMLINKS = libc::_PC_2_SYMLINKS,
+        PC_2_SYMLINKS = host_posix::_PC_2_SYMLINKS,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2104,7 +2192,7 @@ pub mod module {
         ))]
         /// Minimum number of bytes of storage actually allocated for any portion of
         /// a file.
-        PC_ALLOC_SIZE_MIN = libc::_PC_ALLOC_SIZE_MIN,
+        PC_ALLOC_SIZE_MIN = host_posix::_PC_ALLOC_SIZE_MIN,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2114,7 +2202,7 @@ pub mod module {
         ))]
         /// Recommended increment for file transfer sizes between the
         /// `POSIX_REC_MIN_XFER_SIZE` and `POSIX_REC_MAX_XFER_SIZE` values.
-        PC_REC_INCR_XFER_SIZE = libc::_PC_REC_INCR_XFER_SIZE,
+        PC_REC_INCR_XFER_SIZE = host_posix::_PC_REC_INCR_XFER_SIZE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2124,7 +2212,7 @@ pub mod module {
             target_os = "redox"
         ))]
         /// Maximum recommended file transfer size.
-        PC_REC_MAX_XFER_SIZE = libc::_PC_REC_MAX_XFER_SIZE,
+        PC_REC_MAX_XFER_SIZE = host_posix::_PC_REC_MAX_XFER_SIZE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2134,7 +2222,7 @@ pub mod module {
             target_os = "redox"
         ))]
         /// Minimum recommended file transfer size.
-        PC_REC_MIN_XFER_SIZE = libc::_PC_REC_MIN_XFER_SIZE,
+        PC_REC_MIN_XFER_SIZE = host_posix::_PC_REC_MIN_XFER_SIZE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2144,7 +2232,7 @@ pub mod module {
             target_os = "redox"
         ))]
         ///  Recommended file transfer buffer alignment.
-        PC_REC_XFER_ALIGN = libc::_PC_REC_XFER_ALIGN,
+        PC_REC_XFER_ALIGN = host_posix::_PC_REC_XFER_ALIGN,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2157,17 +2245,17 @@ pub mod module {
             target_os = "solaris"
         ))]
         /// Maximum number of bytes in a symbolic link.
-        PC_SYMLINK_MAX = libc::_PC_SYMLINK_MAX,
+        PC_SYMLINK_MAX = host_posix::_PC_SYMLINK_MAX,
         /// The use of `chown` and `fchown` is restricted to a process with
         /// appropriate privileges, and to changing the group ID of a file only to
         /// the effective group ID of the process or to one of its supplementary
         /// group IDs.
-        PC_CHOWN_RESTRICTED = libc::_PC_CHOWN_RESTRICTED,
+        PC_CHOWN_RESTRICTED = host_posix::_PC_CHOWN_RESTRICTED,
         /// Pathname components longer than {NAME_MAX} generate an error.
-        PC_NO_TRUNC = libc::_PC_NO_TRUNC,
+        PC_NO_TRUNC = host_posix::_PC_NO_TRUNC,
         /// This symbol shall be defined to be the value of a character that shall
         /// disable terminal special character handling.
-        PC_VDISABLE = libc::_PC_VDISABLE,
+        PC_VDISABLE = host_posix::_PC_VDISABLE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2180,7 +2268,7 @@ pub mod module {
         ))]
         /// Asynchronous input or output operations may be performed for the
         /// associated file.
-        PC_ASYNC_IO = libc::_PC_ASYNC_IO,
+        PC_ASYNC_IO = host_posix::_PC_ASYNC_IO,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2193,7 +2281,7 @@ pub mod module {
         ))]
         /// Prioritized input or output operations may be performed for the
         /// associated file.
-        PC_PRIO_IO = libc::_PC_PRIO_IO,
+        PC_PRIO_IO = host_posix::_PC_PRIO_IO,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -2207,10 +2295,10 @@ pub mod module {
         ))]
         /// Synchronized input or output operations may be performed for the
         /// associated file.
-        PC_SYNC_IO = libc::_PC_SYNC_IO,
+        PC_SYNC_IO = host_posix::_PC_SYNC_IO,
         #[cfg(any(target_os = "dragonfly", target_os = "openbsd"))]
         /// The resolution in nanoseconds for all file timestamps.
-        PC_TIMESTAMP_RESOLUTION = libc::_PC_TIMESTAMP_RESOLUTION,
+        PC_TIMESTAMP_RESOLUTION = host_posix::_PC_TIMESTAMP_RESOLUTION,
     }
 
     #[cfg(unix)]
@@ -2260,124 +2348,124 @@ pub mod module {
     #[repr(i32)]
     #[allow(non_camel_case_types)]
     pub enum SysconfVar {
-        SC_2_CHAR_TERM = libc::_SC_2_CHAR_TERM,
-        SC_2_C_BIND = libc::_SC_2_C_BIND,
-        SC_2_C_DEV = libc::_SC_2_C_DEV,
-        SC_2_FORT_DEV = libc::_SC_2_FORT_DEV,
-        SC_2_FORT_RUN = libc::_SC_2_FORT_RUN,
-        SC_2_LOCALEDEF = libc::_SC_2_LOCALEDEF,
-        SC_2_SW_DEV = libc::_SC_2_SW_DEV,
-        SC_2_UPE = libc::_SC_2_UPE,
-        SC_2_VERSION = libc::_SC_2_VERSION,
-        SC_AIO_LISTIO_MAX = libc::_SC_AIO_LISTIO_MAX,
-        SC_AIO_MAX = libc::_SC_AIO_MAX,
-        SC_AIO_PRIO_DELTA_MAX = libc::_SC_AIO_PRIO_DELTA_MAX,
-        SC_ARG_MAX = libc::_SC_ARG_MAX,
-        SC_ASYNCHRONOUS_IO = libc::_SC_ASYNCHRONOUS_IO,
-        SC_ATEXIT_MAX = libc::_SC_ATEXIT_MAX,
-        SC_BC_BASE_MAX = libc::_SC_BC_BASE_MAX,
-        SC_BC_DIM_MAX = libc::_SC_BC_DIM_MAX,
-        SC_BC_SCALE_MAX = libc::_SC_BC_SCALE_MAX,
-        SC_BC_STRING_MAX = libc::_SC_BC_STRING_MAX,
-        SC_CHILD_MAX = libc::_SC_CHILD_MAX,
-        SC_CLK_TCK = libc::_SC_CLK_TCK,
-        SC_COLL_WEIGHTS_MAX = libc::_SC_COLL_WEIGHTS_MAX,
-        SC_DELAYTIMER_MAX = libc::_SC_DELAYTIMER_MAX,
-        SC_EXPR_NEST_MAX = libc::_SC_EXPR_NEST_MAX,
-        SC_FSYNC = libc::_SC_FSYNC,
-        SC_GETGR_R_SIZE_MAX = libc::_SC_GETGR_R_SIZE_MAX,
-        SC_GETPW_R_SIZE_MAX = libc::_SC_GETPW_R_SIZE_MAX,
-        SC_IOV_MAX = libc::_SC_IOV_MAX,
-        SC_JOB_CONTROL = libc::_SC_JOB_CONTROL,
-        SC_LINE_MAX = libc::_SC_LINE_MAX,
-        SC_LOGIN_NAME_MAX = libc::_SC_LOGIN_NAME_MAX,
-        SC_MAPPED_FILES = libc::_SC_MAPPED_FILES,
-        SC_MEMLOCK = libc::_SC_MEMLOCK,
-        SC_MEMLOCK_RANGE = libc::_SC_MEMLOCK_RANGE,
-        SC_MEMORY_PROTECTION = libc::_SC_MEMORY_PROTECTION,
-        SC_MESSAGE_PASSING = libc::_SC_MESSAGE_PASSING,
-        SC_MQ_OPEN_MAX = libc::_SC_MQ_OPEN_MAX,
-        SC_MQ_PRIO_MAX = libc::_SC_MQ_PRIO_MAX,
-        SC_NGROUPS_MAX = libc::_SC_NGROUPS_MAX,
-        SC_NPROCESSORS_CONF = libc::_SC_NPROCESSORS_CONF,
-        SC_NPROCESSORS_ONLN = libc::_SC_NPROCESSORS_ONLN,
-        SC_OPEN_MAX = libc::_SC_OPEN_MAX,
-        SC_PAGE_SIZE = libc::_SC_PAGE_SIZE,
+        SC_2_CHAR_TERM = host_posix::_SC_2_CHAR_TERM,
+        SC_2_C_BIND = host_posix::_SC_2_C_BIND,
+        SC_2_C_DEV = host_posix::_SC_2_C_DEV,
+        SC_2_FORT_DEV = host_posix::_SC_2_FORT_DEV,
+        SC_2_FORT_RUN = host_posix::_SC_2_FORT_RUN,
+        SC_2_LOCALEDEF = host_posix::_SC_2_LOCALEDEF,
+        SC_2_SW_DEV = host_posix::_SC_2_SW_DEV,
+        SC_2_UPE = host_posix::_SC_2_UPE,
+        SC_2_VERSION = host_posix::_SC_2_VERSION,
+        SC_AIO_LISTIO_MAX = host_posix::_SC_AIO_LISTIO_MAX,
+        SC_AIO_MAX = host_posix::_SC_AIO_MAX,
+        SC_AIO_PRIO_DELTA_MAX = host_posix::_SC_AIO_PRIO_DELTA_MAX,
+        SC_ARG_MAX = host_posix::_SC_ARG_MAX,
+        SC_ASYNCHRONOUS_IO = host_posix::_SC_ASYNCHRONOUS_IO,
+        SC_ATEXIT_MAX = host_posix::_SC_ATEXIT_MAX,
+        SC_BC_BASE_MAX = host_posix::_SC_BC_BASE_MAX,
+        SC_BC_DIM_MAX = host_posix::_SC_BC_DIM_MAX,
+        SC_BC_SCALE_MAX = host_posix::_SC_BC_SCALE_MAX,
+        SC_BC_STRING_MAX = host_posix::_SC_BC_STRING_MAX,
+        SC_CHILD_MAX = host_posix::_SC_CHILD_MAX,
+        SC_CLK_TCK = host_posix::_SC_CLK_TCK,
+        SC_COLL_WEIGHTS_MAX = host_posix::_SC_COLL_WEIGHTS_MAX,
+        SC_DELAYTIMER_MAX = host_posix::_SC_DELAYTIMER_MAX,
+        SC_EXPR_NEST_MAX = host_posix::_SC_EXPR_NEST_MAX,
+        SC_FSYNC = host_posix::_SC_FSYNC,
+        SC_GETGR_R_SIZE_MAX = host_posix::_SC_GETGR_R_SIZE_MAX,
+        SC_GETPW_R_SIZE_MAX = host_posix::_SC_GETPW_R_SIZE_MAX,
+        SC_IOV_MAX = host_posix::_SC_IOV_MAX,
+        SC_JOB_CONTROL = host_posix::_SC_JOB_CONTROL,
+        SC_LINE_MAX = host_posix::_SC_LINE_MAX,
+        SC_LOGIN_NAME_MAX = host_posix::_SC_LOGIN_NAME_MAX,
+        SC_MAPPED_FILES = host_posix::_SC_MAPPED_FILES,
+        SC_MEMLOCK = host_posix::_SC_MEMLOCK,
+        SC_MEMLOCK_RANGE = host_posix::_SC_MEMLOCK_RANGE,
+        SC_MEMORY_PROTECTION = host_posix::_SC_MEMORY_PROTECTION,
+        SC_MESSAGE_PASSING = host_posix::_SC_MESSAGE_PASSING,
+        SC_MQ_OPEN_MAX = host_posix::_SC_MQ_OPEN_MAX,
+        SC_MQ_PRIO_MAX = host_posix::_SC_MQ_PRIO_MAX,
+        SC_NGROUPS_MAX = host_posix::_SC_NGROUPS_MAX,
+        SC_NPROCESSORS_CONF = host_posix::_SC_NPROCESSORS_CONF,
+        SC_NPROCESSORS_ONLN = host_posix::_SC_NPROCESSORS_ONLN,
+        SC_OPEN_MAX = host_posix::_SC_OPEN_MAX,
+        SC_PAGE_SIZE = host_posix::_SC_PAGE_SIZE,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_PASS_MAX = libc::_SC_PASS_MAX,
-        SC_PHYS_PAGES = libc::_SC_PHYS_PAGES,
-        SC_PRIORITIZED_IO = libc::_SC_PRIORITIZED_IO,
-        SC_PRIORITY_SCHEDULING = libc::_SC_PRIORITY_SCHEDULING,
-        SC_REALTIME_SIGNALS = libc::_SC_REALTIME_SIGNALS,
-        SC_RE_DUP_MAX = libc::_SC_RE_DUP_MAX,
-        SC_RTSIG_MAX = libc::_SC_RTSIG_MAX,
-        SC_SAVED_IDS = libc::_SC_SAVED_IDS,
-        SC_SEMAPHORES = libc::_SC_SEMAPHORES,
-        SC_SEM_NSEMS_MAX = libc::_SC_SEM_NSEMS_MAX,
-        SC_SEM_VALUE_MAX = libc::_SC_SEM_VALUE_MAX,
-        SC_SHARED_MEMORY_OBJECTS = libc::_SC_SHARED_MEMORY_OBJECTS,
-        SC_SIGQUEUE_MAX = libc::_SC_SIGQUEUE_MAX,
-        SC_STREAM_MAX = libc::_SC_STREAM_MAX,
-        SC_SYNCHRONIZED_IO = libc::_SC_SYNCHRONIZED_IO,
-        SC_THREADS = libc::_SC_THREADS,
-        SC_THREAD_ATTR_STACKADDR = libc::_SC_THREAD_ATTR_STACKADDR,
-        SC_THREAD_ATTR_STACKSIZE = libc::_SC_THREAD_ATTR_STACKSIZE,
-        SC_THREAD_DESTRUCTOR_ITERATIONS = libc::_SC_THREAD_DESTRUCTOR_ITERATIONS,
-        SC_THREAD_KEYS_MAX = libc::_SC_THREAD_KEYS_MAX,
-        SC_THREAD_PRIORITY_SCHEDULING = libc::_SC_THREAD_PRIORITY_SCHEDULING,
-        SC_THREAD_PRIO_INHERIT = libc::_SC_THREAD_PRIO_INHERIT,
-        SC_THREAD_PRIO_PROTECT = libc::_SC_THREAD_PRIO_PROTECT,
-        SC_THREAD_PROCESS_SHARED = libc::_SC_THREAD_PROCESS_SHARED,
-        SC_THREAD_SAFE_FUNCTIONS = libc::_SC_THREAD_SAFE_FUNCTIONS,
-        SC_THREAD_STACK_MIN = libc::_SC_THREAD_STACK_MIN,
-        SC_THREAD_THREADS_MAX = libc::_SC_THREAD_THREADS_MAX,
-        SC_TIMERS = libc::_SC_TIMERS,
-        SC_TIMER_MAX = libc::_SC_TIMER_MAX,
-        SC_TTY_NAME_MAX = libc::_SC_TTY_NAME_MAX,
-        SC_TZNAME_MAX = libc::_SC_TZNAME_MAX,
-        SC_VERSION = libc::_SC_VERSION,
-        SC_XOPEN_CRYPT = libc::_SC_XOPEN_CRYPT,
-        SC_XOPEN_ENH_I18N = libc::_SC_XOPEN_ENH_I18N,
-        SC_XOPEN_LEGACY = libc::_SC_XOPEN_LEGACY,
-        SC_XOPEN_REALTIME = libc::_SC_XOPEN_REALTIME,
-        SC_XOPEN_REALTIME_THREADS = libc::_SC_XOPEN_REALTIME_THREADS,
-        SC_XOPEN_SHM = libc::_SC_XOPEN_SHM,
-        SC_XOPEN_UNIX = libc::_SC_XOPEN_UNIX,
-        SC_XOPEN_VERSION = libc::_SC_XOPEN_VERSION,
-        SC_XOPEN_XCU_VERSION = libc::_SC_XOPEN_XCU_VERSION,
+        SC_PASS_MAX = host_posix::_SC_PASS_MAX,
+        SC_PHYS_PAGES = host_posix::_SC_PHYS_PAGES,
+        SC_PRIORITIZED_IO = host_posix::_SC_PRIORITIZED_IO,
+        SC_PRIORITY_SCHEDULING = host_posix::_SC_PRIORITY_SCHEDULING,
+        SC_REALTIME_SIGNALS = host_posix::_SC_REALTIME_SIGNALS,
+        SC_RE_DUP_MAX = host_posix::_SC_RE_DUP_MAX,
+        SC_RTSIG_MAX = host_posix::_SC_RTSIG_MAX,
+        SC_SAVED_IDS = host_posix::_SC_SAVED_IDS,
+        SC_SEMAPHORES = host_posix::_SC_SEMAPHORES,
+        SC_SEM_NSEMS_MAX = host_posix::_SC_SEM_NSEMS_MAX,
+        SC_SEM_VALUE_MAX = host_posix::_SC_SEM_VALUE_MAX,
+        SC_SHARED_MEMORY_OBJECTS = host_posix::_SC_SHARED_MEMORY_OBJECTS,
+        SC_SIGQUEUE_MAX = host_posix::_SC_SIGQUEUE_MAX,
+        SC_STREAM_MAX = host_posix::_SC_STREAM_MAX,
+        SC_SYNCHRONIZED_IO = host_posix::_SC_SYNCHRONIZED_IO,
+        SC_THREADS = host_posix::_SC_THREADS,
+        SC_THREAD_ATTR_STACKADDR = host_posix::_SC_THREAD_ATTR_STACKADDR,
+        SC_THREAD_ATTR_STACKSIZE = host_posix::_SC_THREAD_ATTR_STACKSIZE,
+        SC_THREAD_DESTRUCTOR_ITERATIONS = host_posix::_SC_THREAD_DESTRUCTOR_ITERATIONS,
+        SC_THREAD_KEYS_MAX = host_posix::_SC_THREAD_KEYS_MAX,
+        SC_THREAD_PRIORITY_SCHEDULING = host_posix::_SC_THREAD_PRIORITY_SCHEDULING,
+        SC_THREAD_PRIO_INHERIT = host_posix::_SC_THREAD_PRIO_INHERIT,
+        SC_THREAD_PRIO_PROTECT = host_posix::_SC_THREAD_PRIO_PROTECT,
+        SC_THREAD_PROCESS_SHARED = host_posix::_SC_THREAD_PROCESS_SHARED,
+        SC_THREAD_SAFE_FUNCTIONS = host_posix::_SC_THREAD_SAFE_FUNCTIONS,
+        SC_THREAD_STACK_MIN = host_posix::_SC_THREAD_STACK_MIN,
+        SC_THREAD_THREADS_MAX = host_posix::_SC_THREAD_THREADS_MAX,
+        SC_TIMERS = host_posix::_SC_TIMERS,
+        SC_TIMER_MAX = host_posix::_SC_TIMER_MAX,
+        SC_TTY_NAME_MAX = host_posix::_SC_TTY_NAME_MAX,
+        SC_TZNAME_MAX = host_posix::_SC_TZNAME_MAX,
+        SC_VERSION = host_posix::_SC_VERSION,
+        SC_XOPEN_CRYPT = host_posix::_SC_XOPEN_CRYPT,
+        SC_XOPEN_ENH_I18N = host_posix::_SC_XOPEN_ENH_I18N,
+        SC_XOPEN_LEGACY = host_posix::_SC_XOPEN_LEGACY,
+        SC_XOPEN_REALTIME = host_posix::_SC_XOPEN_REALTIME,
+        SC_XOPEN_REALTIME_THREADS = host_posix::_SC_XOPEN_REALTIME_THREADS,
+        SC_XOPEN_SHM = host_posix::_SC_XOPEN_SHM,
+        SC_XOPEN_UNIX = host_posix::_SC_XOPEN_UNIX,
+        SC_XOPEN_VERSION = host_posix::_SC_XOPEN_VERSION,
+        SC_XOPEN_XCU_VERSION = host_posix::_SC_XOPEN_XCU_VERSION,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_ILP32_OFF32 = libc::_SC_XBS5_ILP32_OFF32,
+        SC_XBS5_ILP32_OFF32 = host_posix::_SC_XBS5_ILP32_OFF32,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_ILP32_OFFBIG = libc::_SC_XBS5_ILP32_OFFBIG,
+        SC_XBS5_ILP32_OFFBIG = host_posix::_SC_XBS5_ILP32_OFFBIG,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_LP64_OFF64 = libc::_SC_XBS5_LP64_OFF64,
+        SC_XBS5_LP64_OFF64 = host_posix::_SC_XBS5_LP64_OFF64,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_LPBIG_OFFBIG = libc::_SC_XBS5_LPBIG_OFFBIG,
+        SC_XBS5_LPBIG_OFFBIG = host_posix::_SC_XBS5_LPBIG_OFFBIG,
     }
 
     #[cfg(target_os = "redox")]
@@ -2385,20 +2473,20 @@ pub mod module {
     #[repr(i32)]
     #[allow(non_camel_case_types)]
     pub enum SysconfVar {
-        SC_ARG_MAX = libc::_SC_ARG_MAX,
-        SC_CHILD_MAX = libc::_SC_CHILD_MAX,
-        SC_CLK_TCK = libc::_SC_CLK_TCK,
-        SC_NGROUPS_MAX = libc::_SC_NGROUPS_MAX,
-        SC_OPEN_MAX = libc::_SC_OPEN_MAX,
-        SC_STREAM_MAX = libc::_SC_STREAM_MAX,
-        SC_TZNAME_MAX = libc::_SC_TZNAME_MAX,
-        SC_VERSION = libc::_SC_VERSION,
-        SC_PAGE_SIZE = libc::_SC_PAGE_SIZE,
-        SC_RE_DUP_MAX = libc::_SC_RE_DUP_MAX,
-        SC_LOGIN_NAME_MAX = libc::_SC_LOGIN_NAME_MAX,
-        SC_TTY_NAME_MAX = libc::_SC_TTY_NAME_MAX,
-        SC_SYMLOOP_MAX = libc::_SC_SYMLOOP_MAX,
-        SC_HOST_NAME_MAX = libc::_SC_HOST_NAME_MAX,
+        SC_ARG_MAX = host_posix::_SC_ARG_MAX,
+        SC_CHILD_MAX = host_posix::_SC_CHILD_MAX,
+        SC_CLK_TCK = host_posix::_SC_CLK_TCK,
+        SC_NGROUPS_MAX = host_posix::_SC_NGROUPS_MAX,
+        SC_OPEN_MAX = host_posix::_SC_OPEN_MAX,
+        SC_STREAM_MAX = host_posix::_SC_STREAM_MAX,
+        SC_TZNAME_MAX = host_posix::_SC_TZNAME_MAX,
+        SC_VERSION = host_posix::_SC_VERSION,
+        SC_PAGE_SIZE = host_posix::_SC_PAGE_SIZE,
+        SC_RE_DUP_MAX = host_posix::_SC_RE_DUP_MAX,
+        SC_LOGIN_NAME_MAX = host_posix::_SC_LOGIN_NAME_MAX,
+        SC_TTY_NAME_MAX = host_posix::_SC_TTY_NAME_MAX,
+        SC_SYMLOOP_MAX = host_posix::_SC_SYMLOOP_MAX,
+        SC_HOST_NAME_MAX = host_posix::_SC_HOST_NAME_MAX,
     }
 
     impl SysconfVar {
@@ -2588,7 +2676,7 @@ pub mod module {
 #[pymodule(sub)]
 mod posix_sched {
     use crate::{
-        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyTupleRef,
         class::PyClassDef,
         convert::{IntoPyException, ToPyObject},
@@ -2652,7 +2740,7 @@ mod posix_sched {
 
     #[cfg(not(target_env = "musl"))]
     pub(super) fn convert_sched_param(
-        obj: &PyObjectRef,
+        obj: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<libc::sched_param> {
         use crate::{

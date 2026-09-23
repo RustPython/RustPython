@@ -31,7 +31,8 @@ pub(crate) mod decl {
     use crate::class::PyClassDef;
     use crate::common::lock::LazyLock;
     use crate::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        atomic_func,
         builtins::{PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_},
         common::wtf8::Wtf8Buf,
         function::FuncArgs,
@@ -135,7 +136,7 @@ pub(crate) mod decl {
 
     /// String representation of a type for annotation purposes.
     /// Equivalent of _Py_typing_type_repr.
-    fn typing_type_repr(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn typing_type_repr(obj: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
         // Ellipsis
         if obj.is(&vm.ctx.ellipsis) {
             return Ok("...".to_owned());
@@ -171,7 +172,7 @@ pub(crate) mod decl {
 
     /// Format a value as a string for ANNOTATE_FORMAT_STRING.
     /// Handles tuples specially by wrapping in parentheses.
-    fn typing_type_repr_value(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn typing_type_repr_value(value: &PyObject, vm: &VirtualMachine) -> PyResult {
         if let Ok(tuple) = value.try_to_ref::<PyTuple>(vm) {
             let mut parts = Vec::with_capacity(tuple.len());
             for item in tuple {
@@ -323,7 +324,7 @@ pub(crate) mod decl {
         /// Uses __default__ attribute to check if a type param has a default value,
         /// comparing against typing.NoDefault sentinel (like get_type_param_default).
         fn check_type_params(
-            type_params: &PyTupleRef,
+            type_params: &Py<PyTuple>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyTupleRef>> {
             if type_params.is_empty() {
@@ -331,7 +332,7 @@ pub(crate) mod decl {
             }
             let no_default = &vm.ctx.typing_no_default;
             let mut default_seen = false;
-            for param in type_params.iter() {
+            for param in type_params {
                 let dflt = param.get_attr("__default__", vm).map_err(|_| {
                     vm.new_type_error(format!(
                         "Expected a type param, got {}",
@@ -352,7 +353,7 @@ pub(crate) mod decl {
                     default_seen = true;
                 }
             }
-            Ok(Some(type_params.clone()))
+            Ok(Some(type_params.to_owned()))
         }
     }
 
@@ -477,14 +478,14 @@ pub(crate) mod decl {
 
     /// Wrap TypeVarTuples in Unpack[], matching unpack_typevartuples()
     pub(crate) fn unpack_typevartuples(
-        type_params: &PyTupleRef,
+        type_params: &Py<PyTuple>,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
         let has_tvt = type_params
             .iter()
             .any(|p| p.downcastable::<crate::stdlib::typevar::TypeVarTuple>());
         if !has_tvt {
-            return Ok(type_params.clone());
+            return Ok(type_params.to_owned());
         }
         let typing = vm.import("typing", 0)?;
         let unpack_cls = typing.get_attr("Unpack", vm)?;

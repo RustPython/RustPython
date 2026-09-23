@@ -1,12 +1,12 @@
 use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
 
 use crate::{
-    PyObjectRef, PyResult, VirtualMachine,
+    PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyStr, PyUtf8Str},
     convert::{ToPyException, ToPyObject},
 };
 
-pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
+pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObject>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<rustpython_common::hash::PyHash> {
@@ -38,7 +38,7 @@ pub(crate) fn collection_repr<'a, I>(
     vm: &VirtualMachine,
 ) -> PyResult<Wtf8Buf>
 where
-    I: core::iter::Iterator<Item = &'a PyObjectRef>,
+    I: core::iter::Iterator<Item = &'a PyObject>,
 {
     let mut repr = Wtf8Buf::new();
     if let Some(name) = class_name {

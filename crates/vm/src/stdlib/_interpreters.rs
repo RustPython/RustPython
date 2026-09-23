@@ -233,9 +233,9 @@ pub(crate) mod _interpreters {
     }
 
     /// The `p` converter: a predicate that only reads truthiness.
-    fn flag(slot: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<bool> {
+    fn flag(slot: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<bool> {
         match slot {
-            Some(o) => o.clone().is_true(vm),
+            Some(o) => o.to_owned().is_true(vm),
             None => Ok(false),
         }
     }
@@ -434,7 +434,7 @@ pub(crate) mod _interpreters {
             max_positional: 1,
         }
         .parse(&args, vm)?;
-        let reqrefs = flag(parsed[1].as_ref(), vm)?;
+        let reqrefs = flag(parsed[1].as_deref(), vm)?;
         let config = parse_config(parsed[0].as_deref(), vm)?;
         new_interpreter(config, reqrefs, vm)
     }
@@ -446,7 +446,7 @@ pub(crate) mod _interpreters {
             crate::Interpreter::create_subinterpreter_from_vm(vm, config).map_err(|msg| {
                 let cause = vm.new_runtime_error(msg.to_owned());
                 let exc = interpreter_error(vm, "interpreter creation failed");
-                exc.set___context__(Some(cause));
+                exc.set_context(Some(cause));
                 exc
             })?;
         if reqrefs {
@@ -478,7 +478,7 @@ pub(crate) mod _interpreters {
             max_positional: 1,
         }
         .parse(&args, vm)?;
-        let restricted = flag(parsed[1].as_ref(), vm)?;
+        let restricted = flag(parsed[1].as_deref(), vm)?;
         let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
         resolve_interp(Some(id), restricted, false, "destroy", vm)?;
         if id == vm.state.interpreter_id {
@@ -510,7 +510,7 @@ pub(crate) mod _interpreters {
             max_positional: 0,
         }
         .parse(&args, vm)?;
-        let reqready = flag(parsed[0].as_ref(), vm)?;
+        let reqready = flag(parsed[0].as_deref(), vm)?;
         let mut items = Vec::new();
         for info in runtime::list_interpreters() {
             if reqready
@@ -544,7 +544,7 @@ pub(crate) mod _interpreters {
             max_positional: 1,
         }
         .parse(&args, vm)?;
-        let restricted = flag(parsed[1].as_ref(), vm)?;
+        let restricted = flag(parsed[1].as_deref(), vm)?;
         let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
         resolve_interp(Some(id), restricted, true, "check if running for", vm)?;
         Ok(vm.ctx.new_bool(crossinterp::is_running(id)).into())
@@ -573,7 +573,7 @@ pub(crate) mod _interpreters {
             max_positional: 1,
         }
         .parse(&args, vm)?;
-        let restricted = flag(parsed[1].as_ref(), vm)?;
+        let restricted = flag(parsed[1].as_deref(), vm)?;
         let id_obj = parsed[0].as_deref().unwrap();
         let id = if vm.is_none(id_obj) {
             None
@@ -677,7 +677,7 @@ pub(crate) mod _interpreters {
             },
             vm,
         )?;
-        let restrict = flag(parsed[3].as_ref(), vm)?;
+        let restrict = flag(parsed[3].as_deref(), vm)?;
         let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
         resolve_interp(Some(id), restrict, true, op, vm)?;
         let shared = parsed[2].clone().map(|o| o.downcast::<PyDict>().unwrap());
@@ -769,7 +769,7 @@ pub(crate) mod _interpreters {
         )?;
         // preserve_exc is accepted and ignored: an unpickled exception is
         // always a new object.
-        let restrict = flag(parsed[5].as_ref(), vm)?;
+        let restrict = flag(parsed[5].as_deref(), vm)?;
         let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
         resolve_interp(Some(id), restrict, true, "make a call in", vm)?;
 
@@ -914,7 +914,7 @@ pub(crate) mod _interpreters {
             },
             vm,
         )?;
-        let restrict = flag(parsed[2].as_ref(), vm)?;
+        let restrict = flag(parsed[2].as_deref(), vm)?;
         let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
         resolve_interp(Some(id), restrict, true, "update __main__ for", vm)?;
         let updates = parsed[1]
@@ -967,8 +967,8 @@ pub(crate) mod _interpreters {
             max_positional: 1,
         }
         .parse(&args, vm)?;
-        let implieslink = flag(parsed[1].as_ref(), vm)?;
-        let restricted = flag(parsed[2].as_ref(), vm)?;
+        let implieslink = flag(parsed[1].as_deref(), vm)?;
+        let restricted = flag(parsed[2].as_deref(), vm)?;
         let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
         resolve_interp(Some(id), restricted, true, "incref", vm)?;
         let state = runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
@@ -989,7 +989,7 @@ pub(crate) mod _interpreters {
             max_positional: 1,
         }
         .parse(&args, vm)?;
-        let restricted = flag(parsed[1].as_ref(), vm)?;
+        let restricted = flag(parsed[1].as_deref(), vm)?;
         let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
         resolve_interp(Some(id), restricted, true, "decref", vm)?;
         let state = runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;

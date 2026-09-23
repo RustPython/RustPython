@@ -15,7 +15,7 @@ cfg_select! {
     _ => {
         type Offset = i64;
         // EAGAIN constant for BlockingIOError
-        const EAGAIN: i32 = 11; // Standard POSIX value
+        const EAGAIN: i32 = rustpython_host_env::errno::errors::EAGAIN;
     }
 }
 
@@ -1401,7 +1401,7 @@ mod _io {
                     "raw readinto() returned invalid length {n} (should have been between 0 and {len})"
                 ));
                 if let Some(cause) = type_error {
-                    os_error.set___cause__(Some(cause));
+                    os_error.set_cause(Some(cause));
                 }
                 return Err(os_error);
             }
@@ -1976,7 +1976,7 @@ mod _io {
     fn exception_chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
         match (e1, e2) {
             (Err(e1), Err(e)) => {
-                e.set___context__(Some(e1));
+                e.set_context(Some(e1));
                 Err(e)
             }
             (Err(e), Ok(_)) | (Ok(()), Err(e)) => Err(e),
@@ -2448,7 +2448,7 @@ mod _io {
     }
 
     impl Utf8size {
-        fn len_pystr(s: &PyStr) -> Self {
+        fn len_pystr(s: &Py<PyStr>) -> Self {
             Self {
                 bytes: s.byte_len(),
                 chars: s.char_len(),
@@ -2860,7 +2860,7 @@ mod _io {
                 .map_err(|_| vm.new_value_error("I/O operation on uninitialized object"))
         }
 
-        fn validate_errors(errors: &PyRef<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<()> {
+        fn validate_errors(errors: &Py<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<()> {
             if errors.as_pystr().contains_nuls() {
                 cold_path();
                 return Err(nul_char_error(vm));
@@ -2925,7 +2925,7 @@ mod _io {
         }
 
         fn adjust_encoder_state_for_bom(
-            encoder: &PyObjectRef,
+            encoder: &PyObject,
             encoding: &str,
             buffer: &PyObject,
             vm: &VirtualMachine,
@@ -5987,7 +5987,7 @@ mod fileio {
             };
             match (flush_exc, close_err) {
                 (Some(fe), Some(ce)) => {
-                    ce.set___context__(Some(fe));
+                    ce.set_context(Some(fe));
                     Err(ce)
                 }
                 (Some(e), None) | (None, Some(e)) => Err(e),
@@ -6216,10 +6216,7 @@ mod winconsoleio {
             }
 
             // Parse mode
-            let mode_str: &str = args
-                .mode
-                .as_ref()
-                .map_or("r", |s: &PyUtf8StrRef| s.as_str());
+            let mode_str: &str = args.mode.as_deref().map_or("r", |s| s.as_str());
 
             let mut rwa = false;
             let mut readable = false;
@@ -6441,7 +6438,7 @@ mod winconsoleio {
             };
             match (flush_exc, close_err) {
                 (Some(fe), Some(ce)) => {
-                    ce.set___context__(Some(fe));
+                    ce.set_context(Some(fe));
                     Err(ce)
                 }
                 (Some(e), None) | (None, Some(e)) => Err(e),

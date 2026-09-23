@@ -18,37 +18,21 @@ pub(crate) mod module {
     use core::hint::cold_path;
     use libc::intptr_t;
     use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_host_env::msvcrt as host_msvcrt;
     use rustpython_host_env::nt as host_nt;
     use rustpython_host_env::winapi as host_winapi;
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::os::windows::io::AsRawHandle;
 
     #[pyattr]
-    use libc::{O_BINARY, O_NOINHERIT, O_RANDOM, O_SEQUENTIAL, O_TEMPORARY, O_TEXT};
+    use rustpython_host_env::os::{
+        O_BINARY, O_NOINHERIT, O_RANDOM, O_SEQUENTIAL, O_TEMPORARY, O_TEXT,
+    };
 
-    // Windows spawn mode constants
     #[pyattr]
-    const P_WAIT: i32 = 0;
-    #[pyattr]
-    const P_NOWAIT: i32 = 1;
-    #[pyattr]
-    const P_OVERLAY: i32 = 2;
-    #[pyattr]
-    const P_NOWAITO: i32 = 3;
-    #[pyattr]
-    const P_DETACH: i32 = 4;
-
-    // _O_SHORT_LIVED is not in libc, define manually
-    #[pyattr]
-    const O_SHORT_LIVED: i32 = 0x1000;
-
-    // Exit code constant
-    #[pyattr]
-    const EX_OK: i32 = 0;
-
-    // Maximum number of temporary files
-    #[pyattr]
-    const TMP_MAX: i32 = i32::MAX;
+    use host_msvcrt::{
+        EX_OK, O_SHORT_LIVED, P_DETACH, P_NOWAIT, P_NOWAITO, P_OVERLAY, P_WAIT, TMP_MAX,
+    };
 
     fn utf8_from_bytes<'a>(bytes: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a str> {
         core::str::from_utf8(bytes).map_err(|err| {
@@ -1089,7 +1073,7 @@ pub(crate) mod module {
 
     const DLL_DIRECTORY_COOKIE: &core::ffi::CStr = c"DLL directory cookie";
 
-    fn pystr_to_wide(s: &PyStrRef, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
+    fn pystr_to_wide(s: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<widestring::WideCString> {
         widestring::WideCString::from_vec(s.as_wtf8().encode_wide().collect::<Vec<_>>())
             .map_err(|_| vm.new_value_error("embedded null character"))
     }

@@ -1,6 +1,6 @@
 use crate::{
-    AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
+    AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     common::{static_cell, str::wchar_t},
     convert::ToPyObject,
     exceptions,
@@ -886,7 +886,7 @@ fn unpack_pascal(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
 }
 
 // XXX: are those functions expected to be placed here?
-pub fn struct_error_type(vm: &VirtualMachine) -> &'static PyTypeRef {
+pub fn struct_error_type(vm: &VirtualMachine) -> &'static Py<PyType> {
     static_cell! {
         static INSTANCE: PyTypeRef;
     }
@@ -896,5 +896,5 @@ pub fn struct_error_type(vm: &VirtualMachine) -> &'static PyTypeRef {
 pub fn new_struct_error<T: Into<Wtf8Buf>>(vm: &VirtualMachine, msg: T) -> PyBaseExceptionRef {
     // can't just STRUCT_ERROR.get().unwrap() cause this could be called before from buffer
     // machinery, independent of whether _struct was ever imported
-    vm.new_exception_msg(struct_error_type(vm).clone(), msg.into())
+    vm.new_exception_msg(struct_error_type(vm).to_owned(), msg.into())
 }

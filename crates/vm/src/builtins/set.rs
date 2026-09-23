@@ -380,7 +380,14 @@ impl PySetInner {
 
     fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let empty = format!("{}()", class_name.unwrap_or("set"));
-        collection_repr(class_name, "{", "}", &empty, self.elements().iter(), vm)
+        collection_repr(
+            class_name,
+            "{",
+            "}",
+            &empty,
+            self.elements().iter().map(|o| &**o),
+            vm,
+        )
     }
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -583,7 +590,7 @@ impl PySetInner {
                     "cannot use '{}' as a set element ({message})",
                     item.class().name()
                 ));
-                err.set___cause__(Some(cause));
+                err.set_cause(Some(cause));
                 Err(err)
             }
             result => result,
@@ -1534,10 +1541,13 @@ impl PySetIterator {
     }
 
     #[pymethod]
-    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyObjectRef, (PyObjectRef,)) {
+    fn __reduce__(
+        zelf: PyRef<Self>,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
         let internal = zelf.internal.lock();
-        (
-            builtins_iter(vm),
+        Ok((
+            builtins_iter(vm)?,
             (vm.ctx
                 .new_list(match &internal.status {
                     IterStatus::Exhausted => vec![],
@@ -1550,7 +1560,7 @@ impl PySetIterator {
                         .collect(),
                 })
                 .into(),),
-        )
+        ))
     }
 }
 
@@ -1570,7 +1580,7 @@ impl IterNext for PySetIterator {
             let entry = set.as_inner().content.next_entry_checked(
                 internal.position,
                 &zelf.size,
-                |key, ()| key.clone(),
+                |key, ()| key.to_owned(),
             );
             match entry {
                 Err(crate::dict_inner::DictChanged) => {

@@ -147,7 +147,7 @@ mod _multibytecodec {
                 obj.set_attr("reason", vm.ctx.new_str(reason), vm)?;
                 return Ok(exc.clone());
             }
-            let exc = vm.new_unicode_encode_error_real(
+            let exc = vm.new_unicode_encode_error(
                 vm.ctx.new_str(encoding),
                 self.input.clone(),
                 start,
@@ -487,7 +487,7 @@ mod _multibytecodec {
             if pos < chars {
                 if chars - pos > MAXENCPENDING {
                     // Normal codecs can't reach here.
-                    return Err(vm.new_unicode_encode_error_real(
+                    return Err(vm.new_unicode_encode_error(
                         vm.ctx.new_str(self.encoding),
                         input,
                         pos,
@@ -778,7 +778,7 @@ mod _multibytecodec {
                 Some(pending) => {
                     let bytes = pending.as_wtf8().as_bytes();
                     if bytes.len() > MAXENCPENDING * 4 {
-                        return Err(vm.new_unicode_encode_error_real(
+                        return Err(vm.new_unicode_encode_error(
                             vm.ctx.new_str(self.codec.encoding),
                             pending.clone(),
                             0,

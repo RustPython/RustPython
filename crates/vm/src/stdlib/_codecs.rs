@@ -625,8 +625,10 @@ fn delegate_pycodecs(
 #[cfg(windows)]
 #[pymodule(sub)]
 mod _codecs_windows {
-    use crate::{PyResult, VirtualMachine};
-    use crate::{builtins::PyStrRef, builtins::PyUtf8StrRef, function::ArgBytesLike};
+    use crate::{Py, PyResult, VirtualMachine};
+    use crate::{
+        builtins::PyStr, builtins::PyStrRef, builtins::PyUtf8StrRef, function::ArgBytesLike,
+    };
     use rustpython_host_env::windows as host_windows;
     use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
 
@@ -973,12 +975,15 @@ mod _codecs_windows {
     /// Encode character by character with error handling.
     fn encode_code_page_errors(
         code_page: u32,
-        s: &PyStrRef,
+        s: &Py<PyStr>,
         errors: &str,
         encoding_name: &str,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, usize)> {
-        use crate::builtins::{PyBytes, PyStr, PyTuple};
+        use crate::{
+            Py,
+            builtins::{PyBytes, PyStr, PyTuple},
+        };
 
         let char_len = s.char_len();
         let flags = encode_code_page_flags(code_page, errors);
@@ -1019,9 +1024,9 @@ mod _codecs_windows {
                     _ => break,
                 }
             }
-            return Err(vm.new_unicode_encode_error_real(
+            return Err(vm.new_unicode_encode_error(
                 encoding_str,
-                s.clone(),
+                s.to_owned(),
                 fail_pos,
                 fail_pos + 1,
                 reason_str,
@@ -1070,9 +1075,9 @@ mod _codecs_windows {
             }
 
             // Character can't be encoded - call error handler
-            let exc = vm.new_unicode_encode_error_real(
+            let exc = vm.new_unicode_encode_error(
                 encoding_str.clone(),
-                s.clone(),
+                s.to_owned(),
                 pos,
                 pos + 1,
                 reason_str.clone(),
@@ -1081,7 +1086,7 @@ mod _codecs_windows {
             let res = error_handler.call((exc,), vm)?;
             let tuple_err =
                 || vm.new_type_error("encoding error handler must return (str/bytes, int) tuple");
-            let tuple: &PyTuple = res.downcast_ref().ok_or_else(&tuple_err)?;
+            let tuple: &Py<PyTuple> = res.downcast_ref().ok_or_else(&tuple_err)?;
             let tuple_slice = tuple.as_slice();
             if tuple_slice.len() != 2 {
                 return Err(tuple_err());
@@ -1097,9 +1102,9 @@ mod _codecs_windows {
                 for rcp in rep_str.as_wtf8().code_points() {
                     let rch = rcp.to_u32();
                     if rch > 127 {
-                        return Err(vm.new_unicode_encode_error_real(
+                        return Err(vm.new_unicode_encode_error(
                             encoding_str,
-                            s.clone(),
+                            s.to_owned(),
                             pos,
                             pos + 1,
                             vm.ctx
@@ -1221,8 +1226,8 @@ mod _codecs_windows {
         encoding_name: &str,
         vm: &VirtualMachine,
     ) -> PyResult<(PyStrRef, usize)> {
-        use crate::builtins::PyTuple;
         use crate::common::wtf8::Wtf8Buf;
+        use crate::{Py, builtins::PyTuple};
 
         let len = data.len();
         let encoding_str = vm.ctx.new_str(encoding_name);
@@ -1385,7 +1390,7 @@ mod _codecs_windows {
                         let tuple_err = || {
                             vm.new_type_error("decoding error handler must return (str, int) tuple")
                         };
-                        let tuple: &PyTuple = res.downcast_ref().ok_or_else(&tuple_err)?;
+                        let tuple: &Py<PyTuple> = res.downcast_ref().ok_or_else(&tuple_err)?;
                         let tuple_slice = tuple.as_slice();
                         if tuple_slice.len() != 2 {
                             return Err(tuple_err());

@@ -1,3 +1,5 @@
+// spell-checker:ignore CANTCREAT NOHOST NOPERM TEMPFAIL DATAERR NOINPUT NOUSER
+
 use alloc::ffi::CString;
 use alloc::vec::Vec;
 use core::ffi::CStr;
@@ -12,6 +14,300 @@ use std::path::Path;
 pub use super::posix_unix_like::*;
 
 pub use libc::{c_char, pid_t};
+
+/// `<sysexits.h>`. The `libc` crate does not bind these.
+pub const EX_OK: i32 = 0;
+pub const EX_USAGE: i32 = 64;
+pub const EX_DATAERR: i32 = 65;
+pub const EX_NOINPUT: i32 = 66;
+pub const EX_NOUSER: i32 = 67;
+pub const EX_NOHOST: i32 = 68;
+pub const EX_UNAVAILABLE: i32 = 69;
+pub const EX_SOFTWARE: i32 = 70;
+pub const EX_OSERR: i32 = 71;
+pub const EX_OSFILE: i32 = 72;
+pub const EX_CANTCREAT: i32 = 73;
+pub const EX_IOERR: i32 = 74;
+pub const EX_TEMPFAIL: i32 = 75;
+pub const EX_PROTOCOL: i32 = 76;
+pub const EX_NOPERM: i32 = 77;
+pub const EX_CONFIG: i32 = 78;
+
+/// Remaining `posix` integer names the VM still took from `libc`.
+#[cfg(any(target_os = "android", target_os = "redox", unix))]
+pub use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+
+#[cfg(target_os = "macos")]
+pub use libc::{
+    COPYFILE_ACL, COPYFILE_DATA, COPYFILE_STAT, COPYFILE_XATTR, PRIO_DARWIN_BG, PRIO_DARWIN_NONUI,
+    PRIO_DARWIN_PROCESS, PRIO_DARWIN_THREAD, TMP_MAX,
+};
+
+#[cfg(target_os = "linux")]
+pub use libc::PIDFD_NONBLOCK;
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub use libc::{
+    CLONE_FILES, CLONE_FS, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID,
+    CLONE_NEWUSER, CLONE_NEWUTS, CLONE_SIGHAND, CLONE_SYSVSEM, CLONE_THREAD, CLONE_VM,
+    MFD_HUGE_SHIFT, P_PIDFD, SCHED_BATCH, SCHED_DEADLINE, SCHED_IDLE, SCHED_NORMAL,
+    SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE, SPLICE_F_NONBLOCK,
+};
+
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "netbsd"))]
+pub use libc::{XATTR_CREATE, XATTR_REPLACE};
+
+#[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
+pub use libc::{
+    MFD_ALLOW_SEALING, MFD_CLOEXEC, MFD_HUGE_MASK, MFD_HUGETLB, POSIX_FADV_DONTNEED,
+    POSIX_FADV_NOREUSE, POSIX_FADV_NORMAL, POSIX_FADV_RANDOM, POSIX_FADV_SEQUENTIAL,
+    POSIX_FADV_WILLNEED,
+};
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "redox", unix))]
+pub use libc::{RTLD_LAZY, RTLD_NOW, WNOHANG};
+
+#[cfg(any(target_os = "android", target_os = "macos", target_os = "redox", unix))]
+pub use libc::RTLD_GLOBAL;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
+pub use libc::{
+    EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, TFD_CLOEXEC, TFD_NONBLOCK, TFD_TIMER_ABSTIME,
+    TFD_TIMER_CANCEL_ON_SET,
+};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
+pub use libc::{GRND_NONBLOCK, GRND_RANDOM};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd"
+))]
+pub use libc::SCHED_OTHER;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos"
+))]
+pub use libc::{RTLD_NODELETE, SEEK_DATA, SEEK_HOLE};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox",
+    unix
+))]
+pub use libc::RTLD_LOCAL;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "redox",
+    unix
+))]
+pub use libc::WUNTRACED;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd"
+))]
+pub use libc::{
+    CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, P_ALL, P_PGID,
+    P_PID, SCHED_FIFO, SCHED_RR,
+};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::{RTLD_NOLOAD, WEXITED, WNOWAIT, WSTOPPED};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox",
+    unix
+))]
+pub use libc::WCONTINUED;
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub use libc::RTLD_DEEPBIND;
+
+#[cfg(unix)]
+pub use libc::{UTIME_NOW, UTIME_OMIT};
+
+#[cfg(target_os = "freebsd")]
+pub use libc::{SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
+
+/// `pathconf` / `sysconf` names. The VM enum discriminants still took these
+/// from `libc`.
+#[cfg(unix)]
+pub use libc::{
+    _PC_CHOWN_RESTRICTED, _PC_LINK_MAX, _PC_MAX_CANON, _PC_MAX_INPUT, _PC_NAME_MAX, _PC_NO_TRUNC,
+    _PC_PATH_MAX, _PC_PIPE_BUF, _PC_VDISABLE, _SC_ARG_MAX, _SC_CHILD_MAX, _SC_CLK_TCK,
+    _SC_LOGIN_NAME_MAX, _SC_NGROUPS_MAX, _SC_OPEN_MAX, _SC_PAGE_SIZE, _SC_RE_DUP_MAX,
+    _SC_STREAM_MAX, _SC_TTY_NAME_MAX, _SC_TZNAME_MAX, _SC_VERSION,
+};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox"
+))]
+pub use libc::_PC_FILESIZEBITS;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "illumos",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox",
+    target_os = "solaris"
+))]
+pub use libc::_PC_2_SYMLINKS;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd",
+    target_os = "redox"
+))]
+pub use libc::_PC_ALLOC_SIZE_MIN;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+pub use libc::_PC_REC_INCR_XFER_SIZE;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd",
+    target_os = "redox"
+))]
+pub use libc::{_PC_REC_MAX_XFER_SIZE, _PC_REC_MIN_XFER_SIZE, _PC_REC_XFER_ALIGN};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "illumos",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox",
+    target_os = "solaris"
+))]
+pub use libc::_PC_SYMLINK_MAX;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "illumos",
+    target_os = "linux",
+    target_os = "openbsd",
+    target_os = "redox",
+    target_os = "solaris"
+))]
+pub use libc::{_PC_ASYNC_IO, _PC_PRIO_IO};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "illumos",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox",
+    target_os = "solaris"
+))]
+pub use libc::_PC_SYNC_IO;
+
+#[cfg(any(target_os = "dragonfly", target_os = "openbsd"))]
+pub use libc::_PC_TIMESTAMP_RESOLUTION;
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub use libc::{
+    _SC_2_C_BIND, _SC_2_C_DEV, _SC_2_CHAR_TERM, _SC_2_FORT_DEV, _SC_2_FORT_RUN, _SC_2_LOCALEDEF,
+    _SC_2_SW_DEV, _SC_2_UPE, _SC_2_VERSION, _SC_AIO_LISTIO_MAX, _SC_AIO_MAX,
+    _SC_AIO_PRIO_DELTA_MAX, _SC_ASYNCHRONOUS_IO, _SC_ATEXIT_MAX, _SC_BC_BASE_MAX, _SC_BC_DIM_MAX,
+    _SC_BC_SCALE_MAX, _SC_BC_STRING_MAX, _SC_COLL_WEIGHTS_MAX, _SC_DELAYTIMER_MAX,
+    _SC_EXPR_NEST_MAX, _SC_FSYNC, _SC_GETGR_R_SIZE_MAX, _SC_GETPW_R_SIZE_MAX, _SC_IOV_MAX,
+    _SC_JOB_CONTROL, _SC_LINE_MAX, _SC_MAPPED_FILES, _SC_MEMLOCK, _SC_MEMLOCK_RANGE,
+    _SC_MEMORY_PROTECTION, _SC_MESSAGE_PASSING, _SC_MQ_OPEN_MAX, _SC_MQ_PRIO_MAX,
+    _SC_NPROCESSORS_CONF, _SC_NPROCESSORS_ONLN, _SC_PHYS_PAGES, _SC_PRIORITIZED_IO,
+    _SC_PRIORITY_SCHEDULING, _SC_REALTIME_SIGNALS, _SC_RTSIG_MAX, _SC_SAVED_IDS, _SC_SEM_NSEMS_MAX,
+    _SC_SEM_VALUE_MAX, _SC_SEMAPHORES, _SC_SHARED_MEMORY_OBJECTS, _SC_SIGQUEUE_MAX,
+    _SC_SYNCHRONIZED_IO, _SC_THREAD_ATTR_STACKADDR, _SC_THREAD_ATTR_STACKSIZE,
+    _SC_THREAD_DESTRUCTOR_ITERATIONS, _SC_THREAD_KEYS_MAX, _SC_THREAD_PRIO_INHERIT,
+    _SC_THREAD_PRIO_PROTECT, _SC_THREAD_PRIORITY_SCHEDULING, _SC_THREAD_PROCESS_SHARED,
+    _SC_THREAD_SAFE_FUNCTIONS, _SC_THREAD_STACK_MIN, _SC_THREAD_THREADS_MAX, _SC_THREADS,
+    _SC_TIMER_MAX, _SC_TIMERS, _SC_XOPEN_CRYPT, _SC_XOPEN_ENH_I18N, _SC_XOPEN_LEGACY,
+    _SC_XOPEN_REALTIME, _SC_XOPEN_REALTIME_THREADS, _SC_XOPEN_SHM, _SC_XOPEN_UNIX,
+    _SC_XOPEN_VERSION, _SC_XOPEN_XCU_VERSION,
+};
+
+#[cfg(any(
+    target_os = "linux",
+    target_vendor = "apple",
+    target_os = "netbsd",
+    target_os = "fuchsia"
+))]
+pub use libc::{
+    _SC_PASS_MAX, _SC_XBS5_ILP32_OFF32, _SC_XBS5_ILP32_OFFBIG, _SC_XBS5_LP64_OFF64,
+    _SC_XBS5_LPBIG_OFFBIG,
+};
+
+#[cfg(target_os = "redox")]
+pub use libc::{_SC_HOST_NAME_MAX, _SC_SYMLOOP_MAX};
 
 pub struct UnameInfo {
     pub sysname: String,
@@ -155,6 +451,16 @@ pub fn symlink(src: &CStr, dst: &CStr) -> std::io::Result<()> {
 #[cfg(not(target_os = "redox"))]
 pub fn chroot(path: &Path) -> std::io::Result<()> {
     nix::unistd::chroot(path).map_err(std::io::Error::from)
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub fn fchmodat(dirfd: i32, path: &CStr, mode: libc::mode_t, flags: i32) -> std::io::Result<()> {
+    let ret = unsafe { libc::fchmodat(dirfd, path.as_ptr(), mode, flags) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))]
@@ -597,10 +903,7 @@ impl From<std::io::Error> for AccessError {
     }
 }
 
-const F_OK: u8 = 0;
-const R_OK: u8 = 4;
-const W_OK: u8 = 2;
-const X_OK: u8 = 1;
+pub use crate::os::{F_OK, R_OK, W_OK, X_OK};
 
 fn get_permissions(mode: u32) -> Permissions {
     Permissions {
@@ -1084,6 +1387,34 @@ pub fn openpty() -> std::io::Result<(OwnedFd, OwnedFd)> {
     set_inheritable(pty.master.as_fd(), false)?;
     set_inheritable(pty.slave.as_fd(), false)?;
     Ok((pty.master, pty.slave))
+}
+
+/// `forkpty(3)`. The child is a session leader with the slave as its
+/// controlling terminal. The parent receives the master fd. The child may
+/// see `master_fd == -1` (Apple's `forkpty`); that is returned as `-1`.
+///
+/// rustix has no `forkpty`. `nix::pty::forkpty` wraps the master in
+/// `OwnedFd`, which panics on Apple's child `-1`, and its `Child` arm
+/// drops the master fd the caller returns as the second item.
+#[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+pub fn forkpty() -> std::io::Result<(pid_t, i32)> {
+    let mut master_fd: libc::c_int = -1;
+    let pid = unsafe {
+        libc::forkpty(
+            &mut master_fd,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+        )
+    };
+    if pid < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if pid != 0 && master_fd >= 0 {
+        let fd = unsafe { BorrowedFd::borrow_raw(master_fd) };
+        set_inheritable(fd, false)?;
+    }
+    Ok((pid, master_fd))
 }
 
 pub fn ttyname(fd: BorrowedFd<'_>) -> std::io::Result<OsString> {

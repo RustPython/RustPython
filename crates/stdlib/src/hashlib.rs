@@ -8,7 +8,7 @@ pub(crate) use _hashlib::module_def;
 #[pymodule]
 pub(crate) mod _hashlib {
     use crate::vm::{
-        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyBytes, PyFrozenSet, PyStr, PyTypeRef, PyUtf8StrRef, PyValueError,
         },
@@ -219,7 +219,7 @@ pub(crate) mod _hashlib {
         }
     }
 
-    fn resolve_digestmod(digestmod: &PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn resolve_digestmod(digestmod: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
         if let Some(name) = digestmod.downcast_ref::<PyStr>()
             && let Some(name_str) = name.to_str()
         {

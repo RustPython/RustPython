@@ -24,8 +24,9 @@ mod vm_ops;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        self, PyBaseExceptionRef, PyBaseObject, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr,
-        PyStrInterned, PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned, PyWeak,
+        self, PyBaseExceptionRef, PyBaseObject, PyDict, PyDictRef, PyFrozenSet, PyInt, PyList,
+        PyModule, PySet, PyStr, PyStrInterned, PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned,
+        PyWeak,
         code::PyCode,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
         pystr::AsPyStr,
@@ -95,6 +96,8 @@ pub struct VirtualMachine {
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
+    /// Event currently being monitored, or -1 when not in a callback.
+    pub(crate) what_event: Cell<i32>,
     tracing_depth: Cell<usize>,
     pub recursion_limit: Cell<usize>,
     pub(crate) signal_handlers: OnceCell<SignalHandlers>,
@@ -564,11 +567,9 @@ impl StopTheWorldState {
         drop(registry);
         self.thread_countdown.store(0, Ordering::Release);
         self.requester.store(0, Ordering::Relaxed);
-        // Every non-requester thread's `stop_requested` was just cleared
-        // above, so the shared fast-path bit can be cleared too. Safe here
-        // (and only here / `reset_after_fork`) because both run under the
-        // single stop-the-world exclusion, released below, so no new
-        // requester can be setting the bit concurrently.
+        // Drop the process-wide stop hint. Another interpreter may still
+        // have `stop_requested` threads; those keep parking via the
+        // per-thread check in `eval_breaker_tripped`.
         crate::signal::clear_stop_bit();
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_detached(state);
@@ -1001,9 +1002,38 @@ impl FrameKind {
     }
 }
 
+/// Unique right to mutably run an interpreter frame in the trampoline.
+///
+/// Not `Copy`: two handles to the same allocation would let two
+/// `&mut InterpreterFrame` exist at once. `from_mut` consumes an exclusive
+/// borrow; `from_ptr` is `unsafe` and must not alias another live handle.
+/// Pointer validity (datastack LIFO, generator `PyRef` + running claim) is
+/// still a construction contract, not something this type can prove.
+struct TrampolineIFrame {
+    ptr: *mut crate::frame::InterpreterFrame,
+}
+
+impl TrampolineIFrame {
+    fn from_mut(iframe: &mut crate::frame::InterpreterFrame) -> Self {
+        Self { ptr: iframe }
+    }
+
+    /// # Safety
+    /// `ptr` must point to a live frame, and no other `TrampolineIFrame`
+    /// may alias it until this handle is dropped.
+    unsafe fn from_ptr(ptr: *mut crate::frame::InterpreterFrame) -> Self {
+        Self { ptr }
+    }
+
+    fn as_mut(&mut self) -> &mut crate::frame::InterpreterFrame {
+        // SAFETY: unique handle; construction established the pointer.
+        unsafe { &mut *self.ptr }
+    }
+}
+
 /// Caller frame suspended by a TailCall in the trampoline.
 struct SuspendedFrame {
-    iframe: *mut crate::frame::InterpreterFrame,
+    iframe: TrampolineIFrame,
     kind: FrameKind,
     /// Function that owns the callee's raw pointers (code, globals, builtins,
     /// closure, and func_obj). Moved from `vm.pending_tailcall_owner` when the
@@ -1055,7 +1085,7 @@ enum GenEntered {
     /// The generator at the bottom of the chain ran and produced `result`;
     /// `state` and `iframe` are its own.
     Ran {
-        iframe: *mut crate::frame::InterpreterFrame,
+        iframe: TrampolineIFrame,
         state: crate::coroutine::FlatResume,
         result: PyResult<crate::frame::ExecutionResult>,
     },
@@ -1200,6 +1230,7 @@ impl VirtualMachine {
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
+            what_event: Cell::new(-1),
             tracing_depth: Cell::new(0),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
             signal_handlers,
@@ -1281,7 +1312,7 @@ impl VirtualMachine {
             }
 
             let err = self.new_runtime_error(msg);
-            err.set___cause__(Some(import_err));
+            err.set_cause(Some(import_err));
             err
         })?;
         Ok(())
@@ -1619,9 +1650,9 @@ impl VirtualMachine {
     /// Similar to _PyErr_WriteUnraisableDefaultHook in CPython.
     fn write_unraisable_to_stderr(
         &self,
-        e: &PyBaseExceptionRef,
+        e: &Py<PyBaseException>,
         msg: Option<&str>,
-        object: &PyObjectRef,
+        object: &PyObject,
     ) {
         // Get stderr once and reuse it
         let stderr = crate::stdlib::sys::get_stderr(self).ok();
@@ -1852,11 +1883,11 @@ impl VirtualMachine {
 
     /// Free a callee frame's data stack storage, if it still owns any.
     #[inline]
-    fn release_trampoline_callee(&self, iframe: *mut crate::frame::InterpreterFrame) {
+    fn release_trampoline_callee(&self, mut iframe: TrampolineIFrame) {
         // SAFETY: the callee has finished; its storage is the top of this
         // thread's data stack because frames are released in LIFO order.
         unsafe {
-            if let Some((base, size)) = (*iframe).release_datastack_frame() {
+            if let Some((base, size)) = iframe.as_mut().release_datastack_frame() {
                 self.datastack_pop_frame(base, size);
             }
         }
@@ -1885,15 +1916,15 @@ impl VirtualMachine {
                 }
                 Err(exc) => return GenEntered::Failed(Outcome::Raise(exc)),
             };
-            let iframe = state.iframe_ptr();
             // SAFETY: the frame is linked and claimed, so this thread is its
-            // only executor for as long as the record below lives.
-            let frame = unsafe { &mut *iframe };
+            // only executor for as long as the handle below lives.
+            let mut iframe = unsafe { TrampolineIFrame::from_ptr(state.iframe_ptr()) };
             if let Some(sent) = sent {
-                if let Some((delegate, cont)) = crate::frame::yield_from_delegate(frame, self)
+                if let Some((delegate, cont)) =
+                    crate::frame::yield_from_delegate(iframe.as_mut(), self)
                     && crate::frame::gen_collapse_allowed(self)
                 {
-                    crate::frame::park_at_send(frame, cont);
+                    crate::frame::park_at_send(iframe.as_mut(), cont);
                     self.trampoline_push(SuspendedFrame {
                         iframe,
                         kind: FrameKind::Gen(state),
@@ -1904,12 +1935,14 @@ impl VirtualMachine {
                     value = sent;
                     continue;
                 }
-                frame.localsplus.push_stack(sent);
+                iframe.as_mut().localsplus.push_stack(sent);
             }
+            let result =
+                crate::frame::run_iframe(iframe.as_mut(), crate::frame::Flatten::GenResume, self);
             return GenEntered::Ran {
                 iframe,
                 state,
-                result: crate::frame::run_iframe(frame, crate::frame::Flatten::GenResume, self),
+                result,
             };
         }
     }
@@ -1935,17 +1968,19 @@ impl VirtualMachine {
     #[inline(never)]
     fn run_trampoline(
         &self,
-        iframe: *mut crate::frame::InterpreterFrame,
+        iframe: &mut crate::frame::InterpreterFrame,
         kind: FrameKind,
         start: TrampolineStart,
     ) -> PyResult<ExecutionResult> {
         use crate::frame::ExecutionResult;
 
+        let iframe = TrampolineIFrame::from_mut(iframe);
+
         /// What the loop does next. Deliberately small, and holding no frame
         /// state: every ordinary Python-to-Python call passes through here.
         enum Action {
             /// Enter and run the data stack frame a `TailCall` prepared.
-            EnterCallee(*mut crate::frame::InterpreterFrame),
+            EnterCallee(TrampolineIFrame),
             /// Resume the generator a `GenResume` parked, walking down its
             /// `yield from` chain.
             ResumeGen {
@@ -1972,14 +2007,17 @@ impl VirtualMachine {
                 match $result {
                     Ok(ExecutionResult::TailCall) => {
                         let callee_owner = self.take_pending_tailcall_owner();
-                        let callee_ptr = self.take_pending_tailcall();
+                        // SAFETY: the callee was just allocated on this
+                        // thread's data stack; this is the first handle.
+                        let callee =
+                            unsafe { TrampolineIFrame::from_ptr(self.take_pending_tailcall()) };
                         self.trampoline_push(SuspendedFrame {
                             iframe,
                             kind,
                             callee_owner: Some(callee_owner),
                             cont: crate::frame::GenCont::NONE,
                         });
-                        Action::EnterCallee(callee_ptr)
+                        Action::EnterCallee(callee)
                     }
                     Ok(ExecutionResult::GenResume) => {
                         let PendingGenResume { jen, value, cont } = self.take_pending_gen_resume();
@@ -2054,21 +2092,18 @@ impl VirtualMachine {
 
         loop {
             action = match action {
-                Action::EnterCallee(callee_ptr) => {
-                    // SAFETY: the callee frame was just allocated on this
-                    // thread's data stack, and nothing has popped it.
-                    let callee = unsafe { &mut *callee_ptr };
-                    match self.enter_iframe_unchecked(callee) {
+                Action::EnterCallee(mut callee) => {
+                    match self.enter_iframe_unchecked(callee.as_mut()) {
                         Ok(state) => {
                             let result = crate::frame::run_iframe(
-                                callee,
+                                callee.as_mut(),
                                 crate::frame::Flatten::CallAndGenResume,
                                 self,
                             );
-                            dispatch!(callee_ptr, FrameKind::Callee(state), result)
+                            dispatch!(callee, FrameKind::Callee(state), result)
                         }
                         Err(exc) => {
-                            self.release_trampoline_callee(callee_ptr);
+                            self.release_trampoline_callee(callee);
                             Action::Deliver(Outcome::Raise(exc))
                         }
                     }
@@ -2088,7 +2123,7 @@ impl VirtualMachine {
                     // frame it has already suspended, so an outcome always has
                     // a caller waiting for it.
                     let SuspendedFrame {
-                        iframe,
+                        mut iframe,
                         kind,
                         callee_owner,
                         cont,
@@ -2102,16 +2137,13 @@ impl VirtualMachine {
                     // than holding it across the caller's next stretch of
                     // bytecode.
                     drop(callee_owner);
-                    // SAFETY: a suspended caller's frame stays alive and
-                    // unmoved until it is resumed here.
-                    let frame = unsafe { &mut *iframe };
                     match outcome {
                         // A frame parked mid `yield from` re-yields what its
                         // delegate produced, running no instruction of its own.
                         Outcome::Value(value)
                             if cont.is_some() && crate::frame::gen_collapse_allowed(self) =>
                         {
-                            crate::frame::park_after_yield_from(frame, cont.resumed_at);
+                            crate::frame::park_after_yield_from(iframe.as_mut(), cont.resumed_at);
                             match kind {
                                 FrameKind::Gen(state) => {
                                     Action::Deliver(self.trampoline_finish_gen(
@@ -2130,8 +2162,8 @@ impl VirtualMachine {
                             }
                         }
                         Outcome::Value(value) => {
-                            frame.localsplus.push_stack(value);
-                            let result = self.trampoline_run(frame, &kind);
+                            iframe.as_mut().localsplus.push_stack(value);
+                            let result = self.trampoline_run(iframe.as_mut(), &kind);
                             dispatch!(iframe, kind, result)
                         }
                         Outcome::GenStop(value) => {
@@ -2139,19 +2171,25 @@ impl VirtualMachine {
                                 cont.is_some(),
                                 "a generator finished with no continuation to apply"
                             );
-                            let result =
-                                match crate::frame::trampoline_gen_stop(frame, value, cont, self) {
-                                    Ok(()) => self.trampoline_run(frame, &kind),
-                                    Err(exc) => Err(exc),
-                                };
+                            let result = match crate::frame::trampoline_gen_stop(
+                                iframe.as_mut(),
+                                value,
+                                cont,
+                                self,
+                            ) {
+                                Ok(()) => self.trampoline_run(iframe.as_mut(), &kind),
+                                Err(exc) => Err(exc),
+                            };
                             dispatch!(iframe, kind, result)
                         }
                         Outcome::Raise(exc) => {
                             let result = match crate::frame::trampoline_handle_exception(
-                                frame, &exc, self,
+                                iframe.as_mut(),
+                                &exc,
+                                self,
                             ) {
                                 // Handler found — resume the caller's loop.
-                                Ok(None) => self.trampoline_run(frame, &kind),
+                                Ok(None) => self.trampoline_run(iframe.as_mut(), &kind),
                                 Ok(Some(result)) => Ok(result),
                                 Err(exc) => Err(exc),
                             };
@@ -2919,35 +2957,28 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         use crate::protocol::TraceEvent;
 
-        // Fire 'call' trace event. current_frame() now returns the callee.
-        let trace_result = self.trace_event(TraceEvent::Call, None)?;
-        if let Some(local_trace) = trace_result {
-            let was_unset = frame.iframe().cold().trace.lock().is_none();
-            *frame.iframe().cold().trace.lock() = Some(local_trace);
-            if was_unset {
-                // For a fresh frame this is a no-op (lasti is still 0 here,
-                // before the frame body below has run). For a generator
-                // resumed mid-body, `lasti` already reflects the suspended
-                // position, so `prev_line` -- stale from before tracing was
-                // installed -- must be synced again or the very next
-                // instruction fires a spurious 'line' event.
-                frame.iframe().sync_prev_line_from_lasti();
-            }
-        }
+        // 'call' is PY_START / PY_RESUME, fired from RESUME once lasti is
+        // the resume unit. Wrapping the body would report lasti=0 (and
+        // trace RETURN_GENERATOR on async-def construction).
 
         let result = f(frame);
 
-        // Fire 'return' event if frame is being traced or profiled.
-        // PY_UNWIND fires PyTrace_RETURN with arg=None — so we fire for
-        // both Ok and Err, matching `call_trace_protected` behavior.
-        if self.use_tracing.get()
+        // PY_RETURN / PY_YIELD are fired from RETURN_VALUE / YIELD_VALUE.
+        // PY_UNWIND fires PyTrace_RETURN with arg=None when the exception
+        // leaves this frame.
+        if result.is_err()
+            && self.use_tracing.get()
             && (!self.is_none(&self.profile_func.borrow())
                 || frame
                     .iframe()
                     .cold_opt()
                     .is_some_and(|c| c.trace.lock().is_some()))
         {
-            let ret_result = self.trace_event(TraceEvent::Return, None);
+            let ret_result = self.trace_event_what(
+                TraceEvent::Return,
+                crate::stdlib::sys::monitoring::WHAT_PY_UNWIND,
+                None,
+            );
             // call_trace_protected: if trace function raises, its error
             // replaces the original exception.
             ret_result?;
@@ -3044,8 +3075,7 @@ impl VirtualMachine {
     #[inline]
     pub fn import<'a>(&self, module_name: impl AsPyStr<'a>, level: usize) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
-        let from_list = self.ctx.empty_tuple_typed();
-        self.import_inner(module_name, from_list, level)
+        self.import_inner(module_name, self.ctx.none(), level)
     }
 
     /// Call Python __import__ function caller with from_list.
@@ -3054,30 +3084,69 @@ impl VirtualMachine {
     pub fn import_from<'a>(
         &self,
         module_name: impl AsPyStr<'a>,
-        from_list: &Py<PyTuple<PyStrRef>>,
+        from_list: impl Into<PyObjectRef>,
         level: usize,
     ) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
-        self.import_inner(module_name, from_list, level)
+        self.import_inner(module_name, from_list.into(), level)
     }
 
-    fn import_inner(
-        &self,
-        module: &Py<PyStr>,
-        from_list: &Py<PyTuple<PyStrRef>>,
-        level: usize,
-    ) -> PyResult {
+    /// Look up `name` in the current frame's builtins (`_PyEval_GetBuiltin`).
+    /// A missing key becomes AttributeError with that name.
+    pub fn eval_get_builtin(&self, name: &'static PyStrInterned) -> PyResult {
+        let builtins =
+            crate::frame::current_builtins().unwrap_or_else(|| self.builtins.dict().into());
+        if let Some(dict) = builtins.downcast_ref::<PyDict>() {
+            match dict.get_item_opt(name, self)? {
+                Some(value) => Ok(value),
+                None => Err(self.new_attribute_error(name.to_string())),
+            }
+        } else {
+            match builtins.get_item(name, self) {
+                Ok(value) => Ok(value),
+                Err(e) if e.fast_isinstance(self.ctx.exceptions.key_error) => {
+                    Err(self.new_attribute_error(name.to_string()))
+                }
+                Err(e) => Err(e),
+            }
+        }
+    }
+
+    fn import_inner(&self, module: &Py<PyStr>, from_list: PyObjectRef, level: usize) -> PyResult {
+        let builtins =
+            crate::frame::current_builtins().unwrap_or_else(|| self.builtins.dict().into());
+        // The module-cache fast path assumes interpreter builtins. A frame
+        // whose f_builtins is a custom mapping (eval/exec) must go through
+        // that mapping's __import__. None and an empty tuple are both an
+        // empty from-list (`import name`).
+        let fromlist_empty = self.is_none(&from_list)
+            || from_list
+                .downcast_ref::<PyTuple>()
+                .is_some_and(|tuple| tuple.is_empty());
         if level == 0
-            && from_list.as_slice().is_empty()
+            && fromlist_empty
+            && builtins.is(self.builtins.dict().as_object())
             && let Some(cached) = self.try_import_cached(module)?
         {
             return Ok(cached);
         }
 
-        let import_func = self
-            .builtins
-            .get_attr(identifier!(self, __import__), self)
-            .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
+        let import_func = if let Some(dict) = builtins.downcast_ref::<PyDict>() {
+            match dict.get_item_opt(identifier!(self, __import__), self)? {
+                Some(func) => func,
+                None => {
+                    return Err(self.new_import_error("__import__ not found", module.to_owned()));
+                }
+            }
+        } else {
+            match builtins.get_item(identifier!(self, __import__), self) {
+                Ok(func) => func,
+                Err(e) if e.fast_isinstance(self.ctx.exceptions.key_error) => {
+                    return Err(self.new_import_error("__import__ not found", module.to_owned()));
+                }
+                Err(e) => return Err(e),
+            }
+        };
 
         let (locals, globals) = if let Some(globals) = crate::frame::current_globals() {
             // Locals fallback: use the heavy frame if available, otherwise
@@ -3090,7 +3159,6 @@ impl VirtualMachine {
         } else {
             (None, None)
         };
-        let from_list: PyObjectRef = from_list.to_owned().into();
         import_func
             .call((module.to_owned(), globals, locals, from_list, level), self)
             .inspect_err(|exc| import::remove_importlib_frames(self, exc))
@@ -3219,6 +3287,12 @@ impl VirtualMachine {
                 i += 1;
             }
             return Ok(results);
+        } else if cls.is(self.ctx.types.set_type) {
+            let keys = value.downcast_ref::<PySet>().unwrap().elements();
+            return map_known_len(keys.into_iter(), func);
+        } else if cls.is(self.ctx.types.frozenset_type) {
+            let keys = value.downcast_ref::<PyFrozenSet>().unwrap().elements();
+            return map_known_len(keys.into_iter(), func);
         } else if cls.is(self.ctx.types.dict_type) {
             let keys = value.downcast_ref::<PyDict>().unwrap().keys_vec();
             return map_known_len(keys.into_iter(), func);
@@ -3424,20 +3498,20 @@ impl VirtualMachine {
         self.get_method(obj, method_name)
     }
 
-    /// Single relaxed load of the shared eval-breaker word, folding in every
-    /// condition that used to require its own check: pending signals, QSBR
-    /// reclamation, scheduled GC, and (under `threading`) finalization and
-    /// stop-the-world. Finalizing sets `FINALIZING_BIT` and any per-thread
-    /// `stop_requested` store also sets `STOP_BIT` (see signal.rs), so this
-    /// no longer needs to read `state.finalizing` or the
-    /// `CURRENT_STOP_REQUESTED` thread-local itself — both are folded into
-    /// the same atomic word `eval_breaker_pending` already loads for
-    /// signals/QSBR/GC. The slow path (`check_signals`) re-derives the exact
-    /// per-thread answer (this thread's own `stop_requested`, `finalizing` +
-    /// `is_main_thread`) once it is taken, so semantics are unchanged; only
-    /// the common (nothing pending) case gets cheaper.
+    /// Fast path for the bytecode loop: pending signals, QSBR, scheduled GC,
+    /// finalization, and stop-the-world.
+    ///
+    /// `STOP_BIT` is a process-wide hint set when any interpreter asks a
+    /// thread to park. Each interpreter's `start_the_world` clears that hint,
+    /// even if another interpreter still has `stop_requested` threads, so the
+    /// per-thread flag is checked first. Missing it lets a worker skip
+    /// `check_signals` and never park, so `stop_the_world` waits forever.
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
+        #[cfg(feature = "threading")]
+        if thread::stop_requested_for_current_thread() {
+            return true;
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
             crate::signal::eval_breaker_pending()
@@ -3602,7 +3676,7 @@ impl VirtualMachine {
             let mut slow_update_toggle = false;
             while let Some(context) = o.__context__() {
                 if context.is(exception) {
-                    o.set___context__(None);
+                    o.set_context(None);
                     break;
                 }
                 o = context;
@@ -3615,7 +3689,7 @@ impl VirtualMachine {
                 }
                 slow_update_toggle = !slow_update_toggle;
             }
-            exception.set___context__(Some(context_exc))
+            exception.set_context(Some(context_exc))
         }
     }
 

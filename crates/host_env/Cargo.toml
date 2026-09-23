@@ -84,6 +84,7 @@ windows-sys = { workspace = true, features = [
     "Win32_Devices_Bluetooth",
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_Media_Audio",
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",

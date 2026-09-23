@@ -7,8 +7,8 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyBytes, PyCode, PyDict, PyFloat, PyFunction, PyInt, PyMemoryView,
-        PyStr, PyStrInterned, PyTuple,
+        PyBaseException, PyBaseExceptionRef, PyBytes, PyCode, PyDict, PyFloat, PyFunction, PyInt,
+        PyMemoryView, PyStr, PyStrInterned, PyTuple,
     },
     bytecode::{
         BorrowedConstant, CodeFlags, Constant, Instruction,
@@ -354,7 +354,7 @@ fn not_shareable_error_from(
     cause: PyBaseExceptionRef,
 ) -> PyBaseExceptionRef {
     let exc = not_shareable_error(vm, msg);
-    exc.set___cause__(Some(cause));
+    exc.set_cause(Some(cause));
     exc
 }
 
@@ -405,7 +405,7 @@ pub fn utf8_key<'a>(key: &'a PyObject, vm: &'a VirtualMachine) -> PyResult<&'a s
         .downcast_ref::<PyStr>()
         .ok_or_else(|| vm.new_type_error("bad argument type for built-in operation"))?;
     s.as_wtf8().as_str().map_err(|_| {
-        vm.new_unicode_encode_error_real(
+        vm.new_unicode_encode_error(
             vm.ctx.new_str("utf-8"),
             s.to_owned(),
             0,
@@ -416,7 +416,7 @@ pub fn utf8_key<'a>(key: &'a PyObject, vm: &'a VirtualMachine) -> PyResult<&'a s
 }
 
 /// `_convert_exc_to_TracebackException` followed by `_format_TracebackException`.
-fn format_traceback_exception(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
+fn format_traceback_exception(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<String> {
     let create = vm
         .import("traceback", 0)?
         .get_attr("TracebackException", vm)?
@@ -472,7 +472,7 @@ pub struct ExcInfo {
 }
 
 impl ExcInfo {
-    pub fn capture(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> Self {
+    pub fn capture(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> Self {
         let cls = exc.class();
         let type_name = cls.name().to_owned();
         let type_qualname = cls
@@ -544,7 +544,7 @@ impl ExcInfo {
 /// the code's `LOAD_GLOBAL` names are resolved against; without them every such
 /// name stays unknown, which `_PyCode_CheckNoExternalState` lets through.
 fn verify_stateless(
-    code: &PyCode,
+    code: &Py<PyCode>,
     namespaces: Option<(&Py<PyDict>, &Py<PyDict>)>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
@@ -566,7 +566,7 @@ fn verify_stateless(
 }
 
 /// The `co_names` entries `identify_unbound_names` reaches through `LOAD_GLOBAL`.
-pub(crate) fn global_names(code: &PyCode) -> impl Iterator<Item = &'static PyStrInterned> + '_ {
+pub(crate) fn global_names(code: &Py<PyCode>) -> impl Iterator<Item = &'static PyStrInterned> + '_ {
     walk_instructions(code).filter_map(|(_, instr, arg)| match instr {
         Instruction::LoadGlobal { namei } => Some(code.names[(namei.get(arg) >> 1) as usize]),
         _ => None,
@@ -576,7 +576,7 @@ pub(crate) fn global_names(code: &PyCode) -> impl Iterator<Item = &'static PyStr
 /// The instruction stream with its inline caches skipped and its specialized
 /// and instrumented opcodes mapped back, yielding `(offset, instruction, arg)`.
 pub(crate) fn walk_instructions(
-    code: &PyCode,
+    code: &Py<PyCode>,
 ) -> impl Iterator<Item = (usize, Instruction, OpArg)> + '_ {
     let units = &code.instructions;
     let mut arg_state = OpArgState::default();
@@ -597,7 +597,7 @@ pub(crate) fn walk_instructions(
 }
 
 /// `_PyFunction_VerifyStateless`.
-fn verify_stateless_function(func: &PyFunction, vm: &VirtualMachine) -> PyResult<()> {
+fn verify_stateless_function(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<()> {
     // `__globals__` is a dict by construction, so only the builtins are checked.
     let builtins = func.builtins.downcast_ref::<PyDict>().ok_or_else(|| {
         vm.new_type_error(format!(
@@ -618,7 +618,7 @@ fn verify_stateless_function(func: &PyFunction, vm: &VirtualMachine) -> PyResult
 }
 
 /// `verify_script`: a script takes no arguments and returns only None.
-pub fn verify_script(code: &PyCode, vm: &VirtualMachine) -> PyResult<()> {
+pub fn verify_script(code: &Py<PyCode>, vm: &VirtualMachine) -> PyResult<()> {
     verify_stateless(code, None, vm)?;
     if code.arg_count > 0
         || code.posonlyarg_count > 0
@@ -635,7 +635,7 @@ pub fn verify_script(code: &PyCode, vm: &VirtualMachine) -> PyResult<()> {
 }
 
 /// `_PyCode_CheckPureFunction`.
-fn is_pure_function(code: &PyCode) -> bool {
+fn is_pure_function(code: &Py<PyCode>) -> bool {
     !code.flags.intersects(
         CodeFlags::GENERATOR
             | CodeFlags::COROUTINE
@@ -647,7 +647,7 @@ fn is_pure_function(code: &PyCode) -> bool {
 /// `_PyCode_ReturnsOnlyNone`. Here "value" means a non-None value, since a bare
 /// return is identical to returning None explicitly, as is a missing return
 /// statement at the end of the function.
-pub(crate) fn code_returns_only_none(code: &PyCode) -> bool {
+pub(crate) fn code_returns_only_none(code: &Py<PyCode>) -> bool {
     if !is_pure_function(code) {
         return false;
     }
@@ -745,7 +745,7 @@ fn unsupported_script(vm: &VirtualMachine, obj: &PyObject) -> PyBaseExceptionRef
 
 pub fn apply_shared_ns(
     ns: &crate::builtins::PyDictRef,
-    shared: &crate::builtins::PyDict,
+    shared: &Py<crate::builtins::PyDict>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     for (key, value) in shared {

@@ -26,6 +26,7 @@ pub use zlib_rs::c_api::{
 
 pub const MAX_WBITS: i32 = 15;
 pub const DEF_BUF_SIZE: usize = 16 * 1024;
+pub const DEF_MEM_LEVEL: u8 = 8;
 
 const USE_AFTER_FINISH_ERR: &str = "Error -2: inconsistent stream state";
 

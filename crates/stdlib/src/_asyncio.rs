@@ -14,7 +14,7 @@ pub(crate) mod _asyncio {
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{
                 PyBaseException, PyBaseExceptionRef, PyDict, PyGenericAlias, PyList, PyListRef,
-                PyModule, PySet, PyTuple, PyType, PyTypeRef,
+                PyModule, PySet, PyTraceback, PyTuple, PyType, PyTypeRef,
             },
             extend_module,
             function::{FuncArgs, KwArgs, OptionalArg, OptionalOption, PySetterValue},
@@ -185,7 +185,7 @@ pub(crate) mod _asyncio {
         }
 
         fn py_init(
-            zelf: &PyRef<Self>,
+            zelf: &Py<Self>,
             loop_: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -230,8 +230,10 @@ pub(crate) mod _asyncio {
                         let exc: PyBaseExceptionRef = exc.downcast().unwrap();
                         // Restore the original traceback to prevent traceback accumulation
                         let fut_exception_tb = self.fut_exception_tb.read().clone();
-                        if let Some(tb) = fut_exception_tb {
-                            let _ = exc.set___traceback__(tb, vm);
+                        if let Some(tb) = fut_exception_tb
+                            && let Ok(tb) = tb.downcast::<PyTraceback>()
+                        {
+                            exc.set_traceback(Some(tb));
                         }
                         Err(exc)
                     } else {
@@ -311,8 +313,8 @@ pub(crate) mod _asyncio {
                 let runtime_err = vm.new_runtime_error(msg.to_string());
                 // Set cause and context to the original StopIteration
                 let stop_iter: PyRef<PyBaseException> = exc.downcast().unwrap();
-                runtime_err.set___cause__(Some(stop_iter.clone()));
-                runtime_err.set___context__(Some(stop_iter));
+                runtime_err.set_cause(Some(stop_iter.clone()));
+                runtime_err.set_context(Some(stop_iter));
                 runtime_err.into()
             } else {
                 exc
@@ -401,7 +403,7 @@ pub(crate) mod _asyncio {
             if len == 1 {
                 let item = list.borrow_vec().first().cloned();
                 if let Some(item) = item {
-                    let tuple: &PyTuple = item.downcast_ref().unwrap();
+                    let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
                     let cb = tuple.first().unwrap().clone();
                     let cmp = vm.identical_or_equal(&cb, &func)?;
                     if cmp {
@@ -438,7 +440,7 @@ pub(crate) mod _asyncio {
                     None => break,
                 };
 
-                let tuple: &PyTuple = item.downcast_ref().unwrap();
+                let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
                 let cb = tuple.first().unwrap().clone();
                 let cmp = vm.identical_or_equal(&cb, &func)?;
 
@@ -517,7 +519,7 @@ pub(crate) mod _asyncio {
             }
         }
 
-        fn schedule_callbacks(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        fn schedule_callbacks(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Collect all callbacks first to avoid holding locks during callback execution
             // This prevents deadlock when callbacks access the future's properties
             let mut callbacks_to_call: Vec<(PyObjectRef, Option<PyObjectRef>)> = Vec::new();
@@ -554,7 +556,7 @@ pub(crate) mod _asyncio {
         }
 
         fn call_soon_with_context(
-            zelf: &PyRef<Self>,
+            zelf: &Py<Self>,
             callback: PyObjectRef,
             context: Option<PyObjectRef>,
             vm: &VirtualMachine,
@@ -563,7 +565,7 @@ pub(crate) mod _asyncio {
             if let Some(loop_obj) = loop_obj {
                 // call_soon(callback, *args, context=context)
                 // callback receives the future as its argument
-                let future_arg: PyObjectRef = zelf.clone().into();
+                let future_arg: PyObjectRef = zelf.to_owned().into();
                 let args = if let Some(ctx) = context {
                     FuncArgs::new(
                         vec![callback, future_arg],
@@ -1180,7 +1182,7 @@ pub(crate) mod _asyncio {
         with(Constructor, Initializer, Destructor, Representable, Iterable)
     )]
     impl PyTask {
-        fn py_init(zelf: &PyRef<Self>, args: TaskInitArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn py_init(zelf: &Py<Self>, args: TaskInitArgs, vm: &VirtualMachine) -> PyResult<()> {
             // Validate coroutine
             if !is_coroutine(args.coro.clone(), vm)? {
                 return Err(vm.new_type_error(format!(
@@ -1254,8 +1256,8 @@ pub(crate) mod _asyncio {
                 task_eager_start(zelf, vm)?;
             } else {
                 // Non-eager or loop not running: schedule the first step
-                _register_task(zelf.clone().into(), vm)?;
-                let task_obj: PyObjectRef = zelf.clone().into();
+                _register_task(zelf.to_owned().into(), vm)?;
+                let task_obj: PyObjectRef = zelf.to_owned().into();
                 let step_wrapper = TaskStepMethWrapper::new(task_obj).into_ref(&vm.ctx);
                 vm.call_method(&loop_obj, "call_soon", (step_wrapper,))?;
             }
@@ -1276,8 +1278,10 @@ pub(crate) mod _asyncio {
                         let exc: PyBaseExceptionRef = exc.downcast().unwrap();
                         // Restore the original traceback to prevent traceback accumulation
                         let fut_exception_tb = self.base.fut_exception_tb.read().clone();
-                        if let Some(tb) = fut_exception_tb {
-                            let _ = exc.set___traceback__(tb, vm);
+                        if let Some(tb) = fut_exception_tb
+                            && let Ok(tb) = tb.downcast::<PyTraceback>()
+                        {
+                            exc.set_traceback(Some(tb));
                         }
 
                         Err(exc)
@@ -1411,7 +1415,7 @@ pub(crate) mod _asyncio {
             if len == 1 {
                 let item = list.borrow_vec().first().cloned();
                 if let Some(item) = item {
-                    let tuple: &PyTuple = item.downcast_ref().unwrap();
+                    let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
                     let cb = tuple.first().unwrap().clone();
                     let cmp = vm.identical_or_equal(&cb, &func)?;
                     if cmp {
@@ -1448,7 +1452,7 @@ pub(crate) mod _asyncio {
                     None => break,
                 };
 
-                let tuple: &PyTuple = item.downcast_ref().unwrap();
+                let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
                 let cb = tuple.first().unwrap().clone();
                 let cmp = vm.identical_or_equal(&cb, &func)?;
 
@@ -1470,7 +1474,7 @@ pub(crate) mod _asyncio {
             Ok(removed + cleared_callback0)
         }
 
-        fn schedule_callbacks(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        fn schedule_callbacks(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Collect all callbacks first to avoid holding locks during callback execution
             // This prevents deadlock when callbacks access the future's properties
             let mut callbacks_to_call: Vec<(PyObjectRef, Option<PyObjectRef>)> = Vec::new();
@@ -1507,7 +1511,7 @@ pub(crate) mod _asyncio {
         }
 
         fn call_soon_with_context(
-            zelf: &PyRef<Self>,
+            zelf: &Py<Self>,
             callback: PyObjectRef,
             context: Option<PyObjectRef>,
             vm: &VirtualMachine,
@@ -1516,7 +1520,7 @@ pub(crate) mod _asyncio {
             if let Some(loop_obj) = loop_obj {
                 // call_soon(callback, *args, context=context)
                 // callback receives the task as its argument
-                let task_arg: PyObjectRef = zelf.clone().into();
+                let task_arg: PyObjectRef = zelf.to_owned().into();
                 let args = if let Some(ctx) = context {
                     FuncArgs::new(
                         vec![callback, task_arg],
@@ -1974,7 +1978,7 @@ pub(crate) mod _asyncio {
     }
 
     /// Eager start: run first step synchronously
-    fn task_eager_start(zelf: &PyRef<PyTask>, vm: &VirtualMachine) -> PyResult<()> {
+    fn task_eager_start(zelf: &Py<PyTask>, vm: &VirtualMachine) -> PyResult<()> {
         let loop_obj = zelf.base.fut_loop.read().clone();
         let loop_obj = match loop_obj {
             Some(l) => l,
@@ -1982,7 +1986,7 @@ pub(crate) mod _asyncio {
         };
 
         // Register task before running step
-        let task_obj: PyObjectRef = zelf.clone().into();
+        let task_obj: PyObjectRef = zelf.to_owned().into();
         _register_task(task_obj.clone(), vm)?;
 
         // Register as eager task
@@ -2057,13 +2061,9 @@ pub(crate) mod _asyncio {
     }
 
     /// Task step implementation
-    fn task_step_impl(
-        task: &PyObjectRef,
-        exc: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn task_step_impl(task: &PyObject, exc: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let task_ref: PyRef<PyTask> = task
-            .clone()
+            .to_owned()
             .downcast()
             .map_err(|_| vm.new_type_error("task_step called with non-Task object"))?;
 
@@ -2075,7 +2075,7 @@ pub(crate) mod _asyncio {
                 let context = vm.ctx.new_dict();
                 context.set_item("message", vm.new_pyobj("step(): already done"), vm)?;
                 context.set_item("exception", exc.into(), vm)?;
-                context.set_item("task", task.clone(), vm)?;
+                context.set_item("task", task.to_owned(), vm)?;
                 let _ = vm.call_method(&loop_obj, "call_exception_handler", (context,));
             }
             return Ok(vm.ctx.none());
@@ -2100,7 +2100,7 @@ pub(crate) mod _asyncio {
         let context = task_ref.task_context.read().clone();
 
         // Enter task - register as current task
-        _enter_task(loop_obj.clone(), task.clone(), vm)?;
+        _enter_task(loop_obj.clone(), task.to_owned(), vm)?;
 
         // Determine the exception to throw (if any)
         // If task_must_cancel is set and exc is None or not CancelledError, create CancelledError
@@ -2139,7 +2139,7 @@ pub(crate) mod _asyncio {
         };
 
         // Leave task - unregister as current task (must happen even on error)
-        let _ = _leave_task(loop_obj, task.clone(), vm);
+        let _ = _leave_task(loop_obj, task.to_owned(), vm);
 
         match result {
             Ok(result) => {
@@ -2154,12 +2154,12 @@ pub(crate) mod _asyncio {
     }
 
     fn task_step_handle_result(
-        task: &PyRef<PyTask>,
+        task: &Py<PyTask>,
         result: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Check if task awaits on itself
-        let task_obj: PyObjectRef = task.clone().into();
+        let task_obj: PyObjectRef = task.to_owned().into();
         if result.is(&task_obj) {
             let task_repr = task_obj.repr(vm)?;
             let msg = format!("Task cannot await on itself: {}", task_repr.as_wtf8());
@@ -2223,13 +2223,13 @@ pub(crate) mod _asyncio {
                 task.base.fut_state.store(FutureState::Finished);
                 *task.base.fut_exception.write() = Some(vm.new_runtime_error(msg).into());
                 PyTask::schedule_callbacks(task, vm)?;
-                _unregister_task(task.clone().into(), vm)?;
+                _unregister_task(task.to_owned().into(), vm)?;
                 return Ok(());
             }
 
             *task.task_fut_waiter.write() = Some(result.clone());
 
-            let task_obj: PyObjectRef = task.clone().into();
+            let task_obj: PyObjectRef = task.to_owned().into();
             let wakeup_wrapper = TaskWakeupMethWrapper::new(task_obj.clone()).into_ref(&vm.ctx);
             vm.call_method(&result, "add_done_callback", (wakeup_wrapper,))?;
 
@@ -2256,7 +2256,7 @@ pub(crate) mod _asyncio {
         } else if vm.is_none(&result) {
             let loop_obj = task.base.fut_loop.read().clone();
             if let Some(loop_obj) = loop_obj {
-                let task_obj: PyObjectRef = task.clone().into();
+                let task_obj: PyObjectRef = task.to_owned().into();
                 let step_wrapper = TaskStepMethWrapper::new(task_obj).into_ref(&vm.ctx);
                 vm.call_method(&loop_obj, "call_soon", (step_wrapper,))?;
             }
@@ -2266,14 +2266,14 @@ pub(crate) mod _asyncio {
             task.base.fut_state.store(FutureState::Finished);
             *task.base.fut_exception.write() = Some(vm.new_runtime_error(msg).into());
             PyTask::schedule_callbacks(task, vm)?;
-            _unregister_task(task.clone().into(), vm)?;
+            _unregister_task(task.to_owned().into(), vm)?;
         }
 
         Ok(())
     }
 
     fn task_step_handle_exception(
-        task: &PyRef<PyTask>,
+        task: &Py<PyTask>,
         exc: PyBaseExceptionRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -2295,12 +2295,12 @@ pub(crate) mod _asyncio {
                 *task.base.fut_result.write() = Some(result);
             }
             PyTask::schedule_callbacks(task, vm)?;
-            _unregister_task(task.clone().into(), vm)?;
+            _unregister_task(task.to_owned().into(), vm)?;
         } else if is_cancelled_error(&exc, vm) {
             task.base.fut_state.store(FutureState::Cancelled);
             *task.base.fut_cancelled_exc.write() = Some(exc.clone().into());
             PyTask::schedule_callbacks(task, vm)?;
-            _unregister_task(task.clone().into(), vm)?;
+            _unregister_task(task.to_owned().into(), vm)?;
         } else {
             task.base.fut_state.store(FutureState::Finished);
             // Save the original traceback for later restoration
@@ -2309,7 +2309,7 @@ pub(crate) mod _asyncio {
             *task.base.fut_exception.write() = Some(exc.clone().into());
             task.base.fut_log_tb.store(true, Ordering::Relaxed);
             PyTask::schedule_callbacks(task, vm)?;
-            _unregister_task(task.clone().into(), vm)?;
+            _unregister_task(task.to_owned().into(), vm)?;
         }
 
         // Re-raise KeyboardInterrupt and SystemExit after storing in task
@@ -2320,14 +2320,14 @@ pub(crate) mod _asyncio {
         Ok(())
     }
 
-    fn task_wakeup_impl(task: &PyObjectRef, fut: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn task_wakeup_impl(task: &PyObject, fut: &PyObject, vm: &VirtualMachine) -> PyResult {
         let task_ref: PyRef<PyTask> = task
-            .clone()
+            .to_owned()
             .downcast()
             .map_err(|_| vm.new_type_error("task_wakeup called with non-Task object"))?;
 
         // Remove awaited_by relationship before resuming
-        future_discard_from_awaited_by(fut.clone(), task.clone(), vm)?;
+        future_discard_from_awaited_by(fut.to_owned(), task.to_owned(), vm)?;
 
         *task_ref.task_fut_waiter.write() = None;
 
@@ -2918,14 +2918,14 @@ pub(crate) mod _asyncio {
             .map_err(|_| vm.new_type_error("CancelledError is not a type"))
     }
 
-    fn is_cancelled_error(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> bool {
+    fn is_cancelled_error(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> bool {
         match get_cancelled_error_type(vm) {
             Ok(cancelled_error) => exc.fast_isinstance(&cancelled_error),
             Err(_) => false,
         }
     }
 
-    fn is_cancelled_error_obj(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
+    fn is_cancelled_error_obj(obj: &PyObject, vm: &VirtualMachine) -> bool {
         match get_cancelled_error_type(vm) {
             Ok(cancelled_error) => obj.fast_isinstance(&cancelled_error),
             Err(_) => false,

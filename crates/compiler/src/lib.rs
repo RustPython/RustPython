@@ -355,9 +355,16 @@ fn cpython_parse_diagnostic_override(
     {
         consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
     }
-    if earliest
-        .as_ref()
-        .is_none_or(|current| current.class != OverrideClass::Lexer)
+    // Indentation errors outrank a print/exec missing-parentheses rewrite.
+    let indent_error = matches!(
+        &error.error,
+        parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
+            | parser::ParseErrorType::UnexpectedIndentation
+    ) || expected_indented_block_error(error, source_text).is_some();
+    if !indent_error
+        && earliest
+            .as_ref()
+            .is_none_or(|current| current.class != OverrideClass::Lexer)
         && let Some(diagnostic) = invalid_legacy_statement_error(source_text)
     {
         consider_override(&mut earliest, diagnostic, OverrideClass::Print);
@@ -469,6 +476,24 @@ fn cpython_parse_diagnostic_override(
         source_error!(invalid_if_expression_statement_error(source_text));
         source_error!(invalid_else_elif_error(source_text));
         source_error!(mixed_except_handlers_error(source_text));
+    }
+
+    if matches!(
+        &error.error,
+        parser::ParseErrorType::Lexical(parser::LexicalErrorType::InvalidByteLiteral)
+    ) && let Some((start, end)) =
+        bytes_literal_span(source_text, error.location.start().to_usize())
+    {
+        let (loc, end_loc) = source_locations(
+            source_file,
+            TextSize::new(start as u32),
+            TextSize::new(end as u32),
+        );
+        return Some(NormalizedParseDiagnostic::new(
+            error.error.clone(),
+            loc,
+            end_loc,
+        ));
     }
 
     if matches!(
@@ -954,6 +979,32 @@ fn quoted_string_is_closed(bytes: &[u8], start: usize) -> bool {
     } else {
         end > start + 1 && bytes[end - 1] == quote
     }
+}
+
+fn bytes_literal_span(source: &str, error_at: usize) -> Option<(usize, usize)> {
+    let bytes = source.as_bytes();
+    if error_at > bytes.len() || bytes.is_empty() {
+        return None;
+    }
+    let mut quote_idx = error_at.min(bytes.len().saturating_sub(1));
+    loop {
+        if matches!(bytes[quote_idx], b'\'' | b'"') {
+            break;
+        }
+        if quote_idx == 0 {
+            return None;
+        }
+        quote_idx -= 1;
+    }
+    let mut start = quote_idx;
+    while start > 0 && matches!(bytes[start - 1], b'b' | b'B' | b'r' | b'R') {
+        start -= 1;
+    }
+    if !matches!(bytes.get(start), Some(b'b' | b'B' | b'r' | b'R')) {
+        return None;
+    }
+    let end = skip_quoted_string(bytes, quote_idx);
+    Some((start, end))
 }
 
 fn skip_quoted_string(bytes: &[u8], mut index: usize) -> usize {
@@ -5015,6 +5066,28 @@ fn replacement_field_error(
         ));
     }
 
+    // Adjacent atoms in a replacement field are a missing comma, not an
+    // f-string "expecting '}'" at the opening brace. Prefix `yield`/`await`/
+    // `not` and continuation keywords (`and`, `for`, ...) are not a second atom.
+    if !starts_identifier(bytes, expr_start, b"yield")
+        && !starts_identifier(bytes, expr_start, b"await")
+        && !starts_identifier(bytes, expr_start, b"not")
+        && let Some(atom_end) = adjacent_atom_end(bytes, expr_start)
+    {
+        let next = skip_ascii_whitespace(bytes, atom_end, expr_end);
+        if next > atom_end
+            && expression_atom_start(bytes, next)
+            && !expression_continuation_keyword(bytes, next)
+        {
+            let second_end = adjacent_atom_end(bytes, next).unwrap_or(next + 1);
+            return Some(CpythonDiagnostic::new(
+                "invalid syntax. Perhaps you forgot a comma?".to_owned(),
+                expr_start,
+                second_end,
+            ));
+        }
+    }
+
     // The expression started fine but ran into a character that cannot continue it. CPython
     // points at that character and lists the separators it wanted instead.
     if let Some(stray) = replacement_expression_stray_character(bytes, expr_start, expr_end) {
@@ -7692,6 +7765,27 @@ mod tests {
     }
 
     #[test]
+    fn missing_indent_outranks_print_missing_parentheses() {
+        for (source, expected) in [
+            (
+                "if True:\nprint \"No indent\"",
+                "expected an indented block after 'if' statement on line 1",
+            ),
+            (
+                "print \"old style\"",
+                "Missing parentheses in call to 'print'. Did you mean print(...)?",
+            ),
+        ] {
+            let err = compile(source, Mode::Exec, "<fragment>", CompileOpts::default())
+                .expect_err("should not compile");
+            assert!(
+                err.to_string().contains(expected),
+                "{source:?}: expected {expected:?}, got {err}"
+            );
+        }
+    }
+
+    #[test]
     fn unclosed_fstring_field_keeps_the_unclosed_bracket_flag() {
         let err = compile("f'{", Mode::Eval, "<interp>", CompileOpts::default())
             .expect_err("should not compile");
@@ -7916,6 +8010,37 @@ mod tests {
             "with Barry as BDFL, use '<>' instead of '!='"
         );
         assert_eq!(err.python_location(), (2, 3));
+    }
+
+    #[test]
+    fn fstring_adjacent_atoms_are_a_missing_comma() {
+        let err = compile("f'{6 0}'", Mode::Exec, "<fragment>", CompileOpts::default())
+            .expect_err("adjacent atoms in an f-string field are a syntax error");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax. Perhaps you forgot a comma?"
+        );
+        assert_eq!(err.python_location(), (1, 4));
+        assert_eq!(err.python_end_location(), Some((1, 7)));
+
+        compile(
+            "f'{not x}'",
+            Mode::Exec,
+            "<fragment>",
+            CompileOpts::default(),
+        )
+        .expect("unary not is a prefix, not two atoms");
+        let err = compile(
+            "f'{a and}'",
+            Mode::Exec,
+            "<fragment>",
+            CompileOpts::default(),
+        )
+        .expect_err("a dangling 'and' is an f-string separator error");
+        assert_eq!(
+            err.to_string(),
+            "f-string: expecting '=', or '!', or ':', or '}'"
+        );
     }
 
     #[test]
