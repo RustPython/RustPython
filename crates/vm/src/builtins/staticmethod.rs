@@ -108,9 +108,9 @@ impl PyStaticMethod {
 
     #[pygetset]
     fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.lock().clone();
+        let callable = zelf.callable.lock();
         descriptor_get_wrapped_attribute(
-            callable,
+            &callable,
             zelf.as_object(),
             identifier!(vm.ctx, __annotations__),
             vm,
@@ -134,9 +134,9 @@ impl PyStaticMethod {
 
     #[pygetset]
     fn __annotate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.lock().clone();
+        let callable = zelf.callable.lock();
         descriptor_get_wrapped_attribute(
-            callable,
+            &callable,
             zelf.as_object(),
             identifier!(vm.ctx, __annotate__),
             vm,

@@ -1523,7 +1523,7 @@ impl VirtualMachine {
         #[cfg(feature = "host_env")]
         if self.state.config.settings.allow_external_library
             && cfg!(feature = "rustpython-compiler")
-            && let Err(e) = import::init_importlib_package(self, importlib)
+            && let Err(e) = import::init_importlib_package(self, &importlib)
         {
             eprintln!(
                 "importlib initialization failed. This is critical for many complicated packages."

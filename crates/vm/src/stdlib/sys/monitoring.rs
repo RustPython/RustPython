@@ -759,7 +759,7 @@ fn set_events(tool_id: i32, event_set: i32, vm: &VirtualMachine) -> PyResult<()>
     Ok(())
 }
 
-fn get_local_events(tool_id: i32, code: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+fn get_local_events(tool_id: i32, code: &PyObject, vm: &VirtualMachine) -> PyResult<u32> {
     if code.downcast_ref::<PyCode>().is_none() {
         return Err(vm.new_type_error("code must be a code object"));
     }
@@ -775,7 +775,7 @@ fn get_local_events(tool_id: i32, code: PyObjectRef, vm: &VirtualMachine) -> PyR
 
 fn set_local_events(
     tool_id: i32,
-    code: PyObjectRef,
+    code: &PyObject,
     event_set: i32,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
@@ -1309,7 +1309,7 @@ pub(super) mod sys_monitoring {
 
     #[pyfunction]
     fn get_local_events(tool_id: i32, code: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
-        super::get_local_events(tool_id, code, vm)
+        super::get_local_events(tool_id, &code, vm)
     }
 
     #[pyfunction]
@@ -1319,7 +1319,7 @@ pub(super) mod sys_monitoring {
         event_set: i32,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        super::set_local_events(tool_id, code, event_set, vm)
+        super::set_local_events(tool_id, &code, event_set, vm)
     }
 
     #[pyfunction]

@@ -217,8 +217,8 @@ impl PyList {
         Ok(Self::from(elements).into_ref(&vm.ctx))
     }
 
-    fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        self.concat(&other, vm)
+    fn __add__(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        self.concat(other, vm)
     }
 
     fn inplace_concat(
@@ -315,11 +315,11 @@ impl PyList {
 
     fn __setitem__(
         &self,
-        needle: PyObjectRef,
+        needle: &PyObject,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self._setitem(&needle, value, vm)
+        self._setitem(needle, value, vm)
     }
 
     fn __mul__(&self, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -335,8 +335,8 @@ impl PyList {
         self.mut_count(vm, &value)
     }
 
-    pub(crate) fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.mut_contains(vm, &needle)
+    pub(crate) fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self.mut_contains(vm, needle)
     }
 
     #[pymethod]
@@ -395,8 +395,8 @@ impl PyList {
         }
     }
 
-    fn __delitem__(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self._delitem(&subscript, vm)
+    fn __delitem__(&self, subscript: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        self._delitem(subscript, vm)
     }
 
     #[pymethod]
@@ -906,7 +906,7 @@ impl PyListIterator {
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(state, |obj, pos| pos.min(obj.__len__()), vm)
+            .set_state(&state, |obj, pos| pos.min(obj.__len__()), vm)
     }
 
     #[pymethod]
@@ -970,7 +970,7 @@ impl PyListReverseIterator {
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(state, |obj, pos| pos.min(obj.__len__()), vm)
+            .set_state(&state, |obj, pos| pos.min(obj.__len__()), vm)
     }
 
     #[pymethod]

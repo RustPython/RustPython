@@ -192,7 +192,7 @@ impl VirtualMachine {
         }
 
         let varargs = exc.args();
-        let args_repr = vm.exception_args_as_string(varargs, true);
+        let args_repr = vm.exception_args_as_string(&varargs, true);
 
         let exc_class = exc.class();
 
@@ -352,7 +352,7 @@ impl VirtualMachine {
         }
     }
 
-    fn exception_args_as_string(&self, varargs: PyTupleRef, str_single: bool) -> Vec<PyStrRef> {
+    fn exception_args_as_string(&self, varargs: &Py<PyTuple>, str_single: bool) -> Vec<PyStrRef> {
         let vm = self;
         match varargs.len() {
             0 => vec![],
@@ -779,7 +779,7 @@ impl PyBaseException {
 impl Py<PyBaseException> {
     #[pymethod]
     pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyStrRef {
-        let str_args = vm.exception_args_as_string(self.args(), true);
+        let str_args = vm.exception_args_as_string(&self.args(), true);
         match str_args.into_iter().exactly_one() {
             Err(i) if i.len() == 0 => vm.ctx.empty_str.to_owned(),
             Ok(s) => s,
@@ -874,7 +874,7 @@ impl Initializer for PyBaseException {
 impl Representable for PyBaseException {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let repr_args = vm.exception_args_as_string(zelf.args(), false);
+        let repr_args = vm.exception_args_as_string(&zelf.args(), false);
         let cls = zelf.class();
         Ok(format!("{}({})", cls.name(), repr_args.iter().format(", ")))
     }
@@ -1190,7 +1190,7 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObject
     move |exc| exc.get_arg(idx)
 }
 
-fn syntax_error_set_msg(exc: PyBaseExceptionRef, value: PySetterValue, vm: &VirtualMachine) {
+fn syntax_error_set_msg(exc: &Py<PyBaseException>, value: PySetterValue, vm: &VirtualMachine) {
     let mut args = exc.args.write();
     let mut new_args = args.as_slice().to_vec();
     // Ensure the message slot at index 0 always exists for SyntaxError.args.
@@ -2130,7 +2130,7 @@ pub(super) mod types {
         fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyStrRef {
             let args = zelf.args();
             if args.len() == 1 {
-                vm.exception_args_as_string(args, false)
+                vm.exception_args_as_string(&args, false)
                     .into_iter()
                     .exactly_one()
                     .unwrap()
@@ -3452,12 +3452,12 @@ pub fn exception_group_match(
 
 /// Prepare exception for reraise in except* block.
 /// Implements _PyExc_PrepReraiseStar
-pub fn prep_reraise_star(orig: PyObjectRef, excs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+pub fn prep_reraise_star(orig: &PyObject, excs: &PyObject, vm: &VirtualMachine) -> PyResult {
     use crate::builtins::PyList;
 
     let excs_list = excs
-        .downcast::<PyList>()
-        .map_err(|_| vm.new_type_error("expected list for prep_reraise_star"))?;
+        .downcast_ref::<PyList>()
+        .ok_or_else(|| vm.new_type_error("expected list for prep_reraise_star"))?;
 
     let excs_vec: Vec<PyObjectRef> = excs_list.borrow_vec().to_vec();
 
@@ -3483,7 +3483,7 @@ pub fn prep_reraise_star(orig: PyObjectRef, excs: PyObjectRef, vm: &VirtualMachi
             continue;
         }
         // Check if this exception came from the original group
-        if is_exception_from_orig(&exc, &orig, vm) {
+        if is_exception_from_orig(&exc, orig, vm) {
             reraised.push(exc);
         } else {
             raised.push(exc);
@@ -3496,7 +3496,7 @@ pub fn prep_reraise_star(orig: PyObjectRef, excs: PyObjectRef, vm: &VirtualMachi
     }
 
     // Project reraised exceptions onto original structure to preserve nesting
-    let reraised_eg = exception_group_projection(&orig, &reraised, vm)?;
+    let reraised_eg = exception_group_projection(orig, &reraised, vm)?;
 
     // If no new raised exceptions, just return the reraised projection
     if raised.is_empty() {

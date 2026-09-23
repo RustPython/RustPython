@@ -6,7 +6,7 @@ use crate::function::{ArgBytesLike, FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer};
 use crate::stdlib::_warnings;
 use crate::types::{AsBuffer, Constructor, Initializer, SetAttr};
-use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
 use num_traits::ToPrimitive;
 
@@ -140,7 +140,7 @@ impl PyCUnionType {
     /// For Union, all fields start at offset 0
     fn process_fields(
         cls: &Py<PyType>,
-        fields_attr: PyObjectRef,
+        fields_attr: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Check if already finalized
@@ -469,7 +469,7 @@ impl PyCUnionType {
 
         // Check if _fields_ is defined
         if let Some(fields_attr) = cls.get_direct_attr(vm.ctx.intern_str("_fields_")) {
-            Self::process_fields(&cls, fields_attr, vm)?;
+            Self::process_fields(&cls, &fields_attr, vm)?;
         }
         Ok(())
     }
@@ -495,7 +495,7 @@ impl SetAttr for PyCUnionType {
                 if attr_name.as_bytes() == b"_fields_"
                     && let PySetterValue::Assign(fields_value) = value
                 {
-                    Self::process_fields(pytype, fields_value, vm)?;
+                    Self::process_fields(pytype, &fields_value, vm)?;
                 }
                 return Ok(());
             }
@@ -506,7 +506,7 @@ impl SetAttr for PyCUnionType {
         if attr_name.as_bytes() == b"_fields_"
             && let PySetterValue::Assign(ref fields_value) = value
         {
-            Self::process_fields(pytype, fields_value.clone(), vm)?;
+            Self::process_fields(pytype, fields_value, vm)?;
         }
 
         // Store in type's attributes dict

@@ -17,7 +17,7 @@ pub use rustpython_host_env::posix::set_inheritable;
 ))]
 pub mod module {
     use crate::{
-        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
@@ -1370,7 +1370,7 @@ pub mod module {
         rustpython_host_env::posix::tcsetpgrp(fd, pgid).map_err(|err| err.into_pyexception(vm))
     }
 
-    fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<u32> {
+    fn try_from_id(vm: &VirtualMachine, obj: &PyObject, typ_name: &str) -> PyResult<u32> {
         use core::cmp::Ordering;
         let i = obj
             .try_to_ref::<PyInt>(vm)
@@ -1404,13 +1404,13 @@ pub mod module {
 
     impl TryFromObject for RawUid {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            try_from_id(vm, obj, "uid").map(Self)
+            try_from_id(vm, &obj, "uid").map(Self)
         }
     }
 
     impl TryFromObject for RawGid {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            try_from_id(vm, obj, "gid").map(Self)
+            try_from_id(vm, &obj, "gid").map(Self)
         }
     }
 

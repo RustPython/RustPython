@@ -34,7 +34,7 @@ mod sys_jit {
 #[pymodule]
 pub mod sys {
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
         builtins::{
             PyBaseExceptionRef, PyDictRef, PyFrozenSet, PyNamespace, PyStr, PyStrRef, PyTuple,
             PyTupleRef, PyTypeRef, PyUtf8StrRef,
@@ -1743,7 +1743,7 @@ pub mod sys {
     impl PyUnraisableHookArgs {}
 
     pub(crate) fn run_audit_hooks(
-        event: PyStrRef,
+        event: &Py<PyStr>,
         args: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -1754,7 +1754,7 @@ pub mod sys {
         }
 
         for hook in hooks {
-            call_audit_hook(&hook, event.clone().into(), args, vm)?;
+            call_audit_hook(&hook, event.to_owned().into(), args, vm)?;
         }
 
         Ok(())
@@ -1809,7 +1809,7 @@ pub mod sys {
         }
 
         let args_tup: PyObjectRef = vm.ctx.new_tuple(args.into_vec()).into();
-        run_audit_hooks(event, &args_tup, vm)
+        run_audit_hooks(&event, &args_tup, vm)
     }
 
     #[pyfunction]

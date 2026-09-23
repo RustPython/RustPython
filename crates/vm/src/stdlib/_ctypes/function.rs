@@ -530,7 +530,7 @@ fn cast_check_pointertype(ctype: &PyObject, vm: &VirtualMachine) -> bool {
 /// cast implementation
 /// _ctypes.c cast()
 pub(super) fn cast_impl(
-    obj: PyObjectRef,
+    obj: &PyObject,
     src: PyObjectRef,
     ctype: PyObjectRef,
     vm: &VirtualMachine,
@@ -544,7 +544,7 @@ pub(super) fn cast_impl(
     }
 
     // 2. Extract pointer value - matches c_void_p_from_param_impl order
-    let ptr_value: usize = if vm.is_none(&obj) {
+    let ptr_value: usize = if vm.is_none(obj) {
         // None → NULL pointer
         0
     } else if let Ok(int_val) = obj.try_int(vm) {
@@ -865,7 +865,7 @@ impl Constructor for PyCFuncPtr {
 fn handle_internal_func(addr: usize, args: &FuncArgs, vm: &VirtualMachine) -> Option<PyResult> {
     if addr == INTERNAL_CAST_ADDR {
         let result: PyResult<(PyObjectRef, PyObjectRef, PyObjectRef)> = args.clone().bind(vm);
-        return Some(result.and_then(|(obj, src, ctype)| cast_impl(obj, src, ctype, vm)));
+        return Some(result.and_then(|(obj, src, ctype)| cast_impl(&obj, src, ctype, vm)));
     }
 
     if addr == INTERNAL_STRING_AT_ADDR {

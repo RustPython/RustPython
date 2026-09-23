@@ -473,8 +473,8 @@ impl PyTuple {
         }
     }
 
-    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self._getitem(&needle, vm)
+    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        self._getitem(needle, vm)
     }
 
     #[pymethod]
@@ -502,8 +502,8 @@ impl PyTuple {
         Ok(false)
     }
 
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self._contains(&needle, vm)
+    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self._contains(needle, vm)
     }
 
     #[pymethod]
@@ -704,7 +704,7 @@ impl PyTupleIterator {
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+            .set_state(&state, |obj, pos| pos.min(obj.len()), vm)
     }
 
     #[pymethod]

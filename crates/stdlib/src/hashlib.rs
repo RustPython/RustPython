@@ -827,7 +827,7 @@ pub(crate) mod _hashlib {
         Ok(new_xof_hasher("shake_256", data))
     }
 
-    fn parse_unsigned_int(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<u64> {
+    fn parse_unsigned_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<u64> {
         let value = obj.try_index(vm)?;
         if value.as_bigint().sign() == malachite_bigint::Sign::Minus {
             return Err(vm.new_value_error("Cannot convert negative int"));
@@ -960,14 +960,14 @@ pub(crate) mod _hashlib {
 
         let leaf_size = match args.leaf_size.into_option() {
             Some(obj) => {
-                let value = parse_unsigned_int(obj, vm)?;
+                let value = parse_unsigned_int(&obj, vm)?;
                 u32::try_from(value).map_err(|_| vm.new_overflow_error("leaf_size is too large"))?
             }
             None => 0,
         };
         let node_offset = match args.node_offset.into_option() {
             Some(obj) => {
-                let value = parse_unsigned_int(obj, vm)?;
+                let value = parse_unsigned_int(&obj, vm)?;
                 if value > max_node_offset {
                     return Err(vm.new_overflow_error("node_offset is too large"));
                 }

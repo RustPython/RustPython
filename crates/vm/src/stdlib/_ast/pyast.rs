@@ -70,12 +70,12 @@ macro_rules! impl_base_node {
         impl $name {
             #[pymethod]
             fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-                super::python::_ast::ast_reduce(zelf, vm)
+                super::python::_ast::ast_reduce(&zelf, vm)
             }
 
             #[pymethod]
             fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-                super::python::_ast::ast_replace(zelf, args, vm)
+                super::python::_ast::ast_replace(&zelf, args, vm)
             }
 
             #[extend_class]
@@ -115,12 +115,12 @@ macro_rules! impl_base_node {
         impl $name {
             #[pymethod]
             fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-                super::python::_ast::ast_reduce(zelf, vm)
+                super::python::_ast::ast_reduce(&zelf, vm)
             }
 
             #[pymethod]
             fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-                super::python::_ast::ast_replace(zelf, args, vm)
+                super::python::_ast::ast_replace(&zelf, args, vm)
             }
 
             #[extend_class]

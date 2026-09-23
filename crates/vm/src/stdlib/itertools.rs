@@ -3,7 +3,7 @@ pub(crate) use decl::module_def;
 #[pymodule(name = "itertools")]
 mod decl {
     use crate::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
         builtins::{
             PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int,
         },
@@ -730,13 +730,13 @@ mod decl {
     // Restrict obj to ints with value 0 <= val <= sys.maxsize
     // On failure (out of range, non-int object) a ValueError is raised.
     fn pyobject_to_opt_usize(
-        obj: PyObjectRef,
+        obj: &PyObject,
         name: &'static str,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let is_int = obj.fast_isinstance(vm.ctx.types.int_type);
         if is_int {
-            let value = int::get_value(&obj).to_usize();
+            let value = int::get_value(obj).to_usize();
             if let Some(value) = value {
                 // Only succeeds for values for which 0 <= value <= sys.maxsize
                 if value <= sys::MAXSIZE as usize {
@@ -776,14 +776,14 @@ mod decl {
                         ) = args.bind_for(vm, Self::NAME)?;
 
                         let step = if !vm.is_none(&step) {
-                            pyobject_to_opt_usize(step, "Step", vm)?
+                            pyobject_to_opt_usize(&step, "Step", vm)?
                         } else {
                             1usize
                         };
                         (iter, start, stop, step)
                     };
                     let start = if !vm.is_none(&start) {
-                        pyobject_to_opt_usize(start, "Start", vm)?
+                        pyobject_to_opt_usize(&start, "Start", vm)?
                     } else {
                         0usize
                     };
@@ -793,7 +793,7 @@ mod decl {
             };
 
             let stop = if !vm.is_none(&stop) {
-                Some(pyobject_to_opt_usize(stop, "Stop", vm)?)
+                Some(pyobject_to_opt_usize(&stop, "Stop", vm)?)
             } else {
                 None
             };

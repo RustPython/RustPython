@@ -287,7 +287,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
         }
     }
     Ok(if let Some(imp) = importer {
-        let imp = path_importer_cache.get_or_insert(vm, path_obj.into(), || imp.clone())?;
+        let imp = path_importer_cache.get_or_insert(vm, path_obj.as_object(), || imp.clone())?;
         Some(imp)
     } else {
         None

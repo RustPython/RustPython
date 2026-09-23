@@ -1545,7 +1545,7 @@ impl PyType {
                 subtype = subtype.name(),
             )));
         }
-        call_slot_new(zelf, subtype, args, vm)
+        call_slot_new(&zelf, subtype, args, vm)
     }
 
     fn name_inner<'a, R: 'a>(
@@ -3344,7 +3344,7 @@ pub(crate) fn init(ctx: &'static Context) {
 }
 
 pub(crate) fn call_slot_new(
-    typ: PyTypeRef,
+    typ: &Py<PyType>,
     subtype: PyTypeRef,
     args: FuncArgs,
     vm: &VirtualMachine,

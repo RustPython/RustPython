@@ -51,7 +51,7 @@ pub unsafe extern "C" fn PyFloat_FromString(obj: *mut PyObject) -> *mut PyObject
     with_vm(|vm| {
         let obj = NonNull::new(obj)
             .ok_or_else(|| vm.new_type_error("float() argument must be a string or a number"))?;
-        let obj = unsafe { obj.as_ref() }.to_owned();
+        let obj = unsafe { obj.as_ref() };
         let float = rustpython_vm::builtins::parse_float_from_string(obj, vm)?;
         Ok(vm.ctx.new_float(float))
     })

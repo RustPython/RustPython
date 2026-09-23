@@ -2045,7 +2045,7 @@ pub(crate) mod _asyncio {
         // Handle the result
         match step_result {
             Ok(result) => {
-                task_step_handle_result(zelf, result, vm)?;
+                task_step_handle_result(zelf, &result, vm)?;
             }
             Err(e) => {
                 task_step_handle_exception(zelf, e, vm)?;
@@ -2143,7 +2143,7 @@ pub(crate) mod _asyncio {
 
         match result {
             Ok(result) => {
-                task_step_handle_result(&task_ref, result, vm)?;
+                task_step_handle_result(&task_ref, &result, vm)?;
             }
             Err(e) => {
                 task_step_handle_exception(&task_ref, e, vm)?;
@@ -2155,7 +2155,7 @@ pub(crate) mod _asyncio {
 
     fn task_step_handle_result(
         task: &Py<PyTask>,
-        result: PyObjectRef,
+        result: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Check if task awaits on itself
@@ -2172,7 +2172,7 @@ pub(crate) mod _asyncio {
 
         let blocking = vm
             .get_attribute_opt(
-                result.clone(),
+                result.to_owned(),
                 vm.ctx.intern_str("_asyncio_future_blocking"),
             )?
             .and_then(|v| v.try_to_bool(vm).ok())
@@ -2188,17 +2188,17 @@ pub(crate) mod _asyncio {
             // Get the future's loop, similar to get_future_loop:
             // 1. If it's our native Future/Task, access fut_loop directly (check Task first)
             // 2. Otherwise try get_loop(), falling back to _loop on AttributeError
-            let fut_loop = if let Ok(task) = result.clone().downcast::<PyTask>() {
+            let fut_loop = if let Ok(task) = result.to_owned().downcast::<PyTask>() {
                 task.base
                     .fut_loop
                     .read()
                     .clone()
                     .unwrap_or_else(|| vm.ctx.none())
-            } else if let Ok(fut) = result.clone().downcast::<PyFuture>() {
+            } else if let Ok(fut) = result.to_owned().downcast::<PyFuture>() {
                 fut.fut_loop.read().clone().unwrap_or_else(|| vm.ctx.none())
             } else {
                 // Try get_loop(), fall back to _loop on AttributeError
-                match vm.call_method(&result, "get_loop", ()) {
+                match vm.call_method(result, "get_loop", ()) {
                     Ok(loop_obj) => loop_obj,
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
                         result.get_attr(vm.ctx.intern_str("_loop"), vm)?
@@ -2227,14 +2227,14 @@ pub(crate) mod _asyncio {
                 return Ok(());
             }
 
-            *task.task_fut_waiter.write() = Some(result.clone());
+            *task.task_fut_waiter.write() = Some(result.to_owned());
 
             let task_obj: PyObjectRef = task.to_owned().into();
             let wakeup_wrapper = TaskWakeupMethWrapper::new(task_obj.clone()).into_ref(&vm.ctx);
-            vm.call_method(&result, "add_done_callback", (wakeup_wrapper,))?;
+            vm.call_method(result, "add_done_callback", (wakeup_wrapper,))?;
 
             // Track awaited_by relationship for introspection
-            future_add_to_awaited_by(result.clone(), task_obj, vm)?;
+            future_add_to_awaited_by(result.to_owned(), task_obj, vm)?;
 
             // If task_must_cancel is set, cancel the awaited future immediately
             // This propagates the cancellation through the future chain
@@ -2248,12 +2248,12 @@ pub(crate) mod _asyncio {
                 } else {
                     FuncArgs::new(vec![], KwArgs::default())
                 };
-                let cancel_result = vm.call_method(&result, "cancel", cancel_args)?;
+                let cancel_result = vm.call_method(result, "cancel", cancel_args)?;
                 if cancel_result.try_to_bool(vm).unwrap_or(false) {
                     task.task_must_cancel.store(false, Ordering::Relaxed);
                 }
             }
-        } else if vm.is_none(&result) {
+        } else if vm.is_none(result) {
             let loop_obj = task.base.fut_loop.read().clone();
             if let Some(loop_obj) = loop_obj {
                 let task_obj: PyObjectRef = task.to_owned().into();

@@ -96,8 +96,8 @@ impl PyByteArray {
         self.inner().mul(value, vm).map(|x| x.into())
     }
 
-    fn _setitem_by_index(&self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let value = value_from_object(vm, &value)?;
+    fn _setitem_by_index(&self, i: isize, value: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        let value = value_from_object(vm, value)?;
         self.borrow_buf_mut().setitem_by_index(vm, i, value)
     }
 
@@ -108,7 +108,7 @@ impl PyByteArray {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "bytearray")? {
-            SequenceIndex::Int(i) => zelf._setitem_by_index(i, value, vm),
+            SequenceIndex::Int(i) => zelf._setitem_by_index(i, &value, vm),
             SequenceIndex::Slice(slice) => {
                 let items = if zelf.is(&value) {
                     zelf.borrow_buf().to_vec()
@@ -243,12 +243,12 @@ impl PyByteArray {
         Ok(zelf)
     }
 
-    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self._getitem(&needle, vm)
+    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        self._getitem(needle, vm)
     }
 
-    pub fn __delitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self._delitem(&needle, vm)
+    pub fn __delitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        self._delitem(needle, vm)
     }
 
     #[pystaticmethod]
@@ -326,7 +326,7 @@ impl PyByteArray {
 
     #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let bytes = PyBytesInner::fromhex_object(string, vm)?;
+        let bytes = PyBytesInner::fromhex_object(&string, vm)?;
         let bytes = vm.ctx.new_bytes(bytes);
         let args = vec![bytes.into()].into();
         PyType::call(&cls, args, vm)
@@ -571,11 +571,11 @@ impl PyByteArray {
 impl Py<PyByteArray> {
     fn __setitem__(
         &self,
-        needle: PyObjectRef,
+        needle: &PyObject,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        PyByteArray::_setitem(self, &needle, value, vm)
+        PyByteArray::_setitem(self, needle, value, vm)
     }
 
     #[pymethod]
@@ -798,14 +798,14 @@ impl AsMapping for PyByteArray {
                 PyByteArray::mapping_downcast(mapping).__len__()
             )),
             subscript: atomic_func!(|mapping, needle, vm| {
-                PyByteArray::mapping_downcast(mapping).__getitem__(needle.to_owned(), vm)
+                PyByteArray::mapping_downcast(mapping).__getitem__(needle, vm)
             }),
             ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                 let zelf = PyByteArray::mapping_downcast(mapping);
                 if let Some(value) = value {
-                    zelf.__setitem__(needle.to_owned(), value, vm)
+                    zelf.__setitem__(needle, value, vm)
                 } else {
-                    zelf.__delitem__(needle.to_owned(), vm)
+                    zelf.__delitem__(needle, vm)
                 }
             }),
         };
@@ -837,7 +837,7 @@ impl AsSequence for PyByteArray {
             ass_item: atomic_func!(|seq, i, value, vm| {
                 let zelf = PyByteArray::sequence_downcast(seq);
                 if let Some(value) = value {
-                    zelf._setitem_by_index(i, value, vm)
+                    zelf._setitem_by_index(i, &value, vm)
                 } else {
                     zelf.borrow_buf_mut().delitem_by_index(vm, i)
                 }
@@ -928,7 +928,7 @@ impl PyByteArrayIterator {
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(state, |obj, pos| pos.min(obj.__len__()), vm)
+            .set_state(&state, |obj, pos| pos.min(obj.__len__()), vm)
     }
 }
 

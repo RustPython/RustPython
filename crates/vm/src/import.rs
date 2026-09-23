@@ -35,7 +35,7 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
 }
 
 #[cfg(feature = "host_env")]
-pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: PyObjectRef) -> PyResult<()> {
+pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: &PyObject) -> PyResult<()> {
     use crate::{TryFromObject, builtins::PyListRef};
 
     thread::enter_vm(vm, || {

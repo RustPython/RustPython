@@ -49,6 +49,6 @@ impl Node for bool {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        node_object_to_i32(vm, object).map(|i| i != 0)
+        node_object_to_i32(vm, &object).map(|i| i != 0)
     }
 }

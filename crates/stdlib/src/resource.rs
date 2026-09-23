@@ -5,8 +5,8 @@ pub(crate) use resource::module_def;
 #[pymodule]
 mod resource {
     use crate::vm::{
-        PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
-        builtins::PyIntRef,
+        Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+        builtins::{PyInt, PyIntRef},
         convert::{ToPyException, ToPyObject},
         types::PyStructSequence,
     };
@@ -161,7 +161,7 @@ mod resource {
         }
     }
 
-    fn py2rlim(obj: PyIntRef, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
+    fn py2rlim(obj: &Py<PyInt>, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
         let value = obj.try_to_primitive::<isize>(vm)?;
 
         if value.is_negative() {
@@ -186,7 +186,7 @@ mod resource {
 
     #[pyfunction]
     fn getrlimit(resource: PyIntRef, vm: &VirtualMachine) -> PyResult<Limits> {
-        let resource = py2rlim(resource, vm)?;
+        let resource = py2rlim(&resource, vm)?;
 
         if resource >= RLIM_NLIMITS as host_resource::rlim_t {
             return Err(vm.new_value_error("invalid resource specified"));
@@ -198,7 +198,7 @@ mod resource {
 
     #[pyfunction]
     fn setrlimit(resource: PyIntRef, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
-        let resource = py2rlim(resource, vm)?;
+        let resource = py2rlim(&resource, vm)?;
 
         if resource >= RLIM_NLIMITS as host_resource::rlim_t {
             return Err(vm.new_value_error("invalid resource specified"));

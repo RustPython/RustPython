@@ -199,7 +199,7 @@ impl Constructor for PyFloat {
                 if let Some(f) = val.try_float_opt(vm) {
                     f?.value
                 } else {
-                    float_from_string(val, vm)?
+                    float_from_string(&val, vm)?
                 }
             }
         };
@@ -207,7 +207,7 @@ impl Constructor for PyFloat {
     }
 }
 
-pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
     let (bytearray, buffer, buffer_lock, mapped_string);
     let b = if let Some(s) = val.downcast_ref::<PyStr>() {
         mapped_string = crate::protocol::numeric_literal_from_str(s);
@@ -217,7 +217,7 @@ pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64>
     } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {
         bytearray = buf.borrow_buf();
         &*bytearray
-    } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, &val) {
+    } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, val) {
         buffer = b;
         buffer_lock = buffer.borrow_buf();
         &*buffer_lock

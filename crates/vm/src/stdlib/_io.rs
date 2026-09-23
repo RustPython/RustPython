@@ -736,15 +736,15 @@ mod _io {
         }
 
         fn _readinto(
-            zelf: PyObjectRef,
-            buf_obj: PyObjectRef,
+            zelf: &PyObject,
+            buf_obj: &PyObject,
             method: &str,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            let b = ArgMemoryBuffer::try_from_borrowed_object(vm, &buf_obj)?;
+            let b = ArgMemoryBuffer::try_from_borrowed_object(vm, buf_obj)?;
             let l = b.len();
-            let data = vm.call_method(&zelf, method, (l,))?;
-            if data.is(&buf_obj) {
+            let data = vm.call_method(zelf, method, (l,))?;
+            if data.is(buf_obj) {
                 return Ok(l);
             }
             let mut buf = b.borrow_buf_mut();
@@ -762,12 +762,12 @@ mod _io {
         }
         #[pymethod]
         fn readinto(zelf: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-            Self::_readinto(zelf, b, "read", vm)
+            Self::_readinto(&zelf, &b, "read", vm)
         }
 
         #[pymethod]
         fn readinto1(zelf: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-            Self::_readinto(zelf, b, "read1", vm)
+            Self::_readinto(&zelf, &b, "read1", vm)
         }
 
         #[pymethod]
@@ -974,7 +974,7 @@ mod _io {
 
         fn raw_seek(&mut self, pos: Offset, whence: i32, vm: &VirtualMachine) -> PyResult<Offset> {
             let ret = vm.call_method(self.check_init(vm)?, "seek", (pos, whence))?;
-            let offset = get_offset(ret, vm)?;
+            let offset = get_offset(&ret, vm)?;
             if offset < 0 {
                 return Err(
                     vm.new_os_error(format!("Raw stream returned invalid position {offset}"))
@@ -1023,7 +1023,7 @@ mod _io {
         fn raw_tell(&mut self, vm: &VirtualMachine) -> PyResult<Offset> {
             let raw = self.check_init(vm)?;
             let ret = vm.call_method(raw, "tell", ())?;
-            let offset = get_offset(ret, vm)?;
+            let offset = get_offset(&ret, vm)?;
             if offset < 0 {
                 return Err(
                     vm.new_os_error(format!("Raw stream returned invalid position {offset}"))
@@ -1570,7 +1570,7 @@ mod _io {
         }
     }
 
-    pub(super) fn get_offset(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Offset> {
+    pub(super) fn get_offset(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Offset> {
         let int = obj.try_index(vm)?;
         int.as_bigint().try_into().map_err(|_| {
             vm.new_value_error(format!(
@@ -1700,7 +1700,7 @@ mod _io {
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "seek of closed file", vm)?;
             check_seekable(raw, vm)?;
-            let target = get_offset(target, vm)?;
+            let target = get_offset(&target, vm)?;
             data.seek(target, whence, vm)
         }
 
@@ -1859,7 +1859,7 @@ mod _io {
                 );
             }
             let _ = proto;
-            reduce_ex_for_subclass(zelf, vm)
+            reduce_ex_for_subclass(&zelf, vm)
         }
 
         #[pymethod]
@@ -2424,13 +2424,13 @@ mod _io {
         }
     }
 
-    fn reduce_ex_for_subclass(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn reduce_ex_for_subclass(zelf: &PyObject, vm: &VirtualMachine) -> PyResult {
         let cls = zelf.class();
         let new = vm
             .get_attribute_opt(cls.to_owned().into(), "__new__")?
             .ok_or_else(|| vm.new_attribute_error("type has no attribute '__new__'"))?;
         let args = vm.ctx.new_tuple(vec![cls.to_owned().into()]);
-        let state = if let Some(getstate) = vm.get_attribute_opt(zelf.clone(), "__getstate__")? {
+        let state = if let Some(getstate) = vm.get_attribute_opt(zelf.to_owned(), "__getstate__")? {
             getstate.call((), vm)?
         } else if let Ok(dict) = zelf.get_attr("__dict__", vm) {
             dict
@@ -2871,7 +2871,7 @@ mod _io {
                 .map(drop)
         }
 
-        fn bool_from_index(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        fn bool_from_index(value: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
             let int = value.try_index(vm)?;
             let value: i32 = int.try_to_primitive(vm)?;
             Ok(value != 0)
@@ -3096,10 +3096,10 @@ mod _io {
             }
 
             if let OptionalArg::Present(Some(value)) = args.line_buffering {
-                line_buffering = Some(Self::bool_from_index(value, vm)?);
+                line_buffering = Some(Self::bool_from_index(&value, vm)?);
             }
             if let OptionalArg::Present(Some(value)) = args.write_through {
-                write_through = Some(Self::bool_from_index(value, vm)?);
+                write_through = Some(Self::bool_from_index(&value, vm)?);
             }
 
             if (encoding_changed || newline_changed)
@@ -3896,7 +3896,7 @@ mod _io {
                 );
             }
             let _ = proto;
-            reduce_ex_for_subclass(zelf, vm)
+            reduce_ex_for_subclass(&zelf, vm)
         }
     }
 
@@ -5975,7 +5975,7 @@ mod fileio {
             }
             let flush_exc = res.err();
             if zelf.finalizing.load() {
-                Self::dealloc_warn(zelf, zelf.as_object().to_owned(), vm);
+                Self::dealloc_warn(zelf, zelf.as_object(), vm);
             }
             let fd = zelf.fd.swap(-1);
             let close_err = if fd >= 0 {
@@ -6014,7 +6014,7 @@ mod fileio {
         ) -> PyResult<Offset> {
             let how = how.unwrap_or(0);
             let fd = self.get_fd(vm)?;
-            let offset = get_offset(offset, vm)?;
+            let offset = get_offset(&offset, vm)?;
 
             host_io::seek(fd, offset, how).map_err(|e| e.into_pyexception(vm))
         }
@@ -6029,7 +6029,7 @@ mod fileio {
         fn truncate(&self, len: OptionalOption, vm: &VirtualMachine) -> PyResult<Offset> {
             let fd = self.get_fd(vm)?;
             let len = match len.flatten() {
-                Some(l) => get_offset(l, vm)?,
+                Some(l) => get_offset(&l, vm)?,
                 None => host_io::tell(fd).map_err(|e| e.into_pyexception(vm))?,
             };
             os::ftruncate(fd, len).map_err(|e| e.into_pyexception(vm))?;
@@ -6050,13 +6050,13 @@ mod fileio {
         /// fileio_dealloc_warn in Modules/_io/fileio.c
         #[pymethod(name = "_dealloc_warn")]
         fn _dealloc_warn_method(zelf: &Py<Self>, source: PyObjectRef, vm: &VirtualMachine) {
-            Self::dealloc_warn(zelf, source, vm);
+            Self::dealloc_warn(zelf, &source, vm);
         }
     }
 
     impl FileIO {
         /// Issue ResourceWarning if fd is still open and closefd is true.
-        fn dealloc_warn(zelf: &Py<Self>, source: PyObjectRef, vm: &VirtualMachine) {
+        fn dealloc_warn(zelf: &Py<Self>, source: &PyObject, vm: &VirtualMachine) {
             if zelf.fd.load() >= 0 && zelf.closefd.load() {
                 let repr = source
                     .repr(vm)

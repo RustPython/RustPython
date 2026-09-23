@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     common::{static_cell, str::wchar_t},
     convert::ToPyObject,
@@ -663,7 +663,7 @@ macro_rules! make_pack_prim_int {
                 arg: PyObjectRef,
                 data: &mut [u8],
             ) -> Result<(), PackError> {
-                let i: $T = get_int_or_index(vm, code, arg)?;
+                let i: $T = get_int_or_index(vm, code, &arg)?;
                 i.pack_int::<E>(data);
                 Ok(())
             }
@@ -679,7 +679,7 @@ macro_rules! make_pack_prim_int {
 fn get_int_or_index<T>(
     vm: &VirtualMachine,
     code: FormatType,
-    arg: PyObjectRef,
+    arg: &PyObject,
 ) -> Result<T, PackError>
 where
     T: PrimInt + fmt::Display + for<'a> TryFrom<&'a BigInt>,

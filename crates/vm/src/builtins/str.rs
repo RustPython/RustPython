@@ -339,7 +339,7 @@ impl PyStrIterator {
         internal.1 = usize::MAX;
         internal
             .0
-            .set_state(state, |obj, pos| pos.min(obj.char_len()), vm)
+            .set_state(&state, |obj, pos| pos.min(obj.char_len()), vm)
     }
 
     #[pymethod]
@@ -658,7 +658,7 @@ impl Py<PyStr> {
     )
 )]
 impl PyStr {
-    fn __add__(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __add__(zelf: PyRef<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.downcast_ref::<Self>() {
             let bytes = zelf.as_wtf8().py_add(other.as_wtf8());
             Ok(unsafe {
@@ -669,7 +669,7 @@ impl PyStr {
             .to_pyobject(vm))
         } else {
             // hack to get around not distinguishing number add from seq concat
-            if let Some(radd) = vm.get_method(other.clone(), identifier!(vm, __radd__)) {
+            if let Some(radd) = vm.get_method(other.to_owned(), identifier!(vm, __radd__)) {
                 let result = radd?.call((zelf,), vm)?;
                 // CPython reaches `str`'s sq_concat once the reflected call declines, so a
                 // `__radd__` returning NotImplemented must still report the concat error
@@ -696,8 +696,8 @@ impl PyStr {
         }
     }
 
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self._contains(&needle, vm)
+    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self._contains(needle, vm)
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -708,8 +708,8 @@ impl PyStr {
         Ok(item)
     }
 
-    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self._getitem(&needle, vm)
+    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        self._getitem(needle, vm)
     }
 
     #[inline]
@@ -1713,7 +1713,7 @@ impl AsSequence for PyStr {
             length: atomic_func!(|seq, _vm| Ok(PyStr::sequence_downcast(seq).len())),
             concat: atomic_func!(|seq, other, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
-                PyStr::__add__(zelf.to_owned(), other.to_owned(), vm)
+                PyStr::__add__(zelf.to_owned(), other, vm)
             }),
             repeat: atomic_func!(|seq, n, vm| {
                 let zelf = PyStr::sequence_downcast(seq);

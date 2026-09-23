@@ -117,25 +117,25 @@ impl PyGenericAlias {
     }
 
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        fn repr_item(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_item(obj: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
             if obj.is(&vm.ctx.ellipsis) {
                 return Ok("...".to_string());
             }
 
             if vm
-                .get_attribute_opt(obj.clone(), identifier!(vm, __origin__))?
+                .get_attribute_opt(obj.to_owned(), identifier!(vm, __origin__))?
                 .is_some()
                 && vm
-                    .get_attribute_opt(obj.clone(), identifier!(vm, __args__))?
+                    .get_attribute_opt(obj.to_owned(), identifier!(vm, __args__))?
                     .is_some()
             {
                 return Ok(obj.repr(vm)?.to_string());
             }
 
             match (
-                vm.get_attribute_opt(obj.clone(), identifier!(vm, __qualname__))?
+                vm.get_attribute_opt(obj.to_owned(), identifier!(vm, __qualname__))?
                     .and_then(|o| o.downcast_ref::<PyStr>().map(|n| n.to_string())),
-                vm.get_attribute_opt(obj.clone(), identifier!(vm, __module__))?
+                vm.get_attribute_opt(obj.to_owned(), identifier!(vm, __module__))?
                     .and_then(|o| o.downcast_ref::<PyStr>().map(|m| m.to_string())),
             ) {
                 (None, _) | (_, None) => Ok(obj.repr(vm)?.to_string()),
@@ -160,17 +160,17 @@ impl PyGenericAlias {
                         .get(i)
                         .cloned()
                         .ok_or_else(|| vm.new_index_error("list index out of range"))?;
-                    parts.push(repr_item(item, vm)?);
+                    parts.push(repr_item(&item, vm)?);
                 }
                 Ok(format!("[{}]", parts.join(", ")))
             } else {
-                repr_item(obj, vm)
+                repr_item(&obj, vm)
             }
         }
 
         let repr_str = format!(
             "{}[{}]",
-            repr_item(self.origin.clone(), vm)?,
+            repr_item(&self.origin, vm)?,
             if self.args.is_empty() {
                 "()".to_owned()
             } else {
@@ -219,14 +219,8 @@ impl PyGenericAlias {
         }
     }
 
-    fn __getitem__(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let new_args = subs_parameters(
-            zelf.to_owned().into(),
-            zelf.args.clone(),
-            zelf.parameters.clone(),
-            needle,
-            vm,
-        )?;
+    fn __getitem__(zelf: &Py<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let new_args = subs_parameters(zelf.as_object(), &zelf.args, &zelf.parameters, needle, vm)?;
 
         Ok(Self::new(zelf.origin.clone(), new_args, false, vm)?.into_pyobject(vm))
     }
@@ -235,7 +229,8 @@ impl PyGenericAlias {
     fn __dir__(&self, vm: &VirtualMachine) -> PyResult<PyList> {
         let dir = vm.dir(Some(self.__origin__()))?;
         for exc in &ATTR_EXCEPTIONS {
-            if !dir.__contains__((*exc).to_pyobject(vm), vm)? {
+            let exc_obj = (*exc).to_pyobject(vm);
+            if !dir.__contains__(&exc_obj, vm)? {
                 dir.append((*exc).to_pyobject(vm));
             }
         }
@@ -449,9 +444,9 @@ fn unpack_args(item: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
 
 // _Py_subs_parameters
 pub(crate) fn subs_parameters(
-    alias: PyObjectRef, // = self
-    args: PyTupleRef,
-    parameters: PyTupleRef,
+    alias: &PyObject, // = self
+    args: &Py<PyTuple>,
+    parameters: &Py<PyTuple>,
     item: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<PyTupleRef> {
@@ -464,17 +459,17 @@ pub(crate) fn subs_parameters(
     let mut item: PyObjectRef = unpack_args(item, vm).into();
 
     // Step 2: Call __typing_prepare_subst__ on each parameter
-    for param in parameters.iter() {
+    for param in parameters {
         if let Ok(prepare) = param.get_attr(identifier!(vm, __typing_prepare_subst__), vm)
             && !prepare.is(&vm.ctx.none)
         {
             // Call prepare(self, item)
             item = if item.try_to_ref::<PyTuple>(vm).is_ok() {
-                prepare.call((alias.clone(), item.clone()), vm)?
+                prepare.call((alias.to_owned(), item.clone()), vm)?
             } else {
                 // Create a tuple with the single item's "O(O)" format
                 let tuple_args = PyTuple::new_ref(vec![item.clone()], &vm.ctx);
-                prepare.call((alias.clone(), tuple_args.to_pyobject(vm)), vm)?
+                prepare.call((alias.to_owned(), tuple_args.to_pyobject(vm)), vm)?
             };
         }
     }
@@ -500,7 +495,7 @@ pub(crate) fn subs_parameters(
     // Step 4: Replace all type variables
     let mut new_args = Vec::new();
 
-    for arg in args.iter() {
+    for arg in args {
         // Skip PyType objects
         if arg.class().is(vm.ctx.types.type_type) {
             new_args.push(arg.clone());
@@ -516,13 +511,7 @@ pub(crate) fn subs_parameters(
                 arg.downcast_ref::<PyList>().unwrap().borrow_vec().to_vec()
             };
             let sub_tuple = PyTuple::new_ref(sub_items, &vm.ctx);
-            let sub_result = subs_parameters(
-                alias.clone(),
-                sub_tuple,
-                parameters.clone(),
-                item.clone(),
-                vm,
-            )?;
+            let sub_result = subs_parameters(alias, &sub_tuple, parameters, item.clone(), vm)?;
             let substituted: PyObjectRef = if is_list {
                 // Convert tuple back to list
                 PyList::from(sub_result.as_slice().to_vec())
@@ -544,10 +533,10 @@ pub(crate) fn subs_parameters(
             if let Some(iparam) = tuple_index(parameters.as_slice(), arg) {
                 subst.call((arg_items[iparam].clone(),), vm)?
             } else {
-                subs_tvars(arg.clone(), &parameters, &arg_items, vm)?
+                subs_tvars(arg.clone(), parameters, &arg_items, vm)?
             }
         } else {
-            subs_tvars(arg.clone(), &parameters, &arg_items, vm)?
+            subs_tvars(arg.clone(), parameters, &arg_items, vm)?
         };
 
         if unpack {
@@ -574,7 +563,7 @@ impl AsMapping for PyGenericAlias {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             subscript: atomic_func!(|mapping, needle, vm| {
                 let zelf = PyGenericAlias::mapping_downcast(mapping);
-                PyGenericAlias::__getitem__(zelf.to_owned(), needle.to_owned(), vm)
+                PyGenericAlias::__getitem__(zelf, needle.to_owned(), vm)
             }),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });

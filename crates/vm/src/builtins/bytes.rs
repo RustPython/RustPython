@@ -254,8 +254,8 @@ impl PyBytes {
         PyBytesInner::maketrans(frm, to, vm)
     }
 
-    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self._getitem(&needle, vm)
+    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        self._getitem(needle, vm)
     }
 
     #[pymethod]
@@ -330,7 +330,7 @@ impl PyBytes {
 
     #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let bytes = PyBytesInner::fromhex_object(string, vm)?;
+        let bytes = PyBytesInner::fromhex_object(&string, vm)?;
         let bytes = vm.ctx.new_bytes(bytes).into();
         PyType::call(&cls, vec![bytes].into(), vm)
     }
@@ -787,7 +787,7 @@ impl PyBytesIterator {
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+            .set_state(&state, |obj, pos| pos.min(obj.len()), vm)
     }
 }
 

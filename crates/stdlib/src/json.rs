@@ -98,7 +98,7 @@ mod _json {
             pystr: PyStrRef,
             char_idx: usize,
             byte_idx: usize,
-            scan_once: PyObjectRef,
+            scan_once: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<PyIterReturn> {
             flame_guard!("JsonScanner::parse");
@@ -128,7 +128,7 @@ mod _json {
                     // Parse object in Rust
                     let mut memo = HashMap::new();
                     return self
-                        .parse_object(pystr, char_idx + 1, byte_idx + 1, &scan_once, &mut memo, vm)
+                        .parse_object(pystr, char_idx + 1, byte_idx + 1, scan_once, &mut memo, vm)
                         .map(|(obj, end_char, _end_byte)| {
                             PyIterReturn::Return(vm.new_tuple((obj, end_char)).into())
                         });
@@ -137,7 +137,7 @@ mod _json {
                     // Parse array in Rust
                     let mut memo = HashMap::new();
                     return self
-                        .parse_array(pystr, char_idx + 1, byte_idx + 1, &scan_once, &mut memo, vm)
+                        .parse_array(pystr, char_idx + 1, byte_idx + 1, scan_once, &mut memo, vm)
                         .map(|(obj, end_char, _end_byte)| {
                             PyIterReturn::Return(vm.new_tuple((obj, end_char)).into())
                         });
@@ -688,7 +688,7 @@ mod _json {
                 }
             };
 
-            zelf.parse(pystr, char_idx, byte_idx, zelf.to_owned().into(), vm)
+            zelf.parse(pystr, char_idx, byte_idx, zelf.as_object(), vm)
                 .and_then(|x| x.to_pyresult(vm))
         }
     }

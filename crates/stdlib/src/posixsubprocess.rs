@@ -4,7 +4,7 @@ use crate::vm::{
     builtins::PyListRef,
     function::ArgSequence,
     ospath::OsPath,
-    {PyObjectRef, PyResult, TryFromObject, VirtualMachine},
+    {PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine},
 };
 use rustpython_host_env::posix as host_posix;
 use std::{
@@ -202,7 +202,7 @@ struct RawUid(u32);
 #[derive(Copy, Clone)]
 struct RawGid(u32);
 
-fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<u32> {
+fn try_from_id(vm: &VirtualMachine, obj: &PyObject, typ_name: &str) -> PyResult<u32> {
     use core::cmp::Ordering;
     let i = obj
         .try_to_ref::<crate::vm::builtins::PyInt>(vm)
@@ -225,13 +225,13 @@ fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResul
 
 impl TryFromObject for RawUid {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        try_from_id(vm, obj, "uid").map(Self)
+        try_from_id(vm, &obj, "uid").map(Self)
     }
 }
 
 impl TryFromObject for RawGid {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        try_from_id(vm, obj, "gid").map(Self)
+        try_from_id(vm, &obj, "gid").map(Self)
     }
 }
 
