@@ -120,9 +120,9 @@ impl PyClassMethod {
 
     #[pygetset]
     fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.lock().clone();
+        let callable = zelf.callable.lock();
         descriptor_get_wrapped_attribute(
-            callable,
+            &callable,
             zelf.as_object(),
             identifier!(vm.ctx, __annotations__),
             vm,
@@ -146,9 +146,9 @@ impl PyClassMethod {
 
     #[pygetset]
     fn __annotate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.lock().clone();
+        let callable = zelf.callable.lock();
         descriptor_get_wrapped_attribute(
-            callable,
+            &callable,
             zelf.as_object(),
             identifier!(vm.ctx, __annotate__),
             vm,
@@ -247,7 +247,7 @@ pub(crate) fn functools_wraps(
 }
 
 pub(crate) fn descriptor_get_wrapped_attribute(
-    wrapped: PyObjectRef,
+    wrapped: &PyObject,
     obj: &PyObject,
     name: &'static PyStrInterned,
     vm: &VirtualMachine,

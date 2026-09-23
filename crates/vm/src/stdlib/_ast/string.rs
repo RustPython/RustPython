@@ -534,11 +534,11 @@ fn joined_str_part_to_ruff_fstring_element(
 pub(super) fn joined_str_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<JoinedStr> {
     let values: Vec<Option<ast::Expr>> =
-        get_node_list_field(vm, source_file, &object, "values", "JoinedStr")?;
+        get_node_list_field(vm, source_file, object, "values", "JoinedStr")?;
     Ok(JoinedStr {
         values: Vec::new().into_boxed_slice(),
         runtime_values: Some(values),
@@ -572,7 +572,7 @@ impl Node for JoinedStr {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "JoinedStr")?;
-        joined_str_from_object_with_range(vm, source_file, object, range)
+        joined_str_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -623,17 +623,17 @@ pub(super) struct FormattedValue {
 pub(super) fn formatted_value_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<FormattedValue> {
     Ok(FormattedValue {
-        value: get_required_node_field(vm, source_file, &object, "value", "FormattedValue")?,
+        value: get_required_node_field(vm, source_file, object, "value", "FormattedValue")?,
         conversion: Node::ast_from_object(
             vm,
             source_file,
-            get_node_field(vm, &object, "conversion", "FormattedValue")?,
+            get_node_field(vm, object, "conversion", "FormattedValue")?,
         )?,
-        format_spec: get_node_field_opt(vm, &object, "format_spec")?
+        format_spec: get_node_field_opt(vm, object, "format_spec")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         range,
@@ -671,7 +671,7 @@ impl Node for FormattedValue {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "FormattedValue")?;
-        formatted_value_from_object_with_range(vm, source_file, object, range)
+        formatted_value_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1044,11 +1044,11 @@ fn template_part_to_element(
 pub(super) fn template_str_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<TemplateStr> {
     let values: Vec<Option<ast::Expr>> =
-        get_node_list_field(vm, source_file, &object, "values", "TemplateStr")?;
+        get_node_list_field(vm, source_file, object, "values", "TemplateStr")?;
     Ok(TemplateStr {
         values: Vec::new().into_boxed_slice(),
         runtime_values: Some(values),
@@ -1082,7 +1082,7 @@ impl Node for TemplateStr {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "TemplateStr")?;
-        template_str_from_object_with_range(vm, source_file, object, range)
+        template_str_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1134,17 +1134,17 @@ pub(super) struct TStringInterpolation {
 pub(super) fn tstring_interpolation_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<TStringInterpolation> {
-    let value = get_required_node_field(vm, source_file, &object, "value", "Interpolation")?;
-    let str = get_node_field(vm, &object, "str", "Interpolation")?;
+    let value = get_required_node_field(vm, source_file, object, "value", "Interpolation")?;
+    let str = get_node_field(vm, object, "str", "Interpolation")?;
     let conversion = Node::ast_from_object(
         vm,
         source_file,
-        get_node_field(vm, &object, "conversion", "Interpolation")?,
+        get_node_field(vm, object, "conversion", "Interpolation")?,
     )?;
-    let format_spec: Option<Box<ast::Expr>> = get_node_field_opt(vm, &object, "format_spec")?
+    let format_spec: Option<Box<ast::Expr>> = get_node_field_opt(vm, object, "format_spec")?
         .map(|obj| Node::ast_from_object(vm, source_file, obj))
         .transpose()?;
     Ok(TStringInterpolation {
@@ -1189,7 +1189,7 @@ impl Node for TStringInterpolation {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Interpolation")?;
-        tstring_interpolation_from_object_with_range(vm, source_file, object, range)
+        tstring_interpolation_from_object_with_range(vm, source_file, &object, range)
     }
 }
 

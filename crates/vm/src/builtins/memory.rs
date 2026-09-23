@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
-    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
+    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str, PyUtf8StrRef, iter::builtins_iter,
     locked_next,
 };
 use crate::common::lock::LazyLock;
@@ -1017,7 +1017,7 @@ impl PyMemoryView {
         Err(vm.new_value_error("memoryview.index(x): x not in memoryview"))
     }
 
-    fn cast_to_1d(&self, format: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Self> {
+    fn cast_to_1d(&self, format: &Py<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<Self> {
         let format_str = format.as_str();
         let Some(dest_char) = Self::native_fmtchar(format_str) else {
             return Err(vm.new_value_error(
@@ -1097,7 +1097,7 @@ impl PyMemoryView {
                 return Err(vm.new_type_error("memoryview: cast must be 1D -> ND or ND -> 1D"));
             }
 
-            let mut other = self.cast_to_1d(format, vm)?;
+            let mut other = self.cast_to_1d(&format, vm)?;
             let itemsize = other.desc.itemsize;
 
             // 0 ndim is single item, so the buffer has to be that one item
@@ -1151,7 +1151,7 @@ impl PyMemoryView {
 
             Ok(other.into_ref(&vm.ctx))
         } else {
-            Ok(self.cast_to_1d(format, vm)?.into_ref(&vm.ctx))
+            Ok(self.cast_to_1d(&format, vm)?.into_ref(&vm.ctx))
         }
     }
 }
@@ -1562,7 +1562,7 @@ pub(crate) fn buffer_from_python_getbuffer(
 // wrap_releasebuffer
 pub(crate) fn release_buffer_from_python(
     obj: &PyObject,
-    mv: PyRef<PyMemoryView>,
+    mv: &Py<PyMemoryView>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let view_obj = &mv.buffer.obj;

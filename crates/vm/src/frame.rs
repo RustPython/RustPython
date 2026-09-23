@@ -2354,16 +2354,16 @@ impl FrameObject {
     /// `key in proxy`.
     pub(crate) fn framelocalsproxy_contains(
         &self,
-        key: PyObjectRef,
+        key: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         self.check_locals_access(vm)?;
-        if self.framelocalsproxy_getkeyindex(&key, true, vm)?.is_some() {
+        if self.framelocalsproxy_getkeyindex(key, true, vm)?.is_some() {
             return Ok(true);
         }
         let extra = self.iframe().cold().f_extra_locals.lock().clone();
         if let Some(extra) = extra {
-            return Ok(extra.get_item_opt(&*key, vm)?.is_some());
+            return Ok(extra.get_item_opt(key, vm)?.is_some());
         }
         Ok(false)
     }
@@ -2372,17 +2372,17 @@ impl FrameObject {
     /// to the extra-locals side dict.
     pub(crate) fn framelocalsproxy_setitem(
         &self,
-        key: PyObjectRef,
+        key: &PyObject,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         self.check_locals_access(vm)?;
-        if let Some(i) = self.framelocalsproxy_getkeyindex(&key, false, vm)? {
+        if let Some(i) = self.framelocalsproxy_getkeyindex(key, false, vm)? {
             self.framelocalsproxy_setval(i, value);
             return Ok(());
         }
         let extra = self.extra_locals_get_or_create(vm);
-        extra.set_item(&*key, value, vm)
+        extra.set_item(key, value, vm)
     }
 
     /// `del proxy[key]`: deleting a fast local raises ValueError; extra keys are
@@ -2441,7 +2441,7 @@ impl FrameObject {
         match self.framelocalsproxy_getitem(key.clone(), vm) {
             Ok(value) => Ok(value),
             Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                self.framelocalsproxy_setitem(key, default.clone(), vm)?;
+                self.framelocalsproxy_setitem(&key, default.clone(), vm)?;
                 Ok(default)
             }
             Err(e) => Err(e),
@@ -12382,7 +12382,7 @@ impl ExecutingFrame<'_> {
                 // arg1 = orig (original exception)
                 // arg2 = excs (list of exceptions raised/reraised in except* blocks)
                 // Returns: exception to reraise, or None if nothing to reraise
-                crate::exceptions::prep_reraise_star(arg1, arg2, vm)
+                crate::exceptions::prep_reraise_star(&arg1, &arg2, vm)
             }
         }
     }

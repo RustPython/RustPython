@@ -289,7 +289,7 @@ pub(crate) mod decl {
             vm.ctx.none()
         }
 
-        fn __getitem__(zelf: PyRef<Self>, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __getitem__(zelf: &Py<Self>, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             if zelf.type_params.is_empty() {
                 return Err(vm.new_type_error("Only generic type aliases are subscriptable"));
             }
@@ -446,7 +446,7 @@ pub(crate) mod decl {
             static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
                 subscript: atomic_func!(|mapping, needle, vm| {
                     let zelf = TypeAliasType::mapping_downcast(mapping);
-                    TypeAliasType::__getitem__(zelf.to_owned(), needle.to_owned(), vm)
+                    TypeAliasType::__getitem__(zelf, needle.to_owned(), vm)
                 }),
                 ..PyMappingMethods::NOT_IMPLEMENTED
             });

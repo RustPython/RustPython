@@ -6,7 +6,7 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 
 use super::{PyStr, PyType, PyTypeRef};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::function::PyCell,
     class::PyClassImpl,
     common::lock::PyRwLock,
@@ -31,7 +31,7 @@ impl PySuperInner {
         let obj = if vm.is_none(&obj) {
             None
         } else {
-            let obj_type = super_check(typ.clone(), obj.clone(), vm)?;
+            let obj_type = super_check(&typ, &obj, vm)?;
             Some((obj, obj_type))
         };
         Ok(Self { typ, obj })
@@ -254,21 +254,21 @@ impl Representable for PySuper {
     }
 }
 
-fn super_check(ty: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-    let typ = match obj.clone().downcast::<PyType>() {
-        Ok(cls) if cls.fast_issubclass(&ty) => return Ok(cls),
+fn super_check(ty: &Py<PyType>, obj: &PyObject, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
+    let typ = match obj.to_owned().downcast::<PyType>() {
+        Ok(cls) if cls.fast_issubclass(ty) => return Ok(cls),
         Ok(cls) => Some(cls),
         Err(_) => None,
     };
 
-    if obj.fast_isinstance(&ty) {
+    if obj.fast_isinstance(ty) {
         return Ok(obj.class().to_owned());
     }
 
     let class_attr = obj.get_attr("__class__", vm)?;
     if let Ok(cls) = class_attr.downcast::<PyType>()
         && !cls.is(obj.class())
-        && cls.fast_issubclass(&ty)
+        && cls.fast_issubclass(ty)
     {
         return Ok(cls);
     }

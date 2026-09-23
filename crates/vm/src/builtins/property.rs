@@ -204,7 +204,7 @@ impl PyProperty {
 
     // Helper method to create a new property with updated attributes
     fn clone_property_with(
-        zelf: PyRef<Self>,
+        zelf: &Py<Self>,
         new_getter: Option<PyObjectRef>,
         new_setter: Option<PyObjectRef>,
         new_deleter: Option<PyObjectRef>,
@@ -252,7 +252,7 @@ impl PyProperty {
         getter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(zelf, getter, None, None, vm)
+        Self::clone_property_with(&zelf, getter, None, None, vm)
     }
 
     #[pymethod]
@@ -261,7 +261,7 @@ impl PyProperty {
         setter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(zelf, None, setter, None, vm)
+        Self::clone_property_with(&zelf, None, setter, None, vm)
     }
 
     #[pymethod]
@@ -270,7 +270,7 @@ impl PyProperty {
         deleter: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(zelf, None, None, deleter, vm)
+        Self::clone_property_with(&zelf, None, None, deleter, vm)
     }
 
     #[pygetset]

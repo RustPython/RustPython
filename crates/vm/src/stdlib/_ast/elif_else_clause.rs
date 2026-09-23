@@ -64,13 +64,13 @@ pub(super) fn ast_to_object(
 pub(super) fn ast_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::StmtIf> {
-    let test = get_required_node_field(vm, source_file, &object, "test", "If")?;
-    let body: Vec<Option<ast::Stmt>> = get_node_list_field(vm, source_file, &object, "body", "If")?;
+    let test = get_required_node_field(vm, source_file, object, "test", "If")?;
+    let body: Vec<Option<ast::Stmt>> = get_node_list_field(vm, source_file, object, "body", "If")?;
     let orelse: Vec<Option<ast::Stmt>> =
-        get_node_list_field(vm, source_file, &object, "orelse", "If")?;
+        get_node_list_field(vm, source_file, object, "orelse", "If")?;
     let runtime_body = runtime_stmt_list_metadata(&body);
     let runtime_orelse = runtime_stmt_list_metadata(&orelse);
     let body = lower_runtime_stmt_list(body);

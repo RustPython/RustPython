@@ -679,7 +679,7 @@ mod mmap {
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyMmap::sequence_downcast(seq);
                     if let Some(value) = value {
-                        PyMmap::setitem_by_index(zelf, i, value, vm)
+                        PyMmap::setitem_by_index(zelf, i, &value, vm)
                     } else {
                         Err(vm
                             .new_type_error("mmap object doesn't support item deletion".to_owned()))
@@ -905,9 +905,9 @@ mod mmap {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             fn args(
-                dest: PyIntRef,
-                src: PyIntRef,
-                cnt: PyIntRef,
+                dest: &Py<PyInt>,
+                src: &Py<PyInt>,
+                cnt: &Py<PyInt>,
                 size: usize,
                 vm: &VirtualMachine,
             ) -> Option<(usize, usize, usize)> {
@@ -927,7 +927,7 @@ mod mmap {
             }
 
             let size = self.__len__();
-            let (dest, src, cnt) = args(dest, src, cnt, size, vm)
+            let (dest, src, cnt) = args(&dest, &src, &cnt, size, vm)
                 .ok_or_else(|| vm.new_value_error("source, destination, or count out of range"))?;
 
             let dest_end = dest + cnt;
@@ -1234,17 +1234,17 @@ mod mmap {
             Ok(())
         }
 
-        fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            self.getitem_inner(&needle, vm)
+        fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            self.getitem_inner(needle, vm)
         }
 
         fn __setitem__(
             zelf: &Py<Self>,
-            needle: PyObjectRef,
+            needle: &PyObject,
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            Self::setitem_inner(zelf, &needle, value, vm)
+            Self::setitem_inner(zelf, needle, value, vm)
         }
 
         #[pymethod]
@@ -1358,22 +1358,22 @@ mod mmap {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
-                SequenceIndex::Int(i) => Self::setitem_by_index(zelf, i, value, vm),
-                SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, &slice, value, vm),
+                SequenceIndex::Int(i) => Self::setitem_by_index(zelf, i, &value, vm),
+                SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, &slice, &value, vm),
             }
         }
 
         fn setitem_by_index(
             &self,
             i: isize,
-            value: PyObjectRef,
+            value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let i: usize = i
                 .wrapped_at(self.__len__())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
 
-            let b = value_from_object(vm, &value)?;
+            let b = value_from_object(vm, value)?;
 
             self.try_writable(vm, |mmap| {
                 mmap[i] = b;
@@ -1385,12 +1385,12 @@ mod mmap {
         fn setitem_by_slice(
             &self,
             slice: &SaturatedSlice,
-            value: PyObjectRef,
+            value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let (range, step, slice_len) = slice.adjust_indices(self.__len__());
 
-            let bytes = bytes_from_object(vm, &value)?;
+            let bytes = bytes_from_object(vm, value)?;
 
             if bytes.len() != slice_len {
                 return Err(vm.new_index_error("mmap slice assignment is wrong size"));

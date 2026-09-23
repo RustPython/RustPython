@@ -59,25 +59,25 @@ impl PyUnion {
     }
 
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        fn repr_item(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_item(obj: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
             if obj.is(vm.ctx.types.none_type) {
                 return Ok("None".to_string());
             }
 
             if vm
-                .get_attribute_opt(obj.clone(), identifier!(vm, __origin__))?
+                .get_attribute_opt(obj.to_owned(), identifier!(vm, __origin__))?
                 .is_some()
                 && vm
-                    .get_attribute_opt(obj.clone(), identifier!(vm, __args__))?
+                    .get_attribute_opt(obj.to_owned(), identifier!(vm, __args__))?
                     .is_some()
             {
                 return Ok(obj.repr(vm)?.to_string());
             }
 
             match (
-                vm.get_attribute_opt(obj.clone(), identifier!(vm, __qualname__))?
+                vm.get_attribute_opt(obj.to_owned(), identifier!(vm, __qualname__))?
                     .and_then(|o| o.downcast_ref::<PyStr>().map(|n| n.to_string())),
-                vm.get_attribute_opt(obj.clone(), identifier!(vm, __module__))?
+                vm.get_attribute_opt(obj.to_owned(), identifier!(vm, __module__))?
                     .and_then(|o| o.downcast_ref::<PyStr>().map(|m| m.to_string())),
             ) {
                 (None, _) | (_, None) => Ok(obj.repr(vm)?.to_string()),
@@ -92,7 +92,7 @@ impl PyUnion {
         Ok(self
             .args
             .iter()
-            .map(|o| repr_item(o.clone(), vm))
+            .map(|o| repr_item(o, vm))
             .collect::<PyResult<Vec<_>>>()?
             .join(" | "))
     }
@@ -194,7 +194,7 @@ impl PyUnion {
     }
 }
 
-fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
+fn is_unionable(obj: &PyObject, vm: &VirtualMachine) -> bool {
     let cls = obj.class();
     cls.is(vm.ctx.types.none_type)
         || obj.downcastable::<PyType>()
@@ -205,7 +205,7 @@ fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
 
 fn type_check(arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     // Fast path to avoid calling into typing.py
-    if is_unionable(arg.clone(), vm) {
+    if is_unionable(&arg, vm) {
         return Ok(arg);
     }
     let message_str: PyObjectRef = vm
@@ -215,14 +215,14 @@ fn type_check(arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     call_typing_func_object(vm, "_type_check", (arg, message_str))
 }
 
-fn has_union_operands(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> bool {
+fn has_union_operands(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> bool {
     let union_type = vm.ctx.types.union_type;
     a.class().is(union_type) || b.class().is(union_type)
 }
 
 pub(crate) fn or_op(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    if !has_union_operands(zelf.clone(), other.clone(), vm)
-        && (!is_unionable(zelf.clone(), vm) || !is_unionable(other.clone(), vm))
+    if !has_union_operands(&zelf, &other, vm)
+        && (!is_unionable(&zelf, vm) || !is_unionable(&other, vm))
     {
         return Ok(vm.ctx.not_implemented());
     }
@@ -371,11 +371,11 @@ pub fn make_union(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult {
 }
 
 impl PyUnion {
-    fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn getitem(zelf: &Py<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let new_args = genericalias::subs_parameters(
-            zelf.to_owned().into(),
-            zelf.args.clone(),
-            zelf.parameters.clone(),
+            zelf.as_object(),
+            &zelf.args,
+            &zelf.parameters,
             needle,
             vm,
         )?;
@@ -397,7 +397,7 @@ impl AsMapping for PyUnion {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             subscript: atomic_func!(|mapping, needle, vm| {
                 let zelf = PyUnion::mapping_downcast(mapping);
-                PyUnion::getitem(zelf.to_owned(), needle.to_owned(), vm)
+                PyUnion::getitem(zelf, needle.to_owned(), vm)
             }),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });

@@ -1,6 +1,6 @@
 // spell-checker:ignore unchunked
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
@@ -69,14 +69,14 @@ impl ByteInnerNewOptions {
     }
 
     fn get_value_from_source(
-        source: PyObjectRef,
+        source: &PyObject,
         from_object: FromObject,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
-        from_object(vm, &source).map(|x| x.into())
+        from_object(vm, source).map(|x| x.into())
     }
 
-    fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    fn get_value_from_size(size: &Py<PyInt>, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         let size = size
             .as_bigint()
             .to_isize()
@@ -96,11 +96,11 @@ impl ByteInnerNewOptions {
     ) -> PyResult<PyBytesInner> {
         match_class!(match obj {
             i @ PyInt => {
-                Self::get_value_from_size(i, vm)
+                Self::get_value_from_size(&i, vm)
             }
             _s @ PyStr => Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned())),
             obj => {
-                Self::get_value_from_source(obj, from_object, vm)
+                Self::get_value_from_source(&obj, from_object, vm)
             }
         })
     }
@@ -114,7 +114,7 @@ impl ByteInnerNewOptions {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
                 if let Some(index_result) = obj.try_index_opt(vm) {
                     match index_result {
-                        Ok(index) => Self::get_value_from_size(index, vm),
+                        Ok(index) => Self::get_value_from_size(&index, vm),
                         Err(e) => {
                             // Only propagate non-TypeError exceptions
                             // TypeError means the object doesn't support __index__, so fall back
@@ -565,11 +565,11 @@ impl PyBytesInner {
     }
 
     /// Parse hex string from str or bytes-like object
-    pub fn fromhex_object(string: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub fn fromhex_object(string: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if let Some(s) = string.downcast_ref::<PyStr>() {
             Self::fromhex(s.as_bytes(), vm)
         } else if string.check_buffer() {
-            let buffer = PyBuffer::from_object(vm, &string, BufferFlags::SIMPLE)?;
+            let buffer = PyBuffer::from_object(vm, string, BufferFlags::SIMPLE)?;
             let borrowed = buffer
                 .as_contiguous()
                 .ok_or_else(|| vm.new_buffer_error("fromhex() requires a contiguous buffer"))?;

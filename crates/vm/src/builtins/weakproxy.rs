@@ -138,30 +138,25 @@ impl PyWeakProxy {
         let obj = self.try_upgrade(vm)?;
         reversed(obj, vm)
     }
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_upgrade(vm)?
             .sequence_unchecked()
-            .contains(&needle, vm)
+            .contains(needle, vm)
     }
 
-    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         let obj = self.try_upgrade(vm)?;
-        obj.get_item(&*needle, vm)
+        obj.get_item(needle, vm)
     }
 
-    fn setitem(
-        &self,
-        needle: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn setitem(&self, needle: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let obj = self.try_upgrade(vm)?;
-        obj.set_item(&*needle, value, vm)
+        obj.set_item(needle, value, vm)
     }
 
-    fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         let obj = self.try_upgrade(vm)?;
-        obj.del_item(&*needle, vm)
+        obj.del_item(needle, vm)
     }
 }
 
@@ -355,7 +350,7 @@ impl AsSequence for PyWeakProxy {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, vm| PyWeakProxy::sequence_downcast(seq).len(vm)),
             contains: atomic_func!(|seq, needle, vm| {
-                PyWeakProxy::sequence_downcast(seq).__contains__(needle.to_owned(), vm)
+                PyWeakProxy::sequence_downcast(seq).__contains__(needle, vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
@@ -368,14 +363,14 @@ impl AsMapping for PyWeakProxy {
         static AS_MAPPING: PyMappingMethods = PyMappingMethods {
             length: atomic_func!(|mapping, vm| PyWeakProxy::mapping_downcast(mapping).len(vm)),
             subscript: atomic_func!(|mapping, needle, vm| {
-                PyWeakProxy::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+                PyWeakProxy::mapping_downcast(mapping).getitem(needle, vm)
             }),
             ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                 let zelf = PyWeakProxy::mapping_downcast(mapping);
                 if let Some(value) = value {
-                    zelf.setitem(needle.to_owned(), value, vm)
+                    zelf.setitem(needle, value, vm)
                 } else {
-                    zelf.delitem(needle.to_owned(), vm)
+                    zelf.delitem(needle, vm)
                 }
             }),
         };

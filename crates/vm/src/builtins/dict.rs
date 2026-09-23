@@ -142,7 +142,7 @@ impl PyDict {
         let casted: Result<PyRefExact<Self>, _> = other.downcast_exact(vm);
         let other = match casted {
             Ok(dict_other) => {
-                return self.merge_dict(dict_other.into_pyref(), override_existing, vm);
+                return self.merge_dict(&dict_other, override_existing, vm);
             }
             Err(other) => other,
         };
@@ -271,13 +271,13 @@ impl PyDict {
 
     pub(crate) fn merge_dict(
         &self,
-        dict_other: PyDictRef,
+        dict_other: &Py<Self>,
         override_existing: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let dict = &self.entries;
         let dict_size = &dict_other.size();
-        for (key, value) in &dict_other {
+        for (key, value) in dict_other {
             if !override_existing && dict.contains(vm, &*key)? {
                 continue;
             }
@@ -315,10 +315,10 @@ impl PyDict {
     pub fn get_or_insert(
         &self,
         vm: &VirtualMachine,
-        key: PyObjectRef,
+        key: &PyObject,
         default: impl FnOnce() -> PyObjectRef,
     ) -> PyResult {
-        self.entries.setdefault(vm, &*key, default)
+        self.entries.setdefault(vm, key, default)
     }
 
     pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
@@ -402,7 +402,8 @@ impl PyDict {
                     }
                 } else {
                     for key in iterable.iter(vm)? {
-                        pydict.__setitem__(key?, value.clone(), vm)?;
+                        let key = key?;
+                        pydict.__setitem__(&key, value.clone(), vm)?;
                     }
                 }
                 Ok(pydict.into_pyref().into())
@@ -425,12 +426,12 @@ impl PyDict {
         core::mem::size_of::<Self>() + self.entries.sizeof()
     }
 
-    fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.entries.contains(vm, &*key)
+    fn __contains__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self.entries.contains(vm, key)
     }
 
-    fn __delitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner_delitem(&*key, vm)
+    fn __delitem__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner_delitem(key, vm)
     }
 
     #[pymethod]
@@ -438,13 +439,8 @@ impl PyDict {
         self.entries.clear()
     }
 
-    fn __setitem__(
-        &self,
-        key: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        self.inner_setitem(&*key, value, vm)
+    fn __setitem__(&self, key: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner_setitem(key, value, vm)
     }
 
     #[pymethod]
@@ -499,7 +495,7 @@ impl PyDict {
         let other_dict: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = other_dict {
             let self_cp = self.copy();
-            self_cp.merge_dict(other, true, vm)?;
+            self_cp.merge_dict(&other, true, vm)?;
             return Ok(self_cp.into_pyobject(vm));
         }
         Ok(vm.ctx.not_implemented())
@@ -618,7 +614,7 @@ impl PyRef<PyDict> {
         let other_dict: Result<Self, _> = other.downcast();
         if let Ok(other) = other_dict {
             let other_cp = other.copy();
-            other_cp.merge_dict(self, true, vm)?;
+            other_cp.merge_dict(&self, true, vm)?;
             return Ok(other_cp.into_pyobject(vm));
         }
         Ok(vm.ctx.not_implemented())
@@ -1550,8 +1546,8 @@ impl ViewSetOps for PyDictKeys {}
     )
 )]
 impl PyDictKeys {
-    fn __contains__(zelf: PyObjectRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        zelf.sequence_unchecked().contains(&key, vm)
+    fn __contains__(zelf: &PyObject, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        zelf.sequence_unchecked().contains(key, vm)
     }
 
     #[pygetset]
@@ -1614,8 +1610,8 @@ impl ViewSetOps for PyDictItems {}
     )
 )]
 impl PyDictItems {
-    fn __contains__(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        zelf.sequence_unchecked().contains(&needle, vm)
+    fn __contains__(zelf: &PyObject, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        zelf.sequence_unchecked().contains(needle, vm)
     }
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
@@ -1649,7 +1645,7 @@ impl AsSequence for PyDictItems {
 
                 let zelf = PyDictItems::sequence_downcast(seq);
                 let key = &needle[0];
-                if !zelf.dict.__contains__(key.to_owned(), vm)? {
+                if !zelf.dict.__contains__(key, vm)? {
                     return Ok(false);
                 }
                 let value = &needle[1];

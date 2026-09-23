@@ -163,172 +163,176 @@ impl Node for ast::Expr {
             ExprKind::BoolOp => Self::BoolOp(expr_bool_op_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Named => Self::Named(expr_named_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::BinOp => Self::BinOp(expr_bin_op_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::UnaryOp => Self::UnaryOp(expr_unary_op_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Lambda => Self::Lambda(expr_lambda_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::If => Self::If(expr_if_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Dict => Self::Dict(expr_dict_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Set => Self::Set(expr_set_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::ListComp => Self::ListComp(expr_list_comp_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::SetComp => Self::SetComp(expr_set_comp_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::DictComp => Self::DictComp(expr_dict_comp_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Generator => Self::Generator(expr_generator_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Await => Self::Await(expr_await_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Yield => Self::Yield(expr_yield_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::YieldFrom => Self::YieldFrom(expr_yield_from_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Compare => Self::Compare(expr_compare_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Call => Self::Call(expr_call_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::FormattedValue => {
-                let formatted =
-                    string::formatted_value_from_object_with_range(vm, source_file, object, range)?;
+                let formatted = string::formatted_value_from_object_with_range(
+                    vm,
+                    source_file,
+                    &object,
+                    range,
+                )?;
                 string::formatted_value_to_expr(true, formatted)
             }
             ExprKind::Interpolation => {
                 let interpolation = string::tstring_interpolation_from_object_with_range(
                     vm,
                     source_file,
-                    object,
+                    &object,
                     range,
                 )?;
                 string::interpolation_to_expr(vm, source_file, interpolation)?
             }
             ExprKind::JoinedStr => {
-                string::joined_str_from_object_with_range(vm, source_file, object, range)?
+                string::joined_str_from_object_with_range(vm, source_file, &object, range)?
                     .into_expr(true)
             }
             ExprKind::TemplateStr => {
                 let template =
-                    string::template_str_from_object_with_range(vm, source_file, object, range)?;
+                    string::template_str_from_object_with_range(vm, source_file, &object, range)?;
                 string::template_str_to_expr(vm, source_file, template)?
             }
             ExprKind::Constant => {
-                constant::constant_from_object_with_range(vm, source_file, object, range)?
+                constant::constant_from_object_with_range(vm, source_file, &object, range)?
                     .into_expr()
             }
             ExprKind::Attribute => Self::Attribute(expr_attribute_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Subscript => Self::Subscript(expr_subscript_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Starred => Self::Starred(expr_starred_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Name => Self::Name(expr_name_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::List => Self::List(expr_list_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Tuple => Self::Tuple(expr_tuple_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             ExprKind::Slice => Self::Slice(expr_slice_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
         })
@@ -339,18 +343,18 @@ impl Node for ast::Expr {
 fn expr_bool_op_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprBoolOp> {
     let values: Vec<Option<ast::Expr>> =
-        get_node_list_field(vm, source_file, &object, "values", "BoolOp")?;
+        get_node_list_field(vm, source_file, object, "values", "BoolOp")?;
     let (runtime_values, values) = runtime_expr_list_from_values(values);
     Ok(ast::ExprBoolOp {
         node_index: Default::default(),
         op: Node::ast_from_object(
             vm,
             source_file,
-            get_node_field_required(vm, &object, "op", "BoolOp")?,
+            get_node_field_required(vm, object, "op", "BoolOp")?,
         )?,
         values,
         range,
@@ -388,7 +392,7 @@ impl Node for ast::ExprBoolOp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "BoolOp")?;
-        expr_bool_op_from_object_with_range(vm, source_file, object, range)
+        expr_bool_op_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -396,13 +400,13 @@ impl Node for ast::ExprBoolOp {
 fn expr_named_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprNamed> {
     Ok(ast::ExprNamed {
         node_index: Default::default(),
-        target: get_required_node_field(vm, source_file, &object, "target", "NamedExpr")?,
-        value: get_required_node_field(vm, source_file, &object, "value", "NamedExpr")?,
+        target: get_required_node_field(vm, source_file, object, "target", "NamedExpr")?,
+        value: get_required_node_field(vm, source_file, object, "value", "NamedExpr")?,
         range,
     })
 }
@@ -433,7 +437,7 @@ impl Node for ast::ExprNamed {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "NamedExpr")?;
-        expr_named_from_object_with_range(vm, source_file, object, range)
+        expr_named_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -441,18 +445,18 @@ impl Node for ast::ExprNamed {
 fn expr_bin_op_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprBinOp> {
     Ok(ast::ExprBinOp {
         node_index: Default::default(),
-        left: get_required_node_field(vm, source_file, &object, "left", "BinOp")?,
+        left: get_required_node_field(vm, source_file, object, "left", "BinOp")?,
         op: Node::ast_from_object(
             vm,
             source_file,
-            get_node_field_required(vm, &object, "op", "BinOp")?,
+            get_node_field_required(vm, object, "op", "BinOp")?,
         )?,
-        right: get_required_node_field(vm, source_file, &object, "right", "BinOp")?,
+        right: get_required_node_field(vm, source_file, object, "right", "BinOp")?,
         range,
     })
 }
@@ -486,7 +490,7 @@ impl Node for ast::ExprBinOp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "BinOp")?;
-        expr_bin_op_from_object_with_range(vm, source_file, object, range)
+        expr_bin_op_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -494,7 +498,7 @@ impl Node for ast::ExprBinOp {
 fn expr_unary_op_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprUnaryOp> {
     Ok(ast::ExprUnaryOp {
@@ -502,9 +506,9 @@ fn expr_unary_op_from_object_with_range(
         op: Node::ast_from_object(
             vm,
             source_file,
-            get_node_field_required(vm, &object, "op", "UnaryOp")?,
+            get_node_field_required(vm, object, "op", "UnaryOp")?,
         )?,
-        operand: get_required_node_field(vm, source_file, &object, "operand", "UnaryOp")?,
+        operand: get_required_node_field(vm, source_file, object, "operand", "UnaryOp")?,
         range,
     })
 }
@@ -534,7 +538,7 @@ impl Node for ast::ExprUnaryOp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "UnaryOp")?;
-        expr_unary_op_from_object_with_range(vm, source_file, object, range)
+        expr_unary_op_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -542,7 +546,7 @@ impl Node for ast::ExprUnaryOp {
 fn expr_lambda_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprLambda> {
     Ok(ast::ExprLambda {
@@ -550,9 +554,9 @@ fn expr_lambda_from_object_with_range(
         parameters: Node::ast_from_object(
             vm,
             source_file,
-            get_node_field_required(vm, &object, "args", "Lambda")?,
+            get_node_field_required(vm, object, "args", "Lambda")?,
         )?,
-        body: get_required_node_field(vm, source_file, &object, "body", "Lambda")?,
+        body: get_required_node_field(vm, source_file, object, "body", "Lambda")?,
         range,
     })
 }
@@ -586,7 +590,7 @@ impl Node for ast::ExprLambda {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Lambda")?;
-        expr_lambda_from_object_with_range(vm, source_file, object, range)
+        expr_lambda_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -594,14 +598,14 @@ impl Node for ast::ExprLambda {
 fn expr_if_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprIf> {
     Ok(ast::ExprIf {
         node_index: Default::default(),
-        test: get_required_node_field(vm, source_file, &object, "test", "IfExp")?,
-        body: get_required_node_field(vm, source_file, &object, "body", "IfExp")?,
-        orelse: get_required_node_field(vm, source_file, &object, "orelse", "IfExp")?,
+        test: get_required_node_field(vm, source_file, object, "test", "IfExp")?,
+        body: get_required_node_field(vm, source_file, object, "body", "IfExp")?,
+        orelse: get_required_node_field(vm, source_file, object, "orelse", "IfExp")?,
         range,
     })
 }
@@ -635,7 +639,7 @@ impl Node for ast::ExprIf {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "IfExp")?;
-        expr_if_from_object_with_range(vm, source_file, object, range)
+        expr_if_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -643,13 +647,13 @@ impl Node for ast::ExprIf {
 fn expr_dict_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprDict> {
     let keys: Vec<Option<ast::Expr>> =
-        get_node_list_field(vm, source_file, &object, "keys", "Dict")?;
+        get_node_list_field(vm, source_file, object, "keys", "Dict")?;
     let values: Vec<Option<ast::Expr>> =
-        get_node_list_field(vm, source_file, &object, "values", "Dict")?;
+        get_node_list_field(vm, source_file, object, "values", "Dict")?;
     if keys.len() != values.len() {
         return Err(vm.new_value_error("Dict doesn't have the same number of keys as values"));
     }
@@ -704,7 +708,7 @@ impl Node for ast::ExprDict {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Dict")?;
-        expr_dict_from_object_with_range(vm, source_file, object, range)
+        expr_dict_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -712,11 +716,10 @@ impl Node for ast::ExprDict {
 fn expr_set_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprSet> {
-    let elts: Vec<Option<ast::Expr>> =
-        get_node_list_field(vm, source_file, &object, "elts", "Set")?;
+    let elts: Vec<Option<ast::Expr>> = get_node_list_field(vm, source_file, object, "elts", "Set")?;
     let (runtime_elts, elts) = runtime_expr_list_from_values(elts);
     Ok(ast::ExprSet {
         node_index: Default::default(),
@@ -752,7 +755,7 @@ impl Node for ast::ExprSet {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Set")?;
-        expr_set_from_object_with_range(vm, source_file, object, range)
+        expr_set_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -760,13 +763,13 @@ impl Node for ast::ExprSet {
 fn expr_list_comp_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprListComp> {
     Ok(ast::ExprListComp {
         node_index: Default::default(),
-        elt: get_required_node_field(vm, source_file, &object, "elt", "ListComp")?,
-        generators: get_node_list_field(vm, source_file, &object, "generators", "ListComp")?,
+        elt: get_required_node_field(vm, source_file, object, "elt", "ListComp")?,
+        generators: get_node_list_field(vm, source_file, object, "generators", "ListComp")?,
         range,
     })
 }
@@ -797,7 +800,7 @@ impl Node for ast::ExprListComp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "ListComp")?;
-        expr_list_comp_from_object_with_range(vm, source_file, object, range)
+        expr_list_comp_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -805,13 +808,13 @@ impl Node for ast::ExprListComp {
 fn expr_set_comp_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprSetComp> {
     Ok(ast::ExprSetComp {
         node_index: Default::default(),
-        elt: get_required_node_field(vm, source_file, &object, "elt", "SetComp")?,
-        generators: get_node_list_field(vm, source_file, &object, "generators", "SetComp")?,
+        elt: get_required_node_field(vm, source_file, object, "elt", "SetComp")?,
+        generators: get_node_list_field(vm, source_file, object, "generators", "SetComp")?,
         range,
     })
 }
@@ -842,7 +845,7 @@ impl Node for ast::ExprSetComp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "SetComp")?;
-        expr_set_comp_from_object_with_range(vm, source_file, object, range)
+        expr_set_comp_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -850,7 +853,7 @@ impl Node for ast::ExprSetComp {
 fn expr_dict_comp_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprDictComp> {
     Ok(ast::ExprDictComp {
@@ -858,12 +861,12 @@ fn expr_dict_comp_from_object_with_range(
         key: Some(get_required_node_field(
             vm,
             source_file,
-            &object,
+            object,
             "key",
             "DictComp",
         )?),
-        value: get_required_node_field(vm, source_file, &object, "value", "DictComp")?,
-        generators: get_node_list_field(vm, source_file, &object, "generators", "DictComp")?,
+        value: get_required_node_field(vm, source_file, object, "value", "DictComp")?,
+        generators: get_node_list_field(vm, source_file, object, "generators", "DictComp")?,
         range,
     })
 }
@@ -897,7 +900,7 @@ impl Node for ast::ExprDictComp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "DictComp")?;
-        expr_dict_comp_from_object_with_range(vm, source_file, object, range)
+        expr_dict_comp_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -905,13 +908,13 @@ impl Node for ast::ExprDictComp {
 fn expr_generator_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprGenerator> {
     Ok(ast::ExprGenerator {
         node_index: Default::default(),
-        elt: get_required_node_field(vm, source_file, &object, "elt", "GeneratorExp")?,
-        generators: get_node_list_field(vm, source_file, &object, "generators", "GeneratorExp")?,
+        elt: get_required_node_field(vm, source_file, object, "elt", "GeneratorExp")?,
+        generators: get_node_list_field(vm, source_file, object, "generators", "GeneratorExp")?,
         range,
         parenthesized: true,
     })
@@ -944,7 +947,7 @@ impl Node for ast::ExprGenerator {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "GeneratorExp")?;
-        expr_generator_from_object_with_range(vm, source_file, object, range)
+        expr_generator_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -952,12 +955,12 @@ impl Node for ast::ExprGenerator {
 fn expr_await_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprAwait> {
     Ok(ast::ExprAwait {
         node_index: Default::default(),
-        value: get_required_node_field(vm, source_file, &object, "value", "Await")?,
+        value: get_required_node_field(vm, source_file, object, "value", "Await")?,
         range,
     })
 }
@@ -984,7 +987,7 @@ impl Node for ast::ExprAwait {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Await")?;
-        expr_await_from_object_with_range(vm, source_file, object, range)
+        expr_await_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -992,12 +995,12 @@ impl Node for ast::ExprAwait {
 fn expr_yield_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprYield> {
     Ok(ast::ExprYield {
         node_index: Default::default(),
-        value: get_node_field_opt(vm, &object, "value")?
+        value: get_node_field_opt(vm, object, "value")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         range,
@@ -1027,7 +1030,7 @@ impl Node for ast::ExprYield {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Yield")?;
-        expr_yield_from_object_with_range(vm, source_file, object, range)
+        expr_yield_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1035,12 +1038,12 @@ impl Node for ast::ExprYield {
 fn expr_yield_from_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprYieldFrom> {
     Ok(ast::ExprYieldFrom {
         node_index: Default::default(),
-        value: get_required_node_field(vm, source_file, &object, "value", "YieldFrom")?,
+        value: get_required_node_field(vm, source_file, object, "value", "YieldFrom")?,
         range,
     })
 }
@@ -1068,7 +1071,7 @@ impl Node for ast::ExprYieldFrom {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "YieldFrom")?;
-        expr_yield_from_from_object_with_range(vm, source_file, object, range)
+        expr_yield_from_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1076,16 +1079,16 @@ impl Node for ast::ExprYieldFrom {
 fn expr_compare_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprCompare> {
     let comparators: Vec<Option<ast::Expr>> =
-        get_node_list_field(vm, source_file, &object, "comparators", "Compare")?;
+        get_node_list_field(vm, source_file, object, "comparators", "Compare")?;
     let (runtime_comparators, comparators) = runtime_expr_boxed_slice_from_values(comparators);
     Ok(ast::ExprCompare {
         node_index: Default::default(),
-        left: get_required_node_field(vm, source_file, &object, "left", "Compare")?,
-        ops: get_node_boxed_slice_field(vm, source_file, &object, "ops", "Compare")?,
+        left: get_required_node_field(vm, source_file, object, "left", "Compare")?,
+        ops: get_node_boxed_slice_field(vm, source_file, object, "ops", "Compare")?,
         comparators,
         range,
         runtime_comparators,
@@ -1125,7 +1128,7 @@ impl Node for ast::ExprCompare {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Compare")?;
-        expr_compare_from_object_with_range(vm, source_file, object, range)
+        expr_compare_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1133,17 +1136,17 @@ impl Node for ast::ExprCompare {
 fn expr_call_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprCall> {
     let mut arguments = merge_function_call_arguments(
-        PositionalArguments::ast_from_field(vm, source_file, &object, "args", "Call")?,
-        KeywordArguments::ast_from_field(vm, source_file, &object, "keywords", "Call")?,
+        PositionalArguments::ast_from_field(vm, source_file, object, "args", "Call")?,
+        KeywordArguments::ast_from_field(vm, source_file, object, "keywords", "Call")?,
     );
     arguments.range = range;
     Ok(ast::ExprCall {
         node_index: Default::default(),
-        func: get_required_node_field(vm, source_file, &object, "func", "Call")?,
+        func: get_required_node_field(vm, source_file, object, "func", "Call")?,
         arguments,
         range_start: range.start(),
     })
@@ -1187,7 +1190,7 @@ impl Node for ast::ExprCall {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Call")?;
-        expr_call_from_object_with_range(vm, source_file, object, range)
+        expr_call_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1195,17 +1198,17 @@ impl Node for ast::ExprCall {
 fn expr_attribute_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprAttribute> {
     Ok(ast::ExprAttribute {
         node_index: Default::default(),
-        value: get_required_node_field(vm, source_file, &object, "value", "Attribute")?,
-        attr: get_required_identifier_field(vm, source_file, &object, "attr", "Attribute")?,
+        value: get_required_node_field(vm, source_file, object, "value", "Attribute")?,
+        attr: get_required_identifier_field(vm, source_file, object, "attr", "Attribute")?,
         ctx: Node::ast_from_object(
             vm,
             source_file,
-            get_node_field_required(vm, &object, "ctx", "Attribute")?,
+            get_node_field_required(vm, object, "ctx", "Attribute")?,
         )?,
         range,
     })
@@ -1240,7 +1243,7 @@ impl Node for ast::ExprAttribute {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Attribute")?;
-        expr_attribute_from_object_with_range(vm, source_file, object, range)
+        expr_attribute_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1248,17 +1251,17 @@ impl Node for ast::ExprAttribute {
 fn expr_subscript_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprSubscript> {
     Ok(ast::ExprSubscript {
         node_index: Default::default(),
-        value: get_required_node_field(vm, source_file, &object, "value", "Subscript")?,
-        slice: get_required_node_field(vm, source_file, &object, "slice", "Subscript")?,
+        value: get_required_node_field(vm, source_file, object, "value", "Subscript")?,
+        slice: get_required_node_field(vm, source_file, object, "slice", "Subscript")?,
         ctx: Node::ast_from_object(
             vm,
             source_file,
-            get_node_field_required(vm, &object, "ctx", "Subscript")?,
+            get_node_field_required(vm, object, "ctx", "Subscript")?,
         )?,
         range,
     })
@@ -1292,7 +1295,7 @@ impl Node for ast::ExprSubscript {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Subscript")?;
-        expr_subscript_from_object_with_range(vm, source_file, object, range)
+        expr_subscript_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1300,16 +1303,16 @@ impl Node for ast::ExprSubscript {
 fn expr_starred_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprStarred> {
     Ok(ast::ExprStarred {
         node_index: Default::default(),
-        value: get_required_node_field(vm, source_file, &object, "value", "Starred")?,
+        value: get_required_node_field(vm, source_file, object, "value", "Starred")?,
         ctx: Node::ast_from_object(
             vm,
             source_file,
-            get_node_field_required(vm, &object, "ctx", "Starred")?,
+            get_node_field_required(vm, object, "ctx", "Starred")?,
         )?,
         range,
     })
@@ -1340,7 +1343,7 @@ impl Node for ast::ExprStarred {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Starred")?;
-        expr_starred_from_object_with_range(vm, source_file, object, range)
+        expr_starred_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1348,16 +1351,16 @@ impl Node for ast::ExprStarred {
 fn expr_name_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprName> {
     Ok(ast::ExprName {
         node_index: Default::default(),
-        id: get_required_identifier_field(vm, source_file, &object, "id", "Name")?,
+        id: get_required_identifier_field(vm, source_file, object, "id", "Name")?,
         ctx: Node::ast_from_object(
             vm,
             source_file,
-            get_node_field_required(vm, &object, "ctx", "Name")?,
+            get_node_field_required(vm, object, "ctx", "Name")?,
         )?,
         range,
     })
@@ -1389,7 +1392,7 @@ impl Node for ast::ExprName {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Name")?;
-        expr_name_from_object_with_range(vm, source_file, object, range)
+        expr_name_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1397,11 +1400,11 @@ impl Node for ast::ExprName {
 fn expr_list_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprList> {
     let elts: Vec<Option<ast::Expr>> =
-        get_node_list_field(vm, source_file, &object, "elts", "List")?;
+        get_node_list_field(vm, source_file, object, "elts", "List")?;
     let (runtime_elts, elts) = runtime_expr_list_from_values(elts);
     Ok(ast::ExprList {
         node_index: Default::default(),
@@ -1409,7 +1412,7 @@ fn expr_list_from_object_with_range(
         ctx: Node::ast_from_object(
             vm,
             source_file,
-            get_node_field_required(vm, &object, "ctx", "List")?,
+            get_node_field_required(vm, object, "ctx", "List")?,
         )?,
         range,
         runtime_elts,
@@ -1446,7 +1449,7 @@ impl Node for ast::ExprList {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "List")?;
-        expr_list_from_object_with_range(vm, source_file, object, range)
+        expr_list_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1454,11 +1457,11 @@ impl Node for ast::ExprList {
 fn expr_tuple_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprTuple> {
     let elts: Vec<Option<ast::Expr>> =
-        get_node_list_field(vm, source_file, &object, "elts", "Tuple")?;
+        get_node_list_field(vm, source_file, object, "elts", "Tuple")?;
     let (runtime_elts, elts) = runtime_expr_list_from_values(elts);
     Ok(ast::ExprTuple {
         node_index: Default::default(),
@@ -1466,7 +1469,7 @@ fn expr_tuple_from_object_with_range(
         ctx: Node::ast_from_object(
             vm,
             source_file,
-            get_node_field_required(vm, &object, "ctx", "Tuple")?,
+            get_node_field_required(vm, object, "ctx", "Tuple")?,
         )?,
         range,
         parenthesized: true,
@@ -1505,7 +1508,7 @@ impl Node for ast::ExprTuple {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Tuple")?;
-        expr_tuple_from_object_with_range(vm, source_file, object, range)
+        expr_tuple_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1513,18 +1516,18 @@ impl Node for ast::ExprTuple {
 fn expr_slice_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprSlice> {
     Ok(ast::ExprSlice {
         node_index: Default::default(),
-        lower: get_node_field_opt(vm, &object, "lower")?
+        lower: get_node_field_opt(vm, object, "lower")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
-        upper: get_node_field_opt(vm, &object, "upper")?
+        upper: get_node_field_opt(vm, object, "upper")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
-        step: get_node_field_opt(vm, &object, "step")?
+        step: get_node_field_opt(vm, object, "step")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         range,
@@ -1560,7 +1563,7 @@ impl Node for ast::ExprSlice {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let range = range_from_object(vm, source_file, object.clone(), "Slice")?;
-        expr_slice_from_object_with_range(vm, source_file, object, range)
+        expr_slice_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -1641,10 +1644,8 @@ impl Node for ast::Comprehension {
     ) -> PyResult<Self> {
         let ifs: Vec<Option<ast::Expr>> =
             get_node_list_field(vm, source_file, &object, "ifs", "comprehension")?;
-        let is_async = node_object_to_i32(
-            vm,
-            get_node_field(vm, &object, "is_async", "comprehension")?,
-        )?;
+        let is_async_obj = get_node_field(vm, &object, "is_async", "comprehension")?;
+        let is_async = node_object_to_i32(vm, &is_async_obj)?;
         let runtime_ifs = runtime_expr_list_metadata(&ifs);
         let runtime_is_async = (is_async != 0 && is_async != 1).then_some(is_async);
         Ok(Self {

@@ -14,7 +14,7 @@ mod _socket {
     #[cfg(all(unix, not(target_os = "redox")))]
     use crate::vm::convert::ToPyException;
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
             PyUtf8StrRef,
@@ -761,7 +761,7 @@ mod _socket {
     };
 }
 
-    fn get_raw_sock(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
+    fn get_raw_sock(obj: &PyObject, vm: &VirtualMachine) -> PyResult<RawSocket> {
         #[cfg(unix)]
         type CastFrom = core::ffi::c_long;
         #[cfg(windows)]
@@ -1357,7 +1357,7 @@ mod _socket {
         type Args = SocketInitArgs;
 
         fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            Self::_init(zelf, args, vm).map_err(|e| e.into_pyexception(vm))
+            Self::_init(&zelf, args, vm).map_err(|e| e.into_pyexception(vm))
         }
     }
 
@@ -1402,7 +1402,7 @@ mod _socket {
     )]
     impl PySocket {
         fn _init(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             args: <Self as Initializer>::Args,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
@@ -1445,7 +1445,7 @@ mod _socket {
                 }
 
                 // Not bytes, treat as regular fileno
-                let fileno = get_raw_sock(fileno_obj, vm)?;
+                let fileno = get_raw_sock(&fileno_obj, vm)?;
                 sock = sock_from_raw(fileno, vm)?;
                 match sock.local_addr() {
                     Ok(addr) if family == -1 => family = addr.family() as i32,
@@ -1471,7 +1471,7 @@ mod _socket {
             #[cfg(not(windows))]
             let fileno = fileno
                 .flatten()
-                .map(|obj| get_raw_sock(obj, vm))
+                .map(|obj| get_raw_sock(&obj, vm))
                 .transpose()?;
             #[cfg(not(windows))]
             if let Some(fileno) = fileno {
@@ -3075,7 +3075,7 @@ mod _socket {
 
     #[pyfunction]
     fn dup(x: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
-        let sock = get_raw_sock(x, vm)?;
+        let sock = get_raw_sock(&x, vm)?;
         let sock = core::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
         let newsock = sock.try_clone()?;
         let fd = into_sock_fileno(newsock);
@@ -3086,7 +3086,7 @@ mod _socket {
 
     #[pyfunction]
     fn close(x: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-        Ok(close_inner(get_raw_sock(x, vm)?)?)
+        Ok(close_inner(get_raw_sock(&x, vm)?)?)
     }
 
     fn close_inner(x: RawSocket) -> io::Result<()> {

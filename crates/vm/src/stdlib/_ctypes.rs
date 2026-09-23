@@ -831,13 +831,13 @@ pub(crate) mod _ctypes {
         ctype: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        super::function::cast_impl(obj, src, ctype, vm)
+        super::function::cast_impl(&obj, src, ctype, vm)
     }
 
     /// Python-level cast function (PYFUNCTYPE wrapper)
     #[pyfunction]
     fn cast(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        super::function::cast_impl(obj.clone(), obj, typ, vm)
+        super::function::cast_impl(&obj, obj.clone(), typ, vm)
     }
 
     /// Return buffer interface information for a ctypes type or object.

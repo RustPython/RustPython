@@ -2,7 +2,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{
         PyBaseExceptionRef, PyDictRef, PyListRef, PyStr, PyStrInterned, PyStrRef, PyTuple,
-        PyTupleRef, PyTypeRef,
+        PyTupleRef, PyType, PyTypeRef,
     },
     convert::TryFromObject,
 };
@@ -181,7 +181,7 @@ fn get_once_registry(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
 
 fn already_warned(
     registry: &PyObject,
-    key: PyObjectRef,
+    key: &PyObject,
     should_set: bool,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
@@ -198,7 +198,7 @@ fn already_warned(
     });
 
     if version_matches {
-        if let Ok(val) = registry.get_item(key.as_ref(), vm)
+        if let Ok(val) = registry.get_item(key, vm)
             && val.is_true(vm)?
         {
             return Ok(true);
@@ -213,7 +213,7 @@ fn already_warned(
     }
 
     if should_set {
-        registry.set_item(key.as_ref(), vm.ctx.true_value.clone().into(), vm)?;
+        registry.set_item(key, vm.ctx.true_value.clone().into(), vm)?;
     }
     Ok(false)
 }
@@ -240,7 +240,7 @@ fn update_registry(
     } else {
         PyTuple::new_ref(vec![text.to_owned(), category.to_owned()], &vm.ctx).into()
     };
-    already_warned(registry, altkey, true, vm)
+    already_warned(registry, &altkey, true, vm)
 }
 
 fn normalize_module(filename: &Py<PyStr>, vm: &VirtualMachine) -> PyObjectRef {
@@ -257,10 +257,10 @@ fn normalize_module(filename: &Py<PyStr>, vm: &VirtualMachine) -> PyObjectRef {
 // TODO: split into filter_search() + get_filter() and support
 //       context-aware filters (get_warnings_context_filters).
 fn get_filter(
-    category: PyObjectRef,
-    text: PyObjectRef,
+    category: &PyObject,
+    text: &PyObject,
     lineno: usize,
-    module: PyObjectRef,
+    module: &PyObject,
     vm: &VirtualMachine,
 ) -> PyResult {
     let filters = get_warnings_filters(vm);
@@ -281,9 +281,9 @@ fn get_filter(
 
         /* action, msg, cat, mod, ln = item */
         let action = &tmp_item[0];
-        let good_msg = check_matched(&tmp_item[1], &text, vm)?;
+        let good_msg = check_matched(&tmp_item[1], text, vm)?;
         let is_subclass = category.is_subclass(&tmp_item[2], vm)?;
-        let good_mod = check_matched(&tmp_item[3], &module, vm)?;
+        let good_mod = check_matched(&tmp_item[3], module, vm)?;
         let ln: usize = tmp_item[4].try_int(vm).map_or(0, |v| v.as_u32_mask() as _);
 
         if good_msg && is_subclass && good_mod && (ln == 0 || lineno == ln) {
@@ -410,18 +410,12 @@ pub fn warn_explicit(
     .into();
 
     // Check if already warned
-    if !vm.is_none(&registry) && already_warned(&registry, key.clone(), false, vm)? {
+    if !vm.is_none(&registry) && already_warned(&registry, &key, false, vm)? {
         return Ok(());
     }
 
     // Get filter action
-    let action = get_filter(
-        category.as_object().to_owned(),
-        text.clone().into(),
-        lineno,
-        module,
-        vm,
-    )?;
+    let action = get_filter(category.as_object(), text.as_object(), lineno, &module, vm)?;
     let action_str = PyStrRef::try_from_object(vm, action)
         .map_err(|_| vm.new_type_error("action must be a string"))?;
 
@@ -499,7 +493,7 @@ fn call_show_warning(
 ) -> PyResult<()> {
     let Some(show_fn) = get_warnings_attr(vm, identifier!(&vm.ctx, _showwarnmsg), source.is_some())
     else {
-        show_warning(filename, lineno, text, category, source_line, vm);
+        show_warning(&filename, lineno, &text, &category, source_line, vm);
         return Ok(());
     };
 
@@ -530,10 +524,10 @@ fn call_show_warning(
 }
 
 fn show_warning(
-    filename: PyStrRef,
+    filename: &Py<PyStr>,
     lineno: usize,
-    text: PyStrRef,
-    category: PyTypeRef,
+    text: &Py<PyStr>,
+    category: &Py<PyType>,
     _source_line: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) {

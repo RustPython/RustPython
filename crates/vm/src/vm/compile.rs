@@ -441,7 +441,7 @@ impl VirtualMachine {
             )
             .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self))?;
             if start == PY_SINGLE_INPUT {
-                return _ast::wrap_interactive(self, parsed);
+                return _ast::wrap_interactive(self, &parsed);
             }
             return Ok(parsed);
         }

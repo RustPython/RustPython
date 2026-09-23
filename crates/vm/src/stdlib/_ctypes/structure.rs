@@ -5,7 +5,7 @@ use crate::function::{FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
 use crate::stdlib::_warnings;
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, SetAttr};
-use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
 use core::fmt::Debug;
 use num_traits::ToPrimitive;
@@ -85,7 +85,7 @@ impl Initializer for PyCStructType {
 
         // Process _fields_ if defined directly on this class (not inherited)
         if let Some(fields_attr) = new_type.get_direct_attr(vm.ctx.intern_str("_fields_")) {
-            Self::process_fields(&new_type, fields_attr, vm)?;
+            Self::process_fields(&new_type, &fields_attr, vm)?;
         } else {
             // No _fields_ defined - try to copy from base class (PyCStgInfo_clone)
             let (has_base_info, base_clone) = {
@@ -221,7 +221,7 @@ impl PyCStructType {
 
         // Check if _fields_ is defined
         if let Some(fields_attr) = cls.get_direct_attr(vm.ctx.intern_str("_fields_")) {
-            Self::process_fields(&cls, fields_attr, vm)?;
+            Self::process_fields(&cls, &fields_attr, vm)?;
         }
         Ok(())
     }
@@ -229,7 +229,7 @@ impl PyCStructType {
     /// Process _fields_ and create CField descriptors
     fn process_fields(
         cls: &Py<PyType>,
-        fields_attr: PyObjectRef,
+        fields_attr: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Check if this is a swapped byte order structure
@@ -622,7 +622,7 @@ impl SetAttr for PyCStructType {
                 return Err(vm.new_attribute_error("cannot delete _fields_"));
             };
             // Process fields (this will also set DICTFLAG_FINAL)
-            Self::process_fields(pytype, fields_value.clone(), vm)?;
+            Self::process_fields(pytype, &fields_value, vm)?;
             // Set the _fields_ attribute on the type
             pytype
                 .attributes

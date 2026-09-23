@@ -39,7 +39,7 @@ pub(crate) mod _ast {
             const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
                 "__reduce__",
                 |zelf: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyTupleRef> {
-                    ast_reduce(zelf, vm)
+                    ast_reduce(&zelf, vm)
                 },
                 PyMethodFlags::METHOD,
                 None,
@@ -47,7 +47,7 @@ pub(crate) mod _ast {
             const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
                 "__replace__",
                 |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
-                    ast_replace(zelf, args, vm)
+                    ast_replace(&zelf, args, vm)
                 },
                 PyMethodFlags::METHOD,
                 None,
@@ -55,7 +55,7 @@ pub(crate) mod _ast {
             const AST_DEEPCOPY: PyMethodDef = PyMethodDef::new_const(
                 "__deepcopy__",
                 |zelf: PyObjectRef, memo: PyObjectRef, vm: &VirtualMachine| -> PyResult {
-                    ast_deepcopy(zelf, memo, vm)
+                    ast_deepcopy(&zelf, &memo, vm)
                 },
                 PyMethodFlags::METHOD,
                 None,
@@ -88,21 +88,21 @@ pub(crate) mod _ast {
 
         #[pymethod]
         fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            ast_reduce(zelf, vm)
+            ast_reduce(&zelf, vm)
         }
 
         #[pymethod]
         fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            ast_replace(zelf, args, vm)
+            ast_replace(&zelf, args, vm)
         }
 
         #[pymethod]
         fn __deepcopy__(zelf: PyObjectRef, memo: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            ast_deepcopy(zelf, memo, vm)
+            ast_deepcopy(&zelf, &memo, vm)
         }
     }
 
-    pub(crate) fn ast_reduce(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    pub(crate) fn ast_reduce(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let dict = zelf.as_object().dict();
         let cls = zelf.class();
         let type_obj: PyObjectRef = cls.to_owned().into();
@@ -213,7 +213,7 @@ pub(crate) mod _ast {
         obj.set_attr(&name, value, vm)
     }
 
-    pub(crate) fn ast_replace(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn ast_replace(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() {
             return Err(vm.new_type_error("__replace__() takes no positional arguments"));
         }
@@ -298,13 +298,9 @@ pub(crate) mod _ast {
         Ok(result)
     }
 
-    pub(crate) fn ast_deepcopy(
-        zelf: PyObjectRef,
-        memo: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    pub(crate) fn ast_deepcopy(zelf: &PyObject, memo: &PyObject, vm: &VirtualMachine) -> PyResult {
         let memo_dict: PyDictRef = memo
-            .clone()
+            .to_owned()
             .downcast()
             .map_err(|_| vm.new_type_error("__deepcopy__() memo must be a dict"))?;
         let memo_key: PyObjectRef = vm.ctx.new_int(zelf.get_id() as i64).into();
@@ -330,7 +326,7 @@ pub(crate) mod _ast {
         if let (Some(src_dict), Some(dst_dict)) = (zelf.as_object().dict(), copied_dict) {
             let deepcopy = vm.import("copy", 0)?.get_attr("deepcopy", vm)?;
             for (key, value) in src_dict.items_vec() {
-                let copied_value = deepcopy.call((value, memo.clone()), vm)?;
+                let copied_value = deepcopy.call((value, memo.to_owned()), vm)?;
                 dst_dict.set_item(&*key, copied_value, vm)?;
             }
         }
@@ -598,7 +594,7 @@ This will become an error in Python 3.15.",
         const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
             "__reduce__",
             |zelf: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyTupleRef> {
-                ast_reduce(zelf, vm)
+                ast_reduce(&zelf, vm)
             },
             PyMethodFlags::METHOD,
             None,
@@ -606,7 +602,7 @@ This will become an error in Python 3.15.",
         const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
             "__replace__",
             |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
-                ast_replace(zelf, args, vm)
+                ast_replace(&zelf, args, vm)
             },
             PyMethodFlags::METHOD,
             None,

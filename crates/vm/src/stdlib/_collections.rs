@@ -329,8 +329,8 @@ mod _collections {
                 .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
-        fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-            self._contains(&needle, vm)
+        fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+            self._contains(needle, vm)
         }
 
         fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -950,7 +950,7 @@ mod _collections {
     }
 
     impl PyDefaultDict {
-        fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __or__(lhs: &PyObject, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let not_implemented = || Ok(vm.ctx.not_implemented.clone().into());
 
             let (default_factory, dict) = if let Some(zelf) = lhs.downcast_ref::<Self>() {
@@ -1048,9 +1048,7 @@ mod _collections {
     impl AsNumber for PyDefaultDict {
         fn as_number() -> &'static PyNumberMethods {
             static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-                or: Some(|a, b, vm| {
-                    PyDefaultDict::__or__(a.to_pyobject(vm), b.to_pyobject(vm), vm)
-                }),
+                or: Some(|a, b, vm| PyDefaultDict::__or__(a, b.to_pyobject(vm), vm)),
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER

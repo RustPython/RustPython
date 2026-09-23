@@ -382,7 +382,7 @@ impl PyCPointer {
     }
 
     // Pointer_subscript
-    fn __getitem__(zelf: &Py<Self>, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __getitem__(zelf: &Py<Self>, item: &PyObject, vm: &VirtualMachine) -> PyResult {
         // PyIndex_Check
         if let Some(i) = item.downcast_ref::<PyInt>() {
             let i = i.as_bigint().to_isize().ok_or_else(|| {
@@ -545,7 +545,7 @@ impl PyCPointer {
     // Pointer_ass_item
     fn __setitem__(
         zelf: &Py<Self>,
-        item: PyObjectRef,
+        item: &PyObject,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -749,12 +749,12 @@ impl AsMapping for PyCPointer {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             subscript: atomic_func!(|mapping, needle, vm| {
                 let zelf = PyCPointer::mapping_downcast(mapping);
-                PyCPointer::__getitem__(zelf, needle.to_owned(), vm)
+                PyCPointer::__getitem__(zelf, needle, vm)
             }),
             ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                 let zelf = PyCPointer::mapping_downcast(mapping);
                 match value {
-                    Some(value) => PyCPointer::__setitem__(zelf, needle.to_owned(), value, vm),
+                    Some(value) => PyCPointer::__setitem__(zelf, needle, value, vm),
                     None => Err(vm.new_type_error("Pointer does not support item deletion")),
                 }
             }),

@@ -1,6 +1,6 @@
 use crate::{
-    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyBaseExceptionRef, PyTupleRef, PyType},
     common::wtf8::{Wtf8, Wtf8Buf},
     convert::ToPyObject,
     object::{Traverse, TraverseFn},
@@ -221,11 +221,11 @@ impl FuncArgs {
     }
 
     #[must_use]
-    pub fn get_kwarg(&self, key: &str, default: PyObjectRef) -> PyObjectRef {
+    pub fn get_kwarg(&self, key: &str, default: &PyObject) -> PyObjectRef {
         self.kwargs
             .get(key)
             .cloned()
-            .unwrap_or_else(|| default.clone())
+            .unwrap_or_else(|| default.to_owned())
     }
 
     #[must_use]
@@ -236,12 +236,12 @@ impl FuncArgs {
     pub fn get_optional_kwarg_with_type(
         &self,
         key: &str,
-        ty: PyTypeRef,
+        ty: &Py<PyType>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
-                if kwarg.fast_isinstance(&ty) {
+                if kwarg.fast_isinstance(ty) {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = &ty.name();

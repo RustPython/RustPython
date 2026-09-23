@@ -244,7 +244,7 @@ mod _pickle {
         frame_end: Option<usize>,
     }
 
-    fn to_byte_vec(obj: PyObjectRef, what: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn to_byte_vec(obj: &PyObject, what: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         obj.downcast_ref::<crate::vm::builtins::PyBytes>()
             .map(|b| b.as_bytes().to_vec())
             .ok_or_else(|| {
@@ -287,7 +287,7 @@ mod _pickle {
             {
                 match peek.call((PREFETCH,), vm) {
                     Ok(data) => {
-                        let data = to_byte_vec(data, "peek", vm)?;
+                        let data = to_byte_vec(&data, "peek", vm)?;
                         let len = data.len();
                         self.set_input(data, false);
                         if n <= len {
@@ -301,7 +301,8 @@ mod _pickle {
                 }
             }
             let read = self.read.clone().expect("file input");
-            let data = to_byte_vec(read.call((n,), vm)?, "read", vm)?;
+            let data = read.call((n,), vm)?;
+            let data = to_byte_vec(&data, "read", vm)?;
             let len = data.len();
             self.set_input(data, true);
             Ok(len)
@@ -363,7 +364,8 @@ mod _pickle {
             }
             self.skip_consumed(vm)?;
             let readline = self.readline.clone().expect("file input");
-            let data = to_byte_vec(readline.call((), vm)?, "readline", vm)?;
+            let data = readline.call((), vm)?;
+            let data = to_byte_vec(&data, "readline", vm)?;
             let len = data.len();
             self.set_input(data, true);
             if len == 0 || self.buf[len - 1] != b'\n' {
@@ -1403,7 +1405,7 @@ mod _pickle {
                 Some(BUILD) => {
                     let state = pop!();
                     let inst = top!();
-                    load_build(inst, state, vm)?;
+                    load_build(&inst, state, vm)?;
                 }
                 Some(EXT1) => {
                     let code = st.read_n(1, vm)?[0] as i32;
@@ -1528,8 +1530,8 @@ mod _pickle {
         cls.call(args, vm)
     }
 
-    fn load_build(inst: PyObjectRef, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(setstate) = vm.get_attribute_opt(inst.clone(), "__setstate__")? {
+    fn load_build(inst: &PyObject, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(setstate) = vm.get_attribute_opt(inst.to_owned(), "__setstate__")? {
             setstate.call((state,), vm)?;
             return Ok(());
         }
@@ -2029,7 +2031,7 @@ mod _pickle {
     impl PyPickler {
         #[pymethod]
         fn dump(zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            dump_impl(zelf, obj, vm)
+            dump_impl(zelf, &obj, vm)
         }
 
         #[pymethod]
@@ -2384,7 +2386,7 @@ mod _pickle {
                 if data.as_bytes().is_empty() {
                     let bytes_type: PyObjectRef = vm.ctx.types.bytes_type.to_owned().into();
                     return self.save_reduce(
-                        bytes_type,
+                        &bytes_type,
                         vm.ctx.new_tuple(vec![]).into(),
                         None,
                         None,
@@ -2402,7 +2404,7 @@ mod _pickle {
                     vm.ctx.new_str("latin1").into(),
                 ]);
                 return self.save_reduce(
-                    encode,
+                    &encode,
                     args.into(),
                     None,
                     None,
@@ -2432,7 +2434,7 @@ mod _pickle {
                     vm.ctx.new_tuple(vec![vm.ctx.new_bytes(data).into()])
                 };
                 return self.save_reduce(
-                    bytearray_type,
+                    &bytearray_type,
                     args.into(),
                     None,
                     None,
@@ -2784,7 +2786,7 @@ mod _pickle {
                 let elements = vm.ctx.new_list(set.elements());
                 let set_type: PyObjectRef = vm.ctx.types.set_type.to_owned().into();
                 return self.save_reduce(
-                    set_type,
+                    &set_type,
                     vm.ctx.new_tuple(vec![elements.into()]).into(),
                     None,
                     None,
@@ -2819,7 +2821,7 @@ mod _pickle {
                 let elements = vm.ctx.new_list(set.elements());
                 let frozenset_type: PyObjectRef = vm.ctx.types.frozenset_type.to_owned().into();
                 return self.save_reduce(
-                    frozenset_type,
+                    &frozenset_type,
                     vm.ctx.new_tuple(vec![elements.into()]).into(),
                     None,
                     None,
@@ -3022,7 +3024,7 @@ mod _pickle {
                 items.get(i).filter(|o| !vm.is_none(o)).cloned()
             };
             self.save_reduce(
-                items[0].clone(),
+                &items[0],
                 items[1].clone(),
                 opt(2),
                 opt(3),
@@ -3036,7 +3038,7 @@ mod _pickle {
         #[allow(clippy::too_many_arguments)]
         fn save_reduce(
             &mut self,
-            func: PyObjectRef,
+            func: &PyObject,
             args: PyObjectRef,
             state: Option<PyObjectRef>,
             listitems: Option<PyObjectRef>,
@@ -3050,7 +3052,7 @@ mod _pickle {
                     vm,
                     format!(
                         "first item of the tuple returned by __reduce__ must be callable, not {}",
-                        obj_type_name(&func, vm)
+                        obj_type_name(func, vm)
                     ),
                 ));
             }
@@ -3101,7 +3103,7 @@ mod _pickle {
             let obj_name =
                 |vm: &VirtualMachine| obj.map_or_else(String::new, |o| obj_type_name(o, vm));
             let func_name = vm
-                .get_attribute_opt(func.clone(), "__name__")?
+                .get_attribute_opt(func.to_owned(), "__name__")?
                 .and_then(|o| {
                     o.downcast_ref::<PyStr>()
                         .map(|s| s.to_string_lossy().into_owned())
@@ -3238,7 +3240,7 @@ mod _pickle {
                 })?;
                 self.write(&[NEWOBJ as u8]);
             } else {
-                self.save(&func, false, vm).map_err(|e| {
+                self.save(func, false, vm).map_err(|e| {
                     add_note(
                         e,
                         format!("when serializing {} reconstructor", obj_name(vm)),
@@ -3334,7 +3336,7 @@ mod _pickle {
             };
             match singleton {
                 Some(value) => self.save_reduce(
-                    type_type,
+                    &type_type,
                     vm.ctx.new_tuple(vec![value]).into(),
                     None,
                     None,
@@ -3699,7 +3701,7 @@ mod _pickle {
         }
     }
 
-    fn dump_impl(zelf: &Py<PyPickler>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn dump_impl(zelf: &Py<PyPickler>, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         let Some(mut out) = zelf.out.try_lock() else {
             return Err(vm.new_runtime_error("Pickler.dump() called recursively"));
         };
@@ -3754,7 +3756,7 @@ mod _pickle {
             buffer_callback,
             copyreg: None,
         };
-        ctx.save(&obj, false, vm)?;
+        ctx.save(obj, false, vm)?;
         ctx.write(&[STOP as u8]);
         out.commit_frame();
         out.flush_to_file(vm)?;
@@ -3800,7 +3802,7 @@ mod _pickle {
             config: PyRwLock::new(config),
         }
         .into_ref(&vm.ctx);
-        dump_impl(&pickler, args.obj, vm)
+        dump_impl(&pickler, &args.obj, vm)
     }
 
     #[derive(FromArgs)]
@@ -3830,7 +3832,7 @@ mod _pickle {
             config: PyRwLock::new(config),
         }
         .into_ref(&vm.ctx);
-        dump_impl(&pickler, args.obj, vm)?;
+        dump_impl(&pickler, &args.obj, vm)?;
         let data = core::mem::take(&mut pickler.out.lock().buf);
         Ok(vm.ctx.new_bytes(data).into())
     }

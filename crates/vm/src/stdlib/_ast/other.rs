@@ -11,7 +11,7 @@ impl Node for ast::ConversionFlag {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        match node_object_to_i32(vm, object)? {
+        match node_object_to_i32(vm, &object)? {
             -1 => Ok(Self::None),
             x if x == b's' as i32 => Ok(Self::Str),
             x if x == b'r' as i32 => Ok(Self::Repr),

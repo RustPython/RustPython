@@ -210,7 +210,7 @@ impl PyMemberDef {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.getter {
             MemberGetter::Getter(getter) => (getter)(vm, obj),
-            MemberGetter::Offset(offset) => get_slot_from_object(obj, offset, self, vm),
+            MemberGetter::Offset(offset) => get_slot_from_object(&obj, offset, self, vm),
         }
     }
 
@@ -225,7 +225,7 @@ impl PyMemberDef {
                 Some(setter) => (setter)(vm, obj, value),
                 None => Err(vm.new_attribute_error("readonly attribute")),
             },
-            MemberSetter::Offset(offset) => set_slot_at_object(obj, offset, self, value, vm),
+            MemberSetter::Offset(offset) => set_slot_at_object(&obj, offset, self, value, vm),
         }
     }
 }
@@ -338,7 +338,7 @@ impl PyMemberDescriptor {
 
 // PyMember_GetOne
 fn get_slot_from_object(
-    obj: PyObjectRef,
+    obj: &PyObject,
     offset: usize,
     member: &PyMemberDef,
     vm: &VirtualMachine,
@@ -362,7 +362,7 @@ fn get_slot_from_object(
 
 // PyMember_SetOne
 fn set_slot_at_object(
-    obj: PyObjectRef,
+    obj: &PyObject,
     offset: usize,
     member: &PyMemberDef,
     value: PySetterValue,
@@ -779,7 +779,7 @@ impl SlotFunc {
             // Buffer protocol
             Self::GetBuffer(func) => {
                 let (flags_obj,): (PyObjectRef,) = args.bind(vm)?;
-                let buffer = func(&obj, parse_buffer_flags(flags_obj, vm)?, vm)?;
+                let buffer = func(&obj, parse_buffer_flags(&flags_obj, vm)?, vm)?;
                 crate::builtins::PyMemoryView::from_buffer(buffer, vm)
                     .map(|mv| mv.into_pyobject(vm))
             }
@@ -788,7 +788,7 @@ impl SlotFunc {
                 let mv = mv_obj
                     .downcast::<crate::builtins::PyMemoryView>()
                     .map_err(|_| vm.new_type_error("expected a memoryview object"))?;
-                crate::builtins::memory::release_buffer_from_python(&obj, mv, vm)?;
+                crate::builtins::memory::release_buffer_from_python(&obj, &mv, vm)?;
                 Ok(vm.ctx.none())
             }
         }
@@ -815,7 +815,7 @@ fn pow_args(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObj
 
 /// Parse the `flags` argument of `__buffer__`. wrap_buffer
 fn parse_buffer_flags(
-    arg: PyObjectRef,
+    arg: &PyObject,
     vm: &VirtualMachine,
 ) -> PyResult<crate::protocol::BufferFlags> {
     use num_traits::ToPrimitive;
