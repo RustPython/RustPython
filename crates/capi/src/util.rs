@@ -1,9 +1,9 @@
 use crate::PyObject;
+use core::any::type_name;
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_ulong, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::{Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
-use std::any::type_name;
 
 pub(crate) trait FfiResult<Output = Self> {
     const ERR_VALUE: Output;
