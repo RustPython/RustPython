@@ -954,23 +954,30 @@ mod _socket {
         where
             F: FnMut() -> io::Result<R>,
         {
-            let deadline = self.get_timeout().ok().map(Deadline::new);
-            self.sock_op_timeout_err(vm, wait_kind, deadline, f)
+            let timeout = self.get_timeout().ok();
+            let mut deadline = None;
+            self.sock_op_timeout_err(vm, wait_kind, &mut deadline, timeout, f)
         }
 
         fn sock_op_timeout_err<F, R>(
             &self,
             vm: &VirtualMachine,
             wait_kind: SockWaitKind,
-            deadline: Option<Deadline>,
+            deadline: &mut Option<Deadline>,
+            timeout: Option<Duration>,
             mut f: F,
         ) -> Result<R, IoOrPyException>
         where
             F: FnMut() -> io::Result<R>,
         {
             loop {
-                if deadline.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
+                if timeout.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
                     let sock = self.sock_snapshot()?;
+                    // Start the clock after the snapshot so lock/scheduling
+                    // delay is not subtracted from a short timeout before poll.
+                    if deadline.is_none() {
+                        *deadline = timeout.map(Deadline::new);
+                    }
                     sock_wait_deadline(&sock, wait_kind, deadline.as_ref(), vm)?;
                 }
 
@@ -983,7 +990,7 @@ mod _socket {
                         Err(e) => break e,
                     }
                 };
-                if deadline.is_some() && err.kind() == io::ErrorKind::WouldBlock {
+                if timeout.is_some() && err.kind() == io::ErrorKind::WouldBlock {
                     continue;
                 }
                 return Err(err.into());
@@ -1701,15 +1708,14 @@ mod _socket {
             let flags = flags.unwrap_or(0);
 
             let timeout = self.get_timeout().ok();
-
-            let deadline = timeout.map(Deadline::new);
+            let mut deadline = None;
 
             let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             let mut buf_offset = 0;
             // now we have like 3 layers of interrupt loop :)
             while buf_offset < buf.len() {
-                self.sock_op_timeout_err(vm, SockWaitKind::Write, deadline, || {
+                self.sock_op_timeout_err(vm, SockWaitKind::Write, &mut deadline, timeout, || {
                     let subbuf = &buf[buf_offset..];
                     buf_offset += self.sock_snapshot()?.send_with_flags(subbuf, flags)?;
                     Ok(())
