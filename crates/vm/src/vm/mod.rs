@@ -2571,6 +2571,7 @@ impl VirtualMachine {
     /// native stack. That is a separate budget from the frame limit
     /// `sys.setrecursionlimit()` sets, so nesting counted here does not come
     /// out of what Python code has left to call with.
+    #[inline(always)]
     pub fn enter_recursive_call(&self, _where: &str) -> PyResult<()> {
         // `check_c_stack_overflow()` answers no unconditionally where the stack
         // pointer cannot be read, which would leave this guard with nothing to
@@ -2595,6 +2596,7 @@ impl VirtualMachine {
 
     /// Leave a native-recursion section equivalent to
     /// `Py_LeaveRecursiveCall`.
+    #[inline(always)]
     pub fn leave_recursive_call(&self) {
         #[cfg(any(miri, target_env = "musl"))]
         self.native_recursion_depth.update(|d| d.saturating_sub(1));
@@ -2607,9 +2609,14 @@ impl VirtualMachine {
         self.enter_recursive_call(_where)?;
 
         #[cfg(any(miri, target_env = "musl"))]
-        let _native_depth_guard = scopeguard::guard((), |()| self.leave_recursive_call());
+        let native_depth_guard = scopeguard::guard((), |()| self.leave_recursive_call());
 
-        f()
+        let result = f();
+
+        #[cfg(any(miri, target_env = "musl"))]
+        drop(native_depth_guard);
+
+        result
     }
 
     pub fn with_frame<R, F: FnOnce(FrameObjectRef) -> PyResult<R>>(
