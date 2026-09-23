@@ -5,7 +5,7 @@ use crate::{
     PyObject, PyObjectRef,
     object::{
         Erased, InstanceDict, MaybeTraverse, PyInner, PyObjectPayload, debug_obj, default_dealloc,
-        try_clear_obj, try_traverse_obj,
+        freelist_dealloc, try_clear_obj, try_traverse_obj,
     },
 };
 
@@ -26,7 +26,13 @@ impl PyObjVTable {
     pub(super) const fn of<T: PyObjectPayload>() -> &'static Self {
         &Self {
             typeid: T::PAYLOAD_TYPE_ID,
-            dealloc: default_dealloc::<T>,
+            dealloc: const {
+                if T::HAS_FREELIST && !T::HAS_CLEAR {
+                    freelist_dealloc::<T>
+                } else {
+                    default_dealloc::<T>
+                }
+            },
             debug: debug_obj::<T>,
             trace: const {
                 if T::HAS_TRAVERSE {
