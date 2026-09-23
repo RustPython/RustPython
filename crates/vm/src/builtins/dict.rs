@@ -822,6 +822,38 @@ impl Py<PyDict> {
         self.entries.get_known_hash(vm, key, hash)
     }
 
+    pub(crate) fn set_item_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.entries.insert_known_hash(vm, key, hash, value)
+    }
+
+    pub(crate) fn del_item_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if self.entries.delete_if_exists_known_hash(vm, key, hash)? {
+            Ok(())
+        } else {
+            Err(vm.new_key_error(key.to_owned()))
+        }
+    }
+
+    pub(crate) fn contains_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        self.entries.contains_known_hash(vm, key, hash)
+    }
+
     pub fn get_item_opt<K: DictKey + ?Sized>(
         &self,
         key: &K,
