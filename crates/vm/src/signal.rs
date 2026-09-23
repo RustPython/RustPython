@@ -182,11 +182,6 @@ mod mt {
         EVAL_BREAKER.fetch_and(!STOP_BIT, Ordering::Release);
     }
 
-    #[cfg(test)]
-    pub(crate) fn stop_bit_set() -> bool {
-        EVAL_BREAKER.load(Ordering::Relaxed) & STOP_BIT != 0
-    }
-
     /// Record that finalization has begun. See `FINALIZING_BIT`.
     pub(crate) fn set_finalizing_bit() {
         EVAL_BREAKER.fetch_or(FINALIZING_BIT, Ordering::Release);
@@ -203,8 +198,6 @@ mod mt {
     }
 }
 
-#[cfg(all(test, feature = "threading"))]
-pub(crate) use mt::stop_bit_set;
 #[cfg(feature = "threading")]
 pub(crate) use mt::{
     clear_qsbr_bit, clear_stop_bit, qsbr_bit_set, schedule_gc, set_finalizing_bit, set_qsbr_bit,
