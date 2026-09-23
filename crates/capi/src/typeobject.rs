@@ -19,7 +19,10 @@ use core::ptr;
 use rustpython_vm::builtins::PyType;
 use rustpython_vm::function::{HeapMethodDef, PyMethodFlags};
 use rustpython_vm::object::PyCBody;
-use rustpython_vm::types::{CDestructor, CNewFunc, CSlotId, CSlots, PyTypeFlags, PyTypeSlots};
+use rustpython_vm::object::rustpython_free;
+use rustpython_vm::types::{
+    CAllocFunc, CDestructor, CFreeFunc, CNewFunc, CSlotId, CSlots, PyTypeFlags, PyTypeSlots,
+};
 use rustpython_vm::{Py, PyRef, PyResult, VirtualMachine, identifier};
 
 #[allow(non_camel_case_types)]
@@ -63,17 +66,27 @@ fn install_new_wrapper(vm: &VirtualMachine, ty: &Py<PyType>) {
 ///
 /// `Py_tp_new` is reported for a function installed from C and for a Rust
 /// `tp_new`, including one a subclass inherited. `Py_tp_dealloc` is reported
-/// when it was installed from C. Any other id reads as empty.
+/// when it was installed from C. `Py_tp_free` is the VM freer, or the
+/// function an extension stored. `Py_tp_alloc` is reported only when an
+/// extension stored one. Any other id reads as empty.
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
 pub unsafe extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c_void {
     let ty = unsafe { &*ty };
+    let c_slots = ty.slots.c_slots();
     match CSlotId::from_raw(slot) {
         Some(CSlotId::TpNew) => ty.c_tp_new().map_or(ptr::null_mut(), |f| f as *mut c_void),
-        Some(CSlotId::TpDealloc) => ty
-            .slots
-            .c_slots()
+        Some(CSlotId::TpDealloc) => c_slots
             .and_then(|c| c.dealloc.load())
+            .map_or(ptr::null_mut(), |f| f as *mut c_void),
+        Some(CSlotId::TpFree) => {
+            let free = c_slots
+                .and_then(|c| c.free.load())
+                .unwrap_or(rustpython_free);
+            free as *mut c_void
+        }
+        Some(CSlotId::TpAlloc) => c_slots
+            .and_then(|c| c.alloc.load())
             .map_or(ptr::null_mut(), |f| f as *mut c_void),
         None => ptr::null_mut(),
     }
@@ -105,11 +118,13 @@ struct PyType_Slot {
     pfunc: *mut c_void,
 }
 
+const PY_TP_ALLOC: c_int = 47;
 const PY_TP_BASE: c_int = 48;
 const PY_TP_DEALLOC: c_int = 52;
 const PY_TP_DOC: c_int = 56;
 const PY_TP_METHODS: c_int = 64;
 const PY_TP_NEW: c_int = 65;
+const PY_TP_FREE: c_int = 74;
 
 const PY_TP_SLOTS: u16 = 93;
 const PY_TP_NAME: u16 = 95;
@@ -141,6 +156,8 @@ struct TypeSpec {
     base: Option<PyRef<PyType>>,
     tp_new: Option<newfunc>,
     dealloc: Option<CDestructor>,
+    free: Option<CFreeFunc>,
+    alloc: Option<CAllocFunc>,
     methods: Vec<(String, PyRef<HeapMethodDef>)>,
     doc: Option<String>,
 }
@@ -157,6 +174,8 @@ fn read_type_spec(vm: &VirtualMachine, slots: *const PySlot) -> PyResult<TypeSpe
         base: None,
         tp_new: None,
         dealloc: None,
+        free: None,
+        alloc: None,
         methods: Vec::new(),
         doc: None,
     };
@@ -217,6 +236,19 @@ fn read_inner_slots(vm: &VirtualMachine, spec: &mut TypeSpec, slots: *mut c_void
                 if !slot.pfunc.is_null() {
                     spec.dealloc = Some(unsafe {
                         core::mem::transmute::<*mut c_void, CDestructor>(slot.pfunc)
+                    });
+                }
+            }
+            PY_TP_FREE => {
+                if !slot.pfunc.is_null() {
+                    spec.free =
+                        Some(unsafe { core::mem::transmute::<*mut c_void, CFreeFunc>(slot.pfunc) });
+                }
+            }
+            PY_TP_ALLOC => {
+                if !slot.pfunc.is_null() {
+                    spec.alloc = Some(unsafe {
+                        core::mem::transmute::<*mut c_void, CAllocFunc>(slot.pfunc)
                     });
                 }
             }
@@ -316,13 +348,23 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut crate::P
             let descriptor = method.build_method(class, vm);
             ty.set_attr(vm.ctx.intern_str(name.as_str()), descriptor.into());
         }
-        if spec.tp_new.is_some() || spec.dealloc.is_some() {
+        if spec.tp_new.is_some()
+            || spec.dealloc.is_some()
+            || spec.free.is_some()
+            || spec.alloc.is_some()
+        {
             let c_slots = CSlots::new();
             if let Some(tp_new) = spec.tp_new {
                 c_slots.new.store(Some(tp_new));
             }
             if let Some(dealloc) = spec.dealloc {
                 c_slots.dealloc.store(Some(dealloc));
+            }
+            if let Some(free) = spec.free {
+                c_slots.free.store(Some(free));
+            }
+            if let Some(alloc) = spec.alloc {
+                c_slots.alloc.store(Some(alloc));
             }
             install_c_slots(vm, &ty, c_slots)?;
         }

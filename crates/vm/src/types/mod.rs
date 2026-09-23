@@ -5,8 +5,9 @@ mod structseq;
 mod zoo;
 
 pub use c_slots::{
-    CDestructor, CSlotId, CSlotPair, CSlots, HasStaticCSlots, OwnedCSlots, PYTHON_C_SLOTS,
-    PythonNew, StaticCSlots, StaticNew, ViaConstructor, c_new_for, c_new_trampoline,
+    CAllocFunc, CDestructor, CFreeFunc, CSlotId, CSlotPair, CSlots, HasStaticCSlots, OwnedCSlots,
+    PYTHON_C_SLOTS, PythonNew, StaticCSlots, StaticNew, ViaConstructor, c_new_for,
+    c_new_trampoline,
 };
 pub use slot::*;
 pub use slot_defs::{SLOT_DEFS, SLOT_DEFS_COUNT, SlotAccessor, SlotDef};

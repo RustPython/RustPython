@@ -187,8 +187,8 @@ pub struct PyTypeSlots {
     pub alloc: AtomicCell<Option<AllocFunc>>,
     pub new: AtomicCell<Option<NewFunc>>,
     /// The slots an extension supplied, shared with every type that inherited
-    /// them. Reached through the trampolines held in the matching Rust slots,
-    /// never read directly by the interpreter.
+    /// them. `new` is reached through its trampoline. `dealloc` is read when
+    /// the instance refcount hits zero.
     pub(crate) c_slots: AtomicCell<Option<CSlotsPtr>>,
     /// C ABI entry points for the Rust slots this type defines.
     ///

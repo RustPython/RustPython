@@ -28,8 +28,14 @@ use core::marker::PhantomData;
 use core::ptr::NonNull;
 use crossbeam_utils::atomic::AtomicCell;
 
-/// `tp_dealloc` supplied by an extension. Stored on the type and not invoked yet.
+/// `tp_dealloc` supplied by an extension. Called when the instance refcount hits zero.
 pub type CDestructor = unsafe extern "C" fn(*mut PyObject);
+
+/// `tp_free` supplied by an extension. Releases the instance allocation.
+pub type CFreeFunc = unsafe extern "C" fn(*mut core::ffi::c_void);
+
+/// `tp_alloc` supplied by an extension. Stored and not called.
+pub type CAllocFunc = unsafe extern "C" fn(*mut Py<PyType>, isize) -> *mut PyObject;
 
 /// The C functions an extension supplied for one type.
 ///
@@ -39,8 +45,12 @@ pub type CDestructor = unsafe extern "C" fn(*mut PyObject);
 pub struct CSlots {
     /// tp_new. Reached through [`c_new_trampoline`], never called directly.
     pub new: AtomicCell<Option<CNewFunc>>,
-    /// tp_dealloc. Stored when installed from C and not called yet.
+    /// tp_dealloc. Called from `drop_slow` when the refcount hits zero.
     pub dealloc: AtomicCell<Option<CDestructor>>,
+    /// tp_free. Returned by `PyType_GetSlot` in place of the default freer.
+    pub free: AtomicCell<Option<CFreeFunc>>,
+    /// tp_alloc. Stored when installed from C and not called.
+    pub alloc: AtomicCell<Option<CAllocFunc>>,
 }
 
 impl CSlots {
@@ -54,8 +64,10 @@ impl CSlots {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum CSlotId {
+    TpAlloc = 47,
     TpDealloc = 52,
     TpNew = 65,
+    TpFree = 74,
 }
 
 impl CSlotId {
@@ -64,8 +76,10 @@ impl CSlotId {
     #[must_use]
     pub const fn from_raw(id: i32) -> Option<Self> {
         match id {
+            47 => Some(Self::TpAlloc),
             52 => Some(Self::TpDealloc),
             65 => Some(Self::TpNew),
+            74 => Some(Self::TpFree),
             _ => None,
         }
     }
