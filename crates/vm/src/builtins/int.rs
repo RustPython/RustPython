@@ -115,7 +115,7 @@ macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl<'a> TryFromBorrowedObject<'a> for $t {
             fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-                obj.try_value_with(|int: &PyInt| {
+                obj.try_value_with(|int: &Py<PyInt>| {
                     int.try_to_primitive(vm)
                 }, vm)
             }

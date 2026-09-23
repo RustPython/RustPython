@@ -136,8 +136,14 @@ impl SemHandle {
         unlink: bool,
     ) -> Result<(Self, Option<String>), SemError> {
         let cname = semaphore_name(name)?;
-        let raw =
-            unsafe { libc::sem_open(cname.as_ptr(), libc::O_CREAT | libc::O_EXCL, 0o600, value) };
+        let raw = unsafe {
+            libc::sem_open(
+                cname.as_ptr(),
+                crate::os::O_CREAT | crate::os::O_EXCL,
+                0o600,
+                value,
+            )
+        };
         if raw == libc::SEM_FAILED {
             return Err(SemError::from_errno(Errno::last()));
         }

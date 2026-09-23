@@ -82,7 +82,7 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
                 }
                 rwa = true;
                 mode.insert(FileMode::WRITABLE | FileMode::CREATED);
-                flags |= libc::O_EXCL | libc::O_CREAT;
+                flags |= os::O_EXCL | os::O_CREAT;
             }
             b'r' => {
                 if rwa {
@@ -97,7 +97,7 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
                 }
                 rwa = true;
                 mode.insert(FileMode::WRITABLE);
-                flags |= libc::O_CREAT | libc::O_TRUNC;
+                flags |= os::O_CREAT | os::O_TRUNC;
             }
             b'a' => {
                 if rwa {
@@ -105,7 +105,7 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
                 }
                 rwa = true;
                 mode.insert(FileMode::WRITABLE | FileMode::APPENDING);
-                flags |= libc::O_APPEND | libc::O_CREAT;
+                flags |= os::O_APPEND | os::O_CREAT;
             }
             b'+' => {
                 if plus {
@@ -124,20 +124,20 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
     }
 
     if mode.contains(FileMode::READABLE | FileMode::WRITABLE) {
-        flags |= libc::O_RDWR;
+        flags |= os::O_RDWR;
     } else if mode.contains(FileMode::READABLE) {
-        flags |= libc::O_RDONLY;
+        flags |= os::O_RDONLY;
     } else {
-        flags |= libc::O_WRONLY;
+        flags |= os::O_WRONLY;
     }
 
     #[cfg(windows)]
     {
-        flags |= libc::O_BINARY | libc::O_NOINHERIT;
+        flags |= os::O_BINARY | os::O_NOINHERIT;
     }
     #[cfg(unix)]
     {
-        flags |= libc::O_CLOEXEC;
+        flags |= os::O_CLOEXEC;
     }
 
     Ok(ParsedFileMode { mode, flags })

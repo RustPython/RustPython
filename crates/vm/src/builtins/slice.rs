@@ -120,10 +120,6 @@ impl PySlice {
         }
     }
 
-    pub fn to_saturated(&self, vm: &VirtualMachine) -> PyResult<SaturatedSlice> {
-        SaturatedSlice::with_slice(self, vm)
-    }
-
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let slice: Self = match args.args.len() {
@@ -266,6 +262,12 @@ impl PySlice {
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
+    }
+}
+
+impl Py<PySlice> {
+    pub fn to_saturated(&self, vm: &VirtualMachine) -> PyResult<SaturatedSlice> {
+        SaturatedSlice::with_slice(self, vm)
     }
 }
 

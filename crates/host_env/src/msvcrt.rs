@@ -46,7 +46,7 @@ unsafe extern "C" {
 }
 
 pub fn setmode_binary(fd: crt_fd::Borrowed<'_>) {
-    unsafe { suppress_iph!(_setmode(fd, libc::O_BINARY)) };
+    unsafe { suppress_iph!(_setmode(fd, crate::os::O_BINARY)) };
 }
 
 #[must_use]
