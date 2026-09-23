@@ -86,12 +86,36 @@ mod tests {
             let msg = with_current_vm(|vm| {
                 vm.take_raised_exception()
                     .and_then(|exc| exc.as_object().str(vm).ok())
-                    .map(|msg| msg.to_string())
-                    .unwrap_or_else(|| "no exception".to_owned())
+                    .map_or_else(|| "no exception".to_owned(), |msg| msg.to_string())
             });
             panic!("tp_new returned NULL: {msg}");
         };
         unsafe { PyObjectRef::from_raw(ptr) }
+    }
+
+    /// `PyType_GetSlot(base, Py_tp_new)(subtype, args, NULL)`.
+    ///
+    /// A missing slot sets TypeError ("base type without tp_new") and returns NULL.
+    /// The pointer from the base, including NULL, is returned unchanged.
+    fn call_base_tp_new(
+        vm: &VirtualMachine,
+        base: &PyTypeObject,
+        subtype: *mut PyTypeObject,
+        args: &PyRef<PyTuple>,
+    ) -> *mut PyObject {
+        let slot = unsafe { PyType_GetSlot(base, Py_tp_new) };
+        if slot.is_null() {
+            vm.set_exception(Some(vm.new_type_error("base type without tp_new")));
+            return core::ptr::null_mut();
+        }
+        let tp_new = unsafe { core::mem::transmute::<*mut c_void, newfunc>(slot) };
+        unsafe {
+            tp_new(
+                subtype,
+                args.as_object().as_raw().cast_mut(),
+                core::ptr::null_mut(),
+            )
+        }
     }
 
     /// Returns `(subtype.__name__, args, kwds is NULL)`.
@@ -123,6 +147,38 @@ mod tests {
             PyObjectRef::from(vm.ctx.new_tuple(vec![]))
                 .into_raw()
                 .as_ptr()
+        })
+    }
+
+    unsafe extern "C" fn new_with_object_base(
+        subtype: *mut PyTypeObject,
+        _args: *mut PyObject,
+        _kwds: *mut PyObject,
+    ) -> *mut PyObject {
+        with_current_vm(|vm| {
+            call_base_tp_new(vm, vm.ctx.types.object_type, subtype, &vm.ctx.empty_tuple)
+        })
+    }
+
+    unsafe extern "C" fn new_with_int_base(
+        subtype: *mut PyTypeObject,
+        _args: *mut PyObject,
+        _kwds: *mut PyObject,
+    ) -> *mut PyObject {
+        with_current_vm(|vm| {
+            call_base_tp_new(vm, vm.ctx.types.int_type, subtype, &vm.ctx.empty_tuple)
+        })
+    }
+
+    /// Same as [`new_with_int_base`], but the base receives `("nope",)`.
+    unsafe extern "C" fn new_with_int_base_nope(
+        subtype: *mut PyTypeObject,
+        _args: *mut PyObject,
+        _kwds: *mut PyObject,
+    ) -> *mut PyObject {
+        with_current_vm(|vm| {
+            let args = vm.ctx.new_tuple(vec![vm.ctx.new_str("nope").into()]);
+            call_base_tp_new(vm, vm.ctx.types.int_type, subtype, &args)
         })
     }
 
@@ -403,6 +459,74 @@ mod tests {
                 assert!(ptr.is_null());
                 let exc = vm.take_raised_exception().expect("exception pending");
                 assert!(exc.fast_isinstance(vm.ctx.exceptions.value_error));
+            })
+        })
+    }
+
+    /// pyo3's `PyNativeTypeInitializer` calls the base `tp_new` with the subtype
+    /// it was given.
+    #[test]
+    fn extension_tp_new_reaches_object_tp_new_with_its_subtype() {
+        Python::attach(|_py| {
+            with_current_vm(|vm| {
+                let ext = heap_type("Ext", vm.ctx.types.object_type, vm);
+                set_tp_new(vm, &ext, new_with_object_base).unwrap();
+
+                let obj = ext.as_object().call((), vm).unwrap();
+                assert!(obj.class().is(&ext));
+
+                let sub = heap_type("ExtSub", &ext, vm);
+                let sub_obj = sub.as_object().call((), vm).unwrap();
+                assert!(sub_obj.class().is(&sub));
+            })
+        })
+    }
+
+    #[test]
+    fn extension_tp_new_reaches_int_tp_new_with_its_subtype() {
+        Python::attach(|_py| {
+            with_current_vm(|vm| {
+                let ext = heap_type("Ext", vm.ctx.types.int_type, vm);
+                set_tp_new(vm, &ext, new_with_int_base).unwrap();
+
+                let obj = ext.as_object().call((), vm).unwrap();
+                assert!(obj.class().is(&ext));
+                let value: PyRef<PyInt> = obj.downcast().unwrap();
+                assert_eq!(value.as_bigint().to_string(), "0");
+
+                let sub = heap_type("ExtIntSub", &ext, vm);
+                let sub_obj = sub.as_object().call((), vm).unwrap();
+                assert!(sub_obj.class().is(&sub));
+            })
+        })
+    }
+
+    #[test]
+    fn extension_type_reports_its_own_c_tp_new_not_the_base() {
+        Python::attach(|_py| {
+            with_current_vm(|vm| {
+                let object_type = vm.ctx.types.object_type;
+                let ext = heap_type("Ext", object_type, vm);
+                set_tp_new(vm, &ext, new_with_object_base).unwrap();
+
+                let ext_slot = unsafe { PyType_GetSlot(&*ext, Py_tp_new) };
+                let base_slot = unsafe { PyType_GetSlot(object_type, Py_tp_new) };
+                assert_eq!(ext_slot, new_with_object_base as *mut c_void);
+                assert_ne!(ext_slot, base_slot);
+                assert!(!base_slot.is_null());
+            })
+        })
+    }
+
+    #[test]
+    fn extension_tp_new_propagates_base_error() {
+        Python::attach(|_py| {
+            with_current_vm(|vm| {
+                let ext = heap_type("Ext", vm.ctx.types.int_type, vm);
+                set_tp_new(vm, &ext, new_with_int_base_nope).unwrap();
+
+                let err = ext.as_object().call((), vm).unwrap_err();
+                assert!(err.fast_isinstance(vm.ctx.exceptions.value_error));
             })
         })
     }
