@@ -182,7 +182,7 @@ impl SemHandle {
     /// `Drop` closes the semaphore. A caller that still owns that close
     /// must forget this value.
     #[inline]
-    pub fn from_raw(raw: *mut sem_t) -> Self {
+    pub unsafe fn from_raw(raw: *mut sem_t) -> Self {
         Self { raw }
     }
 
