@@ -94,6 +94,29 @@ mod mac_address_tests {
 #[cfg(unix)]
 pub use libc::{AF_UNIX, SOCK_STREAM, sa_family_t, sockaddr_storage, socklen_t};
 
+/// Integer names the VM published from `libc as c` on unix. Windows already
+/// takes the overlapping set from this module.
+#[cfg(unix)]
+pub use libc::{
+    AF_INET, AF_INET6, AF_UNSPEC, AI_ADDRCONFIG, AI_CANONNAME, AI_NUMERICHOST, AI_NUMERICSERV,
+    AI_PASSIVE, INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE, IPPROTO_ICMP,
+    IPPROTO_ICMPV6, IPPROTO_IP, IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_UDP, MSG_CTRUNC, MSG_DONTROUTE,
+    MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST, NI_NAMEREQD, NI_NOFQDN,
+    NI_NUMERICHOST, NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR, SO_BROADCAST, SO_ERROR,
+    SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE, SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SOCK_DGRAM,
+    SOL_SOCKET, SOMAXCONN, TCP_NODELAY,
+};
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub use libc::{
+    AF_APPLETALK, AF_DECnet, AF_IPX, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
+    IPPROTO_FRAGMENT, IPPROTO_HOPOPTS, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IPIP, IPPROTO_NONE,
+    IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_ROUTING, SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET,
+};
+
+#[cfg(unix)]
+pub use libc::SO_REUSEPORT;
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub use libc::{AF_ALG, AF_CAN};
 

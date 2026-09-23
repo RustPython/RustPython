@@ -20,6 +20,30 @@ pub const SIG_IGN: libc::sighandler_t = 1;
 #[cfg(not(unix))]
 pub const SIG_ERR: libc::sighandler_t = -1 as _;
 
+#[cfg(unix)]
+pub use libc::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
+
+#[cfg(any(unix, windows))]
+pub use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
+
+#[cfg(unix)]
+pub use libc::{
+    SIGALRM, SIGBUS, SIGCHLD, SIGCONT, SIGHUP, SIGIO, SIGKILL, SIGPIPE, SIGPROF, SIGQUIT, SIGSTOP,
+    SIGSYS, SIGTRAP, SIGTSTP, SIGTTIN, SIGTTOU, SIGURG, SIGUSR1, SIGUSR2, SIGVTALRM, SIGWINCH,
+    SIGXCPU, SIGXFSZ,
+};
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_vendor = "apple",
+        target_os = "openbsd",
+        target_os = "freebsd",
+        target_os = "netbsd"
+    ))
+))]
+pub use libc::{SIGPWR, SIGSTKFLT};
+
 #[cfg(all(unix, not(target_os = "android")))]
 pub use libc::{ITIMER_PROF, ITIMER_REAL, ITIMER_VIRTUAL};
 

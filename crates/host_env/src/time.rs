@@ -270,6 +270,47 @@ impl ClockId {
 }
 
 #[cfg(unix)]
+pub use libc::{CLOCK_MONOTONIC, CLOCK_REALTIME};
+
+#[cfg(target_os = "solaris")]
+pub use libc::CLOCK_HIGHRES;
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+pub use libc::CLOCK_MONOTONIC_RAW;
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "solaris",
+        target_os = "openbsd",
+    ))
+))]
+pub use libc::CLOCK_PROCESS_CPUTIME_ID;
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "illumos",
+        target_os = "netbsd",
+        target_os = "solaris",
+        target_os = "openbsd",
+        target_os = "redox",
+    ))
+))]
+pub use libc::CLOCK_THREAD_CPUTIME_ID;
+
+#[cfg(target_os = "linux")]
+pub use libc::{CLOCK_BOOTTIME, CLOCK_TAI};
+
+#[cfg(target_vendor = "apple")]
+pub use libc::{CLOCK_MONOTONIC_RAW_APPROX, CLOCK_UPTIME_RAW, CLOCK_UPTIME_RAW_APPROX};
+
+#[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "dragonfly"))]
+pub use libc::{CLOCK_PROF, CLOCK_UPTIME};
+
+#[cfg(unix)]
 fn nix_clock_id(id: ClockId) -> nix::time::ClockId {
     nix::time::ClockId::from_raw(id.as_raw())
 }
