@@ -29,7 +29,10 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     sliceable::SliceableSequenceOp,
-    stdlib::{_typing, builtins, sys::monitoring},
+    stdlib::{
+        _typing, builtins,
+        sys::monitoring::{self, MonitoringEvent},
+    },
     types::{PyComparisonOp, PyTypeFlags},
     vm::{Context, PyMethod},
 };
@@ -2675,7 +2678,7 @@ pub(crate) fn trampoline_handle_exception(
     exec.fire_exception_trace(exception, vm)?;
     let exception = {
         let mon_events = vm.state.monitoring_events.load();
-        if mon_events & monitoring::EVENT_RAISE != 0 {
+        if mon_events & MonitoringEvent::Raise.mask() != 0 {
             let offset = idx as u32 * 2;
             let exc_obj: PyObjectRef = exception.to_owned().into();
             match monitoring::fire_raise(vm, exec.code, offset, &exc_obj) {
@@ -3457,7 +3460,7 @@ impl ExecutingFrame<'_> {
                 return Ok(true);
             }
         }
-        if self.monitoring_mask & monitoring::EVENT_PY_YIELD != 0 {
+        if self.monitoring_mask & MonitoringEvent::PyYield.mask() != 0 {
             let value = self.top_value().to_owned();
             let offset = (self.lasti() - 1) * 2;
             monitoring::fire_py_yield(vm, self.code, offset, &value)?;
@@ -3852,7 +3855,7 @@ impl ExecutingFrame<'_> {
                     let exception = {
                         let mon_events = vm.state.monitoring_events.load();
                         if is_reraise {
-                            if mon_events & monitoring::EVENT_RERAISE != 0 {
+                            if mon_events & MonitoringEvent::Reraise.mask() != 0 {
                                 let offset = idx as u32 * 2;
                                 let exc_obj: PyObjectRef = exception.clone().into();
                                 match monitoring::fire_reraise(vm, self.code, offset, &exc_obj) {
@@ -3862,7 +3865,7 @@ impl ExecutingFrame<'_> {
                             } else {
                                 exception
                             }
-                        } else if mon_events & monitoring::EVENT_RAISE != 0 {
+                        } else if mon_events & MonitoringEvent::Raise.mask() != 0 {
                             let offset = idx as u32 * 2;
                             let exc_obj: PyObjectRef = exception.clone().into();
                             match monitoring::fire_raise(vm, self.code, offset, &exc_obj) {
@@ -3889,7 +3892,7 @@ impl ExecutingFrame<'_> {
                         Err(exception) => {
                             // Fire PY_UNWIND: exception escapes this frame
                             let exception = if vm.state.monitoring_events.load()
-                                & monitoring::EVENT_PY_UNWIND
+                                & MonitoringEvent::PyUnwind.mask()
                                 != 0
                             {
                                 let offset = idx as u32 * 2;
@@ -4123,7 +4126,7 @@ impl ExecutingFrame<'_> {
         }
         let exception = {
             let mon_events = vm.state.monitoring_events.load();
-            let exception = if mon_events & monitoring::EVENT_PY_THROW != 0 {
+            let exception = if mon_events & MonitoringEvent::PyThrow.mask() != 0 {
                 let offset = idx as u32 * 2;
                 let exc_obj: PyObjectRef = exception.clone().into();
                 match monitoring::fire_py_throw(vm, self.code, offset, &exc_obj) {
@@ -4133,7 +4136,7 @@ impl ExecutingFrame<'_> {
             } else {
                 exception
             };
-            if mon_events & monitoring::EVENT_RAISE != 0 {
+            if mon_events & MonitoringEvent::Raise.mask() != 0 {
                 let offset = idx as u32 * 2;
                 let exc_obj: PyObjectRef = exception.clone().into();
                 match monitoring::fire_raise(vm, self.code, offset, &exc_obj) {
@@ -4171,7 +4174,7 @@ impl ExecutingFrame<'_> {
             Err(exception) => {
                 // Fire PY_UNWIND: exception escapes the generator frame.
                 let exception =
-                    if vm.state.monitoring_events.load() & monitoring::EVENT_PY_UNWIND != 0 {
+                    if vm.state.monitoring_events.load() & MonitoringEvent::PyUnwind.mask() != 0 {
                         let offset = idx as u32 * 2;
                         let exc_obj: PyObjectRef = exception.clone().into();
                         match monitoring::fire_py_unwind(vm, self.code, offset, &exc_obj) {
@@ -5256,7 +5259,7 @@ impl ExecutingFrame<'_> {
                                         )));
                                     }
                                 };
-                                if seen_attrs.__contains__(attr_name.as_object(), vm)? {
+                                if seen_attrs.contains(attr_name.as_object(), vm)? {
                                     let type_name = type_name();
                                     let attr_repr = attr_name.as_object().repr(vm)?;
                                     return Err(vm.new_type_error(format!(
@@ -5309,7 +5312,7 @@ impl ExecutingFrame<'_> {
                     // Extract keyword attributes
                     for name in kwd_attrs {
                         let name_str = name.downcast_ref::<PyStr>().unwrap();
-                        if seen_attrs.__contains__(name_str.as_object(), vm)? {
+                        if seen_attrs.contains(name_str.as_object(), vm)? {
                             let type_name = type_name();
                             let attr_repr = name.as_object().repr(vm)?;
                             return Err(vm.new_type_error(format!(
@@ -5364,7 +5367,7 @@ impl ExecutingFrame<'_> {
                             .new_base_object(vm.ctx.types.object_type.to_owned(), None);
 
                         for key in keys {
-                            if seen_keys.__contains__(key.as_object(), vm)? {
+                            if seen_keys.contains(key.as_object(), vm)? {
                                 return Err(vm.new_value_error(format!(
                                     "mapping pattern checks duplicate key ({})",
                                     key.as_object().repr(vm)?
@@ -5386,7 +5389,7 @@ impl ExecutingFrame<'_> {
                     } else {
                         // Fallback if .get() method is not available (shouldn't happen for mappings)
                         for key in keys {
-                            if seen_keys.__contains__(key.as_object(), vm)? {
+                            if seen_keys.contains(key.as_object(), vm)? {
                                 return Err(vm.new_value_error(format!(
                                     "mapping pattern checks duplicate key ({})",
                                     key.as_object().repr(vm)?
@@ -7876,7 +7879,8 @@ impl ExecutingFrame<'_> {
                         Ok(PyIterReturn::StopIteration(value)) => {
                             // FOR_ITER_GEN returns through END_FOR, which
                             // fires STOP_ITERATION rather than RAISE.
-                            if vm.state.monitoring_events.load() & monitoring::EVENT_STOP_ITERATION
+                            if vm.state.monitoring_events.load()
+                                & MonitoringEvent::StopIteration.mask()
                                 != 0
                             {
                                 let offset = (self.lasti() - 1) * 2;
@@ -8015,10 +8019,10 @@ impl ExecutingFrame<'_> {
                 let resume_type = u32::from(arg);
                 let offset = (self.lasti() - 1) * 2;
                 if resume_type == 0 {
-                    if self.monitoring_mask & monitoring::EVENT_PY_START != 0 {
+                    if self.monitoring_mask & MonitoringEvent::PyStart.mask() != 0 {
                         monitoring::fire_py_start(vm, self.code, offset)?;
                     }
-                } else if self.monitoring_mask & monitoring::EVENT_PY_RESUME != 0 {
+                } else if self.monitoring_mask & MonitoringEvent::PyResume.mask() != 0 {
                     monitoring::fire_py_resume(vm, self.code, offset)?;
                 }
                 self.trace_call_from_resume(vm, resume_type)?;
@@ -8033,7 +8037,7 @@ impl ExecutingFrame<'_> {
                         Some(value.clone()),
                     )?;
                 }
-                if self.monitoring_mask & monitoring::EVENT_PY_RETURN != 0 {
+                if self.monitoring_mask & MonitoringEvent::PyReturn.mask() != 0 {
                     let offset = (self.lasti() - 1) * 2;
                     monitoring::fire_py_return(vm, self.code, offset, &value)?;
                 }
@@ -8070,7 +8074,7 @@ impl ExecutingFrame<'_> {
                 let oparg = bytecode::LoadSuperAttr::from(u32::from(arg));
                 let offset = (self.lasti() - 1) * 2;
                 // Fire CALL event before super() call
-                let call_args = if self.monitoring_mask & monitoring::EVENT_CALL != 0 {
+                let call_args = if self.monitoring_mask & MonitoringEvent::Call.mask() != 0 {
                     let global_super: PyObjectRef = self.nth_value(2).to_owned();
                     let arg0 = if oparg.has_class() {
                         self.nth_value(1).to_owned()
@@ -8115,7 +8119,7 @@ impl ExecutingFrame<'_> {
                 let target_idx = self.lasti() + u32::from(arg);
                 let target = bytecode::Label::from_u32(target_idx);
                 self.jump(target);
-                if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
+                if self.monitoring_mask & MonitoringEvent::Jump.mask() != 0 {
                     monitoring::fire_jump(vm, self.code, src_offset, target.as_u32() * 2)?;
                 }
                 Ok(None)
@@ -8126,7 +8130,7 @@ impl ExecutingFrame<'_> {
                 let target_idx = self.lasti() + 1 - u32::from(arg);
                 let target = bytecode::Label::from_u32(target_idx);
                 self.jump(target);
-                if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
+                if self.monitoring_mask & MonitoringEvent::Jump.mask() != 0 {
                     monitoring::fire_jump(vm, self.code, src_offset, target.as_u32() * 2)?;
                 }
                 self.trace_backward_same_line(from_idx, vm)?;
@@ -8137,11 +8141,11 @@ impl ExecutingFrame<'_> {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 let continued = self.execute_for_iter(vm, target)?;
                 if continued {
-                    if self.monitoring_mask & monitoring::EVENT_BRANCH_LEFT != 0 {
+                    if self.monitoring_mask & MonitoringEvent::BranchLeft.mask() != 0 {
                         let dest_offset = (self.lasti() + 1) * 2; // after caches
                         monitoring::fire_branch_left(vm, self.code, src_offset, dest_offset)?;
                     }
-                } else if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
+                } else if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                     // INSTRUMENTED_POP_ITER: dest is the instruction after
                     // POP_ITER (FOR_ITER jumps over END_FOR onto POP_ITER).
                     let dest_offset = (self.lasti() + 1) * 2;
@@ -8157,7 +8161,7 @@ impl ExecutingFrame<'_> {
                     .downcast_ref::<crate::builtins::PyGenerator>()
                     .is_some();
                 let value = self.pop_value();
-                if is_gen && self.monitoring_mask & monitoring::EVENT_STOP_ITERATION != 0 {
+                if is_gen && self.monitoring_mask & MonitoringEvent::StopIteration.mask() != 0 {
                     let offset = (self.lasti() - 1) * 2;
                     monitoring::fire_stop_iteration(vm, self.code, offset, &value)?;
                 }
@@ -8173,7 +8177,9 @@ impl ExecutingFrame<'_> {
                     || receiver
                         .downcast_ref::<crate::builtins::PyCoroutine>()
                         .is_some();
-                if is_gen_or_coro && self.monitoring_mask & monitoring::EVENT_STOP_ITERATION != 0 {
+                if is_gen_or_coro
+                    && self.monitoring_mask & MonitoringEvent::StopIteration.mask() != 0
+                {
                     let offset = (self.lasti() - 1) * 2;
                     monitoring::fire_stop_iteration(vm, self.code, offset, &value)?;
                 }
@@ -8187,7 +8193,7 @@ impl ExecutingFrame<'_> {
                 let value = obj.try_to_bool(vm)?;
                 if value {
                     self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
+                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
@@ -8200,7 +8206,7 @@ impl ExecutingFrame<'_> {
                 let value = obj.try_to_bool(vm)?;
                 if !value {
                     self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
+                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
@@ -8212,7 +8218,7 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 if vm.is_none(&value) {
                     self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
+                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
@@ -8224,14 +8230,14 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 if !vm.is_none(&value) {
                     self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
+                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
                 Ok(None)
             }
             Instruction::InstrumentedNotTaken => {
-                if self.monitoring_mask & monitoring::EVENT_BRANCH_LEFT != 0 {
+                if self.monitoring_mask & MonitoringEvent::BranchLeft.mask() != 0 {
                     let not_taken_idx = self.lasti() as usize - 1;
                     // Scan backwards past CACHE entries to find the branch instruction
                     let mut branch_idx = not_taken_idx.saturating_sub(1);
@@ -8255,7 +8261,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::InstrumentedEndAsyncFor => {
-                if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
+                if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                     let oparg_val = u32::from(arg);
                     // src = next_instr - oparg (END_SEND position)
                     let src_offset = (self.lasti() - oparg_val) * 2;
@@ -8607,7 +8613,8 @@ impl ExecutingFrame<'_> {
                     // Fire EXCEPTION_HANDLED before setting up handler.
                     // If the callback raises, the handler is NOT set up and the
                     // new exception propagates instead.
-                    if vm.state.monitoring_events.load() & monitoring::EVENT_EXCEPTION_HANDLED != 0
+                    if vm.state.monitoring_events.load() & MonitoringEvent::ExceptionHandled.mask()
+                        != 0
                     {
                         let byte_offset = offset * 2;
                         let exc_obj: PyObjectRef = exception.clone().into();
@@ -9011,7 +9018,7 @@ impl ExecutingFrame<'_> {
         let is_python_call = callable.downcast_ref_if_exact::<PyFunction>(vm).is_some();
 
         // Fire CALL event
-        let call_arg0 = if self.monitoring_mask & monitoring::EVENT_CALL != 0 {
+        let call_arg0 = if self.monitoring_mask & MonitoringEvent::Call.mask() != 0 {
             let arg0 = final_args
                 .args
                 .first()
@@ -9324,7 +9331,7 @@ impl ExecutingFrame<'_> {
         {
             return Ok(());
         }
-        let need_raise = vm.state.monitoring_events.load() & monitoring::EVENT_RAISE != 0;
+        let need_raise = vm.state.monitoring_events.load() & MonitoringEvent::Raise.mask() != 0;
         let need_trace = vm.use_tracing.get() && self.trace_is_set(vm);
         if !need_raise && !need_trace {
             return Ok(());

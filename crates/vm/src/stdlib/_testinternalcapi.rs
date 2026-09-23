@@ -1361,7 +1361,7 @@ fn name_already_seen(
         return Ok(true);
     }
     if let Some(set) = user_set {
-        return set.__contains__(name.as_object(), vm);
+        return set.contains(name.as_object(), vm);
     }
     Ok(false)
 }
