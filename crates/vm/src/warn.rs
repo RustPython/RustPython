@@ -392,18 +392,18 @@ fn filter_search(
 }
 
 fn get_filter(
-    category: PyObjectRef,
-    text: PyObjectRef,
+    category: &PyObject,
+    text: &PyObject,
     lineno: usize,
-    module: PyObjectRef,
+    module: &PyObject,
     vm: &VirtualMachine,
 ) -> PyResult {
     if let Some(context_filters) = get_warnings_context_filters(vm)? {
         if let Some(action) = filter_search(
-            &category,
-            &text,
+            category,
+            text,
             lineno,
-            &module,
+            module,
             &context_filters,
             "_warnings_context _filters",
             vm,
@@ -414,8 +414,7 @@ fn get_filter(
     }
 
     let filters = get_warnings_filters(vm)?;
-    if let Some(action) = filter_search(&category, &text, lineno, &module, &filters, "filters", vm)?
-    {
+    if let Some(action) = filter_search(category, text, lineno, module, &filters, "filters", vm)? {
         return Ok(action);
     }
     get_default_action(vm)
