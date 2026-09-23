@@ -172,7 +172,7 @@ impl AsNumber for PyBool {
             and: Some(|a, b, vm| PyBool::__and__(a, b.to_owned(), vm).to_pyresult(vm)),
             xor: Some(|a, b, vm| PyBool::__xor__(a, b.to_owned(), vm).to_pyresult(vm)),
             or: Some(|a, b, vm| PyBool::__or__(a, b.to_owned(), vm).to_pyresult(vm)),
-            ..PyInt::AS_NUMBER
+            ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
     }
