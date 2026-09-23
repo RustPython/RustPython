@@ -434,7 +434,6 @@ fn cpython_attr_doc(rust_type: &str, attr: &str) -> Option<String> {
     None
 }
 
-#[allow(clippy::too_many_arguments)]
 fn generate_class_def(
     ident: &Ident,
     name: &str,
@@ -443,7 +442,6 @@ fn generate_class_def(
     metaclass: Option<String>,
     unhashable: bool,
     attrs: &[Attribute],
-    text_signature: Option<&str>,
 ) -> Result<TokenStream> {
     let doc = attrs.doc().or_else(|| {
         let module_name = module_name.unwrap_or("builtins");
@@ -451,14 +449,6 @@ fn generate_class_def(
             .copied()
             .map(str::to_owned)
     });
-    let doc = match (text_signature, doc) {
-        (Some(sig), doc) => Some(format_doc(
-            &format!("{name}{sig}"),
-            &doc.unwrap_or_default(),
-        )),
-        (None, Some(doc)) => Some(doc),
-        (None, None) => None,
-    };
     let doc = if let Some(doc) = doc {
         quote!(Some(#doc))
     } else {
@@ -598,7 +588,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     }
 
     let fake_ident = Ident::new("pyclass", item.span());
-    let (class_meta, class_name, module_name, base, metaclass, unhashable, text_signature) = {
+    let (class_meta, class_name, module_name, base, metaclass, unhashable) = {
         let (ident, _) = pyclass_ident_and_attrs(&item)?;
         let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
         let class_name = class_meta.class_name()?;
@@ -606,7 +596,6 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         let base = class_meta.base()?;
         let metaclass = class_meta.metaclass()?;
         let unhashable = class_meta.unhashable()?;
-        let text_signature = class_meta.text_signature()?;
         (
             class_meta,
             class_name,
@@ -614,7 +603,6 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
             base,
             metaclass,
             unhashable,
-            text_signature,
         )
     };
 
@@ -661,7 +649,6 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         metaclass,
         unhashable,
         attrs,
-        text_signature.as_deref(),
     )?;
 
     const ALLOWED_TRAVERSE_OPTS: &[&str] = &["manual"];

@@ -1457,7 +1457,7 @@ pub(super) mod _os {
         }
     }
 
-    #[pyfunction(text_signature = "(path, *, dir_fd=None, follow_symlinks=True)")]
+    #[pyfunction]
     #[pyfunction(name = "fstat")]
     fn stat(
         path: OsPathOrFd<'_>,
@@ -1474,7 +1474,7 @@ pub(super) mod _os {
         Ok(StatResultData::from_stat(&stat, vm).to_pyobject(vm))
     }
 
-    #[pyfunction(text_signature = "(path, *, dir_fd=None)")]
+    #[pyfunction]
     fn lstat(
         path: OsPath,
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,

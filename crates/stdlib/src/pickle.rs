@@ -462,11 +462,7 @@ mod _pickle {
     }
 
     #[pyattr]
-    #[pyclass(
-        module = "_pickle",
-        name = "Unpickler",
-        text_signature = "(file, *, fix_imports=True, encoding='ASCII', errors='strict', buffers=())"
-    )]
+    #[pyclass(module = "_pickle", name = "Unpickler")]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyUnpickler {
         read_state: PyMutex<ReadState>,
@@ -1666,9 +1662,7 @@ mod _pickle {
         })
     }
 
-    #[pyfunction(
-        text_signature = "(data, /, *, fix_imports=True, encoding='ASCII', errors='strict', buffers=())"
-    )]
+    #[pyfunction]
     fn loads(args: LoadsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         if args.data.downcastable::<PyStr>() {
             return Err(vm.new_type_error("Can't load pickle from unicode string"));
@@ -1715,9 +1709,7 @@ mod _pickle {
         buffers: OptionalArg<PyObjectRef>,
     }
 
-    #[pyfunction(
-        text_signature = "(file, *, fix_imports=True, encoding='ASCII', errors='strict', buffers=())"
-    )]
+    #[pyfunction]
     fn load(args: LoadArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let peek = vm.get_attribute_opt(args.file.clone(), "peek")?;
         let read = vm.get_attribute_opt(args.file.clone(), "read")?;
@@ -1939,11 +1931,7 @@ mod _pickle {
     }
 
     #[pyattr]
-    #[pyclass(
-        module = "_pickle",
-        name = "Pickler",
-        text_signature = "(file, protocol=None, fix_imports=True, buffer_callback=None)"
-    )]
+    #[pyclass(module = "_pickle", name = "Pickler")]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyPickler {
         out: PyMutex<Output>,
@@ -3789,9 +3777,7 @@ mod _pickle {
         buffer_callback: OptionalArg<PyObjectRef>,
     }
 
-    #[pyfunction(
-        text_signature = "(obj, file, protocol=None, *, fix_imports=True, buffer_callback=None)"
-    )]
+    #[pyfunction]
     fn dump(args: DumpArgs, vm: &VirtualMachine) -> PyResult<()> {
         let new_args = PicklerNewArgs {
             file: args.file,
@@ -3831,9 +3817,7 @@ mod _pickle {
         buffer_callback: OptionalArg<PyObjectRef>,
     }
 
-    #[pyfunction(
-        text_signature = "(obj, protocol=None, *, fix_imports=True, buffer_callback=None)"
-    )]
+    #[pyfunction]
     fn dumps(args: DumpsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let new_args = PicklerNewArgs {
             file: vm.ctx.none(),

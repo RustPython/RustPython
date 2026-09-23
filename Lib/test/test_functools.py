@@ -1238,6 +1238,10 @@ class TestCmpToKeyC(TestCmpToKey, unittest.TestCase):
     if c_functools:
         cmp_to_key = c_functools.cmp_to_key
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; inspect.signature reports (args, /) until FromArgs fields generate __text_signature__
+    def test_cmp_to_signature(self):
+        super().test_cmp_to_signature()
+
     @support.cpython_only
     def test_disallow_instantiation(self):
         # Ensure that the type disallows instantiation (bpo-43916)

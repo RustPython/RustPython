@@ -67,7 +67,7 @@ mod _functools {
         mycmp: PyObjectRef,
     }
 
-    #[pyfunction(text_signature = "(mycmp)")]
+    #[pyfunction]
     fn cmp_to_key(args: CmpToKeyArgs) -> PyKeyWrapper {
         PyKeyWrapper {
             cmp: args.mycmp,
