@@ -1593,7 +1593,6 @@ mod escape_warnings {
             vm.state
                 .warnings
                 .filters
-                .lock()
                 .borrow_vec_mut()
                 .insert(0, error_filter.into());
             vm.state.warnings.filters_mutated();

@@ -8,10 +8,10 @@ use crate::{
     convert::TryFromObject,
 };
 use core::sync::atomic::{AtomicUsize, Ordering};
-use rustpython_common::lock::{OnceCell, PyMutex};
+use rustpython_common::lock::OnceCell;
 
 pub struct WarningsState {
-    pub filters: PyMutex<PyListRef>,
+    pub filters: PyListRef,
     pub once_registry: PyDictRef,
     pub default_action: PyStrRef,
     pub filters_version: AtomicUsize,
@@ -71,7 +71,7 @@ impl WarningsState {
 
     pub fn init_state(ctx: &Context) -> Self {
         Self {
-            filters: PyMutex::new(Self::create_default_filters(ctx)),
+            filters: Self::create_default_filters(ctx),
             once_registry: ctx.new_dict(),
             default_action: ctx.new_str("default"),
             filters_version: AtomicUsize::new(0),
@@ -143,12 +143,10 @@ fn get_warnings_attr(
 /// falling back to the interpreter cache (`st->filters`).
 fn get_warnings_filters(vm: &VirtualMachine) -> PyResult<PyListRef> {
     if let Some(filters_obj) = get_warnings_attr(vm, identifier!(&vm.ctx, filters), false) {
-        let filters = PyListRef::try_from_object(vm, filters_obj)
-            .map_err(|_| vm.new_value_error("_warnings.filters must be a list"))?;
-        *vm.state.warnings.filters.lock() = filters.clone();
-        return Ok(filters);
+        return PyListRef::try_from_object(vm, filters_obj)
+            .map_err(|_| vm.new_value_error("_warnings.filters must be a list"));
     }
-    Ok(vm.state.warnings.filters.lock().clone())
+    Ok(vm.state.warnings.filters.clone())
 }
 
 fn get_warnings_context_filters(vm: &VirtualMachine) -> PyResult<Option<PyListRef>> {

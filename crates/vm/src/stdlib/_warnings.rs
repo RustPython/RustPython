@@ -28,7 +28,7 @@ mod _warnings {
 
     #[pyattr]
     fn filters(vm: &VirtualMachine) -> PyListRef {
-        vm.state.warnings.filters.lock().clone()
+        vm.state.warnings.filters.clone()
     }
 
     #[pyattr]
