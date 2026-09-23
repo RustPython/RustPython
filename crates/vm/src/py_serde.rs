@@ -37,11 +37,11 @@ pub struct PyObjectSerializer<'s> {
 }
 
 impl<'s> PyObjectSerializer<'s> {
-    pub fn new(vm: &'s VirtualMachine, pyobject: &'s PyObjectRef) -> Self {
+    pub fn new(vm: &'s VirtualMachine, pyobject: &'s PyObject) -> Self {
         PyObjectSerializer { pyobject, vm }
     }
 
-    fn clone_with_object(&self, pyobject: &'s PyObjectRef) -> PyObjectSerializer<'_> {
+    fn clone_with_object(&self, pyobject: &'s PyObject) -> PyObjectSerializer<'_> {
         PyObjectSerializer {
             pyobject,
             vm: self.vm,

@@ -430,7 +430,7 @@ impl From<PyAttributes> for TypeNamespace {
 
 impl TypeNamespace {
     /// The namespace as a dict, for the types that have one.
-    pub const fn as_dict(&self) -> Option<&PyDictRef> {
+    pub fn as_dict(&self) -> Option<&Py<PyDict>> {
         match self {
             Self::Attributes(_) => None,
             Self::Dict(dict) => Some(dict),
@@ -1563,12 +1563,7 @@ impl PyType {
     pub fn slot_name(&self) -> BorrowedValue<'_, str> {
         self.name_inner(
             |name| name.into(),
-            |ext| {
-                PyRwLockReadGuard::map(ext.name.read(), |name: &PyUtf8StrRef| -> &str {
-                    name.as_str()
-                })
-                .into()
-            },
+            |ext| PyRwLockReadGuard::map(ext.name.read(), |name| name.as_str()).into(),
         )
     }
 
@@ -1590,12 +1585,7 @@ impl PyType {
     pub fn name(&self) -> BorrowedValue<'_, str> {
         self.name_inner(
             |name| name.rsplit_once('.').map_or(name, |(_, name)| name).into(),
-            |ext| {
-                PyRwLockReadGuard::map(ext.name.read(), |name: &PyUtf8StrRef| -> &str {
-                    name.as_str()
-                })
-                .into()
-            },
+            |ext| PyRwLockReadGuard::map(ext.name.read(), |name| name.as_str()).into(),
         )
     }
 
@@ -2692,7 +2682,7 @@ impl Constructor for PyType {
                 .attributes
                 .as_dict()
                 .expect("a type built by type.__new__ has a dict namespace");
-            cell.set(Some(namespace.clone().into()));
+            cell.set(Some(namespace.to_owned().into()));
             typ.attributes.remove(identifier!(vm, __classdictcell__));
         }
 

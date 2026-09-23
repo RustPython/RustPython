@@ -1,5 +1,8 @@
 use super::argument::OptionalArg;
-use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyIntRef};
+use crate::{
+    AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyInt, PyIntRef},
+};
 use core::ops::Deref;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
@@ -143,8 +146,8 @@ impl ArgIndex {
     }
 }
 
-impl AsRef<PyIntRef> for ArgIndex {
-    fn as_ref(&self) -> &PyIntRef {
+impl AsRef<Py<PyInt>> for ArgIndex {
+    fn as_ref(&self) -> &Py<PyInt> {
         &self.value
     }
 }

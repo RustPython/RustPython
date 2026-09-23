@@ -69,13 +69,13 @@ fn singleton_node_to_object(vm: &VirtualMachine, node_type: &'static Py<PyType>)
 
 fn is_node_instance(
     vm: &VirtualMachine,
-    object: &PyObjectRef,
+    object: &PyObject,
     node_type: &'static Py<PyType>,
 ) -> PyResult<bool> {
     object.is_instance(node_type.as_object(), vm)
 }
 
-fn is_ast_instance(vm: &VirtualMachine, object: &PyObjectRef) -> PyResult<bool> {
+fn is_ast_instance(vm: &VirtualMachine, object: &PyObject) -> PyResult<bool> {
     let ast_type = NodeAst::make_static_type();
     object.is_instance(ast_type.as_object(), vm)
 }
@@ -415,13 +415,13 @@ fn get_opt_int_field(
 
 fn get_attribute_from_field(
     vm: &VirtualMachine,
-    obj: &PyObjectRef,
+    obj: &PyObject,
     field: PyObjectRef,
 ) -> PyResult<Option<PyObjectRef>> {
     let field = field
         .downcast::<PyStr>()
         .map_err(|_| vm.new_type_error("attribute name must be string"))?;
-    vm.get_attribute_opt(obj.clone(), &field)
+    vm.get_attribute_opt(obj.to_owned(), &field)
 }
 
 #[derive(Default)]
@@ -458,7 +458,7 @@ impl AstSourceExtent {
 
 fn scan_ast_source_extent(
     vm: &VirtualMachine,
-    object: &PyObjectRef,
+    object: &PyObject,
     extent: &mut AstSourceExtent,
 ) -> PyResult<()> {
     if is_ast_instance(vm, object)? {
@@ -494,8 +494,8 @@ fn scan_ast_source_extent(
 
 fn copy_ast_passthrough_fields(
     vm: &VirtualMachine,
-    source: &PyObjectRef,
-    target: &PyObjectRef,
+    source: &PyObject,
+    target: &PyObject,
 ) -> PyResult<()> {
     if !is_ast_instance(vm, source)?
         || !is_ast_instance(vm, target)?
@@ -526,7 +526,7 @@ fn copy_ast_passthrough_fields(
         };
 
     for field in fields {
-        if let Some(value) = vm.get_attribute_opt(source.clone(), *field)? {
+        if let Some(value) = vm.get_attribute_opt(source.to_owned(), *field)? {
             target.set_attr(*field, value, vm)?;
         }
     }
@@ -564,18 +564,18 @@ fn copy_ast_passthrough_fields(
 
 fn get_ast_location_field(
     vm: &VirtualMachine,
-    object: &PyObjectRef,
+    object: &PyObject,
     field: &'static str,
 ) -> PyResult<Option<PyObjectRef>> {
     Ok(vm
-        .get_attribute_opt(object.clone(), field)?
+        .get_attribute_opt(object.to_owned(), field)?
         .filter(|value| !vm.is_none(value)))
 }
 
 fn ast_start_location_matches(
     vm: &VirtualMachine,
-    source: &PyObjectRef,
-    target: &PyObjectRef,
+    source: &PyObject,
+    target: &PyObject,
 ) -> PyResult<bool> {
     for field in ["lineno", "col_offset"] {
         let Some(source_value) = get_ast_location_field(vm, source, field)? else {
@@ -606,8 +606,8 @@ fn ast_start_location_matches(
 
 fn ast_passthrough_location_candidate_matches(
     vm: &VirtualMachine,
-    source: &PyObjectRef,
-    target: &PyObjectRef,
+    source: &PyObject,
+    target: &PyObject,
 ) -> PyResult<bool> {
     Ok(is_ast_instance(vm, source)?
         && is_ast_instance(vm, target)?
@@ -638,8 +638,8 @@ fn copy_ast_passthrough_list_items_by_location(
 
 fn copy_ast_passthrough_children(
     vm: &VirtualMachine,
-    source: &PyObjectRef,
-    target: &PyObjectRef,
+    source: &PyObject,
+    target: &PyObject,
 ) -> PyResult<()> {
     if is_ast_instance(vm, source)? && is_ast_instance(vm, target)? {
         return copy_ast_passthrough_fields(vm, source, target);
@@ -675,7 +675,7 @@ fn copy_ast_passthrough_children(
     Ok(())
 }
 
-fn synthetic_source_from_ast_object(vm: &VirtualMachine, object: &PyObjectRef) -> PyResult<String> {
+fn synthetic_source_from_ast_object(vm: &VirtualMachine, object: &PyObject) -> PyResult<String> {
     let mut extent = AstSourceExtent::default();
     scan_ast_source_extent(vm, object, &mut extent)?;
     if extent.max_line == 0 {
@@ -1558,10 +1558,10 @@ fn should_report_unsupported_syntax_error(error: &parser::UnsupportedSyntaxError
 
 fn node_list_field(
     vm: &VirtualMachine,
-    object: &PyObjectRef,
+    object: &PyObject,
     field: &'static str,
 ) -> Vec<PyObjectRef> {
-    vm.get_attribute_opt(object.clone(), field)
+    vm.get_attribute_opt(object.to_owned(), field)
         .ok()
         .flatten()
         .and_then(|value| {
@@ -1574,16 +1574,16 @@ fn node_list_field(
 
 fn node_optional_field(
     vm: &VirtualMachine,
-    object: &PyObjectRef,
+    object: &PyObject,
     field: &'static str,
 ) -> Option<PyObjectRef> {
-    vm.get_attribute_opt(object.clone(), field)
+    vm.get_attribute_opt(object.to_owned(), field)
         .ok()
         .flatten()
         .filter(|value| !vm.is_none(value))
 }
 
-fn node_lineno(vm: &VirtualMachine, object: &PyObjectRef) -> Option<usize> {
+fn node_lineno(vm: &VirtualMachine, object: &PyObject) -> Option<usize> {
     node_optional_field(vm, object, "lineno")?
         .try_into_value(vm)
         .ok()
@@ -1596,7 +1596,7 @@ fn source_line<'a>(
     lineno.checked_sub(1).and_then(|idx| lines.lines.get(idx))
 }
 
-fn set_type_comment(vm: &VirtualMachine, object: &PyObjectRef, comment: Option<&str>) {
+fn set_type_comment(vm: &VirtualMachine, object: &PyObject, comment: Option<&str>) {
     let value = comment.map_or_else(|| vm.ctx.none(), |comment| vm.ctx.new_str(comment).into());
     object
         .as_object()
@@ -1609,7 +1609,7 @@ fn set_type_comment(vm: &VirtualMachine, object: &PyObjectRef, comment: Option<&
 fn same_line_type_comment<'a>(
     vm: &VirtualMachine,
     lines: &'a TypeCommentSource<'a>,
-    object: &PyObjectRef,
+    object: &PyObject,
 ) -> Option<&'a str> {
     let lineno = node_lineno(vm, object)?;
     regular_type_comment_text(source_line(lines, lineno)?)
@@ -1618,7 +1618,7 @@ fn same_line_type_comment<'a>(
 fn function_type_comment<'a>(
     vm: &VirtualMachine,
     lines: &'a TypeCommentSource<'a>,
-    object: &PyObjectRef,
+    object: &PyObject,
 ) -> Option<&'a str> {
     let lineno = node_lineno(vm, object)?;
     if let Some(comment) = regular_type_comment_text(source_line(lines, lineno)?) {
@@ -1637,7 +1637,7 @@ fn function_type_comment<'a>(
 fn apply_type_comments_to_arguments(
     vm: &VirtualMachine,
     lines: &TypeCommentSource<'_>,
-    arguments: &PyObjectRef,
+    arguments: &PyObject,
 ) {
     for field in ["posonlyargs", "args", "kwonlyargs"] {
         for arg in node_list_field(vm, arguments, field) {
@@ -1654,7 +1654,7 @@ fn apply_type_comments_to_arguments(
 fn apply_type_comments_to_node(
     vm: &VirtualMachine,
     lines: &TypeCommentSource<'_>,
-    object: &PyObjectRef,
+    object: &PyObject,
 ) {
     let cls = object.class();
     if cls.is(pyast::NodeStmtFunctionDef::static_type())
@@ -1688,7 +1688,7 @@ fn apply_type_comments_to_node(
 fn apply_type_comments_to_module(
     vm: &VirtualMachine,
     lines: &TypeCommentSource<'_>,
-    module: &PyObjectRef,
+    module: &PyObject,
 ) {
     for statement in node_list_field(vm, module, "body") {
         apply_type_comments_to_node(vm, lines, &statement);

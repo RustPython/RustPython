@@ -2676,7 +2676,7 @@ pub mod module {
 #[pymodule(sub)]
 mod posix_sched {
     use crate::{
-        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyTupleRef,
         class::PyClassDef,
         convert::{IntoPyException, ToPyObject},
@@ -2740,7 +2740,7 @@ mod posix_sched {
 
     #[cfg(not(target_env = "musl"))]
     pub(super) fn convert_sched_param(
-        obj: &PyObjectRef,
+        obj: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<libc::sched_param> {
         use crate::{

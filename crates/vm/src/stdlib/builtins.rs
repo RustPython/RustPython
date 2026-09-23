@@ -8,7 +8,8 @@ pub use builtins::{ascii, print, reversed};
 #[pymodule]
 mod builtins {
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine,
         builtins::{
             PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
             PyUtf8StrRef,
@@ -492,7 +493,7 @@ mod builtins {
     }
 
     fn exec_closure(
-        code_obj: &PyRef<crate::builtins::PyCode>,
+        code_obj: &Py<crate::builtins::PyCode>,
         closure: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyRef<PyTuple<PyCellRef>>>> {

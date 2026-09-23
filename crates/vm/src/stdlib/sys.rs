@@ -1744,7 +1744,7 @@ pub mod sys {
 
     pub(crate) fn run_audit_hooks(
         event: PyStrRef,
-        args: &PyObjectRef,
+        args: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let hooks = vm.audit_hooks.borrow().clone();
@@ -1760,7 +1760,7 @@ pub mod sys {
         Ok(())
     }
 
-    fn audit_hook_can_trace(hook: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn audit_hook_can_trace(hook: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         match hook.get_attr("__cantrace__", vm) {
             Ok(can_trace) => can_trace.try_to_bool(vm),
             Err(exc)
@@ -1775,9 +1775,9 @@ pub mod sys {
     }
 
     fn call_audit_hook(
-        hook: &PyObjectRef,
+        hook: &PyObject,
         event: PyObjectRef,
-        args: &PyObjectRef,
+        args: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Tracing is suppressed while dispatching Python audit hooks,
@@ -1789,7 +1789,7 @@ pub mod sys {
                 if can_trace {
                     vm.leave_tracing();
                 }
-                let result = hook.call((event, args.clone()), vm).map(|_| ());
+                let result = hook.call((event, args.to_owned()), vm).map(|_| ());
                 if can_trace {
                     vm.enter_tracing();
                 }
@@ -1808,7 +1808,7 @@ pub mod sys {
             return Ok(());
         }
 
-        let args_tup = vm.ctx.new_tuple(args.into_vec()).into();
+        let args_tup: PyObjectRef = vm.ctx.new_tuple(args.into_vec()).into();
         run_audit_hooks(event, &args_tup, vm)
     }
 

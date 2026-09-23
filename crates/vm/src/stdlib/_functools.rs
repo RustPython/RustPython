@@ -3,7 +3,7 @@ pub(crate) use _functools::module_def;
 #[pymodule]
 mod _functools {
     use crate::{
-        Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
             PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef, object,
         },
@@ -120,7 +120,7 @@ mod _functools {
         }
     }
 
-    fn is_placeholder(obj: &PyObjectRef) -> bool {
+    fn is_placeholder(obj: &PyObject) -> bool {
         &*obj.class().name() == "_PlaceholderType"
     }
 
@@ -644,7 +644,7 @@ mod _functools {
                 elements.push(self.keyword_marker.clone());
                 for (name, value) in &args.kwargs {
                     elements.push(vm.ctx.new_str(name.clone()).into());
-                    elements.push(value.clone());
+                    elements.push(value.to_owned());
                 }
             }
             if self.typed {
@@ -664,19 +664,19 @@ mod _functools {
         /// order (removing then reinserting it). `cache` itself provides the
         /// hashing/equality, so this needs no separate key-comparison machinery.
         fn touch_key(
-            key: &PyObjectRef,
-            value: &PyObjectRef,
-            cache: &PyDictRef,
+            key: &PyObject,
+            value: &PyObject,
+            cache: &Py<PyDict>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             cache.del_item(key.as_object(), vm)?;
-            cache.set_item(key.as_object(), value.clone(), vm)?;
+            cache.set_item(key.as_object(), value.to_owned(), vm)?;
             Ok(())
         }
 
         /// Evict the least-recently-used entry (the first item in `cache`'s
         /// insertion order) if `cache` grew past `maxsize`.
-        fn evict_if_full(maxsize: usize, cache: &PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn evict_if_full(maxsize: usize, cache: &Py<PyDict>, vm: &VirtualMachine) -> PyResult<()> {
             if cache.__len__() <= maxsize {
                 return Ok(());
             }

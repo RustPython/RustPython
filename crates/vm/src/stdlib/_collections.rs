@@ -629,7 +629,7 @@ mod _collections {
                     "[",
                     &closing_part,
                     &empty,
-                    deque.iter(),
+                    deque.iter().map(|o| &**o),
                     vm,
                 )?))
             } else {

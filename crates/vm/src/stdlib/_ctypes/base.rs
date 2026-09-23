@@ -384,7 +384,7 @@ pub(super) static CDATA_BUFFER_METHODS: BufferMethods = BufferMethods {
 ///
 /// The caller must keep the returned object alive to keep the pointer valid.
 pub(super) fn ensure_z_null_terminated(
-    bytes: &PyBytes,
+    bytes: &Py<PyBytes>,
     vm: &VirtualMachine,
 ) -> (PyObjectRef, usize) {
     let buffer = rustpython_host_env::ctypes::clone_as_null_terminated(bytes.as_bytes());
@@ -1690,7 +1690,7 @@ impl PyCField {
 #[pyclass(flags(IMMUTABLETYPE), with(Representable, GetDescriptor, Constructor))]
 impl PyCField {
     /// Get PyCData from object (works for both Structure and Union)
-    fn get_cdata_from_obj<'a>(obj: &'a PyObjectRef, vm: &VirtualMachine) -> PyResult<&'a PyCData> {
+    fn get_cdata_from_obj<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a PyCData> {
         if let Some(s) = obj.downcast_ref::<super::structure::PyCStructure>() {
             Ok(&s.0)
         } else if let Some(u) = obj.downcast_ref::<super::union::PyCUnion>() {

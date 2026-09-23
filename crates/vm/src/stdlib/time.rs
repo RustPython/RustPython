@@ -16,7 +16,7 @@ mod decl {
     use crate::builtins::PyBaseExceptionRef;
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyTypeRef},
+        builtins::{PyStr, PyStrRef, PyTypeRef},
         class::PyClassDef,
         function::{Either, FuncArgs, OptionalArg},
         types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
@@ -594,7 +594,7 @@ mod decl {
 
     #[cfg(any(unix, windows))]
     fn strftime_crt(
-        format: &PyStrRef,
+        format: &Py<PyStr>,
         checked_tm: host_time::CheckedTm,
         vm: &VirtualMachine,
     ) -> PyResult {

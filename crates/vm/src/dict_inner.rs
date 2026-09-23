@@ -995,7 +995,7 @@ impl<T: Clone> Dict<T> {
         &self,
         mut position: EntryIndex,
         old: &DictSize,
-        project: impl FnOnce(&PyObjectRef, &T) -> R,
+        project: impl FnOnce(&PyObject, &T) -> R,
     ) -> Result<Option<(usize, R)>, DictChanged> {
         let inner = self.read();
         if inner.size() != *old {
@@ -1017,7 +1017,7 @@ impl<T: Clone> Dict<T> {
         &self,
         mut position: EntryIndex,
         old: &DictSize,
-        project: impl FnOnce(&PyObjectRef, &T) -> R,
+        project: impl FnOnce(&PyObject, &T) -> R,
     ) -> Result<Option<(usize, R)>, DictChanged> {
         let inner = self.read();
         if inner.size() != *old {

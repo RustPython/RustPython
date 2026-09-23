@@ -7,8 +7,8 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyBytes, PyCode, PyDict, PyFloat, PyFunction, PyInt, PyMemoryView,
-        PyStr, PyStrInterned, PyTuple,
+        PyBaseException, PyBaseExceptionRef, PyBytes, PyCode, PyDict, PyFloat, PyFunction, PyInt,
+        PyMemoryView, PyStr, PyStrInterned, PyTuple,
     },
     bytecode::{
         BorrowedConstant, CodeFlags, Constant, Instruction,
@@ -416,7 +416,7 @@ pub fn utf8_key<'a>(key: &'a PyObject, vm: &'a VirtualMachine) -> PyResult<&'a s
 }
 
 /// `_convert_exc_to_TracebackException` followed by `_format_TracebackException`.
-fn format_traceback_exception(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
+fn format_traceback_exception(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<String> {
     let create = vm
         .import("traceback", 0)?
         .get_attr("TracebackException", vm)?
@@ -472,7 +472,7 @@ pub struct ExcInfo {
 }
 
 impl ExcInfo {
-    pub fn capture(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> Self {
+    pub fn capture(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> Self {
         let cls = exc.class();
         let type_name = cls.name().to_owned();
         let type_qualname = cls
@@ -745,7 +745,7 @@ fn unsupported_script(vm: &VirtualMachine, obj: &PyObject) -> PyBaseExceptionRef
 
 pub fn apply_shared_ns(
     ns: &crate::builtins::PyDictRef,
-    shared: &crate::builtins::PyDict,
+    shared: &Py<crate::builtins::PyDict>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     for (key, value) in shared {

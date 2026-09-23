@@ -4,7 +4,7 @@ pub(crate) use _symtable::module_def;
 mod _symtable {
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStrRef, PyUtf8StrRef},
+        builtins::{PyBaseExceptionRef, PyDictRef, PyListRef, PyStr, PyUtf8StrRef},
         compiler,
         function::{ArgStrOrBytesLike, FsPath},
         types::Representable,
@@ -138,12 +138,12 @@ mod _symtable {
 
     fn set_syntax_error_filename(
         err: PyBaseExceptionRef,
-        filename: &PyStrRef,
+        filename: &Py<PyStr>,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
         if err.fast_isinstance(vm.ctx.exceptions.syntax_error) {
             err.as_object()
-                .set_attr("filename", filename.clone(), vm)
+                .set_attr("filename", filename.to_owned(), vm)
                 .unwrap();
         }
         err

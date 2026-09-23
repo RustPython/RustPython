@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyCode, PyDictRef, PyNamespace, PyUtf8StrRef, code::CoMonitoringData},
     function::FuncArgs,
 };
@@ -961,14 +961,14 @@ pub(crate) fn fire_py_return(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    retval: &PyObjectRef,
+    retval: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_RETURN,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), retval.clone()],
+        &[vm.ctx.new_int(offset).into(), retval.to_owned()],
     )
 }
 
@@ -976,14 +976,14 @@ pub(crate) fn fire_py_yield(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    retval: &PyObjectRef,
+    retval: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_YIELD,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), retval.clone()],
+        &[vm.ctx.new_int(offset).into(), retval.to_owned()],
     )
 }
 
@@ -991,7 +991,7 @@ pub(crate) fn fire_call(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    callable: &PyObjectRef,
+    callable: &PyObject,
     arg0: PyObjectRef,
 ) -> PyResult<()> {
     fire(
@@ -999,7 +999,7 @@ pub(crate) fn fire_call(
         EVENT_CALL,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), callable.clone(), arg0],
+        &[vm.ctx.new_int(offset).into(), callable.to_owned(), arg0],
     )
 }
 
@@ -1007,7 +1007,7 @@ pub(crate) fn fire_c_return(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    callable: &PyObjectRef,
+    callable: &PyObject,
     arg0: PyObjectRef,
 ) -> PyResult<()> {
     fire(
@@ -1015,7 +1015,7 @@ pub(crate) fn fire_c_return(
         EVENT_C_RETURN,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), callable.clone(), arg0],
+        &[vm.ctx.new_int(offset).into(), callable.to_owned(), arg0],
     )
 }
 
@@ -1023,7 +1023,7 @@ pub(crate) fn fire_c_raise(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    callable: &PyObjectRef,
+    callable: &PyObject,
     arg0: PyObjectRef,
 ) -> PyResult<()> {
     fire(
@@ -1031,7 +1031,7 @@ pub(crate) fn fire_c_raise(
         EVENT_C_RAISE,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), callable.clone(), arg0],
+        &[vm.ctx.new_int(offset).into(), callable.to_owned(), arg0],
     )
 }
 
@@ -1062,14 +1062,14 @@ pub(crate) fn fire_raise(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
         EVENT_RAISE,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
@@ -1079,7 +1079,7 @@ pub(crate) fn fire_reraise(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     if RERAISE_PENDING.with(|f| f.get()) {
         return Ok(());
@@ -1090,7 +1090,7 @@ pub(crate) fn fire_reraise(
         EVENT_RERAISE,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     );
     if result.is_err() {
         RERAISE_PENDING.with(|f| f.set(false));
@@ -1102,7 +1102,7 @@ pub(crate) fn fire_exception_handled(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     RERAISE_PENDING.with(|f| f.set(false));
     fire(
@@ -1110,7 +1110,7 @@ pub(crate) fn fire_exception_handled(
         EVENT_EXCEPTION_HANDLED,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
@@ -1118,7 +1118,7 @@ pub(crate) fn fire_py_unwind(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     RERAISE_PENDING.with(|f| f.set(false));
     fire(
@@ -1126,7 +1126,7 @@ pub(crate) fn fire_py_unwind(
         EVENT_PY_UNWIND,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
@@ -1134,14 +1134,14 @@ pub(crate) fn fire_py_throw(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_THROW,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
@@ -1151,12 +1151,12 @@ pub(crate) fn fire_stop_iteration(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    value: &PyObjectRef,
+    value: &PyObject,
 ) -> PyResult<()> {
     let exc: PyObjectRef = if value.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
-        value.clone()
+        value.to_owned()
     } else {
-        vm.new_stop_iteration(Some(value.clone())).into()
+        vm.new_stop_iteration(Some(value.to_owned())).into()
     };
     fire(
         vm,

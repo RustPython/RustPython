@@ -1485,12 +1485,12 @@ impl PyBoundMethod {
     }
 
     #[inline]
-    pub(crate) const fn function_obj(&self) -> &PyObjectRef {
+    pub(crate) fn function_obj(&self) -> &PyObject {
         &self.function
     }
 
     #[inline]
-    pub(crate) const fn self_obj(&self) -> &PyObjectRef {
+    pub(crate) fn self_obj(&self) -> &PyObject {
         &self.object
     }
 

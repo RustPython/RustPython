@@ -3351,12 +3351,12 @@ pub(super) mod types {
 }
 
 /// Check if match_type is valid for except* (must be exception type, not ExceptionGroup).
-fn check_except_star_type_valid(match_type: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+fn check_except_star_type_valid(match_type: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
     let base_exc: PyObjectRef = vm.ctx.exceptions.base_exception_type.to_owned().into();
     let base_eg: PyObjectRef = vm.ctx.exceptions.base_exception_group.to_owned().into();
 
     // Helper to check a single type
-    let check_one = |exc_type: &PyObjectRef| -> PyResult<()> {
+    let check_one = |exc_type: &PyObject| -> PyResult<()> {
         // Must be a subclass of BaseException
         if !exc_type.is_subclass(&base_exc, vm)? {
             return Err(vm.new_type_error(
@@ -3373,7 +3373,7 @@ fn check_except_star_type_valid(match_type: &PyObjectRef, vm: &VirtualMachine) -
     };
 
     // If it's a tuple, check each element
-    if let Ok(tuple) = match_type.clone().downcast::<PyTuple>() {
+    if let Ok(tuple) = match_type.to_owned().downcast::<PyTuple>() {
         for item in tuple.iter() {
             check_one(item)?;
         }
@@ -3386,8 +3386,8 @@ fn check_except_star_type_valid(match_type: &PyObjectRef, vm: &VirtualMachine) -
 /// Match exception against except* handler type.
 /// Returns (rest, match) tuple.
 pub fn exception_group_match(
-    exc_value: &PyObjectRef,
-    match_type: &PyObjectRef,
+    exc_value: &PyObject,
+    match_type: &PyObject,
     vm: &VirtualMachine,
 ) -> PyResult<(PyObjectRef, PyObjectRef)> {
     // Implements _PyEval_ExceptionGroupMatch
@@ -3405,14 +3405,14 @@ pub fn exception_group_match(
         // Full match of exc itself
         let is_eg = exc_value.fast_isinstance(vm.ctx.exceptions.base_exception_group);
         let matched = if is_eg {
-            exc_value.clone()
+            exc_value.to_owned()
         } else {
             // Naked exception - wrap it in ExceptionGroup
-            let excs = vm.ctx.new_tuple(vec![exc_value.clone()]);
+            let excs = vm.ctx.new_tuple(vec![exc_value.to_owned()]);
             let eg_type: PyObjectRef = crate::exception_group::exception_group().to_owned().into();
             let wrapped = eg_type.call((vm.ctx.new_str(""), excs), vm)?;
             // Copy traceback from original exception
-            if let Ok(exc) = exc_value.clone().downcast::<types::PyBaseException>()
+            if let Ok(exc) = exc_value.to_owned().downcast::<types::PyBaseException>()
                 && let Some(tb) = exc.__traceback__()
                 && let Ok(wrapped_exc) = wrapped.clone().downcast::<types::PyBaseException>()
             {
@@ -3425,7 +3425,7 @@ pub fn exception_group_match(
 
     // Check for partial match if it's an exception group
     if exc_value.fast_isinstance(vm.ctx.exceptions.base_exception_group) {
-        let pair = vm.call_method(exc_value, "split", (match_type.clone(),))?;
+        let pair = vm.call_method(exc_value, "split", (match_type.to_owned(),))?;
         if !pair.class().is(vm.ctx.types.tuple_type) {
             return Err(vm.new_type_error(format!(
                 "{}.split must return a tuple, not {}",
@@ -3447,7 +3447,7 @@ pub fn exception_group_match(
     }
 
     // No match
-    Ok((exc_value.clone(), vm.ctx.none()))
+    Ok((exc_value.to_owned(), vm.ctx.none()))
 }
 
 /// Prepare exception for reraise in except* block.
@@ -3522,7 +3522,7 @@ pub fn prep_reraise_star(orig: PyObjectRef, excs: PyObjectRef, vm: &VirtualMachi
 /// Check if an exception came from the original group (for reraise detection).
 /// Instead of comparing metadata (which can be modified when caught), we compare
 /// leaf exception object IDs. split() preserves leaf exception identity.
-fn is_exception_from_orig(exc: &PyObjectRef, orig: &PyObjectRef, vm: &VirtualMachine) -> bool {
+fn is_exception_from_orig(exc: &PyObject, orig: &PyObject, vm: &VirtualMachine) -> bool {
     // Collect leaf exception IDs from exc
     let mut exc_leaf_ids = HashSet::new();
     collect_exception_group_leaf_ids(exc, &mut exc_leaf_ids, vm);
@@ -3541,7 +3541,7 @@ fn is_exception_from_orig(exc: &PyObjectRef, orig: &PyObjectRef, vm: &VirtualMac
 
 /// Collect all leaf exception IDs from an exception (group).
 fn collect_exception_group_leaf_ids(
-    exc: &PyObjectRef,
+    exc: &PyObject,
     leaf_ids: &mut HashSet<usize>,
     vm: &VirtualMachine,
 ) {
@@ -3569,7 +3569,7 @@ fn collect_exception_group_leaf_ids(
 /// Returns an exception group containing only the exceptions from orig
 /// that are also in the keep list.
 fn exception_group_projection(
-    orig: &PyObjectRef,
+    orig: &PyObject,
     keep: &[PyObjectRef],
     vm: &VirtualMachine,
 ) -> PyResult {
@@ -3589,11 +3589,7 @@ fn exception_group_projection(
 
 /// Recursively split an exception (group) by leaf IDs.
 /// Returns the projection containing only matching leaves with preserved structure.
-fn split_by_leaf_ids(
-    exc: &PyObjectRef,
-    leaf_ids: &HashSet<usize>,
-    vm: &VirtualMachine,
-) -> PyResult {
+fn split_by_leaf_ids(exc: &PyObject, leaf_ids: &HashSet<usize>, vm: &VirtualMachine) -> PyResult {
     if vm.is_none(exc) {
         return Ok(vm.ctx.none());
     }
@@ -3601,7 +3597,7 @@ fn split_by_leaf_ids(
     // If not an exception group, check if it's in our set
     if !exc.fast_isinstance(vm.ctx.exceptions.base_exception_group) {
         if leaf_ids.contains(&exc.get_id()) {
-            return Ok(exc.clone());
+            return Ok(exc.to_owned());
         }
         return Ok(vm.ctx.none());
     }

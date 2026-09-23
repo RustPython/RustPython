@@ -1650,9 +1650,9 @@ impl VirtualMachine {
     /// Similar to _PyErr_WriteUnraisableDefaultHook in CPython.
     fn write_unraisable_to_stderr(
         &self,
-        e: &PyBaseExceptionRef,
+        e: &Py<PyBaseException>,
         msg: Option<&str>,
-        object: &PyObjectRef,
+        object: &PyObject,
     ) {
         // Get stderr once and reuse it
         let stderr = crate::stdlib::sys::get_stderr(self).ok();

@@ -2860,7 +2860,7 @@ mod _io {
                 .map_err(|_| vm.new_value_error("I/O operation on uninitialized object"))
         }
 
-        fn validate_errors(errors: &PyRef<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<()> {
+        fn validate_errors(errors: &Py<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<()> {
             if errors.as_pystr().contains_nuls() {
                 cold_path();
                 return Err(nul_char_error(vm));
@@ -2925,7 +2925,7 @@ mod _io {
         }
 
         fn adjust_encoder_state_for_bom(
-            encoder: &PyObjectRef,
+            encoder: &PyObject,
             encoding: &str,
             buffer: &PyObject,
             vm: &VirtualMachine,
@@ -6216,10 +6216,7 @@ mod winconsoleio {
             }
 
             // Parse mode
-            let mode_str: &str = args
-                .mode
-                .as_ref()
-                .map_or("r", |s: &PyUtf8StrRef| s.as_str());
+            let mode_str: &str = args.mode.as_deref().map_or("r", |s| s.as_str());
 
             let mut rwa = false;
             let mut readable = false;
