@@ -28,6 +28,9 @@ use core::marker::PhantomData;
 use core::ptr::NonNull;
 use crossbeam_utils::atomic::AtomicCell;
 
+/// `tp_dealloc` supplied by an extension. Stored on the type and not invoked yet.
+pub type CDestructor = unsafe extern "C" fn(*mut PyObject);
+
 /// The C functions an extension supplied for one type.
 ///
 /// Each entry is written once, when the type is built, and read through a
@@ -36,6 +39,8 @@ use crossbeam_utils::atomic::AtomicCell;
 pub struct CSlots {
     /// tp_new. Reached through [`c_new_trampoline`], never called directly.
     pub new: AtomicCell<Option<CNewFunc>>,
+    /// tp_dealloc. Stored when installed from C and not called yet.
+    pub dealloc: AtomicCell<Option<CDestructor>>,
 }
 
 impl CSlots {
@@ -49,6 +54,7 @@ impl CSlots {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum CSlotId {
+    TpDealloc = 52,
     TpNew = 65,
 }
 
@@ -58,6 +64,7 @@ impl CSlotId {
     #[must_use]
     pub const fn from_raw(id: i32) -> Option<Self> {
         match id {
+            52 => Some(Self::TpDealloc),
             65 => Some(Self::TpNew),
             _ => None,
         }

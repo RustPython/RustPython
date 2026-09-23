@@ -10,13 +10,17 @@
 //! `__new__` is the same wrapper a native type gets, so a call through it is
 //! checked by `PyType::__new__` before it reaches the slot.
 
+use crate::methodobject::{PyMethodDef, build_method_def};
 use crate::object::PyTypeObject;
-use core::ffi::{c_int, c_void};
+use crate::pystate::with_vm;
+use crate::util::CStrExt;
+use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
 use rustpython_vm::builtins::PyType;
-use rustpython_vm::function::PyMethodFlags;
-use rustpython_vm::types::{CNewFunc, CSlotId, CSlots};
-use rustpython_vm::{Py, PyResult, VirtualMachine, identifier};
+use rustpython_vm::function::{HeapMethodDef, PyMethodFlags};
+use rustpython_vm::object::PyCBody;
+use rustpython_vm::types::{CDestructor, CNewFunc, CSlotId, CSlots, PyTypeFlags, PyTypeSlots};
+use rustpython_vm::{Py, PyRef, PyResult, VirtualMachine, identifier};
 
 #[allow(non_camel_case_types)]
 pub type newfunc = CNewFunc;
@@ -30,31 +34,346 @@ pub const Py_tp_new: c_int = CSlotId::TpNew as c_int;
 pub fn set_tp_new(vm: &VirtualMachine, ty: &Py<PyType>, tp_new: newfunc) -> PyResult<()> {
     let c_slots = CSlots::new();
     c_slots.new.store(Some(tp_new));
-    ty.set_c_slots(c_slots, vm)?;
+    install_c_slots(vm, ty, c_slots)
+}
 
-    // The wrapper that reaches the slot the checked way, as a native type gets
-    // from `extend_class`. Stored without the attribute protocol so that
-    // `update_slot` does not read it back as a definition of `__new__`.
+/// Store `c_slots` on `ty` and, when it holds tp_new, publish the `__new__`
+/// wrapper that reaches the trampoline.
+fn install_c_slots(vm: &VirtualMachine, ty: &Py<PyType>, c_slots: CSlots) -> PyResult<()> {
+    let has_new = c_slots.new.load().is_some();
+    ty.set_c_slots(c_slots, vm)?;
+    if has_new {
+        install_new_wrapper(vm, ty);
+    }
+    Ok(())
+}
+
+/// The wrapper that reaches the slot the checked way, as a native type gets
+/// from `extend_class`. Stored without the attribute protocol so that
+/// `update_slot` does not read it back as a definition of `__new__`.
+fn install_new_wrapper(vm: &VirtualMachine, ty: &Py<PyType>) {
     let def = vm
         .ctx
         .new_method_def("__new__", PyType::__new__, PyMethodFlags::METHOD, None);
     let wrapper = def.build_function(vm, Some(ty.to_owned().into()));
     ty.set_attr(identifier!(vm, __new__), wrapper.into());
-    Ok(())
 }
 
 /// The C function installed in `slot`.
 ///
 /// `Py_tp_new` is reported for a function installed from C and for a Rust
-/// `tp_new`, including one a subclass inherited. Any other id reads as empty.
+/// `tp_new`, including one a subclass inherited. `Py_tp_dealloc` is reported
+/// when it was installed from C. Any other id reads as empty.
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
 pub unsafe extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c_void {
     let ty = unsafe { &*ty };
     match CSlotId::from_raw(slot) {
         Some(CSlotId::TpNew) => ty.c_tp_new().map_or(ptr::null_mut(), |f| f as *mut c_void),
+        Some(CSlotId::TpDealloc) => ty
+            .slots
+            .c_slots()
+            .and_then(|c| c.dealloc.load())
+            .map_or(ptr::null_mut(), |f| f as *mut c_void),
         None => ptr::null_mut(),
     }
+}
+
+/// Outer slot list entry. Layout matches the 3.15 `PySlot`: id, flags, a
+/// reserved word, then a 64-bit value.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct PySlot {
+    sl_id: u16,
+    sl_flags: u16,
+    reserved: u32,
+    value: PySlotValue,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+union PySlotValue {
+    ptr: *mut c_void,
+    uint64: u64,
+    size: isize,
+}
+
+/// Inner slot list entry, terminated by `slot == 0`.
+#[repr(C)]
+struct PyType_Slot {
+    slot: c_int,
+    pfunc: *mut c_void,
+}
+
+const PY_TP_BASE: c_int = 48;
+const PY_TP_DEALLOC: c_int = 52;
+const PY_TP_DOC: c_int = 56;
+const PY_TP_METHODS: c_int = 64;
+const PY_TP_NEW: c_int = 65;
+
+const PY_TP_SLOTS: u16 = 93;
+const PY_TP_NAME: u16 = 95;
+const PY_TP_BASICSIZE: u16 = 96;
+const PY_TP_EXTRA_BASICSIZE: u16 = 97;
+const PY_TP_FLAGS: u16 = 99;
+
+const TPFLAGS_BASETYPE: u64 = 1 << 10;
+const BODY_ALIGN: usize = 16;
+
+fn base_basicsize(cls: &Py<PyType>) -> usize {
+    cls.base.deref().map_or(0, |base| base.slots.basicsize)
+}
+
+fn align_up_16(size: usize) -> Option<usize> {
+    size.checked_add(BODY_ALIGN - 1)
+        .map(|size| size & !(BODY_ALIGN - 1))
+}
+
+fn slot_size(value: isize, vm: &VirtualMachine) -> PyResult<usize> {
+    usize::try_from(value).map_err(|_| vm.new_system_error("negative type size"))
+}
+
+struct TypeSpec {
+    name: Option<String>,
+    flags: u64,
+    explicit_basicsize: Option<usize>,
+    extra_basicsize: usize,
+    base: Option<PyRef<PyType>>,
+    tp_new: Option<newfunc>,
+    dealloc: Option<CDestructor>,
+    methods: Vec<(String, PyRef<HeapMethodDef>)>,
+    doc: Option<String>,
+}
+
+fn read_type_spec(vm: &VirtualMachine, slots: *const PySlot) -> PyResult<TypeSpec> {
+    if slots.is_null() {
+        return Err(vm.new_system_error("type slots are null"));
+    }
+    let mut spec = TypeSpec {
+        name: None,
+        flags: 0,
+        explicit_basicsize: None,
+        extra_basicsize: 0,
+        base: None,
+        tp_new: None,
+        dealloc: None,
+        methods: Vec::new(),
+        doc: None,
+    };
+    let mut cursor = slots;
+    loop {
+        let slot = unsafe { &*cursor };
+        if slot.sl_id == 0 {
+            break;
+        }
+        match slot.sl_id {
+            PY_TP_NAME => {
+                let name = unsafe { slot.value.ptr.cast::<c_char>().try_as_str(vm)? };
+                spec.name = Some(name.to_owned());
+            }
+            PY_TP_FLAGS => {
+                spec.flags = unsafe { slot.value.uint64 };
+            }
+            PY_TP_BASICSIZE => {
+                spec.explicit_basicsize = Some(slot_size(unsafe { slot.value.size }, vm)?);
+            }
+            PY_TP_EXTRA_BASICSIZE => {
+                spec.extra_basicsize = slot_size(unsafe { slot.value.size }, vm)?;
+            }
+            PY_TP_SLOTS => read_inner_slots(vm, &mut spec, unsafe { slot.value.ptr })?,
+            other => {
+                return Err(vm.new_system_error(format!("unsupported type slot {other}")));
+            }
+        }
+        cursor = unsafe { cursor.add(1) };
+    }
+    Ok(spec)
+}
+
+fn read_inner_slots(vm: &VirtualMachine, spec: &mut TypeSpec, slots: *mut c_void) -> PyResult<()> {
+    if slots.is_null() {
+        return Err(vm.new_system_error("inner type slots are null"));
+    }
+    let mut cursor = slots.cast::<PyType_Slot>();
+    loop {
+        let slot = unsafe { &*cursor };
+        if slot.slot == 0 {
+            break;
+        }
+        match slot.slot {
+            PY_TP_BASE => {
+                if slot.pfunc.is_null() {
+                    return Err(vm.new_system_error("type base is null"));
+                }
+                spec.base = Some(unsafe { &*slot.pfunc.cast::<Py<PyType>>() }.to_owned());
+            }
+            PY_TP_NEW => {
+                if !slot.pfunc.is_null() {
+                    spec.tp_new =
+                        Some(unsafe { core::mem::transmute::<*mut c_void, newfunc>(slot.pfunc) });
+                }
+            }
+            PY_TP_DEALLOC => {
+                if !slot.pfunc.is_null() {
+                    spec.dealloc = Some(unsafe {
+                        core::mem::transmute::<*mut c_void, CDestructor>(slot.pfunc)
+                    });
+                }
+            }
+            PY_TP_METHODS => read_methods(vm, spec, slot.pfunc)?,
+            PY_TP_DOC => {
+                spec.doc =
+                    unsafe { slot.pfunc.cast::<c_char>().try_as_str_opt(vm)? }.map(str::to_owned);
+            }
+            other => {
+                return Err(vm.new_system_error(format!("unsupported type slot {other}")));
+            }
+        }
+        cursor = unsafe { cursor.add(1) };
+    }
+    Ok(())
+}
+
+fn read_methods(vm: &VirtualMachine, spec: &mut TypeSpec, methods: *mut c_void) -> PyResult<()> {
+    if methods.is_null() {
+        return Ok(());
+    }
+    let mut cursor = methods.cast::<PyMethodDef>();
+    loop {
+        let def = unsafe { &*cursor };
+        if def.ml_name.is_null() {
+            break;
+        }
+        let name = unsafe { def.ml_name.try_as_str(vm)? };
+        let built = build_method_def(vm, def, true)?;
+        spec.methods.push((name.to_owned(), built));
+        cursor = unsafe { cursor.add(1) };
+    }
+    Ok(())
+}
+
+fn type_flags(spec_flags: u64) -> PyTypeFlags {
+    let mut flags = PyTypeFlags::heap_type_flags();
+    if spec_flags & TPFLAGS_BASETYPE == 0 {
+        flags.remove(PyTypeFlags::BASETYPE);
+    }
+    flags
+}
+
+/// Create a heap type from an outer `PySlot` list.
+///
+/// The returned pointer is a new reference. `tp_dealloc` is stored and not called.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut crate::PyObject {
+    with_vm(|vm| {
+        let spec = read_type_spec(vm, slots)?;
+        let qualified = spec
+            .name
+            .as_deref()
+            .ok_or_else(|| vm.new_system_error("type name is missing"))?;
+        let (module, name) = match qualified.rsplit_once('.') {
+            Some((module, name)) => (Some(module), name),
+            None => (None, qualified),
+        };
+        if name.is_empty() {
+            return Err(vm.new_system_error("type name is missing"));
+        }
+        let base = spec
+            .base
+            .unwrap_or_else(|| vm.ctx.types.object_type.to_owned());
+        let basicsize = match spec.explicit_basicsize {
+            Some(size) => size,
+            None => {
+                let aligned = align_up_16(base.slots.basicsize)
+                    .ok_or_else(|| vm.new_system_error("type size overflow"))?;
+                aligned
+                    .checked_add(spec.extra_basicsize)
+                    .ok_or_else(|| vm.new_system_error("type size overflow"))?
+            }
+        };
+        let mut slots = PyTypeSlots::default();
+        slots.flags = type_flags(spec.flags);
+        slots.basicsize = basicsize;
+        let ty = PyType::new_heap(
+            name,
+            vec![base],
+            Default::default(),
+            slots,
+            vm.ctx.types.type_type.to_owned(),
+            &vm.ctx,
+        )
+        .map_err(|msg| vm.new_system_error(format!("failed to create type from slots: {msg}")))?;
+        if let Some(module) = module {
+            ty.set_attr(identifier!(vm, __module__), vm.ctx.new_str(module).into());
+        }
+        if let Some(doc) = spec.doc.as_deref() {
+            ty.set_attr(identifier!(vm, __doc__), vm.ctx.new_str(doc).into());
+        }
+        // The descriptor keeps a borrowed class pointer. The type owns the
+        // descriptor, and the reference returned below keeps the type alive.
+        let class: &'static Py<PyType> = unsafe { &*(&*ty as *const Py<PyType>) };
+        for (name, method) in &spec.methods {
+            let descriptor = method.build_method(class, vm);
+            ty.set_attr(vm.ctx.intern_str(name.as_str()), descriptor.into());
+        }
+        if spec.tp_new.is_some() || spec.dealloc.is_some() {
+            let c_slots = CSlots::new();
+            if let Some(tp_new) = spec.tp_new {
+                c_slots.new.store(Some(tp_new));
+            }
+            if let Some(dealloc) = spec.dealloc {
+                c_slots.dealloc.store(Some(dealloc));
+            }
+            install_c_slots(vm, &ty, c_slots)?;
+        }
+        Ok::<PyRef<PyType>, _>(ty)
+    })
+}
+
+/// Pointer to `cls`'s extra bytes inside `obj`'s C body.
+///
+/// The payload must be a [`PyCBody`], and `obj`'s class must be `cls` or a
+/// subclass. The address is `body + align_up(base.basicsize, 16)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_GetTypeData(
+    obj: *mut crate::PyObject,
+    cls: *mut PyTypeObject,
+) -> *mut c_void {
+    with_vm(|vm| -> PyResult<*mut c_void> {
+        if obj.is_null() || cls.is_null() {
+            return Err(vm.new_type_error("null argument"));
+        }
+        let obj = unsafe { &*obj };
+        let cls = unsafe { &*cls };
+        if !obj.class().is_subtype(cls) {
+            return Err(vm.new_type_error("object is not an instance of the given type"));
+        }
+        let body = obj
+            .downcast_ref::<PyCBody>()
+            .ok_or_else(|| vm.new_type_error("instance has no C body"))?;
+        let offset = align_up_16(base_basicsize(cls))
+            .ok_or_else(|| vm.new_system_error("type size overflow"))?;
+        Ok(unsafe { body.as_mut_ptr().add(offset).cast::<c_void>() })
+    })
+}
+
+/// Mark a type immutable. Nothing is frozen yet; success lets type creation finish.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
+    0
+}
+
+/// Bytes of type-specific data: `basicsize - align_up(base.basicsize, 16)`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_GetTypeDataSize(cls: *mut PyTypeObject) -> isize {
+    if cls.is_null() {
+        return 0;
+    }
+    let cls = unsafe { &*cls };
+    let Some(aligned) = align_up_16(base_basicsize(cls)) else {
+        return 0;
+    };
+    cls.slots.basicsize.saturating_sub(aligned) as isize
 }
 
 #[cfg(test)]

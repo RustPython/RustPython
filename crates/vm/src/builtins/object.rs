@@ -94,7 +94,6 @@ impl Constructor for PyBaseObject {
     }
 }
 
-#[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
 pub(crate) fn generic_alloc(cls: PyTypeRef, _nitems: usize, vm: &VirtualMachine) -> PyResult {
     // Only create dict if the class has HAS_DICT flag (i.e., __slots__ was not defined
     // or __dict__ is in __slots__)
@@ -107,7 +106,16 @@ pub(crate) fn generic_alloc(cls: PyTypeRef, _nitems: usize, vm: &VirtualMachine)
     } else {
         None
     };
-    Ok(crate::PyRef::new_ref(PyBaseObject, cls, dict).into())
+    // A zero basicsize is the plain object layout. A positive basicsize is
+    // storage a C type asked for, filled in after allocation.
+    let instance = if cls.slots.basicsize > 0 {
+        let body = crate::object::PyCBody::new(cls.slots.basicsize)
+            .ok_or_else(|| vm.new_memory_error("failed to allocate instance body".to_owned()))?;
+        crate::PyRef::new_ref(body, cls, dict).into()
+    } else {
+        crate::PyRef::new_ref(PyBaseObject, cls, dict).into()
+    };
+    Ok(instance)
 }
 
 impl Initializer for PyBaseObject {
