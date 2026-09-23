@@ -170,8 +170,9 @@ pub unsafe extern "C" fn Py_LeaveRecursiveCall() {
 
 #[cfg(test)]
 mod tests {
+    use super::{Py_EnterRecursiveCall, Py_LeaveRecursiveCall};
     use alloc::ffi::CString;
-    use pyo3::exceptions::PyException;
+    use pyo3::exceptions::{PyException, PyRecursionError};
     use pyo3::prelude::*;
 
     #[pyfunction]
@@ -277,6 +278,25 @@ assert not hidden_leaked
                 None,
             )
             .unwrap();
+        })
+    }
+
+    #[test]
+    fn recursion_error() {
+        fn recurse(py: Python<'_>) -> PyResult<()> {
+            unsafe {
+                if Py_EnterRecursiveCall(c"".as_ptr().cast()) != 0 {
+                    return Err(PyErr::fetch(py));
+                };
+                let result = recurse(py);
+                Py_LeaveRecursiveCall();
+                result
+            }
+        }
+
+        Python::attach(|py| {
+            let err = recurse(py).unwrap_err();
+            assert!(err.is_instance_of::<PyRecursionError>(py));
         })
     }
 }
