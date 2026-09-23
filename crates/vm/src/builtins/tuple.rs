@@ -221,7 +221,23 @@ impl Constructor for PyTuple {
     type Args = Vec<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let iterable: OptionalArg<PyObjectRef> = args.bind_for(vm, Self::NAME)?;
+        let tuple_type = vm.ctx.types.tuple_type;
+        let uses_tuple_init = {
+            let cls_init = cls.slots.init.load().map(crate::types::fn_addr);
+            let tuple_init = tuple_type.slots.init.load().map(crate::types::fn_addr);
+            cls_init == tuple_init
+        };
+        let iterable: OptionalArg<PyObjectRef> = if cls.is(tuple_type) || uses_tuple_init {
+            args.bind_for(vm, Self::NAME)?
+        } else {
+            match args.args.as_slice() {
+                [] => OptionalArg::Missing,
+                [iterable] => OptionalArg::Present(iterable.clone()),
+                slice => {
+                    return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
+                }
+            }
+        };
 
         // Optimizations for exact tuple type
         if cls.is(vm.ctx.types.tuple_type) {

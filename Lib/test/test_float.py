@@ -255,7 +255,6 @@ class GeneralFloatCases(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
             float(x='3.14')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument newarg
     def test_keywords_in_subclass(self):
         class subclass(float):
             pass

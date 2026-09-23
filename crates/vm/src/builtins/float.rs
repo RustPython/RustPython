@@ -176,9 +176,26 @@ impl Constructor for PyFloat {
     type Args = OptionalArg<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let float_type = vm.ctx.types.float_type;
+        let uses_float_init = {
+            let cls_init = cls.slots.init.load().map(crate::types::fn_addr);
+            let float_init = float_type.slots.init.load().map(crate::types::fn_addr);
+            cls_init == float_init
+        };
         // Bind before the fast path so FromArgs::arity decides how many arguments
-        // are acceptable, rather than a count repeated here.
-        let arg: Self::Args = args.bind_for(vm, Self::NAME)?;
+        // are acceptable, rather than a count repeated here. Extra keywords are
+        // accepted only when a subclass has replaced tp_init.
+        let arg: Self::Args = if cls.is(float_type) || uses_float_init {
+            args.bind_for(vm, Self::NAME)?
+        } else {
+            match args.args.as_slice() {
+                [] => OptionalArg::Missing,
+                [value] => OptionalArg::Present(value.clone()),
+                slice => {
+                    return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
+                }
+            }
+        };
 
         // Optimization: return exact float as-is
         if cls.is(vm.ctx.types.float_type)
