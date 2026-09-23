@@ -37,6 +37,13 @@ mod decl {
     impl PyItertoolsChain {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args =
+                crate::types::drop_kwargs_if_init_overridden(&cls, Self::class(&vm.ctx), args);
+            if !args.kwargs.is_empty() {
+                return Err(
+                    vm.new_type_error(format!("{}() takes no keyword arguments", Self::NAME))
+                );
+            }
             let args_list = PyList::from(args.args);
             Self {
                 source: PyRwLock::new(Some(args_list.to_pyobject(vm).get_iter(vm)?)),
@@ -248,6 +255,7 @@ mod decl {
 
     impl Constructor for PyItertoolsCycle {
         type Args = PyIter;
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
         fn py_new(_cls: &Py<PyType>, iter: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
@@ -388,6 +396,7 @@ mod decl {
 
     impl Constructor for PyItertoolsStarmap {
         type Args = StarmapNewArgs;
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
         fn py_new(
             _cls: &Py<PyType>,
@@ -437,6 +446,7 @@ mod decl {
 
     impl Constructor for PyItertoolsTakewhile {
         type Args = TakewhileNewArgs;
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
         fn py_new(
             _cls: &Py<PyType>,
@@ -500,6 +510,7 @@ mod decl {
 
     impl Constructor for PyItertoolsDropwhile {
         type Args = DropwhileNewArgs;
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
         fn py_new(
             _cls: &Py<PyType>,
@@ -754,6 +765,8 @@ mod decl {
     impl PyItertoolsIslice {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args =
+                crate::types::drop_kwargs_if_init_overridden(&cls, Self::class(&vm.ctx), args);
             let (iter, start, stop, step) = match args.args.len() {
                 0 | 1 => {
                     return Err(vm.new_arity_type_error(Self::NAME, 2..=4, args.args.len()));
@@ -856,6 +869,7 @@ mod decl {
 
     impl Constructor for PyItertoolsFilterFalse {
         type Args = FilterFalseNewArgs;
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
         fn py_new(
             _cls: &Py<PyType>,

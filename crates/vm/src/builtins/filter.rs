@@ -23,6 +23,7 @@ impl PyPayload for PyFilter {
 
 impl Constructor for PyFilter {
     type Args = (PyObjectRef, PyIter);
+    const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
     fn py_new(
         _cls: &Py<PyType>,
