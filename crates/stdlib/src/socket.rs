@@ -123,15 +123,15 @@ mod _socket {
 
     #[cfg(target_os = "android")]
     #[pyattr]
-    use c::{SOL_ATALK, SOL_AX25, SOL_IPX, SOL_NETROM, SOL_ROSE};
+    use host_socket::{SOL_ATALK, SOL_AX25, SOL_IPX, SOL_NETROM, SOL_ROSE};
 
     #[cfg(target_os = "freebsd")]
     #[pyattr]
-    use c::SO_SETFIB;
+    use host_socket::SO_SETFIB;
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    use c::{
+    use host_socket::{
         IP_ADD_SOURCE_MEMBERSHIP, IP_BLOCK_SOURCE, IP_DROP_SOURCE_MEMBERSHIP, IP_PKTINFO,
         IP_RECVTTL, IP_UNBLOCK_SOURCE, IPPROTO_MAX, IPPROTO_SCTP, MSG_NOSIGNAL,
         TCP_CONNECTION_INFO,
@@ -139,7 +139,7 @@ mod _socket {
 
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use c::{
+    use host_socket::{
         CAN_BCM, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_ISOTP, CAN_J1939,
         CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER, CAN_RAW_JOIN_FILTERS,
         CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, CAN_RTR_FLAG, CAN_SFF_MASK, IPPROTO_MPTCP,
@@ -164,15 +164,15 @@ mod _socket {
 
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     #[pyattr]
-    use c::SOL_RDS;
+    use host_socket::SOL_RDS;
 
     #[cfg(target_os = "netbsd")]
     #[pyattr]
-    use c::IPPROTO_VRRP;
+    use host_socket::IPPROTO_VRRP;
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    use c::{AF_SYSTEM, PF_SYSTEM, SYSPROTO_CONTROL, TCP_KEEPALIVE};
+    use host_socket::{AF_SYSTEM, PF_SYSTEM, SYSPROTO_CONTROL, TCP_KEEPALIVE};
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
@@ -184,7 +184,7 @@ mod _socket {
 
     #[cfg(windows)]
     #[pyattr]
-    use c::{
+    use host_socket::{
         IPPORT_RESERVED, IPPROTO_IPV4, RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON,
         RCVALL_SOCKETLEVELONLY, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL,
         SO_EXCLUSIVEADDRUSE,
@@ -199,14 +199,14 @@ mod _socket {
 
     #[cfg(any(unix, target_os = "android"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         EAI_SYSTEM, MSG_EOR, SO_ACCEPTCONN, SO_DEBUG, SO_DONTROUTE, SO_RCVLOWAT, SO_RCVTIMEO,
         SO_SNDLOWAT, SO_SNDTIMEO,
     };
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         ALG_OP_DECRYPT, ALG_OP_ENCRYPT, ALG_SET_AEAD_ASSOCLEN, ALG_SET_AEAD_AUTHSIZE, ALG_SET_IV,
         ALG_SET_KEY, ALG_SET_OP, IP_DEFAULT_MULTICAST_LOOP, IP_RECVOPTS, IP_RETOPTS, IPV6_DSTOPTS,
         IPV6_NEXTHOP, IPV6_PATHMTU, IPV6_RECVDSTOPTS, IPV6_RECVHOPLIMIT, IPV6_RECVHOPOPTS,
@@ -217,19 +217,19 @@ mod _socket {
 
     #[cfg(any(target_os = "android", target_vendor = "apple"))]
     #[pyattr]
-    use c::{AI_DEFAULT, AI_MASK, AI_V4MAPPED_CFG};
+    use host_socket::{AI_DEFAULT, AI_MASK, AI_V4MAPPED_CFG};
 
     #[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
     #[pyattr]
-    use c::MSG_NOTIFICATION;
+    use host_socket::MSG_NOTIFICATION;
 
     #[cfg(any(target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]
-    use c::TCP_USER_TIMEOUT;
+    use host_socket::TCP_USER_TIMEOUT;
 
     #[cfg(any(unix, target_os = "android", windows))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         INADDR_BROADCAST, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_MULTICAST_IF,
         IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_TTL, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF,
         IPV6_MULTICAST_LOOP, IPV6_UNICAST_HOPS, IPV6_V6ONLY,
@@ -253,7 +253,7 @@ mod _socket {
 
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_ALG, AF_ASH, AF_ATMPVC, AF_ATMSVC, AF_AX25, AF_BRIDGE, AF_CAN, AF_ECONET, AF_IRDA,
         AF_LLC, AF_NETBEUI, AF_NETLINK, AF_NETROM, AF_PACKET, AF_PPPOX, AF_RDS, AF_SECURITY,
         AF_TIPC, AF_VSOCK, AF_WANPIPE, AF_X25, IP_TRANSPARENT, MSG_CONFIRM, MSG_ERRQUEUE,
@@ -283,7 +283,7 @@ mod _socket {
 
     #[cfg(any(target_os = "android", target_os = "linux", windows))]
     #[pyattr]
-    use c::{IP_OPTIONS, IPV6_HOPOPTS, IPV6_RECVRTHDR, IPV6_RTHDR};
+    use host_socket::{IP_OPTIONS, IPV6_HOPOPTS, IPV6_RECVRTHDR, IPV6_RTHDR};
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -291,11 +291,11 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{IPPROTO_HELLO, IPPROTO_XTP, LOCAL_PEERCRED, MSG_EOF};
+    use host_socket::{IPPROTO_HELLO, IPPROTO_XTP, LOCAL_PEERCRED, MSG_EOF};
 
     #[cfg(any(target_os = "netbsd", target_os = "openbsd", windows))]
     #[pyattr]
-    use c::{MSG_BCAST, MSG_MCAST};
+    use host_socket::{MSG_BCAST, MSG_MCAST};
 
     #[cfg(any(
         target_os = "android",
@@ -304,7 +304,7 @@ mod _socket {
         target_os = "linux"
     ))]
     #[pyattr]
-    use c::{IPPROTO_UDPLITE, TCP_CONGESTION};
+    use host_socket::{IPPROTO_UDPLITE, TCP_CONGESTION};
 
     #[cfg(any(
         target_os = "android",
@@ -322,7 +322,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::AF_KEY;
+    use host_socket::AF_KEY;
 
     #[cfg(any(
         target_os = "android",
@@ -331,7 +331,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::SO_DOMAIN;
+    use host_socket::SO_DOMAIN;
 
     #[cfg(any(
         target_os = "android",
@@ -353,7 +353,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::SO_PRIORITY;
+    use host_socket::SO_PRIORITY;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -362,7 +362,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::IPPROTO_MOBILE;
+    use host_socket::IPPROTO_MOBILE;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -371,7 +371,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::SCM_CREDS;
+    use host_socket::SCM_CREDS;
 
     #[cfg(any(
         target_os = "freebsd",
@@ -380,7 +380,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::TCP_FASTOPEN;
+    use host_socket::TCP_FASTOPEN;
 
     #[cfg(any(
         target_os = "android",
@@ -403,7 +403,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::SO_PROTOCOL;
+    use host_socket::SO_PROTOCOL;
 
     #[cfg(any(
         target_os = "android",
@@ -414,7 +414,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::IPV6_DONTFRAG;
+    use host_socket::IPV6_DONTFRAG;
 
     #[cfg(any(
         target_os = "android",
@@ -424,7 +424,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::{SO_PASSCRED, SO_PEERCRED};
+    use host_socket::{SO_PASSCRED, SO_PEERCRED};
 
     #[cfg(any(
         target_os = "android",
@@ -434,7 +434,7 @@ mod _socket {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use c::TCP_INFO;
+    use host_socket::TCP_INFO;
 
     #[cfg(any(
         target_os = "android",
@@ -444,7 +444,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::IP_RECVTOS;
+    use host_socket::IP_RECVTOS;
 
     #[cfg(any(
         target_os = "android",
@@ -454,7 +454,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::NI_MAXSERV;
+    use host_socket::NI_MAXSERV;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -464,7 +464,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{IPPROTO_EON, IPPROTO_IPCOMP};
+    use host_socket::{IPPROTO_EON, IPPROTO_IPCOMP};
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -474,7 +474,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::IPPROTO_ND;
+    use host_socket::IPPROTO_ND;
 
     #[cfg(any(
         target_os = "android",
@@ -485,7 +485,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{IPV6_CHECKSUM, IPV6_HOPLIMIT};
+    use host_socket::{IPV6_CHECKSUM, IPV6_HOPLIMIT};
 
     #[cfg(any(
         target_os = "android",
@@ -495,7 +495,7 @@ mod _socket {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use c::IPPROTO_SCTP; // also in windows
+    use host_socket::IPPROTO_SCTP; // also in windows
 
     #[cfg(any(
         target_os = "android",
@@ -506,7 +506,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{AI_ALL, AI_V4MAPPED};
+    use host_socket::{AI_ALL, AI_V4MAPPED};
 
     #[cfg(any(
         target_os = "android",
@@ -517,7 +517,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::EAI_NODATA;
+    use host_socket::EAI_NODATA;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -528,7 +528,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_LINK, IP_RECVDSTADDR, IPPROTO_GGP, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, SO_USELOOPBACK,
     };
 
@@ -542,7 +542,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::{MSG_CMSG_CLOEXEC, MSG_NOSIGNAL};
+    use host_socket::{MSG_CMSG_CLOEXEC, MSG_NOSIGNAL};
 
     #[cfg(any(
         target_os = "android",
@@ -554,7 +554,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::TCP_KEEPIDLE;
+    use host_socket::TCP_KEEPIDLE;
 
     #[cfg(any(
         target_os = "android",
@@ -566,7 +566,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{TCP_KEEPCNT, TCP_KEEPINTVL};
+    use host_socket::{TCP_KEEPCNT, TCP_KEEPINTVL};
 
     #[cfg(any(
         target_os = "android",
@@ -579,7 +579,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::{SOCK_CLOEXEC, SOCK_NONBLOCK};
+    use host_socket::{SOCK_CLOEXEC, SOCK_NONBLOCK};
 
     #[cfg(any(
         target_os = "android",
@@ -592,7 +592,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_ROUTE, AF_SNA, EAI_OVERFLOW, IPPROTO_GRE, IPPROTO_RSVP, IPPROTO_TP, IPV6_RECVPKTINFO,
         MSG_DONTWAIT, SCM_RIGHTS, TCP_MAXSEG,
     };
@@ -608,7 +608,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::IPV6_PKTINFO;
+    use host_socket::IPV6_PKTINFO;
 
     #[cfg(any(
         target_os = "android",
@@ -621,7 +621,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::AI_CANONNAME;
+    use host_socket::AI_CANONNAME;
 
     #[cfg(any(
         target_os = "android",
@@ -635,7 +635,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NONAME, EAI_SERVICE,
         EAI_SOCKTYPE, IP_HDRINCL, IP_TOS, IPV6_RECVTCLASS, IPV6_TCLASS, SOMAXCONN,
     };
@@ -665,7 +665,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::AF_BLUETOOTH;
+    use host_socket::AF_BLUETOOTH;
 
     #[cfg(any(
         target_os = "android",
