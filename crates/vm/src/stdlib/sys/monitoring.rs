@@ -324,28 +324,33 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
 
     // Phase 1: Remove INSTRUMENTED_LINE → restore from side-table
     if let Some(data) = monitoring_data.as_mut() {
-        for i in 0..len {
-            if data.line_opcodes[i] != 0 {
-                let original = Instruction::try_from(data.line_opcodes[i])
-                    .expect("invalid opcode in line side-table");
+        for (i, opcode) in data.line_opcodes.iter_mut().enumerate().take(len) {
+            if *opcode != 0 {
+                let original =
+                    Instruction::try_from(*opcode).expect("invalid opcode in line side-table");
                 unsafe {
                     code.code.instructions.replace_op(i, original);
                 }
-                data.line_opcodes[i] = 0;
+                *opcode = 0;
             }
         }
     }
 
     // Phase 2: Remove INSTRUMENTED_INSTRUCTION → restore from side-table
     if let Some(data) = monitoring_data.as_mut() {
-        for i in 0..len {
-            if data.per_instruction_opcodes[i] != 0 {
-                let original = Instruction::try_from(data.per_instruction_opcodes[i])
+        for (i, opcode) in data
+            .per_instruction_opcodes
+            .iter_mut()
+            .enumerate()
+            .take(len)
+        {
+            if *opcode != 0 {
+                let original = Instruction::try_from(*opcode)
                     .expect("invalid opcode in instruction side-table");
                 unsafe {
                     code.code.instructions.replace_op(i, original);
                 }
-                data.per_instruction_opcodes[i] = 0;
+                *opcode = 0;
             }
         }
     }
@@ -812,9 +817,9 @@ fn all_events(vm: &VirtualMachine) -> PyResult<PyDictRef> {
             .filter_map(|(event_id, event_name)| {
                 let event_bit = 1u32 << event_id;
                 let mut tools_mask = 0u8;
-                for tool in 0..TOOL_LIMIT {
-                    if (state.global_events[tool] & event_bit) != 0 {
-                        tools_mask |= 1 << tool;
+                for (i, tool) in state.global_events.iter().enumerate().take(TOOL_LIMIT) {
+                    if (tool & event_bit) != 0 {
+                        tools_mask |= 1 << i;
                     }
                 }
                 if tools_mask != 0 {

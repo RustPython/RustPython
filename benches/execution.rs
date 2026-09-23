@@ -1,10 +1,15 @@
+#![allow(clippy::iter_over_hash_type)]
+
+extern crate alloc;
+
+use core::hint::black_box;
 use criterion::{
     Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
     measurement::WallTime,
 };
 use rustpython_compiler::Mode;
 use rustpython_vm::{Interpreter, PyResult, Settings};
-use std::{collections::HashMap, hint::black_box, path::Path};
+use std::{collections::HashMap, path::Path};
 
 /// `true` when the benchmarks are executed by the CodSpeed runner.
 ///
@@ -15,8 +20,8 @@ fn is_codspeed() -> bool {
     std::env::var_os("CODSPEED_ENV").is_some()
 }
 
-fn bench_cpython_code(b: &mut Bencher, source: &str) {
-    let c_str_source_head = std::ffi::CString::new(source).unwrap();
+fn bench_cpython_code(b: &mut Bencher<'_>, source: &str) {
+    let c_str_source_head = alloc::ffi::CString::new(source).unwrap();
     let c_str_source = c_str_source_head.as_c_str();
     pyo3::Python::attach(|py| {
         b.iter(|| {
@@ -27,7 +32,7 @@ fn bench_cpython_code(b: &mut Bencher, source: &str) {
     })
 }
 
-fn bench_rustpython_code(b: &mut Bencher, name: &str, source: &str) {
+fn bench_rustpython_code(b: &mut Bencher<'_>, name: &str, source: &str) {
     // NOTE: Take long time.
     let mut settings = Settings::default();
     settings.path_list.push("Lib/".to_string());
@@ -41,13 +46,17 @@ fn bench_rustpython_code(b: &mut Bencher, name: &str, source: &str) {
         b.iter(|| {
             let code = vm.compile(source, Mode::Exec, name).unwrap();
             let scope = vm.new_scope_with_builtins();
-            let res: PyResult = vm.run_code_obj(code.clone(), scope);
+            let res: PyResult = vm.run_code_obj(code, scope);
             vm.unwrap_pyresult(res);
         })
     })
 }
 
-pub fn benchmark_file_execution(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &str) {
+pub fn benchmark_file_execution(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    name: &str,
+    contents: &str,
+) {
     if !is_codspeed() {
         group.bench_function(BenchmarkId::new(name, "cpython"), |b| {
             bench_cpython_code(b, contents)
@@ -58,7 +67,11 @@ pub fn benchmark_file_execution(group: &mut BenchmarkGroup<WallTime>, name: &str
     });
 }
 
-pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &str) {
+pub fn benchmark_file_parsing(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    name: &str,
+    contents: &str,
+) {
     group.throughput(Throughput::Bytes(contents.len() as u64));
     group.bench_function(BenchmarkId::new("rustpython", name), |b| {
         b.iter(|| ruff_python_parser::parse_module(contents).unwrap())
@@ -81,7 +94,7 @@ pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, 
     }
 }
 
-pub fn benchmark_pystone(group: &mut BenchmarkGroup<WallTime>, contents: String) {
+pub fn benchmark_pystone(group: &mut BenchmarkGroup<'_, WallTime>, contents: String) {
     // Default is 50_000. This takes a while, so reduce it to 30k.
     for idx in (10_000..=30_000).step_by(10_000) {
         let code_with_loops = format!("LOOPS = {idx}\n{contents}");

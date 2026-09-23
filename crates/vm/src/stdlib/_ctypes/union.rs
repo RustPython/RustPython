@@ -274,7 +274,6 @@ impl PyCUnionType {
 
             // For Union, all fields start at offset 0
             let field_type_ref = field_type
-                .clone()
                 .downcast::<PyType>()
                 .map_err(|_| vm.new_type_error("_fields_ type must be a ctypes type"))?;
 

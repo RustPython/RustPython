@@ -2179,7 +2179,7 @@ mod _sqlite3 {
                         .flat_map(|x| x.to_uppercase())
                         .collect::<String>();
                     if let Some(converter) = converters().get_item_opt(&col_name, vm)? {
-                        cast_map.push(Some(converter.clone()));
+                        cast_map.push(Some(converter));
                         continue;
                     }
                 }
@@ -2189,7 +2189,7 @@ mod _sqlite3 {
                     if let Some(decltype) = decltype.split_terminator(&[' ', '(']).next() {
                         let decltype = decltype.to_uppercase();
                         if let Some(converter) = converters().get_item_opt(&decltype, vm)? {
-                            cast_map.push(Some(converter.clone()));
+                            cast_map.push(Some(converter));
                             continue;
                         }
                     }

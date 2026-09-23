@@ -838,7 +838,7 @@ impl PyRef<PyBaseException> {
                 if key_str.as_bytes().starts_with(b"__") {
                     continue;
                 }
-                self.as_object().set_attr(&key_str, value.clone(), vm)?;
+                self.as_object().set_attr(&key_str, value, vm)?;
             }
         }
         Ok(vm.ctx.none())

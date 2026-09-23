@@ -6,6 +6,7 @@ pub trait InterpreterBuilderExt {
     ///
     /// Requires the `stdlib` feature to be enabled.
     #[cfg(feature = "stdlib")]
+    #[must_use]
     fn init_stdlib(self) -> Self;
 }
 

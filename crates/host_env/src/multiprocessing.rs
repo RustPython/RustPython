@@ -179,10 +179,11 @@ impl SemHandle {
 
     /// A handle rebuilt from the integer a `SemLock` stored.
     ///
+    /// # Safety
     /// `Drop` closes the semaphore. A caller that still owns that close
     /// must forget this value.
     #[inline]
-    pub unsafe fn from_raw(raw: *mut sem_t) -> Self {
+    pub const unsafe fn from_raw(raw: *mut sem_t) -> Self {
         Self { raw }
     }
 

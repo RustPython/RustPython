@@ -262,7 +262,6 @@ pub(crate) mod _hashlib {
     }
 
     #[repr(C, align(16))]
-    #[repr(align(16))]
     struct RawHashState {
         words: [MaybeUninit<usize>; backend::HASH_STATE_STORAGE_WORDS],
     }
@@ -369,7 +368,6 @@ pub(crate) mod _hashlib {
     }
 
     #[repr(C, align(16))]
-    #[repr(align(16))]
     struct RawHmacState {
         words: [MaybeUninit<usize>; backend::HMAC_STATE_STORAGE_WORDS],
     }

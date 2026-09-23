@@ -681,8 +681,8 @@ impl GcState {
             // Reset counts for generations whose objects were promoted away.
             // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
-            for i in 0..reset_end {
-                self.counts[i].store(0, Ordering::Relaxed);
+            for count in self.counts.iter().take(reset_end) {
+                count.store(0, Ordering::Relaxed);
             }
 
             let duration = elapsed_secs(start_time);
@@ -857,8 +857,8 @@ impl GcState {
             drop(gen_locks);
             self.promote_survivors(generation, &survivor_refs);
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
-            for i in 0..reset_end {
-                self.counts[i].store(0, Ordering::Relaxed);
+            for count in self.counts.iter().take(reset_end) {
+                count.store(0, Ordering::Relaxed);
             }
 
             let duration = elapsed_secs(start_time);
@@ -880,8 +880,8 @@ impl GcState {
         if unreachable_refs.is_empty() {
             self.promote_survivors(generation, &survivor_refs);
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
-            for i in 0..reset_end {
-                self.counts[i].store(0, Ordering::Relaxed);
+            for count in self.counts.iter().take(reset_end) {
+                count.store(0, Ordering::Relaxed);
             }
 
             let duration = elapsed_secs(start_time);
@@ -1107,8 +1107,8 @@ impl GcState {
         // Reset counts for generations whose objects were promoted away.
         // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
         let reset_end = if generation >= 2 { 2 } else { generation + 1 };
-        for i in 0..reset_end {
-            self.counts[i].store(0, Ordering::Relaxed);
+        for count in self.counts.iter().take(reset_end) {
+            count.store(0, Ordering::Relaxed);
         }
 
         let duration = elapsed_secs(start_time);

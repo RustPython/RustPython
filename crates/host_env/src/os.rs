@@ -235,7 +235,6 @@ pub fn rename(
 ///
 /// On Windows, this supports the full u32 range including STATUS_CONTROL_C_EXIT (0xC000013A).
 /// On other platforms, only the lower 8 bits are used.
-#[must_use]
 pub fn exit_code(code: u32) -> ExitCode {
     #[cfg(windows)]
     {

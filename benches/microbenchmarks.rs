@@ -5,10 +5,7 @@ use criterion::{
 use pyo3::types::PyAnyMethods;
 use rustpython_compiler::Mode;
 use rustpython_vm::{AsObject, Interpreter, PyResult, Settings};
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-};
+use std::{fs, io, path::Path};
 
 // List of microbenchmarks to skip.
 //
@@ -36,7 +33,7 @@ pub struct MicroBenchmark {
     iterate: bool,
 }
 
-fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
+fn bench_cpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &MicroBenchmark) {
     pyo3::Python::attach(|py| {
         let setup_name = format!("{}_setup", bench.name);
         let setup_code = cpy_compile_code(py, &bench.setup, &setup_name).unwrap();
@@ -49,8 +46,8 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
         let exec = builtins.getattr("exec").expect("no exec in builtins");
 
         let bench_func = |(globals, locals): &mut (
-            pyo3::Bound<pyo3::types::PyDict>,
-            pyo3::Bound<pyo3::types::PyDict>,
+            pyo3::Bound<'_, pyo3::types::PyDict>,
+            pyo3::Bound<'_, pyo3::types::PyDict>,
         )| {
             let res = exec.call((&code, &*globals, &*locals), None);
             if let Err(e) = res {
@@ -107,7 +104,7 @@ fn cpy_compile_code<'a>(
         .expect("compile() should return a code object"))
 }
 
-fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
+fn bench_rustpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &MicroBenchmark) {
     let mut settings = Settings::default();
     settings.path_list.push("Lib/".to_string());
     settings.write_bytecode = false;
@@ -208,11 +205,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .unwrap()
         .collect::<io::Result<_>>()
         .unwrap();
-    let paths: Vec<PathBuf> = dirs.iter().map(|p| p.path()).collect();
 
-    let benchmarks: Vec<MicroBenchmark> = paths
-        .into_iter()
-        .map(|p| {
+    let benchmarks: Vec<MicroBenchmark> = dirs
+        .iter()
+        .map(|d| {
+            let p = d.path();
             let name = p.file_name().unwrap().to_os_string();
             let contents = fs::read_to_string(p).unwrap();
             let iterate = contents.contains("ITERATIONS");

@@ -537,7 +537,7 @@ mod _io {
             for line in it.iter(vm)? {
                 let line = line?;
                 let line_len = line.length(vm)?;
-                ret.push(line.clone());
+                ret.push(line);
                 full_len += line_len;
                 if full_len > hint {
                     break;

@@ -84,6 +84,7 @@ compile_error!(
 /// **Note**: This function provides no way to further initialize the VM after the builder is applied.
 /// All VM initialization (adding native modules, init hooks, etc.) must be done through the
 /// [`InterpreterBuilder`] parameter before calling this function.
+#[must_use]
 pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
     env_logger::init();
 
@@ -369,7 +370,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         RunMode::InstallPip(installer) => install_pip(installer, scope.clone(), vm),
         RunMode::Script(script_path) => {
             // pymain_run_file_obj
-            debug!("Running script {}", script_path);
+            debug!("Running script {script_path}");
             run_file(vm, scope.clone(), &script_path)
         }
         RunMode::Repl => Ok(()),
@@ -467,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn test_run_script() {
+    fn run_script() {
         interpreter().enter(|vm| {
             vm.unwrap_pyresult((|| {
                 let scope = vm.new_scope_with_main()?;

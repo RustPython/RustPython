@@ -4,6 +4,7 @@ fn main() -> vm::PyResult<()> {
     vm::Interpreter::without_stdlib(Default::default()).enter(run)
 }
 
+#[expect(clippy::unnecessary_wraps)]
 fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {
     let scope = vm.new_scope_with_builtins();
 
