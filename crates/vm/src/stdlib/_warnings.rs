@@ -28,39 +28,38 @@ mod _warnings {
 
     #[pyattr]
     fn filters(vm: &VirtualMachine) -> PyListRef {
-        vm.state.warnings.filters.clone()
+        vm.state.warnings.filters.to_owned()
     }
 
     #[pyattr]
     fn _defaultaction(vm: &VirtualMachine) -> PyStrRef {
-        vm.state.warnings.default_action.clone()
+        vm.state.warnings.default_action.to_owned()
     }
 
     #[pyattr]
     fn _onceregistry(vm: &VirtualMachine) -> PyDictRef {
-        vm.state.warnings.once_registry.clone()
+        vm.state.warnings.once_registry.to_owned()
     }
 
     #[pyattr]
     fn _warnings_context(vm: &VirtualMachine) -> PyObjectRef {
-        vm.state
-            .warnings
-            .context_var
-            .get_or_init(|| {
-                // Try to create a real ContextVar if _contextvars is available.
-                // During early startup it may not be importable yet, in which
-                // case we fall back to None.  This is safe because
-                // context_aware_warnings defaults to False.
-                if let Ok(contextvars) = vm.import("_contextvars", 0)
-                    && let Ok(cv_cls) = contextvars.get_attr("ContextVar", vm)
-                    && let Ok(cv) = cv_cls.call(("_warnings_context",), vm)
-                {
-                    cv
-                } else {
-                    vm.ctx.none()
-                }
-            })
-            .clone()
+        if let Some(ctx) = vm.state.warnings.context_var.get() {
+            return ctx.clone();
+        }
+        // _warnings is initialized before _contextvars may be importable.
+        // Retry until ContextVar can be created; do not cache a None fallback.
+        let created = vm
+            .import("_contextvars", 0)
+            .ok()
+            .and_then(|m| m.get_attr("ContextVar", vm).ok())
+            .and_then(|cv_cls| cv_cls.call(("_warnings_context",), vm).ok());
+        match created {
+            Some(cv) => match vm.state.warnings.context_var.set(cv.clone()) {
+                Ok(()) => cv,
+                Err(_) => vm.state.warnings.context_var.get().cloned().unwrap_or(cv),
+            },
+            None => vm.ctx.none(),
+        }
     }
 
     #[pyfunction]
