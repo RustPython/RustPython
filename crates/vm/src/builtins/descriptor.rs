@@ -1,4 +1,4 @@
-use super::{PyStr, PyStrInterned, PyType};
+use super::{PyStr, PyStrInterned, PyTuple, PyType};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyTypeRef, builtin_func::PyNativeMethod, type_},
@@ -342,6 +342,7 @@ pub(crate) type MemberSetterFunc =
 pub enum MemberGetter {
     Getter(fn(&VirtualMachine, PyObjectRef) -> PyResult),
     Offset(usize),
+    TupleItem(usize),
 }
 
 pub enum MemberSetter {
@@ -362,6 +363,16 @@ impl PyMemberDef {
         match self.getter {
             MemberGetter::Getter(getter) => (getter)(vm, obj),
             MemberGetter::Offset(offset) => get_slot_from_object(&obj, offset, self, vm),
+            MemberGetter::TupleItem(index) => {
+                let tuple = obj.downcast_ref::<PyTuple>().ok_or_else(|| {
+                    vm.new_type_error("unexpected payload for struct sequence member")
+                })?;
+                tuple
+                    .as_slice()
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| vm.new_index_error(format!("tuple index {index} out of range")))
+            }
         }
     }
 

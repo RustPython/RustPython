@@ -5,9 +5,7 @@ use crate::{
         PyBaseExceptionRef, PyDict, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
-    function::{
-        Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags,
-    },
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags},
     iter::PyExactSizeIterator,
     protocol::{PyMappingMethods, PySequenceMethods},
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -374,28 +372,19 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     fn extend_pyclass(ctx: &Context, class: &'static Py<PyType>) {
         // Getters for named visible fields (indices 0 to REQUIRED_FIELD_NAMES.len() - 1)
         for (i, &name) in Self::Data::REQUIRED_FIELD_NAMES.iter().enumerate() {
-            // cast i to a u8 so there's less to store in the getter closure.
-            // Hopefully there's not struct sequences with >=256 elements :P
-            let i = i as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &Py<PyTuple>| {
-                    zelf[i as usize].to_owned()
-                })
-                .into(),
+                ctx.new_readonly_tuple_member(name, class, i).into(),
             );
         }
 
         // Getters for hidden/skipped fields (indices after visible fields)
         let visible_count = Self::Data::REQUIRED_FIELD_NAMES.len() + Self::Data::UNNAMED_FIELDS_LEN;
         for (i, &name) in Self::Data::OPTIONAL_FIELD_NAMES.iter().enumerate() {
-            let idx = (visible_count + i) as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &Py<PyTuple>| {
-                    zelf[idx as usize].to_owned()
-                })
-                .into(),
+                ctx.new_readonly_tuple_member(name, class, visible_count + i)
+                    .into(),
             );
         }
 

@@ -682,6 +682,30 @@ impl Context {
         member_descriptor.into_ref(self)
     }
 
+    pub fn new_readonly_tuple_member(
+        &self,
+        name: &str,
+        class: &'static Py<PyType>,
+        index: usize,
+    ) -> PyRef<PyMemberDescriptor> {
+        let member_def = PyMemberDef {
+            name: name.to_owned(),
+            kind: MemberKind::Object,
+            getter: MemberGetter::TupleItem(index),
+            setter: MemberSetter::Setter(None),
+            doc: None,
+        };
+        let member_descriptor = PyMemberDescriptor {
+            common: PyDescriptorOwned {
+                typ: class.to_owned(),
+                name: self.intern_str(name),
+                qualname: PyRwLock::new(None),
+            },
+            member: member_def,
+        };
+        member_descriptor.into_ref(self)
+    }
+
     pub fn new_readonly_getset<F, T>(
         &self,
         name: &str,
