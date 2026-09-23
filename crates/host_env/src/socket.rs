@@ -1164,9 +1164,9 @@ pub use windows_sys::Win32::Networking::WinSock::{
     SO_DONTROUTE, SO_ERROR, SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE, SO_RCVBUF, SO_RCVTIMEO,
     SO_REUSEADDR, SO_SNDBUF, SO_SNDTIMEO, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW, SOCK_RDM,
     SOCK_SEQPACKET, SOCK_STREAM, SOCKET_ERROR, SOCKET_ERROR as SOCKET_ERROR_CODE, SOL_IP,
-    SOL_SOCKET, SOMAXCONN, TCP_MAXSEG, TCP_NODELAY, WSAEBADF, WSAECONNABORTED, WSAECONNRESET,
-    WSAEINTR, WSAENOTSOCK, WSAEWOULDBLOCK, getprotobyname, getservbyname, getservbyport,
-    getsockopt, setsockopt,
+    SOL_SOCKET, TCP_MAXSEG, TCP_NODELAY, WSAEBADF, WSAECONNABORTED, WSAECONNRESET, WSAEINTR,
+    WSAENOTSOCK, WSAEWOULDBLOCK, getprotobyname, getservbyname, getservbyport, getsockopt,
+    setsockopt,
 };
 
 #[cfg(windows)]
@@ -1203,6 +1203,10 @@ pub const AI_PASSIVE: i32 = windows_sys::Win32::Networking::WinSock::AI_PASSIVE 
 pub const AI_NUMERICHOST: i32 = windows_sys::Win32::Networking::WinSock::AI_NUMERICHOST as i32;
 #[cfg(windows)]
 pub const FROM_PROTOCOL_INFO_VALUE: i32 = FROM_PROTOCOL_INFO;
+
+/// `winsock2.h` `SOMAXCONN`. windows-sys still exports the Winsock 1.1 value 5.
+#[cfg(windows)]
+pub const SOMAXCONN: i32 = 0x7fff_ffff;
 
 /// Signed C-long readings of option words, plus names the Winsock headers
 /// do not define that the module still carries.
