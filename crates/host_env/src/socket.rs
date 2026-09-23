@@ -117,6 +117,372 @@ pub use libc::{
 #[cfg(unix)]
 pub use libc::SO_REUSEPORT;
 
+#[cfg(any(unix, target_os = "android"))]
+pub use libc::{
+    EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NONAME, EAI_SERVICE,
+    EAI_SOCKTYPE, EAI_SYSTEM, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF,
+    IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_TOS, IP_TTL, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF,
+    IPV6_MULTICAST_LOOP, IPV6_UNICAST_HOPS, IPV6_V6ONLY, MSG_EOR, SO_ACCEPTCONN, SO_DEBUG,
+    SO_DONTROUTE, SO_RCVLOWAT, SO_RCVTIMEO, SO_SNDLOWAT, SO_SNDTIMEO,
+};
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub use libc::{IP_OPTIONS, IPV6_HOPOPTS, IPV6_RECVRTHDR, IPV6_RTHDR};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_vendor = "apple",
+))]
+pub use libc::IPV6_DONTFRAG;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_vendor = "apple",
+))]
+pub use libc::{IPV6_CHECKSUM, IPV6_HOPLIMIT};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_vendor = "apple",
+))]
+pub use libc::{AI_ALL, AI_V4MAPPED};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple",
+))]
+pub use libc::EAI_NODATA;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple",
+))]
+pub use libc::IPV6_PKTINFO;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple",
+))]
+pub use libc::{IPV6_RECVTCLASS, IPV6_TCLASS};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple"
+))]
+pub use libc::{
+    AF_LINK, IP_RECVDSTADDR, IPPROTO_GGP, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, SO_USELOOPBACK,
+};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_vendor = "apple",
+))]
+pub use libc::IPPROTO_ND;
+
+#[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
+pub use libc::{MSG_BCAST, MSG_MCAST};
+
+#[cfg(any(target_os = "netbsd", target_os = "redox", target_vendor = "apple"))]
+pub use libc::NI_MAXSERV;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple"
+))]
+pub use libc::{
+    AF_ROUTE, AF_SNA, EAI_OVERFLOW, IPPROTO_GRE, IPPROTO_RSVP, IPPROTO_TP, IPV6_RECVPKTINFO,
+    MSG_DONTWAIT, SCM_RIGHTS, TCP_MAXSEG,
+};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox"
+))]
+pub use libc::{SOCK_CLOEXEC, SOCK_NONBLOCK};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_vendor = "apple"
+))]
+pub use libc::{TCP_KEEPCNT, TCP_KEEPINTVL};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::TCP_KEEPIDLE;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+pub use libc::{MSG_CMSG_CLOEXEC, MSG_NOSIGNAL};
+
+#[cfg(target_vendor = "apple")]
+pub use libc::{
+    AF_SYSTEM, IP_ADD_SOURCE_MEMBERSHIP, IP_BLOCK_SOURCE, IP_DROP_SOURCE_MEMBERSHIP, IP_PKTINFO,
+    IP_RECVTTL, IP_UNBLOCK_SOURCE, IPPROTO_MAX, IPPROTO_SCTP, MSG_NOSIGNAL, PF_SYSTEM,
+    SYSPROTO_CONTROL, TCP_CONNECTION_INFO, TCP_KEEPALIVE,
+};
+
+#[cfg(target_os = "linux")]
+pub use libc::{
+    CAN_BCM, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_ISOTP, CAN_J1939, CAN_RAW,
+    CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER, CAN_RAW_JOIN_FILTERS, CAN_RAW_LOOPBACK,
+    CAN_RAW_RECV_OWN_MSGS, CAN_RTR_FLAG, CAN_SFF_MASK, IPPROTO_MPTCP, J1939_IDLE_ADDR,
+    J1939_MAX_UNICAST_ADDR, J1939_NLA_BYTES_ACKED, J1939_NLA_PAD, J1939_NO_ADDR, J1939_NO_NAME,
+    J1939_NO_PGN, J1939_PGN_ADDRESS_CLAIMED, J1939_PGN_ADDRESS_COMMANDED, J1939_PGN_MAX,
+    J1939_PGN_PDU1_MAX, J1939_PGN_REQUEST, SCM_J1939_DEST_ADDR, SCM_J1939_DEST_NAME,
+    SCM_J1939_ERRQUEUE, SCM_J1939_PRIO, SO_J1939_ERRQUEUE, SO_J1939_FILTER, SO_J1939_PROMISC,
+    SO_J1939_SEND_PRIO, SOL_CAN_BASE, SOL_CAN_RAW,
+};
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub use libc::SOL_RDS;
+
+#[cfg(target_os = "android")]
+pub use libc::{SOL_ATALK, SOL_AX25, SOL_IPX, SOL_NETROM, SOL_ROSE};
+
+#[cfg(target_os = "freebsd")]
+pub use libc::SO_SETFIB;
+
+#[cfg(target_os = "netbsd")]
+pub use libc::IPPROTO_VRRP;
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub use libc::{
+    ALG_OP_DECRYPT, ALG_OP_ENCRYPT, ALG_SET_AEAD_ASSOCLEN, ALG_SET_AEAD_AUTHSIZE, ALG_SET_IV,
+    ALG_SET_KEY, ALG_SET_OP, IP_DEFAULT_MULTICAST_LOOP, IP_RECVOPTS, IP_RETOPTS, IPV6_DSTOPTS,
+    IPV6_NEXTHOP, IPV6_PATHMTU, IPV6_RECVDSTOPTS, IPV6_RECVHOPLIMIT, IPV6_RECVHOPOPTS,
+    IPV6_RECVPATHMTU, IPV6_RTHDRDSTOPTS, NETLINK_CRYPTO, NETLINK_DNRTMSG, NETLINK_FIREWALL,
+    NETLINK_IP6_FW, NETLINK_NFLOG, NETLINK_ROUTE, NETLINK_USERSOCK, NETLINK_XFRM, SO_PASSSEC,
+    SO_PEERSEC, SOL_ALG,
+};
+
+#[cfg(any(target_os = "android", target_vendor = "apple"))]
+pub use libc::{AI_DEFAULT, AI_MASK, AI_V4MAPPED_CFG};
+
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+pub use libc::MSG_NOTIFICATION;
+
+#[cfg(any(target_os = "fuchsia", target_os = "linux"))]
+pub use libc::TCP_USER_TIMEOUT;
+
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub use libc::{
+    AF_ASH, AF_ATMPVC, AF_ATMSVC, AF_AX25, AF_BRIDGE, AF_ECONET, AF_IRDA, AF_LLC, AF_NETBEUI,
+    AF_NETLINK, AF_NETROM, AF_PACKET, AF_PPPOX, AF_RDS, AF_SECURITY, AF_TIPC, AF_VSOCK, AF_WANPIPE,
+    AF_X25, IP_TRANSPARENT, MSG_CONFIRM, MSG_ERRQUEUE, MSG_FASTOPEN, MSG_MORE, PF_CAN, PF_PACKET,
+    PF_RDS, SCM_CREDENTIALS, SO_BINDTODEVICE, SO_MARK, SOL_IP, SOL_TIPC, SOL_UDP, TCP_CORK,
+    TCP_DEFER_ACCEPT, TCP_LINGER2, TCP_QUICKACK, TCP_SYNCNT, TCP_WINDOW_CLAMP,
+};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_vendor = "apple"
+))]
+pub use libc::{IPPROTO_HELLO, IPPROTO_XTP, LOCAL_PEERCRED, MSG_EOF};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "freebsd",
+    target_os = "linux"
+))]
+pub use libc::{IPPROTO_UDPLITE, TCP_CONGESTION};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+pub use libc::AF_KEY;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "redox"
+))]
+pub use libc::SO_DOMAIN;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    all(
+        target_os = "linux",
+        any(
+            target_arch = "aarch64",
+            target_arch = "x86",
+            target_arch = "loongarch64",
+            target_arch = "mips",
+            target_arch = "powerpc",
+            target_arch = "powerpc64",
+            target_arch = "riscv64",
+            target_arch = "s390x",
+            target_arch = "x86_64"
+        )
+    ),
+    target_os = "redox"
+))]
+pub use libc::SO_PRIORITY;
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+pub use libc::IPPROTO_MOBILE;
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_vendor = "apple"
+))]
+pub use libc::SCM_CREDS;
+
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_vendor = "apple"
+))]
+pub use libc::TCP_FASTOPEN;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    all(
+        target_os = "linux",
+        any(
+            target_arch = "aarch64",
+            target_arch = "x86",
+            target_arch = "loongarch64",
+            target_arch = "mips",
+            target_arch = "powerpc",
+            target_arch = "powerpc64",
+            target_arch = "riscv64",
+            target_arch = "s390x",
+            target_arch = "x86_64"
+        )
+    ),
+    target_os = "redox"
+))]
+pub use libc::SO_PROTOCOL;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "redox"
+))]
+pub use libc::{SO_PASSCRED, SO_PEERCRED};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
+pub use libc::TCP_INFO;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_vendor = "apple"
+))]
+pub use libc::IP_RECVTOS;
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple"
+))]
+pub use libc::{IPPROTO_EON, IPPROTO_IPCOMP};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
+pub use libc::IPPROTO_SCTP;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+pub use libc::AF_BLUETOOTH;
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub use libc::{AF_ALG, AF_CAN};
 
@@ -792,14 +1158,15 @@ pub use windows_sys::Win32::Networking::WinSock::{
     IPV6_RECVRTHDR, IPV6_RECVTCLASS, IPV6_RTHDR, IPV6_TCLASS, IPV6_UNICAST_HOPS, IPV6_V6ONLY,
     MSG_BCAST, MSG_CTRUNC, MSG_DONTROUTE, MSG_MCAST, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL,
     NI_DGRAM, NI_MAXHOST, NI_MAXSERV, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV,
-    POLLIN, RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH, SD_RECEIVE,
-    SD_SEND, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL, SO_ACCEPTCONN, SO_BROADCAST,
-    SO_DEBUG, SO_DONTROUTE, SO_ERROR, SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE, SO_RCVBUF,
-    SO_RCVTIMEO, SO_REUSEADDR, SO_SNDBUF, SO_SNDTIMEO, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM,
-    SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOCKET_ERROR,
-    SOCKET_ERROR as SOCKET_ERROR_CODE, SOL_IP, SOL_SOCKET, SOMAXCONN, TCP_MAXSEG, TCP_NODELAY,
-    WSAEBADF, WSAECONNABORTED, WSAECONNRESET, WSAEINTR, WSAENOTSOCK, WSAEWOULDBLOCK,
-    getprotobyname, getservbyname, getservbyport, getsockopt, setsockopt,
+    POLLIN, RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH,
+    SD_BOTH as SHUT_RDWR, SD_RECEIVE, SD_RECEIVE as SHUT_RD, SD_SEND, SD_SEND as SHUT_WR,
+    SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL, SO_ACCEPTCONN, SO_BROADCAST, SO_DEBUG,
+    SO_DONTROUTE, SO_ERROR, SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE, SO_RCVBUF, SO_RCVTIMEO,
+    SO_REUSEADDR, SO_SNDBUF, SO_SNDTIMEO, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW, SOCK_RDM,
+    SOCK_SEQPACKET, SOCK_STREAM, SOCKET_ERROR, SOCKET_ERROR as SOCKET_ERROR_CODE, SOL_IP,
+    SOL_SOCKET, SOMAXCONN, TCP_MAXSEG, TCP_NODELAY, WSAEBADF, WSAECONNABORTED, WSAECONNRESET,
+    WSAEINTR, WSAENOTSOCK, WSAEWOULDBLOCK, getprotobyname, getservbyname, getservbyport,
+    getsockopt, setsockopt,
 };
 
 #[cfg(windows)]
