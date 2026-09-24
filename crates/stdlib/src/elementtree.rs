@@ -239,6 +239,10 @@ pub(crate) mod _elementtree {
             self.inner.read().children.len()
         }
 
+        fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
         fn child(&self, index: usize) -> Option<PyObjectRef> {
             self.inner.read().children.get(index).cloned()
         }
@@ -1209,7 +1213,7 @@ pub(crate) mod _elementtree {
                         None,
                         vm,
                     )?;
-                    Ok(zelf.len() != 0)
+                    Ok(!zelf.is_empty())
                 }),
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
