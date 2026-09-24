@@ -30,7 +30,6 @@ use crate::{
     class::StaticType,
     object::traverse::{MaybeTraverse, Traverse, TraverseFn},
 };
-use itertools::Itertools;
 
 use alloc::fmt;
 
@@ -244,7 +243,7 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
                 let old = dict.d.write().take();
                 drop(old);
             }
-            for slot in &ext.slots {
+            for slot in obj_ref.0.slot_cells() {
                 drop(slot.store(None));
             }
         }
@@ -367,28 +366,16 @@ unsafe impl Link for GcLink {
 #[repr(C, align(8))]
 pub(super) struct ObjExt {
     pub(super) dict: Option<InstanceDict>,
-    /// Owned `PyObject*` cells. Null is empty. Each cell is one pointer so a
-    /// later step can place the same cells at a byte offset from the object.
-    pub(super) slots: Box<[PyAtomicRef<PyObject>]>,
 }
 
 impl ObjExt {
-    fn new(
-        dict: Option<PyDictRef>,
-        member_count: usize,
-        has_dict: bool,
-        inline_values: bool,
-    ) -> Self {
+    fn new(dict: Option<PyDictRef>, has_dict: bool, inline_values: bool) -> Self {
         Self {
             dict: if has_dict {
                 Some(InstanceDict::from_opt(dict, inline_values))
             } else {
                 None
             },
-            slots: core::iter::repeat_with(PyAtomicRef::<PyObject>::new_empty)
-                .take(member_count)
-                .collect_vec()
-                .into_boxed_slice(),
         }
     }
 }
@@ -403,6 +390,16 @@ impl fmt::Debug for ObjExt {
 /// All prefix components are align(8) and their sizes are multiples of 8,
 /// so Layout::extend adds no inter-padding.
 const EXT_OFFSET: usize = core::mem::size_of::<ObjExt>();
+
+/// Byte size of the inline member cells, rounded up so `ObjExt` needs no padding after them.
+fn slot_region_layout(member_count: usize) -> Option<core::alloc::Layout> {
+    if member_count == 0 {
+        return None;
+    }
+    let bytes = member_count * core::mem::size_of::<PyAtomicRef<PyObject>>();
+    let align = core::mem::align_of::<ObjExt>();
+    Some(core::alloc::Layout::from_size_align(bytes.next_multiple_of(align), align).unwrap())
+}
 const WEAKREF_OFFSET: usize = core::mem::size_of::<WeakRefList>();
 
 const _: () =
@@ -494,6 +491,21 @@ impl<T> PyInner<T> {
         let self_addr = (self as *const Self as *const u8).addr();
         let ext_ptr = core::ptr::with_exposed_provenance::<ObjExt>(self_addr.wrapping_sub(offset));
         Some(unsafe { &*ext_ptr })
+    }
+
+    /// Member cells are the pointer array immediately before [`ObjExt`].
+    /// Layout: `[PyAtomicRef<PyObject>; N][ObjExt?][WeakRefList?][PyInner]`.
+    pub(super) fn slot_cells(&self) -> &[PyAtomicRef<PyObject>] {
+        let Some(ext) = self.ext_ref() else {
+            return &[];
+        };
+        let (_, member_count) = self.read_type_flags();
+        let Some(region) = slot_region_layout(member_count) else {
+            return &[];
+        };
+        let base = (ext as *const ObjExt).addr().wrapping_sub(region.size());
+        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<PyObject>>(base);
+        unsafe { core::slice::from_raw_parts(ptr, member_count) }
     }
 
     /// Access the WeakRefList prefix at a fixed negative offset from this PyInner.
@@ -1192,7 +1204,7 @@ impl<T: PyPayload> PyInner<T> {
     }
 
     /// Deallocate a PyInner, handling optional prefix(es).
-    /// Layout: [ObjExt?][WeakRefList?][PyInner<T>]
+    /// Layout: `[PyAtomicRef<PyObject>; N][ObjExt?][WeakRefList?][PyInner<T>]`
     ///
     /// # Safety
     /// `ptr` must be a valid pointer from `PyInner::new` and must not be used after this call.
@@ -1210,6 +1222,9 @@ impl<T: PyPayload> PyInner<T> {
                 // Reconstruct the same layout used in new()
                 let mut layout = core::alloc::Layout::from_size_align(0, 1).unwrap();
 
+                if let Some(region) = slot_region_layout(member_count) {
+                    layout = layout.extend(region).unwrap().0;
+                }
                 if has_ext {
                     layout = layout
                         .extend(core::alloc::Layout::new::<ObjExt>())
@@ -1230,9 +1245,17 @@ impl<T: PyPayload> PyInner<T> {
 
                 Self::drop_fields(ptr);
 
-                // Drop ObjExt if present (dict, slots)
+                // Drop member cells, then ObjExt. Cells are the allocation prefix.
+                let mut cursor = alloc_ptr;
+                if let Some(region) = slot_region_layout(member_count) {
+                    let cells = cursor.cast::<PyAtomicRef<PyObject>>();
+                    for i in 0..member_count {
+                        core::ptr::drop_in_place(cells.add(i));
+                    }
+                    cursor = cursor.add(region.size());
+                }
                 if has_ext {
-                    core::ptr::drop_in_place(alloc_ptr as *mut ObjExt);
+                    core::ptr::drop_in_place(cursor.cast::<ObjExt>());
                 }
                 // WeakRefList has no Drop (just raw pointers), no drop_in_place needed
 
@@ -1258,7 +1281,7 @@ impl<T: PyPayload> PyInner<T> {
 impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
     /// Allocate a new PyInner, optionally with prefix(es).
     /// Returns a raw pointer to the PyInner (NOT the allocation start).
-    /// Layout: [ObjExt?][WeakRefList?][PyInner<T>]
+    /// Layout: `[PyAtomicRef<PyObject>; N][ObjExt?][WeakRefList?][PyInner<T>]`
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> *mut Self {
         let member_count = typ.slots.member_count;
         let needs_ext = typ
@@ -1277,8 +1300,16 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
         );
 
         if needs_ext || needs_weakref {
-            // Build layout left-to-right: [ObjExt?][WeakRefList?][PyInner]
+            // Build layout left-to-right: [slots?][ObjExt?][WeakRefList?][PyInner]
             let mut layout = core::alloc::Layout::from_size_align(0, 1).unwrap();
+
+            let slots_start = if let Some(region) = slot_region_layout(member_count) {
+                let (combined, offset) = layout.extend(region).unwrap();
+                layout = combined;
+                Some(offset)
+            } else {
+                None
+            };
 
             let ext_start = if needs_ext {
                 let (combined, offset) =
@@ -1311,12 +1342,19 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             alloc_ptr.expose_provenance();
 
             unsafe {
+                if let Some(offset) = slots_start {
+                    let cells = alloc_ptr.add(offset).cast::<PyAtomicRef<PyObject>>();
+                    for i in 0..member_count {
+                        cells.add(i).write(PyAtomicRef::<PyObject>::new_empty());
+                    }
+                }
+
                 if let Some(offset) = ext_start {
                     let ext_ptr = alloc_ptr.add(offset) as *mut ObjExt;
                     let flags = typ.slots.flags;
                     let has_dict = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT);
                     let inline_values = flags.has_feature(crate::types::PyTypeFlags::INLINE_VALUES);
-                    ext_ptr.write(ObjExt::new(dict, member_count, has_dict, inline_values));
+                    ext_ptr.write(ObjExt::new(dict, has_dict, inline_values));
                 }
 
                 if let Some(offset) = weakref_start {
@@ -2121,11 +2159,11 @@ impl PyObject {
     }
 
     pub(crate) fn get_slot(&self, offset: usize) -> Option<PyObjectRef> {
-        self.0.ext_ref().unwrap().slots[offset].load_owned()
+        self.0.slot_cells()[offset].load_owned()
     }
 
     pub(crate) fn set_slot(&self, offset: usize, value: Option<PyObjectRef>) {
-        drop(self.0.ext_ref().unwrap().slots[offset].store(value));
+        drop(self.0.slot_cells()[offset].store(value));
     }
 
     /// _PyObject_GC_IS_TRACKED
@@ -2250,7 +2288,7 @@ impl PyObject {
             if let Some(dict_ref) = ext.dict.as_ref().and_then(|d| d.replace(None)) {
                 result.push(dict_ref.into());
             }
-            for slot in &ext.slots {
+            for slot in obj.0.slot_cells() {
                 if let Some(val) = slot.store(None) {
                     result.push(val);
                 }
@@ -2278,10 +2316,8 @@ impl PyObject {
     // Py_TPFLAGS_HAVE_GC types have tp_clear
     pub fn gc_has_clear(&self) -> bool {
         self.0.vtable.clear.is_some()
-            || self
-                .0
-                .ext_ref()
-                .is_some_and(|ext| ext.dict.is_some() || !ext.slots.is_empty())
+            || self.0.ext_ref().is_some_and(|ext| ext.dict.is_some())
+            || self.0.read_type_flags().1 > 0
     }
 }
 
@@ -2930,7 +2966,7 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         alloc_ptr.expose_provenance();
 
         unsafe {
-            (alloc_ptr as *mut ObjExt).write(ObjExt::new(None, 0, true, false));
+            (alloc_ptr as *mut ObjExt).write(ObjExt::new(None, true, false));
             (alloc_ptr.add(weakref_offset) as *mut WeakRefList).write(WeakRefList::new());
             alloc_ptr.add(inner_offset).cast()
         }

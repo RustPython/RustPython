@@ -68,7 +68,9 @@ unsafe impl Traverse for PyInner<Erased> {
         // Traverse ObjExt prefix fields (dict and slots) if present
         if let Some(ext) = self.ext_ref() {
             ext.dict.traverse(tracer_fn);
-            ext.slots.traverse(tracer_fn);
+            for slot in self.slot_cells() {
+                slot.traverse(tracer_fn);
+            }
         }
 
         if let Some(f) = self.vtable.trace {
@@ -92,7 +94,9 @@ unsafe impl<T: MaybeTraverse> Traverse for PyInner<T> {
         // Traverse ObjExt prefix fields (dict and slots) if present
         if let Some(ext) = self.ext_ref() {
             ext.dict.traverse(tracer_fn);
-            ext.slots.traverse(tracer_fn);
+            for slot in self.slot_cells() {
+                slot.traverse(tracer_fn);
+            }
         }
         T::try_traverse(&self.payload, tracer_fn);
     }
