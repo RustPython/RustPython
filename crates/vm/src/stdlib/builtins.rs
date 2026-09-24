@@ -864,7 +864,7 @@ mod builtins {
                 .into();
             Ok(PyIter::new(iterator))
         } else {
-            iter_target.get_iter(vm)
+            PyIter::try_from_object(vm, iter_target)
         }
     }
 
