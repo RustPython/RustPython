@@ -585,6 +585,16 @@ impl Py<PyDict> {
     fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.inner_getitem(&*key, vm)
     }
+
+    fn __ror__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let other_dict = other.downcast::<PyDict>();
+        if let Ok(other) = other_dict {
+            let other_cp = other.copy();
+            other_cp.merge_dict(self, true, vm)?;
+            return Ok(other_cp.into_pyobject(vm));
+        }
+        Ok(vm.ctx.not_implemented())
+    }
 }
 
 #[pyclass]
@@ -612,16 +622,6 @@ impl PyRef<PyDict> {
     fn __ior__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         self.merge_object(other, vm)?;
         Ok(self)
-    }
-
-    fn __ror__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let other_dict: Result<Self, _> = other.downcast();
-        if let Ok(other) = other_dict {
-            let other_cp = other.copy();
-            other_cp.merge_dict(&self, true, vm)?;
-            return Ok(other_cp.into_pyobject(vm));
-        }
-        Ok(vm.ctx.not_implemented())
     }
 }
 
