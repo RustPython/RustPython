@@ -32,8 +32,6 @@ pub mod object;
 pub mod objimpl;
 pub mod osmodule;
 pub mod pycapsule;
-#[cfg(test)]
-mod pyclass_tests;
 pub mod pyerrors;
 pub mod pyframe;
 pub mod pylifecycle;

@@ -484,6 +484,10 @@ pub unsafe extern "C" fn PyType_GetTypeDataSize(cls: *mut PyTypeObject) -> isize
     cls.slots.basicsize.saturating_sub(aligned) as isize
 }
 
+/// A pyo3 `#[pyclass]` driven end to end through this API.
+#[cfg(test)]
+mod pyclass_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
