@@ -114,7 +114,7 @@ impl Initializer for PyBaseObject {
     type Args = FuncArgs;
 
     // object_init: excess_args validation
-    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         if args.is_empty() {
             return Ok(());
         }
@@ -152,7 +152,7 @@ impl Initializer for PyBaseObject {
         Ok(())
     }
 
-    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+    fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
         unreachable!("slot_init is defined")
     }
 }
@@ -505,7 +505,7 @@ impl PyBaseObject {
     #[pymethod]
     fn __reduce_ex__(zelf: PyObjectRef, protocol: usize, vm: &VirtualMachine) -> PyResult {
         let __reduce__ = identifier!(vm, __reduce__);
-        if let Some(reduce) = vm.get_attribute_opt(zelf.clone(), __reduce__)? {
+        if let Some(reduce) = vm.get_attribute_opt(&zelf, __reduce__)? {
             let object_reduce = vm.ctx.types.object_type.get_attr(__reduce__).unwrap();
             let typ_obj: PyObjectRef = zelf.class().to_owned().into();
             let class_reduce = typ_obj.get_attr(__reduce__, vm)?;
@@ -702,14 +702,14 @@ fn get_items_iter(obj: &PyObject, vm: &VirtualMachine) -> PyResult<(PyObjectRef,
 }
 
 /// reduce_newobj - creates reduce tuple for protocol >= 2
-fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn reduce_newobj(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
     // Check if type has tp_new
     let cls = obj.class();
     if cls.slots.new.load().is_none() {
         return Err(vm.new_type_error(format!("cannot pickle '{}' object", cls.name())));
     }
 
-    let (args, kwargs) = get_new_arguments(&obj, vm)?;
+    let (args, kwargs) = get_new_arguments(obj, vm)?;
 
     let copyreg = vm.import("copyreg", 0)?;
 
@@ -752,9 +752,9 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let is_dict = obj.fast_isinstance(vm.ctx.types.dict_type);
     let required = !(has_args || is_list || is_dict);
 
-    let state = object_getstate(&obj, required, vm)?;
+    let state = object_getstate(obj, required, vm)?;
 
-    let (listitems, dictitems) = get_items_iter(&obj, vm)?;
+    let (listitems, dictitems) = get_items_iter(obj, vm)?;
 
     let result = vm
         .ctx
@@ -764,7 +764,7 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
 fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
     if proto >= 2 {
-        reduce_newobj(obj, vm)
+        reduce_newobj(&obj, vm)
     } else {
         let copyreg = vm.import("copyreg", 0)?;
         let reduce_ex = copyreg.get_attr("_reduce_ex", vm)?;

@@ -96,8 +96,9 @@ pub struct VirtualMachine {
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
-    /// Event currently being monitored, or -1 when not in a callback.
-    pub(crate) what_event: Cell<i32>,
+    /// Event currently being monitored (`tstate->what_event`).
+    /// `None` when not in a monitoring callback.
+    pub(crate) what_event: Cell<Option<crate::stdlib::sys::monitoring::MonitoringEvent>>,
     tracing_depth: Cell<usize>,
     pub recursion_limit: Cell<usize>,
     pub(crate) signal_handlers: OnceCell<SignalHandlers>,
@@ -299,7 +300,8 @@ impl StopTheWorldState {
             .iter()
             .filter(|(thread_id, slot)| {
                 **thread_id != requester
-                    && slot.state.load(Ordering::Relaxed) != thread::THREAD_SHUTTING_DOWN
+                    && slot.state.load(Ordering::Relaxed)
+                        != thread::ThreadState::ShuttingDown as i32
             })
             .count();
         let count = (count.min(i64::MAX as usize)) as i64;
@@ -323,7 +325,7 @@ impl StopTheWorldState {
     /// Try to CAS detached threads directly to SUSPENDED and check whether
     /// stop countdown reached zero after parking detached threads.
     fn park_detached_threads(&self, state: &PyGlobalState) -> bool {
-        use thread::{THREAD_ATTACHED, THREAD_DETACHED, THREAD_SHUTTING_DOWN, THREAD_SUSPENDED};
+        use thread::ThreadState;
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = state.thread_frames.lock();
         let mut attached_seen = 0u64;
@@ -339,11 +341,11 @@ impl StopTheWorldState {
             }
 
             let state = slot.state.load(Ordering::Relaxed);
-            if state == THREAD_DETACHED {
+            if state == ThreadState::Detached as i32 {
                 // CAS DETACHED → SUSPENDED (park without thread cooperation)
                 match slot.state.compare_exchange(
-                    THREAD_DETACHED,
-                    THREAD_SUSPENDED,
+                    ThreadState::Detached as i32,
+                    ThreadState::Suspended as i32,
                     Ordering::AcqRel,
                     Ordering::Relaxed,
                 ) {
@@ -351,38 +353,40 @@ impl StopTheWorldState {
                         slot.stop_requested.store(false, Ordering::Release);
                         forced_parks = forced_parks.saturating_add(1);
                     }
-                    Err(THREAD_ATTACHED) => {
-                        // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
-                        slot.stop_requested.store(true, Ordering::Release);
-                        crate::signal::set_stop_bit();
-                        // Raced with a thread re-attaching; it will self-suspend.
-                        attached_seen = attached_seen.saturating_add(1);
-                    }
-                    Err(THREAD_DETACHED) => {
-                        // Extremely unlikely race; next poll will handle it.
-                    }
-                    Err(THREAD_SUSPENDED) => {
-                        slot.stop_requested.store(false, Ordering::Release);
-                        // Another path parked it first.
-                    }
-                    Err(THREAD_SHUTTING_DOWN) => {
-                        slot.stop_requested.store(false, Ordering::Release);
-                    }
-                    Err(other) => {
-                        debug_assert!(
-                            false,
-                            "unexpected thread state in park_detached_threads: {other}"
-                        );
-                    }
+                    Err(actual) => match ThreadState::from_i32(actual) {
+                        Some(ThreadState::Attached) => {
+                            // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
+                            slot.stop_requested.store(true, Ordering::Release);
+                            crate::signal::set_stop_bit();
+                            // Raced with a thread re-attaching; it will self-suspend.
+                            attached_seen = attached_seen.saturating_add(1);
+                        }
+                        Some(ThreadState::Detached) => {
+                            // Extremely unlikely race; next poll will handle it.
+                        }
+                        Some(ThreadState::Suspended) => {
+                            slot.stop_requested.store(false, Ordering::Release);
+                            // Another path parked it first.
+                        }
+                        Some(ThreadState::ShuttingDown) => {
+                            slot.stop_requested.store(false, Ordering::Release);
+                        }
+                        None => {
+                            debug_assert!(
+                                false,
+                                "unexpected thread state in park_detached_threads: {actual}"
+                            );
+                        }
+                    },
                 }
-            } else if state == THREAD_ATTACHED {
+            } else if state == ThreadState::Attached as i32 {
                 // Set per-thread stop bit (_PY_EVAL_PLEASE_STOP_BIT).
                 slot.stop_requested.store(true, Ordering::Release);
                 crate::signal::set_stop_bit();
                 // Thread is in bytecode — it will see `requested` and self-suspend
                 attached_seen = attached_seen.saturating_add(1);
             }
-            // THREAD_SUSPENDED / THREAD_SHUTTING_DOWN → already parked
+            // Suspended / ShuttingDown → already parked
         }
         if attached_seen != 0 {
             self.stats_attached_seen
@@ -525,7 +529,7 @@ impl StopTheWorldState {
 
     /// Resume all suspended threads (`start_the_world`).
     pub fn start_the_world(&self, state: &PyGlobalState) {
-        use thread::{THREAD_DETACHED, THREAD_SHUTTING_DOWN, THREAD_SUSPENDED};
+        use thread::ThreadState;
         let requester = self.requester.load(Ordering::Relaxed);
         stw_trace(format_args!("start begin requester={requester}"));
         let registry = state.thread_frames.lock();
@@ -549,17 +553,18 @@ impl StopTheWorldState {
 
             slot.stop_requested.store(false, Ordering::Release);
             let state = slot.state.load(Ordering::Relaxed);
-            if state == THREAD_SHUTTING_DOWN {
+            if state == ThreadState::ShuttingDown as i32 {
                 // `_PyThreadState_RemoveExcept` + SetShuttingDown already
                 // took this thread off the resume path. Leave it hanging.
                 continue;
             }
             debug_assert!(
-                state == THREAD_SUSPENDED,
+                state == ThreadState::Suspended as i32,
                 "non-requester thread not suspended at start-the-world: id={id} state={state}"
             );
-            if state == THREAD_SUSPENDED {
-                slot.state.store(THREAD_DETACHED, Ordering::Release);
+            if state == ThreadState::Suspended as i32 {
+                slot.state
+                    .store(ThreadState::Detached as i32, Ordering::Release);
                 slot.thread.unpark();
             }
         }
@@ -660,7 +665,7 @@ impl StopTheWorldState {
     /// already SUSPENDED when a new stop counts it neither notifies nor is
     /// force-parked again, so an edge-based countdown could never reach zero.
     fn all_non_requester_suspended(&self, state: &PyGlobalState) -> bool {
-        use thread::{THREAD_SHUTTING_DOWN, THREAD_SUSPENDED};
+        use thread::ThreadState;
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = state.thread_frames.lock();
 
@@ -673,7 +678,9 @@ impl StopTheWorldState {
                 continue;
             }
             let slot_state = slot.state.load(Ordering::Acquire);
-            if slot_state != THREAD_SUSPENDED && slot_state != THREAD_SHUTTING_DOWN {
+            if slot_state != ThreadState::Suspended as i32
+                && slot_state != ThreadState::ShuttingDown as i32
+            {
                 return false;
             }
         }
@@ -682,7 +689,7 @@ impl StopTheWorldState {
 
     #[cfg(debug_assertions)]
     fn debug_assert_all_non_requester_suspended(&self, state: &PyGlobalState) {
-        use thread::{THREAD_SHUTTING_DOWN, THREAD_SUSPENDED};
+        use thread::ThreadState;
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = state.thread_frames.lock();
 
@@ -697,7 +704,7 @@ impl StopTheWorldState {
 
             let state = slot.state.load(Ordering::Relaxed);
             debug_assert!(
-                state == THREAD_SUSPENDED || state == THREAD_SHUTTING_DOWN,
+                state == ThreadState::Suspended as i32 || state == ThreadState::ShuttingDown as i32,
                 "non-requester thread not suspended during stop-the-world: id={id} state={state}"
             );
         }
@@ -705,7 +712,7 @@ impl StopTheWorldState {
 
     #[cfg(debug_assertions)]
     fn debug_assert_all_non_requester_detached(&self, state: &PyGlobalState) {
-        use thread::THREAD_SUSPENDED;
+        use thread::ThreadState;
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = state.thread_frames.lock();
 
@@ -720,7 +727,7 @@ impl StopTheWorldState {
 
             let state = slot.state.load(Ordering::Relaxed);
             debug_assert!(
-                state != THREAD_SUSPENDED,
+                state != ThreadState::Suspended as i32,
                 "non-requester thread still suspended after start-the-world: id={id} state={state}"
             );
         }
@@ -1230,7 +1237,7 @@ impl VirtualMachine {
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
-            what_event: Cell::new(-1),
+            what_event: Cell::new(None),
             tracing_depth: Cell::new(0),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
             signal_handlers,
@@ -1325,13 +1332,13 @@ impl VirtualMachine {
 
         // Use dotted names when freeze-stdlib is enabled (modules come from Lib/encodings/),
         // otherwise use underscored names (modules come from core_modules/).
-        let (ascii_module_name, utf8_module_name) = if cfg!(feature = "freeze-stdlib") {
-            ("encodings.ascii", "encodings.utf_8")
-        } else {
-            ("encodings_ascii", "encodings_utf_8")
-        };
+        let (ascii_module_name, utf8_module_name, latin1_module_name) =
+            if cfg!(feature = "freeze-stdlib") {
+                ("encodings.ascii", "encodings.utf_8", "encodings.latin_1")
+            } else {
+                ("encodings_ascii", "encodings_utf_8", "encodings_latin_1")
+            };
 
-        // Register ascii encoding
         // __import__("encodings.ascii") returns top-level "encodings", so
         // look up the actual submodule in sys.modules.
         self.import(ascii_module_name, 0)?;
@@ -1357,19 +1364,17 @@ impl VirtualMachine {
             .codec_registry
             .register_manual("utf8", utf8_codec);
 
-        // Register latin-1 / iso8859-1 aliases needed very early for stdio
-        // bootstrap (e.g. PYTHONIOENCODING=latin-1).
-        if cfg!(feature = "freeze-stdlib") {
-            self.import("encodings.latin_1", 0)?;
-            let latin1_module = sys_modules.get_item("encodings.latin_1", self)?;
-            let getregentry = latin1_module.get_attr("getregentry", self)?;
-            let codec_info = getregentry.call((), self)?;
-            let latin1_codec: crate::codecs::PyCodec = codec_info.try_into_value(self)?;
-            for name in ["latin-1", "latin_1", "latin1", "iso8859-1", "iso8859_1"] {
-                self.state
-                    .codec_registry
-                    .register_manual(name, latin1_codec.clone());
-            }
+        // latin-1 is a built-in codec (needed very early for stdio bootstrap,
+        // e.g. PYTHONIOENCODING=latin-1).
+        self.import(latin1_module_name, 0)?;
+        let latin1_module = sys_modules.get_item(latin1_module_name, self)?;
+        let getregentry = latin1_module.get_attr("getregentry", self)?;
+        let codec_info = getregentry.call((), self)?;
+        let latin1_codec: crate::codecs::PyCodec = codec_info.try_into_value(self)?;
+        for name in ["latin-1", "latin_1", "latin1", "iso8859-1", "iso8859_1"] {
+            self.state
+                .codec_registry
+                .register_manual(name, latin1_codec.clone());
         }
         Ok(())
     }
@@ -1523,12 +1528,12 @@ impl VirtualMachine {
         #[cfg(feature = "host_env")]
         if self.state.config.settings.allow_external_library
             && cfg!(feature = "rustpython-compiler")
-            && let Err(e) = import::init_importlib_package(self, importlib)
+            && let Err(e) = import::init_importlib_package(self, &importlib)
         {
             eprintln!(
                 "importlib initialization failed. This is critical for many complicated packages."
             );
-            self.print_exception(e);
+            self.print_exception(&e);
         }
 
         #[cfg(not(feature = "host_env"))]
@@ -1543,7 +1548,7 @@ impl VirtualMachine {
                 eprintln!(
                     "encodings initialization failed. Only utf-8 encoding will be supported."
                 );
-                self.print_exception(e);
+                self.print_exception(&e);
             }
         } else {
             // Here may not be the best place to give general `path_list` advice,
@@ -2976,7 +2981,7 @@ impl VirtualMachine {
         {
             let ret_result = self.trace_event_what(
                 TraceEvent::Return,
-                crate::stdlib::sys::monitoring::WHAT_PY_UNWIND,
+                crate::stdlib::sys::monitoring::MonitoringEvent::PyUnwind,
                 None,
             );
             // call_trace_protected: if trace function raises, its error
@@ -3430,7 +3435,7 @@ impl VirtualMachine {
 
     pub fn get_attribute_opt<'a>(
         &self,
-        obj: PyObjectRef,
+        obj: &PyObject,
         attr_name: impl AsPyStr<'a>,
     ) -> PyResult<Option<PyObjectRef>> {
         let attr_name = attr_name.as_pystr(&self.ctx);
@@ -3731,7 +3736,7 @@ impl VirtualMachine {
             }
             1
         } else if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
-            self.print_exception(exc);
+            self.print_exception(&exc);
             cfg_select! {
                 unix => {
                     if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
@@ -3747,7 +3752,7 @@ impl VirtualMachine {
                 _ => 1,
             }
         } else {
-            self.print_exception(exc);
+            self.print_exception(&exc);
             1
         }
     }
@@ -3842,6 +3847,7 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
         "_frozen_importlib_external" => "importlib._bootstrap_external",
         "encodings_ascii" => "encodings.ascii",
         "encodings_utf_8" => "encodings.utf_8",
+        "encodings_latin_1" => "encodings.latin_1",
         "__hello_alias__" | "__phello_alias__" | "__phello_alias__.spam" => "__hello__",
         "__phello__.__init__" => "<__phello__",
         "__phello__.ham.__init__" => "<__phello__.ham",
@@ -3873,7 +3879,7 @@ mod tests {
                     .unwrap();
 
                 if let Err(e) = vm.run_code_obj(code_obj, scope) {
-                    vm.print_exception(e);
+                    vm.print_exception(&e);
                     panic!();
                 }
             })

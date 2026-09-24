@@ -1,9 +1,10 @@
-use lexopt::Arg::*;
+use core::cmp;
+use core::num::NonZeroI32;
+use core::str::FromStr;
+use lexopt::Arg::{Long, Short, Value};
 use lexopt::ValueExt;
 use rustpython_vm::{Settings, vm::CheckHashPycsMode};
-use std::num::NonZeroI32;
-use std::str::FromStr;
-use std::{cmp, env};
+use std::env;
 
 pub enum RunMode {
     Script(String),
@@ -113,7 +114,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
     let mut args = CliArgs::default();
     let mut parser = lexopt::Parser::from_env();
     fn argv(argv0: String, mut parser: lexopt::Parser) -> Result<Vec<String>, lexopt::Error> {
-        std::iter::once(Ok(argv0))
+        core::iter::once(Ok(argv0))
             .chain(parser.raw_args()?.map(|arg| arg.string()))
             .collect()
     }
@@ -532,7 +533,7 @@ fn dedent(input: &str) -> String {
         .collect();
 
     // Find maximum common whitespace prefix, if any.
-    for line in deblanked.iter() {
+    for line in &deblanked {
         if line.is_empty() {
             continue;
         }

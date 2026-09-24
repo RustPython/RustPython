@@ -432,7 +432,7 @@ pub(crate) mod _elementtree {
     impl Initializer for PyElement {
         type Args = FuncArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let (tag, attrib) = parse_attrib_args(args, "Element", 0, vm)?;
             let attrib = attrib.filter(|d| !d.is_empty());
             let _recycle = {
@@ -1367,7 +1367,7 @@ pub(crate) mod _elementtree {
     impl Initializer for PyTreeBuilder {
         type Args = TreeBuilderArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let module = module_state(vm)?;
             let element_factory = args.element_factory.filter(|f| !vm.is_none(f));
             let comment_factory = match args.comment_factory {
@@ -1685,7 +1685,7 @@ pub(crate) mod _elementtree {
         fn set_events(
             &self,
             events_append: PyObjectRef,
-            events_to_report: PyObjectRef,
+            events_to_report: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             {
@@ -1697,7 +1697,7 @@ pub(crate) mod _elementtree {
                 st.end_ns_event = None;
                 st.comment_event = None;
                 st.pi_event = None;
-                if vm.is_none(&events_to_report) {
+                if vm.is_none(events_to_report) {
                     st.end_event = Some(vm.ctx.new_str("end").into());
                     return Ok(());
                 }
@@ -1917,13 +1917,13 @@ pub(crate) mod _elementtree {
         name: &'static str,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        vm.get_attribute_opt(target.to_owned(), name)
+        vm.get_attribute_opt(target, name)
     }
 
     impl Initializer for PyXMLParser {
         type Args = XMLParserArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let encoding = match args.encoding {
                 Some(e) if !vm.is_none(&e) => {
                     if !e.downcastable::<PyStr>() {
@@ -2061,7 +2061,7 @@ pub(crate) mod _elementtree {
             Ok(value)
         }
 
-        fn raise_expat_error(&self, err: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn raise_expat_error(&self, err: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             let message = err.str(vm)?;
             let code = err
                 .get_attr("code", vm)
@@ -2099,7 +2099,7 @@ pub(crate) mod _elementtree {
                     if let Ok(error_type) = error_type.downcast::<PyType>()
                         && e.fast_isinstance(&error_type)
                     {
-                        self.raise_expat_error(e.into(), vm)?;
+                        self.raise_expat_error(e.as_object(), vm)?;
                         unreachable!()
                     }
                     Err(e)
@@ -2207,7 +2207,7 @@ pub(crate) mod _elementtree {
                 ));
             };
             let append = events_queue.get_attr("append", vm)?;
-            builder.set_events(append, events_to_report.unwrap_or_none(vm), vm)?;
+            builder.set_events(append, &events_to_report.unwrap_or_none(vm), vm)?;
             // Comments and processing instructions are only reported once
             // asked for, so their handlers are installed lazily here.
             let this = zelf.as_object();

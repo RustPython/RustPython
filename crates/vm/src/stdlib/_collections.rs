@@ -1,10 +1,14 @@
+// cspell:ignore odict
+
 pub(crate) use _collections::module_def;
 
-#[pymodule]
+pub(crate) mod ordered_dict;
+
+#[pymodule(with(ordered_dict::ordered_dict))]
 mod _collections {
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        atomic_func,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine, atomic_func,
         builtins::{
             IterStatus::{Active, Exhausted},
             PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyStr, PyType, PyTypeRef,
@@ -12,9 +16,9 @@ mod _collections {
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
-        function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
+        function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue},
         object::{Traverse, TraverseFn},
-        protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+        protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
         sequence::{MutObjectSequenceOp, OptionalRangeArgs},
         sliceable::SequenceIndexOp,
@@ -329,8 +333,8 @@ mod _collections {
                 .ok_or_else(|| vm.new_index_error("deque index out of range"))
         }
 
-        fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-            self._contains(&needle, vm)
+        fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+            self._contains(needle, vm)
         }
 
         fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -456,7 +460,7 @@ mod _collections {
         type Args = PyDequeOptions;
 
         fn init(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             PyDequeOptions { iterable, maxlen }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -885,23 +889,33 @@ mod _collections {
         flags(BASETYPE, MAPPING, HAS_DICT)
     )]
     impl PyDefaultDict {
-        #[pygetset]
-        fn default_factory(&self) -> Option<PyObjectRef> {
-            self.default_factory.read().clone()
+        #[pymember(type = "object")]
+        fn default_factory(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+            let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+            Ok(zelf
+                .default_factory
+                .read()
+                .clone()
+                .unwrap_or_else(|| vm.ctx.none()))
         }
 
-        #[pygetset(name = "default_factory", setter)]
-        fn default_factory_setter(&self, value: PyObjectRef, vm: &VirtualMachine) {
-            *self.default_factory.write() = if value.is(&vm.ctx.none()) {
-                None
-            } else {
-                Some(value)
+        #[pymember(type = "object", setter)]
+        fn set_default_factory(
+            vm: &VirtualMachine,
+            zelf: PyObjectRef,
+            value: PySetterValue,
+        ) -> PyResult<()> {
+            let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+            *zelf.default_factory.write() = match value {
+                PySetterValue::Assign(v) if !v.is(&vm.ctx.none()) => Some(v),
+                _ => None,
             };
+            Ok(())
         }
 
         #[pymethod]
         fn __missing__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let factory = self.default_factory();
+            let factory = self.default_factory.read().clone();
 
             if let Some(f) = factory {
                 let value = f.call((), vm)?;
@@ -914,7 +928,7 @@ mod _collections {
         #[pymethod]
         #[pymethod(name = "__copy__")]
         fn copy(&self) -> Self {
-            let default_factory = self.default_factory();
+            let default_factory = self.default_factory.read().clone();
 
             Self {
                 dict: self.dict.copy(),
@@ -926,14 +940,14 @@ mod _collections {
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let cls = zelf.class().to_owned();
 
-            let default_factory = zelf.default_factory();
+            let default_factory = zelf.default_factory.read().clone();
             let factory_tuple_elements =
                 default_factory.map_or_else(Vec::new, |factory| vec![factory]);
             let factory_tuple = vm.ctx.new_tuple(factory_tuple_elements);
 
             let items_fn = zelf.as_object().get_attr("items", vm)?;
             let items_iter = items_fn.call((), vm)?;
-            let iter = items_iter.get_iter(vm)?;
+            let iter = PyIter::try_from_object(vm, items_iter)?;
             let none = vm.ctx.none();
 
             Ok(vm
@@ -950,7 +964,7 @@ mod _collections {
     }
 
     impl PyDefaultDict {
-        fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __or__(lhs: &PyObject, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let not_implemented = || Ok(vm.ctx.not_implemented.clone().into());
 
             let (default_factory, dict) = if let Some(zelf) = lhs.downcast_ref::<Self>() {
@@ -958,13 +972,13 @@ mod _collections {
                     return not_implemented();
                 }
 
-                (zelf.default_factory(), zelf.dict.copy())
+                (zelf.default_factory.read().clone(), zelf.dict.copy())
             } else if let Some(zelf) = rhs.downcast_ref::<Self>() {
                 let Some(dict) = lhs.downcast_ref::<PyDict>() else {
                     return not_implemented();
                 };
 
-                (zelf.default_factory(), dict.copy())
+                (zelf.default_factory.read().clone(), dict.copy())
             } else {
                 return Err(vm.new_type_error(format!(
                     "unsupported operand type(s) for |: '{}' and '{}'",
@@ -988,7 +1002,7 @@ mod _collections {
     impl Initializer for PyDefaultDict {
         type Args = FuncArgs;
 
-        fn init(zelf: PyRef<Self>, mut args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, mut args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let default_factory = args.take_positional().map_or(Ok(None), |factory| {
                 let is_none = factory.is(&vm.ctx.none());
 
@@ -1048,9 +1062,7 @@ mod _collections {
     impl AsNumber for PyDefaultDict {
         fn as_number() -> &'static PyNumberMethods {
             static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-                or: Some(|a, b, vm| {
-                    PyDefaultDict::__or__(a.to_pyobject(vm), b.to_pyobject(vm), vm)
-                }),
+                or: Some(|a, b, vm| PyDefaultDict::__or__(a, b.to_pyobject(vm), vm)),
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER

@@ -430,3 +430,6 @@ unnecessary_box_returns = "warn"
 unnecessary_join = "warn"
 unnecessary_wraps = "warn"
 unnested_or_patterns = "warn"
+
+[lints]
+workspace = true

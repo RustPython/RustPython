@@ -7,13 +7,13 @@ mod _functools {
         builtins::{
             PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef, object,
         },
-        common::lock::PyRwLock,
-        function::{FuncArgs, KwArgs, OptionalOption, PySetterValue},
+        common::{hash::PyHash, lock::PyRwLock},
+        function::{Either, FuncArgs, KwArgs, OptionalOption, PyComparisonValue, PySetterValue},
         object::AsObject,
         protocol::PyIter,
         pyclass,
         recursion::ReprGuard,
-        types::{Callable, Constructor, GetDescriptor, Representable},
+        types::{Callable, Constructor, GetDescriptor, PyComparisonOp, Representable},
     };
     use core::sync::atomic::{AtomicU64, Ordering};
     use parking_lot::lock_api::RawReentrantMutex as GenericRawReentrantMutex;
@@ -62,6 +62,95 @@ mod _functools {
         Ok(accumulator)
     }
 
+    #[derive(FromArgs)]
+    struct CmpToKeyArgs {
+        mycmp: PyObjectRef,
+    }
+
+    #[pyfunction]
+    fn cmp_to_key(args: CmpToKeyArgs) -> PyKeyWrapper {
+        PyKeyWrapper {
+            cmp: args.mycmp,
+            object: PyRwLock::new(None),
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct KeyWrapperCallArgs {
+        obj: PyObjectRef,
+    }
+
+    #[pyclass(no_attr, name = "KeyWrapper", module = "functools", unhashable = true)]
+    #[derive(Debug, PyPayload)]
+    struct PyKeyWrapper {
+        cmp: PyObjectRef,
+        object: PyRwLock<Option<PyObjectRef>>,
+    }
+
+    #[pyclass(with(Callable), flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
+    impl PyKeyWrapper {
+        #[pygetset]
+        fn obj(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.object.read().clone().unwrap_or_else(|| vm.ctx.none())
+        }
+
+        #[pygetset(setter)]
+        fn set_obj(&self, value: PySetterValue) {
+            *self.object.write() = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+        }
+
+        #[pygetset]
+        fn __text_signature__(&self) -> &'static str {
+            "(obj)"
+        }
+
+        #[pyslot]
+        fn slot_richcompare(
+            zelf: &PyObject,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+            let Some(zelf) = zelf.downcast_ref::<Self>() else {
+                return Err(vm.new_type_error(format!(
+                    "unexpected payload for {}",
+                    op.method_name(&vm.ctx).as_str()
+                )));
+            };
+            let Some(other) = other.downcast_ref::<Self>() else {
+                return Err(vm.new_type_error("other argument must be K instance"));
+            };
+            let x = zelf
+                .object
+                .read()
+                .clone()
+                .ok_or_else(|| vm.new_attribute_error("object"))?;
+            let y = other
+                .object
+                .read()
+                .clone()
+                .ok_or_else(|| vm.new_attribute_error("object"))?;
+            let res = zelf.cmp.call((x, y), vm)?;
+            res.rich_compare(vm.ctx.new_int(0).into(), op, vm)
+                .map(Either::A)
+        }
+    }
+
+    impl Callable for PyKeyWrapper {
+        type Args = KeyWrapperCallArgs;
+
+        fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            Ok(Self {
+                cmp: zelf.cmp.clone(),
+                object: PyRwLock::new(Some(args.obj)),
+            }
+            .into_pyobject(vm))
+        }
+    }
+
     // Placeholder singleton for partial arguments
     // The singleton is stored as _instance on the type class
     #[pyattr]
@@ -101,7 +190,7 @@ mod _functools {
     }
 
     #[pyclass(with(Constructor, Representable))]
-    impl PyPlaceholderType {
+    impl Py<PyPlaceholderType> {
         #[pymethod]
         fn __reduce__(&self) -> &'static str {
             "Placeholder"
@@ -461,16 +550,18 @@ mod _functools {
 
     impl GetDescriptor for PyPartial {
         fn descr_get(
-            zelf: PyObjectRef,
-            obj: Option<PyObjectRef>,
-            _cls: Option<PyObjectRef>,
+            zelf: &PyObject,
+            obj: Option<&PyObject>,
+            _cls: Option<&PyObject>,
             vm: &VirtualMachine,
         ) -> PyResult {
             let obj = match obj {
-                Some(obj) if !vm.is_none(&obj) => obj,
-                _ => return Ok(zelf),
+                Some(obj) if !vm.is_none(obj) => obj,
+                _ => return Ok(zelf.to_owned()),
             };
-            Ok(PyBoundMethod::new(obj, zelf).into_ref(&vm.ctx).into())
+            Ok(PyBoundMethod::new(obj.to_owned(), zelf.to_owned())
+                .into_ref(&vm.ctx)
+                .into())
         }
     }
 
@@ -557,6 +648,16 @@ mod _functools {
             unsafe { self.0.unlock() };
         }
     }
+
+    #[pyclass(no_attr, name = "_lru_list_elem", module = "functools")]
+    #[derive(Debug, PyPayload)]
+    struct PyLruListElem {
+        hash: PyHash,
+        result: PyObjectRef,
+    }
+
+    #[pyclass(flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
+    impl PyLruListElem {}
 
     /// Native implementation of `functools._lru_cache_wrapper`, mirroring CPython's
     /// `_functools` accelerator so `functools.lru_cache` doesn't fall back to the much
@@ -661,16 +762,17 @@ mod _functools {
         }
 
         /// Refresh `key`'s recency by moving it to the end of `cache`'s insertion
-        /// order (removing then reinserting it). `cache` itself provides the
-        /// hashing/equality, so this needs no separate key-comparison machinery.
+        /// order (removing then reinserting it). `hash` is the already-computed
+        /// hash of `key`, so `__hash__` is not called again.
         fn touch_key(
             key: &PyObject,
+            hash: PyHash,
             value: &PyObject,
             cache: &Py<PyDict>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            cache.del_item(key.as_object(), vm)?;
-            cache.set_item(key.as_object(), value.to_owned(), vm)?;
+            cache.del_item_known_hash(key, hash, vm)?;
+            cache.set_item_known_hash(key, hash, value.to_owned(), vm)?;
             Ok(())
         }
 
@@ -681,8 +783,11 @@ mod _functools {
                 return Ok(());
             }
             let oldest = cache.into_iter().next();
-            if let Some((oldest_key, _)) = oldest {
-                cache.del_item(oldest_key.as_object(), vm)?;
+            if let Some((oldest_key, oldest_val)) = oldest {
+                let Some(elem) = oldest_val.downcast_ref::<PyLruListElem>() else {
+                    return Err(vm.new_type_error("lru cache entry is corrupted"));
+                };
+                cache.del_item_known_hash(oldest_key.as_object(), elem.hash, vm)?;
             }
             Ok(())
         }
@@ -743,16 +848,21 @@ mod _functools {
             }
 
             let key = zelf.make_key(&args, vm);
+            let hash = key.hash(vm)?;
 
             {
                 let _guard = RMutexGuard::acquire(&zelf.lock);
                 let cache = zelf.cache.read().clone();
-                if let Some(value) = cache.get_item_opt(key.as_object(), vm)? {
+                if let Some(value) = cache.get_item_known_hash(key.as_object(), hash, vm)? {
+                    let Some(elem) = value.downcast_ref::<PyLruListElem>() else {
+                        return Err(vm.new_type_error("lru cache entry is corrupted"));
+                    };
+                    let result = elem.result.clone();
                     zelf.hits.fetch_add(1, Ordering::Relaxed);
                     if zelf.maxsize.is_some() {
-                        Self::touch_key(&key, &value, &cache, vm)?;
+                        Self::touch_key(&key, hash, &value, &cache, vm)?;
                     }
-                    return Ok(value);
+                    return Ok(result);
                 }
                 zelf.misses.fetch_add(1, Ordering::Relaxed);
                 // Lock released here (guard dropped) before calling into user code, so
@@ -768,8 +878,13 @@ mod _functools {
                 // (e.g. recursive lookups, or another thread finishing first); in that
                 // case keep the existing entry instead of creating orphan eviction
                 // links (see CPython issue gh-35780).
-                if !cache.contains_key(key.as_object(), vm) {
-                    cache.set_item(key.as_object(), result.clone(), vm)?;
+                if !cache.contains_known_hash(key.as_object(), hash, vm)? {
+                    let entry = PyLruListElem {
+                        hash,
+                        result: result.clone(),
+                    }
+                    .into_pyobject(vm);
+                    cache.set_item_known_hash(key.as_object(), hash, entry, vm)?;
                     if let Some(maxsize) = zelf.maxsize {
                         Self::evict_if_full(maxsize, &cache, vm)?;
                     }
@@ -782,16 +897,18 @@ mod _functools {
 
     impl GetDescriptor for PyLruCacheWrapper {
         fn descr_get(
-            zelf: PyObjectRef,
-            obj: Option<PyObjectRef>,
-            _cls: Option<PyObjectRef>,
+            zelf: &PyObject,
+            obj: Option<&PyObject>,
+            _cls: Option<&PyObject>,
             vm: &VirtualMachine,
         ) -> PyResult {
             let obj = match obj {
-                Some(obj) if !vm.is_none(&obj) => obj,
-                _ => return Ok(zelf),
+                Some(obj) if !vm.is_none(obj) => obj,
+                _ => return Ok(zelf.to_owned()),
             };
-            Ok(PyBoundMethod::new(obj, zelf).into_ref(&vm.ctx).into())
+            Ok(PyBoundMethod::new(obj.to_owned(), zelf.to_owned())
+                .into_ref(&vm.ctx)
+                .into())
         }
     }
 }

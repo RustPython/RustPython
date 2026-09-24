@@ -462,7 +462,7 @@ mod _csv {
         _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Writer> {
-        let write = match vm.get_attribute_opt(file.clone(), "write")? {
+        let write = match vm.get_attribute_opt(&file, "write")? {
             Some(write_meth) => write_meth,
             None if file.is_callable() => file,
             None => {
@@ -1346,14 +1346,15 @@ mod _csv {
             self.dialect.clone()
         }
 
-        fn writerow_quoted_strings(&self, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn writerow_quoted_strings(&self, row: &PyObject, vm: &VirtualMachine) -> PyResult {
             let _state = self.state.lock();
-            let row: ArgIterable = ArgIterable::try_from_object(vm, row.clone()).map_err(|_e| {
-                new_csv_error(
-                    vm,
-                    format!("'{}' object is not iterable", row.class().name()),
-                )
-            })?;
+            let row: ArgIterable =
+                ArgIterable::try_from_object(vm, row.to_owned()).map_err(|_e| {
+                    new_csv_error(
+                        vm,
+                        format!("'{}' object is not iterable", row.class().name()),
+                    )
+                })?;
             let fields = row.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
             let single_field = fields.len() == 1;
             let mut output = Vec::new();
@@ -1396,15 +1397,16 @@ mod _csv {
             self.write.call((s,), vm)
         }
 
-        fn writerow_quote_none(&self, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn writerow_quote_none(&self, row: &PyObject, vm: &VirtualMachine) -> PyResult {
             let _state = self.state.lock();
 
-            let row: ArgIterable = ArgIterable::try_from_object(vm, row.clone()).map_err(|_e| {
-                new_csv_error(
-                    vm,
-                    format!("'{}' object is not iterable", row.class().name()),
-                )
-            })?;
+            let row: ArgIterable =
+                ArgIterable::try_from_object(vm, row.to_owned()).map_err(|_e| {
+                    new_csv_error(
+                        vm,
+                        format!("'{}' object is not iterable", row.class().name()),
+                    )
+                })?;
 
             let fields = row.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
             let single_field = fields.len() == 1;
@@ -1443,15 +1445,16 @@ mod _csv {
             self.write.call((s,), vm)
         }
 
-        fn writerow_minimal(&self, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn writerow_minimal(&self, row: &PyObject, vm: &VirtualMachine) -> PyResult {
             let _state = self.state.lock();
 
-            let row: ArgIterable = ArgIterable::try_from_object(vm, row.clone()).map_err(|_e| {
-                new_csv_error(
-                    vm,
-                    format!("'{}' object is not iterable", row.class().name()),
-                )
-            })?;
+            let row: ArgIterable =
+                ArgIterable::try_from_object(vm, row.to_owned()).map_err(|_e| {
+                    new_csv_error(
+                        vm,
+                        format!("'{}' object is not iterable", row.class().name()),
+                    )
+                })?;
 
             let fields = row.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
             let single_field = fields.len() == 1;
@@ -1495,11 +1498,11 @@ mod _csv {
         #[pymethod]
         fn writerow(&self, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             match self.dialect.quoting {
-                QuoteStyle::None => return self.writerow_quote_none(row, vm),
+                QuoteStyle::None => return self.writerow_quote_none(&row, vm),
                 QuoteStyle::Strings | QuoteStyle::Notnull => {
-                    return self.writerow_quoted_strings(row, vm);
+                    return self.writerow_quoted_strings(&row, vm);
                 }
-                QuoteStyle::Minimal => return self.writerow_minimal(row, vm),
+                QuoteStyle::Minimal => return self.writerow_minimal(&row, vm),
                 _ => {}
             }
 

@@ -263,8 +263,8 @@ impl PyObject {
                 if let Some(descr_get) = descr_get
                     && descr_cls.slots.descr_set.load().is_some()
                 {
-                    let cls = obj_cls.to_owned().into();
-                    return descr_get(descr, Some(self.to_owned()), Some(cls), vm).map(Some);
+                    return descr_get(descr.as_object(), Some(self), Some(obj_cls.as_object()), vm)
+                        .map(Some);
                 }
                 Some((descr, descr_get))
             }
@@ -286,8 +286,7 @@ impl PyObject {
         } else if let Some((attr, descr_get)) = cls_attr {
             match descr_get {
                 Some(descr_get) => {
-                    let cls = obj_cls.to_owned().into();
-                    descr_get(attr, Some(self.to_owned()), Some(cls), vm).map(Some)
+                    descr_get(attr.as_object(), Some(self), Some(obj_cls.as_object()), vm).map(Some)
                 }
                 None => Ok(Some(attr)),
             }
@@ -497,7 +496,7 @@ impl PyObject {
     /// Other exceptions are propagated.
     fn abstract_get_bases(&self, vm: &VirtualMachine) -> PyResult<Option<PyTupleRef>> {
         Ok(vm
-            .get_attribute_opt(self.to_owned(), identifier!(vm, __bases__))?
+            .get_attribute_opt(self, identifier!(vm, __bases__))?
             // If we get `None` then AttributeError was masked.
             .and_then(|bases| {
                 // Check if it's a tuple
@@ -641,8 +640,7 @@ impl PyObject {
             // PyType_Check(cls) - cls is a type object
             let mut retval = self.class().is_subtype(cls);
             if !retval
-                && let Some(i_cls) =
-                    vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
+                && let Some(i_cls) = vm.get_attribute_opt(self, identifier!(vm, __class__))?
                 && let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls)
                 && !i_cls_type.is(self.class())
             {
@@ -656,9 +654,7 @@ impl PyObject {
                 "isinstance() arg 2 must be a type, a tuple of types, or a union",
             )?;
 
-            if let Some(i_cls) =
-                vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
-            {
+            if let Some(i_cls) = vm.get_attribute_opt(self, identifier!(vm, __class__))? {
                 i_cls.abstract_issubclass(cls, vm)
             } else {
                 Ok(false)
@@ -776,7 +772,7 @@ impl PyObject {
                 }
 
                 if let Some(class_getitem) =
-                    vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class_getitem__))?
+                    vm.get_attribute_opt(self, identifier!(vm, __class_getitem__))?
                     && !vm.is_none(&class_getitem)
                 {
                     return class_getitem.call((needle,), vm);
@@ -864,8 +860,7 @@ impl PyObject {
 
         let descr_get = res.class().slots.descr_get.load();
         if let Some(descr_get) = descr_get {
-            let obj_cls = obj_cls.to_owned().into();
-            descr_get(res, Some(self.to_owned()), Some(obj_cls), vm).map(Some)
+            descr_get(res.as_object(), Some(self), Some(obj_cls.as_object()), vm).map(Some)
         } else {
             Ok(Some(res))
         }

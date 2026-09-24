@@ -54,8 +54,9 @@ impl StringPool {
         #[cold]
         fn miss(zelf: &StringPool, s: PyRefExact<PyStr>) -> &'static PyStrInterned {
             let cache = CachedPyStrRef { inner: s };
-            let inserted = zelf.inner.write().insert(cache.clone());
-            if inserted {
+            let mut inner = zelf.inner.write();
+            if inner.insert(cache.clone()) {
+                drop(inner);
                 let interned = unsafe { cache.as_interned_str() };
                 // `mark_intern` also makes the object immortal: the pool
                 // never gives an entry up and its refcount could already never
@@ -67,8 +68,7 @@ impl StringPool {
                 interned
             } else {
                 unsafe {
-                    zelf.inner
-                        .read()
+                    inner
                         .get(cache.as_ref())
                         .expect("inserted is false")
                         .as_interned_str()

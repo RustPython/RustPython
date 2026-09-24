@@ -181,7 +181,7 @@ mod _lzma {
     }
 
     fn parse_filter_chain(
-        filter_specs: PyObjectRef,
+        filter_specs: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<backend::FilterSpec>> {
         const LZMA_FILTERS_MAX: usize = 4;
@@ -206,7 +206,7 @@ mod _lzma {
         vm: &VirtualMachine,
     ) -> PyResult<Option<Vec<backend::FilterSpec>>> {
         filters
-            .map(|filters| parse_filter_chain(filters, vm))
+            .map(|filters| parse_filter_chain(&filters, vm))
             .transpose()
     }
 

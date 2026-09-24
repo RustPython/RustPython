@@ -72,7 +72,7 @@ impl PyCodec {
     }
 
     pub fn is_text_codec(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        let is_text = vm.get_attribute_opt(self.0.clone().into(), "_is_text_encoding")?;
+        let is_text = vm.get_attribute_opt(self.0.as_object(), "_is_text_encoding")?;
         is_text.map_or(Ok(true), |is_text| is_text.try_to_bool(vm))
     }
 
@@ -215,7 +215,7 @@ impl CodecsRegistry {
         Ok(())
     }
 
-    pub fn unregister(&self, search_function: PyObjectRef) {
+    pub fn unregister(&self, search_function: &PyObject) {
         let mut inner = self.inner.write();
         // Do nothing if search_path is not created yet or was cleared.
         if inner.search_path.is_empty() {
@@ -1357,7 +1357,7 @@ fn is_translate_err(err: &PyObject, vm: &VirtualMachine) -> bool {
     err.fast_isinstance(vm.ctx.exceptions.unicode_translate_error)
 }
 
-fn bad_err_type(err: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
+fn bad_err_type(err: &PyObject, vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_type_error(format!(
         "don't know how to handle {} in error callback",
         err.class().name()
@@ -1375,7 +1375,7 @@ fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef
         let range = extract_unicode_error_range(&err, vm)?;
         Ok((vm.ctx.new_str(ascii!("")).into(), range.end))
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1391,7 +1391,7 @@ fn replace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRe
         let replace = replacement_char.repeat(range.end - range.start);
         Ok((replace.to_pyobject(vm), range.end))
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1402,7 +1402,7 @@ fn xmlcharrefreplace_errors(
     if is_encode_err(&err, vm) {
         call_native_encode_error(errors::XmlCharRefReplace, err, vm)
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1417,7 +1417,7 @@ fn backslashreplace_errors(
     } else if is_translate_err(&err, vm) {
         call_native_translate_error(errors::BackslashReplace, err, vm)
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1425,7 +1425,7 @@ fn namereplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObje
     if is_encode_err(&err, vm) {
         call_native_encode_error(errors::NameReplace, err, vm)
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1435,7 +1435,7 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyOb
     } else if is_decode_err(&err, vm) {
         call_native_decode_error(SurrogatePass, err, vm)
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }
 
@@ -1445,6 +1445,6 @@ fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Py
     } else if is_decode_err(&err, vm) {
         call_native_decode_error(errors::SurrogateEscape, err, vm)
     } else {
-        Err(bad_err_type(err, vm))
+        Err(bad_err_type(&err, vm))
     }
 }

@@ -519,12 +519,12 @@ mod _sre {
 
         #[pymethod]
         fn sub(zelf: PyRef<Self>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
-            Self::sub_impl(zelf, sub_args, false, vm)
+            Self::sub_impl(&zelf, sub_args, false, vm)
         }
 
         #[pymethod]
         fn subn(zelf: PyRef<Self>, sub_args: SubArgs, vm: &VirtualMachine) -> PyResult {
-            Self::sub_impl(zelf, sub_args, true, vm)
+            Self::sub_impl(&zelf, sub_args, true, vm)
         }
 
         #[pymethod]
@@ -591,7 +591,7 @@ mod _sre {
         }
 
         fn sub_impl(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             sub_args: SubArgs,
             subn: bool,
             vm: &VirtualMachine,
@@ -618,14 +618,14 @@ mod _sre {
                 };
 
                 if is_template {
-                    FilterType::Template(Template::compile(zelf.clone(), repl, vm)?)
+                    FilterType::Template(Template::compile(zelf.to_owned(), repl, vm)?)
                 } else {
                     FilterType::Literal(repl)
                 }
             };
 
             with_sre_str!(zelf, &string, vm, |s| {
-                let req = s.create_request(&zelf, 0, usize::MAX);
+                let req = s.create_request(zelf, 0, usize::MAX);
                 let state = State::default();
                 let mut sub_list: Vec<PyObjectRef> = Vec::new();
                 let mut iter = SearchIter { req, state };
@@ -641,12 +641,12 @@ mod _sre {
                     match &filter {
                         FilterType::Literal(literal) => sub_list.push(literal.clone()),
                         FilterType::Callable(callable) => {
-                            let m = Match::new(&mut iter.state, zelf.clone(), string.clone())
+                            let m = Match::new(&mut iter.state, zelf.to_owned(), string.clone())
                                 .into_ref(&vm.ctx);
                             sub_list.push(callable.invoke((m,), vm)?);
                         }
                         FilterType::Template(template) => {
-                            let m = Match::new(&mut iter.state, zelf.clone(), string.clone());
+                            let m = Match::new(&mut iter.state, zelf.to_owned(), string.clone());
                             m.expand_template(template, s, &mut sub_list, vm);
                         }
                     };
@@ -863,7 +863,7 @@ mod _sre {
             vm: &VirtualMachine,
         ) -> PyResult<(isize, isize)> {
             let index = group.map_or(Ok(0), |group| {
-                self.get_index(group, vm)
+                self.get_index(&group, vm)
                     .ok_or_else(|| vm.new_index_error("no such group"))
             })?;
             Ok(self.regs[index])
@@ -895,7 +895,7 @@ mod _sre {
                 let mut v: Vec<PyObjectRef> = args
                     .into_iter()
                     .map(|x| {
-                        self.get_index(x, vm)
+                        self.get_index(&x, vm)
                             .ok_or_else(|| vm.new_index_error("no such group"))
                             .map(|index| {
                                 self.get_slice(index, str_drive, vm)
@@ -918,7 +918,7 @@ mod _sre {
         ) -> PyResult<Option<PyObjectRef>> {
             with_sre_str!(self.pattern, &self.string, vm, |str_drive| {
                 let i = self
-                    .get_index(group, vm)
+                    .get_index(&group, vm)
                     .ok_or_else(|| vm.new_index_error("no such group"))?;
                 Ok(self.get_slice(i, str_drive, vm))
             })
@@ -956,7 +956,7 @@ mod _sre {
 
                 for (key, index) in self.pattern.groupindex.clone() {
                     let value = self
-                        .get_index(index, vm)
+                        .get_index(&index, vm)
                         .and_then(|x| self.get_slice(x, str_drive, vm))
                         .map_or_else(|| default.clone(), |x| x.to_pyobject(vm));
                     dict.set_item(&*key, value, vm)?;
@@ -965,13 +965,13 @@ mod _sre {
             })
         }
 
-        fn get_index(&self, group: PyObjectRef, vm: &VirtualMachine) -> Option<usize> {
+        fn get_index(&self, group: &PyObject, vm: &VirtualMachine) -> Option<usize> {
             let i = if let Ok(i) = group.try_index(vm) {
                 i
             } else {
                 self.pattern
                     .groupindex
-                    .get_item_opt(&*group, vm)
+                    .get_item_opt(group, vm)
                     .ok()??
                     .downcast::<PyInt>()
                     .ok()?

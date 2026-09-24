@@ -108,7 +108,7 @@ impl Constructor for PyBool {
 }
 
 #[pyclass(with(Constructor, AsNumber, Representable), flags(_MATCH_SELF))]
-impl PyBool {
+impl Py<PyBool> {
     #[pymethod]
     fn __format__(
         zelf: PyObjectRef,
@@ -123,11 +123,11 @@ impl PyBool {
 }
 
 impl PyBool {
-    pub(crate) fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __or__(lhs: &PyObject, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
-            let lhs = get_value(&lhs);
+            let lhs = get_value(lhs);
             let rhs = get_value(&rhs);
             (lhs || rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
@@ -137,11 +137,11 @@ impl PyBool {
         }
     }
 
-    pub(crate) fn __and__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __and__(lhs: &PyObject, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
-            let lhs = get_value(&lhs);
+            let lhs = get_value(lhs);
             let rhs = get_value(&rhs);
             (lhs && rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
@@ -151,11 +151,11 @@ impl PyBool {
         }
     }
 
-    pub(crate) fn __xor__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __xor__(lhs: &PyObject, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
-            let lhs = get_value(&lhs);
+            let lhs = get_value(lhs);
             let rhs = get_value(&rhs);
             (lhs ^ rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
@@ -169,10 +169,10 @@ impl PyBool {
 impl AsNumber for PyBool {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            and: Some(|a, b, vm| PyBool::__and__(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
-            xor: Some(|a, b, vm| PyBool::__xor__(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
-            or: Some(|a, b, vm| PyBool::__or__(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
-            ..PyInt::AS_NUMBER
+            and: Some(|a, b, vm| PyBool::__and__(a, b.to_owned(), vm).to_pyresult(vm)),
+            xor: Some(|a, b, vm| PyBool::__xor__(a, b.to_owned(), vm).to_pyresult(vm)),
+            or: Some(|a, b, vm| PyBool::__or__(a, b.to_owned(), vm).to_pyresult(vm)),
+            ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
     }

@@ -89,7 +89,7 @@ impl PyNamespace {
 impl Initializer for PyNamespace {
     type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // SimpleNamespace accepts 0 or 1 positional argument (a mapping)
         if args.args.len() > 1 {
             return Err(vm.new_type_error(format!(

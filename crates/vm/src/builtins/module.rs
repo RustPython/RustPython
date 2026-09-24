@@ -237,6 +237,7 @@ impl Py<PyModule> {
             let func = method
                 .to_function()
                 .with_module(self.name.unwrap())
+                .with_module_object(self.to_owned().into())
                 .into_ref(&vm.ctx);
             vm.__module_set_attr(self, vm.ctx.intern_str(method.name), func)?;
         }
@@ -523,7 +524,7 @@ impl PyModule {
 impl Initializer for PyModule {
     type Args = ModuleInitArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         debug_assert!(
             zelf.class()
                 .slots

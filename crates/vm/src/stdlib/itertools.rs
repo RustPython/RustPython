@@ -3,7 +3,8 @@ pub(crate) use decl::module_def;
 #[pymodule(name = "itertools")]
 mod decl {
     use crate::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, TryFromObject,
+        VirtualMachine,
         builtins::{
             PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int,
         },
@@ -37,9 +38,19 @@ mod decl {
     impl PyItertoolsChain {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args =
+                crate::types::drop_kwargs_if_init_overridden(&cls, Self::class(&vm.ctx), args);
+            if !args.kwargs.is_empty() {
+                return Err(
+                    vm.new_type_error(format!("{}() takes no keyword arguments", Self::NAME))
+                );
+            }
             let args_list = PyList::from(args.args);
             Self {
-                source: PyRwLock::new(Some(args_list.to_pyobject(vm).get_iter(vm)?)),
+                source: PyRwLock::new(Some(PyIter::try_from_object(
+                    vm,
+                    args_list.to_pyobject(vm),
+                )?)),
                 active: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
@@ -53,7 +64,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             Self {
-                source: PyRwLock::new(Some(iterable.get_iter(vm)?)),
+                source: PyRwLock::new(Some(PyIter::try_from_object(vm, iterable)?)),
                 active: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
@@ -92,7 +103,7 @@ mod decl {
                     }
                 } else {
                     match source.next(vm) {
-                        Ok(PyIterReturn::Return(ok)) => match ok.get_iter(vm) {
+                        Ok(PyIterReturn::Return(ok)) => match PyIter::try_from_object(vm, ok) {
                             Ok(iter) => {
                                 *zelf.active.write() = Some(iter);
                             }
@@ -248,6 +259,7 @@ mod decl {
 
     impl Constructor for PyItertoolsCycle {
         type Args = PyIter;
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
         fn py_new(_cls: &Py<PyType>, iter: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
@@ -388,6 +400,7 @@ mod decl {
 
     impl Constructor for PyItertoolsStarmap {
         type Args = StarmapNewArgs;
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
         fn py_new(
             _cls: &Py<PyType>,
@@ -437,6 +450,7 @@ mod decl {
 
     impl Constructor for PyItertoolsTakewhile {
         type Args = TakewhileNewArgs;
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
         fn py_new(
             _cls: &Py<PyType>,
@@ -500,6 +514,7 @@ mod decl {
 
     impl Constructor for PyItertoolsDropwhile {
         type Args = DropwhileNewArgs;
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
         fn py_new(
             _cls: &Py<PyType>,
@@ -545,8 +560,7 @@ mod decl {
     struct GroupByState {
         current_value: Option<PyObjectRef>,
         current_key: Option<PyObjectRef>,
-        #[pytraverse(skip)]
-        next_group: bool,
+        tgtkey: Option<PyObjectRef>,
         #[pytraverse(skip)]
         grouper: Option<PyWeakRef<PyItertoolsGrouper>>,
     }
@@ -556,7 +570,7 @@ mod decl {
             f.debug_struct("GroupByState")
                 .field("current_value", &self.current_value)
                 .field("current_key", &self.current_key)
-                .field("next_group", &self.next_group)
+                .field("tgtkey", &self.tgtkey)
                 .finish()
         }
     }
@@ -632,41 +646,43 @@ mod decl {
 
     impl IterNext for PyItertoolsGroupBy {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let mut state = zelf.state.lock();
-            state.grouper = None;
+            {
+                let mut state = zelf.state.lock();
+                state.grouper = None;
+            }
 
-            if !state.next_group {
-                // FIXME: unnecessary clone. current_key always exist until assigning new
-                let current_key = state.current_key.clone();
-                drop(state);
-
-                let (value, key) = if let Some(old_key) = current_key {
-                    loop {
-                        let (value, new_key) = raise_if_stop!(zelf.advance(vm)?);
-                        if !vm.bool_eq(&new_key, &old_key)? {
-                            break (value, new_key);
+            loop {
+                let (tgtkey, currkey) = {
+                    let state = zelf.state.lock();
+                    (state.tgtkey.clone(), state.current_key.clone())
+                };
+                match (tgtkey, currkey) {
+                    (_, None) => {}
+                    (None, Some(_)) => break,
+                    (Some(tgtkey), Some(currkey)) => {
+                        if !vm.bool_eq(&tgtkey, &currkey)? {
+                            break;
                         }
                     }
-                } else {
-                    raise_if_stop!(zelf.advance(vm)?)
-                };
-
-                state = zelf.state.lock();
+                }
+                let (value, key) = raise_if_stop!(zelf.advance(vm)?);
+                let mut state = zelf.state.lock();
                 state.current_value = Some(value);
                 state.current_key = Some(key);
             }
 
-            state.next_group = false;
+            let mut state = zelf.state.lock();
+            let currkey = state.current_key.clone().unwrap();
+            state.tgtkey = Some(currkey.clone());
 
             let grouper = PyItertoolsGrouper {
                 groupby: zelf.to_owned(),
+                tgtkey: currkey.clone(),
             }
             .into_ref(&vm.ctx);
 
             state.grouper = Some(grouper.downgrade(None, vm).unwrap());
-            Ok(PyIterReturn::Return(
-                (state.current_key.as_ref().unwrap().clone(), grouper).to_pyobject(vm),
-            ))
+            Ok(PyIterReturn::Return((currkey, grouper).to_pyobject(vm)))
         }
     }
 
@@ -675,6 +691,7 @@ mod decl {
     #[derive(Debug, PyPayload)]
     struct PyItertoolsGrouper {
         groupby: PyRef<PyItertoolsGroupBy>,
+        tgtkey: PyObjectRef,
     }
 
     #[pyclass(with(IterNext, Iterable), flags(HAS_WEAKREF))]
@@ -684,30 +701,38 @@ mod decl {
 
     impl IterNext for PyItertoolsGrouper {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let old_key = {
-                let mut state = zelf.groupby.state.lock();
+            if !zelf.groupby.state.lock().is_current(zelf) {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
 
-                if !state.is_current(zelf) {
-                    return Ok(PyIterReturn::StopIteration(None));
-                }
-
-                // check to see if the value has already been retrieved from the iterator
-                if let Some(val) = state.current_value.take() {
-                    return Ok(PyIterReturn::Return(val));
-                }
-
-                state.current_key.as_ref().unwrap().clone()
-            };
-            let (value, key) = raise_if_stop!(zelf.groupby.advance(vm)?);
-            if vm.bool_eq(&key, &old_key)? {
-                Ok(PyIterReturn::Return(value))
-            } else {
+            if zelf.groupby.state.lock().current_value.is_none() {
+                let (value, key) = raise_if_stop!(zelf.groupby.advance(vm)?);
                 let mut state = zelf.groupby.state.lock();
                 state.current_value = Some(value);
                 state.current_key = Some(key);
-                state.next_group = true;
-                state.grouper = None;
-                Ok(PyIterReturn::StopIteration(None))
+            }
+
+            let currkey = {
+                let state = zelf.groupby.state.lock();
+                if !state.is_current(zelf) {
+                    return Ok(PyIterReturn::StopIteration(None));
+                }
+                state.current_key.clone().unwrap()
+            };
+            let tgtkey = zelf.tgtkey.clone();
+            if !vm.bool_eq(&tgtkey, &currkey)? {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
+
+            let mut state = zelf.groupby.state.lock();
+            if !state.is_current(zelf) {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
+            let value = state.current_value.take();
+            state.current_key = None;
+            match value {
+                Some(v) => Ok(PyIterReturn::Return(v)),
+                None => Ok(PyIterReturn::StopIteration(None)),
             }
         }
     }
@@ -716,7 +741,7 @@ mod decl {
     #[pyclass(name = "islice", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsIslice {
-        iterable: PyIter,
+        iterable: PyMutex<Option<PyIter>>,
         #[pytraverse(skip)]
         cur: AtomicCell<usize>,
         #[pytraverse(skip)]
@@ -727,24 +752,26 @@ mod decl {
         step: usize,
     }
 
-    // Restrict obj to ints with value 0 <= val <= sys.maxsize
-    // On failure (out of range, non-int object) a ValueError is raised.
     fn pyobject_to_opt_usize(
-        obj: PyObjectRef,
+        obj: &PyObject,
         name: &'static str,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
-        let is_int = obj.fast_isinstance(vm.ctx.types.int_type);
-        if is_int {
-            let value = int::get_value(&obj).to_usize();
-            if let Some(value) = value {
-                // Only succeeds for values for which 0 <= value <= sys.maxsize
-                if value <= sys::MAXSIZE as usize {
-                    return Ok(value);
-                }
+        let value = match obj.try_index(vm) {
+            Ok(i) => int::get_value(i.as_object()).to_usize(),
+            Err(e)
+                if e.fast_isinstance(vm.ctx.exceptions.type_error)
+                    || e.fast_isinstance(vm.ctx.exceptions.overflow_error) =>
+            {
+                None
             }
+            Err(e) => return Err(e),
+        };
+        if let Some(value) = value
+            && value <= sys::MAXSIZE as usize
+        {
+            return Ok(value);
         }
-        // We don't have an int or value was < 0 or > sys.maxsize
         Err(vm.new_value_error(format!(
             "{name} argument for islice() must be None or an integer: 0 <= x <= sys.maxsize."
         )))
@@ -754,6 +781,8 @@ mod decl {
     impl PyItertoolsIslice {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args =
+                crate::types::drop_kwargs_if_init_overridden(&cls, Self::class(&vm.ctx), args);
             let (iter, start, stop, step) = match args.args.len() {
                 0 | 1 => {
                     return Err(vm.new_arity_type_error(Self::NAME, 2..=4, args.args.len()));
@@ -776,14 +805,20 @@ mod decl {
                         ) = args.bind_for(vm, Self::NAME)?;
 
                         let step = if !vm.is_none(&step) {
-                            pyobject_to_opt_usize(step, "Step", vm)?
+                            let step = pyobject_to_opt_usize(&step, "Step", vm)?;
+                            if step == 0 {
+                                return Err(vm.new_value_error(
+                                    "Step for islice() must be a positive integer or None.",
+                                ));
+                            }
+                            step
                         } else {
                             1usize
                         };
                         (iter, start, stop, step)
                     };
                     let start = if !vm.is_none(&start) {
-                        pyobject_to_opt_usize(start, "Start", vm)?
+                        pyobject_to_opt_usize(&start, "Start", vm)?
                     } else {
                         0usize
                     };
@@ -793,15 +828,15 @@ mod decl {
             };
 
             let stop = if !vm.is_none(&stop) {
-                Some(pyobject_to_opt_usize(stop, "Stop", vm)?)
+                Some(pyobject_to_opt_usize(&stop, "Stop", vm)?)
             } else {
                 None
             };
 
-            let iter = iter.get_iter(vm)?;
+            let iter = PyIter::try_from_object(vm, iter)?;
 
             Self {
-                iterable: iter,
+                iterable: PyMutex::new(Some(iter)),
                 cur: AtomicCell::new(0),
                 next: AtomicCell::new(start),
                 stop,
@@ -816,24 +851,38 @@ mod decl {
 
     impl IterNext for PyItertoolsIslice {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let Some(iterable) = zelf.iterable.lock().clone() else {
+                return Ok(PyIterReturn::StopIteration(None));
+            };
+            let stop = zelf.stop.unwrap_or(usize::MAX);
+
             while zelf.cur.load() < zelf.next.load() {
-                zelf.iterable.next(vm)?;
+                raise_if_stop!({
+                    let result = iterable.next(vm)?;
+                    if matches!(result, PyIterReturn::StopIteration(_)) {
+                        *zelf.iterable.lock() = None;
+                    }
+                    result
+                });
                 zelf.cur.fetch_add(1);
             }
-
-            if let Some(stop) = zelf.stop
-                && zelf.cur.load() >= stop
-            {
+            if zelf.cur.load() >= stop {
+                *zelf.iterable.lock() = None;
                 return Ok(PyIterReturn::StopIteration(None));
             }
 
-            let obj = raise_if_stop!(zelf.iterable.next(vm)?);
+            let obj = raise_if_stop!({
+                let result = iterable.next(vm)?;
+                if matches!(result, PyIterReturn::StopIteration(_)) {
+                    *zelf.iterable.lock() = None;
+                }
+                result
+            });
             zelf.cur.fetch_add(1);
-
-            // TODO is this overflow check required? attempts to copy CPython.
-            let (next, ovf) = zelf.next.load().overflowing_add(zelf.step);
-            zelf.next.store(if ovf { zelf.stop.unwrap() } else { next });
-
+            let oldnext = zelf.next.load();
+            let (newnext, ovf) = oldnext.overflowing_add(zelf.step);
+            zelf.next
+                .store(if ovf || newnext > stop { stop } else { newnext });
             Ok(PyIterReturn::Return(obj))
         }
     }
@@ -856,6 +905,7 @@ mod decl {
 
     impl Constructor for PyItertoolsFilterFalse {
         type Args = FilterFalseNewArgs;
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
         fn py_new(
             _cls: &Py<PyType>,
@@ -1750,7 +1800,7 @@ mod decl {
             let n = n
                 .to_usize()
                 .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to usize"))?;
-            let iterable = iterable_ref.get_iter(vm)?;
+            let iterable = PyIter::try_from_object(vm, iterable_ref)?;
 
             Ok(Self {
                 iterable,

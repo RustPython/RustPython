@@ -177,6 +177,17 @@ impl SemHandle {
         self.raw as isize
     }
 
+    /// Rebuild a handle from the integer a `SemLock` stored.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be a live `sem_open` handle. `Drop` closes it, so a
+    /// caller that still owns that close must forget this value.
+    #[inline]
+    pub const unsafe fn from_raw(raw: *mut sem_t) -> Self {
+        Self { raw }
+    }
+
     #[inline]
     pub fn trywait(&self) -> TryAcquireStatus {
         sem_trywait_status(self.raw)

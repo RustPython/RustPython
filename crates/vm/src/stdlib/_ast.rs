@@ -81,7 +81,7 @@ fn is_ast_instance(vm: &VirtualMachine, object: &PyObject) -> PyResult<bool> {
 }
 
 fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &'static str, typ: &str) -> PyResult {
-    vm.get_attribute_opt(obj.to_owned(), field)?
+    vm.get_attribute_opt(obj, field)?
         .ok_or_else(|| vm.new_type_error(format!(r#"required field "{field}" missing from {typ}"#)))
 }
 
@@ -134,7 +134,7 @@ fn get_node_field_opt(
     field: &'static str,
 ) -> PyResult<Option<PyObjectRef>> {
     Ok(vm
-        .get_attribute_opt(obj.to_owned(), field)?
+        .get_attribute_opt(obj, field)?
         .filter(|obj| !vm.is_none(obj)))
 }
 
@@ -156,7 +156,7 @@ fn get_node_list_field_object(
     field: &'static str,
     typ: &str,
 ) -> PyResult<PyObjectRef> {
-    let Some(value) = vm.get_attribute_opt(obj.to_owned(), field)? else {
+    let Some(value) = vm.get_attribute_opt(obj, field)? else {
         return Ok(vm.ctx.new_list(Vec::new()).into());
     };
     value.downcast_ref::<PyList>().ok_or_else(|| {
@@ -279,17 +279,18 @@ fn get_int_field(
     field: &'static str,
     typ: &str,
 ) -> PyResult<i32> {
-    node_object_to_i32(vm, get_node_field(vm, obj, field, typ)?)
+    let value = get_node_field(vm, obj, field, typ)?;
+    node_object_to_i32(vm, &value)
 }
 
-pub(super) fn node_object_to_i32(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<i32> {
+pub(super) fn node_object_to_i32(vm: &VirtualMachine, obj: &PyObject) -> PyResult<i32> {
     if obj.is(&vm.ctx.true_value) {
         return Ok(1);
     }
     if obj.is(&vm.ctx.false_value) {
         return Ok(0);
     }
-    let int: PyRef<PyInt> = match obj.clone().try_into_value(vm) {
+    let int: PyRef<PyInt> = match obj.to_owned().try_into_value(vm) {
         Ok(int) => int,
         Err(_) => {
             return Err(vm.new_value_error(format!("invalid integer value: {}", obj.repr(vm)?)));
@@ -408,7 +409,7 @@ fn get_opt_int_field(
     field: &'static str,
 ) -> PyResult<Option<i32>> {
     match get_node_field_opt(vm, obj, field)? {
-        Some(val) => node_object_to_i32(vm, val).map(Some),
+        Some(val) => node_object_to_i32(vm, &val).map(Some),
         None => Ok(None),
     }
 }
@@ -421,7 +422,7 @@ fn get_attribute_from_field(
     let field = field
         .downcast::<PyStr>()
         .map_err(|_| vm.new_type_error("attribute name must be string"))?;
-    vm.get_attribute_opt(obj.to_owned(), &field)
+    vm.get_attribute_opt(obj, &field)
 }
 
 #[derive(Default)]
@@ -526,7 +527,7 @@ fn copy_ast_passthrough_fields(
         };
 
     for field in fields {
-        if let Some(value) = vm.get_attribute_opt(source.to_owned(), *field)? {
+        if let Some(value) = vm.get_attribute_opt(source, *field)? {
             target.set_attr(*field, value, vm)?;
         }
     }
@@ -568,7 +569,7 @@ fn get_ast_location_field(
     field: &'static str,
 ) -> PyResult<Option<PyObjectRef>> {
     Ok(vm
-        .get_attribute_opt(object.to_owned(), field)?
+        .get_attribute_opt(object, field)?
         .filter(|value| !vm.is_none(value)))
 }
 
@@ -704,7 +705,7 @@ fn synthetic_source_from_ast_object(vm: &VirtualMachine, object: &PyObject) -> P
 fn range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     name: &str,
 ) -> PyResult<TextRange> {
     range_from_object_impl(vm, source_file, object, name, false)
@@ -713,7 +714,7 @@ fn range_from_object(
 fn type_param_range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<TextRange> {
     range_from_object_impl(vm, source_file, object, "type_param", true)
 }
@@ -721,7 +722,7 @@ fn type_param_range_from_object(
 fn expr_range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<TextRange> {
     range_from_object_impl(vm, source_file, object, "expr", false)
 }
@@ -729,7 +730,7 @@ fn expr_range_from_object(
 fn stmt_range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<TextRange> {
     range_from_object_impl(vm, source_file, object, "stmt", false)
 }
@@ -737,7 +738,7 @@ fn stmt_range_from_object(
 fn pattern_range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<TextRange> {
     range_from_object_impl(vm, source_file, object, "pattern", true)
 }
@@ -745,7 +746,7 @@ fn pattern_range_from_object(
 fn excepthandler_range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<TextRange> {
     range_from_object_impl(vm, source_file, object, "excepthandler", false)
 }
@@ -753,12 +754,12 @@ fn excepthandler_range_from_object(
 fn excepthandler_range_from_object_unvalidated(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<TextRange> {
-    let start_row = get_int_field(vm, &object, "lineno", "excepthandler")?;
-    let start_column = get_int_field(vm, &object, "col_offset", "excepthandler")?;
-    let end_row = get_opt_int_field(vm, &object, "end_lineno")?.unwrap_or(start_row);
-    let end_column = get_opt_int_field(vm, &object, "end_col_offset")?.unwrap_or(start_column);
+    let start_row = get_int_field(vm, object, "lineno", "excepthandler")?;
+    let start_column = get_int_field(vm, object, "col_offset", "excepthandler")?;
+    let end_row = get_opt_int_field(vm, object, "end_lineno")?.unwrap_or(start_row);
+    let end_column = get_opt_int_field(vm, object, "end_col_offset")?.unwrap_or(start_column);
 
     let location = PySourceRange {
         start: PySourceLocation {
@@ -788,21 +789,21 @@ fn excepthandler_range_from_object_unvalidated(
 fn range_from_object_impl(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     name: &str,
     end_required: bool,
 ) -> PyResult<TextRange> {
-    let start_row = get_int_field(vm, &object, "lineno", name)?;
-    let start_column = get_int_field(vm, &object, "col_offset", name)?;
+    let start_row = get_int_field(vm, object, "lineno", name)?;
+    let start_column = get_int_field(vm, object, "col_offset", name)?;
     let end_row = if end_required {
-        get_int_field(vm, &object, "end_lineno", name)?
+        get_int_field(vm, object, "end_lineno", name)?
     } else {
-        get_opt_int_field(vm, &object, "end_lineno")?.unwrap_or(start_row)
+        get_opt_int_field(vm, object, "end_lineno")?.unwrap_or(start_row)
     };
     let end_column = if end_required {
-        get_int_field(vm, &object, "end_col_offset", name)?
+        get_int_field(vm, object, "end_col_offset", name)?
     } else {
-        get_opt_int_field(vm, &object, "end_col_offset")?.unwrap_or(start_column)
+        get_opt_int_field(vm, object, "end_col_offset")?.unwrap_or(start_column)
     };
 
     // lineno=0 or negative values as a special case (no location info).
@@ -1561,7 +1562,7 @@ fn node_list_field(
     object: &PyObject,
     field: &'static str,
 ) -> Vec<PyObjectRef> {
-    vm.get_attribute_opt(object.to_owned(), field)
+    vm.get_attribute_opt(object, field)
         .ok()
         .flatten()
         .and_then(|value| {
@@ -1577,7 +1578,7 @@ fn node_optional_field(
     object: &PyObject,
     field: &'static str,
 ) -> Option<PyObjectRef> {
-    vm.get_attribute_opt(object.to_owned(), field)
+    vm.get_attribute_opt(object, field)
         .ok()
         .flatten()
         .filter(|value| !vm.is_none(value))
@@ -1942,11 +1943,11 @@ pub(crate) fn parse(
 }
 
 #[cfg(feature = "parser")]
-pub(crate) fn wrap_interactive(vm: &VirtualMachine, module_obj: PyObjectRef) -> PyResult {
+pub(crate) fn wrap_interactive(vm: &VirtualMachine, module_obj: &PyObject) -> PyResult {
     if !module_obj.class().is(pyast::NodeModModule::static_type()) {
         return Err(vm.new_type_error("expected Module node"));
     }
-    let body = get_node_field(vm, &module_obj, "body", "Module")?;
+    let body = get_node_field(vm, module_obj, "body", "Module")?;
     let node = NodeAst
         .into_ref_with_type(vm, pyast::NodeModInteractive::static_type().to_owned())
         .unwrap();

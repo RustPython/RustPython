@@ -1361,7 +1361,7 @@ fn name_already_seen(
         return Ok(true);
     }
     if let Some(set) = user_set {
-        return set.__contains__(name.as_object(), vm);
+        return set.contains(name.as_object(), vm);
     }
     Ok(false)
 }
@@ -1628,14 +1628,14 @@ fn run_string_in_new_subinterp(
                 match target.run_code_obj(code, scope) {
                     Ok(_) => Ok(0),
                     Err(exc) => {
-                        target.print_exception(exc);
+                        target.print_exception(&exc);
                         Ok(-1)
                     }
                 }
             }
             Err(err) => {
                 let exc = err.into_pyexception(target, Some(source));
-                target.print_exception(exc);
+                target.print_exception(&exc);
                 Ok(-1)
             }
         }

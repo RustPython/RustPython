@@ -102,7 +102,7 @@ impl PyFrozenSet {
     ) -> PyResult<Self> {
         let inner = PySetInner::default();
         for elem in it {
-            inner.add(elem, vm)?;
+            inner.add(&elem, vm)?;
         }
         // FIXME: empty set check
         Ok(Self {
@@ -190,7 +190,8 @@ impl PySetInner {
     {
         let set = Self::default();
         for item in iter {
-            set.add(item?, vm)?;
+            let item = item?;
+            set.add(&item, vm)?;
         }
         Ok(set)
     }
@@ -284,12 +285,13 @@ impl PySetInner {
         let set = self.clone();
         if let Some(elements) = Self::cached_hashes(other.as_object(), vm) {
             for (item, hash) in elements {
-                set.add_known_hash(item, hash, vm)?;
+                set.add_known_hash(&item, hash, vm)?;
             }
             return Ok(set);
         }
         for item in other.iter(vm)? {
-            set.add(item?, vm)?;
+            let item = item?;
+            set.add(&item, vm)?;
         }
 
         Ok(set)
@@ -300,7 +302,7 @@ impl PySetInner {
         if let Some(elements) = Self::cached_hashes(other.as_object(), vm) {
             for (obj, hash) in elements {
                 if self.contains_known_hash(&obj, hash, vm)? {
-                    set.add_known_hash(obj, hash, vm)?;
+                    set.add_known_hash(&obj, hash, vm)?;
                 }
             }
             return Ok(set);
@@ -308,7 +310,7 @@ impl PySetInner {
         for item in other.iter(vm)? {
             let obj = item?;
             if self.contains(&obj, vm)? {
-                set.add(obj, vm)?;
+                set.add(&obj, vm)?;
             }
         }
         Ok(set)
@@ -390,21 +392,21 @@ impl PySetInner {
         )
     }
 
-    fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let result = self.content.insert(vm, &*item, ());
-        Self::wrap_unhashable_error(result, &item, vm)
+    fn add(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        let result = self.content.insert(vm, item, ());
+        Self::wrap_unhashable_error(result, item, vm)
     }
 
     /// [`Self::add`] with a known hash.
-    fn add_known_hash(&self, item: PyObjectRef, hash: PyHash, vm: &VirtualMachine) -> PyResult<()> {
-        let result = self.content.insert_known_hash(vm, &*item, hash, ());
-        Self::wrap_unhashable_error(result, &item, vm)
+    fn add_known_hash(&self, item: &PyObject, hash: PyHash, vm: &VirtualMachine) -> PyResult<()> {
+        let result = self.content.insert_known_hash(vm, item, hash, ());
+        Self::wrap_unhashable_error(result, item, vm)
     }
 
-    fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn remove(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         let result =
-            self.retry_op_with_frozenset(&item, vm, |item, vm| self.content.delete(vm, item));
-        Self::wrap_unhashable_error(result, &item, vm)
+            self.retry_op_with_frozenset(item, vm, |item, vm| self.content.delete(vm, item));
+        Self::wrap_unhashable_error(result, item, vm)
     }
 
     fn discard(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -438,7 +440,8 @@ impl PySetInner {
     ) -> PyResult<()> {
         for iterable in others {
             for item in iterable.iter(vm)? {
-                self.add(item?, vm)?;
+                let item = item?;
+                self.add(&item, vm)?;
             }
         }
         Ok(())
@@ -450,11 +453,12 @@ impl PySetInner {
             self.merge_set(any_set, vm)
         // check Dict
         } else if let Ok(dict) = iterable.to_owned().downcast_exact::<PyDict>(vm) {
-            self.merge_dict(dict.into_pyref(), vm)
+            self.merge_dict(&dict, vm)
         } else {
             // add iterable that is not AnySet or Dict
             for item in iterable.try_into_value::<ArgIterable>(vm)?.iter(vm)? {
-                self.add(item?, vm)?;
+                let item = item?;
+                self.add(&item, vm)?;
             }
             Ok(())
         }
@@ -462,14 +466,14 @@ impl PySetInner {
 
     fn merge_set(&self, any_set: AnySet, vm: &VirtualMachine) -> PyResult<()> {
         for (item, hash) in any_set.as_inner().content.keys_with_hashes() {
-            self.add_known_hash(item, hash, vm)?;
+            self.add_known_hash(&item, hash, vm)?;
         }
         Ok(())
     }
 
-    fn merge_dict(&self, dict: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn merge_dict(&self, dict: &Py<PyDict>, vm: &VirtualMachine) -> PyResult<()> {
         for (key, hash) in dict._as_dict_inner().keys_with_hashes() {
-            self.add_known_hash(key, hash, vm)?;
+            self.add_known_hash(&key, hash, vm)?;
         }
         Ok(())
     }
@@ -482,7 +486,7 @@ impl PySetInner {
         let temp_inner = self.fold_op(others, Self::intersection, vm)?;
         self.clear();
         for (obj, hash) in temp_inner.content.keys_with_hashes() {
-            self.add_known_hash(obj, hash, vm)?;
+            self.add_known_hash(&obj, hash, vm)?;
         }
         Ok(())
     }
@@ -651,8 +655,13 @@ impl PySet {
         self.inner.len()
     }
 
-    pub fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
+    }
+
+    #[pymethod(coexist)]
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.contains(&needle, vm)
     }
 
     #[pymethod]
@@ -784,12 +793,12 @@ impl PySet {
 
     #[pymethod]
     pub fn add(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.add(object, vm)
+        self.inner.add(&object, vm)
     }
 
     #[pymethod]
     fn remove(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.remove(object, vm)
+        self.inner.remove(&object, vm)
     }
 
     #[pymethod]
@@ -896,7 +905,7 @@ impl DefaultConstructor for PySet {}
 impl Initializer for PySet {
     type Args = OptionalArg<PyObjectRef>;
 
-    fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         zelf.clear();
         if let OptionalArg::Present(it) = iterable {
             zelf.update(PosArgs::new(vec![it]), vm)?;
@@ -910,7 +919,7 @@ impl AsSequence for PySet {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PySet::sequence_downcast(seq).__len__())),
             contains: atomic_func!(
-                |seq, needle, vm| PySet::sequence_downcast(seq).__contains__(needle, vm)
+                |seq, needle, vm| PySet::sequence_downcast(seq).contains(needle, vm)
             ),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
@@ -1144,8 +1153,13 @@ impl PyFrozenSet {
         self.inner.len()
     }
 
-    pub fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
+    }
+
+    #[pymethod(coexist)]
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.contains(&needle, vm)
     }
 
     #[pymethod]
@@ -1305,7 +1319,7 @@ impl AsSequence for PyFrozenSet {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyFrozenSet::sequence_downcast(seq).__len__())),
             contains: atomic_func!(
-                |seq, needle, vm| PyFrozenSet::sequence_downcast(seq).__contains__(needle, vm)
+                |seq, needle, vm| PyFrozenSet::sequence_downcast(seq).contains(needle, vm)
             ),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
@@ -1607,7 +1621,7 @@ fn vectorcall_set(
     let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
     let obj = PySet::default().into_ref_with_type(vm, zelf.to_owned())?;
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
-    PySet::slot_init(obj.clone().into(), func_args, vm)?;
+    PySet::slot_init(obj.as_object(), func_args, vm)?;
     Ok(obj.into())
 }
 

@@ -56,17 +56,17 @@ impl PyPayload for PyGetSet {
 
 impl GetDescriptor for PyGetSet {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = match Self::_check(&zelf, obj, vm) {
+        let (zelf, obj) = match Self::_check(zelf, obj, vm) {
             Some(obj) => obj,
-            None => return Ok(zelf),
+            None => return Ok(zelf.to_owned()),
         };
         if let Some(ref f) = zelf.getter {
-            f(vm, obj)
+            f(vm, obj.to_owned())
         } else {
             Err(vm.new_attribute_error(format!(
                 "attribute '{}' of '{}' objects is not readable",

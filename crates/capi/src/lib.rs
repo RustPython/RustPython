@@ -23,6 +23,7 @@ pub mod dictobject;
 pub mod floatobject;
 pub mod genericaliasobject;
 pub mod import;
+pub mod iterobject;
 pub mod listobject;
 pub mod longobject;
 pub mod memoryobject;

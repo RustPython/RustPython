@@ -1,8 +1,8 @@
 use super::Diagnostic;
 use crate::util::{
     ALL_ALLOWED_NAMES, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta,
-    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, infer_native_call_flags,
-    pyclass_ident_and_attrs, pyexception_ident_and_attrs, text_signature,
+    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, infer_native_call_flags,
+    internal_doc_tokens, pyclass_ident_and_attrs, pyexception_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
@@ -71,6 +71,9 @@ struct ImplContext {
     extend_slots_items: ItemNursery,
     class_extensions: Vec<TokenStream>,
     errors: Vec<syn::Error>,
+    /// Set when the impl has no generic parameters, so `Self` in argument
+    /// types can be replaced before it appears in a nested const.
+    self_ty_subst: Option<syn::Type>,
 }
 
 fn extract_items_into_context<'a, Item>(
@@ -104,9 +107,13 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
     let mut context = ImplContext::default();
     let mut tokens = match item {
         Item::Impl(mut imp) => {
+            if imp.generics.params.is_empty() {
+                context.self_ty_subst = Some((*imp.self_ty).clone());
+            }
             extract_items_into_context(&mut context, imp.items.iter_mut());
 
-            let (impl_ty, payload_guess) = match imp.self_ty.as_ref() {
+            let attr_nonempty = !attr.is_empty();
+            let (impl_ty, payload_guess, wrapped) = match imp.self_ty.as_ref() {
                 syn::Type::Path(syn::TypePath {
                     path: syn::Path { segments, .. },
                     ..
@@ -149,7 +156,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         }
                         segment.ident.clone()
                     };
-                    (segment.ident.clone(), payload_ty)
+                    let wrapped = segment.ident == "Py" || segment.ident == "PyRef";
+                    (segment.ident.clone(), payload_ty, wrapped)
                 }
                 _ => {
                     return Err(syn::Error::new_spanned(
@@ -207,15 +215,23 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 },
             ];
             imp.items.extend(extra_methods);
-            let is_main_impl = impl_ty == payload_ty;
+            // `#[pyclass(...)] impl Py<T>` with attributes is the class impl.
+            // A bare `#[pyclass] impl Py<T>` stays a method extension pulled in
+            // by `with(Py)` on the payload impl.
+            let is_main_impl = !wrapped || attr_nonempty;
+            let holder = if wrapped {
+                quote!(#impl_ty::<#payload_ty>)
+            } else {
+                quote!(#impl_ty)
+            };
             if is_main_impl {
                 let method_defs = if with_method_defs.is_empty() {
-                    quote!(#impl_ty::__OWN_METHOD_DEFS)
+                    quote!(#holder::__OWN_METHOD_DEFS)
                 } else {
                     quote!(
                         rustpython_vm::function::PyMethodDef::__const_concat_arrays::<
-                            { #impl_ty::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
-                        >(&[#impl_ty::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
+                            { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
+                        >(&[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
                     )
                 };
                 quote! {
@@ -227,7 +243,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                             ctx: &'static ::rustpython_vm::Context,
                             class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                         ) {
-                            #impl_ty::__extend_py_class(ctx, class);
+                            #holder::__extend_py_class(ctx, class);
                             #with_impl
                         }
 
@@ -235,7 +251,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
 
                         fn extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
                             #with_slots
-                            #impl_ty::__extend_slots(slots);
+                            #holder::__extend_slots(slots);
                         }
                     }
                 }
@@ -1123,7 +1139,6 @@ where
             }
         };
         let drop_first_typed = usize::from(implicit_self.is_some());
-        let sig_doc = text_signature(func.sig(), &py_name, implicit_self);
         let call_flags = infer_native_call_flags(func.sig(), drop_first_typed);
 
         // Add #[allow(non_snake_case)] for setter methods like set___name__
@@ -1133,11 +1148,14 @@ where
             args.attrs.push(allow_attr);
         }
 
-        let doc = match (sig_doc, args.attrs.doc()) {
-            (Some(sig_doc), Some(doc)) => Some(format_doc(&sig_doc, &doc)),
-            (Some(sig_doc), None) => Some(format_doc(&sig_doc, "")),
-            (None, doc) => doc,
-        };
+        let doc = internal_doc_tokens(
+            func.sig(),
+            &py_name,
+            implicit_self,
+            args.attrs.doc(),
+            args.context.self_ty_subst.as_ref(),
+            None,
+        );
         args.context.method_items.add_item(MethodNurseryItem {
             py_name,
             cfgs: args.cfgs.to_vec(),
@@ -1373,7 +1391,7 @@ struct MethodNurseryItem {
     ident: Ident,
     raw: bool,
     coexist: bool,
-    doc: Option<String>,
+    doc: TokenStream,
     attr_name: AttrName,
     call_flags: TokenStream,
 }
@@ -1401,11 +1419,7 @@ impl ToTokens for MethodNursery {
             let py_name = &item.py_name;
             let ident = &item.ident;
             let cfgs = &item.cfgs;
-            let doc = if let Some(doc) = item.doc.as_ref() {
-                quote! { Some(#doc) }
-            } else {
-                quote! { None }
-            };
+            let doc = &item.doc;
             let binding_flags = match &item.attr_name {
                 AttrName::Method => {
                     quote! { rustpython_vm::function::PyMethodFlags::METHOD }

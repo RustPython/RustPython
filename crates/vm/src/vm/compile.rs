@@ -8,10 +8,7 @@ use crate::{
     AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyCode},
     compiler::{self, CompileError, CompileOpts},
-    vm::compile_mode::{
-        CompilerFlags, PY_EVAL_INPUT, PY_FILE_INPUT, PY_FUNC_TYPE_INPUT, PY_SINGLE_INPUT,
-        compile_future_features_from_flags,
-    },
+    vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
 };
 
 #[derive(Debug)]
@@ -388,6 +385,9 @@ impl VirtualMachine {
         use crate::stdlib::_ast;
 
         let cf = CompilerFlags::from_bits_retain(flags);
+        let Some(start) = CompileStart::from_i32(start) else {
+            return Err(self.new_system_error("Invalid start argument passed to Py_CompileString"));
+        };
         let source =
             self.decode_source_bytes(source, filename, cf.contains(CompilerFlags::IGNORE_COOKIE))?;
         let source = source.as_str();
@@ -412,19 +412,15 @@ impl VirtualMachine {
         };
 
         if is_ast_only {
-            if start == PY_FUNC_TYPE_INPUT {
+            if start == CompileStart::FuncType {
                 return _ast::parse_func_type(self, source, filename, optimize, target_version)
                     .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self));
             }
             let (parser_mode, interactive) = match start {
-                PY_SINGLE_INPUT => (ruff_python_parser::Mode::Module, true),
-                PY_FILE_INPUT => (ruff_python_parser::Mode::Module, false),
-                PY_EVAL_INPUT => (ruff_python_parser::Mode::Expression, false),
-                _ => {
-                    return Err(
-                        self.new_system_error("Invalid start argument passed to Py_CompileString")
-                    );
-                }
+                CompileStart::Single => (ruff_python_parser::Mode::Module, true),
+                CompileStart::File => (ruff_python_parser::Mode::Module, false),
+                CompileStart::Eval => (ruff_python_parser::Mode::Expression, false),
+                CompileStart::FuncType => unreachable!(),
             };
             let parsed = _ast::parse(
                 self,
@@ -440,21 +436,17 @@ impl VirtualMachine {
                 dont_imply_dedent,
             )
             .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self))?;
-            if start == PY_SINGLE_INPUT {
-                return _ast::wrap_interactive(self, parsed);
+            if start == CompileStart::Single {
+                return _ast::wrap_interactive(self, &parsed);
             }
             return Ok(parsed);
         }
 
         if type_comments {
             let parser_mode = match start {
-                PY_SINGLE_INPUT | PY_FILE_INPUT => ruff_python_parser::Mode::Module,
-                PY_EVAL_INPUT => ruff_python_parser::Mode::Expression,
-                _ => {
-                    return Err(
-                        self.new_system_error("Invalid start argument passed to Py_CompileString")
-                    );
-                }
+                CompileStart::Single | CompileStart::File => ruff_python_parser::Mode::Module,
+                CompileStart::Eval => ruff_python_parser::Mode::Expression,
+                CompileStart::FuncType => ruff_python_parser::Mode::Module,
             };
             _ast::parse(
                 self,
@@ -465,7 +457,7 @@ impl VirtualMachine {
                 None,
                 type_comments,
                 false,
-                start == PY_SINGLE_INPUT,
+                start == CompileStart::Single,
                 future_features,
                 dont_imply_dedent,
             )
@@ -473,15 +465,10 @@ impl VirtualMachine {
         }
 
         let mode = match start {
-            PY_SINGLE_INPUT => compiler::Mode::Single,
-            PY_FILE_INPUT => compiler::Mode::Exec,
-            PY_EVAL_INPUT => compiler::Mode::Eval,
-            PY_FUNC_TYPE_INPUT => compiler::Mode::BlockExpr,
-            _ => {
-                return Err(
-                    self.new_system_error("Invalid start argument passed to Py_CompileString")
-                );
-            }
+            CompileStart::Single => compiler::Mode::Single,
+            CompileStart::File => compiler::Mode::Exec,
+            CompileStart::Eval => compiler::Mode::Eval,
+            CompileStart::FuncType => compiler::Mode::BlockExpr,
         };
         let mut opts = self.compile_opts();
         opts.optimize = optimize;
@@ -1650,7 +1637,7 @@ mod escape_warnings {
                 vm.compile_string_object_with_flags(
                     b"from __future__ import barry_as_FLUFL\n2 <> 3\n",
                     "<test>",
-                    PY_FILE_INPUT,
+                    CompileStart::File.as_i32(),
                     flags,
                     -1,
                     -1,
@@ -1661,7 +1648,7 @@ mod escape_warnings {
                     .compile_string_object_with_flags(
                         b"from __future__ import barry_as_FLUFL\n2 != 3\n",
                         "<test>",
-                        PY_FILE_INPUT,
+                        CompileStart::File.as_i32(),
                         flags,
                         -1,
                         -1,
@@ -1686,7 +1673,7 @@ mod escape_warnings {
                 vm.compile_string_object_with_flags(
                     b"2 <> 3\n",
                     "<test>",
-                    PY_FILE_INPUT,
+                    CompileStart::File.as_i32(),
                     flags,
                     -1,
                     -1,

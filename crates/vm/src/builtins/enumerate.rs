@@ -82,8 +82,8 @@ impl Constructor for PyEnumerate {
     }
 }
 
-#[pyclass(with(Py, IterNext, Iterable, Constructor), flags(BASETYPE))]
-impl PyEnumerate {
+#[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
+impl Py<PyEnumerate> {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
@@ -92,10 +92,7 @@ impl PyEnumerate {
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
-}
 
-#[pyclass]
-impl Py<PyEnumerate> {
     #[pymethod]
     fn __reduce__(&self) -> (PyTypeRef, (PyIter, BigInt)) {
         (
@@ -174,7 +171,7 @@ impl PyReverseSequenceIterator {
 
     #[pymethod]
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.lock().set_state(state, |_, pos| pos, vm)
+        self.internal.lock().set_state(&state, |_, pos| pos, vm)
     }
 
     #[pymethod]

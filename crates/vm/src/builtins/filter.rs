@@ -23,6 +23,7 @@ impl PyPayload for PyFilter {
 
 impl Constructor for PyFilter {
     type Args = (PyObjectRef, PyIter);
+    const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
     fn py_new(
         _cls: &Py<PyType>,
@@ -37,7 +38,7 @@ impl Constructor for PyFilter {
 }
 
 #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
-impl PyFilter {
+impl Py<PyFilter> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, (PyObjectRef, PyIter)) {
         (

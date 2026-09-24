@@ -66,9 +66,9 @@ pub unsafe extern "C" fn PySet_Contains(anyset: *mut PyObject, key: *mut PyObjec
         let key = unsafe { &*key };
 
         if let Some(set) = anyset.downcast_ref::<PySet>() {
-            set.__contains__(key, vm)
+            set.contains(key, vm)
         } else if let Some(frozenset) = anyset.downcast_ref::<PyFrozenSet>() {
-            frozenset.__contains__(key, vm)
+            frozenset.contains(key, vm)
         } else {
             Err(vm.new_type_error(format!(
                 "expected set or frozenset, got '{}'",
@@ -83,7 +83,7 @@ pub unsafe extern "C" fn PySet_Discard(set: *mut PyObject, key: *mut PyObject) -
     with_vm(|vm| {
         let set = unsafe { &*set }.try_downcast_ref::<PySet>(vm)?;
         let key = unsafe { &*key };
-        let had_item = set.__contains__(key, vm)?;
+        let had_item = set.contains(key, vm)?;
         if had_item {
             set.discard(key.to_owned(), vm)?;
         }

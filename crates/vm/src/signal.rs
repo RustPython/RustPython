@@ -13,13 +13,40 @@ use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, Virtual
 
 pub(crate) const NSIG: usize = 64;
 
-/// Eval-breaker word: bit flags checked once per bytecode instruction.
+#[cfg(not(feature = "threading"))]
+bitflagset::bitflag! {
+    /// Eval-breaker bits checked once per bytecode instruction.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    enum EvalBreakerFlag {
+        Signal = 0,
+    }
+}
+
+#[cfg(feature = "threading")]
+bitflagset::bitflag! {
+    /// Eval-breaker bits checked once per bytecode instruction.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    enum EvalBreakerFlag {
+        Signal = 0,
+        Qsbr = 1,
+        Gc = 2,
+        Stop = 3,
+        Finalizing = 4,
+    }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    struct EvalBreakerBits(u8): EvalBreakerFlag
+}
+
+bitflagset::atomic_bitflagset!(struct EvalBreaker(AtomicU8) on EvalBreakerBits);
+
 /// Signal handlers and QSBR set bits with fetch_or (async-signal-safe,
 /// lock-free); consumers clear only their own bit with fetch_and.
-static EVAL_BREAKER: AtomicU8 = AtomicU8::new(0);
-
-/// A signal handler recorded a pending signal.
-const SIGNAL_BIT: u8 = 1 << 0;
+static EVAL_BREAKER: EvalBreaker = EvalBreaker::new();
 
 #[expect(
     clippy::declare_interior_mutable_const,
@@ -55,12 +82,12 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
 
     // Read-only check first: avoids cache-line invalidation on every
     // instruction when no signal is pending (the common case).
-    if EVAL_BREAKER.load(Ordering::Relaxed) & SIGNAL_BIT == 0 {
+    if !EVAL_BREAKER.contains(&EvalBreakerFlag::Signal) {
         return Ok(());
     }
 
     // Atomic RMW only when a signal is actually pending.
-    if EVAL_BREAKER.fetch_and(!SIGNAL_BIT, Ordering::Acquire) & SIGNAL_BIT == 0 {
+    if !EVAL_BREAKER.remove(EvalBreakerFlag::Signal) {
         return Ok(());
     }
 
@@ -115,86 +142,70 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
 pub(crate) fn set_triggered() {
     // fetch_or (not store) so a signal handler never clobbers the QSBR bit;
     // this compiles to a lock-free RMW, safe to call from a signal handler.
-    EVAL_BREAKER.fetch_or(SIGNAL_BIT, Ordering::Release);
+    EVAL_BREAKER.insert(EvalBreakerFlag::Signal);
 }
 
 /// Any eval-breaker bit pending? One relaxed load; checked per instruction.
 #[inline(always)]
 pub(crate) fn eval_breaker_pending() -> bool {
-    EVAL_BREAKER.load(Ordering::Relaxed) != 0
+    !EVAL_BREAKER.is_empty()
 }
 
 /// Extra eval-breaker bits used only when more than one thread can run.
 #[cfg(feature = "threading")]
 mod mt {
-    use super::EVAL_BREAKER;
-    use core::sync::atomic::Ordering;
+    use super::{EVAL_BREAKER, EvalBreakerFlag};
 
     /// QSBR has retired allocations pending reclamation.
-    const QSBR_BIT: u8 = 1 << 1;
-    /// An automatic collection was scheduled by `maybe_collect` and must run
-    /// at the next bytecode safepoint rather than synchronously inside the
-    /// allocation that tripped the threshold.
-    const GC_BIT: u8 = 1 << 2;
-    /// At least one thread's `stop_requested` flag may be set (stop-the-world
-    /// in progress). This bit is shared by every thread rather than being
-    /// per-thread: the fast (common) path checked once per bytecode
-    /// instruction becomes a single relaxed load of this word instead of a
-    /// thread-local lookup plus atomic load of that thread's own flag. Once
-    /// set, the bit is sticky until `start_the_world`/`reset_after_fork`
-    /// clears it (both run under the single stop-the-world exclusion, so
-    /// clearing cannot race a new requester) — every thread takes the slow
-    /// path for the (short) duration of a stop-the-world request, which only
-    /// affects programs with more than one live thread; single-threaded
-    /// programs never set this bit at all, since `stop_the_world` never sets
-    /// any per-thread `stop_requested` flag when there are no other threads
-    /// to stop.
-    const STOP_BIT: u8 = 1 << 3;
-    /// The interpreter has begun finalizing (see `Interpreter::finalize`).
-    /// Set once, near process/interpreter shutdown, and never cleared — from
-    /// that point on every thread takes the slow path once per instruction,
-    /// which is fine because finalization is a one-time, short-lived,
-    /// non-performance-sensitive window.
-    const FINALIZING_BIT: u8 = 1 << 4;
-
     pub(crate) fn set_qsbr_bit() {
-        EVAL_BREAKER.fetch_or(QSBR_BIT, Ordering::Release);
+        EVAL_BREAKER.insert(EvalBreakerFlag::Qsbr);
     }
 
     pub(crate) fn clear_qsbr_bit() {
-        EVAL_BREAKER.fetch_and(!QSBR_BIT, Ordering::Release);
+        EVAL_BREAKER.remove(EvalBreakerFlag::Qsbr);
     }
 
     pub(crate) fn qsbr_bit_set() -> bool {
-        EVAL_BREAKER.load(Ordering::Relaxed) & QSBR_BIT != 0
+        EVAL_BREAKER.contains(&EvalBreakerFlag::Qsbr)
     }
 
-    /// Record that some thread's `stop_requested` flag was (or may have been)
-    /// set. See `STOP_BIT`.
+    /// Record that some thread's `stop_requested` flag may be set. Shared by
+    /// every thread rather than being per-thread: the fast path checked once
+    /// per bytecode instruction becomes a single relaxed load of this word.
+    /// Sticky until `start_the_world`/`reset_after_fork` clears it.
     pub(crate) fn set_stop_bit() {
-        EVAL_BREAKER.fetch_or(STOP_BIT, Ordering::Release);
+        EVAL_BREAKER.insert(EvalBreakerFlag::Stop);
     }
 
     /// Clear the shared stop-the-world bit. Only safe to call from
-    /// `start_the_world`/`reset_after_fork`, which run under the single
-    /// stop-the-world exclusion (see `STOP_BIT`).
+    /// `start_the_world`/`reset_after_fork`.
     pub(crate) fn clear_stop_bit() {
-        EVAL_BREAKER.fetch_and(!STOP_BIT, Ordering::Release);
+        EVAL_BREAKER.remove(EvalBreakerFlag::Stop);
     }
 
-    /// Record that finalization has begun. See `FINALIZING_BIT`.
+    /// Record that finalization has begun (`Interpreter::finalize`). Set once
+    /// and never cleared.
     pub(crate) fn set_finalizing_bit() {
-        EVAL_BREAKER.fetch_or(FINALIZING_BIT, Ordering::Release);
+        EVAL_BREAKER.insert(EvalBreakerFlag::Finalizing);
     }
 
     /// Schedule an automatic collection to run at the next bytecode safepoint.
     pub(crate) fn schedule_gc() {
-        EVAL_BREAKER.fetch_or(GC_BIT, Ordering::Release);
+        EVAL_BREAKER.insert(EvalBreakerFlag::Gc);
     }
 
     /// Clear the scheduled-GC bit, returning whether it had been set.
     pub(crate) fn take_gc_scheduled() -> bool {
-        EVAL_BREAKER.fetch_and(!GC_BIT, Ordering::Acquire) & GC_BIT != 0
+        EVAL_BREAKER.remove(EvalBreakerFlag::Gc)
+    }
+
+    /// Drop every process-wide eval-breaker bit. Tests that assert a single
+    /// thread's `stop_requested` must not trip `eval_breaker_pending` have to
+    /// start from a clean word: cargo's Windows runner shares the process
+    /// across `#[test]` functions, so a sibling can leave SIGNAL/QSBR/GC/STOP.
+    #[cfg(test)]
+    pub(crate) fn clear_eval_breaker_for_test() {
+        EVAL_BREAKER.clear();
     }
 }
 
@@ -204,11 +215,14 @@ pub(crate) use mt::{
     set_stop_bit, take_gc_scheduled,
 };
 
+#[cfg(all(test, feature = "threading"))]
+pub(crate) use mt::clear_eval_breaker_for_test;
+
 /// Reset all signal trigger state after fork in child process.
 /// Stale triggers from the parent must not fire in the child.
 #[cfg(all(unix, feature = "host_env"))]
 pub(crate) fn clear_after_fork() {
-    EVAL_BREAKER.fetch_and(!SIGNAL_BIT, Ordering::Release);
+    EVAL_BREAKER.remove(EvalBreakerFlag::Signal);
     for trigger in &TRIGGERS {
         trigger.store(false, Ordering::Relaxed);
     }

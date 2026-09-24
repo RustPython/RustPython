@@ -4,7 +4,7 @@
 
 use super::{PyInt, PyTupleRef, PyType};
 use crate::{
-    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::ArgCallable,
     object::{Traverse, TraverseFn},
@@ -51,7 +51,7 @@ impl<T> PositionIterInternal<T> {
         }
     }
 
-    pub fn set_state<F>(&mut self, state: PyObjectRef, f: F, vm: &VirtualMachine) -> PyResult<()>
+    pub fn set_state<F>(&mut self, state: &PyObject, f: F, vm: &VirtualMachine) -> PyResult<()>
     where
         F: FnOnce(&T, usize) -> usize,
     {
@@ -283,7 +283,7 @@ impl PySequenceIterator {
 
     #[pymethod]
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.lock().set_state(state, |_, pos| pos, vm)
+        self.internal.lock().set_state(&state, |_, pos| pos, vm)
     }
 }
 

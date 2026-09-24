@@ -34,7 +34,7 @@ mod sys_jit {
 #[pymodule]
 pub mod sys {
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
         builtins::{
             PyBaseExceptionRef, PyDictRef, PyFrozenSet, PyNamespace, PyStr, PyStrRef, PyTuple,
             PyTupleRef, PyTypeRef, PyUtf8StrRef,
@@ -913,7 +913,7 @@ pub mod sys {
             }
         };
 
-        match vm.get_attribute_opt(module, &vm.ctx.new_str(attr_name)) {
+        match vm.get_attribute_opt(&module, &vm.ctx.new_str(attr_name)) {
             Ok(Some(hook)) => hook.as_ref().call(args, vm),
             _ => print_unimportable_module_warn(),
         }
@@ -983,6 +983,10 @@ pub mod sys {
 
     #[pyfunction]
     fn getprofile(vm: &VirtualMachine) -> PyObjectRef {
+        #[cfg(feature = "threading")]
+        if let Some(slot) = crate::vm::thread::current_thread_slot() {
+            return slot.profile_func.lock().clone();
+        }
         vm.profile_func.borrow().clone()
     }
 
@@ -1082,6 +1086,10 @@ pub mod sys {
 
     #[pyfunction]
     fn gettrace(vm: &VirtualMachine) -> PyObjectRef {
+        #[cfg(feature = "threading")]
+        if let Some(slot) = crate::vm::thread::current_thread_slot() {
+            return slot.trace_func.lock().clone();
+        }
         vm.trace_func.borrow().clone()
     }
 
@@ -1251,6 +1259,10 @@ pub mod sys {
 
     #[pyfunction]
     fn setprofile(function: PyObjectRef, vm: &VirtualMachine) {
+        #[cfg(feature = "threading")]
+        if let Some(slot) = crate::vm::thread::current_thread_slot() {
+            *slot.profile_func.lock() = function.clone();
+        }
         vm.profile_func.replace(function);
         update_use_tracing(vm);
     }
@@ -1274,6 +1286,10 @@ pub mod sys {
 
     #[pyfunction]
     fn settrace(function: PyObjectRef, vm: &VirtualMachine) {
+        #[cfg(feature = "threading")]
+        if let Some(slot) = crate::vm::thread::current_thread_slot() {
+            *slot.trace_func.lock() = function.clone();
+        }
         vm.trace_func.replace(function);
         update_use_tracing(vm);
         // The rest of the current line already started before tracing was
@@ -1288,6 +1304,17 @@ pub mod sys {
     fn _settraceallthreads(function: PyObjectRef, vm: &VirtualMachine) {
         let func = (!vm.is_none(&function)).then(|| function.clone());
         *vm.state.global_trace_func.lock() = func;
+        #[cfg(feature = "threading")]
+        {
+            let registry = vm.state.thread_frames.lock();
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "every thread slot, order is irrelevant"
+            )]
+            for slot in registry.values() {
+                *slot.trace_func.lock() = function.clone();
+            }
+        }
         vm.trace_func.replace(function);
         update_use_tracing(vm);
     }
@@ -1296,6 +1323,17 @@ pub mod sys {
     fn _setprofileallthreads(function: PyObjectRef, vm: &VirtualMachine) {
         let func = (!vm.is_none(&function)).then(|| function.clone());
         *vm.state.global_profile_func.lock() = func;
+        #[cfg(feature = "threading")]
+        {
+            let registry = vm.state.thread_frames.lock();
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "every thread slot, order is irrelevant"
+            )]
+            for slot in registry.values() {
+                *slot.profile_func.lock() = function.clone();
+            }
+        }
         vm.profile_func.replace(function);
         update_use_tracing(vm);
     }
@@ -1743,7 +1781,7 @@ pub mod sys {
     impl PyUnraisableHookArgs {}
 
     pub(crate) fn run_audit_hooks(
-        event: PyStrRef,
+        event: &Py<PyStr>,
         args: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -1754,7 +1792,7 @@ pub mod sys {
         }
 
         for hook in hooks {
-            call_audit_hook(&hook, event.clone().into(), args, vm)?;
+            call_audit_hook(&hook, event.to_owned().into(), args, vm)?;
         }
 
         Ok(())
@@ -1809,7 +1847,7 @@ pub mod sys {
         }
 
         let args_tup: PyObjectRef = vm.ctx.new_tuple(args.into_vec()).into();
-        run_audit_hooks(event, &args_tup, vm)
+        run_audit_hooks(&event, &args_tup, vm)
     }
 
     #[pyfunction]

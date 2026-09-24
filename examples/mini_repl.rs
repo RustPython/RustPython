@@ -6,7 +6,7 @@
 
 use rustpython_vm as vm;
 // these are needed for special memory shenanigans to let us share a variable with Python and Rust
-use std::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 // This has to be a macro because it uses the py_compile macro,
 // which compiles python source to optimized bytecode at compile time, so that
@@ -76,7 +76,7 @@ def fib(n):
                 }
             }
             Err(exc) => {
-                vm.print_exception(exc);
+                vm.print_exception(&exc);
             }
         }
     }

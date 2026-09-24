@@ -10,7 +10,7 @@ pub(crate) use _struct::module_def;
 #[pymodule]
 pub(crate) mod _struct {
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         buffer::{FormatSpec, new_struct_error, struct_error_type},
         builtins::{PyBytes, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
         common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard},
@@ -283,7 +283,7 @@ pub(crate) mod _struct {
     impl Initializer for PyStruct {
         type Args = IntoStructFormatBytes;
 
-        fn init(zelf: PyRef<Self>, fmt: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, fmt: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             // The format is read before anything is replaced, so a format that
             // cannot be read leaves the object as it was.
             let spec = fmt.format_spec(vm)?;
@@ -364,6 +364,12 @@ pub(crate) mod _struct {
         ) -> PyResult<UnpackIterator> {
             let spec = self.ready(vm)?.spec.clone();
             UnpackIterator::with_buffer(vm, spec, buffer)
+        }
+
+        #[pymethod]
+        fn __sizeof__(&self, vm: &VirtualMachine) -> PyResult<usize> {
+            let inner = self.ready(vm)?;
+            Ok(core::mem::size_of::<Self>() + inner.spec.codes_sizeof())
         }
     }
 

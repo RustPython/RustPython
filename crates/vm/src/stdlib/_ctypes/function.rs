@@ -311,8 +311,8 @@ pub(super) struct PyCFuncPtrType(PyType);
 impl Initializer for PyCFuncPtrType {
     type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        let obj: PyObjectRef = zelf.into();
+    fn init(zelf: &Py<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        let obj: PyObjectRef = zelf.to_owned().into();
         let new_type: PyTypeRef = obj
             .downcast()
             .map_err(|_| vm.new_type_error("expected type"))?;
@@ -530,13 +530,13 @@ fn cast_check_pointertype(ctype: &PyObject, vm: &VirtualMachine) -> bool {
 /// cast implementation
 /// _ctypes.c cast()
 pub(super) fn cast_impl(
-    obj: PyObjectRef,
+    obj: &PyObject,
     src: PyObjectRef,
-    ctype: PyObjectRef,
+    ctype: &PyObject,
     vm: &VirtualMachine,
 ) -> PyResult {
     // 1. cast_check_pointertype
-    if !cast_check_pointertype(&ctype, vm) {
+    if !cast_check_pointertype(ctype, vm) {
         return Err(vm.new_type_error(format!(
             "cast() argument 2 must be a pointer type, not {}",
             ctype.class().name()
@@ -544,7 +544,7 @@ pub(super) fn cast_impl(
     }
 
     // 2. Extract pointer value - matches c_void_p_from_param_impl order
-    let ptr_value: usize = if vm.is_none(&obj) {
+    let ptr_value: usize = if vm.is_none(obj) {
         // None → NULL pointer
         0
     } else if let Ok(int_val) = obj.try_int(vm) {
@@ -820,8 +820,8 @@ impl Constructor for PyCFuncPtr {
             // Create the thunk (C-callable wrapper for the Python function)
             let thunk = PyCThunk::new(
                 first_arg.clone(),
-                class_argtypes.clone(),
-                class_restype.clone(),
+                class_argtypes.as_deref(),
+                class_restype.as_deref(),
                 class_flags,
                 vm,
             )?;
@@ -865,7 +865,7 @@ impl Constructor for PyCFuncPtr {
 fn handle_internal_func(addr: usize, args: &FuncArgs, vm: &VirtualMachine) -> Option<PyResult> {
     if addr == INTERNAL_CAST_ADDR {
         let result: PyResult<(PyObjectRef, PyObjectRef, PyObjectRef)> = args.clone().bind(vm);
-        return Some(result.and_then(|(obj, src, ctype)| cast_impl(obj, src, ctype, vm)));
+        return Some(result.and_then(|(obj, src, ctype)| cast_impl(&obj, src, &ctype, vm)));
     }
 
     if addr == INTERNAL_STRING_AT_ADDR {
@@ -1940,18 +1940,18 @@ impl Debug for PyCThunk {
 impl PyCThunk {
     pub fn new(
         callable: PyObjectRef,
-        arg_types: Option<PyObjectRef>,
-        res_type: Option<PyObjectRef>,
+        arg_types: Option<&PyObject>,
+        res_type: Option<&PyObject>,
         flags: u32,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let arg_type_vec: Vec<PyTypeRef> = match arg_types {
-            Some(args) if !vm.is_none(&args) => extract_arg_types(&args, vm)?,
+            Some(args) if !vm.is_none(args) => extract_arg_types(args, vm)?,
             _ => Vec::new(),
         };
 
         let res_type_ref: Option<PyTypeRef> = match res_type {
-            Some(ref rt) if !vm.is_none(rt) => Some(
+            Some(rt) if !vm.is_none(rt) => Some(
                 rt.to_owned()
                     .downcast::<PyType>()
                     .map_err(|_| vm.new_type_error("restype must be a ctypes type"))?,

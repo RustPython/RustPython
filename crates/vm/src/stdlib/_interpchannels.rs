@@ -16,7 +16,7 @@ pub(crate) mod _interpchannels {
         function::{ArgSpec, Either, FuncArgs, PyComparisonValue},
         protocol::{PyNumber, PyNumberMethods},
         types::{AsNumber, Constructor, Hashable, PyComparisonOp, PyStructSequence, Representable},
-        vm::crossinterp::{self, Fallback, SharedValue, UNBOUND_REPLACE},
+        vm::crossinterp::{Fallback, SharedValue, UnboundOp},
     };
     use alloc::collections::BTreeMap;
     use alloc::{collections::VecDeque, sync::Arc};
@@ -25,9 +25,28 @@ pub(crate) mod _interpchannels {
     use parking_lot::{Condvar, Mutex};
     use std::{sync::OnceLock, time::Instant};
 
-    const CHANNEL_SEND: i32 = 1;
-    const CHANNEL_BOTH: i32 = 0;
-    const CHANNEL_RECV: i32 = -1;
+    #[repr(i32)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    enum ChannelEnd {
+        Recv = -1,
+        Both = 0,
+        Send = 1,
+    }
+
+    impl ChannelEnd {
+        const fn from_i32(v: i32) -> Option<Self> {
+            match v {
+                -1 => Some(Self::Recv),
+                0 => Some(Self::Both),
+                1 => Some(Self::Send),
+                _ => None,
+            }
+        }
+
+        const fn as_i32(self) -> i32 {
+            self as i32
+        }
+    }
 
     #[pyattr]
     #[pyexception(name = "ChannelError", base = crate::exceptions::types::PyRuntimeError)]
@@ -173,7 +192,7 @@ pub(crate) mod _interpchannels {
         interpid: i64,
         /// `None` once the owning interpreter is gone (the item is "unbound").
         data: Option<SharedValue>,
-        unboundop: i32,
+        unboundop: UnboundOp,
         waiting: Option<Arc<Waiting>>,
     }
 
@@ -279,7 +298,7 @@ pub(crate) mod _interpchannels {
     struct ChannelState {
         queue: VecDeque<ChannelItem>,
         ends: ChannelEnds,
-        unboundop: i32,
+        unboundop: UnboundOp,
         fallback: i32,
         open: bool,
         /// Send is closed and the queue is draining.
@@ -322,7 +341,7 @@ pub(crate) mod _interpchannels {
         Ok(chan.clone())
     }
 
-    fn channel_create(unboundop: i32, fallback: i32) -> i64 {
+    fn channel_create(unboundop: UnboundOp, fallback: i32) -> i64 {
         let mut table = channels().lock();
         let cid = table.next_id;
         table.next_id += 1;
@@ -420,14 +439,14 @@ pub(crate) mod _interpchannels {
         let entry = table.refs.get_mut(&cid).ok_or(ChanErr::NotFound)?;
         let chan = entry.chan.as_ref().ok_or(ChanErr::Closed)?.clone();
         let mut state = chan.state.lock();
-        if !force && end == CHANNEL_SEND && state.closing {
+        if !force && end == ChannelEnd::Send.as_i32() && state.closing {
             return Err(ChanErr::Closed);
         }
         if !state.open {
             return Err(ChanErr::Closed);
         }
         if !force && !state.queue.is_empty() {
-            if end != CHANNEL_SEND {
+            if end != ChannelEnd::Send.as_i32() {
                 return Err(ChanErr::NotEmpty);
             }
             if state.closing {
@@ -476,7 +495,7 @@ pub(crate) mod _interpchannels {
                     i += 1;
                     continue;
                 }
-                if item.unboundop == crossinterp::UNBOUND_REMOVE {
+                if item.unboundop == UnboundOp::Remove {
                     let item = state.queue.remove(i).expect("index checked");
                     if let Some(w) = item.waiting {
                         waiters.push((w, false));
@@ -495,16 +514,12 @@ pub(crate) mod _interpchannels {
     }
 
     /// `resolve_unboundop`.
-    fn resolve_unboundop(arg: i32, default: i32, vm: &VirtualMachine) -> PyResult<i32> {
+    fn resolve_unboundop(arg: i32, default: UnboundOp, vm: &VirtualMachine) -> PyResult<UnboundOp> {
         if arg < 0 {
             return Ok(default);
         }
-        match arg {
-            crossinterp::UNBOUND_REMOVE
-            | crossinterp::UNBOUND_ERROR
-            | crossinterp::UNBOUND_REPLACE => Ok(arg),
-            _ => Err(vm.new_value_error(format!("unsupported unboundop {arg}"))),
-        }
+        UnboundOp::from_i32(arg)
+            .ok_or_else(|| vm.new_value_error(format!("unsupported unboundop {arg}")))
     }
 
     /// `resolve_fallback`.
@@ -517,7 +532,7 @@ pub(crate) mod _interpchannels {
     /// `channel_id_converter`.
     fn parse_cid(obj: &PyObject, vm: &VirtualMachine) -> PyResult<(i64, i32)> {
         if let Some(cid) = obj.downcast_ref::<ChannelID>() {
-            return Ok((cid.cid, cid.end));
+            return Ok((cid.cid, cid.end.as_i32()));
         }
         if !obj.number().is_index() {
             return Err(vm.new_type_error(format!(
@@ -536,7 +551,7 @@ pub(crate) mod _interpchannels {
                 vm.new_value_error(format!("channel ID must be a non-negative int, got {repr}"))
             );
         }
-        Ok((id, CHANNEL_BOTH))
+        Ok((id, ChannelEnd::Both.as_i32()))
     }
 
     /// The single-`cid` signature shared by several module functions.
@@ -605,7 +620,7 @@ pub(crate) mod _interpchannels {
     #[derive(Debug, PyPayload)]
     pub(crate) struct ChannelID {
         cid: i64,
-        end: i32,
+        end: ChannelEnd,
         resolve: bool,
     }
 
@@ -620,9 +635,9 @@ pub(crate) mod _interpchannels {
         fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             let name = zelf.class().name().to_string();
             Ok(match zelf.end {
-                CHANNEL_SEND => format!("{name}({}, send=True)", zelf.cid),
-                CHANNEL_RECV => format!("{name}({}, recv=True)", zelf.cid),
-                _ => format!("{name}({})", zelf.cid),
+                ChannelEnd::Send => format!("{name}({}, send=True)", zelf.cid),
+                ChannelEnd::Recv => format!("{name}({}, recv=True)", zelf.cid),
+                ChannelEnd::Both => format!("{name}({})", zelf.cid),
             })
         }
     }
@@ -690,20 +705,20 @@ pub(crate) mod _interpchannels {
         #[pygetset]
         fn end(&self) -> String {
             match self.end {
-                CHANNEL_SEND => "send".to_owned(),
-                CHANNEL_RECV => "recv".to_owned(),
-                _ => "both".to_owned(),
+                ChannelEnd::Send => "send".to_owned(),
+                ChannelEnd::Recv => "recv".to_owned(),
+                ChannelEnd::Both => "both".to_owned(),
             }
         }
 
         #[pygetset(name = "send")]
         fn send_end(&self, vm: &VirtualMachine) -> PyResult {
-            channel_id_from_parts(self.cid, CHANNEL_SEND, true, self.resolve, vm)
+            channel_id_from_parts(self.cid, ChannelEnd::Send.as_i32(), true, self.resolve, vm)
         }
 
         #[pygetset(name = "recv")]
         fn recv_end(&self, vm: &VirtualMachine) -> PyResult {
-            channel_id_from_parts(self.cid, CHANNEL_RECV, true, self.resolve, vm)
+            channel_id_from_parts(self.cid, ChannelEnd::Recv.as_i32(), true, self.resolve, vm)
         }
 
         #[pymethod]
@@ -725,11 +740,13 @@ pub(crate) mod _interpchannels {
             Err(ChanErr::NotFound) if force => {}
             Err(e) => return Err(e.into_py(cid, vm)),
         }
+        let end = ChannelEnd::from_i32(end).unwrap_or(ChannelEnd::Both);
         Ok(ChannelID { cid, end, resolve }.to_pyobject(vm))
     }
 
     pub(crate) fn channel_id_parts(obj: &PyObject) -> Option<(i64, i32)> {
-        obj.downcast_ref::<ChannelID>().map(|c| (c.cid, c.end))
+        obj.downcast_ref::<ChannelID>()
+            .map(|c| (c.cid, c.end.as_i32()))
     }
 
     /// `_channelid_new`.
@@ -760,9 +777,9 @@ pub(crate) mod _interpchannels {
             (Some(false), Some(false)) => {
                 return Err(vm.new_value_error("'send' and 'recv' cannot both be False"));
             }
-            (Some(true), Some(true)) => end = CHANNEL_BOTH,
-            (Some(true), _) => end = CHANNEL_SEND,
-            (_, Some(true)) => end = CHANNEL_RECV,
+            (Some(true), Some(true)) => end = ChannelEnd::Both.as_i32(),
+            (Some(true), _) => end = ChannelEnd::Send.as_i32(),
+            (_, Some(true)) => end = ChannelEnd::Recv.as_i32(),
             _ => {}
         }
         channel_id_from_parts(cid, end, force, resolve, vm)
@@ -818,10 +835,10 @@ pub(crate) mod _interpchannels {
         .parse(&args, vm)?;
         let unboundarg = int_arg(parsed[0].as_deref(), vm)?.unwrap_or(-1);
         let fallbackarg = int_arg(parsed[1].as_deref(), vm)?.unwrap_or(-1);
-        let unboundop = resolve_unboundop(unboundarg, UNBOUND_REPLACE, vm)?;
+        let unboundop = resolve_unboundop(unboundarg, UnboundOp::Replace, vm)?;
         let fallback = resolve_fallback(fallbackarg, Fallback::Full.as_i32(), vm)?;
         let cid = channel_create(unboundop, fallback.as_i32());
-        channel_id_from_parts(cid, CHANNEL_BOTH, false, false, vm)
+        channel_id_from_parts(cid, ChannelEnd::Both.as_i32(), false, false, vm)
     }
 
     #[pyfunction]
@@ -840,7 +857,7 @@ pub(crate) mod _interpchannels {
                 args.args.len() + args.kwargs.len()
             )));
         }
-        let chans: Vec<(i64, i32, i32)> = channels()
+        let chans: Vec<(i64, UnboundOp, i32)> = channels()
             .lock()
             .refs
             .iter()
@@ -854,8 +871,8 @@ pub(crate) mod _interpchannels {
             items.push(
                 vm.ctx
                     .new_tuple(vec![
-                        channel_id_from_parts(cid, CHANNEL_BOTH, false, false, vm)?,
-                        vm.ctx.new_int(unboundop).into(),
+                        channel_id_from_parts(cid, ChannelEnd::Both.as_i32(), false, false, vm)?,
+                        vm.ctx.new_int(unboundop.as_i32()).into(),
                         vm.ctx.new_int(fallback).into(),
                     ])
                     .into(),
@@ -924,7 +941,7 @@ pub(crate) mod _interpchannels {
         chan: &Channel,
         cid: i64,
         value: SharedValue,
-        unboundop: i32,
+        unboundop: UnboundOp,
         blocking: bool,
         timeout: Option<Duration>,
         vm: &VirtualMachine,
@@ -1001,7 +1018,14 @@ pub(crate) mod _interpchannels {
         args: &FuncArgs,
         func: &'static str,
         vm: &VirtualMachine,
-    ) -> PyResult<(i64, PyObjectRef, i32, Fallback, bool, Option<Duration>)> {
+    ) -> PyResult<(
+        i64,
+        PyObjectRef,
+        UnboundOp,
+        Fallback,
+        bool,
+        Option<Duration>,
+    )> {
         let parsed = ArgSpec {
             fname: func,
             keywords: &["cid", "obj", "unboundop", "fallback", "blocking", "timeout"],
@@ -1032,7 +1056,7 @@ pub(crate) mod _interpchannels {
             let state = chan.state.lock();
             (state.unboundop, state.fallback)
         } else {
-            (-1, -1)
+            (UnboundOp::Replace, -1)
         };
         let unboundop = resolve_unboundop(unboundarg, default_unboundop, vm)?;
         let fallback = resolve_fallback(fallbackarg, default_fallback, vm)?;
@@ -1104,7 +1128,10 @@ pub(crate) mod _interpchannels {
             // The item was unbound.
             return Ok(vm
                 .ctx
-                .new_tuple(vec![vm.ctx.none(), vm.ctx.new_int(unboundop).into()])
+                .new_tuple(vec![
+                    vm.ctx.none(),
+                    vm.ctx.new_int(unboundop.as_i32()).into(),
+                ])
                 .into());
         };
         let obj = data.into_object(vm)?;
@@ -1119,7 +1146,7 @@ pub(crate) mod _interpchannels {
     fn channel_next(
         cid: i64,
         interpid: i64,
-    ) -> ChanResult<(Option<SharedValue>, i32, Option<Arc<Waiting>>)> {
+    ) -> ChanResult<(Option<SharedValue>, UnboundOp, Option<Arc<Waiting>>)> {
         let chan = channels_lookup(cid)?;
         let mut state = chan.state.lock();
         if !state.open {
@@ -1271,7 +1298,7 @@ pub(crate) mod _interpchannels {
         Ok(vm
             .ctx
             .new_tuple(vec![
-                vm.ctx.new_int(unboundop).into(),
+                vm.ctx.new_int(unboundop.as_i32()).into(),
                 vm.ctx.new_int(fallback).into(),
             ])
             .into())

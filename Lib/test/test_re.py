@@ -2939,7 +2939,6 @@ class ImplementationTest(unittest.TestCase):
         pat = re.compile("")
         check_disallow_instantiation(self, type(pat.scanner("")))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_deprecated_modules(self):
         deprecated = {
             'sre_compile': ['compile', 'error',

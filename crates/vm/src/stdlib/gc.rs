@@ -238,7 +238,7 @@ mod gc {
                 continue;
             }
             if refers_to_target(obj.as_ref()) {
-                result.push(obj.clone());
+                result.push(obj);
             }
         }
 

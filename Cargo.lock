@@ -3888,6 +3888,7 @@ name = "rustpython-host_env"
 version = "0.6.0"
 dependencies = [
  "bitflags 2.13.1",
+ "bitflagset",
  "cc",
  "der 0.8.2",
  "dns-lookup",
@@ -4129,6 +4130,7 @@ version = "0.6.0"
 dependencies = [
  "ascii",
  "bitflags 2.13.1",
+ "bitflagset",
  "bstr",
  "constant_time_eq 0.6.0",
  "crossbeam-utils",

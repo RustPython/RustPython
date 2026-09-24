@@ -10,8 +10,8 @@ mod decl {
         PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyBool, PyByteArray, PyBytes, PyCode, PyComplex, PyDict,
-            PyEllipsis, PyFloat, PyFrozenSet, PyInt, PyList, PyNone, PySet, PyStopIteration, PyStr,
-            PyTuple,
+            PyEllipsis, PyFloat, PyFrozenSet, PyInt, PyList, PyMemoryView, PyNone, PySet,
+            PyStopIteration, PyStr, PyTuple,
         },
         convert::ToPyObject,
         function::{ArgBytesLike, OptionalArg},
@@ -386,18 +386,10 @@ mod decl {
             buf.write_u8(b'0'); // TYPE_NULL terminator
         } else if let Some(s) = obj.downcast_ref::<PySet>() {
             buf.write_u8(b'<');
-            let elems = s.elements();
-            buf.write_u32(elems.len() as u32);
-            for elem in &elems {
-                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
-            }
+            write_set_elements(buf, &s.elements(), refs, version, allow_code, vm, depth)?;
         } else if let Some(s) = obj.downcast_ref::<PyFrozenSet>() {
             buf.write_u8(b'>');
-            let elems = s.elements();
-            buf.write_u32(elems.len() as u32);
-            for elem in &elems {
-                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
-            }
+            write_set_elements(buf, &s.elements(), refs, version, allow_code, vm, depth)?;
         } else if let Some(co) = obj.downcast_ref::<PyCode>() {
             if !allow_code {
                 return Err(vm.new_value_error("marshalling code objects is disallowed"));
@@ -450,6 +442,32 @@ mod decl {
             if requires_completion {
                 refs.as_mut().unwrap().complete(obj);
             }
+        }
+        Ok(())
+    }
+
+    /// Serialize set elements in `sorted(v, key=marshal.dumps)` order.
+    fn write_set_elements(
+        buf: &mut Vec<u8>,
+        elems: &[PyObjectRef],
+        refs: &mut Option<WriterRefTable>,
+        version: i32,
+        allow_code: bool,
+        vm: &VirtualMachine,
+        depth: usize,
+    ) -> PyResult<()> {
+        use marshal::Write;
+        buf.write_u32(elems.len() as u32);
+        let mut pairs = Vec::with_capacity(elems.len());
+        for elem in elems {
+            let mut dumped = Vec::new();
+            let mut inner_refs = (version >= 3).then(WriterRefTable::new);
+            write_object(&mut dumped, elem, &mut inner_refs, version, allow_code, vm)?;
+            pairs.push((dumped, elem.clone()));
+        }
+        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        for (_, elem) in &pairs {
+            write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
         }
         Ok(())
     }
@@ -771,30 +789,87 @@ mod decl {
 
     #[pyfunction]
     fn load(args: LoadArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        // Read from file object into a buffer, one object at a time.
-        // We read all available data, deserialize one object, then seek
-        // back to just after the consumed bytes.
-        let tell_before = vm
-            .call_method(&args.f, "tell", ())?
-            .try_into_value::<i64>(vm)?;
-        let read_res = vm.call_method(&args.f, "read", ())?;
-        let bytes = ArgBytesLike::try_from_object(vm, read_res)?;
-
-        // The borrow ends here: seek() below is the caller's, and reaching the
-        // same buffer from it would deadlock on a borrow still held.
-        let (result, consumed) = {
-            let buf = bytes.borrow_buf();
-            let mut rdr: &[u8] = &buf;
-            let len_before = rdr.len();
-            let result = deserialize_value(&mut rdr, args.allow_code, vm)?;
-            (result, len_before - rdr.len())
+        let mut rdr = ReadableFile {
+            file: args.f,
+            vm,
+            buf: Vec::new(),
+            error: None,
         };
+        let pending_error = RefCell::new(None);
+        let result = marshal::deserialize_value(
+            &mut rdr,
+            PyMarshalBag::new(vm, &pending_error, args.allow_code),
+        );
+        if let Some(err) = rdr.error.take() {
+            return Err(err);
+        }
+        match result {
+            Ok(value) => Ok(value),
+            Err(error) => Err(pending_error.into_inner().unwrap_or_else(|| match error {
+                marshal::MarshalError::Eof => vm.new_eof_error("EOF read where not expected"),
+                marshal::MarshalError::EofObject => {
+                    vm.new_eof_error("EOF read where object expected")
+                }
+                marshal::MarshalError::DataTooShort => vm.new_eof_error("marshal data too short"),
+                error @ marshal::MarshalError::NullObject => vm.new_type_error(error.to_string()),
+                error @ (marshal::MarshalError::BadSize(_)
+                | marshal::MarshalError::UnknownType
+                | marshal::MarshalError::InvalidRef) => {
+                    vm.new_value_error(format!("bad marshal data ({error})"))
+                }
+                _ => vm.new_value_error("bad marshal data"),
+            })),
+        }
+    }
 
-        // Seek file to just after the consumed bytes
-        let new_pos = tell_before + consumed as i64;
-        vm.call_method(&args.f, "seek", (new_pos,))?;
+    /// File-backed marshal reader. `r_string` fills a scratch buffer via
+    /// `readinto` on a contiguous writable memoryview.
+    struct ReadableFile<'a> {
+        file: PyObjectRef,
+        vm: &'a VirtualMachine,
+        buf: Vec<u8>,
+        error: Option<PyBaseExceptionRef>,
+    }
 
-        Ok(result)
+    impl ReadableFile<'_> {
+        fn r_string(&mut self, n: usize) -> PyResult<()> {
+            self.buf.clear();
+            let bytearray = PyByteArray::from(vec![0u8; n]).into_ref(&self.vm.ctx);
+            let memoryview = PyMemoryView::from_object_with_flags(
+                bytearray.as_object(),
+                crate::protocol::BufferFlags::CONTIG,
+                self.vm,
+            )?
+            .into_ref(&self.vm.ctx);
+            let nread_obj = self.vm.call_method(&self.file, "readinto", (memoryview,))?;
+            let nread = nread_obj
+                .try_index(self.vm)?
+                .try_to_primitive::<isize>(self.vm)?;
+            let n_isize = isize::try_from(n).unwrap_or(isize::MAX);
+            if nread != n_isize {
+                if nread > n_isize {
+                    return Err(self.vm.new_value_error(format!(
+                        "read() returned too much data: {n} bytes requested, {nread} returned"
+                    )));
+                }
+                return Err(self.vm.new_eof_error("EOF read where not expected"));
+            }
+            self.buf.extend_from_slice(&bytearray.borrow_buf());
+            Ok(())
+        }
+    }
+
+    impl marshal::Read for ReadableFile<'_> {
+        fn read_slice(&mut self, n: u32) -> Result<&[u8], marshal::MarshalError> {
+            if self.error.is_some() {
+                return Err(marshal::MarshalError::Eof);
+            }
+            if let Err(e) = self.r_string(n as usize) {
+                self.error = Some(e);
+                return Err(marshal::MarshalError::Eof);
+            }
+            Ok(&self.buf)
+        }
     }
 
     /// Reject subclasses of marshallable types (int, float, complex, tuple, etc.).

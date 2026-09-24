@@ -35,7 +35,7 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
 }
 
 #[cfg(feature = "host_env")]
-pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: PyObjectRef) -> PyResult<()> {
+pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: &PyObject) -> PyResult<()> {
     use crate::{TryFromObject, builtins::PyListRef};
 
     thread::enter_vm(vm, || {
@@ -164,8 +164,8 @@ pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> P
 /// import path below and by [`crate::VirtualMachine::import`]'s
 /// `sys.modules`-cache fast path).
 pub(crate) fn is_module_initializing(module: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-    match vm.get_attribute_opt(module.to_owned(), vm.ctx.intern_str("__spec__"))? {
-        Some(spec) => match vm.get_attribute_opt(spec, vm.ctx.intern_str("_initializing"))? {
+    match vm.get_attribute_opt(module, vm.ctx.intern_str("__spec__"))? {
+        Some(spec) => match vm.get_attribute_opt(&spec, vm.ctx.intern_str("_initializing"))? {
             Some(v) => v.try_to_bool(vm),
             None => Ok(false),
         },
@@ -233,7 +233,11 @@ fn remove_importlib_frames_inner(
 
     let (inner_tb, mut now_in_importlib) =
         remove_importlib_frames_inner(vm, traceback.next.lock().clone(), always_trim);
-    if file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external" {
+    if file_name == "<frozen importlib._bootstrap>"
+        || file_name == "<frozen importlib._bootstrap_external>"
+        || file_name == "_frozen_importlib"
+        || file_name == "_frozen_importlib_external"
+    {
         if traceback.frame.iframe().code().obj_name.as_str() == "_call_with_frames_removed" {
             now_in_importlib = true;
         }
@@ -379,7 +383,7 @@ pub(crate) fn is_stdlib_module_name(name: &PyObject, vm: &VirtualMachine) -> PyR
 /// PyImport_ImportModuleLevelObject
 pub(crate) fn import_module_level(
     name: &Py<PyStr>,
-    globals: Option<PyObjectRef>,
+    globals: Option<&PyObject>,
     fromlist: Option<PyObjectRef>,
     level: i32,
     vm: &VirtualMachine,
@@ -407,12 +411,11 @@ pub(crate) fn import_module_level(
     let abs_name = if level > 0 {
         // When globals is not provided (Rust None), raise KeyError
         // matching resolve_name() where globals==NULL
-        if globals.is_none() {
+        let Some(globals_ref) = globals else {
             return Err(vm.new_key_error(vm.ctx.new_str("'__name__' not in globals").into()));
-        }
-        let globals_ref = globals.as_ref().unwrap();
+        };
         // When globals is Python None, treat like empty mapping
-        let empty_dict_obj;
+        let empty_dict_obj: PyObjectRef;
         let globals_ref = if vm.is_none(globals_ref) {
             empty_dict_obj = vm.ctx.new_dict().into();
             &empty_dict_obj
@@ -460,7 +463,7 @@ pub(crate) fn import_module_level(
         // crash inside _handle_fromlist; IMPORT_FROM handles per-attribute
         // errors with proper ImportError conversion.
         let has_path = vm
-            .get_attribute_opt(module.clone(), vm.ctx.intern_str("__path__"))?
+            .get_attribute_opt(&module, vm.ctx.intern_str("__path__"))?
             .is_some();
         if has_path {
             let handle_fromlist = vm.importlib.get_attr("_handle_fromlist", vm)?;

@@ -525,7 +525,7 @@ impl AsNumber for PyCSimpleType {
 impl Initializer for PyCSimpleType {
     type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // type_init requires exactly 3 positional arguments: name, bases, dict
         if args.args.len() != 3 {
             return Err(vm.new_type_error(format!(
@@ -1052,10 +1052,10 @@ impl Constructor for PyCSimple {
 impl Initializer for PyCSimple {
     type Args = (OptionalArg,);
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // If an argument is provided, update the value
         if let Some(value) = args.0.into_option() {
-            Self::set_value(zelf.into(), value, vm)?;
+            Self::set_value(zelf.to_owned().into(), value, vm)?;
         }
         Ok(())
     }

@@ -361,7 +361,9 @@ impl Context {
             names.__new__.as_str(),
             PyType::__new__,
             PyMethodFlags::METHOD,
-            None,
+            Some(
+                "__new__($type, /, *args, **kwargs)\n--\n\nCreate and return a new object.  See help(type) for accurate signature.",
+            ),
         );
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
@@ -668,6 +670,30 @@ impl Context {
             getter: MemberGetter::Getter(getter),
             setter: MemberSetter::Setter(setter),
             doc: doc.map(str::to_owned),
+        };
+        let member_descriptor = PyMemberDescriptor {
+            common: PyDescriptorOwned {
+                typ: class.to_owned(),
+                name: self.intern_str(name),
+                qualname: PyRwLock::new(None),
+            },
+            member: member_def,
+        };
+        member_descriptor.into_ref(self)
+    }
+
+    pub fn new_readonly_tuple_member(
+        &self,
+        name: &str,
+        class: &'static Py<PyType>,
+        index: usize,
+    ) -> PyRef<PyMemberDescriptor> {
+        let member_def = PyMemberDef {
+            name: name.to_owned(),
+            kind: MemberKind::Object,
+            getter: MemberGetter::TupleItem(index),
+            setter: MemberSetter::Setter(None),
+            doc: None,
         };
         let member_descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {

@@ -4,6 +4,7 @@ use super::{
 };
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
+use crate::stdlib::PyOrderedDictItems;
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, atomic_func,
@@ -13,7 +14,9 @@ use crate::{
     dict_inner::{self, DictKey},
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
-    protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    protocol::{
+        PyIter, PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods,
+    },
     recursion::ReprGuard,
     types::{
         AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, DefaultConstructor,
@@ -142,7 +145,7 @@ impl PyDict {
         let casted: Result<PyRefExact<Self>, _> = other.downcast_exact(vm);
         let other = match casted {
             Ok(dict_other) => {
-                return self.merge_dict(dict_other.into_pyref(), override_existing, vm);
+                return self.merge_dict(&dict_other, override_existing, vm);
             }
             Err(other) => other,
         };
@@ -151,7 +154,7 @@ impl PyDict {
         let keys_result = other.get_attr(vm.ctx.intern_str("keys"), vm);
         let has_keys = match keys_result {
             Ok(keys_method) => {
-                let keys = keys_method.call((), vm)?.get_iter(vm)?;
+                let keys = PyIter::try_from_object(vm, keys_method.call((), vm)?)?;
                 while let PyIterReturn::Return(key) = keys.next(vm)? {
                     if !override_existing && dict.contains(vm, &*key)? {
                         continue;
@@ -165,7 +168,7 @@ impl PyDict {
             Err(e) => return Err(e),
         };
         if !has_keys {
-            return self.merge_from_seq2(other, override_existing, vm);
+            return self.merge_from_seq2(&other, override_existing, vm);
         }
         Ok(())
     }
@@ -213,7 +216,7 @@ impl PyDict {
         Ok((key.clone(), value.clone()))
     }
 
-    fn update_sequence_pair(
+    pub(crate) fn update_sequence_pair(
         element: PyObjectRef,
         index: usize,
         vm: &VirtualMachine,
@@ -233,7 +236,7 @@ impl PyDict {
         };
 
         let elements = (|| {
-            let elem_iter = element.get_iter(vm).map_err(|exc| {
+            let elem_iter = PyIter::try_from_object(vm, element).map_err(|exc| {
                 if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
                     vm.new_type_error("object is not iterable")
                 } else {
@@ -251,7 +254,7 @@ impl PyDict {
 
     pub fn merge_from_seq2(
         &self,
-        seq2: PyObjectRef,
+        seq2: &PyObject,
         override_existing: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -271,13 +274,13 @@ impl PyDict {
 
     pub(crate) fn merge_dict(
         &self,
-        dict_other: PyDictRef,
+        dict_other: &Py<Self>,
         override_existing: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let dict = &self.entries;
         let dict_size = &dict_other.size();
-        for (key, value) in &dict_other {
+        for (key, value) in dict_other {
             if !override_existing && dict.contains(vm, &*key)? {
                 continue;
             }
@@ -315,10 +318,10 @@ impl PyDict {
     pub fn get_or_insert(
         &self,
         vm: &VirtualMachine,
-        key: PyObjectRef,
+        key: &PyObject,
         default: impl FnOnce() -> PyObjectRef,
     ) -> PyResult {
-        self.entries.setdefault(vm, &*key, default)
+        self.entries.setdefault(vm, key, default)
     }
 
     pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
@@ -366,6 +369,14 @@ impl PyDict {
     }
 }
 
+#[derive(FromArgs)]
+struct FromKeysArgs {
+    #[pyarg(positional)]
+    iterable: ArgIterable,
+    #[pyarg(positional, default = None)]
+    value: Option<PyObjectRef>,
+}
+
 // Python dict methods:
 #[pyclass(
     with(
@@ -384,13 +395,9 @@ impl PyDict {
 )]
 impl PyDict {
     #[pyclassmethod]
-    fn fromkeys(
-        class: PyTypeRef,
-        iterable: ArgIterable,
-        value: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let value = value.unwrap_or_none(vm);
+    fn fromkeys(class: PyTypeRef, args: FromKeysArgs, vm: &VirtualMachine) -> PyResult {
+        let FromKeysArgs { iterable, value } = args;
+        let value = value.unwrap_or_else(|| vm.ctx.none());
         let d = PyType::call(&class, ().into(), vm)?;
         match d.downcast_exact::<Self>(vm) {
             Ok(pydict) => {
@@ -402,7 +409,8 @@ impl PyDict {
                     }
                 } else {
                     for key in iterable.iter(vm)? {
-                        pydict.__setitem__(key?, value.clone(), vm)?;
+                        let key = key?;
+                        pydict.__setitem__(&key, value.clone(), vm)?;
                     }
                 }
                 Ok(pydict.into_pyref().into())
@@ -421,16 +429,16 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn __sizeof__(&self) -> usize {
+    pub(crate) fn __sizeof__(&self) -> usize {
         core::mem::size_of::<Self>() + self.entries.sizeof()
     }
 
-    fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.entries.contains(vm, &*key)
+    fn __contains__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self.entries.contains(vm, key)
     }
 
-    fn __delitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner_delitem(&*key, vm)
+    fn __delitem__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner_delitem(key, vm)
     }
 
     #[pymethod]
@@ -438,13 +446,8 @@ impl PyDict {
         self.entries.clear()
     }
 
-    fn __setitem__(
-        &self,
-        key: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        self.inner_setitem(&*key, value, vm)
+    fn __setitem__(&self, key: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner_setitem(key, value, vm)
     }
 
     #[pymethod]
@@ -496,10 +499,11 @@ impl PyDict {
     }
 
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let other_dict: Result<PyDictRef, _> = other.downcast();
-        if let Ok(other) = other_dict {
+        // Accept dict subclasses that inherit this implementation. Subclasses with
+        // their own reflected slot, such as OrderedDict, take precedence in dispatch.
+        if let Ok(other) = other.downcast::<Self>() {
             let self_cp = self.copy();
-            self_cp.merge_dict(other, true, vm)?;
+            self_cp.merge_dict(&other, true, vm)?;
             return Ok(self_cp.into_pyobject(vm));
         }
         Ok(vm.ctx.not_implemented())
@@ -542,7 +546,7 @@ impl PyDict {
 
 #[pyclass]
 impl Py<PyDict> {
-    fn inner_cmp(
+    pub(crate) fn inner_cmp(
         &self,
         other: &Self,
         op: PyComparisonOp,
@@ -585,6 +589,16 @@ impl Py<PyDict> {
     fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.inner_getitem(&*key, vm)
     }
+
+    fn __ror__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let other_dict = other.downcast::<PyDict>();
+        if let Ok(other) = other_dict {
+            let other_cp = other.copy();
+            other_cp.merge_dict(self, true, vm)?;
+            return Ok(other_cp.into_pyobject(vm));
+        }
+        Ok(vm.ctx.not_implemented())
+    }
 }
 
 #[pyclass]
@@ -613,16 +627,6 @@ impl PyRef<PyDict> {
         self.merge_object(other, vm)?;
         Ok(self)
     }
-
-    fn __ror__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let other_dict: Result<Self, _> = other.downcast();
-        if let Ok(other) = other_dict {
-            let other_cp = other.copy();
-            other_cp.merge_dict(self, true, vm)?;
-            return Ok(other_cp.into_pyobject(vm));
-        }
-        Ok(vm.ctx.not_implemented())
-    }
 }
 
 impl DefaultConstructor for PyDict {}
@@ -630,11 +634,7 @@ impl DefaultConstructor for PyDict {}
 impl Initializer for PyDict {
     type Args = (OptionalArg<PyObjectRef>, KwArgs);
 
-    fn init(
-        zelf: PyRef<Self>,
-        (dict_obj, kwargs): Self::Args,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, (dict_obj, kwargs): Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         zelf.update(dict_obj, kwargs, vm)
     }
 }
@@ -822,6 +822,38 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         self.entries.get_known_hash(vm, key, hash)
+    }
+
+    pub(crate) fn set_item_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.entries.insert_known_hash(vm, key, hash, value)
+    }
+
+    pub(crate) fn del_item_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if self.entries.delete_if_exists_known_hash(vm, key, hash)? {
+            Ok(())
+        } else {
+            Err(vm.new_key_error(key.to_owned()))
+        }
+    }
+
+    pub(crate) fn contains_known_hash(
+        &self,
+        key: &PyObject,
+        hash: crate::common::hash::PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        self.entries.contains_known_hash(vm, key, hash)
     }
 
     pub fn get_item_opt<K: DictKey + ?Sized>(
@@ -1550,8 +1582,8 @@ impl ViewSetOps for PyDictKeys {}
     )
 )]
 impl PyDictKeys {
-    fn __contains__(zelf: PyObjectRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        zelf.sequence_unchecked().contains(&key, vm)
+    fn __contains__(zelf: &PyObject, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        zelf.sequence_unchecked().contains(key, vm)
     }
 
     #[pygetset]
@@ -1614,8 +1646,8 @@ impl ViewSetOps for PyDictItems {}
     )
 )]
 impl PyDictItems {
-    fn __contains__(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        zelf.sequence_unchecked().contains(&needle, vm)
+    fn __contains__(zelf: &PyObject, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        zelf.sequence_unchecked().contains(needle, vm)
     }
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
@@ -1649,7 +1681,7 @@ impl AsSequence for PyDictItems {
 
                 let zelf = PyDictItems::sequence_downcast(seq);
                 let key = &needle[0];
-                if !zelf.dict.__contains__(key.to_owned(), vm)? {
+                if !zelf.dict.__contains__(key, vm)? {
                     return Ok(false);
                 }
                 let value = &needle[1];
@@ -1667,7 +1699,7 @@ impl AsNumber for PyDictItems {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             subtract: Some(set_inner_number_subtract),
             and: Some(set_inner_number_and),
-            xor: Some(set_inner_number_xor),
+            xor: Some(dict_item_view_number_xor),
             or: Some(set_inner_number_or),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -1708,19 +1740,77 @@ where
     Ok(PySet { inner: f(a, b)? }.into_pyobject(vm))
 }
 
-fn set_inner_number_subtract(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn set_inner_number_subtract(
+    a: &PyObject,
+    b: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult {
     set_inner_number_op(a, b, |a, b| a.difference(b, vm), vm)
 }
 
-fn set_inner_number_and(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-    set_inner_number_op(a, b, |a, b| a.intersection(b, vm), vm)
+pub(crate) fn set_inner_number_and(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let a_is_view =
+        a.downcast_ref::<PyDictKeys>().is_some() || a.downcast_ref::<PyDictItems>().is_some();
+    let (view, other) = if a_is_view { (a, b) } else { (b, a) };
+    set_view_number_and(view, other, vm)
 }
 
-fn set_inner_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn set_view_number_and(
+    view: &PyObject,
+    other: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let other = ArgIterable::<PyObjectRef>::try_from_object(vm, other.to_owned())?;
+    let result = PySet::default();
+    for item in other.iter(vm)? {
+        let item = item?;
+        if view.sequence_unchecked().contains(&item, vm)? {
+            result.add(item, vm)?;
+        }
+    }
+    Ok(result.into_pyobject(vm))
+}
+
+pub(crate) fn set_inner_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
     set_inner_number_op(a, b, |a, b| a.symmetric_difference(b, vm), vm)
 }
 
-fn set_inner_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn set_item_view_number_xor(
+    a: &PyObject,
+    b: &PyObject,
+    both_are_item_views: bool,
+    vm: &VirtualMachine,
+) -> PyResult {
+    if !both_are_item_views {
+        return set_inner_number_xor(a, b, vm);
+    }
+    let result = PySet::default();
+    let a_iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, a.to_owned())?;
+    for item in a_iterable.iter(vm)? {
+        let item = item?;
+        if !b.sequence_unchecked().contains(&item, vm)? {
+            result.add(item, vm)?;
+        }
+    }
+    let b_iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, b.to_owned())?;
+    for item in b_iterable.iter(vm)? {
+        let item = item?;
+        if !a.sequence_unchecked().contains(&item, vm)? {
+            result.add(item, vm)?;
+        }
+    }
+    Ok(result.into_pyobject(vm))
+}
+
+fn dict_item_view_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let is_native_item_view = |obj: &PyObject| {
+        obj.downcast_ref::<PyDictItems>().is_some()
+            || obj.downcast_ref::<PyOrderedDictItems>().is_some()
+    };
+    set_item_view_number_xor(a, b, is_native_item_view(a) && is_native_item_view(b), vm)
+}
+
+pub(crate) fn set_inner_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
     set_inner_number_op(a, b, |a, b| a.union(b, vm), vm)
 }
 
@@ -1734,7 +1824,7 @@ fn vectorcall_dict(
     let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
     let obj = PyDict::default().into_ref_with_type(vm, zelf.to_owned())?;
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
-    PyDict::slot_init(obj.clone().into(), func_args, vm)?;
+    PyDict::slot_init(obj.as_object(), func_args, vm)?;
     Ok(obj.into())
 }
 

@@ -972,7 +972,7 @@ mod _sqlite3 {
     impl Initializer for Connection {
         type Args = ConnectArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let was_initialized = Radium::swap(&zelf.initialized, false, Ordering::AcqRel);
 
             // Reset factories to their defaults, matching CPython's behavior.
@@ -2179,7 +2179,7 @@ mod _sqlite3 {
                         .flat_map(|x| x.to_uppercase())
                         .collect::<String>();
                     if let Some(converter) = converters().get_item_opt(&col_name, vm)? {
-                        cast_map.push(Some(converter.clone()));
+                        cast_map.push(Some(converter));
                         continue;
                     }
                 }
@@ -2189,7 +2189,7 @@ mod _sqlite3 {
                     if let Some(decltype) = decltype.split_terminator(&[' ', '(']).next() {
                         let decltype = decltype.to_uppercase();
                         if let Some(converter) = converters().get_item_opt(&decltype, vm)? {
-                            cast_map.push(Some(converter.clone()));
+                            cast_map.push(Some(converter));
                             continue;
                         }
                     }
@@ -2216,7 +2216,7 @@ mod _sqlite3 {
     impl Initializer for Cursor {
         type Args = PyRef<Connection>;
 
-        fn init(zelf: PyRef<Self>, _connection: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, _connection: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             let mut guard = zelf.inner.lock();
             if guard.is_some() {
                 // Already initialized (e.g., from a call to super().__init__)
@@ -3526,7 +3526,7 @@ mod _sqlite3 {
                 unsafe { sqlite3_result_error(self.ctx, msg.as_ptr().cast(), -1) }
             }
             if enable_traceback().load(Ordering::Relaxed) {
-                vm.print_exception(exc);
+                vm.print_exception(&exc);
             }
         }
 

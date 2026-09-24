@@ -97,22 +97,22 @@ impl Node for ast::TypeParam {
                 object.repr(vm)?
             )));
         };
-        let range = type_param_range_from_object(vm, source_file, object.clone())?;
+        let range = type_param_range_from_object(vm, source_file, &object)?;
         Ok(match kind {
             TypeParamKind::TypeVar => Self::TypeVar(type_var_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             TypeParamKind::ParamSpec => Self::ParamSpec(param_spec_from_object_with_range(
                 vm,
                 source_file,
-                object,
+                &object,
                 range,
             )?),
             TypeParamKind::TypeVarTuple => Self::TypeVarTuple(
-                type_var_tuple_from_object_with_range(vm, source_file, object, range)?,
+                type_var_tuple_from_object_with_range(vm, source_file, &object, range)?,
             ),
         })
     }
@@ -122,16 +122,16 @@ impl Node for ast::TypeParam {
 fn type_var_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::TypeParamTypeVar> {
     Ok(ast::TypeParamTypeVar {
         node_index: Default::default(),
-        name: get_required_identifier_field(vm, source_file, &object, "name", "TypeVar")?,
-        bound: get_node_field_opt(vm, &object, "bound")?
+        name: get_required_identifier_field(vm, source_file, object, "name", "TypeVar")?,
+        bound: get_node_field_opt(vm, object, "bound")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
-        default: get_node_field_opt(vm, &object, "default_value")?
+        default: get_node_field_opt(vm, object, "default_value")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         range,
@@ -166,8 +166,8 @@ impl Node for ast::TypeParamTypeVar {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = type_param_range_from_object(vm, source_file, object.clone())?;
-        type_var_from_object_with_range(vm, source_file, object, range)
+        let range = type_param_range_from_object(vm, source_file, &object)?;
+        type_var_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -175,13 +175,13 @@ impl Node for ast::TypeParamTypeVar {
 fn param_spec_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::TypeParamParamSpec> {
     Ok(ast::TypeParamParamSpec {
         node_index: Default::default(),
-        name: get_required_identifier_field(vm, source_file, &object, "name", "ParamSpec")?,
-        default: get_node_field_opt(vm, &object, "default_value")?
+        name: get_required_identifier_field(vm, source_file, object, "name", "ParamSpec")?,
+        default: get_node_field_opt(vm, object, "default_value")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         range,
@@ -213,8 +213,8 @@ impl Node for ast::TypeParamParamSpec {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = type_param_range_from_object(vm, source_file, object.clone())?;
-        param_spec_from_object_with_range(vm, source_file, object, range)
+        let range = type_param_range_from_object(vm, source_file, &object)?;
+        param_spec_from_object_with_range(vm, source_file, &object, range)
     }
 }
 
@@ -222,13 +222,13 @@ impl Node for ast::TypeParamParamSpec {
 fn type_var_tuple_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::TypeParamTypeVarTuple> {
     Ok(ast::TypeParamTypeVarTuple {
         node_index: Default::default(),
-        name: get_required_identifier_field(vm, source_file, &object, "name", "TypeVarTuple")?,
-        default: get_node_field_opt(vm, &object, "default_value")?
+        name: get_required_identifier_field(vm, source_file, object, "name", "TypeVarTuple")?,
+        default: get_node_field_opt(vm, object, "default_value")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         range,
@@ -263,7 +263,7 @@ impl Node for ast::TypeParamTypeVarTuple {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = type_param_range_from_object(vm, source_file, object.clone())?;
-        type_var_tuple_from_object_with_range(vm, source_file, object, range)
+        let range = type_param_range_from_object(vm, source_file, &object)?;
+        type_var_tuple_from_object_with_range(vm, source_file, &object, range)
     }
 }

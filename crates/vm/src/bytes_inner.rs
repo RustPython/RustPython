@@ -1,6 +1,6 @@
 // spell-checker:ignore unchunked
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
@@ -64,19 +64,19 @@ impl ByteInnerNewOptions {
         errors: OptionalArg<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
-        let bytes = pystr::encode_string(s, Some(encoding), errors.into_option(), vm)?;
+        let bytes = pystr::encode_string(s, Some(&encoding), errors.into_option(), vm)?;
         Ok(bytes.as_bytes().to_vec().into())
     }
 
     fn get_value_from_source(
-        source: PyObjectRef,
+        source: &PyObject,
         from_object: FromObject,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
-        from_object(vm, &source).map(|x| x.into())
+        from_object(vm, source).map(|x| x.into())
     }
 
-    fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    fn get_value_from_size(size: &Py<PyInt>, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         let size = size
             .as_bigint()
             .to_isize()
@@ -96,11 +96,11 @@ impl ByteInnerNewOptions {
     ) -> PyResult<PyBytesInner> {
         match_class!(match obj {
             i @ PyInt => {
-                Self::get_value_from_size(i, vm)
+                Self::get_value_from_size(&i, vm)
             }
             _s @ PyStr => Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned())),
             obj => {
-                Self::get_value_from_source(obj, from_object, vm)
+                Self::get_value_from_source(&obj, from_object, vm)
             }
         })
     }
@@ -114,7 +114,7 @@ impl ByteInnerNewOptions {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
                 if let Some(index_result) = obj.try_index_opt(vm) {
                     match index_result {
-                        Ok(index) => Self::get_value_from_size(index, vm),
+                        Ok(index) => Self::get_value_from_size(&index, vm),
                         Err(e) => {
                             // Only propagate non-TypeError exceptions
                             // TypeError means the object doesn't support __index__, so fall back
@@ -211,7 +211,7 @@ impl ByteInnerFindOptions {
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, core::ops::Range<usize>)> {
         let sub = self.sub.into_vec(vm)?;
-        let range = anystr::adjust_indices(self.start, self.end, len);
+        let range = anystr::adjust_indices(self.start.as_deref(), self.end.as_deref(), len);
         Ok((sub, range))
     }
 }
@@ -512,7 +512,7 @@ impl PyBytesInner {
         swapcase_ascii(self.as_bytes())
     }
 
-    pub fn hex(&self, sep: Option<u8>, bytes_per_sep: OptionalArg<isize>) -> String {
+    pub fn hex(&self, sep: Option<u8>, bytes_per_sep: isize) -> String {
         bytes_to_hex(self.elements.as_slice(), sep, bytes_per_sep)
     }
 
@@ -565,11 +565,11 @@ impl PyBytesInner {
     }
 
     /// Parse hex string from str or bytes-like object
-    pub fn fromhex_object(string: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub fn fromhex_object(string: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if let Some(s) = string.downcast_ref::<PyStr>() {
             Self::fromhex(s.as_bytes(), vm)
         } else if string.check_buffer() {
-            let buffer = PyBuffer::from_object(vm, &string, BufferFlags::SIMPLE)?;
+            let buffer = PyBuffer::from_object(vm, string, BufferFlags::SIMPLE)?;
             let borrowed = buffer
                 .as_contiguous()
                 .ok_or_else(|| vm.new_buffer_error("fromhex() requires a contiguous buffer"))?;
@@ -1024,7 +1024,7 @@ impl PyBytesInner {
     }
 
     pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        cformat_bytes(vm, self.elements.as_slice(), values)
+        cformat_bytes(vm, self.elements.as_slice(), &values)
     }
 
     pub fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -1231,8 +1231,8 @@ pub(crate) fn bytes_decode(
 pub(crate) struct ByteInnerHexOptions {
     #[pyarg(any, optional)]
     pub sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
-    #[pyarg(any, optional)]
-    pub bytes_per_sep: OptionalArg<isize>,
+    #[pyarg(any, default = 1)]
+    pub bytes_per_sep: isize,
 }
 
 impl ByteInnerHexOptions {
@@ -1240,7 +1240,7 @@ impl ByteInnerHexOptions {
     ///
     /// Measuring the separator runs Python, so it happens here, before the
     /// bytes to be written out are borrowed. _Py_strhex_impl
-    pub(crate) fn resolve(self, vm: &VirtualMachine) -> PyResult<(Option<u8>, OptionalArg<isize>)> {
+    pub(crate) fn resolve(self, vm: &VirtualMachine) -> PyResult<(Option<u8>, isize)> {
         let Self { sep, bytes_per_sep } = self;
         let OptionalArg::Present(sep) = sep else {
             return Ok((None, bytes_per_sep));
@@ -1323,12 +1323,7 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
     unsafe { String::from_utf8_unchecked(buf) }
 }
 
-pub(crate) fn bytes_to_hex(
-    bytes: &[u8],
-    sep: Option<u8>,
-    bytes_per_sep: OptionalArg<isize>,
-) -> String {
-    let bytes_per_sep = bytes_per_sep.unwrap_or(1);
+pub(crate) fn bytes_to_hex(bytes: &[u8], sep: Option<u8>, bytes_per_sep: isize) -> String {
     match sep {
         Some(sep) if bytes_per_sep != 0 && !bytes.is_empty() => hex_impl(bytes, sep, bytes_per_sep),
         _ => hex_impl_no_sep(bytes),

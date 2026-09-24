@@ -180,7 +180,7 @@ mod _abc {
                 while let PyIterReturn::Return(key) = iter.next(vm)? {
                     // Try to get the attribute from cls - key should be a string
                     if let Some(key_str) = key.downcast_ref::<PyStr>()
-                        && let Some(value) = vm.get_attribute_opt(cls.to_owned(), key_str)?
+                        && let Some(value) = vm.get_attribute_opt(cls, key_str)?
                         && let Ok(is_abstract) = value.get_attr("__isabstractmethod__", vm)
                         && is_abstract.try_to_bool(vm)?
                     {
@@ -205,6 +205,11 @@ mod _abc {
         // Set up inheritance registry
         let data = AbcData::new();
         cls.set_attr("_abc_impl", data.to_pyobject(vm), vm)?;
+
+        if let Some(cls_type) = cls.downcast_ref::<PyType>() {
+            let abstracts = cls.get_attr("__abstractmethods__", vm)?;
+            cls_type.set_is_abstract(abstracts.try_to_bool(vm)?);
+        }
 
         Ok(())
     }

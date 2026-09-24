@@ -43,7 +43,7 @@ pub unsafe extern "C" fn PyCodec_Register(search_function: *mut PyObject) -> c_i
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyCodec_Unregister(search_function: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let search_function = unsafe { &*search_function }.to_owned();
+        let search_function = unsafe { &*search_function };
         vm.state.codec_registry.unregister(search_function);
     })
 }

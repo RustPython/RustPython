@@ -379,7 +379,7 @@ impl PyInt {
     }
 
     #[inline]
-    fn int_op<F>(&self, other: PyObjectRef, op: F) -> PyArithmeticValue<BigInt>
+    fn int_op<F>(&self, other: &PyObject, op: F) -> PyArithmeticValue<BigInt>
     where
         F: Fn(&BigInt, &BigInt) -> BigInt,
     {
@@ -390,7 +390,7 @@ impl PyInt {
     }
 
     #[inline]
-    fn general_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult
+    fn general_op<F>(&self, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: Fn(&BigInt, &BigInt) -> PyResult,
     {
@@ -409,18 +409,18 @@ impl PyInt {
 )]
 impl PyInt {
     pub(crate) fn __xor__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a ^ b)
+        self.int_op(&other, |a, b| a ^ b)
     }
 
     pub(crate) fn __or__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a | b)
+        self.int_op(&other, |a, b| a | b)
     }
 
     pub(crate) fn __and__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a & b)
+        self.int_op(&other, |a, b| a & b)
     }
 
-    fn modpow(&self, other: PyObjectRef, modulus: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn modpow(&self, other: &PyObject, modulus: &PyObject, vm: &VirtualMachine) -> PyResult {
         if other.downcast_ref::<Self>().is_none() {
             return Ok(vm.ctx.not_implemented());
         }
@@ -589,7 +589,7 @@ impl PyInt {
 
     #[pymethod]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        let signed = args.signed.map_or(false, Into::into);
+        let signed = args.signed;
         let byte_len = args.length;
 
         let value = self.as_bigint();
@@ -757,9 +757,9 @@ impl PyInt {
         power: Some(|a, b, c, vm| {
             if let Some(a) = a.downcast_ref::<Self>() {
                 if vm.is_none(c) {
-                    a.general_op(b.to_owned(), |a, b| inner_pow(a, b, vm), vm)
+                    a.general_op(b, |a, b| inner_pow(a, b, vm), vm)
                 } else {
-                    a.modpow(b.to_owned(), c.to_owned(), vm)
+                    a.modpow(b, c, vm)
                 }
             } else {
                 Ok(vm.ctx.not_implemented())
@@ -820,10 +820,11 @@ struct IntFromByteArgs {
 struct IntToByteArgs {
     #[pyarg(any, default = 1)]
     length: usize,
-    #[pyarg(any, default = ArgByteOrder::Big)]
+    // ArgByteOrder::Big is not the text 'big'.
+    #[pyarg(any, default = ArgByteOrder::Big, py_default = "'big'")]
     byteorder: ArgByteOrder,
-    #[pyarg(named, optional)]
-    signed: OptionalArg<ArgIntoBool>,
+    #[pyarg(named, default = false)]
+    signed: bool,
 }
 
 fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
