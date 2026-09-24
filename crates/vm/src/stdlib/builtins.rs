@@ -716,7 +716,7 @@ mod builtins {
                 name.class().name()
             ))
         })?;
-        Ok(vm.get_attribute_opt(&obj, attr)?.is_some())
+        obj.has_attr(attr, vm)
     }
 
     #[pyfunction]
