@@ -45,7 +45,6 @@ pub mod setobject;
 pub mod sliceobject;
 pub mod traceback;
 pub mod tupleobject;
-pub mod typeobject;
 pub mod unicodeobject;
 mod util;
 pub mod warnings;
