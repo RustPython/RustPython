@@ -414,14 +414,13 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn mkdir(args: MkdirArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
-        let MkdirArgs { path, mode, dir_fd } = args;
         #[cfg(any(unix, target_os = "wasi"))]
-        let dir_fd = dir_fd.get_opt();
+        let dir_fd = args.dir_fd.get_opt();
         #[cfg(not(any(unix, target_os = "wasi")))]
         let dir_fd = None;
 
-        crate::host_env::posix::make_dir(dir_fd, &path.path, mode)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+        crate::host_env::posix::make_dir(dir_fd, &args.path.path, args.mode)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, args.path, vm))
     }
 
     #[pyfunction]

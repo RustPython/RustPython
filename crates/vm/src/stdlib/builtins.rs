@@ -1201,8 +1201,9 @@ mod builtins {
     pub(super) struct SumArgs {
         #[pyarg(positional)]
         iterable: ArgIterable,
-        #[pyarg(any, optional)]
-        start: OptionalArg<PyObjectRef>,
+        // The int object needs the VM, so the default is not a literal.
+        #[pyarg(any, default = vm.ctx.new_int(0).into(), py_default = "0")]
+        start: PyObjectRef,
     }
 
     #[expect(
@@ -1211,10 +1212,7 @@ mod builtins {
     )]
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
-        // Start with zero and add at will:
-        let mut sum = start
-            .into_option()
-            .unwrap_or_else(|| vm.ctx.new_int(0).into());
+        let mut sum = start;
 
         match_class!(match sum {
             PyStr =>
