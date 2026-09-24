@@ -339,6 +339,7 @@ pub enum MemberKind {
 }
 
 impl MemberKind {
+    #[must_use]
     pub fn from_i32(value: i32) -> Option<Self> {
         match value {
             6 => Some(Self::Object),
