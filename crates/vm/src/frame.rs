@@ -6291,7 +6291,7 @@ impl ExecutingFrame<'_> {
 
                 if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
                     let slot_offset =
-                        self.code.instructions.read_cache_u32(cache_base + 3) as usize;
+                        self.code.instructions.read_cache_u32(cache_base + 3) as i32 as isize;
                     if let Some(value) = owner.get_slot(slot_offset) {
                         self.pop_stackref();
                         if oparg.is_method() {
@@ -6381,7 +6381,7 @@ impl ExecutingFrame<'_> {
 
                 if version_match {
                     let slot_offset =
-                        self.code.instructions.read_cache_u16(cache_base + 3) as usize;
+                        self.code.instructions.read_cache_u16(cache_base + 3) as i16 as isize;
                     let owner = self.pop_value();
                     let value = self.pop_value();
                     owner.set_slot(slot_offset, Some(value));

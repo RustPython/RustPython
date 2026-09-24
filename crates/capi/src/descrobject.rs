@@ -5,8 +5,8 @@ use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int, c_void};
 use rustpython_vm::builtins::{
-    DescriptorMemberDef, MemberAccess, MemberKind, PY_READONLY, PY_RELATIVE_OFFSET,
-    PyDescriptorOwned, PyGetSet, PyMappingProxy, PyMemberDescriptor, PyType,
+    DescriptorMemberDef, MemberAccess, MemberKind, PY_RELATIVE_OFFSET, PyDescriptorOwned, PyGetSet,
+    PyMappingProxy, PyMemberDescriptor, PyType,
 };
 use rustpython_vm::common::lock::PyRwLock;
 use rustpython_vm::function::PySetterValue;
@@ -126,17 +126,15 @@ impl PyMemberDef {
                 self.type_code
             )));
         };
-        if self.offset < 0 {
-            return Err(vm.new_system_error("PyDescr_NewMember does not support negative offsets"));
-        }
-        if self.flags & PY_RELATIVE_OFFSET != 0 {
-            return Err(
-                vm.new_system_error("PyDescr_NewMember does not support Py_RELATIVE_OFFSET")
-            );
+        let mut offset = self.offset;
+        let mut flags = self.flags;
+        if flags & PY_RELATIVE_OFFSET != 0 {
+            // type creation adds tp_basicsize and clears the flag before GetOne.
+            offset += (rustpython_vm::object::SIZEOF_PYOBJECT_HEAD + ty.slots.basicsize) as isize;
+            flags &= !PY_RELATIVE_OFFSET;
         }
 
         let doc = unsafe { self.doc.try_as_str_opt(vm) }?.map(str::to_owned);
-        let readonly = self.flags & PY_READONLY != 0;
 
         let descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
@@ -147,11 +145,11 @@ impl PyMemberDef {
             member: DescriptorMemberDef {
                 name: name.to_owned(),
                 kind,
-                offset: self.offset,
-                flags: if readonly { PY_READONLY } else { 0 },
+                offset,
+                flags,
                 doc,
             },
-            // Instance members live in the slot array. `offset` is that index.
+            // `offset` is a byte offset from the object to a pointer cell.
             access: MemberAccess::Slot,
         };
 

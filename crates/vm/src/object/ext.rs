@@ -472,25 +472,41 @@ impl PyAtomicRef<PyObject> {
     /// until it applies to the pointer still in the slot, and a value placed
     /// here is published so its memory outlives that race.
     pub(crate) fn load_owned(&self) -> Option<PyObjectRef> {
-        loop {
-            let ptr = self.inner.load(Ordering::Acquire);
-            if ptr.is_null() {
-                return None;
+        let ptr = self.inner.load(Ordering::Acquire);
+        if ptr.is_null() {
+            return None;
+        }
+        // Without threading the slot's own reference keeps the object alive,
+        // so one incref is enough. With threading, retry when a store retires
+        // the pointer between the load and the incref.
+        #[cfg(not(feature = "threading"))]
+        {
+            unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
+        }
+        #[cfg(feature = "threading")]
+        {
+            let mut ptr = ptr;
+            loop {
+                if let Some(obj) = unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
+                    && core::ptr::eq(self.inner.load(Ordering::Acquire), ptr)
+                {
+                    return Some(obj);
+                }
+                ptr = self.inner.load(Ordering::Acquire);
+                if ptr.is_null() {
+                    return None;
+                }
+                core::hint::spin_loop();
             }
-            if let Some(obj) = unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
-                && core::ptr::eq(self.inner.load(Ordering::Acquire), ptr)
-            {
-                return Some(obj);
-            }
-            core::hint::spin_loop();
         }
     }
 
     /// Replace the stored reference. Returns the previous one, still owned.
+    ///
+    /// The value placed in the slot is not marked published, so it can still
+    /// return to the freelist. With threading, the value that leaves the slot
+    /// is marked so its free waits out a reader that already loaded it.
     pub(crate) fn store(&self, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
-        if let Some(obj) = value.as_ref() {
-            obj.mark_cache_published();
-        }
         let new_ptr = match value {
             Some(obj) => {
                 let ptr = obj.into_raw().as_ptr();
@@ -500,7 +516,12 @@ impl PyAtomicRef<PyObject> {
             None => null_mut(),
         };
         let old = Radium::swap(&self.inner, new_ptr, Ordering::AcqRel);
-        NonNull::new(old.cast()).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) })
+        let old = NonNull::new(old.cast()).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
+        #[cfg(feature = "threading")]
+        if let Some(old) = old.as_ref() {
+            old.mark_cache_published();
+        }
+        old
     }
 }
 
