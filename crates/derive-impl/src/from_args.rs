@@ -248,43 +248,47 @@ fn python_default_repr(default: Option<&DefaultValue>, py_default: Option<&str>)
     if let Some(py_default) = py_default {
         return Some(py_default.to_owned());
     }
-    match default {
-        None => None,
-        Some(None) => Some("<unrepresentable>".to_owned()),
-        Some(Some(expr)) => match expr {
-            Expr::Lit(syn::ExprLit { lit, .. }) => match lit {
-                Lit::Bool(b) => Some(if b.value {
-                    "True".to_owned()
+    let expr = default?.as_ref();
+    Some(
+        expr.and_then(python_literal_repr)
+            .unwrap_or_else(|| "<unrepresentable>".to_owned()),
+    )
+}
+
+/// Python source for a Rust literal default, or `None` when it has none.
+fn python_literal_repr(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Lit(syn::ExprLit { lit, .. }) => match lit {
+            Lit::Bool(b) => Some(if b.value { "True" } else { "False" }.to_owned()),
+            Lit::Int(i) => Some(i.base10_digits().to_owned()),
+            // `1f64` has digits `1`; keep it a float.
+            Lit::Float(f) => {
+                let digits = f.base10_digits();
+                Some(if digits.contains(['.', 'e', 'E']) {
+                    digits.to_owned()
                 } else {
-                    "False".to_owned()
-                }),
-                Lit::Int(i) => Some(i.base10_digits().to_owned()),
-                Lit::Float(f) => Some(f.base10_digits().to_owned()),
-                Lit::Str(s) => Some(python_str_repr(&s.value())),
-                _ => Some("<unrepresentable>".to_owned()),
-            },
-            Expr::Path(path) if path.qself.is_none() && path.path.is_ident("None") => {
-                Some("None".to_owned())
+                    format!("{digits}.0")
+                })
             }
-            Expr::Unary(syn::ExprUnary {
-                op: syn::UnOp::Neg(_),
-                expr: inner,
-                ..
-            }) => match inner.as_ref() {
-                Expr::Lit(syn::ExprLit {
-                    lit: Lit::Int(i), ..
-                }) => Some(format!("-{}", i.base10_digits())),
-                Expr::Lit(syn::ExprLit {
-                    lit: Lit::Float(f), ..
-                }) => Some(format!("-{}", f.base10_digits())),
-                _ => Some("<unrepresentable>".to_owned()),
-            },
-            Expr::Paren(syn::ExprParen { expr: inner, .. })
-            | Expr::Group(syn::ExprGroup { expr: inner, .. }) => {
-                python_default_repr(Some(&Some(inner.as_ref().clone())), None)
-            }
-            _ => Some("<unrepresentable>".to_owned()),
+            Lit::Str(s) => Some(python_str_repr(&s.value())),
+            _ => None,
         },
+        Expr::Path(path) if path.qself.is_none() && path.path.is_ident("None") => {
+            Some("None".to_owned())
+        }
+        Expr::Unary(syn::ExprUnary {
+            op: syn::UnOp::Neg(_),
+            expr: inner,
+            ..
+        }) => {
+            let inner = python_literal_repr(inner)?;
+            inner
+                .starts_with(|c: char| c.is_ascii_digit())
+                .then(|| format!("-{inner}"))
+        }
+        Expr::Paren(syn::ExprParen { expr: inner, .. })
+        | Expr::Group(syn::ExprGroup { expr: inner, .. }) => python_literal_repr(inner),
+        _ => None,
     }
 }
 
