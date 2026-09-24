@@ -629,6 +629,37 @@ impl PyStr {
 }
 
 impl Py<PyStr> {
+    /// Borrowed text of the payload.
+    #[inline]
+    pub fn payload_wtf8(&self) -> &Wtf8 {
+        self.payload().as_wtf8()
+    }
+
+    #[inline]
+    pub fn as_wtf8(&self) -> &Wtf8 {
+        self.payload_wtf8()
+    }
+
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.payload_wtf8().as_bytes()
+    }
+
+    #[inline]
+    pub fn to_str(&self) -> Option<&str> {
+        self.payload().to_str()
+    }
+
+    #[inline]
+    pub fn byte_len(&self) -> usize {
+        self.payload().byte_len()
+    }
+
+    #[inline]
+    pub fn char_len(&self) -> usize {
+        self.payload().char_len()
+    }
+
     pub fn as_utf8(&self) -> Option<&Py<PyUtf8Str>> {
         if self.is_utf8() {
             // SAFETY: is_utf8() guarantees the PyUtf8Str invariant.

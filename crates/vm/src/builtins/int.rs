@@ -747,6 +747,21 @@ impl AsNumber for PyInt {
     }
 }
 
+impl Py<PyInt> {
+    #[inline]
+    pub fn as_bigint(&self) -> &BigInt {
+        self.payload().as_bigint()
+    }
+
+    #[inline]
+    pub fn try_to_primitive<'a, I>(&'a self, vm: &VirtualMachine) -> PyResult<I>
+    where
+        I: PrimInt + TryFrom<&'a BigInt>,
+    {
+        self.payload().try_to_primitive(vm)
+    }
+}
+
 impl PyInt {
     pub(super) const AS_NUMBER: PyNumberMethods = PyNumberMethods {
         add: Some(|a, b, vm| Self::number_op(a, b, |a, b, _vm| a + b, vm)),

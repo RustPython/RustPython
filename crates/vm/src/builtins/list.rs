@@ -128,6 +128,18 @@ impl ToPyObject for Vec<PyObjectRef> {
     }
 }
 
+impl Py<PyList> {
+    #[inline]
+    pub fn borrow_vec(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {
+        self.payload().borrow_vec()
+    }
+
+    #[inline]
+    pub fn borrow_vec_mut(&self) -> PyRwLockWriteGuard<'_, Vec<PyObjectRef>> {
+        self.payload().borrow_vec_mut()
+    }
+}
+
 impl PyList {
     #[deprecated(note = "use PyList::from(...).into_ref() instead")]
     pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {

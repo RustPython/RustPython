@@ -751,6 +751,16 @@ impl Representable for PyDict {
 
 impl Py<PyDict> {
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.payload().is_empty()
+    }
+
+    #[inline]
+    pub fn size(&self) -> dict_inner::DictSize {
+        self.payload().size()
+    }
+
+    #[inline]
     fn exact_dict(&self, vm: &VirtualMachine) -> bool {
         self.class().is(vm.ctx.types.dict_type)
     }
