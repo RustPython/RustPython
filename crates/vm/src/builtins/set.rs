@@ -905,7 +905,7 @@ impl DefaultConstructor for PySet {}
 impl Initializer for PySet {
     type Args = OptionalArg<PyObjectRef>;
 
-    fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         zelf.clear();
         if let OptionalArg::Present(it) = iterable {
             zelf.update(PosArgs::new(vec![it]), vm)?;
@@ -1621,7 +1621,7 @@ fn vectorcall_set(
     let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
     let obj = PySet::default().into_ref_with_type(vm, zelf.to_owned())?;
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
-    PySet::slot_init(obj.clone().into(), func_args, vm)?;
+    PySet::slot_init(obj.as_object(), func_args, vm)?;
     Ok(obj.into())
 }
 

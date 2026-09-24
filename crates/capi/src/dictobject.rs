@@ -294,7 +294,7 @@ pub unsafe extern "C" fn PyDict_MergeFromSeq2(
 ) -> c_int {
     with_vm(|vm| {
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let seq2 = unsafe { &*seq2 }.to_owned();
+        let seq2 = unsafe { &*seq2 };
         dict.merge_from_seq2(seq2, override_ != 0, vm)
     })
 }

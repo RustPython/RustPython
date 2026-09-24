@@ -460,7 +460,7 @@ mod _collections {
         type Args = PyDequeOptions;
 
         fn init(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             PyDequeOptions { iterable, maxlen }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -1002,7 +1002,7 @@ mod _collections {
     impl Initializer for PyDefaultDict {
         type Args = FuncArgs;
 
-        fn init(zelf: PyRef<Self>, mut args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, mut args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let default_factory = args.take_positional().map_or(Ok(None), |factory| {
                 let is_none = factory.is(&vm.ctx.none());
 

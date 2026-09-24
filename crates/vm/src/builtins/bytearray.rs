@@ -104,16 +104,16 @@ impl PyByteArray {
     fn _setitem(
         zelf: &Py<Self>,
         needle: &PyObject,
-        value: PyObjectRef,
+        value: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "bytearray")? {
-            SequenceIndex::Int(i) => zelf._setitem_by_index(i, &value, vm),
+            SequenceIndex::Int(i) => zelf._setitem_by_index(i, value, vm),
             SequenceIndex::Slice(slice) => {
                 let items = if zelf.is(&value) {
                     zelf.borrow_buf().to_vec()
                 } else {
-                    bytearray_from_object(vm, &value)?
+                    bytearray_from_object(vm, value)?
                 };
                 if let Some(mut w) = zelf.try_resizable_opt() {
                     w.elements.setitem_by_slice(vm, slice, &items)
@@ -575,7 +575,7 @@ impl Py<PyByteArray> {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        PyByteArray::_setitem(self, needle, value, vm)
+        PyByteArray::_setitem(self, needle, &value, vm)
     }
 
     #[pymethod]
@@ -712,7 +712,7 @@ impl DefaultConstructor for PyByteArray {}
 impl Initializer for PyByteArray {
     type Args = ByteInnerNewOptions;
 
-    fn init(zelf: PyRef<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // First unpack bytearray and *then* get a lock to set it.
         let mut inner = options.get_inner(bytearray_from_object, vm)?;
         core::mem::swap(&mut *zelf.inner_mut(), &mut inner);

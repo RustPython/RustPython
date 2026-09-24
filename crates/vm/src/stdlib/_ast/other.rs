@@ -94,7 +94,7 @@ impl Node for ast::Alias {
             asname: get_node_field_opt(vm, &object, "asname")?
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
-            range: range_from_object(vm, source_file, object, "alias")?,
+            range: range_from_object(vm, source_file, &object, "alias")?,
         })
     }
 }

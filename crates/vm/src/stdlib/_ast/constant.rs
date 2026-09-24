@@ -137,9 +137,9 @@ pub(super) fn invalid_constant_type(expr: &ast::Expr) -> Option<Box<str>> {
 
 pub(super) fn runtime_string_from_pyobject(
     vm: &VirtualMachine,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> (Option<Box<str>>, Option<Vec<u8>>) {
-    runtime_string_from_object(vm, &object)
+    runtime_string_from_object(vm, object)
 }
 
 pub(super) fn runtime_string_object(
@@ -367,7 +367,7 @@ fn first_invalid_constant_type(vm: &VirtualMachine, value_object: &PyObject) -> 
                     ))
                 })?;
             for item in tuple.iter() {
-                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item.clone())? {
+                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item)? {
                     return Ok(invalid_type);
                 }
             }
@@ -377,7 +377,7 @@ fn first_invalid_constant_type(vm: &VirtualMachine, value_object: &PyObject) -> 
         vm.with_recursion(" during compilation", || {
             let set = value_object.to_owned().downcast::<PyFrozenSet>().unwrap();
             for item in set.elements() {
-                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item)? {
+                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, &item)? {
                     return Ok(invalid_type);
                 }
             }
@@ -390,7 +390,7 @@ fn first_invalid_constant_type(vm: &VirtualMachine, value_object: &PyObject) -> 
 
 fn first_invalid_constant_type_opt(
     vm: &VirtualMachine,
-    value_object: PyObjectRef,
+    value_object: &PyObject,
 ) -> PyResult<Option<String>> {
     let cls = value_object.class();
     if cls.is(vm.ctx.types.none_type)
@@ -405,7 +405,7 @@ fn first_invalid_constant_type_opt(
         return Ok(None);
     }
     if cls.is(vm.ctx.types.tuple_type) || cls.is(vm.ctx.types.frozenset_type) {
-        return first_invalid_constant_type(vm, &value_object).map(Some);
+        return first_invalid_constant_type(vm, value_object).map(Some);
     }
     Ok(Some(cls.name().to_owned()))
 }
@@ -499,7 +499,7 @@ impl Node for Constant {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Constant")?;
+        let range = range_from_object(vm, source_file, &object, "Constant")?;
         constant_from_object_with_range(vm, source_file, &object, range)
     }
 }

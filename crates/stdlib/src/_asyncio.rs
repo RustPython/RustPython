@@ -36,7 +36,7 @@ pub(crate) mod _asyncio {
         // Initialize module-level state
         let weakref_module = vm.import("weakref", 0)?;
         let weak_set_class = vm
-            .get_attribute_opt(weakref_module, vm.ctx.intern_str("WeakSet"))?
+            .get_attribute_opt(&weakref_module, vm.ctx.intern_str("WeakSet"))?
             .ok_or_else(|| vm.new_attribute_error("WeakSet not found"))?;
         let scheduled_tasks = weak_set_class.call((), vm)?;
         let eager_tasks = PySet::default().into_ref(&vm.ctx);
@@ -52,7 +52,7 @@ pub(crate) mod _asyncio {
         #[cfg(unix)]
         {
             let on_fork = vm
-                .get_attribute_opt(module.to_owned().into(), vm.ctx.intern_str("_on_fork"))?
+                .get_attribute_opt(module.as_object(), vm.ctx.intern_str("_on_fork"))?
                 .expect("_on_fork not found in _asyncio module");
             vm.state.after_forkers_child.lock().push(on_fork);
         }
@@ -148,14 +148,14 @@ pub(crate) mod _asyncio {
     impl Initializer for PyFuture {
         type Args = FuncArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             // Future does not accept positional arguments
             if !args.args.is_empty() {
                 return Err(vm.new_type_error("Future() takes no positional arguments"));
             }
             // Extract only 'loop' keyword argument
             let loop_ = args.kwargs.get("loop").cloned();
-            Self::py_init(&zelf, loop_, vm)
+            Self::py_init(zelf, loop_, vm)
         }
     }
 
@@ -198,14 +198,14 @@ pub(crate) mod _asyncio {
 
             // Check if loop has get_debug method and call it
             if let Ok(Some(get_debug)) =
-                vm.get_attribute_opt(loop_obj, vm.ctx.intern_str("get_debug"))
+                vm.get_attribute_opt(&loop_obj, vm.ctx.intern_str("get_debug"))
                 && let Ok(debug) = get_debug.call((), vm)
                 && debug.try_to_bool(vm).unwrap_or(false)
             {
                 // Get source traceback
                 if let Ok(tb_module) = vm.import("traceback", 0)
                     && let Ok(Some(extract_stack)) =
-                        vm.get_attribute_opt(tb_module, vm.ctx.intern_str("extract_stack"))
+                        vm.get_attribute_opt(&tb_module, vm.ctx.intern_str("extract_stack"))
                     && let Ok(tb) = extract_stack.call((), vm)
                 {
                     *zelf.fut_source_tb.write() = Some(tb);
@@ -878,7 +878,7 @@ pub(crate) mod _asyncio {
                 }
             };
 
-        let func = match vm.get_attribute_opt(module, vm.ctx.intern_str("_future_repr_info")) {
+        let func = match vm.get_attribute_opt(&module, vm.ctx.intern_str("_future_repr_info")) {
             Ok(Some(f)) => f,
             _ => return Ok(get_future_repr_info_fallback(future, vm)),
         };
@@ -908,9 +908,7 @@ pub(crate) mod _asyncio {
 
     fn get_future_repr_info_fallback(future: &PyObject, vm: &VirtualMachine) -> Wtf8Buf {
         // Fallback: build repr from properties directly
-        if let Ok(Some(state)) =
-            vm.get_attribute_opt(future.to_owned(), vm.ctx.intern_str("_state"))
-        {
+        if let Ok(Some(state)) = vm.get_attribute_opt(future, vm.ctx.intern_str("_state")) {
             state
                 .str(vm)
                 .map_or_else(|_| Wtf8Buf::from("unknown"), |s| s.as_wtf8().to_lowercase())
@@ -926,7 +924,7 @@ pub(crate) mod _asyncio {
             .and_then(|asyncio| asyncio.get_attr(vm.ctx.intern_str("base_tasks"), vm))
         {
             Ok(base_tasks) => {
-                match vm.get_attribute_opt(base_tasks, vm.ctx.intern_str("_task_repr_info")) {
+                match vm.get_attribute_opt(&base_tasks, vm.ctx.intern_str("_task_repr_info")) {
                     Ok(Some(func)) => {
                         let info: PyObjectRef = func.call((task.to_owned(),), vm)?;
                         let list: PyListRef = info.downcast().map_err(|_| {
@@ -973,13 +971,10 @@ pub(crate) mod _asyncio {
                 fut.fut_blocking.load(Ordering::Relaxed)
             } else {
                 // For non-native futures, check the attribute
-                vm.get_attribute_opt(
-                    future.clone(),
-                    vm.ctx.intern_str("_asyncio_future_blocking"),
-                )?
-                .map(|v| v.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(false)
+                vm.get_attribute_opt(&future, vm.ctx.intern_str("_asyncio_future_blocking"))?
+                    .map(|v| v.try_to_bool(vm))
+                    .transpose()?
+                    .unwrap_or(false)
             };
 
             // Check if future is done
@@ -1172,8 +1167,8 @@ pub(crate) mod _asyncio {
     impl Initializer for PyTask {
         type Args = TaskInitArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            Self::py_init(&zelf, args, vm)
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            Self::py_init(zelf, args, vm)
         }
     }
 
@@ -1201,14 +1196,14 @@ pub(crate) mod _asyncio {
 
             // Check if loop has get_debug method and capture source traceback if enabled
             if let Ok(Some(get_debug)) =
-                vm.get_attribute_opt(loop_obj.clone(), vm.ctx.intern_str("get_debug"))
+                vm.get_attribute_opt(&loop_obj, vm.ctx.intern_str("get_debug"))
                 && let Ok(debug) = get_debug.call((), vm)
                 && debug.try_to_bool(vm).unwrap_or(false)
             {
                 // Get source traceback
                 if let Ok(tb_module) = vm.import("traceback", 0)
                     && let Ok(Some(extract_stack)) =
-                        vm.get_attribute_opt(tb_module, vm.ctx.intern_str("extract_stack"))
+                        vm.get_attribute_opt(&tb_module, vm.ctx.intern_str("extract_stack"))
                     && let Ok(tb) = extract_stack.call((), vm)
                 {
                     *zelf.base.fut_source_tb.write() = Some(tb);
@@ -2171,10 +2166,7 @@ pub(crate) mod _asyncio {
         }
 
         let blocking = vm
-            .get_attribute_opt(
-                result.to_owned(),
-                vm.ctx.intern_str("_asyncio_future_blocking"),
-            )?
+            .get_attribute_opt(result, vm.ctx.intern_str("_asyncio_future_blocking"))?
             .and_then(|v| v.try_to_bool(vm).ok())
             .unwrap_or(false);
 
@@ -2411,20 +2403,17 @@ pub(crate) mod _asyncio {
 
         // Slow path: (re)resolve everything and populate the cache.
         let scheduled_tasks = vm
-            .get_attribute_opt(
-                asyncio_module.clone(),
-                vm.ctx.intern_str("_scheduled_tasks"),
-            )?
+            .get_attribute_opt(&asyncio_module, vm.ctx.intern_str("_scheduled_tasks"))?
             .ok_or_else(|| vm.new_attribute_error("_scheduled_tasks not found"))?;
         let eager_tasks: PyRef<PySet> = vm
-            .get_attribute_opt(asyncio_module.clone(), vm.ctx.intern_str("_eager_tasks"))?
+            .get_attribute_opt(&asyncio_module, vm.ctx.intern_str("_eager_tasks"))?
             .ok_or_else(|| vm.new_attribute_error("_eager_tasks not found"))?
             .downcast()
             .map_err(|_| vm.new_type_error("_eager_tasks is not a set"))?;
         // Lenient by design: a missing or non-dict `_current_tasks` just
         // disables the cross-thread lookup instead of raising.
         let current_tasks: Option<PyRef<PyDict>> = vm
-            .get_attribute_opt(asyncio_module.clone(), vm.ctx.intern_str("_current_tasks"))?
+            .get_attribute_opt(&asyncio_module, vm.ctx.intern_str("_current_tasks"))?
             .and_then(|obj| obj.downcast::<PyDict>().ok());
 
         let cache = AsyncioCache {
@@ -2453,10 +2442,7 @@ pub(crate) mod _asyncio {
         }
 
         let copy_context = vm
-            .get_attribute_opt(
-                contextvars_module.clone(),
-                vm.ctx.intern_str("copy_context"),
-            )?
+            .get_attribute_opt(&contextvars_module, vm.ctx.intern_str("copy_context"))?
             .ok_or_else(|| vm.new_attribute_error("copy_context not found"))?;
 
         let cache = ContextVarsCache {
@@ -2514,11 +2500,11 @@ pub(crate) mod _asyncio {
 
         let asyncio_events = vm.import("asyncio.events", 0)?;
         let get_event_loop_policy = vm
-            .get_attribute_opt(asyncio_events, vm.ctx.intern_str("get_event_loop_policy"))?
+            .get_attribute_opt(&asyncio_events, vm.ctx.intern_str("get_event_loop_policy"))?
             .ok_or_else(|| vm.new_attribute_error("get_event_loop_policy"))?;
         let policy = get_event_loop_policy.call((), vm)?;
         let get_event_loop = vm
-            .get_attribute_opt(policy, vm.ctx.intern_str("get_event_loop"))?
+            .get_attribute_opt(&policy, vm.ctx.intern_str("get_event_loop"))?
             .ok_or_else(|| vm.new_attribute_error("get_event_loop"))?;
         get_event_loop.call((), vm)
     }
@@ -2584,7 +2570,7 @@ pub(crate) mod _asyncio {
                     let task_loop = if let Ok(l) = vm.call_method(&task, "get_loop", ()) {
                         Some(l)
                     } else if let Ok(Some(l)) =
-                        vm.get_attribute_opt(task.clone(), vm.ctx.intern_str("_loop"))
+                        vm.get_attribute_opt(&task, vm.ctx.intern_str("_loop"))
                     {
                         Some(l)
                     } else {
@@ -2792,7 +2778,7 @@ pub(crate) mod _asyncio {
         #[pygetset]
         fn __qualname__(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
             match self.task.read().as_ref() {
-                Some(t) => vm.get_attribute_opt(t.clone(), vm.ctx.intern_str("__qualname__")),
+                Some(t) => vm.get_attribute_opt(t, vm.ctx.intern_str("__qualname__")),
                 None => Ok(None),
             }
         }
@@ -2838,7 +2824,7 @@ pub(crate) mod _asyncio {
         #[pygetset]
         fn __qualname__(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
             match self.task.read().as_ref() {
-                Some(t) => vm.get_attribute_opt(t.clone(), vm.ctx.intern_str("__qualname__")),
+                Some(t) => vm.get_attribute_opt(t, vm.ctx.intern_str("__qualname__")),
                 None => Ok(None),
             }
         }
@@ -2872,7 +2858,7 @@ pub(crate) mod _asyncio {
 
         let asyncio_coroutines = vm.import("asyncio.coroutines", 0)?;
         if let Some(iscoroutine) =
-            vm.get_attribute_opt(asyncio_coroutines, vm.ctx.intern_str("iscoroutine"))?
+            vm.get_attribute_opt(&asyncio_coroutines, vm.ctx.intern_str("iscoroutine"))?
         {
             let result = iscoroutine.call((obj,), vm)?;
             result.try_to_bool(vm)
@@ -2884,7 +2870,7 @@ pub(crate) mod _asyncio {
     fn get_invalid_state_error_type(vm: &VirtualMachine) -> PyResult<PyTypeRef> {
         let module = vm.import("asyncio.exceptions", 0)?;
         let exc_type = vm
-            .get_attribute_opt(module, vm.ctx.intern_str("InvalidStateError"))?
+            .get_attribute_opt(&module, vm.ctx.intern_str("InvalidStateError"))?
             .ok_or_else(|| vm.new_attribute_error("InvalidStateError not found"))?;
         exc_type
             .downcast()
@@ -2911,7 +2897,7 @@ pub(crate) mod _asyncio {
     fn get_cancelled_error_type(vm: &VirtualMachine) -> PyResult<PyTypeRef> {
         let module = vm.import("asyncio.exceptions", 0)?;
         let exc_type = vm
-            .get_attribute_opt(module, vm.ctx.intern_str("CancelledError"))?
+            .get_attribute_opt(&module, vm.ctx.intern_str("CancelledError"))?
             .ok_or_else(|| vm.new_attribute_error("CancelledError not found"))?;
         exc_type
             .downcast()

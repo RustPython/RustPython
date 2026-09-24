@@ -571,7 +571,7 @@ impl Node for JoinedStr {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "JoinedStr")?;
+        let range = range_from_object(vm, source_file, &object, "JoinedStr")?;
         joined_str_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -670,7 +670,7 @@ impl Node for FormattedValue {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "FormattedValue")?;
+        let range = range_from_object(vm, source_file, &object, "FormattedValue")?;
         formatted_value_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1081,7 +1081,7 @@ impl Node for TemplateStr {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "TemplateStr")?;
+        let range = range_from_object(vm, source_file, &object, "TemplateStr")?;
         template_str_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1188,7 +1188,7 @@ impl Node for TStringInterpolation {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Interpolation")?;
+        let range = range_from_object(vm, source_file, &object, "Interpolation")?;
         tstring_interpolation_from_object_with_range(vm, source_file, &object, range)
     }
 }

@@ -52,8 +52,8 @@ impl PyMethod {
                     if let Some(descr_get) = descr_get
                         && descr_cls.slots.descr_set.load().is_some()
                     {
-                        let cls = cls.to_owned().into();
-                        return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
+                        return descr_get(descr.as_object(), Some(&obj), Some(cls.as_object()), vm)
+                            .map(Self::Attribute);
                     }
                     descr_get
                 };
@@ -75,8 +75,8 @@ impl PyMethod {
                     func: attr,
                 }),
                 Some(descr_get) => {
-                    let cls = cls.to_owned().into();
-                    descr_get(attr, Some(obj), Some(cls), vm).map(Self::Attribute)
+                    descr_get(attr.as_object(), Some(&obj), Some(cls.as_object()), vm)
+                        .map(Self::Attribute)
                 }
                 None => Ok(Self::Attribute(attr)),
             }
@@ -130,19 +130,21 @@ impl PyMethod {
                 func,
             }
         } else {
-            let obj_cls = obj_cls.to_owned().into();
-            let attr =
-                match vm.call_get_descriptor_specific(&func, Some(obj.to_owned()), Some(obj_cls)) {
-                    Some(Ok(attr)) => attr,
-                    Some(Err(e))
-                        if !raise_attribute_error
-                            && e.fast_isinstance(vm.ctx.exceptions.attribute_error) =>
-                    {
-                        return Ok(None);
-                    }
-                    Some(Err(e)) => return Err(e),
-                    None => func,
-                };
+            let attr = match vm.call_get_descriptor_specific(
+                &func,
+                Some(obj),
+                Some(obj_cls.as_object()),
+            ) {
+                Some(Ok(attr)) => attr,
+                Some(Err(e))
+                    if !raise_attribute_error
+                        && e.fast_isinstance(vm.ctx.exceptions.attribute_error) =>
+                {
+                    return Ok(None);
+                }
+                Some(Err(e)) => return Err(e),
+                None => func,
+            };
             Self::Attribute(attr)
         };
         Ok(Some(meth))

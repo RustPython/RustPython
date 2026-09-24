@@ -362,7 +362,7 @@ fn specifier_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
 pub(crate) fn cformat_bytes(
     vm: &VirtualMachine,
     format_string: &[u8],
-    values_obj: PyObjectRef,
+    values_obj: &PyObject,
 ) -> PyResult<Vec<u8>> {
     let mut format = CFormatBytes::parse_from_bytes(format_string)
         .map_err(|err| vm.new_value_error(err.to_string()))?;
@@ -420,12 +420,16 @@ pub(crate) fn cformat_bytes(
     }
 
     // tuple
-    let values = if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
-        tup.as_slice()
-    } else {
-        core::slice::from_ref(&values_obj)
-    };
-    let mut value_iter = values.iter().map(|v| &**v);
+    let mut slice_iter;
+    let mut once_iter;
+    let mut value_iter: &mut dyn Iterator<Item = &PyObject> =
+        if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
+            slice_iter = tup.as_slice().iter().map(|v| &**v);
+            &mut slice_iter
+        } else {
+            once_iter = core::iter::once(values_obj);
+            &mut once_iter
+        };
 
     for (_, part) in format {
         match part {
@@ -460,7 +464,7 @@ pub(crate) fn cformat_bytes(
 pub(crate) fn cformat_string(
     vm: &VirtualMachine,
     format_string: &Wtf8,
-    values_obj: PyObjectRef,
+    values_obj: &PyObject,
 ) -> PyResult<Wtf8Buf> {
     let format = CFormatWtf8::parse_from_wtf8(format_string)
         .map_err(|err| vm.new_value_error(err.to_string()))?;
@@ -516,13 +520,16 @@ pub(crate) fn cformat_string(
     }
 
     // tuple
-    let values = if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
-        tup.as_slice()
-    } else {
-        core::slice::from_ref(&values_obj)
-    };
-
-    let mut value_iter = values.iter().map(|v| &**v);
+    let mut slice_iter;
+    let mut once_iter;
+    let mut value_iter: &mut dyn Iterator<Item = &PyObject> =
+        if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
+            slice_iter = tup.as_slice().iter().map(|v| &**v);
+            &mut slice_iter
+        } else {
+            once_iter = core::iter::once(values_obj);
+            &mut once_iter
+        };
 
     for (_, part) in format {
         match part {

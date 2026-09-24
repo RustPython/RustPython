@@ -64,7 +64,7 @@ impl ByteInnerNewOptions {
         errors: OptionalArg<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
-        let bytes = pystr::encode_string(s, Some(encoding), errors.into_option(), vm)?;
+        let bytes = pystr::encode_string(s, Some(&encoding), errors.into_option(), vm)?;
         Ok(bytes.as_bytes().to_vec().into())
     }
 
@@ -211,7 +211,7 @@ impl ByteInnerFindOptions {
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, core::ops::Range<usize>)> {
         let sub = self.sub.into_vec(vm)?;
-        let range = anystr::adjust_indices(self.start, self.end, len);
+        let range = anystr::adjust_indices(self.start.as_deref(), self.end.as_deref(), len);
         Ok((sub, range))
     }
 }
@@ -1024,7 +1024,7 @@ impl PyBytesInner {
     }
 
     pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        cformat_bytes(vm, self.elements.as_slice(), values)
+        cformat_bytes(vm, self.elements.as_slice(), &values)
     }
 
     pub fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {

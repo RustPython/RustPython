@@ -474,17 +474,16 @@ pub fn warn_with_skip(
     category: Option<PyTypeRef>,
     mut stack_level: isize,
     source: Option<PyObjectRef>,
-    skip_file_prefixes: Option<PyTupleRef>,
+    skip_file_prefixes: Option<&Py<PyTuple>>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    if let Some(ref prefixes) = skip_file_prefixes
+    if let Some(prefixes) = skip_file_prefixes
         && !prefixes.is_empty()
         && stack_level < 2
     {
         stack_level = 2;
     }
-    let (filename, lineno, module, registry) =
-        setup_context(stack_level, skip_file_prefixes.as_deref(), vm)?;
+    let (filename, lineno, module, registry) = setup_context(stack_level, skip_file_prefixes, vm)?;
     warn_explicit(
         category, message, filename, lineno, module, registry, None, source, vm,
     )
@@ -595,7 +594,7 @@ pub fn warn_explicit(
 
     call_show_warning(
         category,
-        text,
+        &text,
         message,
         filename,
         lineno,
@@ -609,7 +608,7 @@ pub fn warn_explicit(
 #[allow(clippy::too_many_arguments)]
 fn call_show_warning(
     category: PyTypeRef,
-    text: PyStrRef,
+    text: &Py<PyStr>,
     message: PyObjectRef,
     filename: PyStrRef,
     lineno: usize,
@@ -620,7 +619,7 @@ fn call_show_warning(
 ) -> PyResult<()> {
     let Some(show_fn) = get_warnings_attr(vm, identifier!(vm, _showwarnmsg), source.is_some())?
     else {
-        show_warning(&filename, lineno, &text, &category, source_line, vm);
+        show_warning(&filename, lineno, text, &category, source_line, vm);
         return Ok(());
     };
 

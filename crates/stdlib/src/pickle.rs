@@ -499,7 +499,7 @@ mod _pickle {
     impl Initializer for PyUnpickler {
         type Args = UnpicklerNewArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let Some(mut state) = zelf.read_state.try_lock() else {
                 return Err(vm.new_runtime_error("Unpickler.__init__() called recursively"));
             };
@@ -525,10 +525,10 @@ mod _pickle {
             };
 
             let file = args.file;
-            let peek = vm.get_attribute_opt(file.clone(), "peek")?;
-            let _readinto = vm.get_attribute_opt(file.clone(), "readinto")?;
-            let read = vm.get_attribute_opt(file.clone(), "read")?;
-            let readline = vm.get_attribute_opt(file, "readline")?;
+            let peek = vm.get_attribute_opt(&file, "peek")?;
+            let _readinto = vm.get_attribute_opt(&file, "readinto")?;
+            let read = vm.get_attribute_opt(&file, "read")?;
+            let readline = vm.get_attribute_opt(&file, "readline")?;
             if read.is_none() || readline.is_none() {
                 return Err(vm.new_type_error("file must have 'read' and 'readline' attributes"));
             }
@@ -1166,7 +1166,7 @@ mod _pickle {
                     if let Some(list) = obj.downcast_ref::<PyList>() {
                         list.borrow_vec_mut().extend(items);
                     } else {
-                        match vm.get_attribute_opt(obj.clone(), "extend")? {
+                        match vm.get_attribute_opt(&obj, "extend")? {
                             Some(extend) => {
                                 extend.call((vm.ctx.new_list(items),), vm)?;
                             }
@@ -1521,9 +1521,7 @@ mod _pickle {
     ) -> PyResult<PyObjectRef> {
         if args.is_empty()
             && cls.class().is(vm.ctx.types.type_type)
-            && vm
-                .get_attribute_opt(cls.clone(), "__getinitargs__")?
-                .is_none()
+            && vm.get_attribute_opt(&cls, "__getinitargs__")?.is_none()
         {
             return vm.call_method(&cls, "__new__", (cls.clone(),));
         }
@@ -1531,7 +1529,7 @@ mod _pickle {
     }
 
     fn load_build(inst: &PyObject, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(setstate) = vm.get_attribute_opt(inst.to_owned(), "__setstate__")? {
+        if let Some(setstate) = vm.get_attribute_opt(inst, "__setstate__")? {
             setstate.call((state,), vm)?;
             return Ok(());
         }
@@ -1711,9 +1709,9 @@ mod _pickle {
 
     #[pyfunction]
     fn load(args: LoadArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let peek = vm.get_attribute_opt(args.file.clone(), "peek")?;
-        let read = vm.get_attribute_opt(args.file.clone(), "read")?;
-        let readline = vm.get_attribute_opt(args.file, "readline")?;
+        let peek = vm.get_attribute_opt(&args.file, "peek")?;
+        let read = vm.get_attribute_opt(&args.file, "read")?;
+        let readline = vm.get_attribute_opt(&args.file, "readline")?;
         if read.is_none() || readline.is_none() {
             return Err(vm.new_type_error("file must have 'read' and 'readline' attributes"));
         }
@@ -2005,7 +2003,7 @@ mod _pickle {
     impl Initializer for PyPickler {
         type Args = PicklerNewArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let Some(mut out) = zelf.out.try_lock() else {
                 return Err(vm.new_runtime_error("Pickler.__init__() called recursively"));
             };
@@ -2971,11 +2969,9 @@ mod _pickle {
                     rv = Some(reduce.call((obj.to_owned(),), vm)?);
                 } else if cls.fast_issubclass(vm.ctx.types.type_type) {
                     return self.save_global(obj, None, vm);
-                } else if let Some(reduce) =
-                    vm.get_attribute_opt(obj.to_owned(), "__reduce_ex__")?
-                {
+                } else if let Some(reduce) = vm.get_attribute_opt(obj, "__reduce_ex__")? {
                     rv = Some(reduce.call((self.proto,), vm)?);
-                } else if let Some(reduce) = vm.get_attribute_opt(obj.to_owned(), "__reduce__")? {
+                } else if let Some(reduce) = vm.get_attribute_opt(obj, "__reduce__")? {
                     rv = Some(reduce.call((), vm)?);
                 } else {
                     return Err(new_pickling_error(
@@ -3103,7 +3099,7 @@ mod _pickle {
             let obj_name =
                 |vm: &VirtualMachine| obj.map_or_else(String::new, |o| obj_type_name(o, vm));
             let func_name = vm
-                .get_attribute_opt(func.to_owned(), "__name__")?
+                .get_attribute_opt(func, "__name__")?
                 .and_then(|o| {
                     o.downcast_ref::<PyStr>()
                         .map(|s| s.to_string_lossy().into_owned())
@@ -3119,7 +3115,7 @@ mod _pickle {
                     )));
                 }
                 let (cls, newargs, kwargs) = (parts[0].clone(), parts[1].clone(), parts[2].clone());
-                if vm.get_attribute_opt(cls.clone(), "__new__")?.is_none() {
+                if vm.get_attribute_opt(&cls, "__new__")?.is_none() {
                     return Err(new_pickling_error(
                         vm,
                         "first argument to __newobj_ex__() has no __new__",
@@ -3208,7 +3204,7 @@ mod _pickle {
                     return Err(vm.new_index_error("tuple index out of range"));
                 }
                 let cls = parts[0].clone();
-                if vm.get_attribute_opt(cls.clone(), "__new__")?.is_none() {
+                if vm.get_attribute_opt(&cls, "__new__")?.is_none() {
                     return Err(new_pickling_error(
                         vm,
                         "first argument to __newobj__() has no __new__",
@@ -3399,7 +3395,7 @@ mod _pickle {
                     .downcast()
                     .map_err(|_| new_pickling_error(vm, "expected a string as the global name"))?,
                 None => {
-                    let value = match vm.get_attribute_opt(obj.to_owned(), "__qualname__")? {
+                    let value = match vm.get_attribute_opt(obj, "__qualname__")? {
                         Some(q) if !vm.is_none(&q) => q,
                         _ => obj.get_attr("__name__", vm)?,
                     };
@@ -3596,7 +3592,7 @@ mod _pickle {
             ));
         }
         let sys_modules = vm.sys_module.get_attr("modules", vm)?;
-        let module_attr = vm.get_attribute_opt(obj.to_owned(), "__module__")?;
+        let module_attr = vm.get_attribute_opt(obj, "__module__")?;
         let module_name: PyRef<PyStr> = match module_attr {
             Some(m) if !vm.is_none(&m) => m
                 .downcast()
@@ -3731,8 +3727,8 @@ mod _pickle {
             "persistent_id",
             vm,
         )?;
-        let reducer_override = vm.get_attribute_opt(zelf.to_owned().into(), "reducer_override")?;
-        let dispatch_table = vm.get_attribute_opt(zelf.to_owned().into(), "dispatch_table")?;
+        let reducer_override = vm.get_attribute_opt(zelf.as_object(), "reducer_override")?;
+        let dispatch_table = vm.get_attribute_opt(zelf.as_object(), "dispatch_table")?;
 
         out.buf.clear();
         out.frame_start = None;

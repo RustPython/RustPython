@@ -697,7 +697,7 @@ mod builtins {
         })?;
 
         if let OptionalArg::Present(default) = default {
-            Ok(vm.get_attribute_opt(obj, attr)?.unwrap_or(default))
+            Ok(vm.get_attribute_opt(&obj, attr)?.unwrap_or(default))
         } else {
             obj.get_attr(attr, vm)
         }
@@ -716,7 +716,7 @@ mod builtins {
                 name.class().name()
             ))
         })?;
-        Ok(vm.get_attribute_opt(obj, attr)?.is_some())
+        Ok(vm.get_attribute_opt(&obj, attr)?.is_some())
     }
 
     #[pyfunction]
@@ -1254,7 +1254,13 @@ mod builtins {
             .name
             .downcast_ref::<PyStr>()
             .ok_or_else(|| vm.new_type_error("module name must be a string"))?;
-        crate::import::import_module_level(name, args.globals, args.fromlist, args.level, vm)
+        crate::import::import_module_level(
+            name,
+            args.globals.as_deref(),
+            args.fromlist,
+            args.level,
+            vm,
+        )
     }
 
     #[pyfunction]
@@ -1287,8 +1293,7 @@ mod builtins {
                 }
                 continue;
             }
-            let mro_entries =
-                vm.get_attribute_opt(base.clone(), identifier!(vm, __mro_entries__))?;
+            let mro_entries = vm.get_attribute_opt(base, identifier!(vm, __mro_entries__))?;
             let entries = match mro_entries {
                 Some(meth) => meth.call((bases.clone(),), vm)?,
                 None => {
@@ -1357,7 +1362,7 @@ mod builtins {
 
         // Prepare uses full __getattribute__ resolution chain.
         let namespace = vm
-            .get_attribute_opt(metaclass.clone(), identifier!(vm, __prepare__))?
+            .get_attribute_opt(&metaclass, identifier!(vm, __prepare__))?
             .map_or(Ok(vm.ctx.new_dict().into()), |prepare| {
                 let args = FuncArgs::new(vec![name_obj.clone(), bases.clone()], kwargs.clone());
                 prepare.call(args, vm)

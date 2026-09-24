@@ -67,9 +67,9 @@ impl Constructor for PyCUnionType {
 impl Initializer for PyCUnionType {
     type Args = FuncArgs;
 
-    fn init(zelf: crate::PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &crate::Py<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Get the type as PyTypeRef by converting PyRef<Self> -> PyObjectRef -> PyRef<PyType>
-        let obj: PyObjectRef = zelf.into();
+        let obj: PyObjectRef = zelf.to_owned().into();
         let new_type: PyTypeRef = obj
             .downcast()
             .map_err(|_| vm.new_type_error("expected type"))?;
@@ -637,13 +637,13 @@ impl PyCUnion {
 impl Initializer for PyCUnion {
     type Args = FuncArgs;
 
-    fn init(zelf: crate::PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &crate::Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Struct_init: handle positional and keyword arguments
         let cls = zelf.class().to_owned();
 
         // 1. Process positional arguments recursively through inheritance chain
         if !args.args.is_empty() {
-            let consumed = Self::init_pos_args(&zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
+            let consumed = Self::init_pos_args(zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
 
             if consumed < args.args.len() {
                 return Err(vm.new_type_error("too many initializers"));

@@ -462,7 +462,7 @@ mod _csv {
         _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Writer> {
-        let write = match vm.get_attribute_opt(file.clone(), "write")? {
+        let write = match vm.get_attribute_opt(&file, "write")? {
             Some(write_meth) => write_meth,
             None if file.is_callable() => file,
             None => {

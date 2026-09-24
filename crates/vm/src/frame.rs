@@ -2437,14 +2437,14 @@ impl FrameObject {
     /// `proxy.setdefault(key, default)`.
     pub(crate) fn framelocalsproxy_setdefault(
         &self,
-        key: PyObjectRef,
+        key: &PyObject,
         default: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match self.framelocalsproxy_getitem(key.clone(), vm) {
+        match self.framelocalsproxy_getitem(key.to_owned(), vm) {
             Ok(value) => Ok(value),
             Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                self.framelocalsproxy_setitem(&key, default.clone(), vm)?;
+                self.framelocalsproxy_setitem(key, default.clone(), vm)?;
                 Ok(default)
             }
             Err(e) => Err(e),
@@ -3982,7 +3982,7 @@ impl ExecutingFrame<'_> {
                 let close_result = if let Some(coro) = self.builtin_coro(jen) {
                     coro.close(jen, vm).map(|_| ())
                 } else {
-                    match vm.get_attribute_opt(jen.to_owned(), "close") {
+                    match vm.get_attribute_opt(jen, "close") {
                         Ok(Some(close_meth)) => close_meth.call((), vm).map(|_| ()),
                         Ok(None) => Ok(()),
                         Err(e) => {
@@ -4028,8 +4028,7 @@ impl ExecutingFrame<'_> {
                 let thrower = if let Some(coro) = self.builtin_coro(jen) {
                     Some(Either::A(coro))
                 } else {
-                    vm.get_attribute_opt(jen.to_owned(), "throw")?
-                        .map(Either::B)
+                    vm.get_attribute_opt(jen, "throw")?.map(Either::B)
                 };
                 if let Some(thrower) = thrower {
                     let ret = match thrower {
@@ -5219,7 +5218,7 @@ impl ExecutingFrame<'_> {
                     if nargs_val > 0 {
                         // Get __match_args__ from the class
                         let match_args =
-                            vm.get_attribute_opt(cls.clone(), identifier!(vm, __match_args__))?;
+                            vm.get_attribute_opt(&cls, identifier!(vm, __match_args__))?;
 
                         if let Some(match_args) = match_args {
                             // Convert to tuple
@@ -7459,13 +7458,13 @@ impl ExecutingFrame<'_> {
                             let obj_arg = if self_obj.is(start_type.as_object()) {
                                 None
                             } else {
-                                Some(self_obj.to_owned())
+                                Some(self_obj)
                             };
                             let result = vm
                                 .call_get_descriptor_specific(
                                     &descr,
                                     obj_arg,
-                                    Some(start_type.as_object().to_owned()),
+                                    Some(start_type.as_object()),
                                 )
                                 .unwrap_or(Ok(descr))?;
                             found = Some(result);
@@ -7521,9 +7520,9 @@ impl ExecutingFrame<'_> {
                             } else if let Some(descr_get) = descr_cls.slots.descr_get.load() {
                                 // Has __get__ but not METHOD_DESCRIPTOR: bind it
                                 let bound = descr_get(
-                                    descr,
-                                    Some(self_val.clone()),
-                                    Some(start_type.as_object().to_owned()),
+                                    &descr,
+                                    Some(&self_val),
+                                    Some(start_type.as_object()),
                                     vm,
                                 )?;
                                 found = Some((bound, false));
@@ -8445,7 +8444,7 @@ impl ExecutingFrame<'_> {
         let name = self.code.names[idx as usize];
 
         // Load attribute, and transform any error into import error.
-        if let Some(obj) = vm.get_attribute_opt(module.to_owned(), name)? {
+        if let Some(obj) = vm.get_attribute_opt(module, name)? {
             return Ok(obj);
         }
         // fallback to importing '{module.__name__}.{name}' from sys.modules

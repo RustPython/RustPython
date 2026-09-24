@@ -362,7 +362,7 @@ pub(crate) mod _ast {
 
             // type.__call__ does not invoke slot_init after slot_new
             // for types with a custom slot_new, so we must call it here.
-            Self::slot_init(zelf.clone(), args, vm)?;
+            Self::slot_init(&zelf, args, vm)?;
 
             Ok(zelf)
         }
@@ -375,7 +375,7 @@ pub(crate) mod _ast {
     impl Initializer for NodeAst {
         type Args = FuncArgs;
 
-        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let fields = zelf
                 .class()
                 .get_attr(vm.ctx.intern_str("_fields"))
@@ -409,7 +409,7 @@ pub(crate) mod _ast {
 
             for (i, arg) in args.args.into_iter().enumerate() {
                 let name = fields_seq.get_item(i as isize, vm)?;
-                ast_set_attr(&zelf, &name, arg, vm)?;
+                ast_set_attr(zelf, &name, arg, vm)?;
                 ast_replace_set_discard(&remaining_fields, &name, vm)?;
             }
             for (key, value) in args.kwargs {
@@ -475,7 +475,7 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                         } else if ftype.fast_isinstance(vm.ctx.types.generic_alias_type) {
                             // List field (list[T]) — default to []
                             let empty_list: PyObjectRef = vm.ctx.new_list(vec![]).into();
-                            ast_set_attr(&zelf, &field, empty_list, vm)?;
+                            ast_set_attr(zelf, &field, empty_list, vm)?;
                         } else if ftype.is(&expr_ctx_type) {
                             // expr_context — default to Load()
                             let load_type =
@@ -485,7 +485,7 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                                 .unwrap_or_else(|| {
                                     vm.ctx.new_base_object(load_type, Some(vm.ctx.new_dict()))
                                 });
-                            ast_set_attr(&zelf, &field, load_instance, vm)?;
+                            ast_set_attr(zelf, &field, load_instance, vm)?;
                         } else {
                             // Required field missing: emit DeprecationWarning.
                             let field_repr = field.repr(vm)?;
@@ -525,7 +525,7 @@ This will become an error in Python 3.15.",
             Ok(())
         }
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_init is defined")
         }
     }

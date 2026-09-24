@@ -1181,7 +1181,7 @@ pub(crate) mod _thread {
                 return Ok(dict);
             };
             let init_args = zelf.inner.state.lock().init_args.clone();
-            if let Err(err) = init(zelf.as_object().to_owned(), init_args, vm) {
+            if let Err(err) = init(zelf.as_object(), init_args, vm) {
                 zelf.remove_current_dict();
                 return Err(err);
             }

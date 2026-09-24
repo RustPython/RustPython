@@ -36,7 +36,7 @@ const DEFAULT_BUFFER_SIZE: usize = 128 * 1024;
 fn iobase_finalize(zelf: &PyObject, vm: &VirtualMachine) {
     // If `closed` doesn't exist or can't be evaluated as bool, then the
     // object is probably in an unusable state, so ignore.
-    let closed = match vm.get_attribute_opt(zelf.to_owned(), "closed") {
+    let closed = match vm.get_attribute_opt(zelf, "closed") {
         Ok(Some(val)) => match val.try_to_bool(vm) {
             Ok(b) => b,
             Err(_) => return,
@@ -71,7 +71,7 @@ impl TryFromObject for Fildes {
         let int = match obj.downcast::<int::PyInt>() {
             Ok(i) => i,
             Err(obj) => {
-                let fileno_meth = vm.get_attribute_opt(obj, "fileno")?.ok_or_else(|| {
+                let fileno_meth = vm.get_attribute_opt(&obj, "fileno")?.ok_or_else(|| {
                     vm.new_type_error("argument must be an int, or have a fileno() method.")
                 })?;
                 fileno_meth
@@ -1627,8 +1627,8 @@ mod _io {
         }
 
         #[pyslot]
-        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
+        fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let zelf: &Py<Self> = zelf.try_to_ref(vm)?;
             let (raw, BufferSize { buffer_size }): (PyObjectRef, _) =
                 args.bind(vm).map_err(|e| {
                     let str_repr = e.__str__(vm).as_wtf8().to_owned();
@@ -2252,7 +2252,7 @@ mod _io {
         type Args = (PyObjectRef, PyObjectRef, BufferSize);
 
         fn init(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             (reader, writer, buffer_size): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -2427,10 +2427,10 @@ mod _io {
     fn reduce_ex_for_subclass(zelf: &PyObject, vm: &VirtualMachine) -> PyResult {
         let cls = zelf.class();
         let new = vm
-            .get_attribute_opt(cls.to_owned().into(), "__new__")?
+            .get_attribute_opt(cls.as_object(), "__new__")?
             .ok_or_else(|| vm.new_attribute_error("type has no attribute '__new__'"))?;
         let args = vm.ctx.new_tuple(vec![cls.to_owned().into()]);
-        let state = if let Some(getstate) = vm.get_attribute_opt(zelf.to_owned(), "__getstate__")? {
+        let state = if let Some(getstate) = vm.get_attribute_opt(zelf, "__getstate__")? {
             getstate.call((), vm)?
         } else if let Ok(dict) = zelf.get_attr("__dict__", vm) {
             dict
@@ -2771,11 +2771,7 @@ mod _io {
     impl Initializer for TextIOWrapper {
         type Args = (PyObjectRef, TextIOWrapperArgs);
 
-        fn init(
-            zelf: PyRef<Self>,
-            (buffer, args): Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, (buffer, args): Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let mut data = zelf.lock_opt(vm)?;
             *data = None;
 
@@ -2784,7 +2780,7 @@ mod _io {
             let errors = args.errors.unwrap_or_else(|| vm.ctx.new_utf8_str("strict"));
             Self::validate_errors(&errors, vm)?;
 
-            let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
+            let has_read1 = vm.get_attribute_opt(&buffer, "read1")?.is_some();
             let seekable = vm.call_method(&buffer, "seekable", ())?.try_to_bool(vm)?;
 
             let newline = match args.newline {
@@ -2832,8 +2828,8 @@ mod _io {
             Ok(())
         }
 
-        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let zelf_ref: PyRef<Self> = zelf.try_into_value(vm)?;
+        fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let zelf_ref: &Py<Self> = zelf.try_to_ref(vm)?;
             {
                 let mut data = zelf_ref.lock_opt(vm)?;
                 *data = None;
@@ -2978,7 +2974,7 @@ mod _io {
                                 || err.fast_isinstance(vm.ctx.exceptions.attribute_error) =>
                         {
                             let name = vm
-                                .get_attribute_opt(codec.as_tuple().to_owned().into(), "name")?
+                                .get_attribute_opt(codec.as_tuple().as_object(), "name")?
                                 .and_then(|obj| obj.downcast::<PyStr>().ok());
                             StatelessIncrementalEncoder {
                                 encode: codec.get_encode_func().to_owned(),
@@ -2990,7 +2986,7 @@ mod _io {
                         }
                         Err(err) => return Err(err),
                     };
-                let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
+                let encoding_name = vm.get_attribute_opt(&incremental_encoder, "name")?;
                 let encode_func = encoding_name.and_then(|name| {
                     let name = name.downcast_ref::<PyStr>()?;
                     match name.to_str()? {
@@ -3202,7 +3198,7 @@ mod _io {
             let Some(decoder) = &data.decoder else {
                 return Ok(None);
             };
-            vm.get_attribute_opt(decoder.clone(), "newlines")
+            vm.get_attribute_opt(decoder, "newlines")
         }
 
         #[pygetset(name = "_CHUNK_SIZE")]
@@ -4091,16 +4087,16 @@ mod _io {
             let mut result = Wtf8Buf::from(format!("<{type_name}"));
 
             // Add name if present
-            if let Ok(Some(name)) = vm.get_attribute_opt(data.buffer.clone(), "name") {
+            if let Ok(Some(name)) = vm.get_attribute_opt(&data.buffer, "name") {
                 let name_repr = name.repr(vm)?;
                 result.push_wtf8(" name=".as_ref());
                 result.push_wtf8(name_repr.as_wtf8());
             }
 
             // Add mode if present (prefer the wrapper's attribute)
-            let mode_obj = match vm.get_attribute_opt(zelf.as_object().to_owned(), "mode") {
+            let mode_obj = match vm.get_attribute_opt(zelf.as_object(), "mode") {
                 Ok(Some(mode)) => Some(mode),
-                Ok(None) | Err(_) => match vm.get_attribute_opt(data.buffer.clone(), "mode") {
+                Ok(None) | Err(_) => match vm.get_attribute_opt(&data.buffer, "mode") {
                     Ok(Some(mode)) => Some(mode),
                     _ => None,
                 },
@@ -4234,7 +4230,7 @@ mod _io {
 
     impl Initializer for IncrementalNewlineDecoder {
         type Args = IncrementalNewlineDecoderArgs;
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let _ = args.errors;
             let mut data = zelf.lock_opt(vm)?;
             *data = Some(IncrementalNewlineDecoderData {
@@ -4432,7 +4428,7 @@ mod _io {
         type Args = StringIONewArgs;
 
         fn init(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             Self::Args { object, newline }: Self::Args,
             _vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -4769,7 +4765,7 @@ mod _io {
     impl Initializer for BytesIO {
         type Args = BytesIOArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             if zelf.exports.load() > 0 {
                 return Err(
                     vm.new_buffer_error("Existing exports of data: object cannot be re-sized")
@@ -5558,8 +5554,7 @@ mod fileio {
     use super::{_io::*, Offset, iobase_finalize};
     use crate::host_env::crt_fd;
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-        VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         convert::{IntoPyException, ToPyException},
@@ -5616,7 +5611,7 @@ mod fileio {
     impl Initializer for FileIO {
         type Args = FileIOArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: let atomic_flag_works
             let name = args.name;
             // Check if bool is used as file descriptor
@@ -6095,7 +6090,7 @@ mod fileio {
 mod winconsoleio {
     use super::{_io::*, iobase_finalize};
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyUtf8StrRef},
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::{IntoPyException, ToPyException},
@@ -6185,7 +6180,7 @@ mod winconsoleio {
     impl Initializer for WindowsConsoleIO {
         type Args = WindowsConsoleIOArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let nameobj = args.name;
 
             if zelf.fd.load() >= 0 {

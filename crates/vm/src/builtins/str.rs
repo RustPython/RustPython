@@ -1047,7 +1047,7 @@ impl PyStr {
     }
 
     pub fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        cformat_string(vm, self.as_wtf8(), values)
+        cformat_string(vm, self.as_wtf8(), &values)
     }
 
     #[pymethod]
@@ -1557,7 +1557,7 @@ impl PyStr {
 
     #[pymethod]
     fn encode(zelf: PyRef<Self>, args: EncodeArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        encode_string(zelf, args.encoding, args.errors, vm)
+        encode_string(zelf, args.encoding.as_deref(), args.errors, vm)
     }
 
     #[pymethod]
@@ -1746,11 +1746,11 @@ struct EncodeArgs {
 
 pub(crate) fn encode_string(
     s: PyStrRef,
-    encoding: Option<PyUtf8StrRef>,
+    encoding: Option<&Py<PyUtf8Str>>,
     errors: Option<PyUtf8StrRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyBytesRef> {
-    let encoding = match encoding.as_ref() {
+    let encoding = match encoding {
         None => crate::codecs::DEFAULT_ENCODING,
         Some(s) => s.as_str(),
     };
@@ -1859,7 +1859,7 @@ pub(crate) struct FindArgs {
 
 impl FindArgs {
     fn get_value(self, len: usize) -> (PyStrRef, core::ops::Range<usize>) {
-        let range = adjust_indices(self.start, self.end, len);
+        let range = adjust_indices(self.start.as_deref(), self.end.as_deref(), len);
         (self.sub, range)
     }
 }

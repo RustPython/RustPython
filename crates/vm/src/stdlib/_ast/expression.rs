@@ -158,7 +158,7 @@ impl Node for ast::Expr {
                 object.repr(vm)?
             )));
         };
-        let range = expr_range_from_object(vm, source_file, object.clone())?;
+        let range = expr_range_from_object(vm, source_file, &object)?;
         Ok(match kind {
             ExprKind::BoolOp => Self::BoolOp(expr_bool_op_from_object_with_range(
                 vm,
@@ -391,7 +391,7 @@ impl Node for ast::ExprBoolOp {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "BoolOp")?;
+        let range = range_from_object(vm, source_file, &object, "BoolOp")?;
         expr_bool_op_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -436,7 +436,7 @@ impl Node for ast::ExprNamed {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "NamedExpr")?;
+        let range = range_from_object(vm, source_file, &object, "NamedExpr")?;
         expr_named_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -489,7 +489,7 @@ impl Node for ast::ExprBinOp {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "BinOp")?;
+        let range = range_from_object(vm, source_file, &object, "BinOp")?;
         expr_bin_op_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -537,7 +537,7 @@ impl Node for ast::ExprUnaryOp {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "UnaryOp")?;
+        let range = range_from_object(vm, source_file, &object, "UnaryOp")?;
         expr_unary_op_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -589,7 +589,7 @@ impl Node for ast::ExprLambda {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Lambda")?;
+        let range = range_from_object(vm, source_file, &object, "Lambda")?;
         expr_lambda_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -638,7 +638,7 @@ impl Node for ast::ExprIf {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "IfExp")?;
+        let range = range_from_object(vm, source_file, &object, "IfExp")?;
         expr_if_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -707,7 +707,7 @@ impl Node for ast::ExprDict {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Dict")?;
+        let range = range_from_object(vm, source_file, &object, "Dict")?;
         expr_dict_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -754,7 +754,7 @@ impl Node for ast::ExprSet {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Set")?;
+        let range = range_from_object(vm, source_file, &object, "Set")?;
         expr_set_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -799,7 +799,7 @@ impl Node for ast::ExprListComp {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "ListComp")?;
+        let range = range_from_object(vm, source_file, &object, "ListComp")?;
         expr_list_comp_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -844,7 +844,7 @@ impl Node for ast::ExprSetComp {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "SetComp")?;
+        let range = range_from_object(vm, source_file, &object, "SetComp")?;
         expr_set_comp_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -899,7 +899,7 @@ impl Node for ast::ExprDictComp {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "DictComp")?;
+        let range = range_from_object(vm, source_file, &object, "DictComp")?;
         expr_dict_comp_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -946,7 +946,7 @@ impl Node for ast::ExprGenerator {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "GeneratorExp")?;
+        let range = range_from_object(vm, source_file, &object, "GeneratorExp")?;
         expr_generator_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -986,7 +986,7 @@ impl Node for ast::ExprAwait {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Await")?;
+        let range = range_from_object(vm, source_file, &object, "Await")?;
         expr_await_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1029,7 +1029,7 @@ impl Node for ast::ExprYield {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Yield")?;
+        let range = range_from_object(vm, source_file, &object, "Yield")?;
         expr_yield_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1070,7 +1070,7 @@ impl Node for ast::ExprYieldFrom {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "YieldFrom")?;
+        let range = range_from_object(vm, source_file, &object, "YieldFrom")?;
         expr_yield_from_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1127,7 +1127,7 @@ impl Node for ast::ExprCompare {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Compare")?;
+        let range = range_from_object(vm, source_file, &object, "Compare")?;
         expr_compare_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1189,7 +1189,7 @@ impl Node for ast::ExprCall {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Call")?;
+        let range = range_from_object(vm, source_file, &object, "Call")?;
         expr_call_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1242,7 +1242,7 @@ impl Node for ast::ExprAttribute {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Attribute")?;
+        let range = range_from_object(vm, source_file, &object, "Attribute")?;
         expr_attribute_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1294,7 +1294,7 @@ impl Node for ast::ExprSubscript {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Subscript")?;
+        let range = range_from_object(vm, source_file, &object, "Subscript")?;
         expr_subscript_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1342,7 +1342,7 @@ impl Node for ast::ExprStarred {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Starred")?;
+        let range = range_from_object(vm, source_file, &object, "Starred")?;
         expr_starred_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1391,7 +1391,7 @@ impl Node for ast::ExprName {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Name")?;
+        let range = range_from_object(vm, source_file, &object, "Name")?;
         expr_name_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1448,7 +1448,7 @@ impl Node for ast::ExprList {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "List")?;
+        let range = range_from_object(vm, source_file, &object, "List")?;
         expr_list_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1507,7 +1507,7 @@ impl Node for ast::ExprTuple {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Tuple")?;
+        let range = range_from_object(vm, source_file, &object, "Tuple")?;
         expr_tuple_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -1562,7 +1562,7 @@ impl Node for ast::ExprSlice {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Slice")?;
+        let range = range_from_object(vm, source_file, &object, "Slice")?;
         expr_slice_from_object_with_range(vm, source_file, &object, range)
     }
 }

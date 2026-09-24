@@ -726,7 +726,7 @@ mod _multibytecodec {
     impl Initializer for MultibyteIncrementalEncoder {
         type Args = FuncArgs;
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
     }
@@ -857,7 +857,7 @@ mod _multibytecodec {
     impl Initializer for MultibyteIncrementalDecoder {
         type Args = FuncArgs;
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
     }
@@ -1000,7 +1000,7 @@ mod _multibytecodec {
     impl Initializer for MultibyteStreamReader {
         type Args = FuncArgs;
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
     }
@@ -1164,7 +1164,7 @@ mod _multibytecodec {
     impl Initializer for MultibyteStreamWriter {
         type Args = FuncArgs;
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
     }

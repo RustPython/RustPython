@@ -180,7 +180,7 @@ mod _abc {
                 while let PyIterReturn::Return(key) = iter.next(vm)? {
                     // Try to get the attribute from cls - key should be a string
                     if let Some(key_str) = key.downcast_ref::<PyStr>()
-                        && let Some(value) = vm.get_attribute_opt(cls.to_owned(), key_str)?
+                        && let Some(value) = vm.get_attribute_opt(cls, key_str)?
                         && let Ok(is_abstract) = value.get_attr("__isabstractmethod__", vm)
                         && is_abstract.try_to_bool(vm)?
                     {

@@ -97,7 +97,7 @@ impl Node for ast::TypeParam {
                 object.repr(vm)?
             )));
         };
-        let range = type_param_range_from_object(vm, source_file, object.clone())?;
+        let range = type_param_range_from_object(vm, source_file, &object)?;
         Ok(match kind {
             TypeParamKind::TypeVar => Self::TypeVar(type_var_from_object_with_range(
                 vm,
@@ -166,7 +166,7 @@ impl Node for ast::TypeParamTypeVar {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = type_param_range_from_object(vm, source_file, object.clone())?;
+        let range = type_param_range_from_object(vm, source_file, &object)?;
         type_var_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -213,7 +213,7 @@ impl Node for ast::TypeParamParamSpec {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = type_param_range_from_object(vm, source_file, object.clone())?;
+        let range = type_param_range_from_object(vm, source_file, &object)?;
         param_spec_from_object_with_range(vm, source_file, &object, range)
     }
 }
@@ -263,7 +263,7 @@ impl Node for ast::TypeParamTypeVarTuple {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = type_param_range_from_object(vm, source_file, object.clone())?;
+        let range = type_param_range_from_object(vm, source_file, &object)?;
         type_var_tuple_from_object_with_range(vm, source_file, &object, range)
     }
 }

@@ -266,13 +266,14 @@ pub(crate) mod _ctypes {
     #[cfg(target_os = "windows")]
     #[pyattr(name = "COMError", once)]
     fn com_error(vm: &VirtualMachine) -> PyTypeRef {
+        use crate::PyObject;
         use crate::builtins::type_::PyAttributes;
         use crate::function::FuncArgs;
         use crate::types::{PyTypeFlags, PyTypeSlots};
 
         // Sets hresult, text, details as instance attributes in __init__
         // This function has InitFunc signature for direct slots.init use
-        fn comerror_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn comerror_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let (hresult, text, details): (
                 Option<PyObjectRef>,
                 Option<PyObjectRef>,
@@ -831,13 +832,13 @@ pub(crate) mod _ctypes {
         ctype: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        super::function::cast_impl(&obj, src, ctype, vm)
+        super::function::cast_impl(&obj, src, &ctype, vm)
     }
 
     /// Python-level cast function (PYFUNCTYPE wrapper)
     #[pyfunction]
     fn cast(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        super::function::cast_impl(&obj, obj.clone(), typ, vm)
+        super::function::cast_impl(&obj, obj.clone(), &typ, vm)
     }
 
     /// Return buffer interface information for a ctypes type or object.

@@ -427,7 +427,7 @@ impl PyModule {
 impl Initializer for PyModule {
     type Args = ModuleInitArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         debug_assert!(
             zelf.class()
                 .slots

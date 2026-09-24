@@ -1533,7 +1533,7 @@ impl VirtualMachine {
             eprintln!(
                 "importlib initialization failed. This is critical for many complicated packages."
             );
-            self.print_exception(e);
+            self.print_exception(&e);
         }
 
         #[cfg(not(feature = "host_env"))]
@@ -1548,7 +1548,7 @@ impl VirtualMachine {
                 eprintln!(
                     "encodings initialization failed. Only utf-8 encoding will be supported."
                 );
-                self.print_exception(e);
+                self.print_exception(&e);
             }
         } else {
             // Here may not be the best place to give general `path_list` advice,
@@ -3435,7 +3435,7 @@ impl VirtualMachine {
 
     pub fn get_attribute_opt<'a>(
         &self,
-        obj: PyObjectRef,
+        obj: &PyObject,
         attr_name: impl AsPyStr<'a>,
     ) -> PyResult<Option<PyObjectRef>> {
         let attr_name = attr_name.as_pystr(&self.ctx);
@@ -3736,7 +3736,7 @@ impl VirtualMachine {
             }
             1
         } else if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
-            self.print_exception(exc);
+            self.print_exception(&exc);
             cfg_select! {
                 unix => {
                     if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
@@ -3752,7 +3752,7 @@ impl VirtualMachine {
                 _ => 1,
             }
         } else {
-            self.print_exception(exc);
+            self.print_exception(&exc);
             1
         }
     }
@@ -3879,7 +3879,7 @@ mod tests {
                     .unwrap();
 
                 if let Err(e) = vm.run_code_obj(code_obj, scope) {
-                    vm.print_exception(e);
+                    vm.print_exception(&e);
                     panic!();
                 }
             })

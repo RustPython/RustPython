@@ -2450,7 +2450,7 @@ impl Constructor for PyType {
             for obj in bases.iter() {
                 if obj.downcast_ref::<Self>().is_none() {
                     if vm
-                        .get_attribute_opt(obj.clone(), identifier!(vm, __mro_entries__))?
+                        .get_attribute_opt(obj, identifier!(vm, __mro_entries__))?
                         .is_some()
                     {
                         return Err(vm.new_type_error(
@@ -2958,7 +2958,7 @@ impl Initializer for PyType {
     type Args = FuncArgs;
 
     // type_init
-    fn slot_init(_zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_init(_zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         // type.__init__() takes 1 or 3 arguments
         if args.args.len() == 1 && !args.kwargs.is_empty() {
             return Err(vm.new_type_error("type.__init__() takes no keyword arguments"));
@@ -2969,7 +2969,7 @@ impl Initializer for PyType {
         Ok(())
     }
 
-    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+    fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
         unreachable!("slot_init is defined")
     }
 }
@@ -3002,8 +3002,12 @@ impl GetAttr for PyType {
             if has_descr_set {
                 let descr_get = attr_class.slots.descr_get.load();
                 if let Some(descr_get) = descr_get {
-                    let mcl = mcl.to_owned().into();
-                    return descr_get(attr.clone(), Some(zelf.to_owned().into()), Some(mcl), vm);
+                    return descr_get(
+                        attr.as_object(),
+                        Some(zelf.as_object()),
+                        Some(mcl.as_object()),
+                        vm,
+                    );
                 }
             }
         }
@@ -3013,7 +3017,7 @@ impl GetAttr for PyType {
         if let Some(attr) = zelf_attr {
             let descr_get = attr.class().slots.descr_get.load();
             if let Some(descr_get) = descr_get {
-                descr_get(attr, None, Some(zelf.to_owned().into()), vm)
+                descr_get(attr.as_object(), None, Some(zelf.as_object()), vm)
             } else {
                 Ok(attr)
             }
@@ -3056,7 +3060,7 @@ impl Py<PyType> {
             // If it's a descriptor, call its __get__ method
             let descr_get = doc_attr.class().slots.descr_get.load();
             if let Some(descr_get) = descr_get {
-                descr_get(doc_attr, None, Some(self.to_owned().into()), vm)
+                descr_get(doc_attr.as_object(), None, Some(self.as_object()), vm)
             } else {
                 Ok(doc_attr)
             }
@@ -3236,7 +3240,7 @@ impl Callable for PyType {
         }
 
         if let Some(init_method) = obj.class().slots.init.load() {
-            init_method(obj.clone(), init_args, vm)?;
+            init_method(&obj, init_args, vm)?;
         }
         Ok(obj)
     }
@@ -3313,7 +3317,7 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if let Some(base_type) = base {
         if let Some(descr) = get_dict_descriptor(&base_type, vm) {
             // Call the descriptor's tp_descr_get
-            vm.call_get_descriptor(&descr, obj.clone())
+            vm.call_get_descriptor(&descr, &obj)
                 .unwrap_or_else(|| Err(raise_dict_descriptor_error(&obj, vm)))
         } else {
             Err(raise_dict_descriptor_error(&obj, vm))

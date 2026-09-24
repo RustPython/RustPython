@@ -164,8 +164,8 @@ pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> P
 /// import path below and by [`crate::VirtualMachine::import`]'s
 /// `sys.modules`-cache fast path).
 pub(crate) fn is_module_initializing(module: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-    match vm.get_attribute_opt(module.to_owned(), vm.ctx.intern_str("__spec__"))? {
-        Some(spec) => match vm.get_attribute_opt(spec, vm.ctx.intern_str("_initializing"))? {
+    match vm.get_attribute_opt(module, vm.ctx.intern_str("__spec__"))? {
+        Some(spec) => match vm.get_attribute_opt(&spec, vm.ctx.intern_str("_initializing"))? {
             Some(v) => v.try_to_bool(vm),
             None => Ok(false),
         },
@@ -383,7 +383,7 @@ pub(crate) fn is_stdlib_module_name(name: &PyObject, vm: &VirtualMachine) -> PyR
 /// PyImport_ImportModuleLevelObject
 pub(crate) fn import_module_level(
     name: &Py<PyStr>,
-    globals: Option<PyObjectRef>,
+    globals: Option<&PyObject>,
     fromlist: Option<PyObjectRef>,
     level: i32,
     vm: &VirtualMachine,
@@ -411,12 +411,11 @@ pub(crate) fn import_module_level(
     let abs_name = if level > 0 {
         // When globals is not provided (Rust None), raise KeyError
         // matching resolve_name() where globals==NULL
-        if globals.is_none() {
+        let Some(globals_ref) = globals else {
             return Err(vm.new_key_error(vm.ctx.new_str("'__name__' not in globals").into()));
-        }
-        let globals_ref = globals.as_ref().unwrap();
+        };
         // When globals is Python None, treat like empty mapping
-        let empty_dict_obj;
+        let empty_dict_obj: PyObjectRef;
         let globals_ref = if vm.is_none(globals_ref) {
             empty_dict_obj = vm.ctx.new_dict().into();
             &empty_dict_obj
@@ -464,7 +463,7 @@ pub(crate) fn import_module_level(
         // crash inside _handle_fromlist; IMPORT_FROM handles per-attribute
         // errors with proper ImportError conversion.
         let has_path = vm
-            .get_attribute_opt(module.clone(), vm.ctx.intern_str("__path__"))?
+            .get_attribute_opt(&module, vm.ctx.intern_str("__path__"))?
             .is_some();
         if has_path {
             let handle_fromlist = vm.importlib.get_attr("_handle_fromlist", vm)?;
