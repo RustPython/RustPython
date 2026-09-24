@@ -68,7 +68,7 @@ impl PyNativeFunction {
         if self.value.flags.contains(PyMethodFlags::STATIC) {
             return None;
         }
-        self.zelf.as_deref()
+        self.zelf.as_deref().or(self.module_object.as_deref())
     }
 
     pub const fn as_func(&self) -> &'static dyn PyNativeFn {

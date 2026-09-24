@@ -589,7 +589,7 @@ impl PyInt {
 
     #[pymethod]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        let signed = args.signed;
+        let signed: bool = args.signed.into();
         let byte_len = args.length;
 
         let value = self.as_bigint();
@@ -823,8 +823,9 @@ struct IntToByteArgs {
     // ArgByteOrder::Big is not the text 'big'.
     #[pyarg(any, default = ArgByteOrder::Big, py_default = "'big'")]
     byteorder: ArgByteOrder,
-    #[pyarg(named, default = false)]
-    signed: bool,
+    // Any object is accepted by truthiness, so the Rust default is not a literal.
+    #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+    signed: ArgIntoBool,
 }
 
 fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {

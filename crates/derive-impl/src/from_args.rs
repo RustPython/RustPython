@@ -266,6 +266,23 @@ fn python_default_repr(default: Option<&DefaultValue>, py_default: Option<&str>)
             Expr::Path(path) if path.qself.is_none() && path.path.is_ident("None") => {
                 Some("None".to_owned())
             }
+            Expr::Unary(syn::ExprUnary {
+                op: syn::UnOp::Neg(_),
+                expr: inner,
+                ..
+            }) => match inner.as_ref() {
+                Expr::Lit(syn::ExprLit {
+                    lit: Lit::Int(i), ..
+                }) => Some(format!("-{}", i.base10_digits())),
+                Expr::Lit(syn::ExprLit {
+                    lit: Lit::Float(f), ..
+                }) => Some(format!("-{}", f.base10_digits())),
+                _ => Some("<unrepresentable>".to_owned()),
+            },
+            Expr::Paren(syn::ExprParen { expr: inner, .. })
+            | Expr::Group(syn::ExprGroup { expr: inner, .. }) => {
+                python_default_repr(Some(&Some(inner.as_ref().clone())), None)
+            }
             _ => Some("<unrepresentable>".to_owned()),
         },
     }
