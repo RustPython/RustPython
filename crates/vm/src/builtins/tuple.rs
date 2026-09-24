@@ -386,33 +386,25 @@ impl PyTuple<PyObjectRef> {
     }
 }
 
-impl<R> Py<PyTuple<R>> {
-    /// Element slice of the tuple payload.
-    #[inline]
-    pub fn payload_slice(&self) -> &[R] {
-        PyTuple::as_slice(self)
-    }
-}
-
 impl Py<PyTuple> {
     #[inline]
     pub fn as_slice(&self) -> &[PyObjectRef] {
-        self.payload_slice()
+        self.payload().as_slice()
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.payload_slice().len()
+        self.as_slice().len()
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.payload_slice().is_empty()
+        self.as_slice().is_empty()
     }
 
     #[inline]
     pub fn iter(&self) -> core::slice::Iter<'_, PyObjectRef> {
-        self.payload_slice().iter()
+        self.as_slice().iter()
     }
 
     pub fn extract_tuple<'a, T: FromPyTuple<'a>>(&'a self, vm: &VirtualMachine) -> PyResult<T> {

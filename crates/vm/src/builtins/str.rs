@@ -629,20 +629,14 @@ impl PyStr {
 }
 
 impl Py<PyStr> {
-    /// Borrowed text of the payload.
     #[inline]
-    pub fn payload_wtf8(&self) -> &Wtf8 {
+    pub fn as_wtf8(&self) -> &Wtf8 {
         self.payload().as_wtf8()
     }
 
     #[inline]
-    pub fn as_wtf8(&self) -> &Wtf8 {
-        self.payload_wtf8()
-    }
-
-    #[inline]
     pub fn as_bytes(&self) -> &[u8] {
-        self.payload_wtf8().as_bytes()
+        self.payload().as_bytes()
     }
 
     #[inline]

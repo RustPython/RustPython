@@ -550,15 +550,9 @@ impl PyBytes {
 
 #[pyclass]
 impl Py<PyBytes> {
-    /// Borrowed bytes of the payload.
-    #[inline]
-    pub fn payload_bytes(&self) -> &[u8] {
-        self.payload().as_bytes()
-    }
-
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
-        self.payload_bytes()
+        self.payload().as_bytes()
     }
 
     #[pymethod]
