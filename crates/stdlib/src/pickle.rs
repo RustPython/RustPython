@@ -8,7 +8,8 @@ mod _pickle {
         wtf8::Wtf8Buf,
     };
     use crate::vm::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyByteArray, PyBytes, PyDict, PyDictRef, PyFloat, PyFrozenSet,
             PyInt, PyList, PySet, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
@@ -520,7 +521,9 @@ mod _pickle {
                 _ => "strict".to_owned(),
             };
             let buffers = match args.buffers {
-                OptionalArg::Present(o) if !vm.is_none(&o) => Some(o.get_iter(vm)?.into()),
+                OptionalArg::Present(o) if !vm.is_none(&o) => {
+                    Some(PyIter::try_from_object(vm, o)?.into())
+                }
                 _ => None,
             };
 
@@ -1647,7 +1650,9 @@ mod _pickle {
             _ => "strict".to_owned(),
         };
         let buffers = match buffers {
-            OptionalArg::Present(o) if !vm.is_none(&o) => Some(o.get_iter(vm)?.into()),
+            OptionalArg::Present(o) if !vm.is_none(&o) => {
+                Some(PyIter::try_from_object(vm, o)?.into())
+            }
             _ => None,
         };
         Ok(UnpicklerConfig {
@@ -3601,7 +3606,7 @@ mod _pickle {
                 let mut found: Option<PyRef<PyStr>> = None;
                 let snapshot = vm.call_method(&sys_modules, "copy", ())?;
                 let items = vm.call_method(&snapshot, "items", ())?;
-                let iter = items.get_iter(vm)?;
+                let iter = PyIter::try_from_object(vm, items)?;
                 while let PyIterReturn::Return(item) = iter.next(vm)? {
                     let pair: PyTupleRef = match item.downcast() {
                         Ok(p) => p,

@@ -82,8 +82,8 @@ impl Constructor for PyEnumerate {
     }
 }
 
-#[pyclass(with(Py, IterNext, Iterable, Constructor), flags(BASETYPE))]
-impl PyEnumerate {
+#[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
+impl Py<PyEnumerate> {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
@@ -92,10 +92,7 @@ impl PyEnumerate {
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
-}
 
-#[pyclass]
-impl Py<PyEnumerate> {
     #[pymethod]
     fn __reduce__(&self) -> (PyTypeRef, (PyIter, BigInt)) {
         (

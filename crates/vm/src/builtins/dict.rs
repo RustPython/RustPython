@@ -14,7 +14,9 @@ use crate::{
     dict_inner::{self, DictKey},
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
-    protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    protocol::{
+        PyIter, PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods,
+    },
     recursion::ReprGuard,
     types::{
         AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, DefaultConstructor,
@@ -152,7 +154,7 @@ impl PyDict {
         let keys_result = other.get_attr(vm.ctx.intern_str("keys"), vm);
         let has_keys = match keys_result {
             Ok(keys_method) => {
-                let keys = keys_method.call((), vm)?.get_iter(vm)?;
+                let keys = PyIter::try_from_object(vm, keys_method.call((), vm)?)?;
                 while let PyIterReturn::Return(key) = keys.next(vm)? {
                     if !override_existing && dict.contains(vm, &*key)? {
                         continue;
@@ -234,7 +236,7 @@ impl PyDict {
         };
 
         let elements = (|| {
-            let elem_iter = element.get_iter(vm).map_err(|exc| {
+            let elem_iter = PyIter::try_from_object(vm, element).map_err(|exc| {
                 if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
                     vm.new_type_error("object is not iterable")
                 } else {

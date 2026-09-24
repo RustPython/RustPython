@@ -4,8 +4,8 @@
 #[pymodule(sub)]
 pub(crate) mod ordered_dict {
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        atomic_func,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine, atomic_func,
         builtins::{
             PyDict, PyGenericAlias, PyMappingProxy, PyTuple, PyTypeRef,
             dict::{
@@ -20,7 +20,7 @@ pub(crate) mod ordered_dict {
         dict_inner::DictKey,
         function::{ArgIterable, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
         object::{Traverse, TraverseFn},
-        protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+        protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
         types::{
             AsMapping, AsNumber, AsSequence, Comparable, Constructor, DefaultConstructor,
@@ -551,7 +551,7 @@ pub(crate) mod ordered_dict {
         #[pymethod]
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let items = zelf.as_object().get_attr("items", vm)?.call((), vm)?;
-            let items_iter = items.get_iter(vm)?;
+            let items_iter = PyIter::try_from_object(vm, items)?;
             let state = vm.call_method(zelf.as_object(), "__getstate__", ())?;
             let state = match state.downcast_ref::<PyDict>() {
                 Some(d) if d.__len__() == 0 => vm.ctx.none(),
@@ -580,7 +580,7 @@ pub(crate) mod ordered_dict {
         fn fromkeys(cls: PyTypeRef, args: ODictFromKeysArgs, vm: &VirtualMachine) -> PyResult {
             let value = args.value.unwrap_or_none(vm);
             let inst = cls.as_object().call((), vm)?;
-            let iter = args.iterable.get_iter(vm)?;
+            let iter = PyIter::try_from_object(vm, args.iterable)?;
             for key in iter.iter::<PyObjectRef>(vm)? {
                 inst.set_item(&*key?, value.clone(), vm)?;
             }
@@ -773,7 +773,7 @@ pub(crate) mod ordered_dict {
         match arg.get_attr("keys", vm) {
             Ok(keys_fn) => {
                 let keys = keys_fn.call((), vm)?;
-                let iter = keys.get_iter(vm)?;
+                let iter = PyIter::try_from_object(vm, keys)?;
                 for key in iter.iter::<PyObjectRef>(vm)? {
                     let key = key?;
                     let value = arg.get_item(&*key, vm)?;
@@ -784,7 +784,7 @@ pub(crate) mod ordered_dict {
             Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
             Err(e) => return Err(e),
         }
-        let iter = arg.get_iter(vm)?;
+        let iter = PyIter::try_from_object(vm, arg)?;
         for (index, element) in iter.iter::<PyObjectRef>(vm)?.enumerate() {
             let (key, value) = PyDict::update_sequence_pair(element?, index, vm)?;
             zelf.set_item(&*key, value, vm)?;
@@ -952,7 +952,7 @@ pub(crate) mod ordered_dict {
             return Ok(PyArithmeticValue::Implemented(false));
         }
         let iter_obj = PyODictIter::new(od.clone(), kind).to_pyobject(vm);
-        let a_iter = iter_obj.get_iter(vm)?;
+        let a_iter = PyIter::try_from_object(vm, iter_obj)?;
         for item in a_iter.iter::<PyObjectRef>(vm)? {
             let item = item?;
             if !other.sequence_unchecked().contains(&item, vm)? {
