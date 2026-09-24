@@ -477,10 +477,10 @@ impl PyAtomicRef<PyObject> {
             if ptr.is_null() {
                 return None;
             }
-            if let Some(obj) = unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) } {
-                if core::ptr::eq(self.inner.load(Ordering::Acquire), ptr) {
-                    return Some(obj);
-                }
+            if let Some(obj) = unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
+                && core::ptr::eq(self.inner.load(Ordering::Acquire), ptr)
+            {
+                return Some(obj);
             }
             core::hint::spin_loop();
         }
