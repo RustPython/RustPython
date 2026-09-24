@@ -881,7 +881,7 @@ mod _json {
     fn add_note(exc: PyBaseExceptionRef, note: Wtf8Buf, vm: &VirtualMachine) -> PyBaseExceptionRef {
         // `PyBaseException::add_note` is `pub`, so call it directly instead
         // of going through the generic attribute-lookup + call machinery.
-        let _ = exc.clone().add_note(vm.ctx.new_str(note), vm);
+        let _ = exc.add_note(vm.ctx.new_str(note), vm);
         exc
     }
 

@@ -786,18 +786,9 @@ impl Py<PyBaseException> {
             Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(&vm.ctx),
         }
     }
-}
-
-#[pyclass]
-impl PyRef<PyBaseException> {
-    #[pymethod]
-    fn with_traceback(self, tb: Option<PyTracebackRef>) -> Self {
-        *self.traceback.write() = tb;
-        self
-    }
 
     #[pymethod]
-    pub fn add_note(self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn add_note(&self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
         let dict = crate::builtins::object::object_get_dict(self.as_object().to_owned(), vm)
             .map_err(|_| vm.new_attribute_error("Exception object has no __dict__"))?;
 
@@ -818,7 +809,7 @@ impl PyRef<PyBaseException> {
     }
 
     #[pymethod]
-    fn __reduce__(self, vm: &VirtualMachine) -> PyTupleRef {
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         if let Some(dict) = self.as_object().dict().filter(|x| !x.is_empty()) {
             vm.new_tuple((self.class().to_owned(), self.args(), dict))
         } else {
@@ -827,7 +818,7 @@ impl PyRef<PyBaseException> {
     }
 
     #[pymethod]
-    fn __setstate__(self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         if !vm.is_none(&state) {
             let dict = state
                 .downcast::<crate::builtins::PyDict>()
@@ -842,6 +833,15 @@ impl PyRef<PyBaseException> {
             }
         }
         Ok(vm.ctx.none())
+    }
+}
+
+#[pyclass]
+impl PyRef<PyBaseException> {
+    #[pymethod]
+    fn with_traceback(self, tb: Option<PyTracebackRef>) -> Self {
+        *self.traceback.write() = tb;
+        self
     }
 }
 
