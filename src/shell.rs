@@ -57,12 +57,12 @@ fn shell_exec(
             if matches!(
                 &err,
                 VmCompileError::Compile(CompileError::Parse(ParseError {
-                    error: ParseErrorType::Lexical(LexicalErrorType::Eof),
-                    ..
-                })) | VmCompileError::Compile(CompileError::Parse(ParseError {
-                    error: ParseErrorType::Lexical(LexicalErrorType::FStringError(
-                        InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-                    )),
+                    error: ParseErrorType::Lexical(
+                        LexicalErrorType::Eof
+                            | LexicalErrorType::FStringError(
+                                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                            )
+                    ),
                     ..
                 }))
             ) {
