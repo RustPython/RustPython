@@ -4,7 +4,6 @@ use crate::object::PyTypeObject;
 use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int, c_void};
-use core::ptr::NonNull;
 use rustpython_vm::builtins::{
     DescriptorMemberDef, MemberAccess, MemberKind, PY_READONLY, PY_RELATIVE_OFFSET,
     PyDescriptorOwned, PyGetSet, PyMappingProxy, PyMemberDescriptor, PyType,
@@ -195,7 +194,7 @@ pub unsafe extern "C" fn PyDescr_NewGetSet(
     typ: *mut PyTypeObject,
     getset: *mut PyGetSetDef,
 ) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*getset }.build(unsafe { &*typ }, vm))
+    with_vm(|vm| unsafe { &*getset }.build(unsafe { typ.assume_borrowed() }, vm))
 }
 
 #[unsafe(no_mangle)]

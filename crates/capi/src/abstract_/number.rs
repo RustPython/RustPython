@@ -315,11 +315,11 @@ pub unsafe extern "C" fn PyNumber_Long(obj: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyNumber_AsSsize_t(obj: *mut PyObject, exc: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let index = unsafe { &*obj }.try_index(vm)?;
+        let index = unsafe { obj.assume_borrowed() }.try_index(vm)?;
         let value = index.as_bigint();
 
         value.try_into().or_else(|_| {
-            if let Some(exc) = unsafe { exc.as_ref() } {
+            if let Some(exc) = unsafe { exc.assume_borrowed_or_opt() } {
                 Err(vm.invoke_exception(
                     exc.try_downcast_ref(vm)?,
                     vec![

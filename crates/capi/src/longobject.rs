@@ -179,9 +179,9 @@ pub unsafe extern "C" fn PyLong_AsNativeBytes(
 
         let flags = AsNativeBytesFlags::from_bits_or_default(vm, flags)?;
         let value = if flags.contains(AsNativeBytesFlags::ALLOW_INDEX) {
-            unsafe { &*obj }.to_owned().try_index(vm)?
+            unsafe { obj.assume_borrowed() }.to_owned().try_index(vm)?
         } else {
-            unsafe { &*obj }.try_downcast_ref::<PyInt>(vm)?.to_owned()
+            unsafe { obj.assume_borrowed_and_cast::<PyInt>(vm)? }.to_owned()
         };
         let bigint = value.as_bigint();
 
@@ -485,7 +485,7 @@ pub unsafe extern "C" fn PyLong_Export(
     export_long: *mut PyLongExport,
 ) -> c_int {
     with_vm::<PyResult<()>, _>(|vm| {
-        let py_int = unsafe { &*obj }.try_downcast_ref::<PyInt>(vm)?;
+        let py_int = unsafe { obj.assume_borrowed_and_cast::<PyInt>(vm)? };
         let bigint = py_int.as_bigint();
 
         if let Ok(value) = i64::try_from(bigint) {

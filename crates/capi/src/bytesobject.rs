@@ -41,7 +41,7 @@ pub unsafe extern "C" fn PyBytes_FromString(s: *const c_char) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyBytes_FromObject(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         if let Some(bytes) = obj.downcast_ref::<PyBytes>() {
             Ok(bytes.to_owned())
         } else {
@@ -73,7 +73,7 @@ pub unsafe extern "C" fn PyBytes_AsStringAndSize(
     length: *mut isize,
 ) -> c_int {
     with_vm(|vm| {
-        let data = unsafe { &*obj }.try_downcast_ref::<PyBytes>(vm)?.as_bytes();
+        let data = unsafe { obj.assume_borrowed_and_cast::<PyBytes>(vm)? }.as_bytes();
 
         if length.is_null() {
             if data.contains(&0) {

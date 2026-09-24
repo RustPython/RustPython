@@ -49,8 +49,7 @@ pub unsafe extern "C" fn PyUnicode_FromString(s: *const c_char) -> *mut PyObject
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_FromObject(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        Ok(unsafe { &*obj }
-            .try_downcast_ref::<PyStr>(vm)?
+        Ok(unsafe { obj.assume_borrowed_and_cast::<PyStr>(vm)? }
             .as_object()
             .str(vm))
     })
@@ -98,9 +97,7 @@ fn encode_unicode(
     encoding: &str,
     errors: Option<PyUtf8StrRef>,
 ) -> PyResult<PyBytesRef> {
-    let unicode = unsafe { &*unicode }
-        .try_downcast_ref::<PyStr>(vm)?
-        .to_owned();
+    let unicode = unsafe { unicode.assume_borrowed_and_cast::<PyStr>(vm)? }.to_owned();
     vm.state
         .codec_registry
         .encode_text(unicode, encoding, errors, vm)
@@ -261,8 +258,8 @@ pub unsafe extern "C" fn PyUnicode_Concat(
     right: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let left = unsafe { &*left }.try_downcast_ref::<PyStr>(vm)?;
-        let right = unsafe { &*right }.try_downcast_ref::<PyStr>(vm)?;
+        let left = unsafe { left.assume_borrowed_and_cast::<PyStr>(vm)? };
+        let right = unsafe { right.assume_borrowed_and_cast::<PyStr>(vm)? };
         vm._add(left.as_object(), right.as_object())
     })
 }
@@ -270,7 +267,7 @@ pub unsafe extern "C" fn PyUnicode_Concat(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_GetLength(unicode: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }.try_downcast_ref::<PyStr>(vm)?;
+        let unicode = unsafe { unicode.assume_borrowed_and_cast::<PyStr>(vm)? };
         Ok(unicode.char_len())
     })
 }
@@ -291,8 +288,8 @@ pub unsafe extern "C" fn PyUnicode_InternFromString(s: *const c_char) -> *mut Py
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_Compare(left: *mut PyObject, right: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let left = unsafe { &*left }.try_downcast_ref::<PyStr>(vm)?;
-        let right = unsafe { &*right }.try_downcast_ref::<PyStr>(vm)?;
+        let left = unsafe { left.assume_borrowed_and_cast::<PyStr>(vm)? };
+        let right = unsafe { right.assume_borrowed_and_cast::<PyStr>(vm)? };
         Ok(match left.as_wtf8().cmp(right.as_wtf8()) {
             core::cmp::Ordering::Less => -1,
             core::cmp::Ordering::Equal => 0,
@@ -307,7 +304,7 @@ pub unsafe extern "C" fn PyUnicode_CompareWithASCIIString(
     right: *const c_char,
 ) -> c_int {
     with_vm(|vm| {
-        let left = unsafe { &*left }.try_downcast_ref::<PyStr>(vm)?;
+        let left = unsafe { left.assume_borrowed_and_cast::<PyStr>(vm)? };
         let right = unsafe { right.try_as_str(vm)? };
         Ok(match left.as_wtf8().cmp(right.into()) {
             core::cmp::Ordering::Less => -1,
@@ -320,8 +317,8 @@ pub unsafe extern "C" fn PyUnicode_CompareWithASCIIString(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_Equal(left: *mut PyObject, right: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let left = unsafe { &*left }.try_downcast_ref::<PyStr>(vm)?;
-        let right = unsafe { &*right }.try_downcast_ref::<PyStr>(vm)?;
+        let left = unsafe { left.assume_borrowed_and_cast::<PyStr>(vm)? };
+        let right = unsafe { right.assume_borrowed_and_cast::<PyStr>(vm)? };
         Ok(left.as_wtf8() == right.as_wtf8())
     })
 }
@@ -332,7 +329,7 @@ pub unsafe extern "C" fn PyUnicode_EqualToUTF8(
     string: *const c_char,
 ) -> c_int {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }.try_downcast_ref::<PyStr>(vm)?;
+        let unicode = unsafe { unicode.assume_borrowed_and_cast::<PyStr>(vm)? };
         let other = unsafe { string.try_as_str(vm)? };
         Ok(unicode.to_str().is_some_and(|s| s == other))
     })
@@ -416,8 +413,8 @@ pub unsafe extern "C" fn PyUnicode_Contains(
     element: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let container = unsafe { &*container }.try_downcast_ref::<PyStr>(vm)?;
-        let element = unsafe { &*element }.try_downcast_ref::<PyStr>(vm)?;
+        let container = unsafe { container.assume_borrowed_and_cast::<PyStr>(vm)? };
+        let element = unsafe { element.assume_borrowed_and_cast::<PyStr>(vm)? };
         Ok(container.as_wtf8().contains(element.as_wtf8()))
     })
 }
@@ -428,8 +425,8 @@ pub unsafe extern "C" fn PyUnicode_Format(
     args: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let format = unsafe { &*format }.try_downcast_ref::<PyStr>(vm)?;
-        let result = format.__mod__(unsafe { &*args }.to_owned(), vm)?;
+        let format = unsafe { format.assume_borrowed_and_cast::<PyStr>(vm)? };
+        let result = format.__mod__(unsafe { args.assume_borrowed() }.to_owned(), vm)?;
         Ok(result.to_pyobject(vm))
     })
 }
@@ -437,7 +434,7 @@ pub unsafe extern "C" fn PyUnicode_Format(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_IsIdentifier(s: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let s = unsafe { &*s }.try_downcast_ref::<PyStr>(vm)?;
+        let s = unsafe { s.assume_borrowed_and_cast::<PyStr>(vm)? };
         Ok(s.isidentifier())
     })
 }
@@ -448,8 +445,8 @@ pub unsafe extern "C" fn PyUnicode_Partition(
     sep: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let s = unsafe { &*s }.try_downcast_ref::<PyStr>(vm)?;
-        let sep = unsafe { &*sep }.try_downcast_ref::<PyStr>(vm)?;
+        let s = unsafe { s.assume_borrowed_and_cast::<PyStr>(vm)? };
+        let sep = unsafe { sep.assume_borrowed_and_cast::<PyStr>(vm)? };
         s.partition(sep.to_owned(), vm)
     })
 }
@@ -460,8 +457,8 @@ pub unsafe extern "C" fn PyUnicode_RPartition(
     sep: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let s = unsafe { &*s }.try_downcast_ref::<PyStr>(vm)?;
-        let sep = unsafe { &*sep }.try_downcast_ref::<PyStr>(vm)?;
+        let s = unsafe { s.assume_borrowed_and_cast::<PyStr>(vm)? };
+        let sep = unsafe { sep.assume_borrowed_and_cast::<PyStr>(vm)? };
         s.rpartition(sep.to_owned(), vm)
     })
 }
@@ -473,9 +470,9 @@ pub unsafe extern "C" fn PyUnicode_Translate(
     _errors: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let str_obj = unsafe { &*str_obj }.try_downcast_ref::<PyStr>(vm)?;
+        let str_obj = unsafe { str_obj.assume_borrowed_and_cast::<PyStr>(vm)? };
         Ok(str_obj
-            .translate(unsafe { &*table }.to_owned(), vm)?
+            .translate(unsafe { table.assume_borrowed() }.to_owned(), vm)?
             .to_pyobject(vm))
     })
 }

@@ -99,7 +99,7 @@ pub unsafe extern "C" fn PyObject_Vectorcall(
         } else {
             unsafe { slice::from_raw_parts(args, args_len) }
                 .iter()
-                .map(|arg| unsafe { &**arg }.to_owned())
+                .map(|arg| unsafe { arg.assume_borrowed() }.to_owned())
                 .collect::<Vec<_>>()
         };
 

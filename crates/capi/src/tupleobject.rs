@@ -36,7 +36,7 @@ pub unsafe extern "C" fn PyTuple_FromArray(
         let slice = unsafe { slice::from_raw_parts(array, size) };
         let elements = slice
             .iter()
-            .map(|ptr| unsafe { &**ptr }.to_owned())
+            .map(|ptr| unsafe { ptr.assume_borrowed() }.to_owned())
             .collect::<Vec<_>>();
         Ok(vm.new_tuple(elements))
     })
