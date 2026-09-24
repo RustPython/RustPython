@@ -250,6 +250,7 @@ bitflags! {
         const HEAPTYPE = 1 << 9;
         const BASETYPE = 1 << 10;
         const METHOD_DESCRIPTOR = 1 << 17;
+        const IS_ABSTRACT = 1 << 20;
         // For built-in types that match the subject itself in pattern matching
         // (bool, int, float, str, bytes, bytearray, list, tuple, dict, set, frozenset)
         // This is not a stable API
@@ -1123,6 +1124,9 @@ impl PyType {
                                         // Check if it's a Python function (not a native descriptor)
                                         !attr.class().is(ctx.types.wrapper_descriptor_type)
                                             && !attr.class().is(ctx.types.method_descriptor_type)
+                                            && !attr
+                                                .class()
+                                                .is(ctx.types.classmethod_descriptor_type)
                                     })
                                 })
                             })
@@ -1806,6 +1810,9 @@ impl PyType {
 pub trait Constructor: PyPayload + core::fmt::Debug {
     type Args: FromArgs;
 
+    /// When true, extra keywords are dropped if a subclass replaced `tp_init`.
+    const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = false;
+
     /// The type slot for `__new__`. Override this only when you need special
     /// behavior beyond simple payload creation.
     #[inline]
@@ -1813,6 +1820,11 @@ pub trait Constructor: PyPayload + core::fmt::Debug {
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // The name is the type the slot was written for, not the subclass being
         // constructed, so a subclass reports what its base declares.
+        let args = if Self::DROP_KWARGS_WHEN_INIT_OVERRIDDEN {
+            drop_kwargs_if_init_overridden(&cls, Self::class(&vm.ctx), args)
+        } else {
+            args
+        };
         let args: Self::Args = args.bind_for(vm, Callee::of::<Self>(vm))?;
         let payload = Self::py_new(&cls, args, vm)?;
         payload.into_ref_with_type(vm, cls).map(Into::into)
@@ -1821,6 +1833,22 @@ pub trait Constructor: PyPayload + core::fmt::Debug {
     /// Creates the payload for this type. In most cases, just implement this method
     /// and let the default `slot_new` handle wrapping with the correct type.
     fn py_new(cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self>;
+}
+
+/// Extra keywords are ignored when a subclass has replaced `tp_init`.
+pub(crate) fn drop_kwargs_if_init_overridden(
+    cls: &Py<PyType>,
+    base: &Py<PyType>,
+    mut args: FuncArgs,
+) -> FuncArgs {
+    if args.kwargs.is_empty() {
+        return args;
+    }
+    let uses_base_init = cls.slots.init.load().map(fn_addr) == base.slots.init.load().map(fn_addr);
+    if !(cls.is(base) || uses_base_init) {
+        args.kwargs = Default::default();
+    }
+    args
 }
 
 pub trait DefaultConstructor: PyPayload + Default + core::fmt::Debug {

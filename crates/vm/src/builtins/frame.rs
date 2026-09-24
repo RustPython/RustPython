@@ -523,42 +523,41 @@ impl FrameObject {
             }
         };
 
-        let what_event = vm.what_event.get();
-        if what_event < 0 {
+        let Some(what_event) = vm.what_event.get() else {
             return Err(
                 vm.new_value_error("f_lineno can only be set in a trace function".to_owned())
             );
-        }
+        };
         {
-            use crate::stdlib::sys::monitoring as mon;
+            use crate::stdlib::sys::monitoring::MonitoringEvent as Ev;
             match what_event {
-                mon::WHAT_PY_RESUME
-                | mon::WHAT_JUMP
-                | mon::WHAT_BRANCH
-                | mon::WHAT_BRANCH_LEFT
-                | mon::WHAT_BRANCH_RIGHT
-                | mon::WHAT_LINE
-                | mon::WHAT_PY_YIELD => {}
-                mon::WHAT_PY_START => {
+                Ev::PyResume
+                | Ev::Jump
+                | Ev::Branch
+                | Ev::BranchLeft
+                | Ev::BranchRight
+                | Ev::Line
+                | Ev::PyYield => {}
+                Ev::PyStart => {
                     return Err(vm.new_value_error(
                         "can't jump from the 'call' trace event of a new frame".to_owned(),
                     ));
                 }
-                mon::WHAT_CALL | mon::WHAT_C_RETURN => {
+                Ev::Call | Ev::CReturn => {
                     return Err(vm.new_value_error("can't jump during a call".to_owned()));
                 }
-                mon::WHAT_PY_RETURN
-                | mon::WHAT_PY_UNWIND
-                | mon::WHAT_PY_THROW
-                | mon::WHAT_RAISE
-                | mon::WHAT_C_RAISE
-                | mon::WHAT_INSTRUCTION
-                | mon::WHAT_EXCEPTION_HANDLED => {
+                Ev::PyReturn
+                | Ev::PyUnwind
+                | Ev::PyThrow
+                | Ev::Raise
+                | Ev::CRaise
+                | Ev::Instruction
+                | Ev::ExceptionHandled => {
                     return Err(
                         vm.new_value_error("can only jump from a 'line' trace event".to_owned())
                     );
                 }
-                _ => {
+                Ev::StopIteration | Ev::Reraise => {
                     return Err(vm.new_system_error("unexpected event type".to_owned()));
                 }
             }

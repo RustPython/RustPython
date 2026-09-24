@@ -1,8 +1,9 @@
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyAtomicRef, PyObject, PyObjectRef, PyResult, VirtualMachine,
+    anystr::SplitLinesArgs,
     builtins::{
-        PyBaseExceptionRef, PyDictRef, PyListRef, PyStr, PyStrInterned, PyStrRef, PyTuple,
-        PyTupleRef, PyType, PyTypeRef,
+        PyBaseExceptionRef, PyDict, PyDictRef, PyList, PyListRef, PyStr, PyStrInterned, PyStrRef,
+        PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     convert::TryFromObject,
 };
@@ -10,9 +11,9 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use rustpython_common::lock::OnceCell;
 
 pub struct WarningsState {
-    pub filters: PyListRef,
-    pub once_registry: PyDictRef,
-    pub default_action: PyStrRef,
+    pub filters: PyAtomicRef<PyList>,
+    pub once_registry: PyAtomicRef<PyDict>,
+    pub default_action: PyAtomicRef<PyStr>,
     pub filters_version: AtomicUsize,
     pub context_var: OnceCell<PyObjectRef>,
     lock_count: AtomicUsize,
@@ -70,9 +71,9 @@ impl WarningsState {
 
     pub fn init_state(ctx: &Context) -> Self {
         Self {
-            filters: Self::create_default_filters(ctx),
-            once_registry: ctx.new_dict(),
-            default_action: ctx.new_str("default"),
+            filters: Self::create_default_filters(ctx).into(),
+            once_registry: ctx.new_dict().into(),
+            default_action: ctx.new_str("default").into(),
             filters_version: AtomicUsize::new(0),
             context_var: OnceCell::new(),
             lock_count: AtomicUsize::new(0),
@@ -114,7 +115,7 @@ fn get_warnings_attr(
     vm: &VirtualMachine,
     attr_name: &'static PyStrInterned,
     try_import: bool,
-) -> Option<PyObjectRef> {
+) -> PyResult<Option<PyObjectRef>> {
     let module = if try_import
         && !vm
             .state
@@ -123,60 +124,152 @@ fn get_warnings_attr(
     {
         match vm.import("warnings", 0) {
             Ok(module) => module,
-            Err(_) => return None,
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.import_error) => return Ok(None),
+            Err(e) => return Err(e),
         }
     } else {
-        match vm.sys_module.get_attr(identifier!(vm, modules), vm) {
-            Ok(modules) => match modules.get_item(vm.ctx.intern_str("warnings"), vm) {
-                Ok(module) => module,
-                Err(_) => return None,
-            },
-            Err(_) => return None,
+        let Ok(modules) = vm.sys_module.get_attr(identifier!(vm, modules), vm) else {
+            return Ok(None);
+        };
+        match modules.get_item(vm.ctx.intern_str("warnings"), vm) {
+            Ok(module) => module,
+            Err(_) => return Ok(None),
         }
     };
 
-    module.get_attr(attr_name, vm).ok()
+    vm.get_attribute_opt(module, attr_name)
 }
 
 /// Get the warnings filters list from `sys.modules['warnings'].filters`,
-/// falling back to vm.state.warnings.filters.
-fn get_warnings_filters(vm: &VirtualMachine) -> PyListRef {
-    if let Some(filters_obj) = get_warnings_attr(vm, identifier!(&vm.ctx, filters), false)
-        && let Ok(filters) = filters_obj.try_into_value::<PyListRef>(vm)
-    {
-        return filters;
+/// falling back to the interpreter cache (`st->filters`).
+fn get_warnings_filters(vm: &VirtualMachine) -> PyResult<PyListRef> {
+    if let Some(filters_obj) = get_warnings_attr(vm, identifier!(vm, filters), false)? {
+        let filters = PyListRef::try_from_object(vm, filters_obj)
+            .map_err(|_| vm.new_value_error("_warnings.filters must be a list"))?;
+        vm.state
+            .warnings
+            .filters
+            .swap_to_temporary_refs(filters, vm);
     }
-    vm.state.warnings.filters.clone()
+    Ok(vm.state.warnings.filters.to_owned())
 }
 
-/// Get the default action from `sys.modules['warnings']._defaultaction`,
+fn get_warnings_context_filters(vm: &VirtualMachine) -> PyResult<Option<PyListRef>> {
+    let Some(ctx_var) = vm.state.warnings.context_var.get() else {
+        return Ok(None);
+    };
+    if vm.is_none(ctx_var) {
+        return Ok(None);
+    }
+    let ctx = vm.call_method(ctx_var, "get", (vm.ctx.none(),))?;
+    if vm.is_none(&ctx) {
+        return Ok(None);
+    }
+    let filters = ctx.get_attr("_filters", vm)?;
+    PyListRef::try_from_object(vm, filters)
+        .map(Some)
+        .map_err(|_| vm.new_value_error("_filters of warnings._warnings_context must be a list"))
+}
+
+fn bless_my_loader(
+    module_globals: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyObjectRef>> {
+    let external = vm
+        .importlib
+        .get_attr("_bootstrap_external", vm)
+        .or_else(|_| vm.import("importlib._bootstrap_external", 0))?;
+    if vm.is_none(&external) {
+        return Ok(None);
+    }
+    let bless = external.get_attr("_bless_my_loader", vm)?;
+    let loader = bless.call((module_globals.to_owned(),), vm)?;
+    if vm.is_none(&loader) {
+        Ok(None)
+    } else {
+        Ok(Some(loader))
+    }
+}
+
+pub(crate) fn get_source_line(
+    module_globals: &PyObject,
+    lineno: usize,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyObjectRef>> {
+    let Some(loader) = bless_my_loader(module_globals, vm)? else {
+        return Ok(None);
+    };
+
+    let module_name = if let Some(dict) = module_globals.downcast_ref::<PyDict>() {
+        match dict.get_item_opt(identifier!(vm, __name__), vm)? {
+            Some(name) => name,
+            None => return Ok(None),
+        }
+    } else {
+        match module_globals.get_item(identifier!(vm, __name__), vm) {
+            Ok(name) => name,
+            Err(_) => return Ok(None),
+        }
+    };
+
+    let Some(get_source) = vm.get_attribute_opt(loader, vm.ctx.intern_str("get_source"))? else {
+        return Ok(None);
+    };
+    let source = get_source.call((module_name,), vm)?;
+    if vm.is_none(&source) {
+        return Ok(None);
+    }
+
+    let Some(source_str) = source.downcast_ref::<PyStr>() else {
+        return Err(vm.new_type_error(format!("expected str, not {}", source.class().name())));
+    };
+    let lines = source_str.splitlines(SplitLinesArgs { keepends: false }, vm);
+    if lineno == 0 {
+        return Err(vm.new_index_error("list index out of range"));
+    }
+    lines
+        .get(lineno - 1)
+        .cloned()
+        .ok_or_else(|| vm.new_index_error("list index out of range"))
+        .map(Some)
+}
+
+/// Get the default action from `sys.modules['warnings'].defaultaction`,
 /// falling back to vm.state.warnings.default_action.
 fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-    if let Some(action) = get_warnings_attr(vm, identifier!(&vm.ctx, defaultaction), false) {
+    if let Some(action) = get_warnings_attr(vm, identifier!(vm, defaultaction), false)? {
         if !action.class().is(vm.ctx.types.str_type) {
             return Err(vm.new_type_error(format!(
                 "_warnings.defaultaction must be a string, not '{}'",
                 action.class().name()
             )));
         }
-        return Ok(action);
+        let action = PyStrRef::try_from_object(vm, action)?;
+        vm.state
+            .warnings
+            .default_action
+            .swap_to_temporary_refs(action, vm);
     }
-    Ok(vm.state.warnings.default_action.clone().into())
+    Ok(vm.state.warnings.default_action.to_owned().into())
 }
 
-/// Get the once registry from `sys.modules['warnings']._onceregistry`,
+/// Get the once registry from `sys.modules['warnings'].onceregistry`,
 /// falling back to vm.state.warnings.once_registry.
 fn get_once_registry(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-    if let Some(registry) = get_warnings_attr(vm, identifier!(&vm.ctx, onceregistry), false) {
+    if let Some(registry) = get_warnings_attr(vm, identifier!(vm, onceregistry), false)? {
         if !registry.class().is(vm.ctx.types.dict_type) {
             return Err(vm.new_type_error(format!(
                 "_warnings.onceregistry must be a dict, not '{}'",
                 registry.class().name()
             )));
         }
-        return Ok(registry);
+        let registry = PyDictRef::try_from_object(vm, registry)?;
+        vm.state
+            .warnings
+            .once_registry
+            .swap_to_temporary_refs(registry, vm);
     }
-    Ok(vm.state.warnings.once_registry.clone().into())
+    Ok(vm.state.warnings.once_registry.to_owned().into())
 }
 
 fn already_warned(
@@ -253,20 +346,18 @@ fn normalize_module(filename: &Py<PyStr>, vm: &VirtualMachine) -> PyObjectRef {
     }
 }
 
-/// Search the global filters list for a matching action.
-// TODO: split into filter_search() + get_filter() and support
-//       context-aware filters (get_warnings_context_filters).
-fn get_filter(
+/// Search a filters list for a matching action.
+fn filter_search(
     category: &PyObject,
     text: &PyObject,
     lineno: usize,
     module: &PyObject,
+    filters: &PyListRef,
+    list_name: &str,
     vm: &VirtualMachine,
-) -> PyResult {
-    let filters = get_warnings_filters(vm);
-
+) -> PyResult<Option<PyObjectRef>> {
     // filters could change while we are iterating over it.
-    // Re-check list length each iteration (matches C behavior).
+    // Re-check list length each iteration.
     let mut i = 0;
     while i < filters.borrow_vec().len() {
         let Some(tmp_item) = filters.borrow_vec().get(i).cloned() else {
@@ -276,22 +367,56 @@ fn get_filter(
             .ok()
             .filter(|t| t.len() == 5)
             .ok_or_else(|| {
-                vm.new_value_error(format!("_warnings.filters item {i} isn't a 5-tuple"))
+                vm.new_value_error(format!("warnings.{list_name} item {i} isn't a 5-tuple"))
             })?;
 
         /* action, msg, cat, mod, ln = item */
         let action = &tmp_item[0];
+        if !action.class().is(vm.ctx.types.str_type) {
+            return Err(vm.new_type_error(format!(
+                "action must be a string, not '{}'",
+                action.class().name()
+            )));
+        }
         let good_msg = check_matched(&tmp_item[1], text, vm)?;
         let is_subclass = category.is_subclass(&tmp_item[2], vm)?;
         let good_mod = check_matched(&tmp_item[3], module, vm)?;
         let ln: usize = tmp_item[4].try_int(vm).map_or(0, |v| v.as_u32_mask() as _);
 
         if good_msg && is_subclass && good_mod && (ln == 0 || lineno == ln) {
-            return Ok(action.to_owned());
+            return Ok(Some(action.to_owned()));
         }
         i += 1;
     }
+    Ok(None)
+}
 
+fn get_filter(
+    category: &PyObject,
+    text: &PyObject,
+    lineno: usize,
+    module: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult {
+    if let Some(context_filters) = get_warnings_context_filters(vm)? {
+        if let Some(action) = filter_search(
+            category,
+            text,
+            lineno,
+            module,
+            &context_filters,
+            "_warnings_context _filters",
+            vm,
+        )? {
+            return Ok(action);
+        }
+        return get_default_action(vm);
+    }
+
+    let filters = get_warnings_filters(vm)?;
+    if let Some(action) = filter_search(category, text, lineno, module, &filters, "filters", vm)? {
+        return Ok(action);
+    }
     get_default_action(vm)
 }
 
@@ -320,6 +445,8 @@ pub fn warn_unawaited_coroutine(coro: &PyObject, qualname: &Py<PyStr>, vm: &Virt
     let mut warned = false;
     if let Some(helper) =
         get_warnings_attr(vm, vm.ctx.intern_str("_warn_unawaited_coroutine"), true)
+            .ok()
+            .flatten()
     {
         match helper.call((coro.to_owned(),), vm) {
             Ok(_) => warned = true,
@@ -491,7 +618,7 @@ fn call_show_warning(
     source: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let Some(show_fn) = get_warnings_attr(vm, identifier!(&vm.ctx, _showwarnmsg), source.is_some())
+    let Some(show_fn) = get_warnings_attr(vm, identifier!(vm, _showwarnmsg), source.is_some())?
     else {
         show_warning(&filename, lineno, &text, &category, source_line, vm);
         return Ok(());
@@ -501,8 +628,7 @@ fn call_show_warning(
         return Err(vm.new_type_error("warnings._showwarnmsg() must be set to a callable"));
     }
 
-    let Some(warnmsg_cls) = get_warnings_attr(vm, identifier!(&vm.ctx, WarningMessage), false)
-    else {
+    let Some(warnmsg_cls) = get_warnings_attr(vm, identifier!(vm, WarningMessage), false)? else {
         return Err(vm.new_runtime_error("unable to get warnings.WarningMessage"));
     };
 
@@ -528,7 +654,7 @@ fn show_warning(
     lineno: usize,
     text: &Py<PyStr>,
     category: &Py<PyType>,
-    _source_line: Option<PyObjectRef>,
+    source_line: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) {
     let stderr = crate::stdlib::sys::PyStderr(vm);
@@ -540,6 +666,11 @@ fn show_warning(
         category.name(),
         text
     );
+    if let Some(source_line) = source_line
+        && let Ok(line) = source_line.str(vm)
+    {
+        writeln!(stderr, "{line}");
+    }
 }
 
 /// Check if a frame's filename starts with any of the given prefixes.

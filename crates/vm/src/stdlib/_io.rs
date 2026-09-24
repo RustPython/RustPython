@@ -5713,7 +5713,7 @@ mod fileio {
                 return Err(e);
             }
 
-            if mode.contains(host_io::FileMode::APPENDING) {
+            if mode.is_superset(&host_io::FileMode::APPENDING) {
                 let _ = host_io::seek_to_end(fd);
             }
 
@@ -5795,7 +5795,7 @@ mod fileio {
             if self.fd.load() < 0 {
                 return Err(io_closed_error(vm));
             }
-            Ok(self.mode.load().contains(host_io::FileMode::READABLE))
+            Ok(self.mode.load().is_superset(&host_io::FileMode::READABLE))
         }
 
         #[pymethod]
@@ -5803,7 +5803,7 @@ mod fileio {
             if self.fd.load() < 0 {
                 return Err(io_closed_error(vm));
             }
-            Ok(self.mode.load().contains(host_io::FileMode::WRITABLE))
+            Ok(self.mode.load().is_superset(&host_io::FileMode::WRITABLE))
         }
 
         #[pygetset]
@@ -5817,7 +5817,7 @@ mod fileio {
             read_byte: OptionalSize,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Vec<u8>>> {
-            if !zelf.mode.load().contains(host_io::FileMode::READABLE) {
+            if !zelf.mode.load().is_superset(&host_io::FileMode::READABLE) {
                 return Err(new_unsupported_operation(
                     "File or stream is not readable",
                     vm,
@@ -5895,7 +5895,7 @@ mod fileio {
             obj: ArgMemoryBuffer,
             vm: &VirtualMachine,
         ) -> PyResult<Option<usize>> {
-            if !zelf.mode.load().contains(host_io::FileMode::READABLE) {
+            if !zelf.mode.load().is_superset(&host_io::FileMode::READABLE) {
                 return Err(new_unsupported_operation(
                     "File or stream is not readable",
                     vm,
@@ -5934,7 +5934,7 @@ mod fileio {
             obj: ArgBytesLike,
             vm: &VirtualMachine,
         ) -> PyResult<Option<usize>> {
-            if !zelf.mode.load().contains(host_io::FileMode::WRITABLE) {
+            if !zelf.mode.load().is_superset(&host_io::FileMode::WRITABLE) {
                 return Err(new_unsupported_operation(
                     "File or stream is not writable",
                     vm,

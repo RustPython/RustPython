@@ -655,7 +655,9 @@ impl PyCode {
         vm: &VirtualMachine,
         code: frozen::FrozenCodeObject<B>,
     ) -> PyRef<Self> {
-        Self::new_ref_with_bag(vm, code.decode(PyVmBag(vm)))
+        let py_code = Self::new_ref_with_bag(vm, code.decode(PyVmBag(vm)));
+        apply_frozen_co_filename(&py_code, vm);
+        py_code
     }
 
     #[cfg(feature = "host_env")]
@@ -700,6 +702,38 @@ impl PyCode {
         let compiled =
             compile_bytecode.call((code_bytes_obj, name, bytecode_path, source_path), vm)?;
         compiled.try_downcast(vm)
+    }
+}
+
+fn frozen_co_filename(path: &str) -> Option<&'static str> {
+    match path {
+        "_frozen_importlib" => Some("<frozen importlib._bootstrap>"),
+        "_frozen_importlib_external" => Some("<frozen importlib._bootstrap_external>"),
+        _ => None,
+    }
+}
+
+fn apply_frozen_co_filename(code: &PyCode, vm: &VirtualMachine) {
+    let Some(new) = frozen_co_filename(code.source_path().as_str()) else {
+        return;
+    };
+    set_source_path_tree(code, vm.ctx.intern_str(new));
+}
+
+fn set_source_path_tree(code: &PyCode, interned: &'static PyStrInterned) {
+    code.set_source_path(interned);
+    for constant in code.constants.iter() {
+        set_source_path_in_const(&constant.0, interned);
+    }
+}
+
+fn set_source_path_in_const(obj: &PyObject, interned: &'static PyStrInterned) {
+    if let Some(inner) = obj.downcast_ref::<PyCode>() {
+        set_source_path_tree(inner, interned);
+    } else if let Some(tup) = obj.downcast_ref::<super::PyTuple>() {
+        for item in tup {
+            set_source_path_in_const(item, interned);
+        }
     }
 }
 

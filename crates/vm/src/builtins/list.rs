@@ -11,7 +11,7 @@ use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{PyFloat, PyInt, PyStr, PyTuple},
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     convert::ToPyObject,
     function::{ArgSize, Either, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
@@ -483,6 +483,28 @@ impl Constructor for PyList {
 
 impl Initializer for PyList {
     type Args = OptionalArg<PyObjectRef>;
+
+    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let list_type = vm.ctx.types.list_type;
+        let cls = zelf.class().to_owned();
+        let uses_list_new = {
+            let cls_new = cls.slots.new.load().map(crate::types::fn_addr);
+            let list_new = list_type.slots.new.load().map(crate::types::fn_addr);
+            cls_new == list_new
+        };
+        let iterable = if cls.is(list_type) || uses_list_new {
+            args.bind_for(vm, Self::NAME)?
+        } else {
+            match args.args.as_slice() {
+                [] => OptionalArg::Missing,
+                [iterable] => OptionalArg::Present(iterable.clone()),
+                slice => {
+                    return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
+                }
+            }
+        };
+        Self::init(zelf.try_into_value(vm)?, iterable, vm)
+    }
 
     fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = if let OptionalArg::Present(iterable) = iterable {

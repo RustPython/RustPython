@@ -29,6 +29,7 @@ rustls = [
 rustpython-wtf8 = { workspace = true }
 
 bitflags = { workspace = true }
+bitflagset = { workspace = true }
 der = { workspace = true, optional = true }
 getrandom = { workspace = true }
 libc = { workspace = true }

@@ -30,10 +30,25 @@ use {
     },
 };
 
-pub const F_OK: u8 = 0;
-pub const R_OK: u8 = 4;
-pub const W_OK: u8 = 2;
-pub const X_OK: u8 = 1;
+bitflagset::bitflag! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum AccessFlag {
+        X = 0,
+        W = 1,
+        R = 2,
+    }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct AccessMode(u8): AccessFlag
+}
+
+pub const F_OK: u8 = AccessMode::empty().bits();
+pub const X_OK: u8 = AccessMode::from_element(AccessFlag::X).bits();
+pub const W_OK: u8 = AccessMode::from_element(AccessFlag::W).bits();
+pub const R_OK: u8 = AccessMode::from_element(AccessFlag::R).bits();
 
 #[cfg(any(unix, target_os = "wasi"))]
 pub use libc::AT_FDCWD;
@@ -158,51 +173,91 @@ mod wasm_oflag {
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub use wasm_oflag::*;
 
-/// BSD `chflags` bits the `libc` crate does not bind. Published by `_stat`
-/// on every platform.
-pub const UF_SETTABLE: u32 = 0x0000ffff;
-pub const UF_NOUNLINK: u32 = 0x00000010;
-pub const UF_TRACKED: u32 = 0x00000040;
-pub const UF_DATAVAULT: u32 = 0x00000080;
-pub const SF_NOUNLINK: u32 = 0x00100000;
-pub const SF_SNAPSHOT: u32 = 0x00200000;
-pub const SF_FIRMLINK: u32 = 0x00800000;
-pub const SF_DATALESS: u32 = 0x40000000;
-pub const SF_SETTABLE: u32 = if cfg!(target_os = "macos") {
-    0x3fff0000
-} else {
-    0xffff0000
-};
-#[cfg(target_os = "macos")]
-pub const SF_SUPPORTED: u32 = 0x009f0000;
-#[cfg(target_os = "macos")]
-pub const SF_SYNTHETIC: u32 = 0xc0000000;
+bitflagset::bitflag! {
+    /// BSD `chflags` bits. Values are bit *positions*; masks are `1 << pos`.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum ChFlag {
+        UfNodump = 0,
+        UfImmutable = 1,
+        UfAppend = 2,
+        UfOpaque = 3,
+        UfNounlink = 4,
+        UfCompressed = 5,
+        UfTracked = 6,
+        UfDatavault = 7,
+        UfHidden = 15,
+        SfArchived = 16,
+        SfImmutable = 17,
+        SfAppend = 18,
+        SfNounlink = 20,
+        SfSnapshot = 21,
+        SfFirmlink = 23,
+        SfDataless = 30,
+    }
+}
 
-/// BSD `chflags` bits libc binds on macOS and `_stat.c` falls back to
-/// elsewhere. Published by `_stat` on every platform.
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct ChFlags(u32): ChFlag
+}
+
+impl ChFlags {
+    /// Owner-settable bits, including reserved user-flag positions.
+    pub const UF_SETTABLE: Self = Self::from_bits_retain(0x0000ffff);
+    pub const SF_SETTABLE: Self = Self::from_bits_retain(if cfg!(target_os = "macos") {
+        0x3fff0000
+    } else {
+        0xffff0000
+    });
+    #[cfg(target_os = "macos")]
+    pub const SF_SUPPORTED: Self = Self::from_bits_retain(0x009f0000);
+    #[cfg(target_os = "macos")]
+    pub const SF_SYNTHETIC: Self = Self::from_bits_retain(0xc0000000);
+}
+
+pub const UF_NODUMP: u32 = ChFlags::from_element(ChFlag::UfNodump).bits();
+pub const UF_IMMUTABLE: u32 = ChFlags::from_element(ChFlag::UfImmutable).bits();
+pub const UF_APPEND: u32 = ChFlags::from_element(ChFlag::UfAppend).bits();
+pub const UF_OPAQUE: u32 = ChFlags::from_element(ChFlag::UfOpaque).bits();
+pub const UF_NOUNLINK: u32 = ChFlags::from_element(ChFlag::UfNounlink).bits();
+pub const UF_COMPRESSED: u32 = ChFlags::from_element(ChFlag::UfCompressed).bits();
+pub const UF_TRACKED: u32 = ChFlags::from_element(ChFlag::UfTracked).bits();
+pub const UF_DATAVAULT: u32 = ChFlags::from_element(ChFlag::UfDatavault).bits();
+pub const UF_HIDDEN: u32 = ChFlags::from_element(ChFlag::UfHidden).bits();
+pub const UF_SETTABLE: u32 = ChFlags::UF_SETTABLE.bits();
+pub const SF_ARCHIVED: u32 = ChFlags::from_element(ChFlag::SfArchived).bits();
+pub const SF_IMMUTABLE: u32 = ChFlags::from_element(ChFlag::SfImmutable).bits();
+pub const SF_APPEND: u32 = ChFlags::from_element(ChFlag::SfAppend).bits();
+pub const SF_NOUNLINK: u32 = ChFlags::from_element(ChFlag::SfNounlink).bits();
+pub const SF_SNAPSHOT: u32 = ChFlags::from_element(ChFlag::SfSnapshot).bits();
+pub const SF_FIRMLINK: u32 = ChFlags::from_element(ChFlag::SfFirmlink).bits();
+pub const SF_DATALESS: u32 = ChFlags::from_element(ChFlag::SfDataless).bits();
+pub const SF_SETTABLE: u32 = ChFlags::SF_SETTABLE.bits();
 #[cfg(target_os = "macos")]
-pub use libc::{
-    SF_APPEND, SF_ARCHIVED, SF_IMMUTABLE, UF_APPEND, UF_COMPRESSED, UF_HIDDEN, UF_IMMUTABLE,
-    UF_NODUMP, UF_OPAQUE,
+pub const SF_SUPPORTED: u32 = ChFlags::SF_SUPPORTED.bits();
+#[cfg(target_os = "macos")]
+pub const SF_SYNTHETIC: u32 = ChFlags::SF_SYNTHETIC.bits();
+
+const _: () = {
+    assert!(UF_NODUMP == 0x00000001);
+    assert!(UF_IMMUTABLE == 0x00000002);
+    assert!(UF_APPEND == 0x00000004);
+    assert!(UF_OPAQUE == 0x00000008);
+    assert!(UF_NOUNLINK == 0x00000010);
+    assert!(UF_COMPRESSED == 0x00000020);
+    assert!(UF_TRACKED == 0x00000040);
+    assert!(UF_DATAVAULT == 0x00000080);
+    assert!(UF_HIDDEN == 0x00008000);
+    assert!(UF_SETTABLE == 0x0000ffff);
+    assert!(SF_ARCHIVED == 0x00010000);
+    assert!(SF_IMMUTABLE == 0x00020000);
+    assert!(SF_APPEND == 0x00040000);
+    assert!(SF_NOUNLINK == 0x00100000);
+    assert!(SF_SNAPSHOT == 0x00200000);
+    assert!(SF_FIRMLINK == 0x00800000);
+    assert!(SF_DATALESS == 0x40000000);
 };
-#[cfg(not(target_os = "macos"))]
-pub const UF_NODUMP: u32 = 0x00000001;
-#[cfg(not(target_os = "macos"))]
-pub const UF_IMMUTABLE: u32 = 0x00000002;
-#[cfg(not(target_os = "macos"))]
-pub const UF_APPEND: u32 = 0x00000004;
-#[cfg(not(target_os = "macos"))]
-pub const UF_OPAQUE: u32 = 0x00000008;
-#[cfg(not(target_os = "macos"))]
-pub const UF_COMPRESSED: u32 = 0x00000020;
-#[cfg(not(target_os = "macos"))]
-pub const UF_HIDDEN: u32 = 0x00008000;
-#[cfg(not(target_os = "macos"))]
-pub const SF_ARCHIVED: u32 = 0x00010000;
-#[cfg(not(target_os = "macos"))]
-pub const SF_IMMUTABLE: u32 = 0x00020000;
-#[cfg(not(target_os = "macos"))]
-pub const SF_APPEND: u32 = 0x00040000;
 
 /// Solaris door/port and BSD whiteout. `_stat` publishes 0 where the
 /// platform has no such file type.

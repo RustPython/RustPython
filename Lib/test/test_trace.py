@@ -375,7 +375,6 @@ class TestCoverage(unittest.TestCase):
         r = tracer.results()
         r.write_results(show_missing=True, summary=True, coverdir=TESTFN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'pprint.py' not found in ''
     @requires_resource('cpu')
     def test_coverage(self):
         tracer = trace.Trace(trace=0, count=1)
@@ -400,7 +399,6 @@ class TestCoverage(unittest.TestCase):
             files = os.listdir(TESTFN)
             self.assertEqual(files, ['_importlib.cover'])  # Ignore __import__
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'test.tracedmodules.testmod' not found in {}
     def test_issue9936(self):
         tracer = trace.Trace(trace=0, count=1)
         modname = 'test.tracedmodules.testmod'

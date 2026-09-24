@@ -3,6 +3,7 @@ mod _abc;
 pub(crate) mod _ast;
 mod _codecs;
 mod _collections;
+pub(crate) use _collections::ordered_dict::ordered_dict::PyOrderedDictItems;
 mod _functools;
 mod _imp;
 pub mod _io;

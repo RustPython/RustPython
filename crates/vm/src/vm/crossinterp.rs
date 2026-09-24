@@ -33,9 +33,30 @@ fn memoryview_registered() -> bool {
 }
 
 /// Unbound-item ops (`UNBOUND_REMOVE` / `UNBOUND_ERROR` / `UNBOUND_REPLACE`).
-pub const UNBOUND_REMOVE: i32 = 1;
-pub const UNBOUND_ERROR: i32 = 2;
-pub const UNBOUND_REPLACE: i32 = 3;
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnboundOp {
+    Remove = 1,
+    Error = 2,
+    Replace = 3,
+}
+
+impl UnboundOp {
+    #[must_use]
+    pub const fn from_i32(v: i32) -> Option<Self> {
+        Some(match v {
+            1 => Self::Remove,
+            2 => Self::Error,
+            3 => Self::Replace,
+            _ => return None,
+        })
+    }
+
+    #[must_use]
+    pub const fn as_i32(self) -> i32 {
+        self as i32
+    }
+}
 
 /// `xidata_fallback_t`: what to do with an object that has no XI data support.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

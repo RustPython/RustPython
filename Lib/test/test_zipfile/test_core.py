@@ -3551,7 +3551,6 @@ class TestExecutablePrependedZip(unittest.TestCase):
     def test_read_zip64_with_exe_prepended(self):
         self._test_zip_works(self.exe_zip64)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.executable, 'sys.executable required.')
     @unittest.skipUnless(os.access('/bin/bash', os.X_OK),
                          'Test relies on #!/bin/bash working.')
@@ -3560,7 +3559,6 @@ class TestExecutablePrependedZip(unittest.TestCase):
         output = subprocess.check_output([self.exe_zip, sys.executable])
         self.assertIn(b'number in executable: 5', output)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.executable, 'sys.executable required.')
     @unittest.skipUnless(os.access('/bin/bash', os.X_OK),
                          'Test relies on #!/bin/bash working.')

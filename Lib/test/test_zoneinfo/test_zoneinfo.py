@@ -1866,7 +1866,6 @@ class TzPathTest(TzPathUserMixin, ZoneInfoTestBase):
                 with self.subTest("filtered", path_var=path_var):
                     self.assertSequenceEqual(tzpath, expected_paths)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + /home/runner/work/RustPython/RustPython/crates/pylib/Lib/test/test_zoneinfo/test_zoneinfo.py
     def test_env_variable_relative_paths_warning_location(self):
         path_var = "path/to/somewhere"
 

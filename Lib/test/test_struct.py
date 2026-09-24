@@ -847,7 +847,6 @@ class StructTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         s = struct.Struct('=i2H')
         self.assertEqual(repr(s), f'Struct({s.format!r})')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_c_complex_round_trip(self):
         values = [complex(*_) for _ in combinations([1, -1, 0.0, -0.0, 2,
                                                      -3, INF, -INF, NAN], 2)]
@@ -874,7 +873,6 @@ class StructTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             results = executor.map(exec, [code] * 5)
             self.assertListEqual(list(results), [None] * 5)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected at least 1 arguments, got 0
     def test_operations_on_half_initialized_Struct(self):
         S = struct.Struct.__new__(struct.Struct)
 

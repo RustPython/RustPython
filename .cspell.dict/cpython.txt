@@ -153,6 +153,7 @@ mimalloc
 miscompiles
 mult
 multibytecodec
+mycmp
 mystricmp
 mystrnicmp
 nameobj
@@ -187,6 +188,8 @@ numkwonly
 numposorkw
 nvars
 obmalloc
+odict
+ODICT
 opname
 opnames
 orelse

@@ -31,10 +31,7 @@ mod builtins {
         readline::{Readline, ReadlineResult},
         stdlib::sys,
         types::PyComparisonOp,
-        vm::compile_mode::{
-            CompilerFlags, PY_EVAL_INPUT, PY_FILE_INPUT, PY_FUNC_TYPE_INPUT, PY_SINGLE_INPUT,
-            compile_future_features_from_flags,
-        },
+        vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
     };
     use itertools::Itertools;
     use num_traits::{Signed, ToPrimitive};
@@ -221,18 +218,18 @@ mod builtins {
             let future_features = merge_compile_future_features(flags, dont_inherit, vm);
 
             let start = if mode_str == "exec" {
-                PY_FILE_INPUT
+                CompileStart::File
             } else if mode_str == "eval" {
-                PY_EVAL_INPUT
+                CompileStart::Eval
             } else if mode_str == "single" {
-                PY_SINGLE_INPUT
+                CompileStart::Single
             } else if mode_str == "func_type" {
                 if !is_ast_only {
                     return Err(vm.new_value_error(
                         "compile() mode 'func_type' requires flag PyCF_ONLY_AST",
                     ));
                 }
-                PY_FUNC_TYPE_INPUT
+                CompileStart::FuncType
             } else {
                 let msg = if is_ast_only {
                     "compile() mode must be 'exec', 'eval', 'single' or 'func_type'"
@@ -332,7 +329,7 @@ mod builtins {
                     vm.compile_string_object_with_flags(
                         source,
                         &filename.to_string_lossy(),
-                        start,
+                        start.as_i32(),
                         compile_flags,
                         feature_version,
                         optimize as i32,
@@ -766,18 +763,37 @@ mod builtins {
                 .is_ok_and(|fd| fd == expected)
         };
 
-        // Check if we should use rustyline (interactive terminal, not PTY child)
-        let use_rustyline = fd_matches(&stdin, 0)
+        let tty = fd_matches(&stdin, 0)
             && fd_matches(&stdout, 1)
             && std::io::stdin().is_terminal()
-            && !is_pty_child();
+            && std::io::stdout().is_terminal();
 
-        // Disable rustyline if prompt contains surrogates (not valid UTF-8 for terminal)
+        // Encode the prompt with stdout's encoding and reject embedded NULs
+        // (`strlen` on the encoded bytes).
+        if tty && let OptionalArg::Present(prompt) = &prompt {
+            let _ = vm.call_method(&stdout, "flush", ());
+            let encoding = stdout.get_attr("encoding", vm)?;
+            let errors = stdout.get_attr("errors", vm)?;
+            if !vm.is_none(&encoding) {
+                let encoded = vm.call_method(prompt.as_object(), "encode", (encoding, errors))?;
+                let bytes = encoded
+                    .downcast::<PyBytes>()
+                    .map_err(|_| vm.new_type_error("encode() must return bytes".to_owned()))?;
+                if bytes.as_bytes().contains(&0) {
+                    return Err(vm.new_value_error(
+                        "input: prompt string cannot contain null characters".to_owned(),
+                    ));
+                }
+            }
+        }
+
+        // rustyline is the interactive tty reader. Skip it in a PTY child
+        // (`pty.fork` + `setsid`): raw mode hangs there.
         let prompt_str = match &prompt {
             OptionalArg::Present(s) => s.to_str(),
             OptionalArg::Missing => Some(""),
         };
-        let use_rustyline = use_rustyline && prompt_str.is_some();
+        let use_rustyline = tty && !is_pty_child() && prompt_str.is_some();
 
         if use_rustyline {
             let prompt = prompt_str.unwrap();

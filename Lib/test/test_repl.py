@@ -207,7 +207,6 @@ class TestInteractiveInterpreter(unittest.TestCase):
         ]
         self.assertEqual(traceback_lines, expected_lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 != 0
     def test_interactive_traceback_reporting_multiple_input(self):
         user_input1 = dedent("""
         def foo(x):
@@ -308,7 +307,6 @@ class TestInteractiveInterpreter(unittest.TestCase):
         ]
         self.assertEqual(output.splitlines()[4:-1], expected_lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 != 0
     def test_interactive_source_is_in_linecache(self):
         user_input = dedent("""
         def foo(x):

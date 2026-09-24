@@ -49,7 +49,6 @@ class ListTest(list_tests.CommonTest):
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
             list(sequence=[])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keywords_in_subclass(self):
         class subclass(list):
             pass

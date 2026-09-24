@@ -1945,9 +1945,9 @@ mod _pickle {
         file: PyObjectRef,
         #[pyarg(any, optional)]
         protocol: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(any, optional)]
         fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
+        #[pyarg(any, optional)]
         buffer_callback: OptionalArg<PyObjectRef>,
     }
 

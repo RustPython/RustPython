@@ -1,4 +1,4 @@
-use super::{PyStr, PyStrInterned, PyType};
+use super::{PyStr, PyStrInterned, PyTuple, PyType};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyTypeRef, builtin_func::PyNativeMethod, type_},
@@ -178,6 +178,157 @@ impl Representable for PyMethodDescriptor {
     }
 }
 
+/// METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
+#[pyclass(name = "classmethod_descriptor", module = false)]
+pub struct PyClassMethodDescriptor {
+    pub common: PyDescriptor,
+    pub method: &'static PyMethodDef,
+    pub objclass: &'static Py<PyType>,
+    pub(crate) _method_def_owner: Option<PyObjectRef>,
+}
+
+impl PyClassMethodDescriptor {
+    pub fn new(method: &'static PyMethodDef, typ: &'static Py<PyType>, ctx: &Context) -> Self {
+        Self {
+            common: PyDescriptor {
+                typ,
+                name: ctx.intern_str(method.name),
+                qualname: PyRwLock::new(None),
+            },
+            method,
+            objclass: typ,
+            _method_def_owner: None,
+        }
+    }
+
+    pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeMethod> {
+        self.method.build_bound_method(ctx, obj, self.common.typ)
+    }
+}
+
+impl PyPayload for PyClassMethodDescriptor {
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.classmethod_descriptor_type
+    }
+}
+
+impl core::fmt::Debug for PyClassMethodDescriptor {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "classmethod descriptor for '{}'", self.common.name)
+    }
+}
+
+impl GetDescriptor for PyClassMethodDescriptor {
+    fn descr_get(
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let descr = Self::_as_pyref(&zelf, vm).unwrap();
+        let type_obj = match cls {
+            Some(typ) => typ,
+            None => match &obj {
+                Some(o) => o.class().to_owned().into(),
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "descriptor '{}' for type '{}' needs either an object or a type",
+                        descr.common.name,
+                        descr.common.typ.name()
+                    )));
+                }
+            },
+        };
+        if !type_obj.fast_isinstance(vm.ctx.types.type_type) {
+            return Err(vm.new_type_error(format!(
+                "descriptor '{}' for type '{}' needs a type, not '{}' as arg 2",
+                descr.common.name,
+                descr.common.typ.name(),
+                type_obj.class().name()
+            )));
+        }
+        let typ = type_obj.downcast::<PyType>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "descriptor '{}' for type '{}' needs a type, not '{}' as arg 2",
+                descr.common.name,
+                descr.common.typ.name(),
+                obj.class().name()
+            ))
+        })?;
+        if !typ.fast_issubclass(descr.common.typ) {
+            return Err(vm.new_type_error(format!(
+                "descriptor '{}' requires a subtype of '{}' but received '{}'",
+                descr.common.name,
+                descr.common.typ.name(),
+                typ.name()
+            )));
+        }
+        Ok(descr.bind(typ.into(), &vm.ctx).into())
+    }
+}
+
+impl Callable for PyClassMethodDescriptor {
+    type Args = FuncArgs;
+    fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let Some(owner) = args.args.first().cloned() else {
+            return Err(vm.new_type_error(format!(
+                "descriptor '{}' of '{}' object needs an argument",
+                zelf.method.name,
+                zelf.common.typ.name()
+            )));
+        };
+        let bound = Self::descr_get(zelf.to_owned().into(), None, Some(owner), vm)?;
+        args.args.remove(0);
+        bound.call(args, vm)
+    }
+}
+
+#[pyclass(
+    with(GetDescriptor, Callable, Representable),
+    flags(DISALLOW_INSTANTIATION)
+)]
+impl PyClassMethodDescriptor {
+    #[pygetset]
+    const fn __name__(&self) -> &'static PyStrInterned {
+        self.common.name
+    }
+
+    #[pygetset]
+    fn __qualname__(&self) -> String {
+        format!("{}.{}", self.common.typ.name(), self.common.name)
+    }
+
+    #[pygetset]
+    fn __doc__(&self) -> Option<&'static str> {
+        let doc = self.method.doc?;
+        type_::get_doc_from_internal_doc(self.method.name, doc)
+    }
+
+    #[pygetset]
+    fn __text_signature__(&self) -> Option<String> {
+        self.method.doc.and_then(|doc| {
+            type_::get_text_signature_from_internal_doc(self.method.name, doc)
+                .map(|signature| signature.to_string())
+        })
+    }
+
+    #[pygetset]
+    fn __objclass__(&self) -> PyTypeRef {
+        self.objclass.to_owned()
+    }
+}
+
+impl Representable for PyClassMethodDescriptor {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
+            "<method '{}' of '{}' objects>",
+            zelf.method.name,
+            zelf.common.typ.name()
+        ))
+    }
+}
+
 #[derive(Debug)]
 pub enum MemberKind {
     Object = 6,
@@ -191,6 +342,7 @@ pub(crate) type MemberSetterFunc =
 pub enum MemberGetter {
     Getter(fn(&VirtualMachine, PyObjectRef) -> PyResult),
     Offset(usize),
+    TupleItem(usize),
 }
 
 pub enum MemberSetter {
@@ -211,6 +363,16 @@ impl PyMemberDef {
         match self.getter {
             MemberGetter::Getter(getter) => (getter)(vm, obj),
             MemberGetter::Offset(offset) => get_slot_from_object(&obj, offset, self, vm),
+            MemberGetter::TupleItem(index) => {
+                let tuple = obj.downcast_ref::<PyTuple>().ok_or_else(|| {
+                    vm.new_type_error("unexpected payload for struct sequence member")
+                })?;
+                tuple
+                    .as_slice()
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| vm.new_index_error(format!("tuple index {index} out of range")))
+            }
         }
     }
 
@@ -497,6 +659,7 @@ pub(crate) fn init(ctx: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_method_descriptor));
+    PyClassMethodDescriptor::extend_class(ctx, ctx.types.classmethod_descriptor_type);
     PyWrapper::extend_class(ctx, ctx.types.wrapper_descriptor_type);
     ctx.types
         .wrapper_descriptor_type

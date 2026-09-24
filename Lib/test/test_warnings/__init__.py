@@ -607,7 +607,6 @@ class WarnTests(BaseTest):
                 self.assertEqual(os.path.basename(w[-1].filename),
                                     "<sys>")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + crates/pylib/Lib/test/test_warnings/__init__.py
     def test_stacklevel_import(self):
         # Issue #24305: With stacklevel=2, module-level warnings should work.
         import_helper.unload('test.test_warnings.data.import_warning')
@@ -853,38 +852,6 @@ class CWarnTests(WarnTests, unittest.TestCase):
         self.assertIsNot(original_warnings, self.module)
         self.assertNotHasAttr(self.module.warn, '__code__')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 2
-    def test_gh86298_loader_and_spec_loader_disagree(self):
-        return super().test_gh86298_loader_and_spec_loader_disagree()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 2
-    def test_gh86298_no_spec(self):
-        return super().test_gh86298_no_spec()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 2
-    def test_gh86298_no_spec_loader(self):
-        return super().test_gh86298_no_spec_loader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 2
-    def test_gh86298_spec_is_none(self):
-        return super().test_gh86298_spec_is_none()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: AttributeError not raised
-    def test_gh86298_no_loader_and_no_spec_loader(self):
-        return super().test_gh86298_no_loader_and_no_spec_loader()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
-    def test_gh86298_loader_is_none_and_spec_is_none(self):
-        return super().test_gh86298_loader_is_none_and_spec_is_none()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
-    def test_gh86298_loader_is_none_and_spec_loader_is_none(self):
-        return super().test_gh86298_loader_is_none_and_spec_loader_is_none()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
-    def test_gh86298_no_loader_and_spec_is_none(self):
-        return super().test_gh86298_no_loader_and_spec_is_none()
-
 class PyWarnTests(WarnTests, unittest.TestCase):
     module = py_warnings
 
@@ -960,7 +927,6 @@ class _WarningsTests(BaseTest, unittest.TestCase):
 
     module = c_warnings
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: UserWarning not raised by warn
     def test_filter(self):
         # Everything should function even if 'filters' is not in warnings.
         with self.module.catch_warnings() as w:
@@ -1130,7 +1096,6 @@ class _WarningsTests(BaseTest, unittest.TestCase):
         self.assertNotIn(b'Warning!', stderr)
         self.assertNotIn(b'Error', stderr)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: 'int' object is not iterable
     def test_issue31285(self):
         # warn_explicit() should neither raise a SystemError nor cause an
         # assertion failure, in case the return value of get_source() has a

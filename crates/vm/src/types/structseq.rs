@@ -1,5 +1,4 @@
 use crate::common::lock::LazyLock;
-use crate::common::wtf8::Wtf8;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     builtins::{
@@ -340,10 +339,15 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             }
         }
 
-        // Check for unexpected keyword arguments
         if !kwargs.is_empty() {
-            let names: Vec<&Wtf8> = kwargs.keys().map(|k| k.as_ref()).collect();
-            return Err(vm.new_type_error(format!("Got unexpected field name(s): {names:?}")));
+            let names = vm.ctx.new_list(
+                kwargs
+                    .keys()
+                    .map(|k| vm.ctx.new_str(k.to_owned()).into())
+                    .collect(),
+            );
+            let names_repr = names.as_object().repr(vm)?;
+            return Err(vm.new_type_error(format!("Got unexpected field name(s): {names_repr}")));
         }
 
         PyTuple::new_unchecked(items.into_boxed_slice())
@@ -368,28 +372,19 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     fn extend_pyclass(ctx: &Context, class: &'static Py<PyType>) {
         // Getters for named visible fields (indices 0 to REQUIRED_FIELD_NAMES.len() - 1)
         for (i, &name) in Self::Data::REQUIRED_FIELD_NAMES.iter().enumerate() {
-            // cast i to a u8 so there's less to store in the getter closure.
-            // Hopefully there's not struct sequences with >=256 elements :P
-            let i = i as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &Py<PyTuple>| {
-                    zelf[i as usize].to_owned()
-                })
-                .into(),
+                ctx.new_readonly_tuple_member(name, class, i).into(),
             );
         }
 
         // Getters for hidden/skipped fields (indices after visible fields)
         let visible_count = Self::Data::REQUIRED_FIELD_NAMES.len() + Self::Data::UNNAMED_FIELDS_LEN;
         for (i, &name) in Self::Data::OPTIONAL_FIELD_NAMES.iter().enumerate() {
-            let idx = (visible_count + i) as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &Py<PyTuple>| {
-                    zelf[idx as usize].to_owned()
-                })
-                .into(),
+                ctx.new_readonly_tuple_member(name, class, visible_count + i)
+                    .into(),
             );
         }
 

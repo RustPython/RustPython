@@ -1238,44 +1238,16 @@ class TestCmpToKeyC(TestCmpToKey, unittest.TestCase):
     if c_functools:
         cmp_to_key = c_functools.cmp_to_key
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; inspect.signature reports (args, /) until FromArgs fields generate __text_signature__
+    def test_cmp_to_signature(self):
+        super().test_cmp_to_signature()
+
     @support.cpython_only
     def test_disallow_instantiation(self):
         # Ensure that the type disallows instantiation (bpo-43916)
         support.check_disallow_instantiation(
             self, type(c_functools.cmp_to_key(None))
         )
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + (mycmp)
-    def test_cmp_to_signature(self):
-        return super().test_cmp_to_signature()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() got multiple values for argument 'mycmp'
-    def test_cmp_to_key_arguments(self):
-        return super().test_cmp_to_key_arguments()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() got multiple values for argument 'mycmp'
-    def test_obj_field(self):
-        return super().test_obj_field()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() takes 1 positional argument but 2 were given
-    def test_bad_cmp(self):
-        return super().test_bad_cmp()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() takes 1 positional argument but 2 were given
-    def test_cmp_to_key(self):
-        return super().test_cmp_to_key()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() takes 1 positional argument but 2 were given
-    def test_hash(self):
-        return super().test_hash()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() takes 1 positional argument but 2 were given
-    def test_sort_int(self):
-        return super().test_sort_int()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: cmp_to_key() takes 1 positional argument but 2 were given
-    def test_sort_int_str(self):
-        return super().test_sort_int_str()
 
 
 class TestCmpToKeyPy(TestCmpToKey, unittest.TestCase):
@@ -1763,7 +1735,6 @@ class TestLRU:
         f(0, **{})
         self.assertEqual(f.cache_info().hits, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Python lru_cache impl doesn't cache hash like C impl
     def test_lru_hash_only_once(self):
         # To protect against weird reentrancy bugs and to improve
         # efficiency when faced with slow __hash__ methods, the
@@ -2265,6 +2236,10 @@ class TestLRUPy(TestLRU, unittest.TestCase):
     @module.lru_cache()
     def cached_staticmeth(x, y):
         return 3 * x + y
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Python lru_cache impl doesn't cache hash like C impl
+    def test_lru_hash_only_once(self):
+        return super().test_lru_hash_only_once()
 
 
 @unittest.skipUnless(c_functools, 'requires the C _functools module')

@@ -655,8 +655,13 @@ impl PySet {
         self.inner.len()
     }
 
-    pub fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
+    }
+
+    #[pymethod(coexist)]
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.contains(&needle, vm)
     }
 
     #[pymethod]
@@ -914,7 +919,7 @@ impl AsSequence for PySet {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PySet::sequence_downcast(seq).__len__())),
             contains: atomic_func!(
-                |seq, needle, vm| PySet::sequence_downcast(seq).__contains__(needle, vm)
+                |seq, needle, vm| PySet::sequence_downcast(seq).contains(needle, vm)
             ),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
@@ -1148,8 +1153,13 @@ impl PyFrozenSet {
         self.inner.len()
     }
 
-    pub fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
+    }
+
+    #[pymethod(coexist)]
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.contains(&needle, vm)
     }
 
     #[pymethod]
@@ -1309,7 +1319,7 @@ impl AsSequence for PyFrozenSet {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyFrozenSet::sequence_downcast(seq).__len__())),
             contains: atomic_func!(
-                |seq, needle, vm| PyFrozenSet::sequence_downcast(seq).__contains__(needle, vm)
+                |seq, needle, vm| PyFrozenSet::sequence_downcast(seq).contains(needle, vm)
             ),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
