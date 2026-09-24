@@ -2089,9 +2089,19 @@ mod _socket {
                 msg = msg.with_addr(&sockaddr);
             }
 
-            let buffer_items = vm
-                .extract_elements_with(&buffers, Ok)
-                .map_err(|_| vm.new_type_error("sendmsg() argument 1 must be an iterable"))?;
+            let collect_iterable =
+                |obj: &PyObject, msg: &'static str| -> PyResult<Vec<PyObjectRef>> {
+                    match vm.extract_elements_with(obj, Ok) {
+                        Ok(items) => Ok(items),
+                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                            Err(vm.new_type_error(msg))
+                        }
+                        Err(e) => Err(e),
+                    }
+                };
+
+            let buffer_items =
+                collect_iterable(&buffers, "sendmsg() argument 1 must be an iterable")?;
             let buffers = buffer_items
                 .into_iter()
                 .map(|obj| ArgBytesLike::try_from_object(vm, obj))
@@ -2108,9 +2118,8 @@ mod _socket {
 
             let control_buf;
             if let OptionalArg::Present(ancdata) = ancdata {
-                let cmsg_fast = vm
-                    .extract_elements_with(&ancdata, Ok)
-                    .map_err(|_| vm.new_type_error("sendmsg() argument 2 must be an iterable"))?;
+                let cmsg_fast =
+                    collect_iterable(&ancdata, "sendmsg() argument 2 must be an iterable")?;
                 let cmsgs = cmsg_fast
                     .into_iter()
                     .map(|item| -> PyResult<(i32, i32, ArgBytesLike)> {
