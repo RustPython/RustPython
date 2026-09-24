@@ -7,6 +7,45 @@ use rustpython_derive_impl as derive_impl;
 use syn::parse_macro_input;
 use syn::punctuated::Punctuated;
 
+/// Derive `FromArgs` for a struct whose fields are Python arguments.
+///
+/// Each field takes one `#[pyarg(...)]`. The first item is the parameter kind.
+/// # Arguments
+/// - `positional`: positional-only.
+/// - `any`: positional or keyword.
+/// - `named`: keyword-only.
+/// - `flatten`: take this field from the same argument list. No other keys.
+/// - `name = "..."`: Python parameter name. The field name is used when omitted.
+/// - `default`: missing argument stores `Default::default()`. Affects parsing.
+/// - `default = <expr>`: missing argument stores that Rust value. Affects parsing.
+/// - `optional`: same as a bare `default`.
+/// - `py_default = "<python source>"`: text copied verbatim into `__text_signature__`.
+///   Never affects parsing.
+/// - `error_msg = "..."`: type-error text when conversion fails.
+/// # Signature default
+/// An explicit `py_default` is used as written. Otherwise a Rust literal is
+/// converted to its Python repr (`True`/`False`, an int, a float, a quoted
+/// str, and the path `None`). Anything else renders `<unrepresentable>`, and
+/// `inspect.signature` raises `ValueError`.
+///
+/// Prefer `default = <literal>` when that literal is the Python default.
+/// Use `py_default` only when the Rust value must differ.
+/// ```rust, ignore
+/// #[derive(FromArgs)]
+/// struct OpenArgs {
+///     #[pyarg(any, default = 0o777)]
+///     mode: i32, // signature shows 511
+/// }
+///
+/// #[derive(FromArgs)]
+/// struct PrintOptions {
+///     // None means a space; the string is filled in when printing.
+///     #[pyarg(named, default, py_default = "' '")]
+///     sep: Option<PyStrRef>,
+///     #[pyarg(named, default = None)]
+///     file: Option<PyObjectRef>,
+/// }
+/// ```
 #[proc_macro_derive(FromArgs, attributes(pyarg))]
 pub fn derive_from_args(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input);

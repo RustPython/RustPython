@@ -141,6 +141,7 @@ impl Py<PyModule> {
             let func = method
                 .to_function()
                 .with_module(self.name.unwrap())
+                .with_module_object(self.to_owned().into())
                 .into_ref(&vm.ctx);
             vm.__module_set_attr(self, vm.ctx.intern_str(method.name), func)?;
         }

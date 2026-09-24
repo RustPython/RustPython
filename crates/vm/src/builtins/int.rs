@@ -589,7 +589,7 @@ impl PyInt {
 
     #[pymethod]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        let signed = args.signed.map_or(false, Into::into);
+        let signed = args.signed;
         let byte_len = args.length;
 
         let value = self.as_bigint();
@@ -820,10 +820,11 @@ struct IntFromByteArgs {
 struct IntToByteArgs {
     #[pyarg(any, default = 1)]
     length: usize,
-    #[pyarg(any, default = ArgByteOrder::Big)]
+    // ArgByteOrder::Big is not the text 'big'.
+    #[pyarg(any, default = ArgByteOrder::Big, py_default = "'big'")]
     byteorder: ArgByteOrder,
-    #[pyarg(named, optional)]
-    signed: OptionalArg<ArgIntoBool>,
+    #[pyarg(named, default = false)]
+    signed: bool,
 }
 
 fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {

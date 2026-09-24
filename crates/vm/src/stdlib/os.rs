@@ -5,7 +5,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyModule, PySet},
     convert::{IntoPyException, ToPyException, ToPyObject},
-    function::{ArgumentError, FromArgs, FuncArgs},
+    function::{ArgumentError, FromArgs, FuncArgs, Param},
     host_env::{crt_fd, posix::RawMode},
     ospath::OsPath,
 };
@@ -36,6 +36,7 @@ const DEFAULT_DIR_FD: crt_fd::Borrowed<'static> = unsafe { crt_fd::Borrowed::bor
 
 pub trait DirFdKeyword: Clone + Copy + Eq + PartialEq {
     const NAME: &'static str;
+    const PARAMS: &'static [Param] = &[Param::keyword_only(Self::NAME, Some("None"))];
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -91,6 +92,8 @@ impl<'fd, KW: DirFdKeyword> DirFd<'fd, 1, KW> {
 }
 
 impl<const AVAILABLE: usize, KW: DirFdKeyword> FromArgs for DirFd<'_, AVAILABLE, KW> {
+    const PARAMS: Option<&'static [Param]> = Some(KW::PARAMS);
+
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let fd = match args.take_keyword(KW::NAME) {
             Some(o) if vm.is_none(&o) => Ok(DEFAULT_DIR_FD),
@@ -271,8 +274,8 @@ pub(super) mod _os {
     struct OpenArgs<'fd> {
         path: OsPath,
         flags: i32,
-        #[pyarg(any, default)]
-        mode: Option<i32>,
+        #[pyarg(any, default = 0o777)]
+        mode: i32,
         #[pyarg(flatten)]
         dir_fd: DirFd<'fd, { OPEN_DIR_FD as usize }>,
     }
@@ -286,11 +289,10 @@ pub(super) mod _os {
     pub(crate) fn os_open(
         name: OsPath,
         flags: i32,
-        mode: Option<i32>,
+        mode: i32,
         dir_fd: DirFd<'_, { OPEN_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult<crt_fd::Owned> {
-        let mode = mode.unwrap_or(0o777);
         #[cfg(windows)]
         let fd = {
             let [] = dir_fd.0;
@@ -399,17 +401,20 @@ pub(super) mod _os {
         }
     }
 
-    #[pyfunction]
-    fn mkdir(
+    #[derive(FromArgs)]
+    struct MkdirArgs<'a> {
+        #[pyarg(any)]
         path: OsPath,
-        mode: OptionalArg<RawMode>,
-        #[cfg_attr(not(any(unix, target_os = "wasi")), expect(unused_variables))] dir_fd: DirFd<
-            '_,
-            { MKDIR_DIR_FD as usize },
-        >,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let mode = mode.unwrap_or(0o777);
+        #[pyarg(any, default = 0o777)]
+        mode: RawMode,
+        #[pyarg(flatten)]
+        #[cfg_attr(not(any(unix, target_os = "wasi")), expect(unused))]
+        dir_fd: DirFd<'a, { MKDIR_DIR_FD as usize }>,
+    }
+
+    #[pyfunction]
+    fn mkdir(args: MkdirArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let MkdirArgs { path, mode, dir_fd } = args;
         #[cfg(any(unix, target_os = "wasi"))]
         let dir_fd = dir_fd.get_opt();
         #[cfg(not(any(unix, target_os = "wasi")))]
@@ -446,13 +451,16 @@ pub(super) mod _os {
 
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
+    #[derive(FromArgs)]
+    struct ListDirArgs<'a> {
+        #[pyarg(any, default = None)]
+        path: Option<OsPathOrFd<'a>>,
+    }
+
     #[pyfunction]
-    fn listdir(
-        path: OptionalArg<Option<OsPathOrFd<'_>>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<PyObjectRef>> {
-        let path = path
-            .flatten()
+    fn listdir(args: ListDirArgs<'_>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let path = args
+            .path
             .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         let list = match path {
             OsPathOrFd::Path(path) => {
@@ -822,7 +830,7 @@ pub(super) mod _os {
                 dir_fd
             };
             let do_stat = |follow_symlinks| {
-                stat(
+                stat_at(
                     OsPath {
                         path: self.pathval.as_os_str().to_owned(),
                         origin: None,
@@ -1457,9 +1465,17 @@ pub(super) mod _os {
         }
     }
 
-    #[pyfunction]
-    #[pyfunction(name = "fstat")]
-    fn stat(
+    #[derive(FromArgs)]
+    struct StatArgs<'a> {
+        #[pyarg(any)]
+        path: OsPathOrFd<'a>,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, { STAT_DIR_FD as usize }>,
+        #[pyarg(flatten)]
+        follow_symlinks: FollowSymlinks,
+    }
+
+    fn stat_at(
         path: OsPathOrFd<'_>,
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
@@ -1475,12 +1491,23 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
+    #[pyfunction(name = "fstat")]
+    fn stat(args: StatArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        let StatArgs {
+            path,
+            dir_fd,
+            follow_symlinks,
+        } = args;
+        stat_at(path, dir_fd, follow_symlinks, vm)
+    }
+
+    #[pyfunction]
     fn lstat(
         path: OsPath,
         dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        stat(path.into(), dir_fd, FollowSymlinks(false), vm)
+        stat_at(path.into(), dir_fd, FollowSymlinks(false), vm)
     }
 
     fn curdir_inner(vm: &VirtualMachine) -> PyResult<PathBuf> {

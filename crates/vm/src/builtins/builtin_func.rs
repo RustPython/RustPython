@@ -11,10 +11,14 @@ use alloc::fmt;
 
 // PyCFunctionObject in CPython
 #[repr(C)]
-#[pyclass(name = "builtin_function_or_method", module = false)]
+#[pyclass(name = "builtin_function_or_method", module = false, traverse)]
 pub struct PyNativeFunction {
+    #[pytraverse(skip)]
     pub(crate) value: &'static PyMethodDef,
     pub(crate) zelf: Option<PyObjectRef>,
+    // Module that owns this function. Not passed as a call argument.
+    pub(crate) module_object: Option<PyObjectRef>,
+    #[pytraverse(skip)]
     pub(crate) module: Option<&'static PyStrInterned>, // None for bound method
     /// Prevent HeapMethodDef from being freed while this function references it
     pub(crate) _method_def_owner: Option<PyObjectRef>,
@@ -43,6 +47,11 @@ impl fmt::Debug for PyNativeFunction {
 impl PyNativeFunction {
     pub const fn with_module(mut self, module: &'static PyStrInterned) -> Self {
         self.module = Some(module);
+        self
+    }
+
+    pub fn with_module_object(mut self, module: PyObjectRef) -> Self {
+        self.module_object = Some(module);
         self
     }
 
@@ -99,6 +108,12 @@ impl Comparable for PyNativeFunction {
                     (None, None) => true,
                     _ => false,
                 };
+                let eq = eq
+                    && match (zelf.module_object.as_ref(), other.module_object.as_ref()) {
+                        (Some(z), Some(o)) => z.is(o),
+                        (None, None) => true,
+                        _ => false,
+                    };
                 let eq = eq && core::ptr::eq(zelf.value, other.value);
                 Ok(eq.into())
             } else {
@@ -176,7 +191,13 @@ impl PyNativeFunction {
     // meth_get__self__ in CPython
     #[pygetset]
     fn __self__(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyObjectRef {
-        zelf.0.zelf.clone().unwrap_or_else(|| vm.ctx.none())
+        if let Some(bound) = &zelf.0.zelf {
+            return bound.clone();
+        }
+        if let Some(module) = &zelf.0.module_object {
+            return module.clone();
+        }
+        vm.ctx.none()
     }
 
     // meth_reduce in CPython

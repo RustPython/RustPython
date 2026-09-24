@@ -1363,7 +1363,6 @@ class TestClassesAndFunctions(unittest.TestCase):
         spec = inspect.getfullargspec(test)
         self.assertEqual(test.__annotations__, spec.annotations)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; os.stat signature is generated as (path, dir_fd, follow_symlinks, /)
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_getfullargspec_builtin_methods(self):

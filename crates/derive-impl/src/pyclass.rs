@@ -1,8 +1,8 @@
 use super::Diagnostic;
 use crate::util::{
     ALL_ALLOWED_NAMES, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta,
-    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, infer_native_call_flags,
-    pyclass_ident_and_attrs, pyexception_ident_and_attrs, text_signature,
+    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, infer_native_call_flags,
+    internal_doc_tokens, pyclass_ident_and_attrs, pyexception_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
@@ -71,6 +71,9 @@ struct ImplContext {
     extend_slots_items: ItemNursery,
     class_extensions: Vec<TokenStream>,
     errors: Vec<syn::Error>,
+    /// Set when the impl has no generic parameters, so `Self` in argument
+    /// types can be replaced before it appears in a nested const.
+    self_ty_subst: Option<syn::Type>,
 }
 
 fn extract_items_into_context<'a, Item>(
@@ -104,6 +107,9 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
     let mut context = ImplContext::default();
     let mut tokens = match item {
         Item::Impl(mut imp) => {
+            if imp.generics.params.is_empty() {
+                context.self_ty_subst = Some((*imp.self_ty).clone());
+            }
             extract_items_into_context(&mut context, imp.items.iter_mut());
 
             let (impl_ty, payload_guess) = match imp.self_ty.as_ref() {
@@ -1123,7 +1129,6 @@ where
             }
         };
         let drop_first_typed = usize::from(implicit_self.is_some());
-        let sig_doc = text_signature(func.sig(), &py_name, implicit_self);
         let call_flags = infer_native_call_flags(func.sig(), drop_first_typed);
 
         // Add #[allow(non_snake_case)] for setter methods like set___name__
@@ -1133,11 +1138,14 @@ where
             args.attrs.push(allow_attr);
         }
 
-        let doc = match (sig_doc, args.attrs.doc()) {
-            (Some(sig_doc), Some(doc)) => Some(format_doc(&sig_doc, &doc)),
-            (Some(sig_doc), None) => Some(format_doc(&sig_doc, "")),
-            (None, doc) => doc,
-        };
+        let doc = internal_doc_tokens(
+            func.sig(),
+            &py_name,
+            implicit_self,
+            args.attrs.doc(),
+            args.context.self_ty_subst.as_ref(),
+            None,
+        );
         args.context.method_items.add_item(MethodNurseryItem {
             py_name,
             cfgs: args.cfgs.to_vec(),
@@ -1373,7 +1381,7 @@ struct MethodNurseryItem {
     ident: Ident,
     raw: bool,
     coexist: bool,
-    doc: Option<String>,
+    doc: TokenStream,
     attr_name: AttrName,
     call_flags: TokenStream,
 }
@@ -1401,11 +1409,7 @@ impl ToTokens for MethodNursery {
             let py_name = &item.py_name;
             let ident = &item.ident;
             let cfgs = &item.cfgs;
-            let doc = if let Some(doc) = item.doc.as_ref() {
-                quote! { Some(#doc) }
-            } else {
-                quote! { None }
-            };
+            let doc = &item.doc;
             let binding_flags = match &item.attr_name {
                 AttrName::Method => {
                     quote! { rustpython_vm::function::PyMethodFlags::METHOD }

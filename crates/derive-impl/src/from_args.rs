@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use syn::ext::IdentExt;
 use syn::meta::ParseNestedMeta;
-use syn::{Attribute, Data, DeriveInput, Expr, Field, Ident, Result, Token, parse_quote};
+use syn::{Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Result, Token, parse_quote};
 
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
 /// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)
@@ -37,6 +37,7 @@ struct ArgAttribute {
     name: Option<String>,
     kind: ParameterKind,
     default: Option<DefaultValue>,
+    py_default: Option<String>,
     error_msg: Option<String>,
 }
 
@@ -64,6 +65,7 @@ impl ArgAttribute {
                         name: None,
                         kind,
                         default: None,
+                        py_default: None,
                         error_msg: None,
                     });
                     return Ok(());
@@ -91,6 +93,13 @@ impl ArgAttribute {
             if self.default.is_none() {
                 self.default = Some(None);
             }
+        // Text-only signature default. See the `FromArgs` derive docs.
+        } else if meta.path.is_ident("py_default") {
+            if self.py_default.is_some() {
+                return Err(meta.error("py_default already set"));
+            }
+            let val = meta.value()?.parse::<syn::LitStr>()?;
+            self.py_default = Some(val.value());
         } else if meta.path.is_ident("name") {
             if self.name.is_some() {
                 return Err(meta.error("already have a name"));
@@ -212,6 +221,96 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
     Ok(file_output)
 }
 
+fn is_phantom(field: &Field) -> bool {
+    field
+        .ident
+        .as_ref()
+        .is_some_and(|ident| ident.unraw().to_string().starts_with("_phantom"))
+}
+
+fn python_str_repr(s: &str) -> String {
+    let mut out = String::from("'");
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out.push('\'');
+    out
+}
+
+fn python_default_repr(default: Option<&DefaultValue>, py_default: Option<&str>) -> Option<String> {
+    if let Some(py_default) = py_default {
+        return Some(py_default.to_owned());
+    }
+    match default {
+        None => None,
+        Some(None) => Some("<unrepresentable>".to_owned()),
+        Some(Some(expr)) => match expr {
+            Expr::Lit(syn::ExprLit { lit, .. }) => match lit {
+                Lit::Bool(b) => Some(if b.value {
+                    "True".to_owned()
+                } else {
+                    "False".to_owned()
+                }),
+                Lit::Int(i) => Some(i.base10_digits().to_owned()),
+                Lit::Float(f) => Some(f.base10_digits().to_owned()),
+                Lit::Str(s) => Some(python_str_repr(&s.value())),
+                _ => Some("<unrepresentable>".to_owned()),
+            },
+            Expr::Path(path) if path.qself.is_none() && path.path.is_ident("None") => {
+                Some("None".to_owned())
+            }
+            _ => Some("<unrepresentable>".to_owned()),
+        },
+    }
+}
+
+fn param_token(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> {
+    if let ParameterKind::Flatten = attr.kind {
+        let ty = &field.ty;
+        return Ok(quote! {
+            ::rustpython_vm::function::Param::flatten(
+                <#ty as ::rustpython_vm::function::FromArgs>::PARAMS
+            )
+        });
+    }
+
+    let name = field.ident.as_ref().map(|ident| ident.unraw().to_string());
+    let pyname = attr
+        .name
+        .clone()
+        .or(name)
+        .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))?;
+    let default = python_default_repr(attr.default.as_ref(), attr.py_default.as_deref());
+    let default_tok = match &default {
+        Some(default) => quote!(Some(#default)),
+        None => quote!(None),
+    };
+    let kind = match attr.kind {
+        ParameterKind::PositionalOnly => {
+            quote!(::rustpython_vm::function::ParamKind::PositionalOnly)
+        }
+        ParameterKind::PositionalOrKeyword => {
+            quote!(::rustpython_vm::function::ParamKind::PositionalOrKeyword)
+        }
+        ParameterKind::KeywordOnly => quote!(::rustpython_vm::function::ParamKind::KeywordOnly),
+        ParameterKind::Flatten => unreachable!(),
+    };
+    Ok(quote! {
+        ::rustpython_vm::function::Param {
+            name: #pyname,
+            kind: #kind,
+            default: #default_tok,
+        }
+    })
+}
+
 fn compute_arity_bounds(field_attrs: &[ArgAttribute]) -> (usize, usize) {
     let positional_fields = field_attrs.iter().filter(|attr| {
         matches!(
@@ -230,27 +329,40 @@ fn compute_arity_bounds(field_attrs: &[ArgAttribute]) -> (usize, usize) {
 }
 
 pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
-    let (fields, field_attrs) = match input.data {
-        Data::Struct(syn::DataStruct { fields, .. }) => (
-            fields
-                .iter()
-                .enumerate()
-                .map(generate_field)
-                .collect::<Result<TokenStream>>()?,
-            fields
-                .iter()
-                .filter_map(|field| field.try_into().ok())
-                .collect::<Vec<ArgAttribute>>(),
-        ),
-        _ => bail_span!(input, "FromArgs input must be a struct"),
+    let Data::Struct(syn::DataStruct {
+        fields: struct_fields,
+        ..
+    }) = input.data
+    else {
+        bail_span!(input, "FromArgs input must be a struct")
     };
 
+    let fields = struct_fields
+        .iter()
+        .enumerate()
+        .map(generate_field)
+        .collect::<Result<TokenStream>>()?;
+    let field_attrs = struct_fields
+        .iter()
+        .map(ArgAttribute::try_from)
+        .collect::<Result<Vec<_>>>()?;
     let (min_arity, max_arity) = compute_arity_bounds(&field_attrs);
+
+    let mut params = Vec::new();
+    for field in &struct_fields {
+        if is_phantom(field) {
+            continue;
+        }
+        params.push(param_token(field, &ArgAttribute::try_from(field)?)?);
+    }
 
     let name = input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let output = quote! {
         impl #impl_generics ::rustpython_vm::function::FromArgs for #name #ty_generics #where_clause {
+            const PARAMS: Option<&'static [::rustpython_vm::function::Param]> =
+                Some(&[#(#params),*]);
+
             fn arity() -> ::std::ops::RangeInclusive<usize> {
                 #min_arity..=#max_arity
             }
