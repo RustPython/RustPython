@@ -390,7 +390,7 @@ impl<R> Py<PyTuple<R>> {
     /// Element slice of the tuple payload.
     #[inline]
     pub fn payload_slice(&self) -> &[R] {
-        (&*self).as_slice()
+        PyTuple::as_slice(self)
     }
 }
 
