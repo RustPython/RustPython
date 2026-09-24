@@ -190,7 +190,7 @@ mod _functools {
     }
 
     #[pyclass(with(Constructor, Representable))]
-    impl PyPlaceholderType {
+    impl Py<PyPlaceholderType> {
         #[pymethod]
         fn __reduce__(&self) -> &'static str {
             "Placeholder"

@@ -38,7 +38,7 @@ impl Constructor for PyFilter {
 }
 
 #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
-impl PyFilter {
+impl Py<PyFilter> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, (PyObjectRef, PyIter)) {
         (
