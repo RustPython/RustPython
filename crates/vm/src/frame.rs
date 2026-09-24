@@ -4804,7 +4804,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
-                let iter_obj = iterated_obj.get_iter(vm)?;
+                let iter_obj = PyIter::try_from_object(vm, iterated_obj)?;
                 self.push_value(iter_obj.into());
                 Ok(None)
             }
@@ -4829,7 +4829,7 @@ impl ExecutingFrame<'_> {
                     iterable
                 } else {
                     // Otherwise, get iterator
-                    iterable.get_iter(vm)?.into()
+                    PyIter::try_from_object(vm, iterable)?.into()
                 };
                 self.push_value(iter);
                 Ok(None)
@@ -8853,7 +8853,7 @@ impl ExecutingFrame<'_> {
             )));
         };
 
-        let keys = keys_method?.call((), vm)?.get_iter(vm)?;
+        let keys = PyIter::try_from_object(vm, keys_method?.call((), vm)?)?;
         while let PyIterReturn::Return(key) = keys.next(vm)? {
             let value = mapping.get_item(&*key, vm)?;
             key_handler(key, value)?;
