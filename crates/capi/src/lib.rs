@@ -48,7 +48,6 @@ pub mod slots;
 pub mod sysmodule;
 pub mod traceback;
 pub mod tupleobject;
-pub mod typeobject;
 pub mod unicodeobject;
 mod util;
 pub mod warnings;
