@@ -8,8 +8,7 @@ use crate::{
     builtins::{
         PyBaseExceptionRef,
         descriptor::{
-            MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyMemberDef,
-            PyMemberDescriptor,
+            MemberAccess, PY_T_OBJECT_EX, PyDescriptorOwned, PyMemberDef, PyMemberDescriptor,
         },
         function::{PyCellRef, PyFunction},
         tuple::{IntoPyTuple, PyTuple},
@@ -2782,9 +2781,9 @@ impl Constructor for PyType {
                 let mangled_name = mangle_name(&class_name, member_str);
                 let member_def = PyMemberDef {
                     name: mangled_name.clone(),
-                    kind: MemberKind::ObjectEx,
-                    getter: MemberGetter::Offset(offset),
-                    setter: MemberSetter::Offset(offset),
+                    type_code: PY_T_OBJECT_EX,
+                    offset: offset as isize,
+                    flags: 0,
                     doc: None,
                 };
                 let attr_name = vm.ctx.intern_str(mangled_name.as_str());
@@ -2796,6 +2795,7 @@ impl Constructor for PyType {
                             qualname: PyRwLock::new(None),
                         },
                         member: member_def,
+                        access: MemberAccess::Slot,
                     });
                 // __slots__ attributes always get a member descriptor
                 // (this overrides any inherited attribute from MRO)

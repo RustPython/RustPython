@@ -6,8 +6,8 @@ use crate::util::CStrExt;
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{
-    DescriptorMemberDef, MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyGetSet,
-    PyMappingProxy, PyMemberDescriptor, PyType,
+    DescriptorMemberDef, MemberAccess, PY_READONLY, PY_RELATIVE_OFFSET, PY_T_BOOL, PY_T_OBJECT,
+    PY_T_OBJECT_EX, PyDescriptorOwned, PyGetSet, PyMappingProxy, PyMemberDescriptor, PyType,
 };
 use rustpython_vm::common::lock::PyRwLock;
 use rustpython_vm::function::PySetterValue;
@@ -133,19 +133,14 @@ pub struct PyMemberDef {
 }
 
 impl PyMemberDef {
-    const PY_READONLY: c_int = 1;
-    const PY_RELATIVE_OFFSET: c_int = 8;
-
     pub(crate) fn build(
         &self,
         ty: &Py<PyType>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PyMemberDescriptor>> {
         let name = unsafe { self.name.try_as_str(vm) }?;
-        let kind = match self.type_code {
-            6 => MemberKind::Object,
-            16 => MemberKind::ObjectEx,
-            14 => MemberKind::Bool,
+        let type_code = match self.type_code {
+            PY_T_OBJECT | PY_T_OBJECT_EX | PY_T_BOOL => self.type_code,
             _ => {
                 return Err(vm.new_system_error(format!(
                     "PyDescr_NewMember does not support member type code {}",
@@ -156,13 +151,14 @@ impl PyMemberDef {
         if self.offset < 0 {
             return Err(vm.new_system_error("PyDescr_NewMember does not support negative offsets"));
         }
-        if self.flags & Self::PY_RELATIVE_OFFSET != 0 {
+        if self.flags & PY_RELATIVE_OFFSET != 0 {
             return Err(
                 vm.new_system_error("PyDescr_NewMember does not support Py_RELATIVE_OFFSET")
             );
         }
 
         let doc = unsafe { self.doc.try_as_str_opt(vm) }?.map(str::to_owned);
+        let readonly = self.flags & PY_READONLY != 0;
 
         let descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
@@ -172,15 +168,13 @@ impl PyMemberDef {
             },
             member: DescriptorMemberDef {
                 name: name.to_owned(),
-                kind,
-                getter: MemberGetter::Offset(self.offset as usize),
-                setter: if self.flags & Self::PY_READONLY != 0 {
-                    MemberSetter::Setter(None)
-                } else {
-                    MemberSetter::Offset(self.offset as usize)
-                },
+                type_code,
+                offset: self.offset,
+                flags: if readonly { PY_READONLY } else { 0 },
                 doc,
             },
+            // Instance members live in the slot array. `offset` is that index.
+            access: MemberAccess::Slot,
         };
 
         Ok(descriptor.into_ref(&vm.ctx))

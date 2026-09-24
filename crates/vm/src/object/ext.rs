@@ -449,6 +449,61 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
     }
 }
 
+impl PyAtomicRef<PyObject> {
+    /// Empty slot. The pointer is null and owns no reference.
+    pub(crate) fn new_empty() -> Self {
+        Self {
+            inner: Radium::new(null_mut()),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Borrowed pointer currently stored. Null when the slot is empty.
+    ///
+    /// The slot owns the reference, so this stays valid while the slot is
+    /// unchanged. Traversal calls it with other threads stopped.
+    pub(crate) fn load_ptr(&self) -> *mut PyObject {
+        self.inner.load(Ordering::Acquire).cast()
+    }
+
+    /// Strong reference to the current value.
+    ///
+    /// A concurrent store may drop the previous value. The incref is retried
+    /// until it applies to the pointer still in the slot, and a value placed
+    /// here is published so its memory outlives that race.
+    pub(crate) fn load_owned(&self) -> Option<PyObjectRef> {
+        loop {
+            let ptr = self.inner.load(Ordering::Acquire);
+            if ptr.is_null() {
+                return None;
+            }
+            if let Some(obj) = unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) } {
+                if core::ptr::eq(self.inner.load(Ordering::Acquire), ptr) {
+                    return Some(obj);
+                }
+            }
+            core::hint::spin_loop();
+        }
+    }
+
+    /// Replace the stored reference. Returns the previous one, still owned.
+    pub(crate) fn store(&self, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
+        if let Some(obj) = value.as_ref() {
+            obj.mark_cache_published();
+        }
+        let new_ptr = match value {
+            Some(obj) => {
+                let ptr = obj.into_raw().as_ptr();
+                ptr.expose_provenance();
+                ptr.cast()
+            }
+            None => null_mut(),
+        };
+        let old = Radium::swap(&self.inner, new_ptr, Ordering::AcqRel);
+        NonNull::new(old.cast()).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) })
+    }
+}
+
 impl From<PyObjectRef> for PyAtomicRef<PyObject> {
     fn from(obj: PyObjectRef) -> Self {
         let obj = obj.into_raw();

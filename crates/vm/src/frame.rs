@@ -10,7 +10,7 @@ use crate::{
         PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty,
         PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
         builtin_func::PyNativeFunction,
-        descriptor::{MemberGetter, PyMemberDescriptor, PyMethodDescriptor},
+        descriptor::{PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
         function::{PyBoundMethod, PyCell, PyCellRef, PyFunction, vectorcall_function},
         list::PyListIterator,
@@ -10201,7 +10201,7 @@ impl ExecutingFrame<'_> {
                 // checks on every access has to be checked here instead.
                 if let Some(ref descr) = cls_attr
                     && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
-                    && let MemberGetter::Offset(offset) = member_descr.member.getter
+                    && let Some(offset) = member_descr.slot_offset()
                     && cls.fast_issubclass(&member_descr.common.typ)
                 {
                     unsafe {
@@ -12006,7 +12006,9 @@ impl ExecutingFrame<'_> {
             // instances of the type the descriptor belongs to.
             if let Some(ref descr) = cls_attr
                 && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
-                && let MemberGetter::Offset(offset) = member_descr.member.getter
+                && let Some(offset) = member_descr
+                    .slot_offset()
+                    .filter(|_| !member_descr.member.readonly())
                 && cls.fast_issubclass(&member_descr.common.typ)
             {
                 unsafe {
