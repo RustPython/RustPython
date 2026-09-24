@@ -6185,7 +6185,7 @@ mod winconsoleio {
 
             if zelf.fd.load() >= 0 {
                 if zelf.closefd.load() {
-                    internal_close(&zelf);
+                    internal_close(zelf);
                 } else {
                     zelf.fd.store(-1);
                 }
@@ -6290,16 +6290,16 @@ mod winconsoleio {
 
             if console_type == '\0' {
                 // Not a console at all
-                internal_close(&zelf);
+                internal_close(zelf);
                 return Err(vm.new_value_error("Cannot open non-console file"));
             }
 
             if writable && console_type != 'w' {
-                internal_close(&zelf);
+                internal_close(zelf);
                 return Err(vm.new_value_error("Cannot open console input buffer for writing"));
             }
             if readable && console_type != 'r' {
-                internal_close(&zelf);
+                internal_close(zelf);
                 return Err(vm.new_value_error("Cannot open console output buffer for reading"));
             }
 
