@@ -115,6 +115,17 @@ pub fn bytes_to_int(
         }
     }
 
+    // A pure digit string longer than the limit can be rejected from its
+    // length. The check is a wide digit test so it stays cheaper than parsing.
+    if digit_limit > 0 && !base.is_power_of_two() && buf.len() > digit_limit {
+        if let Some(digits) = plain_ascii_digit_len(buf) {
+            return Err(BytesToIntError::DigitLimit {
+                got: digits,
+                limit: digit_limit,
+            });
+        }
+    }
+
     // Reject empty strings
     let mut prev = *buf.first().ok_or(BytesToIntError::InvalidLiteral {
         base: requested_base,
@@ -166,6 +177,27 @@ pub fn bytes_to_int(
         base: requested_base,
     })?;
     Ok(BigInt::from_biguint(sign.unwrap_or(Sign::Plus), uint))
+}
+
+/// `Some(buf.len())` when every byte is an ASCII digit.
+fn plain_ascii_digit_len(buf: &[u8]) -> Option<usize> {
+    let mut rest = buf;
+    while rest.len() >= 8 {
+        let (head, tail) = rest.split_at(8);
+        let word = u64::from_le_bytes(head.try_into().unwrap());
+        if !word_all_ascii_digits(word) {
+            return None;
+        }
+        rest = tail;
+    }
+    rest.iter().all(u8::is_ascii_digit).then_some(buf.len())
+}
+
+/// True when each byte of `word` is in `b'0'..=b'9'`.
+fn word_all_ascii_digits(word: u64) -> bool {
+    let below = word.wrapping_sub(0x3030_3030_3030_3030);
+    let above = 0x3939_3939_3939_3939u64.wrapping_sub(word);
+    (below | above) & 0x8080_8080_8080_8080 == 0
 }
 
 // num-bigint now returns Some(inf) for to_f64() in some cases, so just keep that the same for now
@@ -230,6 +262,27 @@ mod tests {
         assert_eq!(
             bytes_to_int("012345".as_bytes(), 10, 5),
             Err(BytesToIntError::DigitLimit { got: 6, limit: 5 })
+        );
+        let long = "8".repeat(20_000);
+        assert_eq!(
+            bytes_to_int(long.as_bytes(), 10, 100),
+            Err(BytesToIntError::DigitLimit {
+                got: 20_000,
+                limit: 100
+            })
+        );
+        // Underscores are not digits, so the plain-digit fast path must not count them.
+        assert_eq!(
+            bytes_to_int(b"1_1_1", 10, 2),
+            Err(BytesToIntError::DigitLimit { got: 3, limit: 2 })
+        );
+        let over = format!("{}{}", "1_".repeat(80), "2".repeat(40));
+        assert_eq!(
+            bytes_to_int(over.as_bytes(), 10, 100),
+            Err(BytesToIntError::DigitLimit {
+                got: 120,
+                limit: 100
+            })
         );
     }
 }
