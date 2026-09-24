@@ -6,35 +6,40 @@ use core::{
     fmt::{Debug, Display},
     iter::Iterator,
     num::NonZeroUsize,
+    time::Duration,
 };
 
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use std::{
     env,
     fs::{self, File},
-    io::{BufRead, BufReader, BufWriter, Lines, Write},
+    io::{BufRead, BufReader, BufWriter, Cursor, Lines, Read, Write},
     path::{Path, PathBuf},
+    sync::mpsc,
     thread,
 };
 
 use icu_properties::props::{
     BidiClass, EnumeratedProperty, GeneralCategory, NamedEnumeratedProperty, NumericType,
 };
+use zlib_rs::{Inflate, InflateFlush};
+
+// Uncompressed size of Unihan-3.2.0.txt
+const UNIHAN_3_2_LEN: NonZeroUsize = NonZeroUsize::new(26301774).unwrap();
 
 /// Iterator over Unicode data file lines.
-struct UnicodeLineReader {
-    reader: Lines<BufReader<File>>,
+struct UnicodeLineReader<R: BufRead> {
+    reader: Lines<R>,
 }
 
-impl UnicodeLineReader {
-    fn new(reader: BufReader<File>) -> Self {
+impl<R: BufRead> UnicodeLineReader<R> {
+    fn new(reader: R) -> Self {
         let reader = reader.lines();
         Self { reader }
-    }
-
-    fn from_file_name(file_name: &str, modern: bool) -> Self {
-        Self::new(open_reader(file_name, modern))
     }
 
     fn next_line_raw(&mut self) -> Option<Box<str>> {
@@ -50,7 +55,53 @@ impl UnicodeLineReader {
     }
 }
 
-impl Iterator for UnicodeLineReader {
+impl UnicodeLineReader<BufReader<File>> {
+    fn from_file_name(file_name: &str, modern: bool) -> Self {
+        Self::new(open_reader(file_name, modern))
+    }
+}
+
+impl UnicodeLineReader<Cursor<String>> {
+    fn from_zlib(file_name: &str, modern: bool, len: NonZeroUsize) -> Self {
+        let mut input = Vec::new();
+        open_reader(file_name, modern)
+            .read_to_end(&mut input)
+            .unwrap();
+        let mut output = Vec::with_capacity(len.get());
+        let mut inflator = Inflate::new(true, 0);
+
+        match inflator
+            .decompress_uninit(&input, output.spare_capacity_mut(), InflateFlush::NoFlush)
+            .unwrap()
+        {
+            zlib_rs::Status::Ok | zlib_rs::Status::BufError => {
+                panic!(
+                    "buffer too small to hold decompressed data: {}",
+                    output.capacity()
+                )
+            }
+            zlib_rs::Status::StreamEnd => {
+                assert_eq!(
+                    len.get(),
+                    inflator.total_out() as _,
+                    "expected decompressed size and actual size differs"
+                );
+            }
+        }
+
+        // SAFETY: The inflator filled the vector with decompressed bytes, and the final size was
+        // checked above.
+        unsafe {
+            output.set_len(len.get());
+        }
+
+        Self::new(Cursor::new(
+            String::from_utf8(output).expect("Parsed Unicode data should be Unicode"),
+        ))
+    }
+}
+
+impl<R: BufRead> Iterator for UnicodeLineReader<R> {
     type Item = UnicodeLine;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -59,13 +110,26 @@ impl Iterator for UnicodeLineReader {
         let mut fields = line.split(';');
         let range = fields.next().expect("Unicode data is missing a char range");
         let (start, end) = match range.split_once("..") {
+            _ if let Some(alt) = range.strip_prefix("U+") => {
+                let cp = alt.split_whitespace().next().unwrap();
+                let start = u32::from_str_radix(cp.trim(), 16).unwrap_or_else(|e| {
+                    panic!("{e}: expected hexadecimal for alt char field 0\ngot: {range}")
+                });
+                (start, start)
+            }
             Some((left, right)) => {
-                let start = u32::from_str_radix(left.trim(), 16).unwrap();
-                let end = u32::from_str_radix(right.trim(), 16).unwrap();
+                let start = u32::from_str_radix(left.trim(), 16).unwrap_or_else(|e| {
+                    panic!("{e}: expected hexadecimal for start char field 0\ngot: {left}")
+                });
+                let end = u32::from_str_radix(right.trim(), 16).unwrap_or_else(|e| {
+                    panic!("{e}: expected hexadecimal for end char field 0\ngot: {right}")
+                });
                 (start, end)
             }
             None => {
-                let start = u32::from_str_radix(range.trim(), 16).unwrap();
+                let start = u32::from_str_radix(range.trim(), 16).unwrap_or_else(|e| {
+                    panic!("{e}: expected hexadecimal for non-range field 0\ngot: {range}")
+                });
                 (start, start)
             }
         };
@@ -81,14 +145,24 @@ struct UnicodeLine {
 }
 
 impl UnicodeLine {
-    /// Retrieve a field string from a line of Unicode data.
-    fn field(&self, n: NonZeroUsize, msg: Option<&str>) -> &str {
+    /// Retrieve a field string from a line of Unicode data with a specified splitter.
+    fn field_with(&self, n: NonZeroUsize, pat: impl Fn(char) -> bool, msg: Option<&str>) -> &str {
+        // TODO: Use impl Pattern when it's stable
         let field =
-            self.line.split(';').nth(n.get()).unwrap_or_else(|| {
+            self.line.split(pat).nth(n.get()).unwrap_or_else(|| {
                 panic!("{}", msg.unwrap_or("Unicode data is missing a property"))
             });
         // The field may have a comment so strip that out
         field.split_once('#').map_or(field, |(left, _)| left).trim()
+    }
+
+    /// Retrieve a field string from a line of Unicode data split by ; (normal case).
+    fn field(&self, n: NonZeroUsize, msg: Option<&str>) -> &str {
+        self.field_with(n, |ch| ch == ';', msg)
+    }
+
+    fn field_whitespace(&self, n: NonZeroUsize, msg: Option<&str>) -> &str {
+        self.field_with(n, |ch| ch.is_whitespace(), msg)
     }
 }
 
@@ -416,7 +490,7 @@ fn generate_name_lookups() {
 /// Drive parsers that require the full 3.2.0 data.
 ///
 /// As the full data set is HUGE, it's more efficient to parse it once then delegate to subparsers.
-fn full_data_parsers_3_2() {
+fn full_data_parsers_3_2(tx: mpsc::Sender<Vec<(u32, u32, f64)>>) {
     let reader = UnicodeLineReader::from_file_name("UnicodeData-3.2.0.txt", false);
 
     // `DerivedNumericValues` writes the value rounded to a few digits, so the
@@ -461,7 +535,7 @@ fn full_data_parsers_3_2() {
 
     // Now delegate to parsers that need the full data.
     generate_membership_3_2(membership_set, range_membership);
-    generate_numeric_value(ucd32_fractions);
+    generate_numeric_value(ucd32_fractions, tx);
 }
 
 /// Generate a compressed array of Unicode 3.2 membership.
@@ -498,7 +572,10 @@ fn generate_membership_3_2(membership_set: BTreeSet<(u32, u32)>, range_membershi
     write_slice_pairs(&mut writer, "MEMBERSHIP_3_2", "(u32, u32)", &mut membership);
 }
 
-fn generate_numeric_value(ucd32_fractions: BTreeMap<u32, f64>) {
+fn generate_numeric_value(
+    ucd32_fractions: BTreeMap<u32, f64>,
+    tx: mpsc::Sender<Vec<(u32, u32, f64)>>,
+) {
     let mut ucd32_diffs = BTreeMap::new();
     let numeric_32 = UnicodeLineReader::from_file_name("DerivedNumericValues-3.2.0.txt", false);
     for line in numeric_32 {
@@ -530,14 +607,45 @@ fn generate_numeric_value(ucd32_fractions: BTreeMap<u32, f64>) {
         );
         let value = parse_numeric_value(field);
 
+        // Remove values that are the same between 3.2.0 and the latest Unicode.
         if ucd32_diffs
             .get(&(line.start, line.end))
             .is_some_and(|old_v| *old_v == value)
         {
             ucd32_diffs.remove(&(line.start, line.end));
         }
-
         values_latest.push((line.start, line.end, value));
+    }
+
+    // Han ideograph supplement. This data is huge but we don't need a separate thread for it
+    // because the other data sources in this function are very small.
+    // https://www.unicode.org/reports/tr38/
+    let unihan_32 = UnicodeLineReader::from_zlib("Unihan-3.2.0.txt.zlib", false, UNIHAN_3_2_LEN);
+    for line in unihan_32 {
+        let id = line.field_whitespace(
+            NonZeroUsize::new(1).unwrap(),
+            Some(&format!(
+                "field 1 (identity) missing from Unihan-3.2.0.txt: {}",
+                line.line
+            )),
+        );
+        if matches!(
+            id,
+            "kAccountingNumeric" | "kOtherNumeric" | "kPrimaryNumeric"
+        ) {
+            // Field 3 holds the representation, which in this case is numeric.
+            let field = line.field_whitespace(
+                NonZeroUsize::new(2).unwrap(),
+                Some(&format!(
+                    "field 3 (representation) missing from Unihan-3.2.0.txt: {}",
+                    line.line
+                )),
+            );
+
+            let field = normalize_unihan_numeric(field);
+            let value = parse_numeric_value(&field);
+            ucd32_diffs.insert((line.start, line.end), value);
+        }
     }
 
     let mut writer = open_writer("numeric_value_3_2.rs");
@@ -557,6 +665,9 @@ fn generate_numeric_value(ucd32_fractions: BTreeMap<u32, f64>) {
         "(u32, u32, f64)",
         &mut ucd32_diffs,
     );
+
+    tx.send(ucd32_diffs)
+        .expect("sending numeric value diffs to numeric type thread should succeed");
 }
 
 fn general_category_3_2() {
@@ -700,7 +811,7 @@ fn combining_class_3_2() {
     );
 }
 
-fn generate_numeric_type_3_2() {
+fn generate_numeric_type_3_2(rx: mpsc::Receiver<Vec<(u32, u32, f64)>>) {
     let mut writer = open_writer("num_type_3_2.rs");
     let reader = UnicodeLineReader::from_file_name("DerivedNumericType-3.2.0.txt", false);
 
@@ -727,6 +838,15 @@ fn generate_numeric_type_3_2() {
         }
     }
 
+    // Extend the 3.2.0 differences with the Unihan data. It's possible that the type matters but we
+    // will treat them as Numeric for now.
+    let diffs = rx.recv_timeout(Duration::from_mins(10)).unwrap();
+    values.extend(
+        diffs
+            .into_iter()
+            .map(|(start, end, _)| (start, end, "NumericType::Numeric")),
+    );
+
     write_slice_display(
         &mut writer,
         "NUMERIC_TYPE_DIFF",
@@ -739,19 +859,21 @@ fn generate_numeric_type_3_2() {
 fn drive_parsers() {
     let parsers = [
         full_data_parsers_latest,
-        full_data_parsers_3_2,
         general_category_3_2,
         east_asian_width_3_2,
         bidi_class_3_2,
         binary_props_3_2,
         combining_class_3_2,
-        generate_numeric_type_3_2,
     ];
 
-    let mut handles = Vec::with_capacity(parsers.len());
+    let mut handles = Vec::with_capacity(parsers.len() + 2);
     for parser in parsers {
         handles.push(thread::spawn(parser));
     }
+
+    let (tx_numeric, rx_numeric) = mpsc::channel();
+    handles.push(thread::spawn(move || full_data_parsers_3_2(tx_numeric)));
+    handles.push(thread::spawn(move || generate_numeric_type_3_2(rx_numeric)));
 
     for handle in handles {
         handle.join().unwrap();
@@ -900,18 +1022,27 @@ fn parse_decomp_type(id: &str) -> DecompositionType {
     }
 }
 
+/// Normalize Unihan text so that it may be parsed as f64.
+fn normalize_unihan_numeric(s: &str) -> Cow<'_, str> {
+    if s.contains(',') {
+        let bytes = s.bytes().filter(|&c| c != b',').collect();
+        let s = String::from_utf8(bytes).expect("Unihan's numeric field should always be UTF-8");
+        Cow::Owned(s)
+    } else {
+        Cow::Borrowed(s)
+    }
+}
+
 /// Read a numeric value written either on its own or as `numerator/denominator`.
 fn parse_numeric_value(text: &str) -> f64 {
     let text = text.trim();
     let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
-    let numerator: f64 = numerator
-        .trim()
-        .parse()
-        .expect("Unicode data contains valid properties");
-    let denominator: f64 = denominator
-        .trim()
-        .parse()
-        .expect("Unicode data contains valid properties");
+    let numerator: f64 = numerator.trim().parse().unwrap_or_else(|e| {
+        panic!("{e}: Unicode data contains valid properties\nnumerator: {text}")
+    });
+    let denominator: f64 = denominator.trim().parse().unwrap_or_else(|e| {
+        panic!("{e}: Unicode data contains valid properties\ndenominator: {text}")
+    });
     numerator / denominator
 }
 
