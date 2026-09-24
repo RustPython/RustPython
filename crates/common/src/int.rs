@@ -117,13 +117,15 @@ pub fn bytes_to_int(
 
     // A pure digit string longer than the limit can be rejected from its
     // length. The check is a wide digit test so it stays cheaper than parsing.
-    if digit_limit > 0 && !base.is_power_of_two() && buf.len() > digit_limit {
-        if let Some(digits) = plain_ascii_digit_len(buf) {
-            return Err(BytesToIntError::DigitLimit {
-                got: digits,
-                limit: digit_limit,
-            });
-        }
+    if digit_limit > 0
+        && !base.is_power_of_two()
+        && buf.len() > digit_limit
+        && let Some(digits) = plain_ascii_digit_len(buf)
+    {
+        return Err(BytesToIntError::DigitLimit {
+            got: digits,
+            limit: digit_limit,
+        });
     }
 
     // Reject empty strings
