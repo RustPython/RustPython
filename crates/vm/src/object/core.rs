@@ -391,7 +391,19 @@ impl fmt::Debug for ObjExt {
 /// so Layout::extend adds no inter-padding.
 const EXT_OFFSET: usize = core::mem::size_of::<ObjExt>();
 
-/// Byte size of the inline member cells, rounded up so `ObjExt` needs no padding after them.
+/// Byte offset of member cell `index` from the start of `PyInner`.
+/// Cells live in front of the object, so the offset is negative.
+pub(crate) fn slot_member_offset(has_weakref: bool, member_count: usize, index: usize) -> isize {
+    let ext_offset = if has_weakref {
+        WEAKREF_OFFSET + EXT_OFFSET
+    } else {
+        EXT_OFFSET
+    };
+    let region = slot_region_layout(member_count).map_or(0, |layout| layout.size());
+    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>() as isize;
+    -((ext_offset + region) as isize) + index as isize * cell
+}
+
 fn slot_region_layout(member_count: usize) -> Option<core::alloc::Layout> {
     if member_count == 0 {
         return None;
@@ -438,7 +450,7 @@ pub(super) struct PyInner<T> {
 
     pub(super) payload: T,
 }
-pub(crate) const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<PyInner<()>>();
+pub const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<PyInner<()>>();
 
 // ref_count, vtable, gc_pointers (two) and typ are one word each; the gc bits,
 // generation, owner and refs take eight bytes between them. A 64-bit header had
@@ -2158,12 +2170,20 @@ impl PyObject {
         self.0.ref_count.is_immortal()
     }
 
-    pub(crate) fn get_slot(&self, offset: usize) -> Option<PyObjectRef> {
-        self.0.slot_cells()[offset].load_owned()
+    pub(crate) fn get_slot(&self, byte_offset: isize) -> Option<PyObjectRef> {
+        self.slot_cell_at(byte_offset).load_owned()
     }
 
-    pub(crate) fn set_slot(&self, offset: usize, value: Option<PyObjectRef>) {
-        drop(self.0.slot_cells()[offset].store(value));
+    pub(crate) fn set_slot(&self, byte_offset: isize, value: Option<PyObjectRef>) {
+        drop(self.slot_cell_at(byte_offset).store(value));
+    }
+
+    fn slot_cell_at(&self, byte_offset: isize) -> &PyAtomicRef<PyObject> {
+        let addr = (self as *const Self as *const u8)
+            .addr()
+            .wrapping_add(byte_offset as usize);
+        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<PyObject>>(addr);
+        unsafe { &*ptr }
     }
 
     /// _PyObject_GC_IS_TRACKED

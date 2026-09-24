@@ -355,9 +355,9 @@ pub(crate) type MemberSetterFunc =
 
 /// Where `PyMemberDef.offset` points.
 ///
-/// Builtin payloads keep fields behind locks, so a byte offset from the
-/// object header does not address them. Slot members use `offset` as an
-/// index into the instance slot array. Function members ignore `offset`.
+/// Slot members use a byte offset from the object to an inline pointer cell.
+/// Builtin payloads keep fields behind locks, so those members use a function
+/// and ignore `offset`.
 #[derive(Clone, Copy)]
 pub enum MemberAccess {
     Func {
@@ -415,10 +415,10 @@ pub struct PyMemberDescriptor {
 }
 
 impl PyMemberDescriptor {
-    /// Slot index for an instance-slot member. `None` when the offset is not a slot.
-    pub(crate) fn slot_offset(&self) -> Option<usize> {
+    /// Byte offset of an instance-slot member. `None` when this is not a slot.
+    pub(crate) fn slot_offset(&self) -> Option<isize> {
         match self.access {
-            MemberAccess::Slot => Some(self.member.offset as usize),
+            MemberAccess::Slot => Some(self.member.offset),
             _ => None,
         }
     }
@@ -436,9 +436,7 @@ impl PyMemberDescriptor {
         }
         match self.access {
             MemberAccess::Func { get, .. } => get(vm, obj),
-            MemberAccess::Slot => {
-                get_slot_from_object(&obj, self.member.offset as usize, &self.member, vm)
-            }
+            MemberAccess::Slot => get_slot_from_object(&obj, self.member.offset, &self.member, vm),
             MemberAccess::TupleItem => {
                 let index = self.member.offset as usize;
                 let tuple = obj.downcast_ref::<PyTuple>().ok_or_else(|| {
@@ -468,7 +466,7 @@ impl PyMemberDescriptor {
                 None => Err(vm.new_attribute_error("readonly attribute")),
             },
             MemberAccess::Slot => {
-                set_slot_at_object(&obj, self.member.offset as usize, &self.member, value, vm)
+                set_slot_at_object(&obj, self.member.offset, &self.member, value, vm)
             }
             MemberAccess::TupleItem => Err(vm.new_attribute_error("readonly attribute")),
         }
@@ -566,7 +564,7 @@ impl PyMemberDescriptor {
 // PyMember_GetOne for a value stored in the instance slot array.
 fn get_slot_from_object(
     obj: &PyObject,
-    offset: usize,
+    offset: isize,
     member: &PyMemberDef,
     vm: &VirtualMachine,
 ) -> PyResult {
@@ -589,7 +587,7 @@ fn get_slot_from_object(
 // PyMember_SetOne for a value stored in the instance slot array.
 fn set_slot_at_object(
     obj: &PyObject,
-    offset: usize,
+    offset: isize,
     member: &PyMemberDef,
     value: PySetterValue,
     vm: &VirtualMachine,
