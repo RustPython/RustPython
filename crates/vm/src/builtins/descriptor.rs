@@ -220,15 +220,15 @@ impl core::fmt::Debug for PyClassMethodDescriptor {
 
 impl GetDescriptor for PyClassMethodDescriptor {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let descr = Self::_as_pyref(&zelf, vm).unwrap();
+        let descr = Self::_as_pyref(zelf, vm).unwrap();
         let type_obj = match cls {
-            Some(typ) => typ,
-            None => match &obj {
+            Some(typ) => typ.to_owned(),
+            None => match obj {
                 Some(o) => o.class().to_owned().into(),
                 None => {
                     return Err(vm.new_type_error(format!(
@@ -277,7 +277,7 @@ impl Callable for PyClassMethodDescriptor {
                 zelf.common.typ.name()
             )));
         };
-        let bound = Self::descr_get(zelf.to_owned().into(), None, Some(owner), vm)?;
+        let bound = Self::descr_get(zelf.as_object(), None, Some(&owner), vm)?;
         args.args.remove(0);
         bound.call(args, vm)
     }

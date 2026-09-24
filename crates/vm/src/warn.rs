@@ -137,7 +137,7 @@ fn get_warnings_attr(
         }
     };
 
-    vm.get_attribute_opt(module, attr_name)
+    vm.get_attribute_opt(&module, attr_name)
 }
 
 /// Get the warnings filters list from `sys.modules['warnings'].filters`,
@@ -212,7 +212,7 @@ pub(crate) fn get_source_line(
         }
     };
 
-    let Some(get_source) = vm.get_attribute_opt(loader, vm.ctx.intern_str("get_source"))? else {
+    let Some(get_source) = vm.get_attribute_opt(&loader, vm.ctx.intern_str("get_source"))? else {
         return Ok(None);
     };
     let source = get_source.call((module_name,), vm)?;
