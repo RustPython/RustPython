@@ -44,16 +44,7 @@ impl PyGetSetDef {
                 ty,
                 move |obj: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyObjectRef> {
                     unsafe {
-                        let closure = closure as *mut c_void;
-                        let ret_ptr = get(obj.as_raw().cast_mut(), closure);
-                        let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
-                            vm.take_raised_exception().unwrap_or_else(|| {
-                                vm.new_system_error(
-                                    "Native function returned NULL, but there was no exception set",
-                                )
-                            })
-                        })?;
-                        Ok(ret_ptr.as_ptr().assume_owned())
+                        get(obj.as_raw().cast_mut(), closure as *mut c_void).assume_owned_or_err(vm)
                     }
                 },
                 move |obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine| unsafe {
@@ -76,16 +67,7 @@ impl PyGetSetDef {
                 ty,
                 move |obj: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyObjectRef> {
                     unsafe {
-                        let closure = closure as *mut c_void;
-                        let ret_ptr = get(obj.as_raw().cast_mut(), closure);
-                        let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
-                            vm.take_raised_exception().unwrap_or_else(|| {
-                                vm.new_system_error(
-                                    "Native function returned NULL, but there was no exception set",
-                                )
-                            })
-                        })?;
-                        Ok(ret_ptr.as_ptr().assume_owned())
+                        get(obj.as_raw().cast_mut(), closure as *mut c_void).assume_owned_or_err(vm)
                     }
                 },
             ),
