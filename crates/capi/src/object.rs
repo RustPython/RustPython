@@ -217,7 +217,7 @@ pub unsafe extern "C" fn PyObject_HasAttrWithError(
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let name = unsafe { &*attr_name }.try_downcast_ref::<PyStr>(vm)?;
-        Ok(vm.get_attribute_opt(obj, name)?.is_some())
+        obj.has_attr(name, vm)
     })
 }
 
@@ -272,7 +272,7 @@ pub unsafe extern "C" fn PyObject_HasAttrStringWithError(
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let name = unsafe { attr_name.try_as_str(vm) }?;
-        Ok(vm.get_attribute_opt(obj, name)?.is_some())
+        obj.has_attr(name, vm)
     })
 }
 
