@@ -387,8 +387,9 @@ impl fmt::Debug for ObjExt {
 }
 
 /// Precomputed offset constants for prefix allocation.
-/// All prefix components are align(8) and their sizes are multiples of 8,
-/// so Layout::extend adds no inter-padding.
+/// `ObjExt` and `WeakRefList` are align(8) and their sizes are multiples of 8,
+/// so `Layout::extend` adds no padding between them. Slot cells are packed
+/// immediately in front of `ObjExt`; any alignment padding is before the cells.
 const EXT_OFFSET: usize = core::mem::size_of::<ObjExt>();
 
 /// Byte offset of member cell `index` from the start of `PyInner`.
@@ -409,9 +410,14 @@ fn slot_region_layout(member_count: usize) -> Option<core::alloc::Layout> {
     if member_count == 0 {
         return None;
     }
-    let bytes = member_count * core::mem::size_of::<PyAtomicRef<PyObject>>();
+    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+    let bytes = member_count * cell;
     let align = core::mem::align_of::<ObjExt>();
-    Some(core::alloc::Layout::from_size_align(bytes.next_multiple_of(align), align).unwrap())
+    // Padding goes in front of the cells so cell 0 stays flush with ObjExt.
+    // On wasm32 a pointer is 4 bytes and ObjExt is align 8, so an odd count
+    // would otherwise leave a gap where cell 0 is supposed to be.
+    let pad = (align - bytes % align) % align;
+    Some(core::alloc::Layout::from_size_align(pad + bytes, align).unwrap())
 }
 const WEAKREF_OFFSET: usize = core::mem::size_of::<WeakRefList>();
 
@@ -1265,7 +1271,9 @@ impl<T: PyPayload> PyInner<T> {
                 // Drop member cells, then ObjExt. Cells are the allocation prefix.
                 let mut cursor = alloc_ptr;
                 if let Some(region) = slot_region_layout(member_count) {
-                    let cells = cursor.cast::<PyAtomicRef<PyObject>>();
+                    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+                    let first = cursor.add(region.size() - member_count * cell);
+                    let cells = first.cast::<PyAtomicRef<PyObject>>();
                     for i in 0..member_count {
                         core::ptr::drop_in_place(cells.add(i));
                     }
@@ -1360,7 +1368,10 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
 
             unsafe {
                 if let Some(offset) = slots_start {
-                    let cells = alloc_ptr.add(offset).cast::<PyAtomicRef<PyObject>>();
+                    let region = slot_region_layout(member_count).unwrap();
+                    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+                    let first = alloc_ptr.add(offset + region.size() - member_count * cell);
+                    let cells = first.cast::<PyAtomicRef<PyObject>>();
                     for i in 0..member_count {
                         cells.add(i).write(PyAtomicRef::<PyObject>::new_empty());
                     }

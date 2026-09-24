@@ -481,7 +481,7 @@ impl PyAtomicRef<PyObject> {
         // the pointer between the load and the incref.
         #[cfg(not(feature = "threading"))]
         {
-            return unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) };
+            unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
         }
         #[cfg(feature = "threading")]
         {
