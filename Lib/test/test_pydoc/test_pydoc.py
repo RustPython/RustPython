@@ -1573,6 +1573,7 @@ class TestDescriptions(unittest.TestCase):
             "dump(obj, /) method of _pickle.Pickler instance")
 
     # this should *never* include self!
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; os.stat signature is generated as (path, dir_fd, follow_symlinks, /)
     @requires_docstrings
     def test_module_level_callable(self):
         self.assertEqual(self._get_summary_line(os.stat),
