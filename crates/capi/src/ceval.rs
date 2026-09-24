@@ -1,6 +1,7 @@
 use crate::pyframe::PyFrameObject;
 use crate::pystate::with_vm;
 use crate::unicodeobject::decode_fsdefault_and_size;
+use crate::util::CStrExt;
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyCode, PyDict};
@@ -157,10 +158,21 @@ pub unsafe extern "C" fn PyEval_GetFuncDesc(func: *mut PyObject) -> *const c_cha
     })
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_EnterRecursiveCall(where_: *const c_char) -> c_int {
+    with_vm(|vm| vm.enter_recursive_call(unsafe { where_.try_as_str(vm)? }))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_LeaveRecursiveCall() {
+    with_vm(|vm| vm.leave_recursive_call())
+}
+
 #[cfg(test)]
 mod tests {
+    use super::{Py_EnterRecursiveCall, Py_LeaveRecursiveCall};
     use alloc::ffi::CString;
-    use pyo3::exceptions::PyException;
+    use pyo3::exceptions::{PyException, PyRecursionError};
     use pyo3::prelude::*;
 
     #[pyfunction]
@@ -266,6 +278,25 @@ assert not hidden_leaked
                 None,
             )
             .unwrap();
+        })
+    }
+
+    #[test]
+    fn recursion_error() {
+        fn recurse(py: Python<'_>) -> PyResult<()> {
+            unsafe {
+                if Py_EnterRecursiveCall(c"".as_ptr().cast()) != 0 {
+                    return Err(PyErr::fetch(py));
+                };
+                let result = recurse(py);
+                Py_LeaveRecursiveCall();
+                result
+            }
+        }
+
+        Python::attach(|py| {
+            let err = recurse(py).unwrap_err();
+            assert!(err.is_instance_of::<PyRecursionError>(py));
         })
     }
 }
