@@ -1490,7 +1490,6 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    #[pyfunction(name = "fstat")]
     fn stat(args: StatArgs<'_>, vm: &VirtualMachine) -> PyResult {
         let StatArgs {
             path,
@@ -1498,6 +1497,22 @@ pub(super) mod _os {
             follow_symlinks,
         } = args;
         stat_at(path, dir_fd, follow_symlinks, vm)
+    }
+
+    #[derive(FromArgs)]
+    struct FstatArgs<'a> {
+        #[pyarg(any)]
+        fd: crt_fd::Borrowed<'a>,
+    }
+
+    #[pyfunction]
+    fn fstat(args: FstatArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        stat_at(
+            OsPathOrFd::Fd(args.fd),
+            DirFd::default(),
+            FollowSymlinks(true),
+            vm,
+        )
     }
 
     #[pyfunction]
@@ -2177,7 +2192,7 @@ pub(super) mod _os {
             SupportFunc::new("rmdir", Some(false), Some(RMDIR_DIR_FD), Some(false)),
             SupportFunc::new("scandir", Some(SCANDIR_FD), Some(false), Some(false)),
             SupportFunc::new("stat", Some(true), Some(STAT_DIR_FD), Some(true)),
-            SupportFunc::new("fstat", Some(true), Some(STAT_DIR_FD), Some(true)),
+            SupportFunc::new("fstat", Some(false), Some(false), Some(false)),
             SupportFunc::new("symlink", Some(false), Some(SYMLINK_DIR_FD), Some(false)),
             SupportFunc::new("truncate", Some(true), Some(false), Some(false)),
             SupportFunc::new("ftruncate", Some(true), Some(false), Some(false)),
