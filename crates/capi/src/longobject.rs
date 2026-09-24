@@ -1,4 +1,5 @@
 use crate::object::define_py_check;
+use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
 use bitflags::bitflags;
 use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_longlong, c_ulong, c_ulonglong, c_void};
@@ -178,9 +179,9 @@ pub unsafe extern "C" fn PyLong_AsNativeBytes(
 
         let flags = AsNativeBytesFlags::from_bits_or_default(vm, flags)?;
         let value = if flags.contains(AsNativeBytesFlags::ALLOW_INDEX) {
-            unsafe { &*obj }.to_owned().try_index(vm)?
+            unsafe { obj.assume_borrowed() }.to_owned().try_index(vm)?
         } else {
-            unsafe { &*obj }.try_downcast_ref::<PyInt>(vm)?.to_owned()
+            unsafe { obj.assume_borrowed_and_cast::<PyInt>(vm)? }.to_owned()
         };
         let bigint = value.as_bigint();
 
@@ -260,7 +261,7 @@ pub unsafe extern "C" fn PyLong_FromString(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
     with_vm::<PyResult<c_long>, _>(|vm| {
-        unsafe { &*obj }
+        unsafe { obj.assume_borrowed() }
             .to_owned()
             .try_index(vm)?
             .as_bigint()
@@ -272,7 +273,7 @@ pub unsafe extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsDouble(obj: *mut PyObject) -> c_double {
     with_vm::<PyResult<c_double>, _>(|vm| {
-        let int = unsafe { &*obj }.try_downcast_ref::<PyInt>(vm)?;
+        let int = unsafe { obj.assume_borrowed_and_cast::<PyInt>(vm) }?;
         try_bigint_to_f64(int.as_bigint(), vm)
     })
 }
@@ -280,7 +281,7 @@ pub unsafe extern "C" fn PyLong_AsDouble(obj: *mut PyObject) -> c_double {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsInt(obj: *mut PyObject) -> c_int {
     with_vm::<PyResult<c_int>, _>(|vm| {
-        unsafe { &*obj }
+        unsafe { obj.assume_borrowed() }
             .to_owned()
             .try_index(vm)?
             .as_bigint()
@@ -292,7 +293,7 @@ pub unsafe extern "C" fn PyLong_AsInt(obj: *mut PyObject) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsInt32(obj: *mut PyObject, out: *mut i32) -> c_int {
     with_vm(|vm| {
-        let value: i32 = unsafe { &*obj }
+        let value: i32 = unsafe { obj.assume_borrowed() }
             .to_owned()
             .try_index(vm)?
             .as_bigint()
@@ -306,7 +307,7 @@ pub unsafe extern "C" fn PyLong_AsInt32(obj: *mut PyObject, out: *mut i32) -> c_
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsInt64(obj: *mut PyObject, out: *mut i64) -> c_int {
     with_vm(|vm| {
-        let value: i64 = unsafe { &*obj }
+        let value: i64 = unsafe { obj.assume_borrowed() }
             .to_owned()
             .try_index(vm)?
             .as_bigint()
@@ -320,7 +321,7 @@ pub unsafe extern "C" fn PyLong_AsInt64(obj: *mut PyObject, out: *mut i64) -> c_
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsLongLong(obj: *mut PyObject) -> c_longlong {
     with_vm::<PyResult<c_longlong>, _>(|vm| {
-        unsafe { &*obj }
+        unsafe { obj.assume_borrowed() }
             .to_owned()
             .try_index(vm)?
             .as_bigint()
@@ -332,8 +333,7 @@ pub unsafe extern "C" fn PyLong_AsLongLong(obj: *mut PyObject) -> c_longlong {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsSize_t(obj: *mut PyObject) -> usize {
     with_vm::<PyResult<usize>, _>(|vm| {
-        let value: usize = unsafe { &*obj }
-            .try_downcast_ref::<PyInt>(vm)?
+        let value: usize = unsafe { obj.assume_borrowed_and_cast::<PyInt>(vm) }?
             .as_bigint()
             .try_into()
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C size_t"))?;
@@ -344,8 +344,7 @@ pub unsafe extern "C" fn PyLong_AsSize_t(obj: *mut PyObject) -> usize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsSsize_t(obj: *mut PyObject) -> isize {
     with_vm::<PyResult<isize>, _>(|vm| {
-        unsafe { &*obj }
-            .try_downcast_ref::<PyInt>(vm)?
+        unsafe { obj.assume_borrowed_and_cast::<PyInt>(vm) }?
             .as_bigint()
             .try_into()
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C ssize_t"))
@@ -355,7 +354,7 @@ pub unsafe extern "C" fn PyLong_AsSsize_t(obj: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsUInt32(obj: *mut PyObject, out: *mut u32) -> c_int {
     with_vm(|vm| {
-        let value: u32 = unsafe { &*obj }
+        let value: u32 = unsafe { obj.assume_borrowed() }
             .to_owned()
             .try_index(vm)?
             .as_bigint()
@@ -369,7 +368,7 @@ pub unsafe extern "C" fn PyLong_AsUInt32(obj: *mut PyObject, out: *mut u32) -> c
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsUInt64(obj: *mut PyObject, out: *mut u64) -> c_int {
     with_vm(|vm| {
-        let value: u64 = unsafe { &*obj }
+        let value: u64 = unsafe { obj.assume_borrowed() }
             .to_owned()
             .try_index(vm)?
             .as_bigint()
@@ -383,8 +382,7 @@ pub unsafe extern "C" fn PyLong_AsUInt64(obj: *mut PyObject, out: *mut u64) -> c
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsUnsignedLong(obj: *mut PyObject) -> c_ulong {
     with_vm::<PyResult<c_ulong>, _>(|vm| {
-        unsafe { &*obj }
-            .try_downcast_ref::<PyInt>(vm)?
+        unsafe { obj.assume_borrowed_and_cast::<PyInt>(vm) }?
             .as_bigint()
             .try_into()
             .map_err(|_| {
@@ -396,7 +394,7 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLong(obj: *mut PyObject) -> c_ulong {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsUnsignedLongMask(obj: *mut PyObject) -> c_ulong {
     with_vm::<PyResult<c_ulong>, _>(|vm| {
-        let int = unsafe { &*obj }.to_owned().try_index(vm)?;
+        let int = unsafe { obj.assume_borrowed() }.to_owned().try_index(vm)?;
         if const { c_ulong::BITS == 32 } {
             Ok(c_ulong::from(int.as_u32_mask()))
         } else {
@@ -408,7 +406,7 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLongMask(obj: *mut PyObject) -> c_ulon
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsUnsignedLongLongMask(obj: *mut PyObject) -> c_ulonglong {
     with_vm::<PyResult<c_ulonglong>, _>(|vm| {
-        let int = unsafe { &*obj }.to_owned().try_index(vm)?;
+        let int = unsafe { obj.assume_borrowed() }.to_owned().try_index(vm)?;
         Ok(int.as_u64_mask())
     })
 }
@@ -416,7 +414,7 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLongLongMask(obj: *mut PyObject) -> c_
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsVoidPtr(obj: *mut PyObject) -> *mut c_void {
     with_vm(|vm| {
-        let value = unsafe { &*obj }.try_downcast_ref::<PyInt>(vm)?;
+        let value = unsafe { obj.assume_borrowed_and_cast::<PyInt>(vm) }?;
 
         let unsigned: Result<usize, _> = value.as_bigint().try_into();
         if let Ok(v) = unsigned {
@@ -434,8 +432,7 @@ pub unsafe extern "C" fn PyLong_AsVoidPtr(obj: *mut PyObject) -> *mut c_void {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulonglong {
     with_vm::<PyResult<c_ulonglong>, _>(|vm| {
-        unsafe { &*obj }
-            .try_downcast_ref::<PyInt>(vm)?
+        unsafe { obj.assume_borrowed_and_cast::<PyInt>(vm) }?
             .as_bigint()
             .try_into()
             .map_err(|_| {
@@ -488,7 +485,7 @@ pub unsafe extern "C" fn PyLong_Export(
     export_long: *mut PyLongExport,
 ) -> c_int {
     with_vm::<PyResult<()>, _>(|vm| {
-        let py_int = unsafe { &*obj }.try_downcast_ref::<PyInt>(vm)?;
+        let py_int = unsafe { obj.assume_borrowed_and_cast::<PyInt>(vm)? };
         let bigint = py_int.as_bigint();
 
         if let Ok(value) = i64::try_from(bigint) {
