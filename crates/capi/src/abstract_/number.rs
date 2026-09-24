@@ -1,5 +1,6 @@
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::c_int;
+use malachite_bigint::Sign;
 use rustpython_vm::protocol::PyNumber;
 
 #[unsafe(no_mangle)]
@@ -210,6 +211,31 @@ pub unsafe extern "C" fn PyNumber_Xor(o1: *mut PyObject, o2: *mut PyObject) -> *
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyNumber_Long(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| unsafe { &*obj }.try_int(vm))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyNumber_AsSsize_t(obj: *mut PyObject, exc: *mut PyObject) -> isize {
+    with_vm(|vm| {
+        let index = unsafe { &*obj }.try_index(vm)?;
+        let value = index.as_bigint();
+
+        value.try_into().or_else(|_| {
+            if let Some(exc) = unsafe { exc.as_ref() } {
+                Err(vm.invoke_exception(
+                    exc.try_downcast_ref(vm)?,
+                    vec![
+                        vm.ctx
+                            .new_str("cannot fit 'int' into an index-sized integer")
+                            .into(),
+                    ],
+                )?)
+            } else if value.sign() == Sign::Minus {
+                Ok(isize::MIN)
+            } else {
+                Ok(isize::MAX)
+            }
+        })
+    })
 }
 
 #[unsafe(no_mangle)]
