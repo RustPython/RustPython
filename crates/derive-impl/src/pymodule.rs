@@ -2,8 +2,8 @@ use crate::error::Diagnostic;
 use crate::pystructseq::PyStructSequenceMeta;
 use crate::util::{
     ALL_ALLOWED_NAMES, AttrItemMeta, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
-    ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, format_doc,
-    infer_native_call_flags, iter_use_idents, pyclass_ident_and_attrs, text_signature,
+    ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, infer_native_call_flags,
+    internal_doc_tokens, iter_use_idents, pyclass_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
@@ -524,7 +524,7 @@ struct FunctionNurseryItem {
     py_names: Vec<String>,
     cfgs: Vec<Attribute>,
     ident: Ident,
-    doc: Option<String>,
+    doc: TokenStream,
     call_flags: TokenStream,
 }
 
@@ -556,10 +556,7 @@ impl ToTokens for ValidatedFunctionNursery {
             let cfgs = &item.cfgs;
             let cfgs = quote!(#(#cfgs)*);
             let py_names = &item.py_names;
-            let doc = match &item.doc {
-                Some(doc) => quote!(Some(#doc)),
-                None => quote!(None),
-            };
+            let doc = &item.doc;
             let flags = &item.call_flags;
 
             inner_tokens.extend(quote![
@@ -664,7 +661,6 @@ impl ModuleItem for FunctionItem {
         let item_meta = SimpleItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.simple_name()?;
-        let sig_doc = text_signature(func.sig(), &py_name, None);
 
         let module = args.module_name();
         // TODO: doc must exist at least one of code or CPython
@@ -673,11 +669,7 @@ impl ModuleItem for FunctionItem {
                 .copied()
                 .map(str::to_owned)
         });
-        let doc = match (sig_doc, doc) {
-            (Some(sig_doc), Some(doc)) => Some(format_doc(&sig_doc, &doc)),
-            (Some(sig_doc), None) => Some(format_doc(&sig_doc, "")),
-            (None, doc) => doc,
-        };
+        let doc = internal_doc_tokens(func.sig(), &py_name, None, doc, None, Some("$module"));
 
         let py_names = {
             if self.py_attrs.is_empty() {

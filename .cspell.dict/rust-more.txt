@@ -60,6 +60,7 @@ powf
 powi
 prepended
 punct
+qself
 replacen
 retag
 rmatch

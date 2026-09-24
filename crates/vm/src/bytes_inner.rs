@@ -512,7 +512,7 @@ impl PyBytesInner {
         swapcase_ascii(self.as_bytes())
     }
 
-    pub fn hex(&self, sep: Option<u8>, bytes_per_sep: OptionalArg<isize>) -> String {
+    pub fn hex(&self, sep: Option<u8>, bytes_per_sep: isize) -> String {
         bytes_to_hex(self.elements.as_slice(), sep, bytes_per_sep)
     }
 
@@ -1231,8 +1231,8 @@ pub(crate) fn bytes_decode(
 pub(crate) struct ByteInnerHexOptions {
     #[pyarg(any, optional)]
     pub sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
-    #[pyarg(any, optional)]
-    pub bytes_per_sep: OptionalArg<isize>,
+    #[pyarg(any, default = 1)]
+    pub bytes_per_sep: isize,
 }
 
 impl ByteInnerHexOptions {
@@ -1240,7 +1240,7 @@ impl ByteInnerHexOptions {
     ///
     /// Measuring the separator runs Python, so it happens here, before the
     /// bytes to be written out are borrowed. _Py_strhex_impl
-    pub(crate) fn resolve(self, vm: &VirtualMachine) -> PyResult<(Option<u8>, OptionalArg<isize>)> {
+    pub(crate) fn resolve(self, vm: &VirtualMachine) -> PyResult<(Option<u8>, isize)> {
         let Self { sep, bytes_per_sep } = self;
         let OptionalArg::Present(sep) = sep else {
             return Ok((None, bytes_per_sep));
@@ -1323,12 +1323,7 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
     unsafe { String::from_utf8_unchecked(buf) }
 }
 
-pub(crate) fn bytes_to_hex(
-    bytes: &[u8],
-    sep: Option<u8>,
-    bytes_per_sep: OptionalArg<isize>,
-) -> String {
-    let bytes_per_sep = bytes_per_sep.unwrap_or(1);
+pub(crate) fn bytes_to_hex(bytes: &[u8], sep: Option<u8>, bytes_per_sep: isize) -> String {
     match sep {
         Some(sep) if bytes_per_sep != 0 && !bytes.is_empty() => hex_impl(bytes, sep, bytes_per_sep),
         _ => hex_impl_no_sep(bytes),

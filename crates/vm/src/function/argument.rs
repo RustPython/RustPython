@@ -1,3 +1,4 @@
+use super::signature::Param;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyTupleRef, PyType},
@@ -99,6 +100,9 @@ impl From<KwArgs> for FuncArgs {
 }
 
 impl FromArgs for FuncArgs {
+    const PARAMS: Option<&'static [Param]> =
+        Some(&[Param::var_positional("args"), Param::var_keyword("kwargs")]);
+
     fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         Ok(core::mem::take(args))
     }
@@ -519,6 +523,14 @@ pub trait FromArgs: Sized {
         0..=0
     }
 
+    /// Parameters this type contributes to a text signature.
+    ///
+    /// `None`: the argument is one positional-only parameter, named by the
+    /// function argument. `Some(&[])`: the argument contributes nothing.
+    /// `Some(params)`: the type supplies those parameters and the argument name
+    /// is ignored.
+    const PARAMS: Option<&'static [Param]> = None;
+
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError>;
 }
@@ -662,6 +674,8 @@ impl<T> FromArgs for KwArgs<T>
 where
     T: TryFromObject,
 {
+    const PARAMS: Option<&'static [Param]> = Some(&[Param::var_keyword("kwargs")]);
+
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = KwArgsMap::default();
         for (name, value) in args.remaining_keywords() {
@@ -736,6 +750,8 @@ impl<T> FromArgs for PosArgs<T>
 where
     T: TryFromObject,
 {
+    const PARAMS: Option<&'static [Param]> = Some(&[Param::var_positional("args")]);
+
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
         while let Some(value) = args.take_positional() {
@@ -808,6 +824,12 @@ impl<T> FromArgs for OptionalArg<T>
 where
     T: TryFromObject,
 {
+    const PARAMS: Option<&'static [Param]> = Some(&[Param {
+        name: "",
+        kind: super::signature::ParamKind::PositionalOnly,
+        default: Some("<unrepresentable>"),
+    }]);
+
     fn arity() -> RangeInclusive<usize> {
         0..=1
     }

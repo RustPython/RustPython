@@ -369,6 +369,14 @@ impl PyDict {
     }
 }
 
+#[derive(FromArgs)]
+struct FromKeysArgs {
+    #[pyarg(positional)]
+    iterable: ArgIterable,
+    #[pyarg(positional, default = None)]
+    value: Option<PyObjectRef>,
+}
+
 // Python dict methods:
 #[pyclass(
     with(
@@ -387,13 +395,9 @@ impl PyDict {
 )]
 impl PyDict {
     #[pyclassmethod]
-    fn fromkeys(
-        class: PyTypeRef,
-        iterable: ArgIterable,
-        value: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let value = value.unwrap_or_none(vm);
+    fn fromkeys(class: PyTypeRef, args: FromKeysArgs, vm: &VirtualMachine) -> PyResult {
+        let FromKeysArgs { iterable, value } = args;
+        let value = value.unwrap_or_else(|| vm.ctx.none());
         let d = PyType::call(&class, ().into(), vm)?;
         match d.downcast_exact::<Self>(vm) {
             Ok(pydict) => {

@@ -124,6 +124,7 @@ impl PyMethodDef {
         PyNativeFunction {
             zelf: None,
             value: self,
+            module_object: None,
             module: None,
             _method_def_owner: None,
         }
@@ -146,6 +147,7 @@ impl PyMethodDef {
             func: PyNativeFunction {
                 zelf: Some(obj),
                 value: self,
+                module_object: None,
                 module: None,
                 _method_def_owner: None,
             },
@@ -165,6 +167,7 @@ impl PyMethodDef {
         let function = PyNativeFunction {
             zelf: Some(obj),
             value: self,
+            module_object: None,
             module: None,
             _method_def_owner: None,
         };
@@ -218,6 +221,7 @@ impl PyMethodDef {
         let func = PyNativeFunction {
             zelf: Some(class.to_owned().into()),
             value: self,
+            module_object: None,
             module: None,
             _method_def_owner: None,
         };

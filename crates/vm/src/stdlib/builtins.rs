@@ -1076,14 +1076,17 @@ mod builtins {
 
     #[derive(Debug, Default, FromArgs)]
     pub struct PrintOptions {
-        #[pyarg(named, default)]
+        // None means a space; the string is filled in when printing.
+        #[pyarg(named, default, py_default = "' '")]
         sep: Option<PyStrRef>,
-        #[pyarg(named, default)]
+        // None means a newline; the string is filled in when printing.
+        #[pyarg(named, default, py_default = "'\\n'")]
         end: Option<PyStrRef>,
-        #[pyarg(named, default = ArgIntoBool::FALSE)]
-        flush: ArgIntoBool,
-        #[pyarg(named, default)]
+        #[pyarg(named, default = None)]
         file: Option<PyObjectRef>,
+        // ArgIntoBool::FALSE is not the literal false.
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        flush: ArgIntoBool,
     }
 
     #[pyfunction]
@@ -1139,8 +1142,8 @@ mod builtins {
     #[derive(FromArgs)]
     pub(super) struct RoundArgs {
         number: PyObjectRef,
-        #[pyarg(any, optional)]
-        ndigits: OptionalOption<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        ndigits: Option<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -1153,7 +1156,7 @@ mod builtins {
                     number.class().slot_name()
                 ))
             })?;
-        match ndigits.flatten() {
+        match ndigits {
             Some(obj) => {
                 let ndigits = obj.try_index(vm)?;
                 meth.invoke((ndigits,), vm)
@@ -1198,8 +1201,9 @@ mod builtins {
     pub(super) struct SumArgs {
         #[pyarg(positional)]
         iterable: ArgIterable,
-        #[pyarg(any, optional)]
-        start: OptionalArg<PyObjectRef>,
+        // The int object needs the VM, so the default is not a literal.
+        #[pyarg(any, default = vm.ctx.new_int(0).into(), py_default = "0")]
+        start: PyObjectRef,
     }
 
     #[expect(
@@ -1208,10 +1212,7 @@ mod builtins {
     )]
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
-        // Start with zero and add at will:
-        let mut sum = start
-            .into_option()
-            .unwrap_or_else(|| vm.ctx.new_int(0).into());
+        let mut sum = start;
 
         match_class!(match sum {
             PyStr =>

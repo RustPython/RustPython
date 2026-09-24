@@ -1,13 +1,12 @@
 import inspect
 import os
-import sys
 
 # __text_signature__ is generated from the Rust parameter list, so it must not
 # describe parameters the function does not actually take, and must mark the
 # ones it does take as positional-only.
 
-# No phantom `module` parameter. RustPython's #[pyfunction]s take no module
-# argument, so `__self__` is None and inspect has nothing to strip.
+# No phantom `module` parameter. The signature marks it as `$module` and
+# `__self__` is the module, so inspect strips it.
 for f in (len, abs, hash, id, repr, bin, ord, divmod, hex, oct, chr, callable):
     assert "module" not in inspect.signature(f).parameters, f.__name__
 
@@ -59,20 +58,9 @@ assert str(inspect.signature(list.__dir__)) == "(self, /)"
 assert str(inspect.signature([].__dir__)) == "()"
 assert str(inspect.signature(float.fromhex)) == "(string, /)"
 
-if sys.implementation.name == "rustpython":
-    # Functions whose Rust arguments are destructuring patterns rather than
-    # plain names get no signature at all, instead of emitting text that is not
-    # valid Python and makes inspect.signature() raise "invalid signature".
-    #
-    # CPython does have signatures for these, hand-written via Argument Clinic.
-    # We cannot derive them until FromArgs reports the parameters of its own
-    # structs, so until then we report no signature, which is at least how
-    # CPython behaves for the builtins it has no signature for.
-    for f in (round, sum):
-        assert f.__text_signature__ is None, f.__name__
-        try:
-            inspect.signature(f)
-        except ValueError as e:
-            assert "no signature found" in str(e), str(e)
-        else:
-            raise AssertionError(f"{f.__name__} should have no signature")
+# Functions whose arguments come from a FromArgs struct report the struct's
+# parameters.
+assert round.__text_signature__ == "($module, /, number, ndigits=None)"
+assert sum.__text_signature__ == "($module, iterable, /, start=0)"
+assert str(inspect.signature(round)) == "(number, ndigits=None)"
+assert str(inspect.signature(sum)) == "(iterable, /, start=0)"
