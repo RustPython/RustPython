@@ -5,7 +5,6 @@ extern crate alloc;
 use core::{
     fmt::{Debug, Display},
     iter::Iterator,
-    mem::{MaybeUninit, transmute},
     num::NonZeroUsize,
     time::Duration,
 };
@@ -68,11 +67,11 @@ impl UnicodeLineReader<Cursor<String>> {
         open_reader(file_name, modern)
             .read_to_end(&mut input)
             .unwrap();
-        let mut output = vec![MaybeUninit::<u8>::uninit(); len.get()];
+        let mut output = Vec::with_capacity(len.get());
         let mut inflator = Inflate::new(true, 0);
 
         match inflator
-            .decompress_uninit(&input, &mut output, InflateFlush::NoFlush)
+            .decompress_uninit(&input, output.spare_capacity_mut(), InflateFlush::NoFlush)
             .unwrap()
         {
             zlib_rs::Status::Ok | zlib_rs::Status::BufError => {
@@ -92,7 +91,9 @@ impl UnicodeLineReader<Cursor<String>> {
 
         // SAFETY: The inflator filled the vector with decompressed bytes, and the final size was
         // checked above.
-        let output: Vec<u8> = unsafe { transmute(output) };
+        unsafe {
+            output.set_len(len.get());
+        }
 
         Self::new(Cursor::new(
             String::from_utf8(output).expect("Parsed Unicode data should be Unicode"),
