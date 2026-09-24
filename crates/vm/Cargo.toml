@@ -91,7 +91,6 @@ wasm-bindgen = { workspace = true, optional = true }
 
 [build-dependencies]
 glob = { workspace = true }
-itertools = { workspace = true }
 jiff = { workspace = true }
 
 [lints]
