@@ -106,7 +106,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
         Item::Impl(mut imp) => {
             extract_items_into_context(&mut context, imp.items.iter_mut());
 
-            let (impl_ty, payload_guess) = match imp.self_ty.as_ref() {
+            let attr_nonempty = !attr.is_empty();
+            let (impl_ty, payload_guess, wrapped) = match imp.self_ty.as_ref() {
                 syn::Type::Path(syn::TypePath {
                     path: syn::Path { segments, .. },
                     ..
@@ -149,7 +150,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         }
                         segment.ident.clone()
                     };
-                    (segment.ident.clone(), payload_ty)
+                    let wrapped = segment.ident == "Py" || segment.ident == "PyRef";
+                    (segment.ident.clone(), payload_ty, wrapped)
                 }
                 _ => {
                     return Err(syn::Error::new_spanned(
@@ -207,15 +209,23 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 },
             ];
             imp.items.extend(extra_methods);
-            let is_main_impl = impl_ty == payload_ty;
+            // `#[pyclass(...)] impl Py<T>` with attributes is the class impl.
+            // A bare `#[pyclass] impl Py<T>` stays a method extension pulled in
+            // by `with(Py)` on the payload impl.
+            let is_main_impl = !wrapped || attr_nonempty;
+            let holder = if wrapped {
+                quote!(#impl_ty::<#payload_ty>)
+            } else {
+                quote!(#impl_ty)
+            };
             if is_main_impl {
                 let method_defs = if with_method_defs.is_empty() {
-                    quote!(#impl_ty::__OWN_METHOD_DEFS)
+                    quote!(#holder::__OWN_METHOD_DEFS)
                 } else {
                     quote!(
                         rustpython_vm::function::PyMethodDef::__const_concat_arrays::<
-                            { #impl_ty::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
-                        >(&[#impl_ty::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
+                            { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
+                        >(&[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
                     )
                 };
                 quote! {
@@ -227,7 +237,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                             ctx: &'static ::rustpython_vm::Context,
                             class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                         ) {
-                            #impl_ty::__extend_py_class(ctx, class);
+                            #holder::__extend_py_class(ctx, class);
                             #with_impl
                         }
 
@@ -235,7 +245,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
 
                         fn extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
                             #with_slots
-                            #impl_ty::__extend_slots(slots);
+                            #holder::__extend_slots(slots);
                         }
                     }
                 }

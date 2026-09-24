@@ -120,7 +120,7 @@ impl Constructor for PyNotImplemented {
 }
 
 #[pyclass(with(Constructor, AsNumber, Representable), flags(IMMUTABLETYPE))]
-impl PyNotImplemented {
+impl Py<PyNotImplemented> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyStrRef {
         vm.ctx.names.NotImplemented.to_owned()

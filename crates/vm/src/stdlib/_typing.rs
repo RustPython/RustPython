@@ -69,7 +69,7 @@ pub(crate) mod decl {
     pub struct NoDefault;
 
     #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
-    impl NoDefault {
+    impl Py<NoDefault> {
         #[pymethod]
         fn __reduce__(&self, _vm: &VirtualMachine) -> String {
             "NoDefault".to_owned()

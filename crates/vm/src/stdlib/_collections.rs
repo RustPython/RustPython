@@ -7,8 +7,8 @@ pub(crate) mod ordered_dict;
 #[pymodule(with(ordered_dict::ordered_dict))]
 mod _collections {
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        atomic_func,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine, atomic_func,
         builtins::{
             IterStatus::{Active, Exhausted},
             PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyStr, PyType, PyTypeRef,
@@ -18,7 +18,7 @@ mod _collections {
         convert::ToPyObject,
         function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue},
         object::{Traverse, TraverseFn},
-        protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+        protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
         sequence::{MutObjectSequenceOp, OptionalRangeArgs},
         sliceable::SequenceIndexOp,
@@ -947,7 +947,7 @@ mod _collections {
 
             let items_fn = zelf.as_object().get_attr("items", vm)?;
             let items_iter = items_fn.call((), vm)?;
-            let iter = items_iter.get_iter(vm)?;
+            let iter = PyIter::try_from_object(vm, items_iter)?;
             let none = vm.ctx.none();
 
             Ok(vm

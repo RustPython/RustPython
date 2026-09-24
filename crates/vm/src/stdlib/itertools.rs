@@ -3,7 +3,8 @@ pub(crate) use decl::module_def;
 #[pymodule(name = "itertools")]
 mod decl {
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, TryFromObject,
+        VirtualMachine,
         builtins::{
             PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int,
         },
@@ -46,7 +47,10 @@ mod decl {
             }
             let args_list = PyList::from(args.args);
             Self {
-                source: PyRwLock::new(Some(args_list.to_pyobject(vm).get_iter(vm)?)),
+                source: PyRwLock::new(Some(PyIter::try_from_object(
+                    vm,
+                    args_list.to_pyobject(vm),
+                )?)),
                 active: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
@@ -60,7 +64,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
             Self {
-                source: PyRwLock::new(Some(iterable.get_iter(vm)?)),
+                source: PyRwLock::new(Some(PyIter::try_from_object(vm, iterable)?)),
                 active: PyRwLock::new(None),
             }
             .into_ref_with_type(vm, cls)
@@ -99,7 +103,7 @@ mod decl {
                     }
                 } else {
                     match source.next(vm) {
-                        Ok(PyIterReturn::Return(ok)) => match ok.get_iter(vm) {
+                        Ok(PyIterReturn::Return(ok)) => match PyIter::try_from_object(vm, ok) {
                             Ok(iter) => {
                                 *zelf.active.write() = Some(iter);
                             }
@@ -829,7 +833,7 @@ mod decl {
                 None
             };
 
-            let iter = iter.get_iter(vm)?;
+            let iter = PyIter::try_from_object(vm, iter)?;
 
             Self {
                 iterable: PyMutex::new(Some(iter)),
@@ -1796,7 +1800,7 @@ mod decl {
             let n = n
                 .to_usize()
                 .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to usize"))?;
-            let iterable = iterable_ref.get_iter(vm)?;
+            let iterable = PyIter::try_from_object(vm, iterable_ref)?;
 
             Ok(Self {
                 iterable,

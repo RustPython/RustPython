@@ -108,7 +108,7 @@ impl Constructor for PyBool {
 }
 
 #[pyclass(with(Constructor, AsNumber, Representable), flags(_MATCH_SELF))]
-impl PyBool {
+impl Py<PyBool> {
     #[pymethod]
     fn __format__(
         zelf: PyObjectRef,
