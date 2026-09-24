@@ -156,13 +156,13 @@ mod _warnings {
 
     #[derive(FromArgs)]
     struct WarnExplicitArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         message: PyObjectRef,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         category: PyObjectRef,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         filename: PyStrRef,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         lineno: usize,
         #[pyarg(any, optional)]
         module: OptionalArg<PyObjectRef>,
