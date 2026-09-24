@@ -1569,7 +1569,7 @@ impl ToTokens for GetSetNursery {
 }
 
 /// Member type as string, matching `Py_T_*` codes.
-/// None means `PY_T_OBJECT_EX`. Valid values: "bool", "object".
+/// None means `MemberKind::ObjectEx`. Valid values: "bool", "object".
 type MemberKindStr = Option<String>;
 
 #[derive(Default)]
@@ -1660,13 +1660,13 @@ impl ToTokens for MemberNursery {
             };
             let member_kind = match entry.kind.as_deref() {
                 Some("bool") => {
-                    quote!(::rustpython_vm::builtins::descriptor::PY_T_BOOL)
+                    quote!(::rustpython_vm::builtins::descriptor::MemberKind::Bool)
                 }
                 Some("object") => {
-                    quote!(::rustpython_vm::builtins::descriptor::PY_T_OBJECT)
+                    quote!(::rustpython_vm::builtins::descriptor::MemberKind::Object)
                 }
                 _ => {
-                    quote!(::rustpython_vm::builtins::descriptor::PY_T_OBJECT_EX)
+                    quote!(::rustpython_vm::builtins::descriptor::MemberKind::ObjectEx)
                 }
             };
             let getter = entry.getter.as_ref().unwrap();

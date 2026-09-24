@@ -6,8 +6,8 @@ use crate::util::CStrExt;
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{
-    DescriptorMemberDef, MemberAccess, PY_READONLY, PY_RELATIVE_OFFSET, PY_T_BOOL, PY_T_OBJECT,
-    PY_T_OBJECT_EX, PyDescriptorOwned, PyGetSet, PyMappingProxy, PyMemberDescriptor, PyType,
+    DescriptorMemberDef, MemberAccess, MemberKind, PY_READONLY, PY_RELATIVE_OFFSET,
+    PyDescriptorOwned, PyGetSet, PyMappingProxy, PyMemberDescriptor, PyType,
 };
 use rustpython_vm::common::lock::PyRwLock;
 use rustpython_vm::function::PySetterValue;
@@ -139,14 +139,11 @@ impl PyMemberDef {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PyMemberDescriptor>> {
         let name = unsafe { self.name.try_as_str(vm) }?;
-        let type_code = match self.type_code {
-            PY_T_OBJECT | PY_T_OBJECT_EX | PY_T_BOOL => self.type_code,
-            _ => {
-                return Err(vm.new_system_error(format!(
-                    "PyDescr_NewMember does not support member type code {}",
-                    self.type_code
-                )));
-            }
+        let Some(kind) = MemberKind::from_i32(self.type_code) else {
+            return Err(vm.new_system_error(format!(
+                "PyDescr_NewMember does not support member type code {}",
+                self.type_code
+            )));
         };
         if self.offset < 0 {
             return Err(vm.new_system_error("PyDescr_NewMember does not support negative offsets"));
@@ -168,7 +165,7 @@ impl PyMemberDef {
             },
             member: DescriptorMemberDef {
                 name: name.to_owned(),
-                type_code,
+                kind,
                 offset: self.offset,
                 flags: if readonly { PY_READONLY } else { 0 },
                 doc,

@@ -7,7 +7,7 @@ use crate::{
         bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
-            MemberAccess, MemberSetterFunc, PY_READONLY, PY_T_OBJECT, PyDescriptorOwned,
+            MemberAccess, MemberKind, MemberSetterFunc, PY_READONLY, PyDescriptorOwned,
             PyMemberDef, PyMemberDescriptor,
         },
         getset::PyGetSet,
@@ -658,7 +658,7 @@ impl Context {
     pub fn new_member(
         &self,
         name: &str,
-        type_code: i32,
+        kind: MemberKind,
         getter: fn(&VirtualMachine, PyObjectRef) -> PyResult,
         setter: MemberSetterFunc,
         class: &'static Py<PyType>,
@@ -673,7 +673,7 @@ impl Context {
             },
             member: PyMemberDef {
                 name: name.to_owned(),
-                type_code,
+                kind,
                 offset: 0,
                 flags,
                 doc: doc.map(str::to_owned),
@@ -700,7 +700,7 @@ impl Context {
             },
             member: PyMemberDef {
                 name: name.to_owned(),
-                type_code: PY_T_OBJECT,
+                kind: MemberKind::Object,
                 offset: index as isize,
                 flags: PY_READONLY,
                 doc: None,

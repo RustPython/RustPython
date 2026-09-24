@@ -329,10 +329,25 @@ impl Representable for PyClassMethodDescriptor {
     }
 }
 
-/// `Py_T_*` type codes. Values match `PyMemberDef.type`.
-pub const PY_T_OBJECT: i32 = 6;
-pub const PY_T_BOOL: i32 = 14;
-pub const PY_T_OBJECT_EX: i32 = 16;
+/// Member type. Discriminants match `PyMemberDef.type`.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(i32)]
+pub enum MemberKind {
+    Object = 6,
+    Bool = 14,
+    ObjectEx = 16,
+}
+
+impl MemberKind {
+    pub fn from_i32(value: i32) -> Option<Self> {
+        match value {
+            6 => Some(Self::Object),
+            14 => Some(Self::Bool),
+            16 => Some(Self::ObjectEx),
+            _ => None,
+        }
+    }
+}
 
 pub const PY_READONLY: i32 = 1;
 pub(crate) const PY_AUDIT_READ: i32 = 2;
@@ -369,7 +384,7 @@ impl core::fmt::Debug for MemberAccess {
 /// Same fields as `PyMemberDef`: name, type, offset, flags, doc.
 pub struct PyMemberDef {
     pub name: String,
-    pub type_code: i32,
+    pub kind: MemberKind,
     pub offset: isize,
     pub flags: i32,
     pub doc: Option<String>,
@@ -385,7 +400,7 @@ impl core::fmt::Debug for PyMemberDef {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PyMemberDef")
             .field("name", &self.name)
-            .field("type", &self.type_code)
+            .field("kind", &self.kind)
             .field("offset", &self.offset)
             .field("flags", &self.flags)
             .field("doc", &self.doc)
@@ -558,21 +573,18 @@ fn get_slot_from_object(
     member: &PyMemberDef,
     vm: &VirtualMachine,
 ) -> PyResult {
-    let slot = match member.type_code {
-        PY_T_OBJECT => obj.get_slot(offset).unwrap_or_else(|| vm.ctx.none()),
-        PY_T_BOOL => obj
+    let slot = match member.kind {
+        MemberKind::Object => obj.get_slot(offset).unwrap_or_else(|| vm.ctx.none()),
+        MemberKind::Bool => obj
             .get_slot(offset)
             .unwrap_or_else(|| vm.ctx.new_bool(false).into()),
-        PY_T_OBJECT_EX => obj.get_slot(offset).ok_or_else(|| {
+        MemberKind::ObjectEx => obj.get_slot(offset).ok_or_else(|| {
             vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
                 obj.class().fully_qualified_name(vm),
                 member.name
             ))
         })?,
-        _ => {
-            return Err(vm.new_system_error("bad memberdescr type"));
-        }
     };
     Ok(slot)
 }
@@ -586,13 +598,13 @@ fn set_slot_at_object(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     if matches!(value, PySetterValue::Delete)
-        && member.type_code != PY_T_OBJECT_EX
-        && member.type_code != PY_T_OBJECT
+        && member.kind != MemberKind::ObjectEx
+        && member.kind != MemberKind::Object
     {
         return Err(vm.new_type_error("can't delete numeric/char attribute"));
     }
-    match member.type_code {
-        PY_T_OBJECT => match value {
+    match member.kind {
+        MemberKind::Object => match value {
             PySetterValue::Assign(v) => {
                 obj.set_slot(offset, Some(v));
             }
@@ -600,7 +612,7 @@ fn set_slot_at_object(
                 obj.set_slot(offset, None);
             }
         },
-        PY_T_BOOL => match value {
+        MemberKind::Bool => match value {
             PySetterValue::Assign(v) => {
                 if !v.class().is(vm.ctx.types.bool_type) {
                     return Err(vm.new_type_error("attribute value type must be bool"));
@@ -611,7 +623,7 @@ fn set_slot_at_object(
                 return Err(vm.new_type_error("can't delete numeric/char attribute"));
             }
         },
-        PY_T_OBJECT_EX => match value {
+        MemberKind::ObjectEx => match value {
             PySetterValue::Assign(v) => {
                 obj.set_slot(offset, Some(v));
             }
@@ -622,7 +634,6 @@ fn set_slot_at_object(
                 obj.set_slot(offset, None);
             }
         },
-        _ => return Err(vm.new_system_error("bad memberdescr type")),
     }
 
     Ok(())

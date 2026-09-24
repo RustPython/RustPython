@@ -8,7 +8,7 @@ use crate::{
     builtins::{
         PyBaseExceptionRef,
         descriptor::{
-            MemberAccess, PY_T_OBJECT_EX, PyDescriptorOwned, PyMemberDef, PyMemberDescriptor,
+            MemberAccess, MemberKind, PyDescriptorOwned, PyMemberDef, PyMemberDescriptor,
         },
         function::{PyCellRef, PyFunction},
         tuple::{IntoPyTuple, PyTuple},
@@ -2781,7 +2781,7 @@ impl Constructor for PyType {
                 let mangled_name = mangle_name(&class_name, member_str);
                 let member_def = PyMemberDef {
                     name: mangled_name.clone(),
-                    type_code: PY_T_OBJECT_EX,
+                    kind: MemberKind::ObjectEx,
                     offset: offset as isize,
                     flags: 0,
                     doc: None,
