@@ -325,41 +325,122 @@ impl Representable for PyClassMethodDescriptor {
     }
 }
 
-#[derive(Debug)]
+/// Member type. Discriminants match `PyMemberDef.type`.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(i32)]
 pub enum MemberKind {
     Object = 6,
     Bool = 14,
     ObjectEx = 16,
 }
 
+impl MemberKind {
+    #[must_use]
+    pub fn from_i32(value: i32) -> Option<Self> {
+        match value {
+            6 => Some(Self::Object),
+            14 => Some(Self::Bool),
+            16 => Some(Self::ObjectEx),
+            _ => None,
+        }
+    }
+}
+
+pub const PY_READONLY: i32 = 1;
+pub(crate) const PY_AUDIT_READ: i32 = 2;
+pub const PY_RELATIVE_OFFSET: i32 = 8;
+
 pub(crate) type MemberSetterFunc =
     Option<fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>>;
 
-pub enum MemberGetter {
-    Getter(fn(&VirtualMachine, PyObjectRef) -> PyResult),
-    Offset(usize),
-    TupleItem(usize),
+/// Where `PyMemberDef.offset` points.
+///
+/// Builtin payloads keep fields behind locks, so a byte offset from the
+/// object header does not address them. Slot members use `offset` as an
+/// index into the instance slot array. Function members ignore `offset`.
+#[derive(Clone, Copy)]
+pub enum MemberAccess {
+    Func {
+        get: fn(&VirtualMachine, PyObjectRef) -> PyResult,
+        set: MemberSetterFunc,
+    },
+    Slot,
+    TupleItem,
 }
 
-pub enum MemberSetter {
-    Setter(MemberSetterFunc),
-    Offset(usize),
+impl core::fmt::Debug for MemberAccess {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Func { set, .. } => f.debug_struct("Func").field("set", &set.is_some()).finish(),
+            Self::Slot => write!(f, "Slot"),
+            Self::TupleItem => write!(f, "TupleItem"),
+        }
+    }
 }
 
+/// Same fields as `PyMemberDef`: name, type, offset, flags, doc.
 pub struct PyMemberDef {
     pub name: String,
     pub kind: MemberKind,
-    pub getter: MemberGetter,
-    pub setter: MemberSetter,
+    pub offset: isize,
+    pub flags: i32,
     pub doc: Option<String>,
 }
 
 impl PyMemberDef {
+    pub(crate) fn readonly(&self) -> bool {
+        self.flags & PY_READONLY != 0
+    }
+}
+
+impl core::fmt::Debug for PyMemberDef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PyMemberDef")
+            .field("name", &self.name)
+            .field("kind", &self.kind)
+            .field("offset", &self.offset)
+            .field("flags", &self.flags)
+            .field("doc", &self.doc)
+            .finish()
+    }
+}
+
+// = PyMemberDescrObject
+#[pyclass(name = "member_descriptor", module = false)]
+#[derive(Debug)]
+pub struct PyMemberDescriptor {
+    pub common: PyDescriptorOwned,
+    pub member: PyMemberDef,
+    pub access: MemberAccess,
+}
+
+impl PyMemberDescriptor {
+    /// Slot index for an instance-slot member. `None` when the offset is not a slot.
+    pub(crate) fn slot_offset(&self) -> Option<usize> {
+        match self.access {
+            MemberAccess::Slot => Some(self.member.offset as usize),
+            _ => None,
+        }
+    }
+
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match self.getter {
-            MemberGetter::Getter(getter) => (getter)(vm, obj),
-            MemberGetter::Offset(offset) => get_slot_from_object(&obj, offset, self, vm),
-            MemberGetter::TupleItem(index) => {
+        if self.member.flags & PY_AUDIT_READ != 0 {
+            vm.sys_module.get_attr("audit", vm)?.call(
+                (
+                    vm.ctx.new_str("object.__getattr__"),
+                    obj.clone(),
+                    vm.ctx.new_str(self.member.name.as_str()),
+                ),
+                vm,
+            )?;
+        }
+        match self.access {
+            MemberAccess::Func { get, .. } => get(vm, obj),
+            MemberAccess::Slot => {
+                get_slot_from_object(&obj, self.member.offset as usize, &self.member, vm)
+            }
+            MemberAccess::TupleItem => {
+                let index = self.member.offset as usize;
                 let tuple = obj.downcast_ref::<PyTuple>().ok_or_else(|| {
                     vm.new_type_error("unexpected payload for struct sequence member")
                 })?;
@@ -378,32 +459,20 @@ impl PyMemberDef {
         value: PySetterValue<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match self.setter {
-            MemberSetter::Setter(setter) => match setter {
-                Some(setter) => (setter)(vm, obj, value),
+        if self.member.readonly() {
+            return Err(vm.new_attribute_error("readonly attribute"));
+        }
+        match self.access {
+            MemberAccess::Func { set, .. } => match set {
+                Some(set) => set(vm, obj, value),
                 None => Err(vm.new_attribute_error("readonly attribute")),
             },
-            MemberSetter::Offset(offset) => set_slot_at_object(&obj, offset, self, value, vm),
+            MemberAccess::Slot => {
+                set_slot_at_object(&obj, self.member.offset as usize, &self.member, value, vm)
+            }
+            MemberAccess::TupleItem => Err(vm.new_attribute_error("readonly attribute")),
         }
     }
-}
-
-impl core::fmt::Debug for PyMemberDef {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("PyMemberDef")
-            .field("name", &self.name)
-            .field("kind", &self.kind)
-            .field("doc", &self.doc)
-            .finish()
-    }
-}
-
-// = PyMemberDescrObject
-#[pyclass(name = "member_descriptor", module = false)]
-#[derive(Debug)]
-pub struct PyMemberDescriptor {
-    pub common: PyDescriptorOwned,
-    pub member: PyMemberDef,
 }
 
 impl PyPayload for PyMemberDescriptor {
@@ -490,11 +559,11 @@ impl PyMemberDescriptor {
             )));
         }
 
-        zelf.member.set(obj, value, vm)
+        zelf.set(obj, value, vm)
     }
 }
 
-// PyMember_GetOne
+// PyMember_GetOne for a value stored in the instance slot array.
 fn get_slot_from_object(
     obj: &PyObject,
     offset: usize,
@@ -507,7 +576,6 @@ fn get_slot_from_object(
             .get_slot(offset)
             .unwrap_or_else(|| vm.ctx.new_bool(false).into()),
         MemberKind::ObjectEx => obj.get_slot(offset).ok_or_else(|| {
-            // '%T' : module.qualname
             vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
                 obj.class().fully_qualified_name(vm),
@@ -518,7 +586,7 @@ fn get_slot_from_object(
     Ok(slot)
 }
 
-// PyMember_SetOne
+// PyMember_SetOne for a value stored in the instance slot array.
 fn set_slot_at_object(
     obj: &PyObject,
     offset: usize,
@@ -526,6 +594,12 @@ fn set_slot_at_object(
     value: PySetterValue,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
+    if matches!(value, PySetterValue::Delete)
+        && member.kind != MemberKind::ObjectEx
+        && member.kind != MemberKind::Object
+    {
+        return Err(vm.new_type_error("can't delete numeric/char attribute"));
+    }
     match member.kind {
         MemberKind::Object => match value {
             PySetterValue::Assign(v) => {
@@ -535,19 +609,17 @@ fn set_slot_at_object(
                 obj.set_slot(offset, None);
             }
         },
-        MemberKind::Bool => {
-            match value {
-                PySetterValue::Assign(v) => {
-                    if !v.class().is(vm.ctx.types.bool_type) {
-                        return Err(vm.new_type_error("attribute value type must be bool"));
-                    }
-                    obj.set_slot(offset, Some(v))
+        MemberKind::Bool => match value {
+            PySetterValue::Assign(v) => {
+                if !v.class().is(vm.ctx.types.bool_type) {
+                    return Err(vm.new_type_error("attribute value type must be bool"));
                 }
-                PySetterValue::Delete => {
-                    return Err(vm.new_type_error("can't delete numeric/char attribute"));
-                }
-            };
-        }
+                obj.set_slot(offset, Some(v))
+            }
+            PySetterValue::Delete => {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            }
+        },
         MemberKind::ObjectEx => match value {
             PySetterValue::Assign(v) => {
                 obj.set_slot(offset, Some(v));
@@ -593,7 +665,7 @@ impl GetDescriptor for PyMemberDescriptor {
                         x.class().name()
                     )));
                 }
-                descr.member.get(x.to_owned(), vm)
+                descr.get(x.to_owned(), vm)
             }
             None => Ok(zelf.to_owned()),
         }

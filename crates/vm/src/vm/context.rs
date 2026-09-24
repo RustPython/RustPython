@@ -7,7 +7,7 @@ use crate::{
         bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
-            MemberGetter, MemberKind, MemberSetter, MemberSetterFunc, PyDescriptorOwned,
+            MemberAccess, MemberKind, MemberSetterFunc, PY_READONLY, PyDescriptorOwned,
             PyMemberDef, PyMemberDescriptor,
         },
         getset::PyGetSet,
@@ -658,26 +658,30 @@ impl Context {
     pub fn new_member(
         &self,
         name: &str,
-        member_kind: MemberKind,
+        kind: MemberKind,
         getter: fn(&VirtualMachine, PyObjectRef) -> PyResult,
         setter: MemberSetterFunc,
         class: &'static Py<PyType>,
         doc: Option<&str>,
     ) -> PyRef<PyMemberDescriptor> {
-        let member_def = PyMemberDef {
-            name: name.to_owned(),
-            kind: member_kind,
-            getter: MemberGetter::Getter(getter),
-            setter: MemberSetter::Setter(setter),
-            doc: doc.map(str::to_owned),
-        };
+        let flags = if setter.is_none() { PY_READONLY } else { 0 };
         let member_descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
                 typ: class.to_owned(),
                 name: self.intern_str(name),
                 qualname: PyRwLock::new(None),
             },
-            member: member_def,
+            member: PyMemberDef {
+                name: name.to_owned(),
+                kind,
+                offset: 0,
+                flags,
+                doc: doc.map(str::to_owned),
+            },
+            access: MemberAccess::Func {
+                get: getter,
+                set: setter,
+            },
         };
         member_descriptor.into_ref(self)
     }
@@ -688,20 +692,20 @@ impl Context {
         class: &'static Py<PyType>,
         index: usize,
     ) -> PyRef<PyMemberDescriptor> {
-        let member_def = PyMemberDef {
-            name: name.to_owned(),
-            kind: MemberKind::Object,
-            getter: MemberGetter::TupleItem(index),
-            setter: MemberSetter::Setter(None),
-            doc: None,
-        };
         let member_descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
                 typ: class.to_owned(),
                 name: self.intern_str(name),
                 qualname: PyRwLock::new(None),
             },
-            member: member_def,
+            member: PyMemberDef {
+                name: name.to_owned(),
+                kind: MemberKind::Object,
+                offset: index as isize,
+                flags: PY_READONLY,
+                doc: None,
+            },
+            access: MemberAccess::TupleItem,
         };
         member_descriptor.into_ref(self)
     }

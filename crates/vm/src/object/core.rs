@@ -245,8 +245,7 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
                 drop(old);
             }
             for slot in &ext.slots {
-                let old = slot.write().take();
-                drop(old);
+                drop(slot.store(None));
             }
         }
         unsafe { T::freelist_push(obj) }
@@ -368,7 +367,9 @@ unsafe impl Link for GcLink {
 #[repr(C, align(8))]
 pub(super) struct ObjExt {
     pub(super) dict: Option<InstanceDict>,
-    pub(super) slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
+    /// Owned `PyObject*` cells. Null is empty. Each cell is one pointer so a
+    /// later step can place the same cells at a byte offset from the object.
+    pub(super) slots: Box<[PyAtomicRef<PyObject>]>,
 }
 
 impl ObjExt {
@@ -384,7 +385,7 @@ impl ObjExt {
             } else {
                 None
             },
-            slots: core::iter::repeat_with(|| PyRwLock::new(None))
+            slots: core::iter::repeat_with(PyAtomicRef::<PyObject>::new_empty)
                 .take(member_count)
                 .collect_vec()
                 .into_boxed_slice(),
@@ -2120,11 +2121,11 @@ impl PyObject {
     }
 
     pub(crate) fn get_slot(&self, offset: usize) -> Option<PyObjectRef> {
-        self.0.ext_ref().unwrap().slots[offset].read().clone()
+        self.0.ext_ref().unwrap().slots[offset].load_owned()
     }
 
     pub(crate) fn set_slot(&self, offset: usize, value: Option<PyObjectRef>) {
-        *self.0.ext_ref().unwrap().slots[offset].write() = value;
+        drop(self.0.ext_ref().unwrap().slots[offset].store(value));
     }
 
     /// _PyObject_GC_IS_TRACKED
@@ -2250,8 +2251,7 @@ impl PyObject {
                 result.push(dict_ref.into());
             }
             for slot in &ext.slots {
-                let value = slot.write().take();
-                if let Some(val) = value {
+                if let Some(val) = slot.store(None) {
                     result.push(val);
                 }
             }
@@ -2662,15 +2662,18 @@ impl<T: PyPayload> PyRef<T> {
         ptr
     }
 
+    /// # Safety
+    /// The raw pointer must point to a valid `Py<T>` object
+    #[must_use]
     #[inline(always)]
-    pub(crate) const unsafe fn from_non_null(ptr: NonNull<Py<T>>) -> Self {
+    pub const unsafe fn from_non_null(ptr: NonNull<Py<T>>) -> Self {
         Self { ptr }
     }
 
     /// # Safety
     /// The raw pointer must point to a valid `Py<T>` object
     #[inline(always)]
-    pub(crate) const unsafe fn from_raw(raw: *const Py<T>) -> Self {
+    pub const unsafe fn from_raw(raw: *const Py<T>) -> Self {
         unsafe { Self::from_non_null(NonNull::new_unchecked(raw as *mut _)) }
     }
 

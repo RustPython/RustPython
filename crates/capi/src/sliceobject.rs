@@ -1,5 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
+use crate::util::FfiPtrExt;
 use core::ffi::c_int;
 use rustpython_vm::PyPayload;
 use rustpython_vm::builtins::PySlice;
@@ -12,21 +13,10 @@ pub unsafe extern "C" fn PySlice_New(
     step: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let start = if start.is_null() {
-            None
-        } else {
-            Some(unsafe { &*start }.to_owned())
-        };
-        let stop = if stop.is_null() {
-            vm.ctx.none()
-        } else {
-            unsafe { &*stop }.to_owned()
-        };
-        let step = if step.is_null() {
-            None
-        } else {
-            Some(unsafe { &*step }.to_owned())
-        };
+        let start = unsafe { start.assume_borrowed_or_opt() }.map(ToOwned::to_owned);
+        let stop = unsafe { stop.assume_borrowed_or_opt() }
+            .map_or_else(|| vm.ctx.none(), ToOwned::to_owned);
+        let step = unsafe { step.assume_borrowed_or_opt() }.map(ToOwned::to_owned);
         Ok(PySlice { start, stop, step }.into_ref(&vm.ctx))
     })
 }
@@ -39,7 +29,7 @@ pub unsafe extern "C" fn PySlice_Unpack(
     step: *mut isize,
 ) -> c_int {
     with_vm(|vm| {
-        let slice = unsafe { &*slice }.try_downcast_ref::<PySlice>(vm)?;
+        let slice = unsafe { slice.assume_borrowed_and_cast::<PySlice>(vm) }?;
         let saturated = slice.to_saturated(vm)?;
         unsafe {
             *start = saturated.start();

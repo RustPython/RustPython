@@ -1582,8 +1582,8 @@ impl ToTokens for GetSetNursery {
     }
 }
 
-/// Member kind as string, matching `rustpython_vm::builtins::descriptor::MemberKind` variants.
-/// None means ObjectEx (default). Valid values: "bool", "object".
+/// Member type as string, matching `Py_T_*` codes.
+/// None means `MemberKind::ObjectEx`. Valid values: "bool", "object".
 type MemberKindStr = Option<String>;
 
 #[derive(Default)]

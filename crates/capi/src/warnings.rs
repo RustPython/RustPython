@@ -1,4 +1,4 @@
-use crate::util::CStrExt;
+use crate::util::{CStrExt, FfiPtrExt};
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::{c_char, c_int};
 use rustpython_vm::builtins::{PyType, PyTypeRef};
@@ -13,9 +13,7 @@ fn resolve_warning_category(
         return Ok(vm.ctx.exceptions.runtime_warning.to_owned());
     };
 
-    let category = unsafe { &*category }
-        .try_downcast_ref::<PyType>(vm)?
-        .to_owned();
+    let category = unsafe { category.assume_borrowed_and_cast::<PyType>(vm) }?.to_owned();
     if !category.fast_issubclass(vm.ctx.exceptions.warning) {
         return Err(vm.new_type_error(format!(
             "category must be a Warning subclass, not '{}'",
@@ -65,7 +63,7 @@ pub unsafe extern "C" fn PyErr_WarnExplicit(
 
         let category = resolve_warning_category(vm, category)?;
 
-        let registry = unsafe { registry.as_ref() }
+        let registry = unsafe { registry.assume_borrowed_or_opt() }
             .map_or_else(|| vm.ctx.none(), |registry| registry.to_owned());
 
         let lineno = usize::try_from(lineno)

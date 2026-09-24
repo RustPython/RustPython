@@ -117,8 +117,9 @@ impl PyObject {
         Ok(iterator)
     }
 
+    /// `hasattr()` lookup. Missing attributes are `false`; other errors propagate.
     pub fn has_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult<bool> {
-        self.get_attr(attr_name, vm).map(|o| !vm.is_none(&o))
+        Ok(vm.get_attribute_opt(self, attr_name)?.is_some())
     }
 
     /// Get an attribute by name.

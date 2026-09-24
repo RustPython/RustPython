@@ -116,6 +116,16 @@ where
     }
 }
 
+unsafe impl Traverse for super::ext::PyAtomicRef<PyObject> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        let ptr = self.load_ptr();
+        if let Some(obj) = unsafe { ptr.as_ref() } {
+            traverse_fn(obj);
+        }
+    }
+}
+
 unsafe impl<T: Traverse> Traverse for PyRwLock<T> {
     #[inline]
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {

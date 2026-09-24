@@ -1,5 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
+use crate::util::FfiPtrExt;
 use core::ffi::c_int;
 use rustpython_vm::Py;
 use rustpython_vm::builtins::PyCode;
@@ -10,27 +11,27 @@ pub type PyCodeObject = Py<PyCode>;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyFrame_GetCode(frame: *mut PyFrameObject) -> *mut PyCodeObject {
-    with_vm(|_vm| Ok(unsafe { &*frame }.f_code()))
+    with_vm(|_vm| Ok(unsafe { frame.assume_borrowed() }.f_code()))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyFrame_GetLineNumber(frame: *mut PyFrameObject) -> c_int {
-    with_vm(|_vm| Ok(unsafe { &*frame }.lineno()))
+    with_vm(|_vm| Ok(unsafe { frame.assume_borrowed() }.lineno()))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyFrame_GetLocals(frame: *mut PyFrameObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*frame }.f_locals(vm))
+    with_vm(|vm| unsafe { frame.assume_borrowed() }.f_locals(vm))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyFrame_GetGlobals(frame: *mut PyFrameObject) -> *mut PyObject {
-    with_vm(|_vm| Ok(unsafe { &*frame }.f_globals()))
+    with_vm(|_vm| Ok(unsafe { frame.assume_borrowed() }.f_globals()))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyFrame_GetBuiltins(frame: *mut PyFrameObject) -> *mut PyObject {
-    with_vm(|_vm| Ok(unsafe { &*frame }.f_builtins()))
+    with_vm(|_vm| Ok(unsafe { frame.assume_borrowed() }.f_builtins()))
 }
 
 #[cfg(test)]
