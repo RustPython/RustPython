@@ -980,13 +980,7 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn index(
-        &self,
-        value: PyObjectRef,
-        start: OptionalArg<isize>,
-        stop: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
+    fn index(&self, args: MemoryIndexArgs, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm)?;
         if self.desc.ndim() != 1 {
             return Err(
@@ -994,8 +988,7 @@ impl PyMemoryView {
             );
         }
         let len = self.desc.dim_desc[0].0;
-        let start = start.unwrap_or(0);
-        let stop = stop.unwrap_or(len as isize);
+        let MemoryIndexArgs { value, start, stop } = args;
 
         let start = if start < 0 {
             (start + len as isize).max(0) as usize
@@ -1198,8 +1191,20 @@ impl Py<PyMemoryView> {
 }
 
 #[derive(FromArgs)]
+struct MemoryIndexArgs {
+    #[pyarg(positional)]
+    value: PyObjectRef,
+    #[pyarg(positional, default = 0)]
+    start: isize,
+    // Omission is clamped to the view length; the text is the platform ssize maximum.
+    #[pyarg(positional, default = isize::MAX, py_default = "9223372036854775807")]
+    stop: isize,
+}
+
+#[derive(FromArgs)]
 struct ToBytesArgs {
-    #[pyarg(any, default)]
+    // Missing means C order.
+    #[pyarg(any, default, py_default = "'C'")]
     order: Option<PyStrRef>,
 }
 

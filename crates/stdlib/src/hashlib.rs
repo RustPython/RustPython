@@ -71,11 +71,13 @@ pub(crate) mod _hashlib {
     struct NewHashArgs {
         #[pyarg(positional)]
         name: PyUtf8StrRef,
-        #[pyarg(any, optional)]
+        // Missing data is empty bytes.
+        #[pyarg(any, optional, py_default = "b''")]
         data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = true)]
         usedforsecurity: bool,
-        #[pyarg(named, optional)]
+        // Missing string is None.
+        #[pyarg(named, optional, py_default = "None")]
         string: OptionalArg<ArgBytesLike>,
     }
 
@@ -115,11 +117,13 @@ pub(crate) mod _hashlib {
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
     pub(crate) struct HashArgs {
-        #[pyarg(any, optional)]
+        // Missing data is empty bytes.
+        #[pyarg(any, optional, py_default = "b''")]
         pub data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = true)]
         usedforsecurity: bool,
-        #[pyarg(named, optional)]
+        // Missing string is None.
+        #[pyarg(named, optional, py_default = "None")]
         pub string: OptionalArg<ArgBytesLike>,
     }
 
@@ -198,7 +202,8 @@ pub(crate) mod _hashlib {
         salt: ArgBytesLike,
         #[pyarg(any)]
         iterations: i64,
-        #[pyarg(any, optional)]
+        // Missing dklen is None.
+        #[pyarg(any, optional, py_default = "None")]
         dklen: OptionalArg<PyObjectRef>,
     }
 
@@ -1094,9 +1099,11 @@ pub(crate) mod _hashlib {
     pub(crate) struct NewHMACHashArgs {
         #[pyarg(positional)]
         key: ArgBytesLike,
-        #[pyarg(any, optional)]
+        // Missing message is empty bytes.
+        #[pyarg(any, optional, py_default = "b''")]
         msg: OptionalArg<Option<ArgBytesLike>>,
-        #[pyarg(named, optional)]
+        // Missing digestmod is None.
+        #[pyarg(named, optional, py_default = "None")]
         digestmod: OptionalArg<PyObjectRef>,
     }
 

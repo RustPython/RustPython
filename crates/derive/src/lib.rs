@@ -25,7 +25,7 @@ use syn::punctuated::Punctuated;
 /// # Signature default
 /// An explicit `py_default` is used as written. Otherwise a Rust literal is
 /// converted to its Python repr (`True`/`False`, an int, a float, a quoted
-/// str, and the path `None`). Anything else renders `<unrepresentable>`, and
+/// str, a bytes literal, a char, and the path `None`). Anything else renders `<unrepresentable>`, and
 /// `inspect.signature` raises `ValueError`.
 ///
 /// Prefer `default = <literal>` when that literal is the Python default.

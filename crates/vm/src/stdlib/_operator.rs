@@ -219,8 +219,18 @@ mod _operator {
         a.set_item(&*b, c, vm)
     }
 
+    #[derive(FromArgs)]
+    struct LengthHintArgs {
+        #[pyarg(positional)]
+        obj: PyObjectRef,
+        // Missing means 0. The value is still checked as an exact int.
+        #[pyarg(positional, optional, py_default = "0")]
+        default: OptionalArg,
+    }
+
     #[pyfunction]
-    fn length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult<usize> {
+    fn length_hint(args: LengthHintArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        let LengthHintArgs { obj, default } = args;
         let default: usize = default
             .map(|v| {
                 if !v.fast_isinstance(vm.ctx.types.int_type) {

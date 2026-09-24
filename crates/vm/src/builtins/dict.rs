@@ -370,6 +370,14 @@ impl PyDict {
 }
 
 #[derive(FromArgs)]
+struct DictGetArgs {
+    #[pyarg(positional)]
+    key: PyObjectRef,
+    #[pyarg(positional, default = None)]
+    default: Option<PyObjectRef>,
+}
+
+#[derive(FromArgs)]
 struct FromKeysArgs {
     #[pyarg(positional)]
     iterable: ArgIterable,
@@ -451,27 +459,26 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn get(
-        &self,
-        key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn get(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
         Ok(self
             .entries
-            .get(vm, &*key)?
-            .unwrap_or_else(|| default.unwrap_or_none(vm)))
+            .get(vm, &*args.key)?
+            .unwrap_or_else(|| args.default.unwrap_or_else(|| vm.ctx.none())))
     }
 
-    #[pymethod]
     pub(crate) fn setdefault(
         &self,
         key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
+        default: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        self.entries
-            .setdefault(vm, &*key, || default.unwrap_or_none(vm))
+        self.entries.setdefault(vm, &*key, || default)
+    }
+
+    #[pymethod(name = "setdefault")]
+    fn setdefault_py(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
+        let default = args.default.unwrap_or_else(|| vm.ctx.none());
+        self.setdefault(args.key, default, vm)
     }
 
     #[pymethod]

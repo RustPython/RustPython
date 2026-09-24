@@ -244,6 +244,35 @@ fn python_str_repr(s: &str) -> String {
     out
 }
 
+/// Bytes repr: `b'...'`, with the same escapes as `bytes.__repr__`.
+fn python_bytes_repr(bytes: &[u8]) -> String {
+    let quote = if bytes.contains(&b'\'') && !bytes.contains(&b'"') {
+        b'"'
+    } else {
+        b'\''
+    };
+    let mut out = String::from("b");
+    out.push(quote as char);
+    for &c in bytes {
+        if c == b'\\' || c == quote {
+            out.push('\\');
+            out.push(c as char);
+        } else if c == b'\t' {
+            out.push_str("\\t");
+        } else if c == b'\n' {
+            out.push_str("\\n");
+        } else if c == b'\r' {
+            out.push_str("\\r");
+        } else if !(b' '..0x7f).contains(&c) {
+            out.push_str(&format!("\\x{c:02x}"));
+        } else {
+            out.push(c as char);
+        }
+    }
+    out.push(quote as char);
+    out
+}
+
 fn python_default_repr(default: Option<&DefaultValue>, py_default: Option<&str>) -> Option<String> {
     if let Some(py_default) = py_default {
         return Some(py_default.to_owned());
@@ -271,6 +300,9 @@ fn python_literal_repr(expr: &Expr) -> Option<String> {
                 })
             }
             Lit::Str(s) => Some(python_str_repr(&s.value())),
+            Lit::ByteStr(b) => Some(python_bytes_repr(&b.value())),
+            Lit::Byte(b) => Some(python_bytes_repr(&[b.value()])),
+            Lit::Char(c) => Some(python_str_repr(&c.value().to_string())),
             _ => None,
         },
         Expr::Path(path) if path.qself.is_none() && path.path.is_ident("None") => {

@@ -2547,16 +2547,18 @@ pub mod module {
         offset: rustpython_host_env::crt_fd::Offset,
         count: i64,
         #[cfg(target_os = "macos")]
-        #[pyarg(any, optional)]
+        // Missing means an empty header list.
+        #[pyarg(any, optional, py_default = "()")]
         headers: OptionalArg<PyObjectRef>,
         #[cfg(target_os = "macos")]
-        #[pyarg(any, optional)]
+        // Missing means an empty trailer list.
+        #[pyarg(any, optional, py_default = "()")]
         trailers: OptionalArg<PyObjectRef>,
         #[cfg(target_os = "macos")]
         #[allow(dead_code)]
-        #[pyarg(any, default)]
+        #[pyarg(any, default = 0)]
         // TODO: not implemented
-        flags: OptionalArg<i32>,
+        flags: i32,
     }
 
     #[cfg(target_os = "linux")]

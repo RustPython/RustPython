@@ -42,14 +42,13 @@ mod gc {
     /// Run a garbage collection. Returns the number of unreachable objects found.
     #[derive(FromArgs)]
     struct CollectArgs {
-        #[pyarg(any, optional)]
-        generation: OptionalArg<i32>,
+        #[pyarg(any, default = 2)]
+        generation: i32,
     }
 
     #[pyfunction]
     fn collect(args: CollectArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let generation = args.generation;
-        let generation_num = generation.unwrap_or(2);
+        let generation_num = args.generation;
         if !(0..=2).contains(&generation_num) {
             return Err(vm.new_value_error("invalid generation"));
         }
@@ -159,13 +158,13 @@ mod gc {
     /// Return the list of objects tracked by the collector.
     #[derive(FromArgs)]
     struct GetObjectsArgs {
-        #[pyarg(any, optional)]
-        generation: OptionalArg<Option<i32>>,
+        #[pyarg(any, default = None)]
+        generation: Option<i32>,
     }
 
     #[pyfunction]
     fn get_objects(args: GetObjectsArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
-        let generation_opt = args.generation.flatten();
+        let generation_opt = args.generation;
         if let Some(g) = generation_opt
             && !(0..=2).contains(&g)
         {

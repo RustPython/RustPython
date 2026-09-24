@@ -19,7 +19,7 @@ use crate::{
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
-    function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
+    function::{FuncArgs, KwArgs, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
@@ -2275,11 +2275,11 @@ impl PyType {
     #[pyclassmethod]
     fn __prepare__(
         _cls: PyTypeRef,
-        _name: OptionalArg<PyObjectRef>,
-        _bases: OptionalArg<PyObjectRef>,
+        _args: PrepareArgs,
         _kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyDictRef {
+        let _ = (_args.name, _args.bases);
         vm.ctx.new_dict()
     }
 
@@ -2418,6 +2418,14 @@ impl PyType {
         }
         Ok(())
     }
+}
+
+#[derive(FromArgs)]
+struct PrepareArgs {
+    #[pyarg(positional)]
+    name: PyObjectRef,
+    #[pyarg(positional)]
+    bases: PyObjectRef,
 }
 
 impl Constructor for PyType {

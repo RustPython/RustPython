@@ -49,8 +49,18 @@ mod zlib {
         )
     }
 
+    #[derive(FromArgs)]
+    struct Adler32Args {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        // Missing checksum starts at 1.
+        #[pyarg(positional, optional, py_default = "1")]
+        value: OptionalArg<PyIntRef>,
+    }
+
     #[pyfunction]
-    fn adler32(data: ArgBytesLike, value: OptionalArg<PyIntRef>) -> u32 {
+    fn adler32(args: Adler32Args) -> u32 {
+        let Adler32Args { data, value } = args;
         data.with_ref(|data| {
             let value = value.map_or(1, |i| i.as_u32_mask());
             let mut hasher = Adler32::from_value(value);
@@ -59,8 +69,18 @@ mod zlib {
         })
     }
 
+    #[derive(FromArgs)]
+    struct Crc32Args {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        // Missing checksum starts at 0.
+        #[pyarg(positional, optional, py_default = "0")]
+        value: OptionalArg<PyIntRef>,
+    }
+
     #[pyfunction]
-    fn crc32(data: ArgBytesLike, value: OptionalArg<PyIntRef>) -> u32 {
+    fn crc32(args: Crc32Args) -> u32 {
+        let Crc32Args { data, value } = args;
         crate::binascii::crc32(data, value)
     }
 
@@ -68,9 +88,11 @@ mod zlib {
     struct PyFuncCompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION))]
+        // Z_DEFAULT_COMPRESSION.
+        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION), py_default = "-1")]
         level: Level,
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
+        // MAX_WBITS.
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS }, py_default = "15")]
         wbits: ArgPrimitiveIndex<i32>,
     }
 
@@ -90,9 +112,11 @@ mod zlib {
     struct PyFuncDecompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
+        // MAX_WBITS.
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS }, py_default = "15")]
         wbits: ArgPrimitiveIndex<i32>,
-        #[pyarg(any, default = ArgPrimitiveIndex { value: DEF_BUF_SIZE })]
+        // DEF_BUF_SIZE.
+        #[pyarg(any, default = ArgPrimitiveIndex { value: DEF_BUF_SIZE }, py_default = "16384")]
         bufsize: ArgPrimitiveIndex<usize>,
     }
 
@@ -109,9 +133,11 @@ mod zlib {
 
     #[derive(FromArgs)]
     struct DecompressobjArgs {
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
+        // MAX_WBITS.
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS }, py_default = "15")]
         wbits: ArgPrimitiveIndex<i32>,
-        #[pyarg(any, optional)]
+        // Missing dictionary is empty bytes.
+        #[pyarg(any, optional, py_default = "b''")]
         zdict: OptionalArg<ArgBytesLike>,
     }
 
@@ -247,17 +273,20 @@ mod zlib {
 
     #[derive(FromArgs)]
     struct CompressobjArgs {
-        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION))]
+        // Z_DEFAULT_COMPRESSION.
+        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION), py_default = "-1")]
         level: Level,
-        #[pyarg(any, default = DEFLATED)]
+        #[pyarg(any, default = 8)]
         method: i32,
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
+        // MAX_WBITS.
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS }, py_default = "15")]
         wbits: ArgPrimitiveIndex<i32>,
-        #[pyarg(any, name = "memLevel", default = DEF_MEM_LEVEL)]
+        #[pyarg(any, name = "memLevel", default = 8)]
         mem_level: u8,
-        #[pyarg(any, default = Z_DEFAULT_STRATEGY)]
+        #[pyarg(any, default = 0)]
         strategy: i32,
-        #[pyarg(any, optional)]
+        // Missing dictionary is None.
+        #[pyarg(any, optional, py_default = "None")]
         zdict: OptionalArg<ArgBytesLike>,
     }
 

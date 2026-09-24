@@ -51,9 +51,11 @@ mod math {
         a: ArgIntoFloat,
         #[pyarg(positional)]
         b: ArgIntoFloat,
-        #[pyarg(named, optional)]
+        // Missing means 1e-09.
+        #[pyarg(named, optional, py_default = "1e-09")]
         rel_tol: OptionalArg<ArgIntoFloat>,
-        #[pyarg(named, optional)]
+        // Missing means 0.0.
+        #[pyarg(named, optional, py_default = "0.0")]
         abs_tol: OptionalArg<ArgIntoFloat>,
     }
 
@@ -440,7 +442,8 @@ mod math {
         x: ArgIntoFloat,
         #[pyarg(positional)]
         y: ArgIntoFloat,
-        #[pyarg(named, optional)]
+        // Missing means one step.
+        #[pyarg(named, optional, py_default = "None")]
         steps: OptionalArg<ArgIndex>,
     }
 
@@ -482,7 +485,8 @@ mod math {
     struct ProdArgs {
         #[pyarg(positional)]
         iterable: ArgIterable<PyObjectRef>,
-        #[pyarg(named, optional)]
+        // Missing means the integer 1.
+        #[pyarg(named, optional, py_default = "1")]
         start: OptionalArg<PyObjectRef>,
     }
 
@@ -804,13 +808,17 @@ mod math {
             .map_err(|_| vm.new_value_error("factorial() not defined for negative values"))
     }
 
-    #[pyfunction]
-    fn perm(
+    #[derive(FromArgs)]
+    struct PermArgs {
+        #[pyarg(positional)]
         n: ArgIndex,
-        k: OptionalArg<Option<ArgIndex>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<BigInt> {
-        let n_int = n.into_int_ref();
+        #[pyarg(positional, default = None)]
+        k: Option<ArgIndex>,
+    }
+
+    #[pyfunction]
+    fn perm(args: PermArgs, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let n_int = args.n.into_int_ref();
         let n_big = n_int.as_bigint();
 
         if n_big.is_negative() {
@@ -818,7 +826,7 @@ mod math {
         }
 
         // k = None means k = n (factorial)
-        let k_int = k.flatten().map(|k| k.into_int_ref());
+        let k_int = args.k.map(|k| k.into_int_ref());
         let k_big: Option<&BigInt> = k_int.as_ref().map(|k| k.as_bigint());
 
         if let Some(k_val) = k_big {

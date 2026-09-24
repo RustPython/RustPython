@@ -179,6 +179,12 @@ pub(crate) struct SortOptions {
 
 pub type PyListRef = PyRef<PyList>;
 
+#[derive(FromArgs)]
+struct PopArgs {
+    #[pyarg(positional, default = -1)]
+    index: isize,
+}
+
 #[pyclass(
     with(
         Constructor,
@@ -368,8 +374,8 @@ impl PyList {
     }
 
     #[pymethod]
-    fn pop(&self, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
-        let mut index = index.into_option().unwrap_or(-1);
+    fn pop(&self, args: PopArgs, vm: &VirtualMachine) -> PyResult {
+        let mut index = args.index;
         let mut elements = self.borrow_vec_mut();
         if index < 0 {
             index += elements.len() as isize;

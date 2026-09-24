@@ -17,7 +17,7 @@ use crate::{
     },
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
-    function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, PyComparisonValue},
     intern::PyInterned,
     object::{MaybeTraverse, Traverse, TraverseFn},
     protocol::{
@@ -893,7 +893,8 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalOption<PyStrRef>) -> Self {
+    fn strip(&self, args: StripArgs) -> Self {
+        let chars = args.chars;
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s
                 .py_strip(
@@ -937,11 +938,8 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn lstrip(
-        zelf: PyRef<Self>,
-        chars: OptionalOption<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyRef<Self> {
+    fn lstrip(zelf: PyRef<Self>, args: StripArgs, vm: &VirtualMachine) -> PyRef<Self> {
+        let chars = args.chars;
         let s = zelf.as_wtf8();
         let stripped = s.py_strip(
             chars,
@@ -956,11 +954,8 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn rstrip(
-        zelf: PyRef<Self>,
-        chars: OptionalOption<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyRef<Self> {
+    fn rstrip(zelf: PyRef<Self>, args: StripArgs, vm: &VirtualMachine) -> PyRef<Self> {
+        let chars = args.chars;
         let s = zelf.as_wtf8();
         let stripped = s.py_strip(
             chars,
@@ -1396,33 +1391,18 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn center(
-        &self,
-        width: isize,
-        fillchar: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Wtf8Buf> {
-        self._pad(width, fillchar, AnyStr::py_center, vm)
+    fn center(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        self._pad(args.width, args.fillchar, AnyStr::py_center, vm)
     }
 
     #[pymethod]
-    fn ljust(
-        &self,
-        width: isize,
-        fillchar: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Wtf8Buf> {
-        self._pad(width, fillchar, AnyStr::py_ljust, vm)
+    fn ljust(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        self._pad(args.width, args.fillchar, AnyStr::py_ljust, vm)
     }
 
     #[pymethod]
-    fn rjust(
-        &self,
-        width: isize,
-        fillchar: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Wtf8Buf> {
-        self._pad(width, fillchar, AnyStr::py_rjust, vm)
+    fn rjust(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        self._pad(args.width, args.fillchar, AnyStr::py_rjust, vm)
     }
 
     #[pymethod]
@@ -1724,10 +1704,27 @@ impl AsSequence for PyStr {
 
 #[derive(FromArgs)]
 struct EncodeArgs {
-    #[pyarg(any, default)]
+    // None is filled in as utf-8 when encoding.
+    #[pyarg(any, default = None, py_default = "'utf-8'")]
     encoding: Option<PyUtf8StrRef>,
-    #[pyarg(any, default)]
+    // None is filled in as strict when encoding.
+    #[pyarg(any, default = None, py_default = "'strict'")]
     errors: Option<PyUtf8StrRef>,
+}
+
+#[derive(FromArgs)]
+struct StripArgs {
+    #[pyarg(positional, default = None)]
+    chars: Option<PyStrRef>,
+}
+
+#[derive(FromArgs)]
+struct PadArgs {
+    #[pyarg(positional)]
+    width: isize,
+    // A missing fill is a space.
+    #[pyarg(positional, optional, py_default = "' '")]
+    fillchar: OptionalArg<PyStrRef>,
 }
 
 pub(crate) fn encode_string(

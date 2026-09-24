@@ -89,7 +89,8 @@ pub(crate) mod _thread {
     struct AcquireArgs {
         #[pyarg(any, default = true)]
         blocking: bool,
-        #[pyarg(any, default = TimeoutSeconds::new(-1.0))]
+        // No timeout; blocks until the lock is acquired.
+        #[pyarg(any, default = TimeoutSeconds::new(-1.0), py_default = "-1")]
         timeout: TimeoutSeconds,
     }
 
@@ -740,9 +741,17 @@ pub(crate) mod _thread {
     }
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
+    #[derive(FromArgs)]
+    struct InterruptMainArgs {
+        // SIGINT. The enum repr is not a literal.
+        #[pyarg(positional, optional, py_default = "2")]
+        signum: OptionalArg<SignalNum>,
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
     #[pyfunction]
-    fn interrupt_main(signum: OptionalArg<SignalNum>) -> PyResult<()> {
-        let sig = signum.unwrap_or(SignalNum::SIGINT);
+    fn interrupt_main(args: InterruptMainArgs) -> PyResult<()> {
+        let sig = args.signum.unwrap_or(SignalNum::SIGINT);
         crate::signal::set_interrupt_ex(sig)
     }
 
@@ -760,9 +769,17 @@ pub(crate) mod _thread {
         lock
     }
 
+    #[derive(FromArgs)]
+    struct StackSizeArgs {
+        // Missing size is 0.
+        #[pyarg(positional, optional, py_default = "0")]
+        size: OptionalArg<PyIntRef>,
+    }
+
     #[pyfunction]
-    fn stack_size(size: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult<usize> {
+    fn stack_size(args: StackSizeArgs, vm: &VirtualMachine) -> PyResult<usize> {
         const MIN_SIZE: usize = PY_OS_MIN_STACK_SIZE + SYSTEM_PAGE_SIZE;
+        let StackSizeArgs { size } = args;
 
         let Ok(size) = size.map_or(Ok(0), |v| v.try_to_primitive(vm)) else {
             return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));

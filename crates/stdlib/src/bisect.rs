@@ -12,11 +12,13 @@ mod _bisect {
     struct BisectArgs {
         a: PyObjectRef,
         x: PyObjectRef,
-        #[pyarg(any, optional)]
+        // Missing means 0.
+        #[pyarg(any, optional, py_default = "0")]
         lo: OptionalArg<ArgIndex>,
-        #[pyarg(any, optional)]
+        // Missing means the sequence length.
+        #[pyarg(any, optional, py_default = "None")]
         hi: OptionalArg<ArgIndex>,
-        #[pyarg(named, default)]
+        #[pyarg(named, default = None)]
         key: Option<PyObjectRef>,
     }
 

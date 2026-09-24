@@ -11,13 +11,13 @@ use crate::{
     byte::bytes_from_object,
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-        ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
-        bytes_decode,
+        ByteInnerReplaceOptions, ByteInnerSplitOptions, ByteInnerStripOptions, ByteInnerSub,
+        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::{PyClassDef, PyClassImpl},
     common::{hash::PyHash, lock::PyMutex},
     convert::{ToPyObject, ToPyResult},
-    function::{ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PyNumberMethods, PySequenceMethods,
@@ -426,8 +426,8 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn strip(&self, bytes: OptionalOption<PyBytesInner>) -> Self {
-        self.inner.strip(bytes).into()
+    fn strip(&self, options: ByteInnerStripOptions) -> Self {
+        self.inner.strip(options.bytes).into()
     }
 
     #[pymethod]
@@ -507,14 +507,8 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn replace(
-        &self,
-        old: PyBytesInner,
-        new: PyBytesInner,
-        count: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        Ok(self.inner.replace(old, new, count, vm)?.into())
+    fn replace(&self, options: ByteInnerReplaceOptions, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(self.inner.replace(options, vm)?.into())
     }
 
     #[pymethod]
@@ -587,8 +581,8 @@ impl PyRef<PyBytes> {
     }
 
     #[pymethod]
-    fn lstrip(self, bytes: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
-        let stripped = self.inner.lstrip(bytes);
+    fn lstrip(self, options: ByteInnerStripOptions, vm: &VirtualMachine) -> Self {
+        let stripped = self.inner.lstrip(options.bytes);
         if stripped == self.as_bytes() {
             self
         } else {
@@ -597,8 +591,8 @@ impl PyRef<PyBytes> {
     }
 
     #[pymethod]
-    fn rstrip(self, bytes: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
-        let stripped = self.inner.rstrip(bytes);
+    fn rstrip(self, options: ByteInnerStripOptions, vm: &VirtualMachine) -> Self {
+        let stripped = self.inner.rstrip(options.bytes);
         if stripped == self.as_bytes() {
             self
         } else {

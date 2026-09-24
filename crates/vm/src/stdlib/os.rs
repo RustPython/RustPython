@@ -1211,10 +1211,16 @@ pub(super) mod _os {
         }
     }
 
+    #[derive(FromArgs)]
+    struct ScandirArgs<'a> {
+        #[pyarg(positional, default = None)]
+        path: Option<OsPathOrFd<'a>>,
+    }
+
     #[pyfunction]
-    fn scandir(path: OptionalArg<Option<OsPathOrFd<'_>>>, vm: &VirtualMachine) -> PyResult {
-        let path = path
-            .flatten()
+    fn scandir(args: ScandirArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        let path = args
+            .path
             .unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         match path {
             OsPathOrFd::Path(path) => {

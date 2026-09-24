@@ -68,6 +68,14 @@ mod _contextvars {
         inner: ContextInner,
     }
 
+    #[derive(FromArgs)]
+    struct ContextGetArgs {
+        #[pyarg(positional)]
+        key: PyObjectRef,
+        #[pyarg(positional, default = None)]
+        default: Option<PyObjectRef>,
+    }
+
     impl PyContext {
         fn empty(vm: &VirtualMachine) -> Self {
             Self {
@@ -218,18 +226,13 @@ mod _contextvars {
         }
 
         #[pymethod]
-        fn get(
-            &self,
-            key: PyObjectRef,
-            default: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<Option<PyObjectRef>> {
-            let key = context_check_key_type(&key, vm)?;
+        fn get(&self, args: ContextGetArgs, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+            let key = context_check_key_type(&args.key, vm)?;
             let found = self.get_inner(key);
             if found.is_some() {
                 Ok(found)
             } else {
-                Ok(default.into_option())
+                Ok(args.default)
             }
         }
 

@@ -33,6 +33,12 @@ mod _collections {
     use core::{cmp::max, mem::size_of};
     use crossbeam_utils::atomic::AtomicCell;
 
+    #[derive(FromArgs)]
+    struct RotateArgs {
+        #[pyarg(positional, default = 1)]
+        n: isize,
+    }
+
     #[pyattr]
     #[pyclass(
         module = "collections",
@@ -293,11 +299,11 @@ mod _collections {
         }
 
         #[pymethod]
-        fn rotate(&self, n: OptionalArg<isize>) {
+        fn rotate(&self, args: RotateArgs) {
             self.state.fetch_add(1);
             let mut deque = self.borrow_deque_mut();
             if !deque.is_empty() {
-                let n = n.unwrap_or(1) % deque.len() as isize;
+                let n = args.n % deque.len() as isize;
                 if n.is_negative() {
                     deque.rotate_left(-n as usize);
                 } else {
@@ -919,7 +925,7 @@ mod _collections {
 
             if let Some(f) = factory {
                 let value = f.call((), vm)?;
-                self.dict.setdefault(key, value.into(), vm)
+                self.dict.setdefault(key, value, vm)
             } else {
                 Err(vm.new_key_error(key))
             }

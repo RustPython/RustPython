@@ -770,9 +770,21 @@ pub mod sys {
         false // RustPython does not support remote debugging
     }
 
+    #[derive(FromArgs)]
+    struct ExitArgs {
+        #[pyarg(positional, default = None)]
+        status: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct GetFrameArgs {
+        #[pyarg(positional, default = 0)]
+        depth: usize,
+    }
+
     #[pyfunction]
-    fn exit(status: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let status = status.unwrap_or_none(vm);
+    fn exit(args: ExitArgs, vm: &VirtualMachine) -> PyResult {
+        let status = args.status.unwrap_or_else(|| vm.ctx.none());
         let args = if let Some(status_tuple) = status.downcast_ref::<PyTuple>() {
             status_tuple.as_slice().to_vec()
         } else {
@@ -991,8 +1003,8 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _getframe(depth: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
-        let depth = depth.into_option().unwrap_or(0);
+    fn _getframe(args: GetFrameArgs, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
+        let depth = args.depth;
         let frame_ref = crate::frame::frame_at_offset(depth, vm)
             .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;
         if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
@@ -1003,11 +1015,8 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _getframemodulename(
-        depth: OptionalArg<usize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
-        let depth = depth.into_option().unwrap_or(0);
+    fn _getframemodulename(args: GetFrameArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let depth = args.depth;
         if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
             audit.call((vm.ctx.new_str("sys._getframemodulename"), depth), vm)?;
         }

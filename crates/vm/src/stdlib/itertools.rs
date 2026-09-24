@@ -1113,9 +1113,17 @@ mod decl {
         }
     }
 
+    #[derive(FromArgs)]
+    struct TeeArgs {
+        #[pyarg(positional)]
+        iterable: PyIter,
+        #[pyarg(positional, default = 2)]
+        n: isize,
+    }
+
     #[pyfunction]
-    fn tee(iterable: PyIter, n: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        let n = n.unwrap_or(2);
+    fn tee(args: TeeArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let TeeArgs { iterable, n } = args;
         if n < 0 {
             return Err(vm.new_value_error("n must be >= 0"));
         }

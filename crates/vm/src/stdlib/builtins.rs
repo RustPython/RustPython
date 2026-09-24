@@ -23,8 +23,7 @@ mod builtins {
         common::hash::PyHash,
         function::{
             ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgPrimitiveIndex,
-            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
-            PosArgs,
+            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -108,17 +107,20 @@ mod builtins {
         // CPython parity: flags / optimize accept any object with __index__,
         // not just exact int. Matches the argument conversion used by
         // builtin_compile_impl.
-        #[pyarg(any, optional)]
+        // Missing means 0. Any object with __index__ is accepted.
+        #[pyarg(any, optional, py_default = "0")]
         flags: OptionalArg<ArgPrimitiveIndex<i32>>,
         // CPython parity: dont_inherit goes through PyObject_IsTrue, so
         // arbitrary objects with `__bool__` are accepted (and any exception
         // raised inside `__bool__` propagates) — not the strict bool type.
-        #[pyarg(any, optional)]
+        // Missing means False.
+        #[pyarg(any, optional, py_default = "False")]
         dont_inherit: OptionalArg<ArgIntoBool>,
-        #[pyarg(any, optional)]
+        // Missing means -1.
+        #[pyarg(any, optional, py_default = "-1")]
         optimize: OptionalArg<ArgPrimitiveIndex<i32>>,
-        #[pyarg(named, optional)]
-        _feature_version: OptionalArg<i32>,
+        #[pyarg(named, default = -1)]
+        _feature_version: i32,
     }
 
     fn merge_compile_future_features(
@@ -197,7 +199,7 @@ mod builtins {
 
             use crate::{class::PyClassImpl, stdlib::_ast};
 
-            let feature_version = args._feature_version.into_option().unwrap_or(-1);
+            let feature_version = args._feature_version;
 
             let mode_str = args.mode.as_str();
             let flags: i32 = args.flags.map_or(0, |v| v.value);
@@ -410,9 +412,9 @@ mod builtins {
 
     #[derive(FromArgs)]
     struct ScopeArgs {
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         globals: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         locals: Option<ArgMapping>,
     }
 
@@ -481,12 +483,12 @@ mod builtins {
     struct ExecArgs {
         #[pyarg(positional)]
         source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         globals: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         locals: Option<ArgMapping>,
-        #[pyarg(named, optional)]
-        closure: OptionalOption<PyObjectRef>,
+        #[pyarg(named, default = None)]
+        closure: Option<PyObjectRef>,
     }
 
     fn exec_closure(
@@ -585,7 +587,6 @@ mod builtins {
             closure,
         } = args;
         let scope = ScopeArgs { globals, locals }.make_scope(vm, "exec")?;
-        let closure = closure.flatten();
         let (source, closure) = match source {
             Either::A(either) => {
                 if closure.is_some() {
@@ -673,13 +674,25 @@ mod builtins {
         vm.run_code_obj_with_closure(code_obj, scope, closure)
     }
 
-    #[pyfunction]
-    fn format(
+    #[derive(FromArgs)]
+    struct FormatArgs {
+        #[pyarg(positional)]
         value: PyObjectRef,
+        // Missing means an empty format spec.
+        #[pyarg(positional, optional, py_default = "''")]
         format_spec: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
-        vm.format(&value, format_spec.unwrap_or(vm.ctx.new_str("")))
+    }
+
+    #[derive(FromArgs)]
+    struct InputArgs {
+        // Missing means an empty prompt.
+        #[pyarg(positional, optional, py_default = "''")]
+        prompt: OptionalArg<PyStrRef>,
+    }
+
+    #[pyfunction]
+    fn format(args: FormatArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        vm.format(&args.value, args.format_spec.unwrap_or(vm.ctx.new_str("")))
     }
 
     #[pyfunction]
@@ -748,7 +761,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn input(prompt: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
+    fn input(args: InputArgs, vm: &VirtualMachine) -> PyResult {
+        let prompt = args.prompt;
         use std::io::IsTerminal;
 
         let stdin = sys::get_stdin(vm)?;
@@ -1051,7 +1065,7 @@ mod builtins {
     struct PowArgs {
         base: PyObjectRef,
         exp: PyObjectRef,
-        #[pyarg(any, optional, name = "mod")]
+        #[pyarg(any, default = None, name = "mod")]
         modulus: Option<PyObjectRef>,
     }
 
@@ -1236,14 +1250,15 @@ mod builtins {
     struct ImportArgs {
         #[pyarg(any)]
         name: PyObjectRef,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         globals: Option<PyObjectRef>,
         #[allow(dead_code)]
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         locals: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        // Missing means an empty fromlist.
+        #[pyarg(any, default, py_default = "()")]
         fromlist: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = 0)]
         level: i32,
     }
 

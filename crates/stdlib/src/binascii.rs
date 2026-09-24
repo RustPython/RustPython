@@ -62,10 +62,24 @@ mod decl {
             .map_err(|e| new_binascii_error(e, vm))
     }
 
-    #[pyfunction]
+    #[derive(FromArgs)]
+    struct Crc32Args {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        // Missing crc starts at 0.
+        #[pyarg(positional, optional, py_default = "0")]
+        crc: OptionalArg<PyIntRef>,
+    }
+
     pub(crate) fn crc32(data: ArgBytesLike, crc: OptionalArg<PyIntRef>) -> u32 {
         let crc = crc.map_or(0, |i| i.as_u32_mask());
         data.with_ref(|bytes| binascii::crc32(bytes, crc))
+    }
+
+    #[pyfunction(name = "crc32")]
+    fn crc32_py(args: Crc32Args) -> u32 {
+        let Crc32Args { data, crc } = args;
+        crc32(data, crc)
     }
 
     #[pyfunction]

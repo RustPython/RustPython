@@ -195,7 +195,6 @@ mod _imp {
     use crate::{
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
-        function::OptionalArg,
         import, version,
     };
 
@@ -271,13 +270,18 @@ mod _imp {
         0
     }
 
-    #[pyfunction]
-    fn get_frozen_object(
+    #[derive(FromArgs)]
+    struct FrozenObjectArgs {
+        #[pyarg(positional)]
         name: PyUtf8StrRef,
-        data: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyCode>> {
-        if let OptionalArg::Present(data) = data
+        #[pyarg(positional, default = None)]
+        data: Option<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn get_frozen_object(args: FrozenObjectArgs, vm: &VirtualMachine) -> PyResult<PyRef<PyCode>> {
+        let FrozenObjectArgs { name, data } = args;
+        if let Some(data) = data
             && !vm.is_none(&data)
         {
             let invalid_err = || {

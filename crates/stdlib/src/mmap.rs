@@ -14,7 +14,7 @@ mod mmap {
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
-        function::{ArgBytesLike, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, FuncArgs},
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
@@ -264,20 +264,33 @@ mod mmap {
     }
 
     #[derive(FromArgs)]
+    struct ReadArgs {
+        #[pyarg(positional, default = None)]
+        n: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct SeekArgs {
+        #[pyarg(positional)]
+        dist: isize,
+        #[pyarg(positional, default = 0)]
+        whence: core::ffi::c_int,
+    }
+
+    #[derive(FromArgs)]
     pub(super) struct FlushOptions {
-        #[pyarg(positional, default)]
-        offset: Option<isize>,
-        #[pyarg(positional, default)]
+        #[pyarg(positional, default = 0)]
+        offset: isize,
+        #[pyarg(positional, default = None)]
         size: Option<isize>,
     }
 
     impl FlushOptions {
         fn values(self, len: usize) -> Option<(usize, usize)> {
-            let offset = match self.offset {
-                Some(o) if o < 0 => return None,
-                Some(o) => o as usize,
-                None => 0,
-            };
+            if self.offset < 0 {
+                return None;
+            }
+            let offset = self.offset as usize;
 
             let size = match self.size {
                 Some(s) if s < 0 => return None,
@@ -297,9 +310,9 @@ mod mmap {
     pub(super) struct FindOptions {
         #[pyarg(positional)]
         sub: Vec<u8>,
-        #[pyarg(positional, default)]
+        #[pyarg(positional, default = None)]
         start: Option<isize>,
-        #[pyarg(positional, default)]
+        #[pyarg(positional, default = None)]
         end: Option<isize>,
     }
 
@@ -308,9 +321,10 @@ mod mmap {
     pub(super) struct AdviseOptions {
         #[pyarg(positional)]
         option: core::ffi::c_int,
-        #[pyarg(positional, default)]
+        // Missing means 0.
+        #[pyarg(positional, default, py_default = "0")]
         start: Option<PyIntRef>,
-        #[pyarg(positional, default)]
+        #[pyarg(positional, default = None)]
         length: Option<PyIntRef>,
     }
 
@@ -943,8 +957,9 @@ mod mmap {
         }
 
         #[pymethod]
-        fn read(&self, n: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            let num_bytes = n
+        fn read(&self, args: ReadArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+            let num_bytes = args
+                .n
                 .map(|obj| {
                     let class = obj.class().to_owned();
                     obj.try_into_value::<Option<isize>>(vm).map_err(|_| {
@@ -1110,13 +1125,9 @@ mod mmap {
         }
 
         #[pymethod]
-        fn seek(
-            &self,
-            dist: isize,
-            whence: OptionalArg<core::ffi::c_int>,
-            vm: &VirtualMachine,
-        ) -> PyResult<usize> {
-            let how = whence.unwrap_or(0);
+        fn seek(&self, args: SeekArgs, vm: &VirtualMachine) -> PyResult<usize> {
+            let dist = args.dist;
+            let how = args.whence;
             let size = self.__len__();
 
             let new_pos = match how {

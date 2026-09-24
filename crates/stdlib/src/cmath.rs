@@ -151,9 +151,11 @@ mod cmath {
         a: ArgIntoComplex,
         #[pyarg(positional)]
         b: ArgIntoComplex,
-        #[pyarg(named, optional)]
+        // Missing means 1e-09.
+        #[pyarg(named, optional, py_default = "1e-09")]
         rel_tol: OptionalArg<ArgIntoFloat>,
-        #[pyarg(named, optional)]
+        // Missing means 0.0.
+        #[pyarg(named, optional, py_default = "0.0")]
         abs_tol: OptionalArg<ArgIntoFloat>,
     }
 

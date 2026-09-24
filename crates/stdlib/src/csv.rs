@@ -7,7 +7,7 @@ mod _csv {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
-        function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg},
+        function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param},
         protocol::{PyIter, PyIterReturn},
         types::{Callable, Constructor, IterNext, Iterable, SelfIter},
     };
@@ -323,10 +323,17 @@ mod _csv {
         }
     }
 
+    #[derive(FromArgs)]
+    struct DialectArg {
+        // Missing means the excel dialect.
+        #[pyarg(positional, optional, py_default = "'excel'")]
+        dialect: OptionalArg<PyObjectRef>,
+    }
+
     #[pyfunction]
     fn register_dialect(
         name: PyObjectRef,
-        dialect: OptionalArg<PyObjectRef>,
+        dialect: DialectArg,
         opts: FormatOptions,
         // TODO: handle quote style, etc
         mut _rest: FuncArgs,
@@ -338,7 +345,7 @@ mod _csv {
 
         let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
 
-        let dialect = match dialect {
+        let dialect = match dialect.dialect {
             OptionalArg::Present(d) => PyDialect::try_from_object(vm, d)
                 .map_err(|_| vm.new_type_error("argument 1 must be a dialect object"))?,
             OptionalArg::Missing => opts.result(vm)?,
@@ -624,6 +631,9 @@ mod _csv {
     }
 
     impl FromArgs for FormatOptions {
+        // Keyword format options are read in `from_args`. They are not a positional parameter.
+        const PARAMS: Option<&'static [Param]> = Some(&[]);
+
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
             let dialect = if let Some(dialect) = args.kwargs.swap_remove("dialect") {
                 prase_dialect_item_from_arg(vm, dialect)?

@@ -524,7 +524,8 @@ struct FunctionNurseryItem {
     py_names: Vec<String>,
     cfgs: Vec<Attribute>,
     ident: Ident,
-    doc: TokenStream,
+    /// One internal doc per [`py_names`](Self::py_names) entry.
+    docs: Vec<TokenStream>,
     call_flags: TokenStream,
 }
 
@@ -555,21 +556,18 @@ impl ToTokens for ValidatedFunctionNursery {
             let ident = &item.ident;
             let cfgs = &item.cfgs;
             let cfgs = quote!(#(#cfgs)*);
-            let py_names = &item.py_names;
-            let doc = &item.doc;
             let flags = &item.call_flags;
-
-            inner_tokens.extend(quote![
-                #(
+            for (py_name, doc) in item.py_names.iter().zip(&item.docs) {
+                inner_tokens.extend(quote![
                     #cfgs
                     rustpython_vm::function::PyMethodDef::new_const(
-                        #py_names,
+                        #py_name,
                         #ident,
                         #flags,
                         #doc,
                     ),
-                )*
-            ]);
+                ]);
+            }
         }
         let array: TokenTree = Group::new(Delimiter::Bracket, inner_tokens).into();
         tokens.extend([array]);
@@ -661,52 +659,47 @@ impl ModuleItem for FunctionItem {
         let item_meta = SimpleItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.simple_name()?;
+        let mut py_names = vec![py_name];
+        for attr_index in self.py_attrs.iter().rev() {
+            let mut loop_unit = || {
+                let attr_attr = args.attrs.remove(*attr_index);
+                let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
+
+                let py_name = item_meta.simple_name()?;
+                if py_names.iter().any(|name| name == &py_name) {
+                    return Err(self.new_syn_error(
+                        ident.span(),
+                        &format!("`{py_name}` is duplicated name for multiple py* attribute"),
+                    ));
+                }
+                py_names.push(py_name);
+                Ok(())
+            };
+            let r = loop_unit();
+            args.context.errors.ok_or_push(r);
+        }
 
         let module = args.module_name();
+        let rust_doc = args.attrs.doc();
         // TODO: doc must exist at least one of code or CPython
-        let doc = args.attrs.doc().or_else(|| {
-            DB.get(&format!("{module}.{py_name}"))
-                .copied()
-                .map(str::to_owned)
-        });
-        let doc = internal_doc_tokens(func.sig(), &py_name, None, doc, None, Some("$module"));
-
-        let py_names = {
-            if self.py_attrs.is_empty() {
-                vec![py_name]
-            } else {
-                let mut py_names = HashSet::new();
-                py_names.insert(py_name);
-                for attr_index in self.py_attrs.iter().rev() {
-                    let mut loop_unit = || {
-                        let attr_attr = args.attrs.remove(*attr_index);
-                        let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
-
-                        let py_name = item_meta.simple_name()?;
-                        let inserted = py_names.insert(py_name.clone());
-                        if !inserted {
-                            return Err(self.new_syn_error(
-                                ident.span(),
-                                &format!(
-                                    "`{py_name}` is duplicated name for multiple py* attribute"
-                                ),
-                            ));
-                        }
-                        Ok(())
-                    };
-                    let r = loop_unit();
-                    args.context.errors.ok_or_push(r);
-                }
-                py_names.into_iter().collect::<Vec<_>>()
-            }
-        };
+        let docs = py_names
+            .iter()
+            .map(|py_name| {
+                let doc = rust_doc.clone().or_else(|| {
+                    DB.get(&format!("{module}.{py_name}"))
+                        .copied()
+                        .map(str::to_owned)
+                });
+                internal_doc_tokens(func.sig(), py_name, None, doc, None, Some("$module"))
+            })
+            .collect();
         let call_flags = infer_native_call_flags(func.sig(), 0);
 
         args.context.function_items.add_item(FunctionNurseryItem {
             ident: ident.to_owned(),
             py_names,
             cfgs: args.cfgs.to_vec(),
-            doc,
+            docs,
             call_flags,
         });
         Ok(())

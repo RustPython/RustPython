@@ -764,6 +764,12 @@ pub mod array {
         }
     }
 
+    #[derive(FromArgs)]
+    struct PopArgs {
+        #[pyarg(positional, default = -1)]
+        i: isize,
+    }
+
     #[pyclass(
         flags(BASETYPE, HAS_WEAKREF),
         with(
@@ -983,12 +989,12 @@ pub mod array {
         }
 
         #[pymethod]
-        fn pop(zelf: &Py<Self>, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
+        fn pop(zelf: &Py<Self>, args: PopArgs, vm: &VirtualMachine) -> PyResult {
             let mut w = zelf.try_resizable(vm)?;
             if w.len() == 0 {
                 Err(vm.new_index_error("pop from empty array"))
             } else {
-                w.pop(i.unwrap_or(-1), vm)
+                w.pop(args.i, vm)
             }
         }
 

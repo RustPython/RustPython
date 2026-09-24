@@ -1950,7 +1950,6 @@ class PydocFodderTest(unittest.TestCase):
             endindex = lines.index(endline, beginindex)
         return lines[beginindex:endindex]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_text_doc_routines_in_class(self, cls=pydocfodder.B):
         doc = pydoc.TextDoc()
         result = doc.docclass(cls)
@@ -2027,14 +2026,12 @@ class PydocFodderTest(unittest.TestCase):
         self.assertIn('B_classmethod(x)', lines)
         self.assertIn('B_classmethod_alias = B_classmethod(x)', lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_text_doc_inherited_routines_in_class(self):
         self.test_text_doc_routines_in_class(pydocfodder.D)
 
     def test_html_doc_inherited_routines_in_class(self):
         self.test_html_doc_routines_in_class(pydocfodder.D)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_text_doc_routines_in_module(self):
         doc = pydoc.TextDoc()
         result = doc.docmodule(pydocfodder)
@@ -2081,7 +2078,6 @@ class PydocFodderTest(unittest.TestCase):
         else:
             self.assertIn('    sin(object, /)', lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_html_doc_routines_in_module(self):
         doc = pydoc.HTMLDoc()
         result = doc.docmodule(pydocfodder)

@@ -14,7 +14,7 @@ mod decl {
             PyStopIteration, PyStr, PyTuple,
         },
         convert::ToPyObject,
-        function::{ArgBytesLike, OptionalArg},
+        function::ArgBytesLike,
         object::{AsObject, PyPayload},
     };
     use core::cell::RefCell;
@@ -94,8 +94,8 @@ mod decl {
     #[derive(FromArgs)]
     struct DumpsArgs {
         value: PyObjectRef,
-        #[pyarg(any, optional)]
-        _version: OptionalArg<i32>,
+        #[pyarg(any, default = 5)]
+        _version: i32,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }
@@ -107,7 +107,7 @@ mod decl {
             allow_code,
             _version,
         } = args;
-        let version = _version.unwrap_or(marshal::FORMAT_VERSION as i32);
+        let version = _version;
 
         if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
             audit.call(
@@ -476,8 +476,8 @@ mod decl {
     struct DumpArgs {
         value: PyObjectRef,
         f: PyObjectRef,
-        #[pyarg(any, optional)]
-        _version: OptionalArg<i32>,
+        #[pyarg(any, default = 5)]
+        _version: i32,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }

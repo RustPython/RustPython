@@ -267,13 +267,25 @@ pub(crate) mod _signal {
     }
 
     #[cfg(unix)]
-    #[pyfunction]
-    fn setitimer(
+    #[derive(FromArgs)]
+    struct SetitimerArgs {
+        #[pyarg(positional)]
         which: i32,
+        #[pyarg(positional)]
         seconds: ArgIntoFloat,
+        // Missing interval is 0.0.
+        #[pyarg(positional, optional, py_default = "0.0")]
         interval: OptionalArg<ArgIntoFloat>,
-        vm: &VirtualMachine,
-    ) -> PyResult<(f64, f64)> {
+    }
+
+    #[cfg(unix)]
+    #[pyfunction]
+    fn setitimer(args: SetitimerArgs, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
+        let SetitimerArgs {
+            which,
+            seconds,
+            interval,
+        } = args;
         let seconds: f64 = seconds.into();
         let interval: f64 = interval.map(|v| v.into()).unwrap_or(0.0);
         let new = libc::itimerval {

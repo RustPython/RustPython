@@ -214,10 +214,103 @@ mod _io {
 
     #[derive(Clone, Copy, FromArgs)]
     pub(super) struct OptionalSize {
-        // In a few functions, the default value is -1 rather than None.
-        // Make sure the default value doesn't affect compatibility.
-        #[pyarg(positional, default)]
+        // Missing reads the rest of the stream. None stays None so -1 and omission match.
+        #[pyarg(positional, default, py_default = "-1")]
         size: Option<ArgSize>,
+    }
+
+    // truncate reports None. Missing still means the current position.
+    #[derive(Clone, Copy, FromArgs)]
+    struct OptionalPos {
+        #[pyarg(positional, default = None)]
+        size: Option<ArgSize>,
+    }
+
+    impl OptionalPos {
+        fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+            OptionalSize { size: self.size }.try_usize(vm)
+        }
+    }
+
+    // peek ignores the value and returns the buffer.
+    #[derive(Clone, Copy, FromArgs)]
+    #[allow(dead_code)]
+    struct PeekSize {
+        #[pyarg(positional, default = 0)]
+        size: isize,
+    }
+
+    #[derive(FromArgs)]
+    struct WhenceArg {
+        #[pyarg(positional, default = 0)]
+        whence: i32,
+    }
+
+    #[derive(FromArgs)]
+    pub(super) struct HowArg {
+        #[pyarg(positional, default = 0)]
+        pub how: i32,
+    }
+
+    #[derive(FromArgs)]
+    #[allow(dead_code)]
+    struct IgnoredWhence {
+        #[pyarg(positional, default = 0)]
+        whence: i32,
+    }
+
+    #[derive(FromArgs)]
+    #[allow(dead_code)]
+    struct IgnoredSize {
+        #[pyarg(positional, default = -1)]
+        size: isize,
+    }
+
+    #[derive(FromArgs)]
+    #[allow(dead_code)]
+    struct IgnoredPos {
+        #[pyarg(positional, default = None)]
+        pos: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct ReadlinesHint {
+        // Explicit None is unlimited, same as omission.
+        #[pyarg(positional, default = None, py_default = "-1")]
+        hint: Option<isize>,
+    }
+
+    #[derive(FromArgs)]
+    struct ObjPos {
+        #[pyarg(positional, default = None)]
+        pos: Option<PyObjectRef>,
+    }
+
+    #[cfg(feature = "host_env")]
+    #[derive(FromArgs)]
+    pub(super) struct ObjLen {
+        #[pyarg(positional, default = None)]
+        pub len: Option<PyObjectRef>,
+    }
+
+    // An explicit None object is preserved; only omission becomes None.
+    #[derive(FromArgs)]
+    struct KeepNonePos {
+        #[pyarg(positional, default = OptionalArg::Missing, py_default = "None")]
+        pos: OptionalArg<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct StackLevelArg {
+        #[pyarg(positional, default = 2)]
+        stacklevel: i32,
+    }
+
+    #[cfg(all(feature = "host_env", windows))]
+    #[derive(FromArgs)]
+    pub(super) struct SignedSize {
+        #[pyarg(positional, default = -1)]
+        pub size: isize,
     }
 
     impl OptionalSize {
@@ -254,14 +347,12 @@ mod _io {
     pub(super) fn seekfrom(
         vm: &VirtualMachine,
         offset: PyObjectRef,
-        how: OptionalArg<i32>,
+        how: i32,
     ) -> PyResult<SeekFrom> {
         let seek = match how {
-            OptionalArg::Present(0) | OptionalArg::Missing => {
-                SeekFrom::Start(offset.try_into_value(vm)?)
-            }
-            OptionalArg::Present(1) => SeekFrom::Current(offset.try_into_value(vm)?),
-            OptionalArg::Present(2) => SeekFrom::End(offset.try_into_value(vm)?),
+            0 => SeekFrom::Start(offset.try_into_value(vm)?),
+            1 => SeekFrom::Current(offset.try_into_value(vm)?),
+            2 => SeekFrom::End(offset.try_into_value(vm)?),
             _ => return Err(vm.new_value_error("invalid value for how")),
         };
         Ok(seek)
@@ -423,7 +514,7 @@ mod _io {
         fn seek(
             zelf: PyObjectRef,
             _pos: PyObjectRef,
-            _whence: OptionalArg,
+            _whence: IgnoredWhence,
             vm: &VirtualMachine,
         ) -> PyResult {
             _unsupported(vm, &zelf, "seek")
@@ -435,7 +526,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn truncate(zelf: PyObjectRef, _pos: OptionalArg, vm: &VirtualMachine) -> PyResult {
+        fn truncate(zelf: PyObjectRef, _pos: IgnoredPos, vm: &VirtualMachine) -> PyResult {
             _unsupported(vm, &zelf, "truncate")
         }
 
@@ -523,10 +614,10 @@ mod _io {
         #[pymethod]
         fn readlines(
             instance: PyObjectRef,
-            hint: OptionalOption<isize>,
+            hint: ReadlinesHint,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
-            let hint = hint.flatten().unwrap_or(-1);
+            let hint = hint.hint.unwrap_or(-1);
             if hint <= 0 {
                 return instance.try_to_value(vm);
             }
@@ -726,12 +817,12 @@ mod _io {
     #[pyclass(flags(BASETYPE, HAS_WEAKREF))]
     impl _BufferedIOBase {
         #[pymethod]
-        fn read(zelf: PyObjectRef, _size: OptionalArg, vm: &VirtualMachine) -> PyResult {
+        fn read(zelf: PyObjectRef, _size: IgnoredSize, vm: &VirtualMachine) -> PyResult {
             _unsupported(vm, &zelf, "read")
         }
 
         #[pymethod]
-        fn read1(zelf: PyObjectRef, _size: OptionalArg, vm: &VirtualMachine) -> PyResult {
+        fn read1(zelf: PyObjectRef, _size: IgnoredSize, vm: &VirtualMachine) -> PyResult {
             _unsupported(vm, &zelf, "read1")
         }
 
@@ -791,7 +882,7 @@ mod _io {
     #[pyclass(flags(BASETYPE, HAS_WEAKREF))]
     impl _TextIOBase {
         #[pymethod]
-        fn read(zelf: PyObjectRef, _size: OptionalArg, vm: &VirtualMachine) -> PyResult {
+        fn read(zelf: PyObjectRef, _size: IgnoredSize, vm: &VirtualMachine) -> PyResult {
             _unsupported(vm, &zelf, "read")
         }
 
@@ -801,7 +892,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn truncate(zelf: PyObjectRef, _pos: OptionalArg, vm: &VirtualMachine) -> PyResult {
+        fn truncate(zelf: PyObjectRef, _pos: IgnoredPos, vm: &VirtualMachine) -> PyResult {
             _unsupported(vm, &zelf, "truncate")
         }
 
@@ -833,8 +924,9 @@ mod _io {
 
     #[derive(FromArgs, Clone)]
     struct BufferSize {
-        #[pyarg(any, optional)]
-        buffer_size: OptionalArg<isize>,
+        // 128 * 1024, the module buffer size.
+        #[pyarg(any, default = 131072)]
+        buffer_size: isize,
     }
 
     bitflags::bitflags! {
@@ -1648,13 +1740,10 @@ mod _io {
             data.raw = None;
             data.flags.remove(BufferedFlags::DETACHED);
 
-            let buffer_size = match buffer_size {
-                OptionalArg::Present(i) if i <= 0 => {
-                    return Err(vm.new_value_error("buffer size must be strictly positive"));
-                }
-                OptionalArg::Present(i) => i as usize,
-                OptionalArg::Missing => DEFAULT_BUFFER_SIZE,
-            };
+            if buffer_size <= 0 {
+                return Err(vm.new_value_error("buffer size must be strictly positive"));
+            }
+            let buffer_size = buffer_size as usize;
 
             if Self::SEEKABLE {
                 check_seekable(&raw, vm)?;
@@ -1689,10 +1778,10 @@ mod _io {
         fn seek(
             &self,
             target: PyObjectRef,
-            whence: OptionalArg<i32>,
+            whence: WhenceArg,
             vm: &VirtualMachine,
         ) -> PyResult<Offset> {
-            let whence = whence.unwrap_or(0);
+            let whence = whence.whence;
             if !validate_whence(whence) {
                 return Err(vm.new_value_error(format!("whence value {whence} unsupported")));
             }
@@ -1718,12 +1807,8 @@ mod _io {
         }
 
         #[pymethod]
-        fn truncate(
-            zelf: PyRef<Self>,
-            pos: OptionalOption<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            let pos = pos.flatten().to_pyobject(vm);
+        fn truncate(zelf: PyRef<Self>, pos: ObjPos, vm: &VirtualMachine) -> PyResult {
+            let pos = pos.pos.unwrap_or_else(|| vm.ctx.none());
             let mut data = zelf.lock(vm)?;
             data.check_init(vm)?;
             if !data.writable() {
@@ -1904,7 +1989,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn peek(&self, _size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn peek(&self, _size: PeekSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "peek of closed file", vm)?;
@@ -2325,15 +2410,32 @@ mod _io {
 
     #[derive(FromArgs)]
     struct TextIOWrapperArgs {
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         encoding: Option<PyUtf8StrRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(any, default)]
+        // None means universal newlines.
+        #[pyarg(any, default, py_default = "None")]
         newline: OptionalOption<Newlines>,
-        #[pyarg(any, default)]
+        // None is false.
+        #[pyarg(any, default, py_default = "False")]
         line_buffering: OptionalOption<PyObjectRef>,
-        #[pyarg(any, default)]
+        // None is false.
+        #[pyarg(any, default, py_default = "False")]
+        write_through: OptionalOption<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct TextIOWrapperReconfigureArgs {
+        #[pyarg(any, default = None)]
+        encoding: Option<PyUtf8StrRef>,
+        #[pyarg(any, default = None)]
+        errors: Option<PyUtf8StrRef>,
+        #[pyarg(any, default, py_default = "None")]
+        newline: OptionalOption<Newlines>,
+        #[pyarg(any, default, py_default = "None")]
+        line_buffering: OptionalOption<PyObjectRef>,
+        #[pyarg(any, default, py_default = "None")]
         write_through: OptionalOption<PyObjectRef>,
     }
 
@@ -3053,7 +3155,11 @@ mod _io {
     )]
     impl TextIOWrapper {
         #[pymethod]
-        fn reconfigure(&self, args: TextIOWrapperArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn reconfigure(
+            &self,
+            args: TextIOWrapperReconfigureArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let mut data = self.lock(vm)?;
             data.check_closed(vm)?;
 
@@ -3253,10 +3359,10 @@ mod _io {
         fn seek(
             zelf: PyRef<Self>,
             cookie: PyObjectRef,
-            how: OptionalArg<i32>,
+            how: HowArg,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let how = how.unwrap_or(0);
+            let how = how.how;
 
             let reset_encoder = |encoder, start_of_stream| {
                 if start_of_stream {
@@ -3652,18 +3758,14 @@ mod _io {
         }
 
         #[pymethod]
-        fn truncate(
-            zelf: PyRef<Self>,
-            pos: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult {
+        fn truncate(zelf: PyRef<Self>, pos: KeepNonePos, vm: &VirtualMachine) -> PyResult {
             // Implementation follows _pyio.py TextIOWrapper.truncate
             let mut textio = zelf.lock(vm)?;
             flush_inner(&mut textio, vm)?;
             let buffer = textio.buffer.clone();
             drop(textio);
 
-            let pos = match pos.into_option() {
+            let pos = match pos.pos.into_option() {
                 Some(p) => p,
                 None => vm.call_method(zelf.as_object(), "tell", ())?,
             };
@@ -4224,7 +4326,8 @@ mod _io {
         decoder: PyObjectRef,
         #[pyarg(any)]
         translate: bool,
-        #[pyarg(any, default)]
+        // Accepted and ignored. strict is the reported default.
+        #[pyarg(any, default, py_default = "'strict'")]
         errors: Option<PyObjectRef>,
     }
 
@@ -4315,7 +4418,7 @@ mod _io {
     struct NewlineDecodeArgs {
         #[pyarg(any)]
         input: PyObjectRef,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = false)]
         r#final: bool,
     }
 
@@ -4403,10 +4506,11 @@ mod _io {
 
     #[derive(FromArgs)]
     struct StringIONewArgs {
-        #[pyarg(positional, optional)]
+        #[pyarg(positional, default = OptionalArg::Missing, py_default = "''")]
         object: OptionalOption<PyStrRef>,
 
-        #[pyarg(any, default)]
+        // Omitted newline is \n. None selects universal newlines.
+        #[pyarg(any, default, py_default = "'\\n'")]
         newline: OptionalOption<Newlines>,
     }
 
@@ -4567,14 +4671,9 @@ mod _io {
 
         // skip to the jth position
         #[pymethod]
-        fn seek(
-            &self,
-            offset: PyObjectRef,
-            how: OptionalArg<i32>,
-            vm: &VirtualMachine,
-        ) -> PyResult<u64> {
+        fn seek(&self, offset: PyObjectRef, how: HowArg, vm: &VirtualMachine) -> PyResult<u64> {
             let offset: isize = ArgSize::try_from_object(vm, offset)?.into();
-            let how = how.unwrap_or(0);
+            let how = how.how;
             let mut buffer = self.buffer(vm)?;
             let char_offset = match how {
                 0 if offset >= 0 => offset as usize,
@@ -4634,7 +4733,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn truncate(&self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<usize> {
+        fn truncate(&self, pos: OptionalPos, vm: &VirtualMachine) -> PyResult<usize> {
             let mut buffer = self.buffer(vm)?;
             let pos = match pos.try_usize(vm)? {
                 Some(pos) => pos,
@@ -4735,7 +4834,7 @@ mod _io {
 
     #[derive(FromArgs)]
     struct BytesIOArgs {
-        #[pyarg(any, optional)]
+        #[pyarg(any, default = OptionalArg::Missing, py_default = "b''")]
         initial_bytes: OptionalArg<Option<ArgBytesLike>>,
     }
 
@@ -4873,13 +4972,8 @@ mod _io {
 
         //skip to the jth position
         #[pymethod]
-        fn seek(
-            &self,
-            offset: PyObjectRef,
-            how: OptionalArg<i32>,
-            vm: &VirtualMachine,
-        ) -> PyResult<u64> {
-            let seek_from = seekfrom(vm, offset, how)?;
+        fn seek(&self, offset: PyObjectRef, how: HowArg, vm: &VirtualMachine) -> PyResult<u64> {
+            let seek_from = seekfrom(vm, offset, how.how)?;
             let mut buffer = self.buffer(vm)?;
 
             // Handle negative positions by clamping to 0
@@ -4906,7 +5000,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn truncate(&self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<usize> {
+        fn truncate(&self, pos: OptionalPos, vm: &VirtualMachine) -> PyResult<usize> {
             if self.closed.load() {
                 return Err(io_closed_error(vm));
             }
@@ -5153,7 +5247,8 @@ mod _io {
     #[derive(FromArgs)]
     struct IoOpenArgs {
         file: PyObjectRef,
-        #[pyarg(any, optional)]
+        // None is filled in as r.
+        #[pyarg(any, default = OptionalArg::Missing, py_default = "'r'")]
         mode: OptionalArg<PyUtf8StrRef>,
         #[pyarg(flatten)]
         opts: OpenArgs,
@@ -5185,15 +5280,15 @@ mod _io {
     pub struct OpenArgs {
         #[pyarg(any, default = -1)]
         pub buffering: isize,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         pub encoding: Option<PyUtf8StrRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         pub errors: Option<PyUtf8StrRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         pub newline: Option<PyUtf8StrRef>,
         #[pyarg(any, default = true)]
         pub closefd: bool,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         pub opener: Option<PyObjectRef>,
     }
 
@@ -5393,7 +5488,7 @@ mod _io {
                         Some(enc) => Some(enc),
                         None => {
                             let encoding =
-                                text_encoding(vm.ctx.none(), OptionalArg::Present(2), vm)?;
+                                text_encoding(vm.ctx.none(), StackLevelArg { stacklevel: 2 }, vm)?;
                             Some(PyUtf8StrRef::try_from_object(vm, encoding.into())?)
                         }
                     }
@@ -5452,7 +5547,7 @@ mod _io {
     #[pyfunction]
     fn text_encoding(
         encoding: PyObjectRef,
-        stacklevel: OptionalArg<i32>,
+        stacklevel: StackLevelArg,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
         if vm.is_none(&encoding) {
@@ -5462,7 +5557,7 @@ mod _io {
                 "locale"
             };
             if vm.state.config.settings.warn_default_encoding {
-                let mut stacklevel = stacklevel.unwrap_or(2);
+                let mut stacklevel = stacklevel.stacklevel;
                 if stacklevel > 1
                     && let Some(code) = crate::frame::current_code()
                     && let Some(stdlib_dir) = vm.state.config.paths.stdlib_dir.as_deref()
@@ -5559,7 +5654,7 @@ mod fileio {
         common::wtf8::Wtf8Buf,
         convert::{IntoPyException, ToPyException},
         exceptions::OSErrorBuilder,
-        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
+        function::{ArgBytesLike, ArgMemoryBuffer},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
@@ -5584,11 +5679,12 @@ mod fileio {
     pub(super) struct FileIOArgs {
         #[pyarg(positional)]
         name: PyObjectRef,
-        #[pyarg(any, default)]
+        // Omitted mode is stored as rb.
+        #[pyarg(any, default, py_default = "'r'")]
         mode: Option<PyUtf8StrRef>,
         #[pyarg(any, default = true)]
         closefd: bool,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = None)]
         opener: Option<PyObjectRef>,
     }
 
@@ -6001,13 +6097,8 @@ mod fileio {
         }
 
         #[pymethod]
-        fn seek(
-            &self,
-            offset: PyObjectRef,
-            how: OptionalArg<i32>,
-            vm: &VirtualMachine,
-        ) -> PyResult<Offset> {
-            let how = how.unwrap_or(0);
+        fn seek(&self, offset: PyObjectRef, how: HowArg, vm: &VirtualMachine) -> PyResult<Offset> {
+            let how = how.how;
             let fd = self.get_fd(vm)?;
             let offset = get_offset(&offset, vm)?;
 
@@ -6021,9 +6112,9 @@ mod fileio {
         }
 
         #[pymethod]
-        fn truncate(&self, len: OptionalOption, vm: &VirtualMachine) -> PyResult<Offset> {
+        fn truncate(&self, len: ObjLen, vm: &VirtualMachine) -> PyResult<Offset> {
             let fd = self.get_fd(vm)?;
-            let len = match len.flatten() {
+            let len = match len.len {
                 Some(l) => get_offset(&l, vm)?,
                 None => host_io::tell(fd).map_err(|e| e.into_pyexception(vm))?,
             };
@@ -6094,7 +6185,7 @@ mod winconsoleio {
         builtins::{PyBaseExceptionRef, PyUtf8StrRef},
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::{IntoPyException, ToPyException},
-        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg},
+        function::{ArgBytesLike, ArgMemoryBuffer},
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -6518,7 +6609,7 @@ mod winconsoleio {
         }
 
         #[pymethod]
-        fn read(&self, size: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn read(&self, size: SignedSize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             if self.fd.load() < 0 {
                 return Err(io_closed_error(vm));
             }

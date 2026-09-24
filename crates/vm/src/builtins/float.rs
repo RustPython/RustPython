@@ -8,9 +8,7 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     common::{float_ops, format::FormatSpec, hash, wtf8::Wtf8Buf},
     convert::{IntoPyException, ToPyObject, ToPyResult},
-    function::{
-        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue,
-    },
+    function::{ArgBytesLike, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
@@ -252,6 +250,12 @@ pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
     })
 }
 
+#[derive(FromArgs)]
+struct RoundArgs {
+    #[pyarg(positional, default = None)]
+    ndigits: Option<PyIntRef>,
+}
+
 #[expect(
     clippy::trivially_copy_pass_by_ref,
     reason = "Needs to comply with a signature"
@@ -318,8 +322,8 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn __round__(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
-        let ndigits = ndigits.flatten();
+    fn __round__(&self, args: RoundArgs, vm: &VirtualMachine) -> PyResult {
+        let ndigits = args.ndigits;
         let value = if let Some(ndigits) = ndigits {
             let ndigits = ndigits.as_bigint();
             let ndigits = match ndigits.to_i32() {

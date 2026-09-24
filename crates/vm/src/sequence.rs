@@ -156,9 +156,11 @@ impl<T: Clone> SequenceMutExt<T> for Vec<T> {
 
 #[derive(FromArgs)]
 pub struct OptionalRangeArgs {
-    #[pyarg(positional, optional)]
+    // Missing means 0.
+    #[pyarg(positional, optional, py_default = "0")]
     start: OptionalArg<PyObjectRef>,
-    #[pyarg(positional, optional)]
+    // Platform ssize maximum. Missing is clamped to the sequence length.
+    #[pyarg(positional, optional, py_default = "9223372036854775807")]
     stop: OptionalArg<PyObjectRef>,
 }
 

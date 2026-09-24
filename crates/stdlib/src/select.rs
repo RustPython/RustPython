@@ -36,7 +36,7 @@ mod decl {
         Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyModule, PyTypeRef},
         convert::ToPyException,
-        function::{Either, OptionalOption},
+        function::Either,
         stdlib::time,
     };
 
@@ -60,15 +60,30 @@ mod decl {
         vm.ctx.exceptions.os_error.to_owned()
     }
 
+    #[derive(FromArgs)]
+    struct SelectArgs {
+        #[pyarg(positional)]
+        rlist: PyObjectRef,
+        #[pyarg(positional)]
+        wlist: PyObjectRef,
+        #[pyarg(positional)]
+        xlist: PyObjectRef,
+        #[pyarg(positional, default = None)]
+        timeout: Option<Either<f64, isize>>,
+    }
+
     #[pyfunction]
     fn select(
-        rlist: PyObjectRef,
-        wlist: PyObjectRef,
-        xlist: PyObjectRef,
-        timeout: OptionalOption<Either<f64, isize>>,
+        args: SelectArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(PyListRef, PyListRef, PyListRef)> {
-        let mut timeout = timeout.flatten().map(|e| match e {
+        let SelectArgs {
+            rlist,
+            wlist,
+            xlist,
+            timeout,
+        } = args;
+        let mut timeout = timeout.map(|e| match e {
             Either::A(f) => f,
             Either::B(i) => i as f64,
         });
@@ -681,7 +696,7 @@ mod decl {
             class_or_notimplemented,
             common::lock::{PyMutex, PyRwLock},
             convert::{IntoPyException, ToPyObject},
-            function::{OptionalArg, PyComparisonValue},
+            function::PyComparisonValue,
             types::{Comparable, Constructor, Destructor, PyComparisonOp, Representable},
         };
         use alloc::sync::Arc;
@@ -879,15 +894,15 @@ mod decl {
             changelist: PyObjectRef,
             #[pyarg(positional)]
             maxevents: i32,
-            #[pyarg(any, optional)]
-            timeout: OptionalArg<PyObjectRef>,
+            #[pyarg(any, default = None)]
+            timeout: Option<PyObjectRef>,
         }
 
         fn timespec_from_timeout(
-            timeout: OptionalArg<PyObjectRef>,
+            timeout: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<host_select::kqueue::Timespec>> {
-            let Some(obj) = timeout.into_option() else {
+            let Some(obj) = timeout else {
                 return Ok(None);
             };
             if vm.is_none(&obj) {

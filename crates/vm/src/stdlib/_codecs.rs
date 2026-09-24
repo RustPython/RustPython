@@ -17,7 +17,7 @@ mod _codecs {
         codecs,
         convert::TryFromObject,
         exceptions::nul_char_error,
-        function::{ArgBytesLike, OptionalArg, PosArgs},
+        function::{ArgBytesLike, PosArgs},
     };
 
     #[pyfunction]
@@ -45,9 +45,11 @@ mod _codecs {
     #[derive(FromArgs)]
     struct CodeArgs {
         obj: PyObjectRef,
-        #[pyarg(any, optional)]
+        // None is replaced with utf-8 before the codec runs.
+        #[pyarg(any, default = None, py_default = "'utf-8'")]
         encoding: Option<PyUtf8StrRef>,
-        #[pyarg(any, optional)]
+        // None is replaced with strict before the codec runs.
+        #[pyarg(any, default = None, py_default = "'strict'")]
         errors: Option<PyUtf8StrRef>,
     }
 
@@ -133,7 +135,7 @@ mod _codecs {
     struct EncodeArgs {
         #[pyarg(positional)]
         s: PyStrRef,
-        #[pyarg(positional, optional)]
+        #[pyarg(positional, default = None)]
         errors: Option<PyUtf8StrRef>,
     }
 
@@ -156,7 +158,7 @@ mod _codecs {
     struct DecodeArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(positional, optional)]
+        #[pyarg(positional, default = None)]
         errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default = false)]
         final_decode: bool,
@@ -178,7 +180,7 @@ mod _codecs {
     struct DecodeArgsNoFinal {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(positional, optional)]
+        #[pyarg(positional, default = None)]
         errors: Option<PyUtf8StrRef>,
     }
 
@@ -280,12 +282,13 @@ mod _codecs {
     struct EscapeEncodeArgs {
         #[pyarg(positional)]
         data: PyBytesRef,
-        #[pyarg(positional, optional)]
-        _errors: OptionalArg<PyUtf8StrRef>,
+        #[pyarg(positional, default = None)]
+        _errors: Option<PyUtf8StrRef>,
     }
 
     #[pyfunction]
     fn escape_encode(args: EscapeEncodeArgs, _vm: &VirtualMachine) -> (Vec<u8>, usize) {
+        let _ = args._errors;
         let encoded = encodings::escape::encode(args.data.as_bytes());
         (encoded, args.data.as_bytes().len())
     }
@@ -294,8 +297,8 @@ mod _codecs {
     struct EscapeDecodeArgs {
         #[pyarg(positional)]
         data: PyObjectRef,
-        #[pyarg(positional, optional)]
-        errors: OptionalArg<PyUtf8StrRef>,
+        #[pyarg(positional, default = None)]
+        errors: Option<PyUtf8StrRef>,
     }
 
     #[pyfunction]
@@ -307,7 +310,7 @@ mod _codecs {
                 .borrow_buf()
                 .to_vec()
         };
-        let name = args.errors.as_option().map_or("strict", |s| s.as_str());
+        let name = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let mode = encodings::escape::EscapeErrorMode::from_name(name).ok_or_else(|| {
             vm.new_value_error(format!(
                 "decoding error; unknown error handling code: {name}"
@@ -352,7 +355,7 @@ mod _codecs {
     struct EscapeTextDecodeArgs {
         #[pyarg(positional)]
         data: PyObjectRef,
-        #[pyarg(positional, optional)]
+        #[pyarg(positional, default = None)]
         errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default = true)]
         final_decode: bool,
@@ -485,7 +488,7 @@ mod _codecs {
     struct ExDecodeArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(positional, optional)]
+        #[pyarg(positional, default = None)]
         errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default = 0)]
         byteorder: i32,

@@ -25,13 +25,19 @@ mod _random {
         rng: PyMutex<MT19937>,
     }
 
+    #[derive(FromArgs)]
+    struct SeedArgs {
+        #[pyarg(positional, default = None)]
+        n: Option<PyObjectRef>,
+    }
+
     impl DefaultConstructor for PyRandom {}
 
     impl Initializer for PyRandom {
         type Args = OptionalOption;
 
         fn init(zelf: &Py<Self>, x: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.seed(x, vm)
+            zelf.seed(SeedArgs { n: x.flatten() }, vm)
         }
     }
 
@@ -44,8 +50,8 @@ mod _random {
         }
 
         #[pymethod]
-        fn seed(&self, n: OptionalOption<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
-            *self.rng.lock() = match n.flatten() {
+        fn seed(&self, args: SeedArgs, vm: &VirtualMachine) -> PyResult<()> {
+            *self.rng.lock() = match args.n {
                 Some(n) => {
                     // Fallback to using hash if object isn't Int-like.
                     let (_, mut key) = match n.downcast::<PyInt>() {

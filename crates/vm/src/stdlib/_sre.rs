@@ -290,11 +290,26 @@ mod _sre {
     }
 
     #[derive(FromArgs)]
+    struct GroupArg {
+        // Missing group is 0.
+        #[pyarg(positional, optional, py_default = "0")]
+        group: OptionalArg<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct DefaultArg {
+        // Missing default is None.
+        #[pyarg(positional, optional, py_default = "None")]
+        default: OptionalArg<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
     struct StringArgs {
         string: PyObjectRef,
         #[pyarg(any, default = 0)]
         pos: usize,
-        #[pyarg(any, default = sys::MAXSIZE as usize)]
+        // Platform ssize maximum.
+        #[pyarg(any, default = sys::MAXSIZE as usize, py_default = "9223372036854775807")]
         endpos: usize,
     }
 
@@ -471,7 +486,13 @@ mod _sre {
                         m.get_slice(zelf.groups, s, vm)
                             .unwrap_or_else(|| empty.clone())
                     } else {
-                        m.groups(OptionalArg::Present(empty.clone()), vm)?.into()
+                        m.groups(
+                            DefaultArg {
+                                default: OptionalArg::Present(empty.clone()),
+                            },
+                            vm,
+                        )?
+                        .into()
                     };
 
                     match_list.push(item);
@@ -847,21 +868,18 @@ mod _sre {
         }
 
         #[pymethod]
-        fn start(&self, group: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<isize> {
-            self.span(group, vm).map(|x| x.0)
+        fn start(&self, args: GroupArg, vm: &VirtualMachine) -> PyResult<isize> {
+            self.span(args, vm).map(|x| x.0)
         }
 
         #[pymethod]
-        fn end(&self, group: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<isize> {
-            self.span(group, vm).map(|x| x.1)
+        fn end(&self, args: GroupArg, vm: &VirtualMachine) -> PyResult<isize> {
+            self.span(args, vm).map(|x| x.1)
         }
 
         #[pymethod]
-        fn span(
-            &self,
-            group: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<(isize, isize)> {
+        fn span(&self, args: GroupArg, vm: &VirtualMachine) -> PyResult<(isize, isize)> {
+            let GroupArg { group } = args;
             let index = group.map_or(Ok(0), |group| {
                 self.get_index(&group, vm)
                     .ok_or_else(|| vm.new_index_error("no such group"))
@@ -925,12 +943,8 @@ mod _sre {
         }
 
         #[pymethod]
-        fn groups(
-            &self,
-            default: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyTupleRef> {
-            let default = default.unwrap_or_else(|| vm.ctx.none());
+        fn groups(&self, args: DefaultArg, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            let default = args.default.unwrap_or_else(|| vm.ctx.none());
 
             with_sre_str!(self.pattern, &self.string, vm, |str_drive| {
                 let v: Vec<PyObjectRef> = (1..self.regs.len())
@@ -944,12 +958,8 @@ mod _sre {
         }
 
         #[pymethod]
-        fn groupdict(
-            &self,
-            default: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyDictRef> {
-            let default = default.unwrap_or_else(|| vm.ctx.none());
+        fn groupdict(&self, args: DefaultArg, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+            let default = args.default.unwrap_or_else(|| vm.ctx.none());
 
             with_sre_str!(self.pattern, &self.string, vm, |str_drive| {
                 let dict = vm.ctx.new_dict();

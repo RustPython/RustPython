@@ -27,7 +27,7 @@ pub(crate) mod _elementtree {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine, atomic_func,
         builtins::{PyDict, PyDictRef, PyList, PyModule, PyStr, PyType, PyTypeRef},
-        function::{FuncArgs, OptionalArg, PySetterValue},
+        function::{FuncArgs, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
         sliceable::{SequenceIndex, SliceableSequenceOp},
         types::{
@@ -397,32 +397,48 @@ pub(crate) mod _elementtree {
     struct FindArgs {
         #[pyarg(any)]
         path: PyObjectRef,
-        #[pyarg(any, optional)]
-        namespaces: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        namespaces: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct FindTextArgs {
         #[pyarg(any)]
         path: PyObjectRef,
-        #[pyarg(any, optional)]
-        default: OptionalArg<PyObjectRef>,
-        #[pyarg(any, optional)]
-        namespaces: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        default: Option<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        namespaces: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct GetArgs {
         #[pyarg(any)]
         key: PyObjectRef,
-        #[pyarg(any, optional)]
-        default: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        default: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct IterArgs {
-        #[pyarg(any, optional)]
-        tag: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        tag: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct PiArgs {
+        #[pyarg(positional)]
+        target: PyObjectRef,
+        #[pyarg(positional, default = None)]
+        text: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct SetEventsArgs {
+        #[pyarg(positional)]
+        events_queue: PyObjectRef,
+        #[pyarg(positional, default = None)]
+        events_to_report: Option<PyObjectRef>,
     }
 
     impl Constructor for PyElement {
@@ -611,7 +627,7 @@ pub(crate) mod _elementtree {
 
         #[pymethod]
         fn get(&self, args: GetArgs, vm: &VirtualMachine) -> PyResult {
-            let default = args.default.unwrap_or_none(vm);
+            let default = args.default.unwrap_or_else(|| vm.ctx.none());
             let Some(attrib) = self.attrib_opt() else {
                 return Ok(default);
             };
@@ -663,7 +679,7 @@ pub(crate) mod _elementtree {
         #[pymethod]
         fn find(zelf: &Py<Self>, args: FindArgs, vm: &VirtualMachine) -> PyResult {
             let FindArgs { path, namespaces } = args;
-            let namespaces = namespaces.unwrap_or_none(vm);
+            let namespaces = namespaces.unwrap_or_else(|| vm.ctx.none());
             if check_path(&path) || !vm.is_none(&namespaces) {
                 let state = module_state(vm)?;
                 let element_path = state.element_path(vm)?;
@@ -687,8 +703,8 @@ pub(crate) mod _elementtree {
                 default,
                 namespaces,
             } = args;
-            let default = default.unwrap_or_none(vm);
-            let namespaces = namespaces.unwrap_or_none(vm);
+            let default = default.unwrap_or_else(|| vm.ctx.none());
+            let namespaces = namespaces.unwrap_or_else(|| vm.ctx.none());
             if check_path(&path) || !vm.is_none(&namespaces) {
                 let state = module_state(vm)?;
                 let element_path = state.element_path(vm)?;
@@ -717,7 +733,7 @@ pub(crate) mod _elementtree {
         #[pymethod]
         fn findall(zelf: &Py<Self>, args: FindArgs, vm: &VirtualMachine) -> PyResult {
             let FindArgs { path, namespaces } = args;
-            let namespaces = namespaces.unwrap_or_none(vm);
+            let namespaces = namespaces.unwrap_or_else(|| vm.ctx.none());
             if check_path(&path) || !vm.is_none(&namespaces) {
                 let state = module_state(vm)?;
                 let element_path = state.element_path(vm)?;
@@ -742,7 +758,7 @@ pub(crate) mod _elementtree {
         #[pymethod]
         fn iterfind(zelf: &Py<Self>, args: FindArgs, vm: &VirtualMachine) -> PyResult {
             let FindArgs { path, namespaces } = args;
-            let namespaces = namespaces.unwrap_or_none(vm);
+            let namespaces = namespaces.unwrap_or_else(|| vm.ctx.none());
             let state = module_state(vm)?;
             let element_path = state.element_path(vm)?;
             vm.call_method(
@@ -754,7 +770,7 @@ pub(crate) mod _elementtree {
 
         #[pymethod]
         fn iter(zelf: PyRef<Self>, args: IterArgs, vm: &VirtualMachine) -> PyElementIter {
-            let tag = args.tag.unwrap_or_none(vm);
+            let tag = args.tag.unwrap_or_else(|| vm.ctx.none());
             let tag = match tag.downcast_ref::<PyStr>() {
                 Some(s) if s.as_wtf8() == "*" => vm.ctx.none(),
                 _ => tag,
@@ -1771,13 +1787,8 @@ pub(crate) mod _elementtree {
         }
 
         #[pymethod]
-        fn pi(
-            &self,
-            target: PyObjectRef,
-            text: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            self.handle_pi(target, text.unwrap_or_none(vm), vm)
+        fn pi(&self, args: PiArgs, vm: &VirtualMachine) -> PyResult {
+            self.handle_pi(args.target, args.text.unwrap_or_else(|| vm.ctx.none()), vm)
         }
 
         #[pymethod]
@@ -2198,12 +2209,11 @@ pub(crate) mod _elementtree {
         }
 
         #[pymethod]
-        fn _setevents(
-            zelf: &Py<Self>,
-            events_queue: PyObjectRef,
-            events_to_report: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn _setevents(zelf: &Py<Self>, args: SetEventsArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let SetEventsArgs {
+                events_queue,
+                events_to_report,
+            } = args;
             let parser = zelf.check(vm)?;
             let Some(builder) = zelf.native_target(vm) else {
                 return Err(vm.new_type_error(
@@ -2211,7 +2221,11 @@ pub(crate) mod _elementtree {
                 ));
             };
             let append = events_queue.get_attr("append", vm)?;
-            builder.set_events(append, &events_to_report.unwrap_or_none(vm), vm)?;
+            builder.set_events(
+                append,
+                &events_to_report.unwrap_or_else(|| vm.ctx.none()),
+                vm,
+            )?;
             // Comments and processing instructions are only reported once
             // asked for, so their handlers are installed lazily here.
             let this = zelf.as_object();

@@ -588,12 +588,17 @@ pub(crate) mod _ctypes {
         }
     }
 
+    #[derive(FromArgs)]
+    pub(crate) struct ByRefArgs {
+        #[pyarg(positional)]
+        pub(crate) obj: PyObjectRef,
+        #[pyarg(positional, default = 0)]
+        pub(crate) offset: isize,
+    }
+
     #[pyfunction]
-    pub(crate) fn byref(
-        obj: PyObjectRef,
-        offset: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    pub(crate) fn byref(args: ByRefArgs, vm: &VirtualMachine) -> PyResult {
+        let ByRefArgs { obj, offset } = args;
         use super::CArgValue;
 
         // Check if obj is a ctypes instance
@@ -606,7 +611,7 @@ pub(crate) mod _ctypes {
             )));
         }
 
-        let offset_val = offset.unwrap_or(0);
+        let offset_val = offset;
 
         // Get buffer address: (char *)((CDataObject *)obj)->b_ptr + offset
         let ptr_val = if let Some(simple) = obj.downcast_ref::<PyCSimple>() {

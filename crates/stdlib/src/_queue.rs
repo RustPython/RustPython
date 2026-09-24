@@ -208,7 +208,7 @@ mod _queue {
             dead_code,
             reason = "Intentional. Provide compatibility with the Queue class"
         )]
-        #[pyarg(any, optional)]
+        #[pyarg(any, default = None)]
         timeout: Option<PyObjectRef>,
     }
 
@@ -216,7 +216,7 @@ mod _queue {
     struct GetArgs {
         #[pyarg(any, optional, default = true)]
         block: bool,
-        #[pyarg(any, optional)]
+        #[pyarg(any, default = None)]
         timeout: Option<TimeoutSeconds>,
     }
 

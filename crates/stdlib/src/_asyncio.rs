@@ -70,28 +70,28 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct CancelArgs {
-        #[pyarg(any, optional)]
-        msg: OptionalOption<PyObjectRef>,
+        #[pyarg(any, default = None)]
+        msg: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct LoopArg {
-        #[pyarg(any, name = "loop", optional)]
-        loop_: OptionalOption<PyObjectRef>,
+        #[pyarg(any, name = "loop", default = None)]
+        loop_: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct GetStackArgs {
-        #[pyarg(named, optional)]
-        limit: OptionalOption<PyObjectRef>,
+        #[pyarg(named, default = None)]
+        limit: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct PrintStackArgs {
-        #[pyarg(named, optional)]
-        limit: OptionalOption<PyObjectRef>,
-        #[pyarg(named, optional)]
-        file: OptionalOption<PyObjectRef>,
+        #[pyarg(named, default = None)]
+        limit: Option<PyObjectRef>,
+        #[pyarg(named, default = None)]
+        file: Option<PyObjectRef>,
     }
 
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -473,7 +473,7 @@ pub(crate) mod _asyncio {
                 return Ok(false);
             }
 
-            *zelf.fut_cancel_msg.write() = args.msg.flatten();
+            *zelf.fut_cancel_msg.write() = args.msg;
             zelf.fut_state.store(FutureState::Cancelled);
             Self::schedule_callbacks(&zelf, vm)?;
             Ok(true)
@@ -1540,7 +1540,7 @@ pub(crate) mod _asyncio {
             self.task_num_cancels_requested
                 .fetch_add(1, Ordering::SeqCst);
 
-            let msg_value = args.msg.flatten();
+            let msg_value = args.msg;
 
             let task_fut_waiter = self.task_fut_waiter.read().clone();
             if let Some(fut_waiter) = task_fut_waiter {
@@ -1643,7 +1643,7 @@ pub(crate) mod _asyncio {
 
         #[pymethod]
         fn get_stack(zelf: PyRef<Self>, args: GetStackArgs, vm: &VirtualMachine) -> PyResult {
-            let limit = args.limit.flatten().unwrap_or_else(|| vm.ctx.none());
+            let limit = args.limit.unwrap_or_else(|| vm.ctx.none());
             // vm.import returns the top-level module, get base_tasks submodule
             let asyncio = vm.import("asyncio.base_tasks", 0)?;
             let base_tasks = asyncio.get_attr(vm.ctx.intern_str("base_tasks"), vm)?;
@@ -1657,8 +1657,8 @@ pub(crate) mod _asyncio {
             args: PrintStackArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let limit = args.limit.flatten().unwrap_or_else(|| vm.ctx.none());
-            let file = args.file.flatten().unwrap_or_else(|| vm.ctx.none());
+            let limit = args.limit.unwrap_or_else(|| vm.ctx.none());
+            let file = args.file.unwrap_or_else(|| vm.ctx.none());
             // vm.import returns the top-level module, get base_tasks submodule
             let asyncio = vm.import("asyncio.base_tasks", 0)?;
             let base_tasks = asyncio.get_attr(vm.ctx.intern_str("base_tasks"), vm)?;
@@ -2479,9 +2479,15 @@ pub(crate) mod _asyncio {
             .unwrap_or_else(|| vm.ctx.none())
     }
 
+    #[derive(FromArgs)]
+    struct SetRunningLoopArgs {
+        #[pyarg(positional, name = "loop")]
+        loop_: Option<PyObjectRef>,
+    }
+
     #[pyfunction]
-    fn _set_running_loop(loop_: OptionalOption<PyObjectRef>, vm: &VirtualMachine) {
-        *vm.asyncio_running_loop.borrow_mut() = loop_.flatten();
+    fn _set_running_loop(args: SetRunningLoopArgs, vm: &VirtualMachine) {
+        *vm.asyncio_running_loop.borrow_mut() = args.loop_;
     }
 
     #[pyfunction]
@@ -2511,7 +2517,7 @@ pub(crate) mod _asyncio {
 
     #[pyfunction]
     fn current_task(args: LoopArg, vm: &VirtualMachine) -> PyResult {
-        let loop_obj = match args.loop_.flatten() {
+        let loop_obj = match args.loop_ {
             Some(l) if !vm.is_none(&l) => l,
             _ => {
                 // When loop is None or not provided, use the running loop
@@ -2554,7 +2560,7 @@ pub(crate) mod _asyncio {
 
     #[pyfunction]
     fn all_tasks(args: LoopArg, vm: &VirtualMachine) -> PyResult {
-        let loop_obj = match args.loop_.flatten() {
+        let loop_obj = match args.loop_ {
             Some(l) if !vm.is_none(&l) => l,
             _ => get_running_loop(vm)?,
         };
