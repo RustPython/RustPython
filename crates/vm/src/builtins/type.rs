@@ -2784,7 +2784,6 @@ impl Constructor for PyType {
                     kind: MemberKind::ObjectEx,
                     offset: crate::object::slot_member_offset(
                         typ.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF),
-                        typ.slots.member_count,
                         offset,
                     ),
                     flags: 0,

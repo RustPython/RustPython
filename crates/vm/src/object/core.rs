@@ -393,15 +393,16 @@ const EXT_OFFSET: usize = core::mem::size_of::<ObjExt>();
 
 /// Byte offset of member cell `index` from the start of `PyInner`.
 /// Cells live in front of the object, so the offset is negative.
-pub(crate) fn slot_member_offset(has_weakref: bool, member_count: usize, index: usize) -> isize {
+pub(crate) fn slot_member_offset(has_weakref: bool, index: usize) -> isize {
+    // Cell 0 sits directly in front of ObjExt. Higher indexes extend further
+    // forward, so a base class offset stays valid on a subclass with more slots.
     let ext_offset = if has_weakref {
         WEAKREF_OFFSET + EXT_OFFSET
     } else {
         EXT_OFFSET
     };
-    let region = slot_region_layout(member_count).map_or(0, |layout| layout.size());
-    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>() as isize;
-    -((ext_offset + region) as isize) + index as isize * cell
+    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+    -((ext_offset + (index + 1) * cell) as isize)
 }
 
 fn slot_region_layout(member_count: usize) -> Option<core::alloc::Layout> {
@@ -512,11 +513,15 @@ impl<T> PyInner<T> {
             return &[];
         };
         let (_, member_count) = self.read_type_flags();
-        let Some(region) = slot_region_layout(member_count) else {
+        if member_count == 0 {
             return &[];
-        };
-        let base = (ext as *const ObjExt).addr().wrapping_sub(region.size());
-        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<PyObject>>(base);
+        }
+        let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+        // Index 0 is the cell adjacent to ObjExt; index i is i cells before it.
+        let first = (ext as *const ObjExt)
+            .addr()
+            .wrapping_sub(member_count * cell);
+        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<PyObject>>(first);
         unsafe { core::slice::from_raw_parts(ptr, member_count) }
     }
 
@@ -2178,11 +2183,11 @@ impl PyObject {
         drop(self.slot_cell_at(byte_offset).store(value));
     }
 
-    fn slot_cell_at(&self, byte_offset: isize) -> &PyAtomicRef<PyObject> {
+    fn slot_cell_at(&self, byte_offset: isize) -> &PyAtomicRef<Self> {
         let addr = (self as *const Self as *const u8)
             .addr()
             .wrapping_add(byte_offset as usize);
-        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<PyObject>>(addr);
+        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<Self>>(addr);
         unsafe { &*ptr }
     }
 
