@@ -913,7 +913,7 @@ pub mod sys {
             }
         };
 
-        match vm.get_attribute_opt(module, &vm.ctx.new_str(attr_name)) {
+        match vm.get_attribute_opt(&module, &vm.ctx.new_str(attr_name)) {
             Ok(Some(hook)) => hook.as_ref().call(args, vm),
             _ => print_unimportable_module_warn(),
         }

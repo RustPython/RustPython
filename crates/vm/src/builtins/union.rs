@@ -65,19 +65,19 @@ impl PyUnion {
             }
 
             if vm
-                .get_attribute_opt(obj.to_owned(), identifier!(vm, __origin__))?
+                .get_attribute_opt(obj, identifier!(vm, __origin__))?
                 .is_some()
                 && vm
-                    .get_attribute_opt(obj.to_owned(), identifier!(vm, __args__))?
+                    .get_attribute_opt(obj, identifier!(vm, __args__))?
                     .is_some()
             {
                 return Ok(obj.repr(vm)?.to_string());
             }
 
             match (
-                vm.get_attribute_opt(obj.to_owned(), identifier!(vm, __qualname__))?
+                vm.get_attribute_opt(obj, identifier!(vm, __qualname__))?
                     .and_then(|o| o.downcast_ref::<PyStr>().map(|n| n.to_string())),
-                vm.get_attribute_opt(obj.to_owned(), identifier!(vm, __module__))?
+                vm.get_attribute_opt(obj, identifier!(vm, __module__))?
                     .and_then(|o| o.downcast_ref::<PyStr>().map(|m| m.to_string())),
             ) {
                 (None, _) | (_, None) => Ok(obj.repr(vm)?.to_string()),

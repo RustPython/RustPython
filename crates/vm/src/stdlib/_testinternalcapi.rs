@@ -1628,14 +1628,14 @@ fn run_string_in_new_subinterp(
                 match target.run_code_obj(code, scope) {
                     Ok(_) => Ok(0),
                     Err(exc) => {
-                        target.print_exception(exc);
+                        target.print_exception(&exc);
                         Ok(-1)
                     }
                 }
             }
             Err(err) => {
                 let exc = err.into_pyexception(target, Some(source));
-                target.print_exception(exc);
+                target.print_exception(&exc);
                 Ok(-1)
             }
         }

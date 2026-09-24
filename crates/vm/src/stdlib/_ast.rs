@@ -81,7 +81,7 @@ fn is_ast_instance(vm: &VirtualMachine, object: &PyObject) -> PyResult<bool> {
 }
 
 fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &'static str, typ: &str) -> PyResult {
-    vm.get_attribute_opt(obj.to_owned(), field)?
+    vm.get_attribute_opt(obj, field)?
         .ok_or_else(|| vm.new_type_error(format!(r#"required field "{field}" missing from {typ}"#)))
 }
 
@@ -134,7 +134,7 @@ fn get_node_field_opt(
     field: &'static str,
 ) -> PyResult<Option<PyObjectRef>> {
     Ok(vm
-        .get_attribute_opt(obj.to_owned(), field)?
+        .get_attribute_opt(obj, field)?
         .filter(|obj| !vm.is_none(obj)))
 }
 
@@ -156,7 +156,7 @@ fn get_node_list_field_object(
     field: &'static str,
     typ: &str,
 ) -> PyResult<PyObjectRef> {
-    let Some(value) = vm.get_attribute_opt(obj.to_owned(), field)? else {
+    let Some(value) = vm.get_attribute_opt(obj, field)? else {
         return Ok(vm.ctx.new_list(Vec::new()).into());
     };
     value.downcast_ref::<PyList>().ok_or_else(|| {
@@ -422,7 +422,7 @@ fn get_attribute_from_field(
     let field = field
         .downcast::<PyStr>()
         .map_err(|_| vm.new_type_error("attribute name must be string"))?;
-    vm.get_attribute_opt(obj.to_owned(), &field)
+    vm.get_attribute_opt(obj, &field)
 }
 
 #[derive(Default)]
@@ -527,7 +527,7 @@ fn copy_ast_passthrough_fields(
         };
 
     for field in fields {
-        if let Some(value) = vm.get_attribute_opt(source.to_owned(), *field)? {
+        if let Some(value) = vm.get_attribute_opt(source, *field)? {
             target.set_attr(*field, value, vm)?;
         }
     }
@@ -569,7 +569,7 @@ fn get_ast_location_field(
     field: &'static str,
 ) -> PyResult<Option<PyObjectRef>> {
     Ok(vm
-        .get_attribute_opt(object.to_owned(), field)?
+        .get_attribute_opt(object, field)?
         .filter(|value| !vm.is_none(value)))
 }
 
@@ -705,50 +705,50 @@ fn synthetic_source_from_ast_object(vm: &VirtualMachine, object: &PyObject) -> P
 fn range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     name: &str,
 ) -> PyResult<TextRange> {
-    range_from_object_impl(vm, source_file, &object, name, false)
+    range_from_object_impl(vm, source_file, object, name, false)
 }
 
 fn type_param_range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<TextRange> {
-    range_from_object_impl(vm, source_file, &object, "type_param", true)
+    range_from_object_impl(vm, source_file, object, "type_param", true)
 }
 
 fn expr_range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<TextRange> {
-    range_from_object_impl(vm, source_file, &object, "expr", false)
+    range_from_object_impl(vm, source_file, object, "expr", false)
 }
 
 fn stmt_range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<TextRange> {
-    range_from_object_impl(vm, source_file, &object, "stmt", false)
+    range_from_object_impl(vm, source_file, object, "stmt", false)
 }
 
 fn pattern_range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<TextRange> {
-    range_from_object_impl(vm, source_file, &object, "pattern", true)
+    range_from_object_impl(vm, source_file, object, "pattern", true)
 }
 
 fn excepthandler_range_from_object(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<TextRange> {
-    range_from_object_impl(vm, source_file, &object, "excepthandler", false)
+    range_from_object_impl(vm, source_file, object, "excepthandler", false)
 }
 
 fn excepthandler_range_from_object_unvalidated(
@@ -1562,7 +1562,7 @@ fn node_list_field(
     object: &PyObject,
     field: &'static str,
 ) -> Vec<PyObjectRef> {
-    vm.get_attribute_opt(object.to_owned(), field)
+    vm.get_attribute_opt(object, field)
         .ok()
         .flatten()
         .and_then(|value| {
@@ -1578,7 +1578,7 @@ fn node_optional_field(
     object: &PyObject,
     field: &'static str,
 ) -> Option<PyObjectRef> {
-    vm.get_attribute_opt(object.to_owned(), field)
+    vm.get_attribute_opt(object, field)
         .ok()
         .flatten()
         .filter(|value| !vm.is_none(value))

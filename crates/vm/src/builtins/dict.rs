@@ -166,7 +166,7 @@ impl PyDict {
             Err(e) => return Err(e),
         };
         if !has_keys {
-            return self.merge_from_seq2(other, override_existing, vm);
+            return self.merge_from_seq2(&other, override_existing, vm);
         }
         Ok(())
     }
@@ -252,7 +252,7 @@ impl PyDict {
 
     pub fn merge_from_seq2(
         &self,
-        seq2: PyObjectRef,
+        seq2: &PyObject,
         override_existing: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -628,11 +628,7 @@ impl DefaultConstructor for PyDict {}
 impl Initializer for PyDict {
     type Args = (OptionalArg<PyObjectRef>, KwArgs);
 
-    fn init(
-        zelf: PyRef<Self>,
-        (dict_obj, kwargs): Self::Args,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, (dict_obj, kwargs): Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         zelf.update(dict_obj, kwargs, vm)
     }
 }
@@ -1822,7 +1818,7 @@ fn vectorcall_dict(
     let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
     let obj = PyDict::default().into_ref_with_type(vm, zelf.to_owned())?;
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
-    PyDict::slot_init(obj.clone().into(), func_args, vm)?;
+    PyDict::slot_init(obj.as_object(), func_args, vm)?;
     Ok(obj.into())
 }
 

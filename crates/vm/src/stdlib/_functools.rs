@@ -550,16 +550,18 @@ mod _functools {
 
     impl GetDescriptor for PyPartial {
         fn descr_get(
-            zelf: PyObjectRef,
-            obj: Option<PyObjectRef>,
-            _cls: Option<PyObjectRef>,
+            zelf: &PyObject,
+            obj: Option<&PyObject>,
+            _cls: Option<&PyObject>,
             vm: &VirtualMachine,
         ) -> PyResult {
             let obj = match obj {
-                Some(obj) if !vm.is_none(&obj) => obj,
-                _ => return Ok(zelf),
+                Some(obj) if !vm.is_none(obj) => obj,
+                _ => return Ok(zelf.to_owned()),
             };
-            Ok(PyBoundMethod::new(obj, zelf).into_ref(&vm.ctx).into())
+            Ok(PyBoundMethod::new(obj.to_owned(), zelf.to_owned())
+                .into_ref(&vm.ctx)
+                .into())
         }
     }
 
@@ -895,16 +897,18 @@ mod _functools {
 
     impl GetDescriptor for PyLruCacheWrapper {
         fn descr_get(
-            zelf: PyObjectRef,
-            obj: Option<PyObjectRef>,
-            _cls: Option<PyObjectRef>,
+            zelf: &PyObject,
+            obj: Option<&PyObject>,
+            _cls: Option<&PyObject>,
             vm: &VirtualMachine,
         ) -> PyResult {
             let obj = match obj {
-                Some(obj) if !vm.is_none(&obj) => obj,
-                _ => return Ok(zelf),
+                Some(obj) if !vm.is_none(obj) => obj,
+                _ => return Ok(zelf.to_owned()),
             };
-            Ok(PyBoundMethod::new(obj, zelf).into_ref(&vm.ctx).into())
+            Ok(PyBoundMethod::new(obj.to_owned(), zelf.to_owned())
+                .into_ref(&vm.ctx)
+                .into())
         }
     }
 }

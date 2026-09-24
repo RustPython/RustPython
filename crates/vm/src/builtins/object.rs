@@ -114,7 +114,7 @@ impl Initializer for PyBaseObject {
     type Args = FuncArgs;
 
     // object_init: excess_args validation
-    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         if args.is_empty() {
             return Ok(());
         }
@@ -152,7 +152,7 @@ impl Initializer for PyBaseObject {
         Ok(())
     }
 
-    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+    fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
         unreachable!("slot_init is defined")
     }
 }
@@ -505,7 +505,7 @@ impl PyBaseObject {
     #[pymethod]
     fn __reduce_ex__(zelf: PyObjectRef, protocol: usize, vm: &VirtualMachine) -> PyResult {
         let __reduce__ = identifier!(vm, __reduce__);
-        if let Some(reduce) = vm.get_attribute_opt(zelf.clone(), __reduce__)? {
+        if let Some(reduce) = vm.get_attribute_opt(&zelf, __reduce__)? {
             let object_reduce = vm.ctx.types.object_type.get_attr(__reduce__).unwrap();
             let typ_obj: PyObjectRef = zelf.class().to_owned().into();
             let class_reduce = typ_obj.get_attr(__reduce__, vm)?;

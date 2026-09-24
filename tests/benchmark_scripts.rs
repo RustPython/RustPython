@@ -40,7 +40,7 @@ fn pyperformance_benchmarks_run_in_rustpython() {
                     .unwrap_or_else(|err| panic!("failed to compile {}: {err}", path.display()));
                 let scope = vm.new_scope_with_builtins();
                 if let Err(err) = vm.run_code_obj(code, scope) {
-                    vm.print_exception(err);
+                    vm.print_exception(&err);
                     panic!("failed to execute {}", path.display());
                 }
             });
@@ -78,7 +78,7 @@ assert decimal.getcontext().prec == decimal_precision
         .interpreter()
         .enter(|vm| {
             if let Err(err) = vm.run_simple_string(source) {
-                vm.print_exception(err);
+                vm.print_exception(&err);
                 panic!("pyperformance benchmarks leaked interpreter state");
             }
         });

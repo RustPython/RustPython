@@ -1452,18 +1452,19 @@ impl Representable for PyCField {
 /// PyCField_get
 impl GetDescriptor for PyCField {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let zelf = zelf
+            .to_owned()
             .downcast::<Self>()
             .map_err(|_| vm.new_type_error("expected CField"))?;
 
         // If obj is None, return the descriptor itself (class attribute access)
         let obj = match obj {
-            Some(obj) if !vm.is_none(&obj) => obj,
+            Some(obj) if !vm.is_none(obj) => obj.to_owned(),
             _ => return Ok(zelf.into()),
         };
 

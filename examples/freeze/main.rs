@@ -14,7 +14,7 @@ fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {
     let res = vm.run_code_obj(vm.ctx.new_code(module), scope);
 
     if let Err(exc) = res {
-        vm.print_exception(exc);
+        vm.print_exception(&exc);
     }
 
     Ok(())

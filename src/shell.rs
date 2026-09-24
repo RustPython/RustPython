@@ -213,7 +213,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                     vm.ctx.exceptions.os_error.to_owned(),
                     format!("{num:?}").into(),
                 );
-                vm.print_exception(os_error);
+                vm.print_exception(&os_error);
                 break;
             }
             ReadlineResult::Other(err) => {
@@ -231,7 +231,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 repl.save_history(&repl_history_path).unwrap();
                 return Err(exc);
             }
-            vm.print_exception(exc);
+            vm.print_exception(&exc);
         }
         flush_stdio(vm);
     }

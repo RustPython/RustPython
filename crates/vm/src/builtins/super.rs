@@ -6,7 +6,7 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 
 use super::{PyStr, PyType, PyTypeRef};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::function::PyCell,
     class::PyClassImpl,
     common::lock::PyRwLock,
@@ -71,7 +71,7 @@ impl Initializer for PySuper {
     type Args = InitArgs;
 
     fn init(
-        zelf: PyRef<Self>,
+        zelf: &Py<Self>,
         Self::Args { py_type, py_obj }: Self::Args,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -203,8 +203,12 @@ impl GetAttr for PySuper {
                     .call_get_descriptor_specific(
                         &descr,
                         // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
-                        if obj.is(&start_type) { None } else { Some(obj) },
-                        Some(start_type.as_object().to_owned()),
+                        if obj.is(&start_type) {
+                            None
+                        } else {
+                            Some(&obj)
+                        },
+                        Some(start_type.as_object()),
                     )
                     .unwrap_or(Ok(descr));
             }
@@ -215,26 +219,26 @@ impl GetAttr for PySuper {
 
 impl GetDescriptor for PySuper {
     fn descr_get(
-        zelf_obj: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf_obj: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(&zelf_obj, obj, vm)?;
-        if vm.is_none(&obj) || zelf.inner.read().obj.is_some() {
-            return Ok(zelf_obj);
+        let (zelf, obj) = Self::_unwrap(zelf_obj, obj, vm)?;
+        if vm.is_none(obj) || zelf.inner.read().obj.is_some() {
+            return Ok(zelf_obj.to_owned());
         }
         let zelf_class = zelf.as_object().class();
         if zelf_class.is(vm.ctx.types.super_type) {
             let typ = zelf.inner.read().typ.clone();
             Ok(Self {
-                inner: PyRwLock::new(PySuperInner::new(typ, obj, vm)?),
+                inner: PyRwLock::new(PySuperInner::new(typ, obj.to_owned(), vm)?),
             }
             .into_ref(&vm.ctx)
             .into())
         } else {
             let typ = zelf.inner.read().typ.clone();
-            PyType::call(zelf.class(), (typ, obj).into_args(vm), vm)
+            PyType::call(zelf.class(), (typ, obj.to_owned()).into_args(vm), vm)
         }
     }
 }

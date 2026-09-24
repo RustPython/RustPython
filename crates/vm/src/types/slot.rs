@@ -327,12 +327,12 @@ pub(crate) type RichCompareFunc = fn(
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
 pub(crate) type IterNextFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyIterReturn>;
 pub(crate) type DescrGetFunc =
-    fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
+    fn(&PyObject, Option<&PyObject>, Option<&PyObject>, &VirtualMachine) -> PyResult;
 pub(crate) type DescrSetFunc =
     fn(&PyObject, PyObjectRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AllocFunc = fn(PyTypeRef, usize, &VirtualMachine) -> PyResult;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
-pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
+pub(crate) type InitFunc = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
 
 // Sequence sub-slot function types
@@ -691,15 +691,19 @@ fn iternext_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterRetu
 }
 
 fn descr_get_wrapper(
-    zelf: PyObjectRef,
-    obj: Option<PyObjectRef>,
-    cls: Option<PyObjectRef>,
+    zelf: &PyObject,
+    obj: Option<&PyObject>,
+    cls: Option<&PyObject>,
     vm: &VirtualMachine,
 ) -> PyResult {
     // A descriptor whose `__get__` is the descriptor itself resolves it by
     // fetching `__get__` again, and none of that pushes a Python frame.
     vm.with_recursion("while calling a Python object", || {
-        vm.call_special_method(&zelf, identifier!(vm, __get__), (obj, cls))
+        vm.call_special_method(
+            zelf,
+            identifier!(vm, __get__),
+            (obj.map(PyObject::to_owned), cls.map(PyObject::to_owned)),
+        )
     })
 }
 
@@ -718,8 +722,8 @@ fn descr_set_wrapper(
     .map(drop)
 }
 
-fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-    let res = vm.call_special_method(&obj, identifier!(vm, __init__), args)?;
+fn init_wrapper(obj: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    let res = vm.call_special_method(obj, identifier!(vm, __init__), args)?;
     if !vm.is_none(&res) {
         return Err(vm.new_type_error(format!(
             "__init__() should return None, not '{:.200}'",
@@ -1857,7 +1861,7 @@ pub trait DefaultConstructor: PyPayload + Default + core::fmt::Debug {
         Self: Initializer,
     {
         let this = Self::default().into_ref(&vm.ctx);
-        Self::init(this.clone(), args, vm)?;
+        Self::init(&this, args, vm)?;
         Ok(this)
     }
 }
@@ -1883,11 +1887,11 @@ pub trait Initializer: PyPayload {
 
     #[inline]
     #[pyslot]
-    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         #[cfg(debug_assertions)]
         let class_name_for_debug = zelf.class().name().to_string();
 
-        let zelf = match zelf.try_into_value(vm) {
+        let zelf = match zelf.try_to_ref::<Self>(vm) {
             Ok(zelf) => zelf,
             Err(err) => {
                 #[cfg(debug_assertions)]
@@ -1911,7 +1915,7 @@ pub trait Initializer: PyPayload {
         Self::init(zelf, args, vm)
     }
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()>;
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()>;
 }
 
 #[pyclass]
@@ -1957,9 +1961,9 @@ pub trait Callable: PyPayload {
 pub trait GetDescriptor: PyPayload {
     #[pyslot]
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult;
 
@@ -1969,22 +1973,22 @@ pub trait GetDescriptor: PyPayload {
     }
 
     #[inline]
-    fn _unwrap<'a>(
+    fn _unwrap<'a, 'b>(
         zelf: &'a PyObject,
-        obj: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<(&'a Py<Self>, PyObjectRef)> {
+        obj: Option<&'b PyObject>,
+        vm: &'b VirtualMachine,
+    ) -> PyResult<(&'a Py<Self>, &'b PyObject)> {
         let zelf = Self::_as_pyref(zelf, vm)?;
-        let obj = vm.unwrap_or_none(obj);
+        let obj = obj.unwrap_or_else(|| vm.ctx.none.as_object());
         Ok((zelf, obj))
     }
 
     #[inline]
-    fn _check<'a>(
+    fn _check<'a, 'b>(
         zelf: &'a PyObject,
-        obj: Option<PyObjectRef>,
+        obj: Option<&'b PyObject>,
         vm: &VirtualMachine,
-    ) -> Option<(&'a Py<Self>, PyObjectRef)> {
+    ) -> Option<(&'a Py<Self>, &'b PyObject)> {
         // CPython descr_check
         let obj = obj?;
         // if (!PyObject_TypeCheck(obj, descr->d_type)) {
@@ -2001,8 +2005,8 @@ pub trait GetDescriptor: PyPayload {
     }
 
     #[inline]
-    fn _cls_is(cls: &Option<PyObjectRef>, other: &impl Borrow<PyObject>) -> bool {
-        cls.as_ref().is_some_and(|cls| other.borrow().is(cls))
+    fn _cls_is(cls: &Option<&PyObject>, other: &impl Borrow<PyObject>) -> bool {
+        cls.is_some_and(|cls| other.borrow().is(cls))
     }
 }
 

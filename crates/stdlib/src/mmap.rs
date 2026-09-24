@@ -656,7 +656,7 @@ mod mmap {
                 ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                     let zelf = PyMmap::mapping_downcast(mapping);
                     if let Some(value) = value {
-                        PyMmap::setitem_inner(zelf, needle, value, vm)
+                        PyMmap::setitem_inner(zelf, needle, &value, vm)
                     } else {
                         Err(vm
                             .new_type_error("mmap object doesn't support item deletion".to_owned()))
@@ -1244,7 +1244,7 @@ mod mmap {
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            Self::setitem_inner(zelf, needle, value, vm)
+            Self::setitem_inner(zelf, needle, &value, vm)
         }
 
         #[pymethod]
@@ -1354,12 +1354,12 @@ mod mmap {
         fn setitem_inner(
             zelf: &Py<Self>,
             needle: &PyObject,
-            value: PyObjectRef,
+            value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
-                SequenceIndex::Int(i) => Self::setitem_by_index(zelf, i, &value, vm),
-                SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, &slice, &value, vm),
+                SequenceIndex::Int(i) => Self::setitem_by_index(zelf, i, value, vm),
+                SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, &slice, value, vm),
             }
         }
 

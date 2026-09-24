@@ -602,14 +602,14 @@ pub(crate) mod ordered_dict {
     impl Initializer for PyOrderedDict {
         type Args = FuncArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             if args.args.len() > 1 {
                 return Err(vm.new_type_error(format!(
                     "OrderedDict expected at most 1 argument, got {}",
                     args.args.len()
                 )));
             }
-            Self::update(zelf, args, vm)
+            Self::update(zelf.to_owned(), args, vm)
         }
     }
 

@@ -409,7 +409,7 @@ impl PyList {
             let version_before = self.mutation_counter.load(Ordering::Relaxed);
             (core::mem::take(&mut *guard), version_before)
         };
-        let res = do_sort(vm, &mut elements, options.key, options.reverse);
+        let res = do_sort(vm, &mut elements, options.key.as_deref(), options.reverse);
         let mutated = {
             let mut guard = self.elements.write();
             let mutated = self.mutation_counter.load(Ordering::Relaxed) != version_before;
@@ -484,9 +484,9 @@ impl Constructor for PyList {
 impl Initializer for PyList {
     type Args = OptionalArg<PyObjectRef>;
 
-    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         let list_type = vm.ctx.types.list_type;
-        let cls = zelf.class().to_owned();
+        let cls = zelf.class();
         let uses_list_new = {
             let cls_new = cls.slots.new.load().map(crate::types::fn_addr);
             let list_new = list_type.slots.new.load().map(crate::types::fn_addr);
@@ -503,10 +503,10 @@ impl Initializer for PyList {
                 }
             }
         };
-        Self::init(zelf.try_into_value(vm)?, iterable, vm)
+        Self::init(zelf.try_to_ref(vm)?, iterable, vm)
     }
 
-    fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = if let OptionalArg::Present(iterable) = iterable {
             vm.extract_elements_sized(&iterable, &|| 0, Ok)?
         } else {
@@ -882,10 +882,10 @@ where
 fn do_sort(
     vm: &VirtualMachine,
     values: &mut Vec<PyObjectRef>,
-    key_func: Option<PyObjectRef>,
+    key_func: Option<&PyObject>,
     reverse: bool,
 ) -> PyResult<()> {
-    if let Some(ref key_func) = key_func {
+    if let Some(key_func) = key_func {
         let mut items = values
             .iter()
             .map(|x| Ok((x.clone(), key_func.call((x.clone(),), vm)?)))
@@ -1027,7 +1027,7 @@ fn vectorcall_list(
     let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
     let obj = PyList::default().into_ref_with_type(vm, zelf.to_owned())?;
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
-    PyList::slot_init(obj.clone().into(), func_args, vm)?;
+    PyList::slot_init(obj.as_object(), func_args, vm)?;
     Ok(obj.into())
 }
 

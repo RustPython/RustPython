@@ -6,7 +6,7 @@ pub(crate) use _random::module_def;
 mod _random {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyInt, PyTupleRef},
         function::OptionalOption,
         types::{Constructor, Initializer},
@@ -30,7 +30,7 @@ mod _random {
     impl Initializer for PyRandom {
         type Args = OptionalOption;
 
-        fn init(zelf: PyRef<Self>, x: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, x: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             zelf.seed(x, vm)
         }
     }

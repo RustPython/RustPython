@@ -5,7 +5,7 @@ use super::{
     },
 };
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::{PyClassDef, PyClassImpl},
     common::lock::PyMutex,
     function::{FuncArgs, PySetterValue},
@@ -27,12 +27,12 @@ impl PyPayload for PyStaticMethod {
 
 impl GetDescriptor for PyStaticMethod {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, _obj) = Self::_unwrap(&zelf, obj, vm)?;
+        let (zelf, _obj) = Self::_unwrap(zelf, obj, vm)?;
         Ok(zelf.callable.lock().clone())
     }
 }
@@ -83,7 +83,7 @@ impl PyStaticMethod {
 impl Initializer for PyStaticMethod {
     type Args = PyObjectRef;
 
-    fn init(zelf: PyRef<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         *zelf.callable.lock() = callable.clone();
         functools_wraps(zelf.as_object(), &callable, vm)
     }
@@ -162,7 +162,7 @@ impl PyStaticMethod {
     fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyObjectRef {
         let callable = self.callable.lock().clone();
 
-        if let Ok(Some(is_abstract)) = vm.get_attribute_opt(callable, "__isabstractmethod__") {
+        if let Ok(Some(is_abstract)) = vm.get_attribute_opt(&callable, "__isabstractmethod__") {
             is_abstract
         } else {
             vm.ctx.new_bool(false).into()

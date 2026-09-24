@@ -149,7 +149,7 @@ mod _warnings {
             category,
             level,
             args.source.into_option(),
-            skip_prefixes,
+            skip_prefixes.as_deref(),
             vm,
         )
     }

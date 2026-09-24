@@ -72,7 +72,7 @@ impl PyCodec {
     }
 
     pub fn is_text_codec(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        let is_text = vm.get_attribute_opt(self.0.clone().into(), "_is_text_encoding")?;
+        let is_text = vm.get_attribute_opt(self.0.as_object(), "_is_text_encoding")?;
         is_text.map_or(Ok(true), |is_text| is_text.try_to_bool(vm))
     }
 
@@ -215,7 +215,7 @@ impl CodecsRegistry {
         Ok(())
     }
 
-    pub fn unregister(&self, search_function: PyObjectRef) {
+    pub fn unregister(&self, search_function: &PyObject) {
         let mut inner = self.inner.write();
         // Do nothing if search_path is not created yet or was cleared.
         if inner.search_path.is_empty() {

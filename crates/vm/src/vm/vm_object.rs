@@ -37,7 +37,7 @@ impl VirtualMachine {
                 }
             },
             _ => {
-                self.print_exception(exc);
+                self.print_exception(&exc);
                 self.flush_std();
                 panic!("{msg}")
             }
@@ -106,20 +106,19 @@ impl VirtualMachine {
     pub fn call_get_descriptor_specific(
         &self,
         descr: &PyObject,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
     ) -> Option<PyResult> {
         let descr_get = descr.class().slots.descr_get.load()?;
-        Some(descr_get(descr.to_owned(), obj, cls, self))
+        Some(descr_get(descr, obj, cls, self))
     }
 
-    pub fn call_get_descriptor(&self, descr: &PyObject, obj: PyObjectRef) -> Option<PyResult> {
-        let cls = obj.class().to_owned().into();
-        self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
+    pub fn call_get_descriptor(&self, descr: &PyObject, obj: &PyObject) -> Option<PyResult> {
+        self.call_get_descriptor_specific(descr, Some(obj), Some(obj.class().as_object()))
     }
 
     pub fn call_if_get_descriptor(&self, attr: &PyObject, obj: PyObjectRef) -> PyResult {
-        self.call_get_descriptor(attr, obj)
+        self.call_get_descriptor(attr, &obj)
             .unwrap_or_else(|| Ok(attr.to_owned()))
     }
 

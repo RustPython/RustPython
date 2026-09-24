@@ -45,22 +45,22 @@ pub struct PropertyArgs {
 
 impl GetDescriptor for PyProperty {
     fn descr_get(
-        zelf_obj: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf_obj: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(&zelf_obj, obj, vm)?;
-        if vm.is_none(&obj) {
-            return Ok(zelf_obj);
+        let (zelf, obj) = Self::_unwrap(zelf_obj, obj, vm)?;
+        if vm.is_none(obj) {
+            return Ok(zelf_obj.to_owned());
         }
 
         // Clone and release lock before calling Python code to prevent deadlock
         let value = zelf.getter.read().clone();
         if let Some(getter) = value {
-            getter.call((obj,), vm)
+            getter.call((obj.to_owned(),), vm)
         } else {
-            let error_msg = zelf.format_property_error(&obj, "getter", vm)?;
+            let error_msg = zelf.format_property_error(obj, "getter", vm)?;
             Err(vm.new_attribute_error(error_msg))
         }
     }
@@ -235,7 +235,7 @@ impl PyProperty {
         // Create new property using py_new and init
         let new_prop = Self::slot_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
         let new_prop_ref = new_prop.downcast::<Self>().unwrap();
-        Self::init(new_prop_ref.clone(), args, vm)?;
+        Self::init(&new_prop_ref, args, vm)?;
 
         // Copy the name if it exists
         let value = zelf.name.read().clone();
@@ -364,7 +364,7 @@ impl Constructor for PyProperty {
 impl Initializer for PyProperty {
     type Args = PropertyArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Set doc and getter_doc flag
         let mut getter_doc = false;
 

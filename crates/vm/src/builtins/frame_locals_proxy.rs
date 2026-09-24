@@ -167,7 +167,7 @@ impl FrameLocalsProxy {
     #[pymethod]
     fn setdefault(&self, key: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
         self.frame
-            .framelocalsproxy_setdefault(key, default.unwrap_or_none(vm), vm)
+            .framelocalsproxy_setdefault(&key, default.unwrap_or_none(vm), vm)
     }
 
     #[pymethod]

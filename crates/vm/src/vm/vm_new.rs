@@ -467,7 +467,7 @@ impl VirtualMachine {
             cls.name()
         );
         let obj = T::slot_new(cls, args.clone(), self)?;
-        T::slot_init(obj.clone(), args, self)?;
+        T::slot_init(&obj, args, self)?;
         obj.downcast().map_err(|obj| {
             self.new_type_error(format!(
                 "payload constructor returned '{}'",

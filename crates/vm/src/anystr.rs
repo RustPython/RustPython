@@ -49,7 +49,11 @@ pub(crate) struct StartsEndsWithArgs {
 impl StartsEndsWithArgs {
     pub(crate) fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
         let range = if self.start.is_some() || self.end.is_some() {
-            Some(adjust_indices(self.start, self.end, len))
+            Some(adjust_indices(
+                self.start.as_deref(),
+                self.end.as_deref(),
+                len,
+            ))
         } else {
             None
         };
@@ -88,12 +92,12 @@ fn saturate_to_isize(py_int: &Py<PyInt>) -> isize {
 
 // help get optional string indices
 pub(crate) fn adjust_indices(
-    start: Option<PyIntRef>,
-    end: Option<PyIntRef>,
+    start: Option<&Py<PyInt>>,
+    end: Option<&Py<PyInt>>,
     len: usize,
 ) -> Range<usize> {
-    let mut start = start.as_deref().map_or(0, saturate_to_isize);
-    let mut end = end.as_deref().map_or(len as isize, saturate_to_isize);
+    let mut start = start.map_or(0, saturate_to_isize);
+    let mut end = end.map_or(len as isize, saturate_to_isize);
     if end > len as isize {
         end = len as isize;
     } else if end < 0 {

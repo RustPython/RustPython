@@ -70,12 +70,12 @@ impl core::fmt::Debug for PyMethodDescriptor {
 
 impl GetDescriptor for PyMethodDescriptor {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let descr = Self::_as_pyref(&zelf, vm).unwrap();
+        let descr = Self::_as_pyref(zelf, vm).unwrap();
         let bound = match obj {
             Some(obj) => {
                 if descr.method.flags.contains(PyMethodFlags::METHOD) {
@@ -83,7 +83,7 @@ impl GetDescriptor for PyMethodDescriptor {
                         .as_ref()
                         .is_none_or(|c| c.fast_isinstance(vm.ctx.types.type_type))
                     {
-                        obj
+                        obj.to_owned()
                     } else {
                         return Err(vm.new_type_error(format!(
                             "descriptor '{}' needs a type, not '{}', as arg 2",
@@ -94,11 +94,11 @@ impl GetDescriptor for PyMethodDescriptor {
                 } else if descr.method.flags.contains(PyMethodFlags::CLASS) {
                     obj.class().to_owned().into()
                 } else {
-                    obj
+                    obj.to_owned()
                 }
             }
-            None if descr.method.flags.contains(PyMethodFlags::CLASS) => cls.unwrap(),
-            None => return Ok(zelf),
+            None if descr.method.flags.contains(PyMethodFlags::CLASS) => cls.unwrap().to_owned(),
+            None => return Ok(zelf.to_owned()),
         };
         Ok(descr.bind(bound, &vm.ctx).into())
     }
@@ -220,15 +220,15 @@ impl core::fmt::Debug for PyClassMethodDescriptor {
 
 impl GetDescriptor for PyClassMethodDescriptor {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let descr = Self::_as_pyref(&zelf, vm).unwrap();
+        let descr = Self::_as_pyref(zelf, vm).unwrap();
         let type_obj = match cls {
-            Some(typ) => typ,
-            None => match &obj {
+            Some(typ) => typ.to_owned(),
+            None => match obj {
                 Some(o) => o.class().to_owned().into(),
                 None => {
                     return Err(vm.new_type_error(format!(
@@ -277,7 +277,7 @@ impl Callable for PyClassMethodDescriptor {
                 zelf.common.typ.name()
             )));
         };
-        let bound = Self::descr_get(zelf.to_owned().into(), None, Some(owner), vm)?;
+        let bound = Self::descr_get(zelf.as_object(), None, Some(&owner), vm)?;
         args.args.remove(0);
         bound.call(args, vm)
     }
@@ -417,7 +417,7 @@ impl PyPayload for PyMemberDescriptor {
 }
 
 fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResult<Option<String>> {
-    if let Some(qualname) = vm.get_attribute_opt(descr.typ.clone().into(), "__qualname__")? {
+    if let Some(qualname) = vm.get_attribute_opt(descr.typ.as_object(), "__qualname__")? {
         let str = qualname.downcast::<PyStr>().map_err(|_| {
             vm.new_type_error("<descriptor>.__objclass__.__qualname__ is not a unicode object")
         })?;
@@ -581,12 +581,12 @@ impl Representable for PyMemberDescriptor {
 
 impl GetDescriptor for PyMemberDescriptor {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let descr = Self::_as_pyref(&zelf, vm)?;
+        let descr = Self::_as_pyref(zelf, vm)?;
         match obj {
             Some(x) => {
                 if !x.class().fast_issubclass(&descr.common.typ) {
@@ -597,9 +597,9 @@ impl GetDescriptor for PyMemberDescriptor {
                         x.class().name()
                     )));
                 }
-                descr.member.get(x, vm)
+                descr.member.get(x.to_owned(), vm)
             }
-            None => Ok(zelf),
+            None => Ok(zelf.to_owned()),
         }
     }
 }
@@ -774,7 +774,7 @@ impl SlotFunc {
     pub fn call(&self, obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         match self {
             Self::Init(func) => {
-                func(obj, args, vm)?;
+                func(&obj, args, vm)?;
                 Ok(vm.ctx.none())
             }
             Self::Hash(func) => {
@@ -848,7 +848,7 @@ impl SlotFunc {
                 } else {
                     Some(instance)
                 };
-                func(obj, instance_opt, owner, vm)
+                func(&obj, instance_opt.as_deref(), owner.as_deref(), vm)
             }
             Self::DescrSet(func) => {
                 let (instance, value): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
@@ -1011,16 +1011,20 @@ impl PyPayload for PyWrapper {
 
 impl GetDescriptor for PyWrapper {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
         match obj {
-            None => Ok(zelf),
+            None => Ok(zelf.to_owned()),
             Some(obj) => {
-                let zelf = zelf.downcast::<Self>().unwrap();
-                Ok(PyMethodWrapper { wrapper: zelf, obj }.into_pyobject(vm))
+                let zelf = zelf.to_owned().downcast::<Self>().unwrap();
+                Ok(PyMethodWrapper {
+                    wrapper: zelf,
+                    obj: obj.to_owned(),
+                }
+                .into_pyobject(vm))
             }
         }
     }

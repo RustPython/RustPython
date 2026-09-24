@@ -3,7 +3,7 @@ use super::base::{CDATA_BUFFER_METHODS, PyCData};
 use crate::common::lock::LazyLock;
 use crate::sliceable::SaturatedSliceIter;
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     atomic_func,
     builtins::{
         PyBytes, PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef, genericalias::PyGenericAlias,
@@ -175,7 +175,7 @@ pub(super) struct PyCArrayType(PyType);
 impl Initializer for PyCArrayType {
     type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // zelf is the newly created array type (e.g., T in "class T(Array)")
         let new_type: &PyType = &zelf.0;
 
@@ -450,10 +450,10 @@ impl Constructor for PyCArray {
 impl Initializer for PyCArray {
     type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Re-initialize array elements when __init__ is called
         for (i, value) in args.args.iter().enumerate() {
-            Self::setitem_by_index(&zelf, i as isize, value, vm)?;
+            Self::setitem_by_index(zelf, i as isize, value, vm)?;
         }
         Ok(())
     }

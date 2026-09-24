@@ -4,7 +4,7 @@ use crate::atomic_func;
 use crate::protocol::{BufferDescriptor, PyBuffer, PyMappingMethods, PyNumberMethods};
 use crate::types::{AsBuffer, AsMapping, AsNumber, Constructor, Initializer};
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::{PyBytes, PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef},
     class::StaticType,
     function::{FuncArgs, OptionalArg},
@@ -24,9 +24,9 @@ pub(super) struct PyCPointerType(PyType);
 impl Initializer for PyCPointerType {
     type Args = FuncArgs;
 
-    fn init(zelf: crate::PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &crate::Py<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Get the type as PyTypeRef
-        let obj: PyObjectRef = zelf.clone().into();
+        let obj: PyObjectRef = zelf.to_owned().into();
         let new_type: PyTypeRef = obj
             .downcast()
             .map_err(|_| vm.new_type_error("expected type"))?;
@@ -79,7 +79,7 @@ impl Initializer for PyCPointerType {
             && let Ok(target_type) = type_attr.downcast::<PyType>()
             && let Some(mut target_info) = target_type.get_type_data_mut::<StgInfo>()
         {
-            let zelf_obj: PyObjectRef = zelf.into();
+            let zelf_obj: PyObjectRef = zelf.to_owned().into();
             target_info.pointer_type = Some(zelf_obj);
         }
 
@@ -281,12 +281,12 @@ impl Constructor for PyCPointer {
 impl Initializer for PyCPointer {
     type Args = (OptionalArg<PyObjectRef>,);
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         let (value,) = args;
         if let OptionalArg::Present(val) = value
             && !vm.is_none(&val)
         {
-            Self::set_contents(&zelf, val, vm)?;
+            Self::set_contents(zelf, val, vm)?;
         }
         Ok(())
     }

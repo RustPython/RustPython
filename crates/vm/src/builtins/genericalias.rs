@@ -123,19 +123,19 @@ impl PyGenericAlias {
             }
 
             if vm
-                .get_attribute_opt(obj.to_owned(), identifier!(vm, __origin__))?
+                .get_attribute_opt(obj, identifier!(vm, __origin__))?
                 .is_some()
                 && vm
-                    .get_attribute_opt(obj.to_owned(), identifier!(vm, __args__))?
+                    .get_attribute_opt(obj, identifier!(vm, __args__))?
                     .is_some()
             {
                 return Ok(obj.repr(vm)?.to_string());
             }
 
             match (
-                vm.get_attribute_opt(obj.to_owned(), identifier!(vm, __qualname__))?
+                vm.get_attribute_opt(obj, identifier!(vm, __qualname__))?
                     .and_then(|o| o.downcast_ref::<PyStr>().map(|n| n.to_string())),
-                vm.get_attribute_opt(obj.to_owned(), identifier!(vm, __module__))?
+                vm.get_attribute_opt(obj, identifier!(vm, __module__))?
                     .and_then(|o| o.downcast_ref::<PyStr>().map(|m| m.to_string())),
             ) {
                 (None, _) | (_, None) => Ok(obj.repr(vm)?.to_string()),
@@ -147,7 +147,7 @@ impl PyGenericAlias {
             }
         }
 
-        fn repr_arg(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_arg(obj: &PyObject, vm: &VirtualMachine) -> PyResult<String> {
             // ParamSpec args can be lists - format their items with repr_item
             if obj.class().is(vm.ctx.types.list_type) {
                 let list = obj.downcast_ref::<crate::builtins::PyList>().unwrap();
@@ -164,7 +164,7 @@ impl PyGenericAlias {
                 }
                 Ok(format!("[{}]", parts.join(", ")))
             } else {
-                repr_item(&obj, vm)
+                repr_item(obj, vm)
             }
         }
 
@@ -176,7 +176,7 @@ impl PyGenericAlias {
             } else {
                 self.args
                     .iter()
-                    .map(|o| repr_arg(o.clone(), vm))
+                    .map(|o| repr_arg(o, vm))
                     .collect::<PyResult<Vec<_>>>()?
                     .join(", ")
             }

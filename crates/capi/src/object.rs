@@ -109,7 +109,7 @@ pub unsafe extern "C" fn PyObject_GetOptionalAttr(
         }
         let obj = unsafe { &*obj };
         let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
-        if let Some(attr) = vm.get_attribute_opt(obj.to_owned(), name)? {
+        if let Some(attr) = vm.get_attribute_opt(obj, name)? {
             unsafe {
                 *result = attr.into_raw().as_ptr();
             }
@@ -132,7 +132,7 @@ pub unsafe extern "C" fn PyObject_GetOptionalAttrString(
         }
         let obj = unsafe { &*obj };
         let name = unsafe { attr_name.try_as_str(vm) }?;
-        if let Some(attr) = vm.get_attribute_opt(obj.to_owned(), name)? {
+        if let Some(attr) = vm.get_attribute_opt(obj, name)? {
             unsafe {
                 *result = attr.into_raw().as_ptr();
             }
@@ -217,7 +217,7 @@ pub unsafe extern "C" fn PyObject_HasAttrWithError(
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let name = unsafe { &*attr_name }.try_downcast_ref::<PyStr>(vm)?;
-        Ok(vm.get_attribute_opt(obj.to_owned(), name)?.is_some())
+        Ok(vm.get_attribute_opt(obj, name)?.is_some())
     })
 }
 
@@ -272,7 +272,7 @@ pub unsafe extern "C" fn PyObject_HasAttrStringWithError(
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let name = unsafe { attr_name.try_as_str(vm) }?;
-        Ok(vm.get_attribute_opt(obj.to_owned(), name)?.is_some())
+        Ok(vm.get_attribute_opt(obj, name)?.is_some())
     })
 }
 

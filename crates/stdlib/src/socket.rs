@@ -1665,8 +1665,8 @@ mod _socket {
     impl Initializer for PySocket {
         type Args = SocketInitArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            Self::_init(&zelf, args, vm).map_err(|e| e.into_pyexception(vm))
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            Self::_init(zelf, args, vm).map_err(|e| e.into_pyexception(vm))
         }
     }
 

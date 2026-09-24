@@ -160,7 +160,7 @@ pub extern "C" fn PyErr_PrintEx(_set_sys_last_vars: c_int) {
             .take_raised_exception()
             .expect("No exception set in PyErr_PrintEx");
 
-        vm.print_exception(exception);
+        vm.print_exception(&exception);
     })
 }
 
@@ -169,8 +169,7 @@ pub unsafe extern "C" fn PyErr_DisplayException(exc: *mut PyObject) {
     with_vm(|vm| {
         let exception = unsafe { &*exc }
             .downcast_ref::<PyBaseException>()
-            .expect("PyErr_DisplayException exc must be an exception instance")
-            .to_owned();
+            .expect("PyErr_DisplayException exc must be an exception instance");
 
         vm.print_exception(exception);
     })

@@ -30,7 +30,7 @@ impl Node for ast::ExceptHandler {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         ensure_excepthandler_node(vm, &object)?;
-        let range = excepthandler_range_from_object(vm, source_file, object.clone())?;
+        let range = excepthandler_range_from_object(vm, source_file, &object)?;
         Ok(Self::ExceptHandler(except_handler_from_object_with_range(
             vm,
             source_file,
@@ -67,12 +67,12 @@ fn except_handler_from_object_with_range(
 pub(super) fn except_handler_from_object_unvalidated_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<ast::ExceptHandler> {
-    ensure_excepthandler_node(vm, &object)?;
-    let range = excepthandler_range_from_object_unvalidated(vm, source_file, &object)?;
+    ensure_excepthandler_node(vm, object)?;
+    let range = excepthandler_range_from_object_unvalidated(vm, source_file, object)?;
     Ok(ast::ExceptHandler::ExceptHandler(
-        except_handler_from_object_with_range(vm, source_file, &object, range)?,
+        except_handler_from_object_with_range(vm, source_file, object, range)?,
     ))
 }
 
@@ -111,7 +111,7 @@ impl Node for ast::ExceptHandlerExceptHandler {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "ExceptHandler")?;
+        let range = range_from_object(vm, source_file, &object, "ExceptHandler")?;
         except_handler_from_object_with_range(vm, source_file, &object, range)
     }
 }

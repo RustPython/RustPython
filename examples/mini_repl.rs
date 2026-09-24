@@ -76,7 +76,7 @@ def fib(n):
                 }
             }
             Err(exc) => {
-                vm.print_exception(exc);
+                vm.print_exception(&exc);
             }
         }
     }

@@ -432,7 +432,7 @@ pub(crate) mod _elementtree {
     impl Initializer for PyElement {
         type Args = FuncArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let (tag, attrib) = parse_attrib_args(args, "Element", 0, vm)?;
             let attrib = attrib.filter(|d| !d.is_empty());
             let _recycle = {
@@ -1367,7 +1367,7 @@ pub(crate) mod _elementtree {
     impl Initializer for PyTreeBuilder {
         type Args = TreeBuilderArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let module = module_state(vm)?;
             let element_factory = args.element_factory.filter(|f| !vm.is_none(f));
             let comment_factory = match args.comment_factory {
@@ -1917,13 +1917,13 @@ pub(crate) mod _elementtree {
         name: &'static str,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        vm.get_attribute_opt(target.to_owned(), name)
+        vm.get_attribute_opt(target, name)
     }
 
     impl Initializer for PyXMLParser {
         type Args = XMLParserArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let encoding = match args.encoding {
                 Some(e) if !vm.is_none(&e) => {
                     if !e.downcastable::<PyStr>() {
