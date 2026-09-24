@@ -2782,10 +2782,7 @@ impl Constructor for PyType {
                 let member_def = PyMemberDef {
                     name: mangled_name.clone(),
                     kind: MemberKind::ObjectEx,
-                    offset: crate::object::slot_member_offset(
-                        typ.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF),
-                        offset,
-                    ),
+                    offset: crate::object::slot_member_offset(offset),
                     flags: 0,
                     doc: None,
                 };
