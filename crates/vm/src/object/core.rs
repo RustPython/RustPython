@@ -407,7 +407,7 @@ const EXT_OFFSET: usize = core::mem::size_of::<ObjExt>();
 pub(crate) fn slot_member_offset(index: usize) -> isize {
     // Cell 0 sits directly in front of ObjExt. Higher indexes extend further
     // forward, so a base class offset stays valid on a subclass with more slots.
-    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+    let cell = core::mem::size_of::<PyAtomicRef<Option<PyObject>>>();
     -((EXT_OFFSET + (index + 1) * cell) as isize)
 }
 
@@ -415,7 +415,7 @@ fn slot_region_layout(member_count: usize) -> Option<core::alloc::Layout> {
     if member_count == 0 {
         return None;
     }
-    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+    let cell = core::mem::size_of::<PyAtomicRef<Option<PyObject>>>();
     let bytes = member_count * cell;
     let align = core::mem::align_of::<ObjExt>();
     // Padding goes in front of the cells so cell 0 stays flush with ObjExt.
@@ -538,8 +538,8 @@ impl<T> Py<T> {
     }
 
     /// Member cells are the pointer array immediately before [`ObjExt`].
-    /// Layout: `[WeakRefList?][PyAtomicRef<PyObject>; N][ObjExt?][Py]`.
-    pub(super) fn slot_cells(&self) -> &[PyAtomicRef<PyObject>] {
+    /// Layout: `[WeakRefList?][PyAtomicRef<Option<PyObject>>; N][ObjExt?][Py]`.
+    pub(super) fn slot_cells(&self) -> &[PyAtomicRef<Option<PyObject>>] {
         let Some(ext) = self.ext_ref() else {
             return &[];
         };
@@ -547,12 +547,12 @@ impl<T> Py<T> {
         if member_count == 0 {
             return &[];
         }
-        let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+        let cell = core::mem::size_of::<PyAtomicRef<Option<PyObject>>>();
         // Index 0 is the cell adjacent to ObjExt; index i is i cells before it.
         let first = (ext as *const ObjExt)
             .addr()
             .wrapping_sub(member_count * cell);
-        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<PyObject>>(first);
+        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<Option<PyObject>>>(first);
         unsafe { core::slice::from_raw_parts(ptr, member_count) }
     }
 
@@ -1136,7 +1136,7 @@ pub(crate) const SHARED_KEYS_MAX_SIZE: usize = 30;
 pub(crate) struct InstanceDict {
     /// Owned dict pointer. First field so `dict_member_offset` addresses it.
     /// Null when this object has no dict.
-    pub(crate) dict: PyAtomicRef<PyObject>,
+    pub(crate) dict: PyAtomicRef<Option<crate::builtins::PyDict>>,
     /// Separate from the pointer: shared-key inline values are valid only
     /// while this stays true. Replacing the dict does not change it.
     inline_values_valid: PyAtomic<bool>,
@@ -1160,20 +1160,9 @@ impl InstanceDict {
 
     #[inline]
     pub(crate) fn from_opt(d: Option<PyDictRef>, inline_values: bool) -> Self {
-        let dict = match d {
-            Some(dict) => PyAtomicRef::from(PyObjectRef::from(dict)),
-            None => PyAtomicRef::new_empty(),
-        };
         Self {
-            dict,
+            dict: PyAtomicRef::from(d),
             inline_values_valid: Radium::new(inline_values),
-        }
-    }
-
-    fn owned_dict(obj: PyObjectRef) -> PyDictRef {
-        match obj.downcast::<crate::builtins::PyDict>() {
-            Ok(dict) => dict,
-            Err(_) => unreachable!("instance dict cell holds a dict"),
         }
     }
 
@@ -1199,7 +1188,7 @@ impl InstanceDict {
 
     #[inline]
     pub(crate) fn get(&self) -> Option<PyDictRef> {
-        self.dict.load_owned().map(Self::owned_dict)
+        self.dict.load_owned()
     }
 
     /// Run `f` on the current dict.
@@ -1220,7 +1209,7 @@ impl InstanceDict {
 
     #[inline]
     pub(crate) fn replace(&self, d: Option<PyDictRef>) -> Option<PyDictRef> {
-        self.dict.store(d.map(Into::into)).map(Self::owned_dict)
+        self.dict.store(d)
     }
 
     pub(crate) fn get_or_insert(&self, vm: &VirtualMachine) -> PyDictRef {
@@ -1229,7 +1218,7 @@ impl InstanceDict {
                 return existing;
             }
             let dict = vm.ctx.new_dict();
-            match self.dict.compare_exchange_empty(dict.clone().into()) {
+            match self.dict.compare_exchange_empty(dict.clone()) {
                 Ok(()) => return dict,
                 Err(rejected) => {
                     drop(rejected);
@@ -1256,7 +1245,7 @@ impl<T: PyPayload> Py<T> {
     }
 
     /// Deallocate a Py, handling optional prefix(es).
-    /// Layout: `[WeakRefList?][PyAtomicRef<PyObject>; N][ObjExt?][Py<T>]`
+    /// Layout: `[WeakRefList?][PyAtomicRef<Option<PyObject>>; N][ObjExt?][Py<T>]`
     ///
     /// # Safety
     /// `ptr` must be a valid pointer from `Py::new` and must not be used after this call.
@@ -1303,9 +1292,9 @@ impl<T: PyPayload> Py<T> {
                     cursor = cursor.add(core::mem::size_of::<WeakRefList>());
                 }
                 if let Some(region) = slot_region_layout(member_count) {
-                    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+                    let cell = core::mem::size_of::<PyAtomicRef<Option<PyObject>>>();
                     let first = cursor.add(region.size() - member_count * cell);
-                    let cells = first.cast::<PyAtomicRef<PyObject>>();
+                    let cells = first.cast::<PyAtomicRef<Option<PyObject>>>();
                     for i in 0..member_count {
                         core::ptr::drop_in_place(cells.add(i));
                     }
@@ -1338,7 +1327,7 @@ impl<T: PyPayload> Py<T> {
 impl<T: PyPayload + core::fmt::Debug> Py<T> {
     /// Allocate a new Py, optionally with prefix(es).
     /// Returns a raw pointer to the Py (NOT the allocation start).
-    /// Layout: `[WeakRefList?][PyAtomicRef<PyObject>; N][ObjExt?][Py<T>]`
+    /// Layout: `[WeakRefList?][PyAtomicRef<Option<PyObject>>; N][ObjExt?][Py<T>]`
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> *mut Self {
         let member_count = typ.slots.member_count;
         let needs_ext = typ
@@ -1401,11 +1390,13 @@ impl<T: PyPayload + core::fmt::Debug> Py<T> {
             unsafe {
                 if let Some(offset) = slots_start {
                     let region = slot_region_layout(member_count).unwrap();
-                    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+                    let cell = core::mem::size_of::<PyAtomicRef<Option<PyObject>>>();
                     let first = alloc_ptr.add(offset + region.size() - member_count * cell);
-                    let cells = first.cast::<PyAtomicRef<PyObject>>();
+                    let cells = first.cast::<PyAtomicRef<Option<PyObject>>>();
                     for i in 0..member_count {
-                        cells.add(i).write(PyAtomicRef::<PyObject>::new_empty());
+                        cells
+                            .add(i)
+                            .write(PyAtomicRef::<Option<PyObject>>::new_empty());
                     }
                 }
 
@@ -2232,11 +2223,13 @@ impl PyObject {
         drop(self.slot_cell_at(byte_offset).store(value));
     }
 
-    fn slot_cell_at(&self, byte_offset: isize) -> &PyAtomicRef<Self> {
+    fn slot_cell_at(&self, byte_offset: isize) -> &PyAtomicRef<Option<Self>> {
         let addr = (self as *const Self as *const u8)
             .addr()
             .wrapping_add(byte_offset as usize);
-        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<Self>>(addr);
+        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<Option<Self>>>(addr);
+        // SAFETY: `byte_offset` addresses an object-pointer cell. Nullable and
+        // non-null cells share this layout; member loads go through the nullable view.
         unsafe { &*ptr }
     }
 

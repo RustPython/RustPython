@@ -243,6 +243,17 @@ pub struct PyAtomicRef<T> {
 // otherwise make `PyAtomicRef<PyObject>` `!Unpin` because `PyObject` is pinned.
 impl<T> Unpin for PyAtomicRef<T> {}
 
+// Typed and untyped cells are the same pointer-sized slot. A typed nullable
+// CAS forwards to the untyped one through this layout.
+const _: () = assert!(
+    core::mem::size_of::<PyAtomicRef<Option<PyObject>>>()
+        == core::mem::size_of::<PyAtomicRef<()>>()
+        && core::mem::align_of::<PyAtomicRef<Option<PyObject>>>()
+            == core::mem::align_of::<PyAtomicRef<()>>()
+        && core::mem::offset_of!(PyAtomicRef<Option<PyObject>>, inner)
+            == core::mem::offset_of!(PyAtomicRef<()>, inner)
+);
+
 impl<T> Drop for PyAtomicRef<T> {
     fn drop(&mut self) {
         // SAFETY: We are dropping the atomic reference, so we can safely
@@ -448,104 +459,132 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
             frame.iframe().cold().temporary_refs.lock().push(old.into());
         }
     }
-}
 
-impl PyAtomicRef<PyObject> {
-    /// Empty slot. The pointer is null and owns no reference.
-    pub(crate) fn new_empty() -> Self {
-        Self {
-            inner: Radium::new(null_mut()),
-            _phantom: PhantomData,
-        }
-    }
-
-    /// Borrowed pointer currently stored. Null when the slot is empty.
-    ///
-    /// The slot owns the reference, so this stays valid while the slot is
-    /// unchanged. Traversal calls it with other threads stopped.
-    pub(crate) fn load_ptr(&self) -> *mut PyObject {
-        self.inner.load(Ordering::Acquire).cast()
-    }
-
-    /// Strong reference to the current value.
-    ///
-    /// A concurrent store may drop the previous value. The incref is retried
-    /// until it applies to the pointer still in the slot, and a value placed
-    /// here is published so its memory outlives that race.
-    pub(crate) fn load_owned(&self) -> Option<PyObjectRef> {
-        let ptr = self.inner.load(Ordering::Acquire);
-        if ptr.is_null() {
-            return None;
-        }
-        // Without threading the slot's own reference keeps the object alive,
-        // so one incref is enough. With threading, retry when a store retires
-        // the pointer between the load and the incref.
-        #[cfg(not(feature = "threading"))]
-        {
-            unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
-        }
-        #[cfg(feature = "threading")]
-        {
-            let mut ptr = ptr;
-            loop {
-                if let Some(obj) = unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
-                    && core::ptr::eq(self.inner.load(Ordering::Acquire), ptr)
-                {
-                    return Some(obj);
-                }
-                ptr = self.inner.load(Ordering::Acquire);
-                if ptr.is_null() {
-                    return None;
-                }
-                core::hint::spin_loop();
-            }
-        }
+    /// Strong reference to the current value, or `None` when the slot is empty.
+    pub(crate) fn load_owned(&self) -> Option<PyRef<T>> {
+        cell_load_owned(&self.inner).map(downcast_cell)
     }
 
     /// Replace the stored reference. Returns the previous one, still owned.
-    ///
-    /// The value placed in the slot is not marked published, so it can still
-    /// return to the freelist. With threading, the value that leaves the slot
-    /// is marked so its free waits out a reader that already loaded it.
-    pub(crate) fn store(&self, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
-        let new_ptr = match value {
-            Some(obj) => {
-                let ptr = obj.into_raw().as_ptr();
-                ptr.expose_provenance();
-                ptr.cast()
-            }
-            None => null_mut(),
-        };
-        let old = Radium::swap(&self.inner, new_ptr, Ordering::AcqRel);
-        let old = NonNull::new(old.cast()).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
-        #[cfg(feature = "threading")]
-        if let Some(old) = old.as_ref() {
-            old.mark_cache_published();
-        }
-        old
+    pub(crate) fn store(&self, value: Option<PyRef<T>>) -> Option<PyRef<T>> {
+        cell_store(&self.inner, value.map(PyObjectRef::from)).map(downcast_cell)
     }
 
     /// Store `value` only when the cell is empty.
     ///
     /// On failure the cell is unchanged and `value` is returned still owned.
-    pub(crate) fn compare_exchange_empty(&self, value: PyObjectRef) -> Result<(), PyObjectRef> {
-        let raw = value.into_raw();
-        let ptr = raw.as_ptr();
-        ptr.expose_provenance();
-        match self.inner.compare_exchange(
-            core::ptr::null_mut(),
-            ptr.cast(),
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => Ok(()),
-            Err(_) => {
-                // SAFETY: the exchange did not take the pointer, so `raw` is
-                // still the unique owning reference.
-                Err(unsafe { PyObjectRef::from_raw(raw) })
+    pub(crate) fn compare_exchange_empty(&self, value: PyRef<T>) -> Result<(), PyRef<T>> {
+        // SAFETY: every `PyAtomicRef<_>` is an atomic pointer plus a
+        // zero-sized marker, so the layouts match. The untyped cell API only
+        // loads and stores that pointer.
+        let cell = unsafe { &*core::ptr::from_ref(self).cast::<PyAtomicRef<Option<PyObject>>>() };
+        cell.compare_exchange_empty(value.into())
+            .map_err(downcast_cell)
+    }
+}
+
+fn empty_cell<T>() -> PyAtomicRef<T> {
+    PyAtomicRef {
+        inner: Radium::new(null_mut()),
+        _phantom: PhantomData,
+    }
+}
+
+fn cell_load_ptr(inner: &PyAtomic<*mut u8>) -> *mut PyObject {
+    inner.load(Ordering::Acquire).cast()
+}
+
+/// Try-incref the pointer in `inner`.
+///
+/// A concurrent store may drop the previous value. The incref is retried
+/// until it applies to the pointer still in the slot. Returns `None` when
+/// the slot is empty.
+fn cell_load_owned(inner: &PyAtomic<*mut u8>) -> Option<PyObjectRef> {
+    let ptr = inner.load(Ordering::Acquire);
+    if ptr.is_null() {
+        return None;
+    }
+    // Without threading the slot's own reference keeps the object alive,
+    // so one incref is enough. With threading, retry when a store retires
+    // the pointer between the load and the incref.
+    #[cfg(not(feature = "threading"))]
+    {
+        // SAFETY: `ptr` is non-null and the cell's own reference keeps the
+        // object alive for this incref.
+        unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
+    }
+    #[cfg(feature = "threading")]
+    {
+        let mut ptr = ptr;
+        loop {
+            // SAFETY: `ptr` is non-null. A value that left the cell was marked
+            // published, so its refcount word stays readable until QSBR.
+            if let Some(obj) = unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
+                && core::ptr::eq(inner.load(Ordering::Acquire), ptr)
+            {
+                return Some(obj);
             }
+            ptr = inner.load(Ordering::Acquire);
+            if ptr.is_null() {
+                return None;
+            }
+            core::hint::spin_loop();
         }
     }
+}
+
+/// Replace the stored reference. Returns the previous one, still owned.
+///
+/// The value placed in the slot is not marked published, so it can still
+/// return to the freelist. With threading, the value that leaves the slot
+/// is marked so its free waits out a reader that already loaded it.
+fn cell_store(inner: &PyAtomic<*mut u8>, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
+    let new_ptr = match value {
+        Some(obj) => {
+            let ptr = obj.into_raw().as_ptr();
+            ptr.expose_provenance();
+            ptr.cast()
+        }
+        None => null_mut(),
+    };
+    let old = Radium::swap(inner, new_ptr, Ordering::AcqRel);
+    // SAFETY: a non-null slot pointer is an owning reference the cell just released.
+    let old = NonNull::new(old.cast()).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
+    #[cfg(feature = "threading")]
+    if let Some(old) = old.as_ref() {
+        old.mark_cache_published();
+    }
+    old
+}
+
+/// Store `value` only when the cell is empty.
+///
+/// On failure the cell is unchanged and `value` is returned still owned.
+fn cell_compare_exchange_empty(
+    inner: &PyAtomic<*mut u8>,
+    value: PyObjectRef,
+) -> Result<(), PyObjectRef> {
+    let raw = value.into_raw();
+    let ptr = raw.as_ptr();
+    ptr.expose_provenance();
+    match inner.compare_exchange(
+        core::ptr::null_mut(),
+        ptr.cast(),
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    ) {
+        Ok(_) => Ok(()),
+        Err(_) => {
+            // SAFETY: the exchange did not take the pointer, so `raw` is
+            // still the unique owning reference.
+            Err(unsafe { PyObjectRef::from_raw(raw) })
+        }
+    }
+}
+
+fn downcast_cell<T: PyPayload>(obj: PyObjectRef) -> PyRef<T> {
+    // SAFETY: a typed cell only stores references of payload `T`.
+    unsafe { obj.downcast_unchecked() }
 }
 
 impl From<PyObjectRef> for PyAtomicRef<PyObject> {
@@ -573,6 +612,21 @@ impl Deref for PyAtomicRef<PyObject> {
 }
 
 impl PyAtomicRef<PyObject> {
+    /// Strong reference to the current value.
+    ///
+    /// The cell is never null. A concurrent store may drop the previous value;
+    /// the incref is retried until it applies to the pointer still in the slot.
+    pub(crate) fn load_owned(&self) -> PyObjectRef {
+        cell_load_owned(&self.inner).expect("non-null atomic cell")
+    }
+
+    /// Replace the stored reference. Returns the previous one, still owned.
+    ///
+    /// The cell is never null, before and after the store.
+    pub(crate) fn store(&self, value: PyObjectRef) -> PyObjectRef {
+        cell_store(&self.inner, Some(value)).expect("non-null atomic cell")
+    }
+
     /// # Safety
     /// The caller is responsible to keep the returned PyRef alive
     /// until no more reference can be used via PyAtomicRef::deref()
@@ -602,6 +656,36 @@ impl From<Option<PyObjectRef>> for PyAtomicRef<Option<PyObject>> {
 }
 
 impl PyAtomicRef<Option<PyObject>> {
+    /// Empty slot. The pointer is null and owns no reference.
+    pub(crate) fn new_empty() -> Self {
+        empty_cell()
+    }
+
+    /// Borrowed pointer currently stored. Null when the slot is empty.
+    ///
+    /// The slot owns the reference, so this stays valid while the slot is
+    /// unchanged. Traversal calls it with other threads stopped.
+    pub(crate) fn load_ptr(&self) -> *mut PyObject {
+        cell_load_ptr(&self.inner)
+    }
+
+    /// Strong reference to the current value, or `None` when the slot is empty.
+    pub(crate) fn load_owned(&self) -> Option<PyObjectRef> {
+        cell_load_owned(&self.inner)
+    }
+
+    /// Replace the stored reference. Returns the previous one, still owned.
+    pub(crate) fn store(&self, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
+        cell_store(&self.inner, value)
+    }
+
+    /// Store `value` only when the cell is empty.
+    ///
+    /// On failure the cell is unchanged and `value` is returned still owned.
+    pub(crate) fn compare_exchange_empty(&self, value: PyObjectRef) -> Result<(), PyObjectRef> {
+        cell_compare_exchange_empty(&self.inner, value)
+    }
+
     pub fn deref(&self) -> Option<&PyObject> {
         self.deref_ordering(Ordering::Relaxed)
     }

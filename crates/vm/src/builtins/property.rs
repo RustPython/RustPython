@@ -44,13 +44,13 @@ impl FromArgs for SetNameArgs {
 #[derive(Debug)]
 pub struct PyProperty {
     #[pymember(name = "fget", readonly)]
-    getter: PyAtomicRef<PyObject>,
+    getter: PyAtomicRef<Option<PyObject>>,
     #[pymember(name = "fset", readonly)]
-    setter: PyAtomicRef<PyObject>,
+    setter: PyAtomicRef<Option<PyObject>>,
     #[pymember(name = "fdel", readonly)]
-    deleter: PyAtomicRef<PyObject>,
+    deleter: PyAtomicRef<Option<PyObject>>,
     #[pymember(name = "__doc__")]
-    doc: PyAtomicRef<PyObject>,
+    doc: PyAtomicRef<Option<PyObject>>,
     name: PyRwLock<Option<PyObjectRef>>,
     #[pytraverse(skip)]
     getter_doc: core::sync::atomic::AtomicBool,

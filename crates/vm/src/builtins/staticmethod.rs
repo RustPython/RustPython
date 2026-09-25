@@ -35,7 +35,7 @@ impl GetDescriptor for PyStaticMethod {
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, _obj) = Self::_unwrap(zelf, obj, vm)?;
-        Ok(zelf.callable.load_owned().unwrap())
+        Ok(zelf.callable.load_owned())
     }
 }
 
@@ -93,7 +93,7 @@ impl Initializer for PyStaticMethod {
 
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         let callable = args.function;
-        zelf.callable.store(Some(callable.clone()));
+        zelf.callable.store(callable.clone());
         functools_wraps(zelf.as_object(), &callable, vm)
     }
 }
@@ -105,7 +105,7 @@ impl Initializer for PyStaticMethod {
 impl PyStaticMethod {
     #[pygetset]
     fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.load_owned().unwrap();
+        let callable = zelf.callable.load_owned();
         descriptor_get_wrapped_attribute(
             &callable,
             zelf.as_object(),
@@ -131,7 +131,7 @@ impl PyStaticMethod {
 
     #[pygetset]
     fn __annotate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.load_owned().unwrap();
+        let callable = zelf.callable.load_owned();
         descriptor_get_wrapped_attribute(
             &callable,
             zelf.as_object(),
@@ -157,7 +157,7 @@ impl PyStaticMethod {
 
     #[pygetset]
     fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let callable = self.callable.load_owned().unwrap();
+        let callable = self.callable.load_owned();
 
         if let Ok(Some(is_abstract)) = vm.get_attribute_opt(&callable, "__isabstractmethod__") {
             is_abstract
@@ -170,7 +170,6 @@ impl PyStaticMethod {
     fn set___isabstractmethod__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.callable
             .load_owned()
-            .unwrap()
             .set_attr("__isabstractmethod__", value, vm)?;
         Ok(())
     }
@@ -189,14 +188,14 @@ impl Callable for PyStaticMethod {
     type Args = FuncArgs;
     #[inline]
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.load_owned().unwrap();
+        let callable = zelf.callable.load_owned();
         callable.call(args, vm)
     }
 }
 
 impl Representable for PyStaticMethod {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let callable = zelf.callable.load_owned().unwrap().repr(vm)?;
+        let callable = zelf.callable.load_owned().repr(vm)?;
         let class = Self::class(&vm.ctx);
 
         match (

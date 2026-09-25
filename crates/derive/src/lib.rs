@@ -215,9 +215,10 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// `member_descriptor` per entry. The field type is checked against the member kind.
 ///
 /// - `type`: `"object"` (default), `"object_ex"`, `"bool"`, or `"double"`.
-/// - `readonly`: reject stores. A writable object member must be `PyAtomicRef<PyObject>`,
-///   a writable bool must be `AtomicBool`, and a writable double must be an
-///   atomic 64-bit cell (`AtomicU64`) holding the `f64` bits.
+/// - `readonly`: reject stores. A writable object member must be
+///   `PyAtomicRef<PyObject>` (never null) or `PyAtomicRef<Option<PyObject>>`
+///   (nullable), a writable bool must be `AtomicBool`, and a writable double
+///   must be an atomic 64-bit cell (`AtomicU64`) holding the `f64` bits.
 /// - `audit_read`: audit `object.__getattr__` before the load.
 /// - `name`: Python attribute name. Defaults to the field name.
 /// - `path`: subfield of the annotated field (`value` with `path = "re"`).
@@ -228,7 +229,7 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// `#[pymember]` attributes. A `#[cfg]` on the field gates that entry.
 /// ```rust, ignore
 /// #[pymember(name = "fget", readonly)]
-/// getter: PyAtomicRef<PyObject>,
+/// getter: PyAtomicRef<Option<PyObject>>,
 /// ```
 /// # Trait
 /// `#[pyclass]` on traits functions a lot like `#[pyclass]` on `impl` blocks.

@@ -78,9 +78,9 @@ pub struct PyFunction {
     annotations: PyMutex<Option<PyDictRef>>,
     annotate: PyMutex<Option<PyObjectRef>>,
     #[pymember(name = "__module__")]
-    module: PyAtomicRef<PyObject>,
+    module: PyAtomicRef<Option<PyObject>>,
     #[pymember(name = "__doc__")]
-    doc: PyAtomicRef<PyObject>,
+    doc: PyAtomicRef<Option<PyObject>>,
     func_version: AtomicU32,
     #[cfg(feature = "jit")]
     jitted_code: PyMutex<Option<CompiledCode>>,
@@ -214,8 +214,8 @@ impl PyFunction {
             type_params: PyMutex::new(vm.ctx.empty_tuple.clone()),
             annotations: PyMutex::new(None),
             annotate: PyMutex::new(None),
-            module: PyAtomicRef::from(module),
-            doc: PyAtomicRef::from(doc),
+            module: PyAtomicRef::from(Some(module)),
+            doc: PyAtomicRef::from(Some(doc)),
             func_version: AtomicU32::new(next_func_version()),
             #[cfg(feature = "jit")]
             jitted_code: PyMutex::new(None),
