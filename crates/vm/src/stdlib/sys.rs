@@ -1848,31 +1848,35 @@ pub mod sys {
 
     #[pyfunction]
     fn addaudithook(hook: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let hooks = vm.state.audit_hooks.lock().clone();
-
-        if hooks.is_empty() {
-            vm.state.audit_hooks.lock().push(hook);
-            return Ok(());
-        }
-
         let args: PyObjectRef = vm.ctx.new_tuple(vec![]).into();
         let event: PyObjectRef = vm.ctx.new_str("sys.addaudithook").into();
 
-        for existing_hook in hooks {
-            let Err(exc) = call_audit_hook(&existing_hook, event.clone(), &args, vm) else {
-                continue;
+        // Hooks are append-only: append only once every hook present has been notified,
+        // notifying any added by other threads meanwhile. Python hooks run unlocked.
+        let mut notified = 0;
+        loop {
+            let pending = {
+                let mut hooks = vm.state.audit_hooks.lock();
+                if hooks.len() == notified {
+                    hooks.push(hook);
+                    return Ok(());
+                }
+                hooks[notified..].to_vec()
             };
-            if exc
-                .class()
-                .fast_issubclass(vm.ctx.exceptions.exception_type)
-            {
-                return Ok(());
+            for existing_hook in pending {
+                if let Err(exc) = call_audit_hook(&existing_hook, event.clone(), &args, vm) {
+                    return if exc
+                        .class()
+                        .fast_issubclass(vm.ctx.exceptions.exception_type)
+                    {
+                        Ok(())
+                    } else {
+                        Err(exc)
+                    };
+                }
+                notified += 1;
             }
-            return Err(exc);
         }
-
-        vm.state.audit_hooks.lock().push(hook);
-        Ok(())
     }
 }
 
