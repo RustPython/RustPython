@@ -6651,7 +6651,7 @@ mod winconsoleio {
                     vm,
                 ));
             }
-            let size = size.unwrap_or(-1);
+            let size = size.size;
             if size < 0 {
                 return self.readall(vm);
             }
