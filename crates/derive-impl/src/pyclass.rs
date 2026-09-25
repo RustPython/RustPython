@@ -99,7 +99,7 @@ fn extract_items_into_context<'a, Item>(
     }
     context.errors.ok_or_push(context.method_items.validate());
     context.errors.ok_or_push(context.getset_items.validate());
-    context.errors.ok_or_push(context.member_items.validate());
+    context.member_items.validate();
 }
 
 pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Result<TokenStream> {
@@ -112,6 +112,13 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 context.member_items.class_ty = context.self_ty_subst.clone();
             }
             extract_items_into_context(&mut context, imp.items.iter_mut());
+            let stripped = context.member_items.stripped.clone();
+            imp.items.retain(|item| match item {
+                syn::ImplItem::Const(const_item) => {
+                    !stripped.iter().any(|id| id == &const_item.ident)
+                }
+                _ => true,
+            });
 
             let attr_nonempty = !attr.is_empty();
             let (impl_ty, payload_guess, wrapped) = match imp.self_ty.as_ref() {
@@ -1376,43 +1383,44 @@ where
     Item: ItemLike + ToTokens + GetIdent,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
-        let func = args
-            .item
-            .function_or_method()
-            .map_err(|_| self.new_syn_error(args.item.span(), "can only be on a method"))?;
-        let ident = &func.sig().ident;
+        let const_item = args.item.constant().map_err(|_| {
+            self.new_syn_error(
+                args.item.span(),
+                "#[pymember] goes on a const whose name is the payload field",
+            )
+        })?;
+        let ident = const_item.ident().clone();
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = MemberItemMeta::from_attr(ident.clone(), &item_attr)?;
 
-        let (py_name, member_item_kind) = item_meta.member_name()?;
+        let py_name = item_meta.member_name()?;
         let member_kind = item_meta.member_kind()?;
-        if let Some(ref s) = member_kind {
-            match s.as_str() {
-                "bool" | "object" => {}
-                other => {
-                    return Err(self.new_syn_error(
-                        args.item.span(),
-                        &format!("unknown member type '{other}'"),
-                    ));
-                }
-            }
-        }
+        let field = item_meta.field_path(&ident)?;
+        let readonly = item_meta.readonly()?;
+        let audit_read = item_meta.audit_read()?;
+        let offset_expr = item_meta.offset_expr()?;
+        let doc = item_meta.doc()?.or_else(|| args.attrs.doc());
 
-        // Add #[allow(non_snake_case)] for setter methods
-        if matches!(member_item_kind, MemberItemKind::Set) {
-            let allow_attr: Attribute = parse_quote!(#[allow(non_snake_case)]);
-            args.attrs.push(allow_attr);
-        }
-
-        let doc = args.attrs.doc();
-        args.context.member_items.add_item(
-            &py_name,
-            member_item_kind,
-            member_kind,
-            ident.clone(),
+        args.context.member_items.add_item(MemberDecl {
+            name: py_name,
+            kind: member_kind,
+            field,
+            readonly,
+            audit_read,
+            offset_expr,
             doc,
-        )?;
+            span: ident.span(),
+        })?;
+        if !args
+            .context
+            .member_items
+            .stripped
+            .iter()
+            .any(|id| id == &ident)
+        {
+            args.context.member_items.stripped.push(ident);
+        }
         Ok(())
     }
 }
@@ -1597,7 +1605,7 @@ impl ToTokens for GetSetNursery {
                 #( #cfgs )*
                 {
                     const DOC: Option<&str> = #doc;
-                    let mut getset = ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class)
+                    let mut getset = ::rustpython_vm::builtins::PyGetSet::new(#name, class, ctx)
                         .with_get(Self::#getter)
                         #setter;
                     if let Some(doc) = DOC {
@@ -1620,114 +1628,136 @@ impl ToTokens for GetSetNursery {
 }
 
 /// Member type as string, matching `Py_T_*` codes.
-/// None means `MemberKind::ObjectEx`. Valid values: "bool", "object".
+/// None means `MemberKind::ObjectEx`.
 type MemberKindStr = Option<String>;
 
 #[derive(Default)]
 struct MemberNursery {
-    map: HashMap<String, MemberNurseryEntry>,
+    items: Vec<MemberDecl>,
+    /// Const items consumed as member declarations. Removed from the impl.
+    stripped: Vec<Ident>,
     validated: bool,
     class_ty: Option<syn::Type>,
 }
 
-struct MemberNurseryEntry {
+struct MemberDecl {
+    name: String,
     kind: MemberKindStr,
-    getter: Option<Ident>,
-    setter: Option<Ident>,
+    field: String,
+    readonly: bool,
+    audit_read: bool,
+    /// When set, this expression is the byte offset and `field` is not read.
+    offset_expr: Option<String>,
     doc: Option<String>,
-}
-
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum MemberItemKind {
-    Get,
-    Set,
+    span: Span,
 }
 
 impl MemberNursery {
-    fn add_item(
-        &mut self,
-        name: &str,
-        kind: MemberItemKind,
-        member_kind: MemberKindStr,
-        item_ident: Ident,
-        doc: Option<String>,
-    ) -> Result<()> {
+    fn add_item(&mut self, decl: MemberDecl) -> Result<()> {
         assert!(!self.validated, "new item is not allowed after validation");
-        let entry = self
-            .map
-            .entry(name.to_string())
-            .or_insert_with(|| MemberNurseryEntry {
-                kind: member_kind,
-                getter: None,
-                setter: None,
-                doc: None,
-            });
-        let func = match kind {
-            MemberItemKind::Get => &mut entry.getter,
-            MemberItemKind::Set => &mut entry.setter,
-        };
-        if func.is_some() {
-            bail_span!(item_ident, "Multiple member accessors with name '{}'", name);
+        if self.items.iter().any(|item| item.name == decl.name) {
+            return Err(syn::Error::new(
+                decl.span,
+                format!("Multiple members with name '{}'", decl.name),
+            ));
         }
-        *func = Some(item_ident);
-        if matches!(kind, MemberItemKind::Get)
-            && let Some(doc) = doc
-        {
-            entry.doc = Some(doc);
+        match decl.kind.as_deref() {
+            None | Some("bool" | "object" | "object_ex" | "double") => {}
+            Some(other) => {
+                return Err(syn::Error::new(
+                    decl.span,
+                    format!("unknown member type '{other}'"),
+                ));
+            }
         }
+        self.items.push(decl);
         Ok(())
     }
 
-    fn validate(&mut self) -> Result<()> {
-        let mut errors = Vec::new();
-
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "Iteration order doesn't matter here"
-        )]
-        for (name, entry) in &self.map {
-            if entry.getter.is_none() {
-                errors.push(err_span!(
-                    entry.setter.as_ref().unwrap(),
-                    "Member '{}' is missing a getter",
-                    name
-                ));
-            };
-        }
-
-        errors.into_result()?;
+    fn validate(&mut self) {
         self.validated = true;
-        Ok(())
     }
 }
 
 impl ToTokens for MemberNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         assert!(self.validated, "Call `validate()` before token generation");
-        let properties = self.map.iter().map(|(name, entry)| {
-            let setter = match &entry.setter {
-                Some(setter) => quote_spanned! { setter.span() => Some(Self::#setter)},
-                None => quote! { None },
-            };
-            let member_kind = match entry.kind.as_deref() {
+        let properties = self.items.iter().map(|decl| {
+            let name = &decl.name;
+            let member_kind = match decl.kind.as_deref() {
                 Some("bool") => {
                     quote!(::rustpython_vm::builtins::descriptor::MemberKind::Bool)
                 }
                 Some("object") => {
                     quote!(::rustpython_vm::builtins::descriptor::MemberKind::Object)
                 }
+                Some("double") => {
+                    quote!(::rustpython_vm::builtins::descriptor::MemberKind::Double)
+                }
                 _ => {
                     quote!(::rustpython_vm::builtins::descriptor::MemberKind::ObjectEx)
                 }
             };
-            let getter = entry.getter.as_ref().unwrap();
-            let doc = attr_doc_expr(self.class_ty.as_ref(), name, entry.doc.clone());
-            quote_spanned! { getter.span() =>
+            let layout = match (
+                decl.kind.as_deref(),
+                decl.readonly,
+                decl.offset_expr.is_some(),
+            ) {
+                (_, _, true) => None,
+                (Some("bool"), false, _) => {
+                    Some(quote!(::rustpython_vm::builtins::descriptor::BoolCell))
+                }
+                (Some("bool"), true, _) => {
+                    Some(quote!(::rustpython_vm::builtins::descriptor::BoolMember))
+                }
+                (Some("double"), _, _) => {
+                    Some(quote!(::rustpython_vm::builtins::descriptor::DoubleMember))
+                }
+                (_, false, _) => Some(quote!(::rustpython_vm::builtins::descriptor::ObjectCell)),
+                (_, true, _) => Some(quote!(::rustpython_vm::builtins::descriptor::ObjectMember)),
+            };
+            let field: TokenStream = decl.field.parse().unwrap_or_else(|_| quote!(field));
+            let check = match layout {
+                Some(layout) => quote_spanned! { decl.span =>
+                    let _ = |payload: *const Self| {
+                        fn assert_member_field<T: #layout>(_: *const T) {}
+                        // SAFETY: `payload` is not dereferenced. `addr_of`
+                        // only names the field so its type can be checked.
+                        let field = unsafe { core::ptr::addr_of!((*payload).#field) };
+                        assert_member_field(field);
+                    };
+                },
+                None => quote! {},
+            };
+            let offset = if let Some(expr) = &decl.offset_expr {
+                let expr: TokenStream = expr.parse().unwrap_or_else(|_| quote!(0));
+                quote! { #expr }
+            } else {
+                quote_spanned! { decl.span =>
+                    ::rustpython_vm::object::payload_offset::<Self>() as isize
+                        + ::core::mem::offset_of!(Self, #field) as isize
+                }
+            };
+            let mut flag_parts = Vec::new();
+            if decl.readonly {
+                flag_parts.push(quote!(::rustpython_vm::builtins::descriptor::PY_READONLY));
+            }
+            if decl.audit_read {
+                flag_parts.push(quote!(::rustpython_vm::builtins::descriptor::PY_AUDIT_READ));
+            }
+            let flags = if flag_parts.is_empty() {
+                quote!(0)
+            } else {
+                quote!(#(#flag_parts)|*)
+            };
+            let doc = attr_doc_expr(self.class_ty.as_ref(), name, decl.doc.clone());
+            quote_spanned! { decl.span =>
+                #check
                 {
                     const DOC: Option<&str> = #doc;
                     class.set_str_attr(
                         #name,
-                        ctx.new_member(#name, #member_kind, Self::#getter, #setter, class, DOC),
+                        ctx.new_member(#name, #member_kind, #offset, #flags, class, DOC),
                         ctx,
                     );
                 }
@@ -1918,7 +1948,15 @@ impl SlotItemMeta {
 struct MemberItemMeta(ItemMetaInner);
 
 impl ItemMeta for MemberItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["type", "setter"];
+    const ALLOWED_NAMES: &'static [&'static str] = &[
+        "type",
+        "readonly",
+        "audit_read",
+        "name",
+        "field",
+        "doc",
+        "offset",
+    ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1930,47 +1968,38 @@ impl ItemMeta for MemberItemMeta {
 }
 
 impl MemberItemMeta {
-    fn member_name(&self) -> Result<(String, MemberItemKind)> {
+    fn member_name(&self) -> Result<String> {
         let inner = self.inner();
-        let sig_name = inner.item_name();
-        let extract_prefix_name = |prefix, item_typ| {
-            if let Some(name) = sig_name.strip_prefix(prefix) {
-                if name.is_empty() {
-                    Err(err_span!(
-                        inner.meta_ident,
-                        r#"A #[{}({typ})] fn with a {prefix}* name must \
-                         have something after "{prefix}""#,
-                        inner.meta_name(),
-                        typ = item_typ,
-                        prefix = prefix
-                    ))
-                } else {
-                    Ok(name.to_owned())
-                }
-            } else {
-                Err(err_span!(
-                    inner.meta_ident,
-                    r#"A #[{}(setter)] fn must either have a `name` \
-                     parameter or a fn name along the lines of "set_*""#,
-                    inner.meta_name()
-                ))
-            }
-        };
-        let kind = if inner._bool("setter")? {
-            MemberItemKind::Set
-        } else {
-            MemberItemKind::Get
-        };
-        let name = match kind {
-            MemberItemKind::Get => sig_name,
-            MemberItemKind::Set => extract_prefix_name("set_", "setter")?,
-        };
-        Ok((name, kind))
+        Ok(inner
+            ._optional_str("name")?
+            .unwrap_or_else(|| inner.item_name()))
     }
 
     fn member_kind(&self) -> Result<Option<String>> {
-        let inner = self.inner();
-        inner._optional_str("type")
+        self.inner()._optional_str("type")
+    }
+
+    fn field_path(&self, ident: &Ident) -> Result<String> {
+        Ok(self
+            .inner()
+            ._optional_str("field")?
+            .unwrap_or_else(|| ident.to_string()))
+    }
+
+    fn readonly(&self) -> Result<bool> {
+        self.inner()._bool("readonly")
+    }
+
+    fn audit_read(&self) -> Result<bool> {
+        self.inner()._bool("audit_read")
+    }
+
+    fn offset_expr(&self) -> Result<Option<String>> {
+        self.inner()._optional_str("offset")
+    }
+
+    fn doc(&self) -> Result<Option<String>> {
+        self.inner()._optional_str("doc")
     }
 }
 

@@ -239,6 +239,10 @@ pub struct PyAtomicRef<T> {
     _phantom: PhantomData<T>,
 }
 
+// The cell stores a pointer, not an inline `T`. `PhantomData<T>` would
+// otherwise make `PyAtomicRef<PyObject>` `!Unpin` because `PyObject` is pinned.
+impl<T> Unpin for PyAtomicRef<T> {}
+
 impl<T> Drop for PyAtomicRef<T> {
     fn drop(&mut self) {
         // SAFETY: We are dropping the atomic reference, so we can safely
@@ -519,6 +523,28 @@ impl PyAtomicRef<PyObject> {
             old.mark_cache_published();
         }
         old
+    }
+
+    /// Store `value` only when the cell is empty.
+    ///
+    /// On failure the cell is unchanged and `value` is returned still owned.
+    pub(crate) fn compare_exchange_empty(&self, value: PyObjectRef) -> Result<(), PyObjectRef> {
+        let raw = value.into_raw();
+        let ptr = raw.as_ptr();
+        ptr.expose_provenance();
+        match self.inner.compare_exchange(
+            core::ptr::null_mut(),
+            ptr.cast(),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => Ok(()),
+            Err(_) => {
+                // SAFETY: the exchange did not take the pointer, so `raw` is
+                // still the unique owning reference.
+                Err(unsafe { PyObjectRef::from_raw(raw) })
+            }
+        }
     }
 }
 

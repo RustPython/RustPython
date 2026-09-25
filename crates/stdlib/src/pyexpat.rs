@@ -132,7 +132,7 @@ macro_rules! create_property {
 
 macro_rules! create_readonly_int_property {
     ($ctx: expr, $attributes: expr, $name: expr, $class: expr, $element: ident) => {
-        let getset = crate::vm::builtins::PyGetSet::new($name, $class).with_get(
+        let getset = crate::vm::builtins::PyGetSet::new($name, $class, $ctx).with_get(
             move |this: &Py<PyExpatLikeXmlParser>, vm: &VirtualMachine| -> PyObjectRef {
                 vm.ctx.new_int(*this.$element.read()).into()
             },

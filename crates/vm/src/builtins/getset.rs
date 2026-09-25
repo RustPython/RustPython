@@ -11,7 +11,7 @@ use crate::{
 
 #[pyclass(module = false, name = "getset_descriptor", traverse = "manual")]
 pub struct PyGetSet {
-    name: String,
+    name: &'static crate::builtins::PyStrInterned,
     /// `d_type`. Owned: a type's namespace can outlive the type, and the
     /// descriptors it holds have to stay valid for as long as it does.
     class: PyRef<PyType>,
@@ -25,7 +25,7 @@ impl core::fmt::Debug for PyGetSet {
         write!(
             f,
             "PyGetSet {{ name: {}, getter: {}, setter: {} }}",
-            self.name,
+            self.name.as_str(),
             if self.getter.is_some() {
                 "Some"
             } else {
@@ -70,7 +70,7 @@ impl GetDescriptor for PyGetSet {
         } else {
             Err(vm.new_attribute_error(format!(
                 "attribute '{}' of '{}' objects is not readable",
-                zelf.name,
+                zelf.name.as_str(),
                 Self::class(&vm.ctx).name()
             )))
         }
@@ -79,9 +79,9 @@ impl GetDescriptor for PyGetSet {
 
 impl PyGetSet {
     #[must_use]
-    pub fn new(name: &str, class: &Py<PyType>) -> Self {
+    pub fn new(name: &str, class: &Py<PyType>, ctx: &Context) -> Self {
         Self {
-            name: name.into(),
+            name: ctx.intern_str(name),
             class: class.to_owned(),
             getter: None,
             setter: None,
@@ -131,31 +131,26 @@ impl PyGetSet {
         } else {
             Err(vm.new_attribute_error(format!(
                 "attribute '{}' of '{}' objects is not writable",
-                zelf.name,
+                zelf.name.as_str(),
                 obj.class().name()
             )))
         }
     }
 
-    #[pygetset]
-    fn __name__(&self) -> String {
-        self.name.clone()
-    }
+    #[pymember(type = "object", readonly, name = "__name__")]
+    const name: () = ();
+
+    #[pymember(type = "object", readonly, name = "__objclass__")]
+    const class: () = ();
 
     #[pygetset]
     fn __qualname__(&self) -> String {
-        format!("{}.{}", self.class.slot_name(), self.name.clone())
+        format!("{}.{}", self.class.slot_name(), self.name.as_str())
     }
 
     #[pygetset]
     fn __doc__(&self) -> Option<String> {
         self.doc.clone()
-    }
-
-    #[pymember]
-    fn __objclass__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-        Ok(zelf.class.clone().into())
     }
 }
 
@@ -165,11 +160,11 @@ impl Representable for PyGetSet {
         let class = &zelf.class;
         // Special case for object type
         if class.is(vm.ctx.types.object_type) {
-            Ok(format!("<attribute '{}'>", zelf.name))
+            Ok(format!("<attribute '{}'>", zelf.name.as_str()))
         } else {
             Ok(format!(
                 "<attribute '{}' of '{}' objects>",
-                zelf.name,
+                zelf.name.as_str(),
                 class.name()
             ))
         }
