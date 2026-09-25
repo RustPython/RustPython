@@ -112,13 +112,13 @@ mod syslog {
     struct SysLogArgs {
         #[pyarg(positional)]
         priority: PyObjectRef,
-        #[pyarg(positional, optional, name = "message")]
-        message_object: Option<PyStrRef>,
+        #[pyarg(positional, optional)]
+        message: Option<PyStrRef>,
     }
 
     #[pyfunction]
     fn syslog(args: SysLogArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let (priority, msg) = match args.message_object {
+        let (priority, msg) = match args.message {
             Some(s) => (args.priority.try_into_value(vm)?, s),
             None => (LOG_INFO, args.priority.try_into_value(vm)?),
         };

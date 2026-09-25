@@ -27,7 +27,7 @@ pub(crate) mod module {
         dir_fd: DirFd<'a, 0>,
         #[pyarg(named, default = false)]
         effective_ids: bool,
-        #[pyarg(named, name = "follow_symlinks", default = true)]
+        #[pyarg(named, default = true)]
         follow_symlinks: bool,
     }
 

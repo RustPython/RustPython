@@ -95,16 +95,16 @@ mod decl {
 
     #[derive(FromArgs)]
     struct A2bBase64Args {
-        #[pyarg(positional, name = "data")]
-        s: ArgAsciiBuffer,
+        #[pyarg(positional)]
+        data: ArgAsciiBuffer,
         #[pyarg(named, default = false)]
         strict_mode: bool,
     }
 
     #[pyfunction]
     fn a2b_base64(args: A2bBase64Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let A2bBase64Args { s, strict_mode } = args;
-        s.with_ref(|b| binascii::a2b_base64(b, strict_mode))
+        let A2bBase64Args { data, strict_mode } = args;
+        data.with_ref(|b| binascii::a2b_base64(b, strict_mode))
             .map_err(|e| new_binascii_error(e, vm))
     }
 

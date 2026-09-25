@@ -228,13 +228,13 @@ mod _io {
 
     #[derive(Clone, Copy, FromArgs)]
     struct StringIOPos {
-        #[pyarg(positional, name = "pos", optional)]
-        size: Option<ArgSize>,
+        #[pyarg(positional, optional)]
+        pos: Option<ArgSize>,
     }
 
     impl StringIOPos {
         fn as_optional(self) -> OptionalPos {
-            OptionalPos { size: self.size }
+            OptionalPos { size: self.pos }
         }
     }
 
@@ -281,8 +281,8 @@ mod _io {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct IgnoredPos {
-        #[pyarg(positional, name = "size", optional)]
-        pos: Option<PyObjectRef>,
+        #[pyarg(positional, optional)]
+        size: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -301,8 +301,8 @@ mod _io {
     #[cfg(feature = "host_env")]
     #[derive(FromArgs)]
     pub(super) struct ObjLen {
-        #[pyarg(positional, name = "size", optional)]
-        pub len: Option<PyObjectRef>,
+        #[pyarg(positional, optional)]
+        pub size: Option<PyObjectRef>,
     }
 
     // An explicit None object is preserved; only omission becomes None.
@@ -4607,8 +4607,8 @@ mod _io {
 
     #[derive(FromArgs)]
     struct StringIONewArgs {
-        #[pyarg(any, name = "initial_value", optional, py_default = "''")]
-        object: Option<PyStrRef>,
+        #[pyarg(any, optional, py_default = "''")]
+        initial_value: Option<PyStrRef>,
 
         // Omitted newline is \n. None selects universal newlines.
         #[pyarg(any, default, py_default = "'\\n'")]
@@ -4634,7 +4634,10 @@ mod _io {
 
         fn init(
             zelf: &Py<Self>,
-            Self::Args { object, newline }: Self::Args,
+            Self::Args {
+                initial_value,
+                newline,
+            }: Self::Args,
             _vm: &VirtualMachine,
         ) -> PyResult<()> {
             let newline = match newline {
@@ -4642,14 +4645,14 @@ mod _io {
                 OptionalArg::Present(None) => Newlines::Universal,
                 OptionalArg::Present(Some(newline)) => newline,
             };
-            let raw_bytes = object.as_ref().map_or_else(Vec::new, |v| {
+            let raw_bytes = initial_value.as_ref().map_or_else(Vec::new, |v| {
                 Self::translate_newlines(v.as_wtf8(), newline).into_bytes()
             });
             *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
             zelf.newline.store(newline);
             zelf.seennl.store(SeenNewline::empty());
-            if let Some(object) = object {
-                zelf.observe_newlines(object.as_wtf8(), newline);
+            if let Some(initial_value) = initial_value {
+                zelf.observe_newlines(initial_value.as_wtf8(), newline);
             }
             Ok(())
         }
@@ -5784,8 +5787,8 @@ mod fileio {
 
     #[derive(FromArgs)]
     pub(super) struct FileIOArgs {
-        #[pyarg(any, name = "file")]
-        name: PyObjectRef,
+        #[pyarg(any)]
+        file: PyObjectRef,
         // Omitted mode is stored as rb.
         #[pyarg(any, default, py_default = "'r'")]
         mode: Option<PyUtf8StrRef>,
@@ -5816,7 +5819,7 @@ mod fileio {
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             // TODO: let atomic_flag_works
-            let name = args.name;
+            let name = args.file;
             // Check if bool is used as file descriptor
             if name.class().is(vm.ctx.types.bool_type) {
                 crate::stdlib::_warnings::warn(
@@ -6217,7 +6220,7 @@ mod fileio {
         #[pymethod]
         fn truncate(&self, len: ObjLen, vm: &VirtualMachine) -> PyResult<Offset> {
             let fd = self.get_fd(vm)?;
-            let len = match len.len {
+            let len = match len.size {
                 Some(l) => get_offset(&l, vm)?,
                 None => host_io::tell(fd).map_err(|e| e.into_pyexception(vm))?,
             };

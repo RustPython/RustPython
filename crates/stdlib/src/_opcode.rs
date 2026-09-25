@@ -173,10 +173,10 @@ mod _opcode {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct ExecutorArgs {
-        #[pyarg(any, name = "code")]
-        _code: PyObjectRef,
-        #[pyarg(any, name = "offset")]
-        _offset: i32,
+        #[pyarg(any)]
+        code: PyObjectRef,
+        #[pyarg(any)]
+        offset: i32,
     }
 
     #[pyfunction]

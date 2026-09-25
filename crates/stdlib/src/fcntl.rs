@@ -85,7 +85,7 @@ mod fcntl {
 
     #[derive(FromArgs)]
     struct FcntlArg {
-        #[pyarg(positional, name = "arg", default, py_default = "0")]
+        #[pyarg(positional, default, py_default = "0")]
         arg: OptionalArg<Either<ArgStrOrBytesLike, PyIntRef>>,
     }
 
@@ -127,9 +127,9 @@ mod fcntl {
 
     #[derive(FromArgs)]
     struct IoctlArgs {
-        #[pyarg(positional, name = "arg", default, py_default = "0")]
+        #[pyarg(positional, default, py_default = "0")]
         arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
-        #[pyarg(positional, name = "mutate_flag", default = true)]
+        #[pyarg(positional, default = true)]
         mutate_flag: bool,
     }
 
@@ -214,11 +214,11 @@ mod fcntl {
 
     #[derive(FromArgs)]
     struct LockfArgs {
-        #[pyarg(positional, name = "len", default, py_default = "0")]
+        #[pyarg(positional, default, py_default = "0")]
         len: OptionalArg<PyIntRef>,
-        #[pyarg(positional, name = "start", default, py_default = "0")]
+        #[pyarg(positional, default, py_default = "0")]
         start: OptionalArg<PyIntRef>,
-        #[pyarg(positional, name = "whence", default, py_default = "0")]
+        #[pyarg(positional, default, py_default = "0")]
         whence: OptionalArg<i32>,
     }
 

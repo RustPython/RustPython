@@ -25,11 +25,11 @@ mod _multiprocessing {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct ExitArgs {
-        #[pyarg(positional, name = "exc_type", optional)]
+        #[pyarg(positional, optional)]
         exc_type: Option<crate::vm::PyObjectRef>,
-        #[pyarg(positional, name = "exc_value", optional)]
+        #[pyarg(positional, optional)]
         exc_value: Option<crate::vm::PyObjectRef>,
-        #[pyarg(positional, name = "exc_tb", optional)]
+        #[pyarg(positional, optional)]
         exc_tb: Option<crate::vm::PyObjectRef>,
     }
 
@@ -387,11 +387,11 @@ mod _multiprocessing {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct ExitArgs {
-        #[pyarg(positional, name = "exc_type", optional)]
+        #[pyarg(positional, optional)]
         exc_type: Option<crate::vm::PyObjectRef>,
-        #[pyarg(positional, name = "exc_value", optional)]
+        #[pyarg(positional, optional)]
         exc_value: Option<crate::vm::PyObjectRef>,
-        #[pyarg(positional, name = "exc_tb", optional)]
+        #[pyarg(positional, optional)]
         exc_tb: Option<crate::vm::PyObjectRef>,
     }
 

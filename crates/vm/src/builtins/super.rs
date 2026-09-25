@@ -68,8 +68,8 @@ pub struct InitArgs {
         error_msg = "super() argument 1 must be a type"
     )]
     py_type: OptionalArg<PyTypeRef>,
-    #[pyarg(positional, optional, name = "object")]
-    py_obj: OptionalArg<PyObjectRef>,
+    #[pyarg(positional, optional)]
+    object: OptionalArg<PyObjectRef>,
 }
 
 impl Initializer for PySuper {
@@ -77,12 +77,12 @@ impl Initializer for PySuper {
 
     fn init(
         zelf: &Py<Self>,
-        Self::Args { py_type, py_obj }: Self::Args,
+        Self::Args { py_type, object }: Self::Args,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Get the type:
         let (typ, obj) = if let OptionalArg::Present(ty) = py_type {
-            (ty, py_obj.unwrap_or_none(vm))
+            (ty, object.unwrap_or_none(vm))
         } else {
             // Access the InterpreterFrame directly — no need to materialize
             // a FrameObject just to read code/locals.

@@ -16,33 +16,33 @@ mod _blake2 {
         ($name:ident, $digest:literal) => {
             #[derive(FromArgs)]
             struct $name {
-                #[pyarg(any, name = "data", default, py_default = "b''")]
+                #[pyarg(any, default, py_default = "b''")]
                 data: OptionalArg<ArgBytesLike>,
-                #[pyarg(named, name = "digest_size", default, py_default = $digest)]
+                #[pyarg(named, default, py_default = $digest)]
                 digest_size: OptionalArg<ArgPrimitiveIndex<i64>>,
-                #[pyarg(named, name = "key", default, py_default = "b''")]
+                #[pyarg(named, default, py_default = "b''")]
                 key: OptionalArg<ArgBytesLike>,
-                #[pyarg(named, name = "salt", default, py_default = "b''")]
+                #[pyarg(named, default, py_default = "b''")]
                 salt: OptionalArg<ArgBytesLike>,
-                #[pyarg(named, name = "person", default, py_default = "b''")]
+                #[pyarg(named, default, py_default = "b''")]
                 person: OptionalArg<ArgBytesLike>,
-                #[pyarg(named, name = "fanout", default, py_default = "1")]
+                #[pyarg(named, default, py_default = "1")]
                 fanout: OptionalArg<ArgPrimitiveIndex<i64>>,
-                #[pyarg(named, name = "depth", default, py_default = "1")]
+                #[pyarg(named, default, py_default = "1")]
                 depth: OptionalArg<ArgPrimitiveIndex<i64>>,
-                #[pyarg(named, name = "leaf_size", default, py_default = "0")]
+                #[pyarg(named, default, py_default = "0")]
                 leaf_size: OptionalArg<PyObjectRef>,
-                #[pyarg(named, name = "node_offset", default, py_default = "0")]
+                #[pyarg(named, default, py_default = "0")]
                 node_offset: OptionalArg<PyObjectRef>,
-                #[pyarg(named, name = "node_depth", default, py_default = "0")]
+                #[pyarg(named, default, py_default = "0")]
                 node_depth: OptionalArg<ArgPrimitiveIndex<i64>>,
-                #[pyarg(named, name = "inner_size", default, py_default = "0")]
+                #[pyarg(named, default, py_default = "0")]
                 inner_size: OptionalArg<ArgPrimitiveIndex<i64>>,
-                #[pyarg(named, name = "last_node", default = false)]
+                #[pyarg(named, default = false)]
                 last_node: bool,
-                #[pyarg(named, name = "usedforsecurity", default = true)]
+                #[pyarg(named, default = true)]
                 usedforsecurity: bool,
-                #[pyarg(named, name = "string", optional, py_default = "None")]
+                #[pyarg(named, optional, py_default = "None")]
                 string: OptionalArg<ArgBytesLike>,
             }
 

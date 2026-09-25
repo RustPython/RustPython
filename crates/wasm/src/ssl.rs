@@ -477,10 +477,13 @@ mod _ssl {
         fn set_default_verify_paths(&self) {}
 
         #[pymethod]
-        fn load_verify_locations(&self, _args: LoadVerifyLocationsArgs) {}
+        fn load_verify_locations(&self, args: LoadVerifyLocationsArgs) {
+            let _ = (args.cafile, args.capath, args.cadata);
+        }
 
         #[pymethod]
-        fn load_cert_chain(&self, _args: LoadCertChainArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn load_cert_chain(&self, args: LoadCertChainArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = (args.certfile, args.keyfile, args.password);
             Err(ssl_error(vm, "certificate files are unavailable").upcast())
         }
 
@@ -498,7 +501,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_ca_certs(&self, _args: CaCertsArgs, vm: &VirtualMachine) -> PyResult {
+        fn get_ca_certs(&self, args: CaCertsArgs, vm: &VirtualMachine) -> PyResult {
+            let _ = args.binary_form;
             Ok(vm.ctx.new_list(Vec::new()).into())
         }
 
@@ -826,7 +830,7 @@ mod _ssl {
             args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let binary = args.binary_form;
+            let binary = args.der;
             let der = {
                 let guard = self.connection.lock();
                 let Some(conn) = guard.as_ref() else {
@@ -894,34 +898,34 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct LoadVerifyLocationsArgs {
-        #[pyarg(any, name = "cafile", optional)]
-        _cafile: Option<PyObjectRef>,
-        #[pyarg(any, name = "capath", optional)]
-        _capath: Option<PyObjectRef>,
-        #[pyarg(any, name = "cadata", optional)]
-        _cadata: Option<PyObjectRef>,
+        #[pyarg(any, optional)]
+        cafile: Option<PyObjectRef>,
+        #[pyarg(any, optional)]
+        capath: Option<PyObjectRef>,
+        #[pyarg(any, optional)]
+        cadata: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct LoadCertChainArgs {
-        #[pyarg(any, name = "certfile")]
-        _certfile: PyObjectRef,
-        #[pyarg(any, name = "keyfile", optional)]
-        _keyfile: Option<PyObjectRef>,
-        #[pyarg(any, name = "password", optional)]
-        _password: Option<PyObjectRef>,
+        #[pyarg(any)]
+        certfile: PyObjectRef,
+        #[pyarg(any, optional)]
+        keyfile: Option<PyObjectRef>,
+        #[pyarg(any, optional)]
+        password: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct CaCertsArgs {
-        #[pyarg(any, name = "binary_form", default = false)]
-        _binary_form: bool,
+        #[pyarg(any, default = false)]
+        binary_form: bool,
     }
 
     #[derive(FromArgs)]
     struct GetCertArgs {
-        #[pyarg(positional, name = "der", default = false)]
-        binary_form: bool,
+        #[pyarg(positional, default = false)]
+        der: bool,
     }
 
     #[derive(FromArgs)]

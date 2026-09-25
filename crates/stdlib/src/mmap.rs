@@ -278,8 +278,8 @@ mod mmap {
 
     #[derive(FromArgs)]
     struct SeekArgs {
-        #[pyarg(positional, name = "pos")]
-        dist: isize,
+        #[pyarg(positional)]
+        pos: isize,
         #[pyarg(positional, default = 0)]
         whence: core::ffi::c_int,
     }
@@ -315,8 +315,8 @@ mod mmap {
 
     #[derive(FromArgs, Clone)]
     pub(super) struct FindOptions {
-        #[pyarg(positional, name = "view")]
-        sub: Vec<u8>,
+        #[pyarg(positional)]
+        view: Vec<u8>,
         #[pyarg(positional, optional)]
         start: Option<isize>,
         #[pyarg(positional, optional)]
@@ -842,7 +842,7 @@ mod mmap {
                 return Ok(PyInt::from(-1isize));
             }
 
-            let sub = &options.sub;
+            let sub = &options.view;
             // The empty subsequence matches at the edge the scan begins from:
             // the start of the range going forward, the end going backward.
             if sub.is_empty() {
@@ -1133,7 +1133,7 @@ mod mmap {
 
         #[pymethod]
         fn seek(&self, args: SeekArgs, vm: &VirtualMachine) -> PyResult<usize> {
-            let dist = args.dist;
+            let dist = args.pos;
             let how = args.whence;
             let size = self.__len__();
 

@@ -913,8 +913,8 @@ mod decl {
 
     #[derive(FromArgs)]
     struct FilterFalseNewArgs {
-        #[pyarg(positional, name = "function")]
-        predicate: PyObjectRef,
+        #[pyarg(positional)]
+        function: PyObjectRef,
         #[pyarg(positional)]
         iterable: PyIter,
     }
@@ -925,14 +925,11 @@ mod decl {
 
         fn py_new(
             _cls: &Py<PyType>,
-            Self::Args {
-                predicate,
-                iterable,
-            }: Self::Args,
+            Self::Args { function, iterable }: Self::Args,
             _vm: &VirtualMachine,
         ) -> PyResult<Self> {
             Ok(Self {
-                predicate,
+                predicate: function,
                 iterable,
             })
         }
@@ -1800,8 +1797,8 @@ mod decl {
 
     #[derive(FromArgs)]
     struct BatchedNewArgs {
-        #[pyarg(any, name = "iterable")]
-        iterable_ref: PyObjectRef,
+        #[pyarg(any)]
+        iterable: PyObjectRef,
         #[pyarg(any)]
         n: PyIntRef,
         #[pyarg(named, default = false)]
@@ -1814,7 +1811,7 @@ mod decl {
         fn py_new(
             _cls: &Py<PyType>,
             Self::Args {
-                iterable_ref,
+                iterable,
                 n,
                 strict,
             }: Self::Args,
@@ -1827,7 +1824,7 @@ mod decl {
             let n = n
                 .to_usize()
                 .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to usize"))?;
-            let iterable = PyIter::try_from_object(vm, iterable_ref)?;
+            let iterable = PyIter::try_from_object(vm, iterable)?;
 
             Ok(Self {
                 iterable,

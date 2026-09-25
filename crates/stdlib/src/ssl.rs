@@ -458,8 +458,8 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct GetCertArgs {
-        #[pyarg(positional, name = "der", default = false)]
-        binary_form: bool,
+        #[pyarg(positional, default = false)]
+        der: bool,
     }
 
     #[derive(FromArgs)]
@@ -3349,7 +3349,7 @@ mod _ssl {
             args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let binary = args.binary_form;
+            let binary = args.der;
 
             // Check if handshake is complete
             if !self.handshake_completed() {

@@ -88,7 +88,7 @@ impl PyNamespace {
 
 #[derive(FromArgs)]
 pub struct NamespaceArgs {
-    #[pyarg(positional, name = "mapping_or_iterable", default, py_default = "()")]
+    #[pyarg(positional, default, py_default = "()")]
     mapping_or_iterable: OptionalArg<PyObjectRef>,
     #[pyarg(flatten)]
     kwargs: KwArgs,

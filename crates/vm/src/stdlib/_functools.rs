@@ -31,9 +31,9 @@ mod _functools {
     struct ReduceArgs {
         #[pyarg(positional)]
         function: PyObjectRef,
-        #[pyarg(positional, name = "iterable")]
-        iterator: PyIter,
-        #[pyarg(any, optional, name = "initial")]
+        #[pyarg(positional)]
+        iterable: PyIter,
+        #[pyarg(any, optional)]
         initial: OptionalOption<PyObjectRef>,
     }
 
@@ -41,10 +41,10 @@ mod _functools {
     fn reduce(args: ReduceArgs, vm: &VirtualMachine) -> PyResult {
         let ReduceArgs {
             function,
-            iterator,
+            iterable,
             initial,
         } = args;
-        let mut iter = iterator.iter(vm)?;
+        let mut iter = iterable.iter(vm)?;
         // OptionalOption distinguishes between:
         // - Missing: no argument provided → use first element from iterator
         // - Present(None): explicitly passed None → use None as initial value
