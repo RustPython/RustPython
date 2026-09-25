@@ -1247,7 +1247,7 @@ pub(crate) fn bytes_decode(
 
 #[derive(FromArgs)]
 pub(crate) struct ByteInnerHexOptions {
-    #[pyarg(any, optional, py_default = "<unrepresentable>")]
+    #[pyarg(any, optional)]
     pub sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
     #[pyarg(any, default = 1)]
     pub bytes_per_sep: isize,

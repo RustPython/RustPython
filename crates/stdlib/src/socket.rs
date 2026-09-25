@@ -1652,12 +1652,12 @@ mod _socket {
 
     #[derive(FromArgs)]
     pub struct SocketInitArgs {
-        #[pyarg(any, optional)]
-        family: OptionalArg<i32>,
-        #[pyarg(any, optional)]
-        r#type: OptionalArg<i32>,
-        #[pyarg(any, optional)]
-        proto: OptionalArg<i32>,
+        #[pyarg(any, default = -1)]
+        family: i32,
+        #[pyarg(any, default = -1)]
+        r#type: i32,
+        #[pyarg(any, default = -1)]
+        proto: i32,
         #[pyarg(any, optional)]
         fileno: OptionalOption<PyObjectRef>,
     }
@@ -1715,9 +1715,9 @@ mod _socket {
             args: <Self as Initializer>::Args,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
-            let mut family = args.family.unwrap_or(-1);
-            let mut socket_kind = args.r#type.unwrap_or(-1);
-            let mut proto = args.proto.unwrap_or(-1);
+            let mut family = args.family;
+            let mut socket_kind = args.r#type;
+            let mut proto = args.proto;
 
             if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
                 audit.call(

@@ -67,7 +67,7 @@ mod syslog {
 
     #[derive(Default, FromArgs)]
     struct OpenLogArgs {
-        #[pyarg(any, optional, py_default = "<unrepresentable>")]
+        #[pyarg(any, optional)]
         ident: OptionalOption<PyStrRef>,
         #[pyarg(any, optional, py_default = "0")]
         logoption: OptionalArg<i32>,

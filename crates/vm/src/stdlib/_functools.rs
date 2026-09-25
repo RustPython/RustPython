@@ -33,7 +33,7 @@ mod _functools {
         function: PyObjectRef,
         #[pyarg(positional, name = "iterable")]
         iterator: PyIter,
-        #[pyarg(any, optional, name = "initial", py_default = "<unrepresentable>")]
+        #[pyarg(any, optional, name = "initial")]
         initial: OptionalOption<PyObjectRef>,
     }
 

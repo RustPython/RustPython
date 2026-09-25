@@ -42,7 +42,7 @@ mod _blake2 {
                 last_node: bool,
                 #[pyarg(named, name = "usedforsecurity", default = true)]
                 usedforsecurity: bool,
-                #[pyarg(named, name = "string", optional)]
+                #[pyarg(named, name = "string", optional, py_default = "None")]
                 string: OptionalArg<ArgBytesLike>,
             }
 

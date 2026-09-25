@@ -15,9 +15,9 @@ mod _bisect {
         // Missing means 0.
         #[pyarg(any, optional, py_default = "0")]
         lo: OptionalArg<ArgIndex>,
-        // Missing means the sequence length.
+        // None means the sequence length.
         #[pyarg(any, optional)]
-        hi: OptionalArg<ArgIndex>,
+        hi: Option<ArgIndex>,
         #[pyarg(named, optional)]
         key: Option<PyObjectRef>,
     }
@@ -40,7 +40,7 @@ mod _bisect {
     #[inline]
     fn as_usize(
         lo: OptionalArg<ArgIndex>,
-        hi: OptionalArg<ArgIndex>,
+        hi: Option<ArgIndex>,
         seq_len: usize,
         vm: &VirtualMachine,
     ) -> PyResult<(usize, usize)> {
@@ -49,8 +49,13 @@ mod _bisect {
         let lo = handle_default(lo, vm)?.map_or(Ok(0), |value| {
             usize::try_from(value).map_err(|_| vm.new_value_error("lo must be non-negative"))
         })?;
-        let hi =
-            handle_default(hi, vm)?.map_or(seq_len, |value| usize::try_from(value).unwrap_or(0));
+        let hi = match hi {
+            Some(value) => {
+                let value: isize = value.into_int_ref().try_to_primitive(vm)?;
+                usize::try_from(value).unwrap_or(0)
+            }
+            None => seq_len,
+        };
         Ok((lo, hi))
     }
 

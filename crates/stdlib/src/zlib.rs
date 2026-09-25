@@ -286,7 +286,7 @@ mod zlib {
         #[pyarg(any, default = 0)]
         strategy: i32,
         // Missing dictionary is None.
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "None")]
         zdict: OptionalArg<ArgBytesLike>,
     }
 

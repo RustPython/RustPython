@@ -4,7 +4,7 @@ use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     class::PyClassImpl,
     common::hash::PyHash,
-    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySetterValue},
+    function::{FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     stdlib::builtins::reversed,
     types::{
@@ -40,7 +40,7 @@ pub struct WeakProxyNewArgs {
     #[pyarg(positional, name = "object")]
     referent: PyObjectRef,
     #[pyarg(positional, name = "callback", optional)]
-    callback: OptionalArg<PyObjectRef>,
+    callback: Option<PyObjectRef>,
 }
 
 impl Constructor for PyWeakProxy {
@@ -54,9 +54,7 @@ impl Constructor for PyWeakProxy {
 impl PyWeakProxy {
     pub fn from_new_args(args: WeakProxyNewArgs, vm: &VirtualMachine) -> PyResult<PyRef<PyWeak>> {
         let WeakProxyNewArgs { referent, callback } = args;
-        let callback = callback
-            .into_option()
-            .filter(|callback| !vm.is_none(callback));
+        let callback = callback.filter(|callback| !vm.is_none(callback));
         Self::new_weakproxy(referent.as_ref(), callback, vm)
     }
 

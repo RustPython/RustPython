@@ -182,7 +182,7 @@ mod _locale {
     struct LocaleArgs {
         #[pyarg(positional)]
         category: i32,
-        #[pyarg(positional, optional, py_default = "<unrepresentable>")]
+        #[pyarg(positional, optional)]
         locale: OptionalArg<Option<PyUtf8StrRef>>,
     }
 

@@ -308,7 +308,7 @@ mod _io {
     // An explicit None object is preserved; only omission becomes None.
     #[derive(FromArgs)]
     struct KeepNonePos {
-        #[pyarg(positional, optional)]
+        #[pyarg(positional, optional, py_default = "None")]
         pos: OptionalArg<PyObjectRef>,
     }
 
@@ -2510,7 +2510,7 @@ mod _io {
         errors: Option<PyUtf8StrRef>,
         // None means universal newlines.
         #[pyarg(any, optional)]
-        newline: OptionalOption<Newlines>,
+        newline: Option<Newlines>,
         // None is false.
         #[pyarg(any, default, py_default = "False")]
         line_buffering: OptionalOption<PyObjectRef>,
@@ -2525,12 +2525,13 @@ mod _io {
         encoding: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(named, optional)]
+        // Omitted leaves newline unchanged. None selects universal newlines.
+        #[pyarg(named, optional, py_default = "None")]
         newline: OptionalOption<Newlines>,
         #[pyarg(named, optional)]
-        line_buffering: OptionalOption<PyObjectRef>,
+        line_buffering: Option<PyObjectRef>,
         #[pyarg(named, optional)]
-        write_through: OptionalOption<PyObjectRef>,
+        write_through: Option<PyObjectRef>,
     }
 
     #[derive(Debug, Copy, Clone, Default, PartialEq)]
@@ -2991,10 +2992,7 @@ mod _io {
             let has_read1 = vm.get_attribute_opt(&buffer, "read1")?.is_some();
             let seekable = vm.call_method(&buffer, "seekable", ())?.try_to_bool(vm)?;
 
-            let newline = match args.newline {
-                OptionalArg::Missing | OptionalArg::Present(None) => Newlines::default(),
-                OptionalArg::Present(Some(newline)) => newline,
-            };
+            let newline = args.newline.unwrap_or_default();
             let (encoder, decoder) =
                 Self::find_coder(&buffer, encoding.as_str(), &errors, newline, vm)?;
             if let Some((encoder, _)) = &encoder {
@@ -3302,10 +3300,10 @@ mod _io {
                 newline = nl;
             }
 
-            if let OptionalArg::Present(Some(value)) = args.line_buffering {
+            if let Some(value) = args.line_buffering {
                 line_buffering = Some(Self::bool_from_index(&value, vm)?);
             }
-            if let OptionalArg::Present(Some(value)) = args.write_through {
+            if let Some(value) = args.write_through {
                 write_through = Some(Self::bool_from_index(&value, vm)?);
             }
 

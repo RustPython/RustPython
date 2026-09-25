@@ -90,7 +90,7 @@ mod _warnings {
         stacklevel: i32,
         #[pyarg(any, optional)]
         source: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional, py_default = "<unrepresentable>")]
+        #[pyarg(named, optional)]
         skip_file_prefixes: OptionalArg<PyTupleRef>,
     }
 
@@ -164,7 +164,7 @@ mod _warnings {
         filename: PyStrRef,
         #[pyarg(any)]
         lineno: usize,
-        #[pyarg(any, optional, py_default = "<unrepresentable>")]
+        #[pyarg(any, optional)]
         module: OptionalArg<PyObjectRef>,
         #[pyarg(any, optional)]
         registry: OptionalArg<PyObjectRef>,

@@ -38,7 +38,7 @@ pub const STRUCT_SEQUENCE_PARAMS: Option<&'static [crate::function::Param]> =
 pub struct StructSequenceNewArgs {
     #[pyarg(any)]
     pub sequence: PyObjectRef,
-    #[pyarg(any, optional)]
+    #[pyarg(any, optional, py_default = "{}")]
     pub dict: OptionalArg<PyObjectRef>,
 }
 

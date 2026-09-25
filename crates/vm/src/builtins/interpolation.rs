@@ -99,7 +99,7 @@ impl Constructor for PyInterpolation {
 pub struct InterpolationArgs {
     #[pyarg(positional)]
     value: PyObjectRef,
-    #[pyarg(any, optional)]
+    #[pyarg(any, optional, py_default = "\"\"")]
     expression: OptionalArg<PyStrRef>,
     #[pyarg(
         any,
@@ -107,7 +107,7 @@ pub struct InterpolationArgs {
         error_msg = "Interpolation() argument 'conversion' must be str or None"
     )]
     conversion: Option<PyStrRef>,
-    #[pyarg(any, optional)]
+    #[pyarg(any, optional, py_default = "\"\"")]
     format_spec: OptionalArg<PyStrRef>,
 }
 

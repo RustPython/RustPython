@@ -445,9 +445,9 @@ mod math {
         x: ArgIntoFloat,
         #[pyarg(positional)]
         y: ArgIntoFloat,
-        // Missing means one step.
+        // None means one step.
         #[pyarg(named, optional)]
-        steps: OptionalArg<ArgIndex>,
+        steps: Option<ArgIndex>,
     }
 
     #[pyfunction]
@@ -455,7 +455,7 @@ mod math {
         let x = arg.x.into_float();
         let y = arg.y.into_float();
 
-        let steps = match arg.steps.into_option() {
+        let steps = match arg.steps {
             Some(steps) => {
                 let steps: i64 = steps.into_int_ref().try_to_primitive(vm)?;
                 if steps < 0 {

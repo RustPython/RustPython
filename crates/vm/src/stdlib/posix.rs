@@ -603,11 +603,11 @@ pub mod module {
 
     #[derive(FromArgs)]
     struct RegisterAtForkArgs {
-        #[pyarg(named, optional, py_default = "<unrepresentable>")]
+        #[pyarg(named, optional)]
         before: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional, py_default = "<unrepresentable>")]
+        #[pyarg(named, optional)]
         after_in_child: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional, py_default = "<unrepresentable>")]
+        #[pyarg(named, optional)]
         after_in_parent: OptionalArg<PyObjectRef>,
     }
 

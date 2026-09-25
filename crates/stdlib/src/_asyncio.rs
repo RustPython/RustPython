@@ -64,7 +64,7 @@ pub(crate) mod _asyncio {
     struct AddDoneCallbackArgs {
         #[pyarg(positional, name = "fn")]
         func: PyObjectRef,
-        #[pyarg(named, optional, py_default = "<unrepresentable>")]
+        #[pyarg(named, optional)]
         context: OptionalOption<PyObjectRef>,
     }
 
@@ -147,7 +147,7 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct FutureInitArgs {
-        #[pyarg(named, name = "loop", optional)]
+        #[pyarg(named, name = "loop", optional, py_default = "None")]
         loop_: OptionalArg<PyObjectRef>,
     }
 
@@ -1139,11 +1139,11 @@ pub(crate) mod _asyncio {
     struct TaskInitArgs {
         #[pyarg(any)]
         coro: PyObjectRef,
-        #[pyarg(named, name = "loop", optional)]
+        #[pyarg(named, name = "loop", optional, py_default = "None")]
         loop_: OptionalOption<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, optional, py_default = "None")]
         name: OptionalOption<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, optional, py_default = "None")]
         context: OptionalOption<PyObjectRef>,
         // None is false.
         #[pyarg(named, optional, py_default = "False")]

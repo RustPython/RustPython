@@ -402,7 +402,7 @@ mod _csv {
 
     #[derive(FromArgs)]
     struct FieldSizeLimitArgs {
-        #[pyarg(any, optional, name = "new_limit", py_default = "<unrepresentable>")]
+        #[pyarg(any, optional, name = "new_limit")]
         new_limit: OptionalArg<PyObjectRef>,
     }
 

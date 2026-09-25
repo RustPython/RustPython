@@ -77,9 +77,9 @@ pub(crate) mod _hashlib {
         data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = true)]
         usedforsecurity: bool,
-        // Missing string is None.
+        // None means no string data.
         #[pyarg(named, optional)]
-        string: OptionalArg<ArgBytesLike>,
+        string: Option<ArgBytesLike>,
     }
 
     #[derive(FromArgs)]
@@ -112,7 +112,7 @@ pub(crate) mod _hashlib {
         #[pyarg(named, default = true)]
         usedforsecurity: bool,
         #[pyarg(named, optional)]
-        pub string: OptionalArg<ArgBytesLike>,
+        pub string: Option<ArgBytesLike>,
     }
 
     #[derive(FromArgs, Debug)]
@@ -125,7 +125,7 @@ pub(crate) mod _hashlib {
         usedforsecurity: bool,
         // Missing string is None.
         #[pyarg(named, optional)]
-        pub string: OptionalArg<ArgBytesLike>,
+        pub string: Option<ArgBytesLike>,
     }
 
     impl From<NewHashArgs> for HashArgs {
@@ -209,17 +209,16 @@ pub(crate) mod _hashlib {
         salt: ArgBytesLike,
         #[pyarg(any)]
         iterations: i64,
-        // Missing dklen is None.
         #[pyarg(any, optional)]
-        dklen: OptionalArg<PyObjectRef>,
+        dklen: Option<PyObjectRef>,
     }
 
     fn resolve_data(
         data: OptionalArg<ArgBytesLike>,
-        string: OptionalArg<ArgBytesLike>,
+        string: Option<ArgBytesLike>,
         vm: &VirtualMachine,
     ) -> PyResult<OptionalArg<ArgBytesLike>> {
-        match (data.into_option(), string.into_option()) {
+        match (data.into_option(), string) {
             (Some(d), None) => Ok(OptionalArg::Present(d)),
             (None, Some(s)) => Ok(OptionalArg::Present(s)),
             (None, None) => Ok(OptionalArg::Missing),
@@ -1146,7 +1145,7 @@ pub(crate) mod _hashlib {
         #[pyarg(any, optional, py_default = "b''")]
         msg: OptionalArg<Option<ArgBytesLike>>,
         // Missing digestmod is None.
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "None")]
         digestmod: OptionalArg<PyObjectRef>,
     }
 
@@ -1204,7 +1203,7 @@ pub(crate) mod _hashlib {
         let rounds = usize::try_from(args.iterations)
             .map_err(|_| vm.new_overflow_error("iteration value is too great."))?;
 
-        let dklen: usize = match args.dklen.into_option() {
+        let dklen: usize = match args.dklen {
             Some(obj) if vm.is_none(&obj) => {
                 backend::digest_output_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?
             }

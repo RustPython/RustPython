@@ -802,9 +802,11 @@ impl PyInt {
 
 #[derive(FromArgs)]
 pub(crate) struct IntOptions {
-    #[pyarg(positional, optional)]
+    // Missing means 0. None is not an int.
+    #[pyarg(positional, optional, py_default = "0")]
     val_options: OptionalArg<PyObjectRef>,
-    #[pyarg(any, optional)]
+    // Missing means no base was passed. The shown default is 10.
+    #[pyarg(any, optional, py_default = "10")]
     base: OptionalArg<PyObjectRef>,
 }
 

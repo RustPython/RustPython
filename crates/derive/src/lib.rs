@@ -19,7 +19,9 @@ use syn::punctuated::Punctuated;
 /// - `default`: missing argument stores `Default::default()`. Affects parsing.
 ///   The signature text is `<unrepresentable>` unless `py_default` is set.
 /// - `default = <expr>`: missing argument stores that Rust value. Affects parsing.
-/// - `optional`: same parsing as a bare `default`. The signature default is `None`.
+/// - `optional`: same parsing as a bare `default`. The field type must implement
+///   `OptionalArgDefault`. `Option<T>` renders `None`; `OptionalArg<T>` renders
+///   `<unrepresentable>`. Any other type is rejected.
 /// - `py_default = "<python source>"`: text copied verbatim into `__text_signature__`.
 ///   Never affects parsing. Overrides every other signature default.
 /// - `error_msg = "..."`: type-error text when conversion fails.
@@ -49,9 +51,17 @@ use syn::punctuated::Punctuated;
 /// byteorder: ArgByteOrder, // signature shows 'big'
 /// ```
 ///
-/// A bare `optional` renders `=None`. Keep `py_default` when the expression
-/// needs `vm` (so it is not const), or when an `OptionalArg` is missing in the
-/// body and the Python default is not `None`.
+/// A bare `optional` renders the field type's default:
+///
+/// | Rust type | Meaning | Clinic equivalent | Signature default |
+/// | --- | --- | --- | --- |
+/// | `OptionalArg<T>` | the argument may be omitted (`Missing`). That is distinct from every Python value, including `None` | `= NULL` | `<unrepresentable>` |
+/// | `Option<T>` | `None` or a value. A missing argument and an explicit `None` are the same | `= None` | `None` |
+/// | `OptionalOption<T>` (`OptionalArg<Option<T>>`) | missing, `None`, and a value are all distinct | `= NULL`, and `None` is accepted | `<unrepresentable>` |
+///
+/// Keep `py_default` when the expression needs `vm` (so it is not const), or
+/// when an `OptionalArg` is missing in the body and the shown default is a
+/// concrete value the Rust type cannot store.
 /// ```rust, ignore
 /// #[derive(FromArgs)]
 /// struct OpenArgs {

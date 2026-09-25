@@ -208,7 +208,7 @@ mod _queue {
             dead_code,
             reason = "Intentional. Provide compatibility with the Queue class"
         )]
-        #[pyarg(any, optional, default = true)]
+        #[pyarg(any, default = true)]
         block: bool,
         #[expect(
             dead_code,
@@ -220,7 +220,7 @@ mod _queue {
 
     #[derive(FromArgs)]
     struct GetArgs {
-        #[pyarg(any, optional, default = true)]
+        #[pyarg(any, default = true)]
         block: bool,
         #[pyarg(any, optional)]
         timeout: Option<TimeoutSeconds>,

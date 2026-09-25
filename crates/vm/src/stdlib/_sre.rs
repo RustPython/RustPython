@@ -321,7 +321,7 @@ mod _sre {
     #[derive(FromArgs)]
     struct DefaultArg {
         // Missing default is None.
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "None")]
         default: OptionalArg<PyObjectRef>,
     }
 

@@ -39,7 +39,8 @@ struct ArgAttribute {
     name: Option<String>,
     kind: ParameterKind,
     default: Option<DefaultValue>,
-    /// `optional` (missing argument is the Python `None` default). Bare `default` is separate.
+    /// `optional`: missing argument is `Default::default()`. The signature default
+    /// comes from `OptionalArgDefault` on the field type. Bare `default` is separate.
     optional: bool,
     py_default: Option<String>,
     error_msg: Option<String>,
@@ -369,7 +370,8 @@ fn signature_default(field: &Field, attr: &ArgAttribute) -> TokenStream {
         return quote!(Some(#value));
     }
     if attr.optional {
-        return quote!(Some(#repr::None));
+        let ty = &field.ty;
+        return quote!(Some(<#ty as ::rustpython_vm::function::OptionalArgDefault>::PY_DEFAULT));
     }
     if attr.default.is_some() {
         return quote!(Some(#repr::Raw("<unrepresentable>")));

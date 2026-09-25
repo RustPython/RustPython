@@ -540,6 +540,22 @@ pub trait FromArgOptional {
     fn from_inner(x: Self::Inner) -> Self;
 }
 
+/// Signature default of a field marked `optional`.
+///
+/// Only [`Option`] (`None`) and [`OptionalArg`] (`<unrepresentable>`) are valid.
+pub trait OptionalArgDefault {
+    const PY_DEFAULT: super::signature::DefaultRepr;
+}
+
+impl<T> OptionalArgDefault for Option<T> {
+    const PY_DEFAULT: super::signature::DefaultRepr = super::signature::DefaultRepr::None;
+}
+
+impl<T> OptionalArgDefault for OptionalArg<T> {
+    const PY_DEFAULT: super::signature::DefaultRepr =
+        super::signature::DefaultRepr::Raw("<unrepresentable>");
+}
+
 impl<T: TryFromObject> FromArgOptional for OptionalArg<T> {
     type Inner = T;
     fn from_inner(x: T) -> Self {

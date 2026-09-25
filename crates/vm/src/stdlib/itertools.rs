@@ -11,7 +11,7 @@ mod decl {
         class::PyClassDef,
         common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
         convert::ToPyObject,
-        function::{FuncArgs, NameIterables, OptionalArg, OptionalOption, PosArgs},
+        function::{FuncArgs, NameIterables, OptionalArg, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         stdlib::sys,
@@ -331,7 +331,7 @@ mod decl {
     struct PyRepeatNewArgs {
         object: PyObjectRef,
         #[pyarg(any, optional)]
-        times: OptionalArg<PyObjectRef>,
+        times: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsRepeat {
@@ -342,7 +342,7 @@ mod decl {
             Self::Args { object, times }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let times = match times.into_option() {
+            let times = match times {
                 Some(obj) => {
                     let int = obj.try_index(vm)?;
                     let val: isize = int.try_to_primitive(vm)?;
@@ -623,7 +623,7 @@ mod decl {
         #[pyarg(any)]
         iterable: PyIter,
         #[pyarg(any, optional)]
-        key: OptionalOption<PyObjectRef>,
+        key: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsGroupBy {
@@ -636,7 +636,7 @@ mod decl {
         ) -> PyResult<Self> {
             Ok(Self {
                 iterable,
-                key_func: key.flatten(),
+                key_func: key,
                 state: PyMutex::new(GroupByState::default()),
             })
         }
@@ -978,9 +978,9 @@ mod decl {
         #[pyarg(any)]
         iterable: PyIter,
         #[pyarg(any, optional)]
-        func: OptionalOption<PyObjectRef>,
+        func: Option<PyObjectRef>,
         #[pyarg(named, optional)]
-        initial: OptionalOption<PyObjectRef>,
+        initial: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsAccumulate {
@@ -989,8 +989,8 @@ mod decl {
         fn py_new(_cls: &Py<PyType>, args: AccumulateArgs, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
                 iterable: args.iterable,
-                bin_op: args.func.flatten(),
-                initial: args.initial.flatten(),
+                bin_op: args.func,
+                initial: args.initial,
                 acc_value: PyRwLock::new(None),
             })
         }
@@ -1554,7 +1554,7 @@ mod decl {
         #[pyarg(any)]
         iterable: PyObjectRef,
         #[pyarg(any, optional)]
-        r: OptionalOption<PyObjectRef>,
+        r: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsPermutations {
@@ -1570,7 +1570,7 @@ mod decl {
             let n = pool.len();
             // If r is not provided, r == n. If provided, r must be a positive integer, or None.
             // If None, it behaves the same as if it was not provided.
-            let r = match r.flatten() {
+            let r = match r {
                 Some(r) => {
                     let val = r
                         .downcast_ref::<PyInt>()
@@ -1677,7 +1677,7 @@ mod decl {
     #[derive(FromArgs)]
     struct ZipLongestArgs {
         #[pyarg(named, optional)]
-        fillvalue: OptionalArg<PyObjectRef>,
+        fillvalue: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsZipLongest {
@@ -1688,7 +1688,7 @@ mod decl {
             (iterators, args): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let fillvalue = args.fillvalue.unwrap_or_none(vm);
+            let fillvalue = args.fillvalue.unwrap_or_else(|| vm.ctx.none());
             let iterators = iterators.into_vec();
             Ok(Self {
                 iterators,
