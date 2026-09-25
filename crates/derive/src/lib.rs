@@ -210,23 +210,25 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// }
 /// ```
 /// ### pymember
-/// Declares an offset member on a unit const. The const is removed from the impl.
-/// Its name is the payload field unless `field` is set. `field` may be a nested
-/// path (`value.re`). The field type is checked against the member kind.
+/// Declares an offset member on a payload field. The struct `#[pyclass]` builds
+/// a `PyClassDef::MEMBERS` table and `extend_class` registers one
+/// `member_descriptor` per entry. The field type is checked against the member kind.
 ///
-/// - `type`: `"object"`, `"object_ex"` (default), `"bool"`, or `"double"`.
+/// - `type`: `"object"` (default), `"object_ex"`, `"bool"`, or `"double"`.
 /// - `readonly`: reject stores. A writable object member must be `PyAtomicRef<PyObject>`,
 ///   a writable bool must be `AtomicBool`, and a writable double must be an
 ///   atomic 64-bit cell (`AtomicU64`) holding the `f64` bits.
 /// - `audit_read`: audit `object.__getattr__` before the load.
-/// - `name`: Python attribute name. Defaults to the const name.
-/// - `field`: payload field path. Defaults to the const name.
-/// - `doc`: docstring. A `///` comment is used when this is omitted.
-/// - `offset`: expression used instead of the field offset, for storage that is
-///   not a payload field.
+/// - `name`: Python attribute name. Defaults to the field name.
+/// - `path`: subfield of the annotated field (`value` with `path = "re"`).
+/// - `doc`: docstring. Omitted docs fall back to the stored attribute documentation.
+///
+/// A struct-level `#[pymember]` (after `#[pyclass]`) has no field. `offset` is
+/// required there and rejected on a field. One field may carry several
+/// `#[pymember]` attributes. A `#[cfg]` on the field gates that entry.
 /// ```rust, ignore
-/// #[pymember(type = "object", readonly, name = "fget")]
-/// const getter: () = ();
+/// #[pymember(name = "fget", readonly)]
+/// getter: PyAtomicRef<PyObject>,
 /// ```
 /// # Trait
 /// `#[pyclass]` on traits functions a lot like `#[pyclass]` on `impl` blocks.

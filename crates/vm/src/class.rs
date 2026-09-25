@@ -140,6 +140,9 @@ pub trait PyClassDef {
     const BASICSIZE: usize;
     const ITEMSIZE: usize = 0;
     const UNHASHABLE: bool = false;
+    const MEMBERS: &'static [crate::builtins::descriptor::PyMemberSpec] = &[];
+
+    fn assert_member_layout() {}
 
     // due to restriction of rust trait system, object.__base__ is None
     // but PyBaseObject::Base will be PyBaseObject.
@@ -237,6 +240,22 @@ pub trait PyClassImpl: PyClassDef {
                     crate::builtins::object::object_set_dict,
                 )
                 .into(),
+            );
+        }
+
+        Self::assert_member_layout();
+        for member in Self::MEMBERS {
+            class.set_str_attr(
+                member.name,
+                ctx.new_member(
+                    member.name,
+                    member.kind,
+                    member.offset,
+                    member.flags,
+                    class,
+                    member.doc,
+                ),
+                ctx,
             );
         }
 

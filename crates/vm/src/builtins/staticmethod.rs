@@ -15,6 +15,8 @@ use crate::{
 #[pyclass(module = false, name = "staticmethod", traverse)]
 #[derive(Debug)]
 pub struct PyStaticMethod {
+    #[pymember(readonly, name = "__func__")]
+    #[pymember(readonly, name = "__wrapped__")]
     pub callable: PyAtomicRef<PyObject>,
 }
 
@@ -101,10 +103,6 @@ impl Initializer for PyStaticMethod {
     flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
 )]
 impl PyStaticMethod {
-    #[pymember(type = "object", readonly, name = "__func__")]
-    #[pymember(type = "object", readonly, name = "__wrapped__")]
-    const callable: () = ();
-
     #[pygetset]
     fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
         let callable = zelf.callable.load_owned().unwrap();
