@@ -21,9 +21,7 @@ pub mod module {
         builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
-        function::{
-            ArgBytesLike, ArgMapping, ArgPrimitiveIndex, ArgSize, Either, KwArgs, OptionalArg,
-        },
+        function::{ArgBytesLike, ArgMapping, ArgPrimitiveIndex, ArgSize, Either, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
             _os, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata, warn_if_bool_fd,
@@ -605,12 +603,12 @@ pub mod module {
 
     #[derive(FromArgs)]
     struct RegisterAtForkArgs {
-        #[pyarg(named, optional)]
+        #[pyarg(named, optional, py_default = "<unrepresentable>")]
         before: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
-        after_in_parent: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, optional, py_default = "<unrepresentable>")]
         after_in_child: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional, py_default = "<unrepresentable>")]
+        after_in_parent: OptionalArg<PyObjectRef>,
     }
 
     impl RegisterAtForkArgs {
@@ -647,11 +645,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn register_at_fork(
-        args: RegisterAtForkArgs,
-        _ignored: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn register_at_fork(args: RegisterAtForkArgs, vm: &VirtualMachine) -> PyResult<()> {
         let (before, after_in_parent, after_in_child) = args.into_validated(vm)?;
 
         if let Some(before) = before {

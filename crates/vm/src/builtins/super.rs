@@ -61,9 +61,14 @@ impl Constructor for PySuper {
 
 #[derive(FromArgs)]
 pub struct InitArgs {
-    #[pyarg(positional, optional, error_msg = "super() argument 1 must be a type")]
+    #[pyarg(
+        positional,
+        optional,
+        name = "type",
+        error_msg = "super() argument 1 must be a type"
+    )]
     py_type: OptionalArg<PyTypeRef>,
-    #[pyarg(positional, optional)]
+    #[pyarg(positional, optional, name = "object")]
     py_obj: OptionalArg<PyObjectRef>,
 }
 

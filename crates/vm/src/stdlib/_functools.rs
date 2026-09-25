@@ -29,9 +29,11 @@ mod _functools {
 
     #[derive(FromArgs)]
     struct ReduceArgs {
+        #[pyarg(positional)]
         function: PyObjectRef,
+        #[pyarg(positional, name = "iterable")]
         iterator: PyIter,
-        #[pyarg(any, optional, name = "initial")]
+        #[pyarg(any, optional, name = "initial", py_default = "<unrepresentable>")]
         initial: OptionalOption<PyObjectRef>,
     }
 

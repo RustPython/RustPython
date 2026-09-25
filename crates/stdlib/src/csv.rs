@@ -7,7 +7,7 @@ mod _csv {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
-        function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, Param},
+        function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param},
         protocol::{PyIter, PyIterReturn},
         types::{Callable, Constructor, IterNext, Iterable, SelfIter},
     };
@@ -400,17 +400,17 @@ mod _csv {
         vm.ctx.new_list(t)
     }
 
+    #[derive(FromArgs)]
+    struct FieldSizeLimitArgs {
+        #[pyarg(any, optional, name = "new_limit", py_default = "<unrepresentable>")]
+        new_limit: OptionalArg<PyObjectRef>,
+    }
+
     #[pyfunction]
-    fn field_size_limit(rest: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
+    fn field_size_limit(args: FieldSizeLimitArgs, vm: &VirtualMachine) -> PyResult<isize> {
         let old_size = GLOBAL_FIELD_LIMIT.lock().to_owned();
-        if !rest.args.is_empty() {
-            let arg_len = rest.args.len();
-            if arg_len != 1 {
-                return Err(vm.new_type_error(format!(
-                    "field_size_limit() takes at most 1 argument ({arg_len} given)"
-                )));
-            }
-            let Ok(new_size) = rest.args.first().unwrap().try_int(vm) else {
+        if let OptionalArg::Present(limit) = args.new_limit {
+            let Ok(new_size) = limit.try_int(vm) else {
                 return Err(vm.new_type_error("limit must be an integer"));
             };
             *GLOBAL_FIELD_LIMIT.lock() = new_size.try_to_primitive::<isize>(vm)?;

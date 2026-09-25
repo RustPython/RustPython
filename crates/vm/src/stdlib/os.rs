@@ -214,7 +214,7 @@ pub(super) mod _os {
         common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
-        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, FuncArgs},
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
@@ -243,6 +243,7 @@ pub(super) mod _os {
     const UTIME_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const UNLINK_DIR_FD: bool = cfg!(not(windows));
+    const LINK_DIR_FD: bool = cfg!(any(unix, target_os = "wasi"));
     const RENAME_DIR_FD: bool = cfg!(any(unix, target_os = "wasi"));
     const RMDIR_DIR_FD: bool = cfg!(not(windows));
     const SCANDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
@@ -1710,20 +1711,28 @@ pub(super) mod _os {
     }
 
     #[derive(FromArgs)]
-    struct LinkArgs {
+    struct LinkArgs<'fd> {
         #[pyarg(any)]
         src: OsPath,
         #[pyarg(any)]
         dst: OsPath,
-        #[pyarg(named, name = "follow_symlinks", optional)]
-        follow_symlinks: OptionalArg<bool>,
+        #[pyarg(flatten)]
+        #[cfg_attr(not(any(unix, target_os = "wasi")), expect(dead_code))]
+        src_dir_fd: DirFd<'fd, { LINK_DIR_FD as usize }, SrcDirFd>,
+        #[pyarg(flatten)]
+        #[cfg_attr(not(any(unix, target_os = "wasi")), expect(dead_code))]
+        dst_dir_fd: DirFd<'fd, { LINK_DIR_FD as usize }, DstDirFd>,
+        #[pyarg(named, default = cfg!(not(windows)), py_default = "(os.name != 'nt')")]
+        follow_symlinks: bool,
     }
 
     #[pyfunction]
-    fn link(args: LinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn link(args: LinkArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         let LinkArgs {
             src,
             dst,
+            src_dir_fd,
+            dst_dir_fd,
             follow_symlinks,
         } = args;
 
@@ -1737,10 +1746,15 @@ pub(super) mod _os {
             let dst_cstr = alloc::ffi::CString::new(dst.path.as_os_str().as_bytes())
                 .map_err(|e| e.to_pyexception(vm))?;
 
-            let follow = follow_symlinks.into_option().unwrap_or(true);
-            if let Err(err) =
-                crate::host_env::posix::link_paths(src_cstr.as_c_str(), dst_cstr.as_c_str(), follow)
-            {
+            let src_fd = src_dir_fd.get().as_raw();
+            let dst_fd = dst_dir_fd.get().as_raw();
+            if let Err(err) = crate::host_env::posix::link_paths(
+                src_fd,
+                src_cstr.as_c_str(),
+                dst_fd,
+                dst_cstr.as_c_str(),
+                follow_symlinks,
+            ) {
                 let builder = err.to_os_error_builder(vm);
                 let builder = builder.filename(src.filename(vm));
                 let builder = builder.filename2(dst.filename(vm));
@@ -1752,16 +1766,12 @@ pub(super) mod _os {
 
         #[cfg(windows)]
         {
-            let src_path = match follow_symlinks.into_option() {
-                Some(true) => {
-                    // Explicit follow_symlinks=True: resolve symlinks
-                    crate::host_env::fs::canonicalize(&src.path)
-                        .unwrap_or_else(|_| PathBuf::from(src.path.clone()))
-                }
-                Some(false) | None => {
-                    // Default or explicit no-follow: native hard_link behavior
-                    PathBuf::from(src.path.clone())
-                }
+            let _ = (src_dir_fd, dst_dir_fd);
+            let src_path = if follow_symlinks {
+                crate::host_env::fs::canonicalize(&src.path)
+                    .unwrap_or_else(|_| PathBuf::from(src.path.clone()))
+            } else {
+                PathBuf::from(src.path.clone())
             };
             // CreateHardLinkW(new, existing)
             let src_wide = src_path
@@ -1778,10 +1788,12 @@ pub(super) mod _os {
 
         #[cfg(not(any(unix, windows)))]
         {
-            let src_path = match follow_symlinks.into_option() {
-                Some(true) => crate::host_env::fs::canonicalize(&src.path)
-                    .unwrap_or_else(|_| PathBuf::from(src.path.clone())),
-                Some(false) | None => PathBuf::from(src.path.clone()),
+            let _ = (src_dir_fd, dst_dir_fd);
+            let src_path = if follow_symlinks {
+                crate::host_env::fs::canonicalize(&src.path)
+                    .unwrap_or_else(|_| PathBuf::from(src.path.clone()))
+            } else {
+                PathBuf::from(src.path.clone())
             };
 
             fs::hard_link(&src_path, &dst.path).map_err(|err| {

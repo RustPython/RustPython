@@ -778,6 +778,12 @@ pub mod sys {
 
     #[derive(FromArgs)]
     struct GetFrameArgs {
+        #[pyarg(positional, default = 0)]
+        depth: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct GetFrameModuleNameArgs {
         #[pyarg(any, default = 0)]
         depth: usize,
     }
@@ -1033,7 +1039,10 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _getframemodulename(args: GetFrameArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn _getframemodulename(
+        args: GetFrameModuleNameArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         let depth = args.depth;
         if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
             audit.call((vm.ctx.new_str("sys._getframemodulename"), depth), vm)?;

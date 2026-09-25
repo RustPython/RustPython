@@ -367,8 +367,12 @@ impl RawMemoryView {
     }
 }
 
-// These match the current RustPython _ctypes surface exactly.
+#[cfg(unix)]
+pub use libc::{RTLD_GLOBAL, RTLD_LOCAL};
+
+#[cfg(not(unix))]
 pub const RTLD_LOCAL: i32 = 0;
+#[cfg(not(unix))]
 pub const RTLD_GLOBAL: i32 = 0;
 pub const SIZEOF_TIME_T: usize = core::mem::size_of::<TimeT>();
 

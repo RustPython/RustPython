@@ -67,11 +67,11 @@ mod syslog {
 
     #[derive(Default, FromArgs)]
     struct OpenLogArgs {
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "<unrepresentable>")]
         ident: OptionalOption<PyStrRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "0")]
         logoption: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "LOG_USER")]
         facility: OptionalArg<i32>,
     }
 
@@ -112,7 +112,7 @@ mod syslog {
     struct SysLogArgs {
         #[pyarg(positional)]
         priority: PyObjectRef,
-        #[pyarg(positional, optional)]
+        #[pyarg(positional, optional, name = "message")]
         message_object: OptionalOption<PyStrRef>,
     }
 

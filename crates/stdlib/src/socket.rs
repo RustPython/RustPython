@@ -2874,18 +2874,18 @@ mod _socket {
 
     #[derive(FromArgs)]
     struct GAIOptions {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         host: Option<ArgStrOrBytesLike>,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         port: Option<Either<ArgStrOrBytesLike, i32>>,
 
-        #[pyarg(positional, default = c::AF_UNSPEC)]
+        #[pyarg(any, default = c::AF_UNSPEC)]
         family: i32,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(any, name = "type", default = 0)]
         ty: i32,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(any, default = 0)]
         proto: i32,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(any, default = 0)]
         flags: i32,
     }
 

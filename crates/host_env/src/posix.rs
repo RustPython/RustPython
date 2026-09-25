@@ -494,21 +494,19 @@ pub fn fcopyfile(in_fd: i32, out_fd: i32, flags: u32) -> std::io::Result<()> {
 }
 
 #[cfg(unix)]
-pub fn link_paths(src: &CStr, dst: &CStr, follow_symlinks: bool) -> std::io::Result<()> {
+pub fn link_paths(
+    src_dir_fd: i32,
+    src: &CStr,
+    dst_dir_fd: i32,
+    dst: &CStr,
+    follow_symlinks: bool,
+) -> std::io::Result<()> {
     let flags = if follow_symlinks {
         libc::AT_SYMLINK_FOLLOW
     } else {
         0
     };
-    let ret = unsafe {
-        libc::linkat(
-            libc::AT_FDCWD,
-            src.as_ptr(),
-            libc::AT_FDCWD,
-            dst.as_ptr(),
-            flags,
-        )
-    };
+    let ret = unsafe { libc::linkat(src_dir_fd, src.as_ptr(), dst_dir_fd, dst.as_ptr(), flags) };
     if ret != 0 {
         Err(std::io::Error::last_os_error())
     } else {

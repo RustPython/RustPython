@@ -311,7 +311,7 @@ pub(crate) mod ordered_dict {
     struct ODictPopArgs {
         #[pyarg(any)]
         key: PyObjectRef,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "<unrepresentable>")]
         default: OptionalArg<PyObjectRef>,
     }
 

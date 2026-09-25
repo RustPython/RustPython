@@ -1425,7 +1425,7 @@ mod _pyexpat {
         encoding: Option<PyStrRef>,
         #[pyarg(any, optional)]
         namespace_separator: Option<PyUtf8StrRef>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "<unrepresentable>")]
         intern: Option<PyObjectRef>,
     }
 

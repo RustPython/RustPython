@@ -180,9 +180,9 @@ mod _locale {
 
     #[derive(FromArgs)]
     struct LocaleArgs {
-        #[pyarg(any)]
+        #[pyarg(positional)]
         category: i32,
-        #[pyarg(any, optional)]
+        #[pyarg(positional, optional, py_default = "<unrepresentable>")]
         locale: OptionalArg<Option<PyUtf8StrRef>>,
     }
 

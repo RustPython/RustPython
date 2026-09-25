@@ -62,9 +62,9 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct AddDoneCallbackArgs {
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "fn")]
         func: PyObjectRef,
-        #[pyarg(named, optional)]
+        #[pyarg(named, optional, py_default = "<unrepresentable>")]
         context: OptionalOption<PyObjectRef>,
     }
 

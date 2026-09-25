@@ -82,15 +82,15 @@ mod _warnings {
 
     #[derive(FromArgs)]
     struct WarnArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         message: PyObjectRef,
         #[pyarg(any, optional)]
         category: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = 1)]
+        stacklevel: i32,
         #[pyarg(any, optional)]
-        stacklevel: OptionalArg<i32>,
-        #[pyarg(named, optional)]
         source: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, optional, py_default = "<unrepresentable>")]
         skip_file_prefixes: OptionalArg<PyTupleRef>,
     }
 
@@ -130,7 +130,7 @@ mod _warnings {
 
     #[pyfunction]
     fn warn(args: WarnArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let level = args.stacklevel.unwrap_or(1) as isize;
+        let level = args.stacklevel as isize;
 
         let category = get_category(&args.message, args.category.into_option(), vm)?;
 
@@ -164,13 +164,13 @@ mod _warnings {
         filename: PyStrRef,
         #[pyarg(any)]
         lineno: usize,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "<unrepresentable>")]
         module: OptionalArg<PyObjectRef>,
         #[pyarg(any, optional)]
         registry: OptionalArg<PyObjectRef>,
         #[pyarg(any, optional)]
         module_globals: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(any, optional)]
         source: OptionalArg<PyObjectRef>,
     }
 

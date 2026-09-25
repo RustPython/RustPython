@@ -1224,7 +1224,7 @@ enum Order {
 struct CastArgs {
     #[pyarg(any)]
     format: PyUtf8StrRef,
-    #[pyarg(any, optional)]
+    #[pyarg(any, optional, py_default = "<unrepresentable>")]
     shape: OptionalArg<Either<PyTupleRef, PyListRef>>,
 }
 
