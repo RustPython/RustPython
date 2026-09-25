@@ -764,7 +764,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
 
                 #[inline]
                 unsafe fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
-                    <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots.basicsize && obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
+                    <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().payload().slots.basicsize && obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
                 }
 
                 fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {

@@ -427,14 +427,16 @@ impl SlotAccessor {
 
         macro_rules! inherit_main {
             ($slot:ident) => {{
-                let inherited = mro.iter().find_map(|cls| cls.slots.$slot.load());
+                let inherited = mro.iter().find_map(|cls| cls.payload().slots.$slot.load());
                 typ.slots.$slot.store(inherited);
             }};
         }
 
         macro_rules! inherit_number {
             ($slot:ident) => {{
-                let inherited = mro.iter().find_map(|cls| cls.slots.as_number.$slot.load());
+                let inherited = mro
+                    .iter()
+                    .find_map(|cls| cls.payload().slots.as_number.$slot.load());
                 typ.slots.as_number.$slot.store(inherited);
             }};
         }
@@ -443,14 +445,16 @@ impl SlotAccessor {
             ($slot:ident) => {{
                 let inherited = mro
                     .iter()
-                    .find_map(|cls| cls.slots.as_sequence.$slot.load());
+                    .find_map(|cls| cls.payload().slots.as_sequence.$slot.load());
                 typ.slots.as_sequence.$slot.store(inherited);
             }};
         }
 
         macro_rules! inherit_mapping {
             ($slot:ident) => {{
-                let inherited = mro.iter().find_map(|cls| cls.slots.as_mapping.$slot.load());
+                let inherited = mro
+                    .iter()
+                    .find_map(|cls| cls.payload().slots.as_mapping.$slot.load());
                 typ.slots.as_mapping.$slot.store(inherited);
             }};
         }
@@ -469,8 +473,8 @@ impl SlotAccessor {
                 // vectorcall as a constructor fast path (call=None).
                 // See vectorcall_type() in type.rs for the dual-use design rationale.
                 let inherited_vc = mro.iter().find_map(|cls| {
-                    if cls.slots.call.load().is_some() {
-                        cls.slots.vectorcall.load()
+                    if cls.payload().slots.call.load().is_some() {
+                        cls.payload().slots.vectorcall.load()
                     } else {
                         None
                     }
@@ -543,13 +547,19 @@ impl SlotAccessor {
 
             // Buffer protocol
             Self::BfGetBuffer => {
-                let inherited = mro.iter().find_map(|cls| cls.slots.as_buffer.load());
+                let inherited = mro
+                    .iter()
+                    .find_map(|cls| cls.payload().slots.as_buffer.load());
                 typ.slots.as_buffer.store(inherited);
             }
             Self::BfReleaseBuffer => {
-                let has_release = mro.iter().any(|cls| cls.slots.has_release_buffer.load());
+                let has_release = mro
+                    .iter()
+                    .any(|cls| cls.payload().slots.has_release_buffer.load());
                 typ.slots.has_release_buffer.store(has_release);
-                let py_release = mro.iter().any(|cls| cls.slots.python_release_buffer.load());
+                let py_release = mro
+                    .iter()
+                    .any(|cls| cls.payload().slots.python_release_buffer.load());
                 typ.slots.python_release_buffer.store(py_release);
             }
 
@@ -623,7 +633,8 @@ impl SlotAccessor {
                     && let Some(base_val) = base.slots.init.load()
                 {
                     let slot_defined = base.base.deref().is_none_or(|bb| {
-                        bb.slots.init.load().map(|v| fn_addr(v)) != Some(fn_addr(base_val))
+                        bb.payload().slots.init.load().map(|v| fn_addr(v))
+                            != Some(fn_addr(base_val))
                     });
                     if slot_defined {
                         typ.slots.init.store(Some(base_val));
