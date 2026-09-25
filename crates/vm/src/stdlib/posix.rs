@@ -1768,15 +1768,15 @@ pub mod module {
         let Some(tuple) = obj.downcast_ref::<PyTuple>() else {
             return Err(vm.new_type_error("scheduler must be a tuple or None"));
         };
-        if tuple.len() != 2 {
+        if tuple.as_slice().len() != 2 {
             return Err(vm.new_type_error("A scheduler tuple must have two elements"));
         }
-        let policy = if tuple[0].is(&vm.ctx.none()) {
+        let policy = if tuple.as_slice()[0].is(&vm.ctx.none()) {
             None
         } else {
-            Some(i32::try_from_object(vm, tuple[0].clone())?)
+            Some(i32::try_from_object(vm, tuple.as_slice()[0].clone())?)
         };
-        let param = super::posix_sched::convert_sched_param(&tuple[1], vm)?;
+        let param = super::posix_sched::convert_sched_param(&tuple.as_slice()[1], vm)?;
         Ok(Some(rustpython_host_env::posix::PosixSpawnScheduler {
             policy,
             param,
@@ -2901,7 +2901,7 @@ mod posix_sched {
                     |zelf: crate::PyRef<crate::builtins::PyTuple>,
                      vm: &VirtualMachine|
                      -> PyTupleRef {
-                        vm.new_tuple((zelf.class().to_owned(), (zelf[0].clone(),)))
+                        vm.new_tuple((zelf.class().to_owned(), (zelf.as_slice()[0].clone(),)))
                     },
                     crate::function::PyMethodFlags::METHOD,
                     None,
@@ -2926,7 +2926,7 @@ mod posix_sched {
             return Err(vm.new_type_error("must have a sched_param object"));
         }
         let tuple = obj.downcast_ref::<PyTuple>().unwrap();
-        let priority = tuple[0].clone();
+        let priority = tuple.as_slice()[0].clone();
         let priority_type = priority.class().name().to_string();
         let value = priority.downcast::<PyInt>().map_err(|_| {
             vm.new_type_error(format!("an integer is required (got type {priority_type})"))

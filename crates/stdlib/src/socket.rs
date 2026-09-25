@@ -1352,23 +1352,24 @@ mod _socket {
                             obj.class().name()
                         ))
                     })?;
-                    if tuple.len() != 2 {
+                    if tuple.as_slice().len() != 2 {
                         return Err(vm
                             .new_type_error(
                                 "AF_HYPERV address must be a str tuple (vm_id, service_id)",
                             )
                             .into());
                     }
-                    let vm_id: PyStrRef = tuple[0].clone().downcast().map_err(|_| {
+                    let vm_id: PyStrRef = tuple.as_slice()[0].clone().downcast().map_err(|_| {
                         vm.new_type_error(
                             "AF_HYPERV address must be a str tuple (vm_id, service_id)",
                         )
                     })?;
-                    let service_id: PyStrRef = tuple[1].clone().downcast().map_err(|_| {
-                        vm.new_type_error(
-                            "AF_HYPERV address must be a str tuple (vm_id, service_id)",
-                        )
-                    })?;
+                    let service_id: PyStrRef =
+                        tuple.as_slice()[1].clone().downcast().map_err(|_| {
+                            vm.new_type_error(
+                                "AF_HYPERV address must be a str tuple (vm_id, service_id)",
+                            )
+                        })?;
                     let vm_wide = vm_id.as_wtf8().to_wide_cstring().map_err(|_| {
                         vm.new_value_error(format!(
                             "{caller}(): AF_HYPERV address vm_id is not a valid UUID string"
@@ -1410,14 +1411,14 @@ mod _socket {
                     let tuple: PyTupleRef = addr
                         .downcast()
                         .map_err(|_| vm.new_os_error(format!("{caller}(): wrong format")))?;
-                    if tuple.len() != 2 {
+                    if tuple.as_slice().len() != 2 {
                         return Err(vm.new_os_error(format!("{caller}(): wrong format")).into());
                     }
-                    let name: PyStrRef = tuple[0]
+                    let name: PyStrRef = tuple.as_slice()[0]
                         .clone()
                         .downcast()
                         .map_err(|_| vm.new_os_error(format!("{caller}(): wrong format")))?;
-                    let channel = i64::try_from_object(vm, tuple[1].clone())
+                    let channel = i64::try_from_object(vm, tuple.as_slice()[1].clone())
                         .map_err(|_| vm.new_os_error(format!("{caller}(): wrong format")))?;
                     let name = name
                         .try_into_utf8(vm)
@@ -1449,6 +1450,7 @@ mod _socket {
                     })?;
                     let proto = self.proto.load();
                     let interface: PyStrRef = tuple
+                        .as_slice()
                         .first()
                         .cloned()
                         .ok_or_else(|| {
@@ -1484,38 +1486,48 @@ mod _socket {
 
                     match proto {
                         c::CAN_RAW | c::CAN_BCM => {
-                            if tuple.len() != 1 {
+                            if tuple.as_slice().len() != 1 {
                                 return Err(vm
                                     .new_type_error("AF_CAN address must be a tuple (interface, )")
                                     .into());
                             }
                         }
                         c::CAN_ISOTP => {
-                            if tuple.len() != 3 {
+                            if tuple.as_slice().len() != 3 {
                                 return Err(vm
                                     .new_type_error(
                                         "AF_CAN ISOTP address must be a tuple (interface, rx_id, tx_id)",
                                     )
                                     .into());
                             }
-                            let rx_id = tuple[1].try_index(vm)?.try_to_primitive::<u32>(vm)?;
-                            let tx_id = tuple[2].try_index(vm)?.try_to_primitive::<u32>(vm)?;
+                            let rx_id = tuple.as_slice()[1]
+                                .try_index(vm)?
+                                .try_to_primitive::<u32>(vm)?;
+                            let tx_id = tuple.as_slice()[2]
+                                .try_index(vm)?
+                                .try_to_primitive::<u32>(vm)?;
                             unsafe {
                                 (*can_addr).can_addr.tp.rx_id = rx_id;
                                 (*can_addr).can_addr.tp.tx_id = tx_id;
                             }
                         }
                         c::CAN_J1939 => {
-                            if tuple.len() != 4 {
+                            if tuple.as_slice().len() != 4 {
                                 return Err(vm
                                     .new_type_error(
                                         "AF_CAN J1939 address must be a tuple (interface, name, pgn, addr)",
                                     )
                                     .into());
                             }
-                            let name = tuple[1].try_index(vm)?.try_to_primitive::<u64>(vm)?;
-                            let pgn = tuple[2].try_index(vm)?.try_to_primitive::<u32>(vm)?;
-                            let jaddr = tuple[3].try_index(vm)?.try_to_primitive::<u8>(vm)?;
+                            let name = tuple.as_slice()[1]
+                                .try_index(vm)?
+                                .try_to_primitive::<u64>(vm)?;
+                            let pgn = tuple.as_slice()[2]
+                                .try_index(vm)?
+                                .try_to_primitive::<u32>(vm)?;
+                            let jaddr = tuple.as_slice()[3]
+                                .try_index(vm)?
+                                .try_to_primitive::<u8>(vm)?;
                             unsafe {
                                 (*can_addr).can_addr.j1939.name = name;
                                 (*can_addr).can_addr.j1939.pgn = pgn;
@@ -1547,25 +1559,27 @@ mod _socket {
                             obj.class().name()
                         ))
                     })?;
-                    if tuple.len() != 2 {
+                    if tuple.as_slice().len() != 2 {
                         return Err(vm
                             .new_type_error("AF_ALG address must be a tuple (type, name)")
                             .into());
                     }
-                    let alg_type: PyStrRef = tuple[0].clone().downcast().map_err(|obj| {
-                        vm.new_type_error(format!(
-                            "{}(): AF_ALG type must be str, not {}",
-                            caller,
-                            obj.class().name()
-                        ))
-                    })?;
-                    let alg_name: PyStrRef = tuple[1].clone().downcast().map_err(|obj| {
-                        vm.new_type_error(format!(
-                            "{}(): AF_ALG name must be str, not {}",
-                            caller,
-                            obj.class().name()
-                        ))
-                    })?;
+                    let alg_type: PyStrRef =
+                        tuple.as_slice()[0].clone().downcast().map_err(|obj| {
+                            vm.new_type_error(format!(
+                                "{}(): AF_ALG type must be str, not {}",
+                                caller,
+                                obj.class().name()
+                            ))
+                        })?;
+                    let alg_name: PyStrRef =
+                        tuple.as_slice()[1].clone().downcast().map_err(|obj| {
+                            vm.new_type_error(format!(
+                                "{}(): AF_ALG name must be str, not {}",
+                                caller,
+                                obj.class().name()
+                            ))
+                        })?;
 
                     let alg_type = alg_type.try_into_utf8(vm).map_err(IoOrPyException::from)?;
                     let alg_name = alg_name.try_into_utf8(vm).map_err(IoOrPyException::from)?;
@@ -2459,7 +2473,7 @@ mod _socket {
                     let tuple: PyTupleRef = option
                         .downcast()
                         .map_err(|_| vm.new_type_error("SIO_KEEPALIVE_VALS requires a tuple"))?;
-                    if tuple.len() != 3 {
+                    if tuple.as_slice().len() != 3 {
                         return Err(vm
                             .new_type_error(
                                 "SIO_KEEPALIVE_VALS requires (onoff, keepalivetime, keepaliveinterval)",
@@ -2468,9 +2482,15 @@ mod _socket {
                     }
 
                     let ka = host_socket::TcpKeepalive {
-                        onoff: TryFromObject::try_from_object(vm, tuple[0].clone())?,
-                        keepalivetime: TryFromObject::try_from_object(vm, tuple[1].clone())?,
-                        keepaliveinterval: TryFromObject::try_from_object(vm, tuple[2].clone())?,
+                        onoff: TryFromObject::try_from_object(vm, tuple.as_slice()[0].clone())?,
+                        keepalivetime: TryFromObject::try_from_object(
+                            vm,
+                            tuple.as_slice()[1].clone(),
+                        )?,
+                        keepaliveinterval: TryFromObject::try_from_object(
+                            vm,
+                            tuple.as_slice()[2].clone(),
+                        )?,
                     };
 
                     if cmd != c::SIO_KEEPALIVE_VALS {
