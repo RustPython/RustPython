@@ -8,7 +8,7 @@ mod syslog {
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyStr, PyStrRef},
         convert::ToPyException,
-        function::{OptionalArg, OptionalOption},
+        function::OptionalArg,
         utils::ToCString,
     };
     use rustpython_host_env::syslog as host_syslog;
@@ -68,7 +68,7 @@ mod syslog {
     #[derive(Default, FromArgs)]
     struct OpenLogArgs {
         #[pyarg(any, optional)]
-        ident: OptionalOption<PyStrRef>,
+        ident: Option<PyStrRef>,
         #[pyarg(any, optional, py_default = "0")]
         logoption: OptionalArg<i32>,
         #[pyarg(any, optional, py_default = "LOG_USER")]
@@ -79,7 +79,7 @@ mod syslog {
     fn openlog(args: OpenLogArgs, vm: &VirtualMachine) -> PyResult<()> {
         let logoption = args.logoption.unwrap_or(0);
         let facility = args.facility.unwrap_or(LOG_USER);
-        let ident = match args.ident.clone().flatten() {
+        let ident = match args.ident.clone() {
             Some(ident) => Some(ident_to_utf8_cstring(&ident, vm)?),
             None => get_argv(vm)
                 .map(|argv| ident_to_utf8_cstring(&argv, vm))
@@ -88,7 +88,7 @@ mod syslog {
         .map(|ident| ident.into_boxed_c_str());
 
         if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            let audit_ident: PyObjectRef = args.ident.flatten().map_or_else(
+            let audit_ident: PyObjectRef = args.ident.map_or_else(
                 || get_argv(vm).map_or_else(|| vm.ctx.none(), Into::into),
                 Into::into,
             );
@@ -113,12 +113,12 @@ mod syslog {
         #[pyarg(positional)]
         priority: PyObjectRef,
         #[pyarg(positional, optional, name = "message")]
-        message_object: OptionalOption<PyStrRef>,
+        message_object: Option<PyStrRef>,
     }
 
     #[pyfunction]
     fn syslog(args: SysLogArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let (priority, msg) = match args.message_object.flatten() {
+        let (priority, msg) = match args.message_object {
             Some(s) => (args.priority.try_into_value(vm)?, s),
             None => (LOG_INFO, args.priority.try_into_value(vm)?),
         };

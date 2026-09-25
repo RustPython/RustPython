@@ -12,7 +12,7 @@ mod _multibytecodec {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyStr, PyStrRef, PyTuple, PyType},
         class::PyClassImpl,
-        function::{ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PySetterValue},
+        function::{ArgBytesLike, FuncArgs, OptionalArg, PySetterValue},
         protocol::PySequence,
         types::{Constructor, Initializer},
     };
@@ -561,7 +561,7 @@ mod _multibytecodec {
             let CodecEncodeArgs { input, errors } = args;
             let input = to_text(input, vm)?;
             let chars = input.char_len();
-            let errors = ErrorHandler::new(errors.flatten());
+            let errors = ErrorHandler::new(errors);
             let mut state = cjk::initial_state(self.codec.codec, false);
             let (out, _) = encode(self.codec, &mut state, input, &errors, true, true, vm)?;
             Ok(vm.new_tuple((vm.ctx.new_bytes(out), chars)).into())
@@ -575,7 +575,7 @@ mod _multibytecodec {
             if len == 0 {
                 return Ok(vm.new_tuple((vm.ctx.new_str(""), 0)).into());
             }
-            let errors = ErrorHandler::new(errors.flatten());
+            let errors = ErrorHandler::new(errors);
             let mut state = cjk::initial_state(self.codec.codec, true);
             let mut buf = DecodeBuffer {
                 data,
@@ -663,7 +663,7 @@ mod _multibytecodec {
         #[pyarg(any)]
         input: PyObjectRef,
         #[pyarg(any, optional)]
-        errors: OptionalOption<PyStrRef>,
+        errors: Option<PyStrRef>,
     }
 
     #[derive(FromArgs)]
@@ -671,7 +671,7 @@ mod _multibytecodec {
         #[pyarg(any)]
         input: ArgBytesLike,
         #[pyarg(any, optional)]
-        errors: OptionalOption<PyStrRef>,
+        errors: Option<PyStrRef>,
     }
 
     #[derive(FromArgs)]

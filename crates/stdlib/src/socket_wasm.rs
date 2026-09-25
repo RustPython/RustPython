@@ -199,7 +199,7 @@ mod _socket {
         #[pyarg(any, optional)]
         proto: OptionalArg<i32>,
         #[pyarg(any, optional)]
-        fileno: OptionalArg<Option<PyObjectRef>>,
+        fileno: Option<PyObjectRef>,
     }
 
     #[pyattr(name = "socket")]

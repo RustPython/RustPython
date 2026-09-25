@@ -340,17 +340,18 @@ mod decl {
             .map_err(|_| vm.new_overflow_error("timestamp out of range for platform time_t"))
     }
 
+    #[derive(FromArgs)]
+    struct OptionalSecs {
+        #[pyarg(positional, optional)]
+        secs: Option<Either<f64, i64>>,
+    }
+
     #[cfg(not(any(unix, windows)))]
-    impl OptionalArg<Option<Either<f64, i64>>> {
-        /// Construct a localtime from the optional seconds, or get the current local time.
-        fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<Zoned> {
-            Ok(match self {
-                Self::Present(Some(secs)) => {
-                    pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::system())
-                }
-                Self::Present(None) | Self::Missing => Zoned::now(),
-            })
-        }
+    fn naive_or_local(secs: Option<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<Zoned> {
+        Ok(match secs {
+            Some(secs) => pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::system()),
+            None => Zoned::now(),
+        })
     }
 
     #[cfg(any(unix, windows))]
@@ -476,24 +477,20 @@ mod decl {
 
     /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
     #[pyfunction]
-    fn gmtime(
-        secs: OptionalArg<Option<Either<f64, i64>>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<StructTimeData> {
+    fn gmtime(args: OptionalSecs, vm: &VirtualMachine) -> PyResult<StructTimeData> {
+        let secs = args.secs;
         cfg_select! {
             any(unix, windows) => {
                 let ts = match secs {
-                    OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
-                    OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+                    Some(value) => pyobj_to_time_t(value, vm)?,
+                    None => current_time_t(),
                 };
                 gmtime_from_timestamp(ts, vm)
             }
             _ => {
                 let instant = match secs {
-                    OptionalArg::Present(Some(secs)) => pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::UTC),
-                    OptionalArg::Present(None) | OptionalArg::Missing => {
-                        Zoned::now().with_time_zone(TimeZone::UTC)
-                    }
+                    Some(secs) => pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::UTC),
+                    None => Zoned::now().with_time_zone(TimeZone::UTC),
                 };
                 Ok(StructTimeData::new_utc(vm, instant))
             }
@@ -501,20 +498,18 @@ mod decl {
     }
 
     #[pyfunction]
-    fn localtime(
-        secs: OptionalArg<Option<Either<f64, i64>>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<StructTimeData> {
+    fn localtime(args: OptionalSecs, vm: &VirtualMachine) -> PyResult<StructTimeData> {
+        let secs = args.secs;
         cfg_select! {
             any(unix, windows) => {
                 let ts = match secs {
-                    OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
-                    OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+                    Some(value) => pyobj_to_time_t(value, vm)?,
+                    None => current_time_t(),
                 };
                 localtime_from_timestamp(ts, vm)
             }
             _ => {
-                let instant = secs.naive_or_local(vm)?;
+                let instant = naive_or_local(secs, vm)?;
                 StructTimeData::new_local(vm, instant.into(), 0)
             }
         }
@@ -573,12 +568,13 @@ mod decl {
     }
 
     #[pyfunction]
-    fn ctime(secs: OptionalArg<Option<Either<f64, i64>>>, vm: &VirtualMachine) -> PyResult<String> {
+    fn ctime(args: OptionalSecs, vm: &VirtualMachine) -> PyResult<String> {
+        let secs = args.secs;
         #[cfg(any(unix, windows))]
         {
             let ts = match secs {
-                OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
-                OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+                Some(value) => pyobj_to_time_t(value, vm)?,
+                None => current_time_t(),
             };
             let local = localtime_from_timestamp(ts, vm)?;
             let tm = checked_tm_from_struct_time(&local, vm, "asctime")?.tm;
@@ -587,7 +583,7 @@ mod decl {
 
         #[cfg(not(any(unix, windows)))]
         {
-            let instant = secs.naive_or_local(vm)?;
+            let instant = naive_or_local(secs, vm)?;
             Ok(instant.strftime(CFMT).to_string())
         }
     }

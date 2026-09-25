@@ -8,7 +8,6 @@ mod _random {
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyInt, PyTupleRef},
-        function::OptionalOption,
         types::{Constructor, Initializer},
     };
     use itertools::Itertools;
@@ -34,10 +33,10 @@ mod _random {
     impl DefaultConstructor for PyRandom {}
 
     impl Initializer for PyRandom {
-        type Args = OptionalOption;
+        type Args = SeedArgs;
 
-        fn init(zelf: &Py<Self>, x: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.seed(SeedArgs { n: x.flatten() }, vm)
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.seed(args, vm)
         }
     }
 

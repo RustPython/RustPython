@@ -2512,11 +2512,11 @@ mod _io {
         #[pyarg(any, optional)]
         newline: Option<Newlines>,
         // None is false.
-        #[pyarg(any, default, py_default = "False")]
-        line_buffering: OptionalOption<PyObjectRef>,
+        #[pyarg(any, optional, py_default = "False")]
+        line_buffering: Option<PyObjectRef>,
         // None is false.
-        #[pyarg(any, default, py_default = "False")]
-        write_through: OptionalOption<PyObjectRef>,
+        #[pyarg(any, optional, py_default = "False")]
+        write_through: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -3000,14 +3000,12 @@ mod _io {
             }
 
             let line_buffering = match args.line_buffering {
-                OptionalArg::Missing => false,
-                OptionalArg::Present(None) => false,
-                OptionalArg::Present(Some(value)) => value.try_to_bool(vm)?,
+                Some(value) => value.try_to_bool(vm)?,
+                None => false,
             };
             let write_through = match args.write_through {
-                OptionalArg::Missing => false,
-                OptionalArg::Present(None) => false,
-                OptionalArg::Present(Some(value)) => value.try_to_bool(vm)?,
+                Some(value) => value.try_to_bool(vm)?,
+                None => false,
             };
 
             *data = Some(TextIOData {
@@ -4609,8 +4607,8 @@ mod _io {
 
     #[derive(FromArgs)]
     struct StringIONewArgs {
-        #[pyarg(any, name = "initial_value", default = OptionalArg::Missing, py_default = "''")]
-        object: OptionalOption<PyStrRef>,
+        #[pyarg(any, name = "initial_value", optional, py_default = "''")]
+        object: Option<PyStrRef>,
 
         // Omitted newline is \n. None selects universal newlines.
         #[pyarg(any, default, py_default = "'\\n'")]
@@ -4644,7 +4642,6 @@ mod _io {
                 OptionalArg::Present(None) => Newlines::Universal,
                 OptionalArg::Present(Some(newline)) => newline,
             };
-            let object = object.flatten();
             let raw_bytes = object.as_ref().map_or_else(Vec::new, |v| {
                 Self::translate_newlines(v.as_wtf8(), newline).into_bytes()
             });
@@ -4937,8 +4934,8 @@ mod _io {
 
     #[derive(FromArgs)]
     struct BytesIOArgs {
-        #[pyarg(any, default = OptionalArg::Missing, py_default = "b''")]
-        initial_bytes: OptionalArg<Option<ArgBytesLike>>,
+        #[pyarg(any, optional, py_default = "b''")]
+        initial_bytes: Option<ArgBytesLike>,
     }
 
     #[pyattr]
@@ -4976,7 +4973,6 @@ mod _io {
 
             let raw_bytes = args
                 .initial_bytes
-                .flatten()
                 .map_or_else(Vec::new, |input| input.borrow_buf().to_vec());
             *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
             Ok(())

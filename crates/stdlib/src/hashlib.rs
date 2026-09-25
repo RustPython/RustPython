@@ -1143,7 +1143,7 @@ pub(crate) mod _hashlib {
         key: ArgBytesLike,
         // Missing message is empty bytes.
         #[pyarg(any, optional, py_default = "b''")]
-        msg: OptionalArg<Option<ArgBytesLike>>,
+        msg: Option<ArgBytesLike>,
         // Missing digestmod is None.
         #[pyarg(any, optional, py_default = "None")]
         digestmod: OptionalArg<PyObjectRef>,
@@ -1179,7 +1179,7 @@ pub(crate) mod _hashlib {
             .ok_or_else(|| vm.new_type_error("Missing required parameter 'digestmod'."))?;
         let name = resolve_digestmod(&digestmod, vm)?;
         let key_buf = args.key.borrow_buf();
-        let msg_data = args.msg.flatten();
+        let msg_data = args.msg;
         new_hmac(name, &key_buf, msg_data.as_ref(), vm)
     }
 

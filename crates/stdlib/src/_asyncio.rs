@@ -17,7 +17,7 @@ pub(crate) mod _asyncio {
                 PyModule, PySet, PyTraceback, PyTuple, PyType, PyTypeRef,
             },
             extend_module,
-            function::{FuncArgs, KwArgs, OptionalArg, OptionalOption, PySetterValue},
+            function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
             protocol::PyIterReturn,
             recursion::ReprGuard,
             types::{
@@ -65,7 +65,7 @@ pub(crate) mod _asyncio {
         #[pyarg(positional, name = "fn")]
         func: PyObjectRef,
         #[pyarg(named, optional)]
-        context: OptionalOption<PyObjectRef>,
+        context: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -147,15 +147,15 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct FutureInitArgs {
-        #[pyarg(named, name = "loop", optional, py_default = "None")]
-        loop_: OptionalArg<PyObjectRef>,
+        #[pyarg(named, name = "loop", optional)]
+        loop_: Option<PyObjectRef>,
     }
 
     impl Initializer for PyFuture {
         type Args = FutureInitArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            Self::py_init(zelf, args.loop_.into_option(), vm)
+            Self::py_init(zelf, args.loop_, vm)
         }
     }
 
@@ -342,7 +342,7 @@ pub(crate) mod _asyncio {
             if zelf.fut_loop.read().is_none() {
                 return Err(vm.new_runtime_error("Future object is not initialized."));
             }
-            let ctx = match args.context.flatten() {
+            let ctx = match args.context {
                 Some(c) => c,
                 None => get_copy_context(vm)?,
             };
@@ -1139,12 +1139,12 @@ pub(crate) mod _asyncio {
     struct TaskInitArgs {
         #[pyarg(any)]
         coro: PyObjectRef,
-        #[pyarg(named, name = "loop", optional, py_default = "None")]
-        loop_: OptionalOption<PyObjectRef>,
-        #[pyarg(named, optional, py_default = "None")]
-        name: OptionalOption<PyObjectRef>,
-        #[pyarg(named, optional, py_default = "None")]
-        context: OptionalOption<PyObjectRef>,
+        #[pyarg(named, name = "loop", optional)]
+        loop_: Option<PyObjectRef>,
+        #[pyarg(named, optional)]
+        name: Option<PyObjectRef>,
+        #[pyarg(named, optional)]
+        context: Option<PyObjectRef>,
         // None is false.
         #[pyarg(named, optional, py_default = "False")]
         eager_start: Option<bool>,
@@ -1192,7 +1192,7 @@ pub(crate) mod _asyncio {
             }
 
             // Get the event loop
-            let loop_obj = match args.loop_.flatten() {
+            let loop_obj = match args.loop_ {
                 Some(l) => l,
                 None => get_running_loop(vm)
                     .map_err(|_| vm.new_runtime_error("no current event loop"))?,
@@ -1216,7 +1216,7 @@ pub(crate) mod _asyncio {
             }
 
             // Get or create context
-            let context = match args.context.flatten() {
+            let context = match args.context {
                 Some(c) => c,
                 None => get_copy_context(vm)?,
             };
@@ -1226,7 +1226,7 @@ pub(crate) mod _asyncio {
             *zelf.task_coro.write() = Some(args.coro);
 
             // Set task name
-            let name = match args.name.flatten() {
+            let name = match args.name {
                 Some(n) => {
                     if !n.fast_isinstance(vm.ctx.types.str_type) {
                         n.str(vm)?.into()
@@ -1359,7 +1359,7 @@ pub(crate) mod _asyncio {
             if zelf.base.fut_loop.read().is_none() {
                 return Err(vm.new_runtime_error("Future object is not initialized."));
             }
-            let ctx = match args.context.flatten() {
+            let ctx = match args.context {
                 Some(c) => c,
                 None => get_copy_context(vm)?,
             };

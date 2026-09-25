@@ -10,7 +10,6 @@ mod _locale {
         PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyIntRef, PyListRef, PyTypeRef, PyUtf8StrRef},
         convert::ToPyException,
-        function::OptionalArg,
     };
 
     #[cfg(all(
@@ -183,7 +182,7 @@ mod _locale {
         #[pyarg(positional)]
         category: i32,
         #[pyarg(positional, optional)]
-        locale: OptionalArg<Option<PyUtf8StrRef>>,
+        locale: Option<PyUtf8StrRef>,
     }
 
     /// Maximum code page encoding name length on Windows
@@ -221,7 +220,7 @@ mod _locale {
             return Err(vm.new_exception_msg(error, "unsupported locale setting".into()));
         }
 
-        let result = match args.locale.flatten() {
+        let result = match args.locale {
             None => host_locale::setlocale(args.category, None),
             Some(locale) => {
                 let locale_str = locale.as_str();

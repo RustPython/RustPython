@@ -22,7 +22,7 @@ mod _socket {
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
             ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
-            FuncArgs, OptionalArg, OptionalOption,
+            FuncArgs, OptionalArg,
         },
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
         utils::ToCString,
@@ -1659,7 +1659,14 @@ mod _socket {
         #[pyarg(any, default = -1)]
         proto: i32,
         #[pyarg(any, optional)]
-        fileno: OptionalOption<PyObjectRef>,
+        fileno: Option<PyObjectRef>,
+    }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    #[derive(FromArgs)]
+    struct SendmsgAddr {
+        #[pyarg(positional, optional)]
+        addr: Option<PyObjectRef>,
     }
 
     impl Initializer for PySocket {
@@ -1731,7 +1738,7 @@ mod _socket {
 
             // On Windows, fileno can be bytes from socket.share() for fromshare()
             #[cfg(windows)]
-            if let Some(fileno_obj) = fileno.flatten() {
+            if let Some(fileno_obj) = fileno {
                 use crate::vm::builtins::PyBytes;
                 if let Ok(bytes) = fileno_obj.clone().downcast::<PyBytes>() {
                     let bytes_data = bytes.as_bytes();
@@ -1778,10 +1785,7 @@ mod _socket {
             }
 
             #[cfg(not(windows))]
-            let fileno = fileno
-                .flatten()
-                .map(|obj| get_raw_sock(&obj, vm))
-                .transpose()?;
+            let fileno = fileno.map(|obj| get_raw_sock(&obj, vm)).transpose()?;
             #[cfg(not(windows))]
             if let Some(fileno) = fileno {
                 sock = sock_from_raw(fileno, vm)?;
@@ -2071,14 +2075,14 @@ mod _socket {
             buffers: PyObjectRef,
             ancdata: OptionalArg<PyObjectRef>,
             flags: OptionalArg<i32>,
-            addr: OptionalOption,
+            addr: SendmsgAddr,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let flags = flags.unwrap_or(0);
             let mut msg = host_socket::raw::MsgHdr::new();
 
             let sockaddr;
-            if let Some(addr) = addr.flatten() {
+            if let Some(addr) = addr.addr {
                 sockaddr = self
                     .extract_address(addr, "sendmsg", vm)
                     .map_err(|e| e.into_pyexception(vm))?;
