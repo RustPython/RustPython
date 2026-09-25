@@ -761,6 +761,16 @@ impl Py<PyDict> {
     }
 
     #[inline]
+    pub fn __len__(&self) -> usize {
+        self.payload().__len__()
+    }
+
+    #[inline]
+    pub fn contains_key<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> bool {
+        self.payload().contains_key(key, vm)
+    }
+
+    #[inline]
     fn exact_dict(&self, vm: &VirtualMachine) -> bool {
         self.class().is(vm.ctx.types.dict_type)
     }

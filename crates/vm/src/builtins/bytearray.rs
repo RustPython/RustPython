@@ -569,6 +569,11 @@ impl PyByteArray {
 
 #[pyclass]
 impl Py<PyByteArray> {
+    #[inline]
+    pub fn borrow_buf(&self) -> PyMappedDetachingRwLockReadGuard<'_, [u8]> {
+        self.payload().borrow_buf()
+    }
+
     fn __setitem__(
         &self,
         needle: &PyObject,

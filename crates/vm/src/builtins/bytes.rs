@@ -555,6 +555,11 @@ impl Py<PyBytes> {
         self.payload().as_bytes()
     }
 
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.payload().__len__()
+    }
+
     #[pymethod]
     fn __reduce_ex__(
         &self,

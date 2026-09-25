@@ -138,6 +138,11 @@ impl Py<PyList> {
     pub fn borrow_vec_mut(&self) -> PyRwLockWriteGuard<'_, Vec<PyObjectRef>> {
         self.payload().borrow_vec_mut()
     }
+
+    #[inline]
+    pub fn __len__(&self) -> usize {
+        self.payload().__len__()
+    }
 }
 
 impl PyList {

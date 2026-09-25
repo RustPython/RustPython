@@ -777,6 +777,21 @@ impl PyBaseException {
 
 #[pyclass]
 impl Py<PyBaseException> {
+    #[inline]
+    pub fn args(&self) -> PyTupleRef {
+        self.payload().args()
+    }
+
+    #[inline]
+    pub fn __traceback__(&self) -> Option<PyTracebackRef> {
+        self.payload().__traceback__()
+    }
+
+    #[inline]
+    pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
+        self.payload().set_traceback(traceback)
+    }
+
     #[pymethod]
     pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyStrRef {
         let str_args = vm.exception_args_as_string(&self.args(), true);

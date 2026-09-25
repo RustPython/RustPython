@@ -1676,6 +1676,11 @@ impl Py<PyType> {
         self.payload().get_direct_attr(attr_name)
     }
 
+    #[inline]
+    pub fn has_attr(&self, attr_name: &'static PyStrInterned) -> bool {
+        self.payload().has_attr(attr_name)
+    }
+
     pub fn is_subtype(&self, other: &Self) -> bool {
         is_subtype_with_mro(&self.mro.read(), self, other)
     }
