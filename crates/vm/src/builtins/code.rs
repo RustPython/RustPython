@@ -281,13 +281,13 @@ fn is_name_chars(value: &crate::common::wtf8::Wtf8) -> bool {
         .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
-/// Structural hash for an object built from a compile-time constant, without a `VirtualMachine`
-/// - safe because none of these types can have a custom `__hash__`. Must agree with each type's
+/// Structural hash for an object built from a compile-time constant, without a `VirtualMachine`.
+/// Safe because none of these types can have a custom `__hash__`. Must agree with each type's
 /// real `Hashable` impl, notably matching across the numeric tower (`hash(1) == hash(1.0)`),
 /// since `1` and `1.0` must land in the same frozenset-constant bucket.
 fn const_hash(ctx: &Context, obj: &PyObject) -> crate::common::hash::PyHash {
-    use crate::common::hash;
     use crate::builtins::{PyBool, PyBytes, PyComplex, PyFloat, PyInt, PyStr, PyTuple};
+    use crate::common::hash;
 
     if let Some(b) = obj.downcast_ref::<PyBool>() {
         hash::hash_bigint(b.0.as_bigint())
@@ -301,8 +301,8 @@ fn const_hash(ctx: &Context, obj: &PyObject) -> crate::common::hash::PyHash {
             hash::hash_float(value.re).unwrap_or_else(|| hash::hash_object_id(obj.get_id()));
         let im_hash =
             hash::hash_float(value.im).unwrap_or_else(|| hash::hash_object_id(obj.get_id()));
-        let core::num::Wrapping(ret) =
-            core::num::Wrapping(re_hash) + core::num::Wrapping(im_hash) * core::num::Wrapping(hash::IMAG);
+        let core::num::Wrapping(ret) = core::num::Wrapping(re_hash)
+            + core::num::Wrapping(im_hash) * core::num::Wrapping(hash::IMAG);
         hash::fix_sentinel(ret)
     } else if let Some(s) = obj.downcast_ref::<PyStr>() {
         // Matches `PyStr::hash` - strings hash their WTF-8 bytes, not a validated `&str`.
@@ -338,8 +338,9 @@ fn const_hash(ctx: &Context, obj: &PyObject) -> crate::common::hash::PyHash {
 /// numeric-tower cross-type equality (`1 == 1.0 == True`) - without a `VirtualMachine`. Safe
 /// because none of these types can have a custom `__eq__`.
 fn const_eq(a: &PyObject, b: &PyObject) -> bool {
+    use crate::builtins::{PyBool, PyBytes, PyComplex, PyFloat, PyInt, PyStr, PyTuple};
     use crate::common::float_ops;
-    use crate::builtins::{PyBool, PyBytes, PyFloat, PyInt, PyStr, PyTuple};
+    use num_traits::ToPrimitive;
 
     if a.is(b) {
         return true;
@@ -364,6 +365,27 @@ fn const_eq(a: &PyObject, b: &PyObject) -> bool {
     if let (Some(x), Some(y)) = (a.downcast_ref::<PyFloat>(), b.downcast_ref::<PyFloat>()) {
         return x.to_f64() == y.to_f64();
     }
+    // Complex vs. complex/int/float/bool - matches `Comparable for PyComplex`, which converts
+    // the other side to `f64` too (imprecise for huge ints, same as real Python).
+    let a_complex = a.downcast_ref::<PyComplex>().map(|c| c.to_complex64());
+    let b_complex = b.downcast_ref::<PyComplex>().map(|c| c.to_complex64());
+    if let (Some(x), Some(y)) = (a_complex, b_complex) {
+        return x == y;
+    }
+    if let Some(c) = a_complex.or(b_complex) {
+        let other = if a_complex.is_some() { b } else { a };
+        let other_f64 = other
+            .downcast_ref::<PyFloat>()
+            .map(|f| f.to_f64())
+            .or_else(|| {
+                other
+                    .downcast_ref::<PyBool>()
+                    .map(|v| v.0.as_bigint())
+                    .or_else(|| other.downcast_ref::<PyInt>().map(|i| i.as_bigint()))
+                    .and_then(|i| i.to_f64())
+            });
+        return other_f64.is_some_and(|f| c.im == 0.0 && c.re == f);
+    }
     if let (Some(x), Some(y)) = (a.downcast_ref::<PyStr>(), b.downcast_ref::<PyStr>()) {
         return x.as_bytes() == y.as_bytes();
     }
@@ -377,7 +399,10 @@ fn const_eq(a: &PyObject, b: &PyObject) -> bool {
                 .zip(y.as_slice())
                 .all(|(e1, e2)| const_eq(e1, e2));
     }
-    if let (Some(x), Some(y)) = (a.downcast_ref::<PyFrozenSet>(), b.downcast_ref::<PyFrozenSet>()) {
+    if let (Some(x), Some(y)) = (
+        a.downcast_ref::<PyFrozenSet>(),
+        b.downcast_ref::<PyFrozenSet>(),
+    ) {
         let (xe, ye) = (x.elements(), y.elements());
         return xe.len() == ye.len() && xe.iter().all(|e1| ye.iter().any(|e2| const_eq(e1, e2)));
     }
@@ -1870,10 +1895,16 @@ assert len(z) == 2
 
 w = frozenset({(1, 'a'), (1, 'a'), (2, 'b')})
 assert len(w) == 2
+
+# complex with a zero imaginary part is numeric-tower equal too.
+v = frozenset({1, 1j, (1+0j), 1.0})
+assert len(v) == 2
+assert 1 in v and 1j in v and (1+0j) in v and 1.0 in v
 ";
             let opts = vm.compile_opts();
-            let code = crate::compiler::compile(source, crate::compiler::Mode::Exec, "<test>", opts)
-                .expect("compile should succeed");
+            let code =
+                crate::compiler::compile(source, crate::compiler::Mode::Exec, "<test>", opts)
+                    .expect("compile should succeed");
             let code_ref = vm.ctx.new_code(code);
             let scope = vm.new_scope_with_builtins();
             vm.run_code_obj(code_ref, scope).unwrap();

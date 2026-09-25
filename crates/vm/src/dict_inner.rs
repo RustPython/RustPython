@@ -657,6 +657,11 @@ impl<T: Clone> Dict<T> {
                                 inner.entries.get_unchecked(i).as_ref().unwrap_unchecked()
                             };
                             let ret = (idx, index_index);
+
+                            #[expect(
+                                clippy::redundant_else,
+                                reason = "Keeping the empty `else` block here for documentation"
+                            )]
                             if key.is(&entry.key) {
                                 return ret;
                             } else if entry.hash == hash_value {
