@@ -24,7 +24,7 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
 
         // Special handling for __hash__ = None
         if def.name == "__hash__"
-            && class.slots.hash.load().is_some_and(|h| {
+            && class.slots().hash.load().is_some_and(|h| {
                 fn_addr(h) == fn_addr(hash_not_implemented as crate::types::HashFunc)
             })
         {
@@ -40,13 +40,13 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
         }
 
         // Get the slot function wrapped in SlotFunc
-        let Some(slot_func) = def.accessor.get_slot_func_with_op(&class.slots, def.op) else {
+        let Some(slot_func) = def.accessor.get_slot_func_with_op(class.slots(), def.op) else {
             continue;
         };
 
         // Check if attribute already exists in dict
         let attr_name = ctx.intern_str(def.name);
-        if class.attributes.contains(attr_name) {
+        if class.attributes().contains(attr_name) {
             continue;
         }
 
@@ -157,7 +157,7 @@ pub trait PyClassImpl: PyClassDef {
     {
         // NOTE: `is_created_with_flags` if only available when debug_assertions is true
         #[cfg(debug_assertions)]
-        debug_assert!(class.slots.flags.is_created_with_flags());
+        debug_assert!(class.slots().flags.is_created_with_flags());
 
         let _ = ctx.intern_str(Self::NAME); // intern type name
 
@@ -181,7 +181,7 @@ pub trait PyClassImpl: PyClassDef {
             // Only set __doc__ if it doesn't already exist (e.g., as a member descriptor)
             // This matches CPython's behavior in type_dict_set_doc
             let doc_attr_name = identifier!(ctx, __doc__);
-            if class.attributes.get(doc_attr_name).is_none() {
+            if class.attributes().get(doc_attr_name).is_none() {
                 class.set_attr(doc_attr_name, ctx.new_str(doc).into());
             }
         }
@@ -191,7 +191,7 @@ pub trait PyClassImpl: PyClassDef {
             // Don't overwrite a getset descriptor for __module__ (e.g. TypeAliasType
             // has an instance-level __module__ getset that should not be replaced)
             let has_getset = class
-                .attributes
+                .attributes()
                 .get(module_key)
                 .is_some_and(|v| v.downcastable::<crate::builtins::PyGetSet>());
             if !has_getset {
@@ -202,7 +202,7 @@ pub trait PyClassImpl: PyClassDef {
         // Don't add __new__ attribute if slot_new is inherited from object
         // (Python doesn't add __new__ to __dict__ for inherited slots)
         // Exception: object itself should have __new__ in its dict
-        if let Some(slot_new) = class.slots.new.load() {
+        if let Some(slot_new) = class.slots().new.load() {
             let object_new = ctx.types.object_type.slots().new.load();
             let is_object_itself = core::ptr::eq(class, ctx.types.object_type);
             let is_inherited_from_object = !is_object_itself
@@ -224,7 +224,7 @@ pub trait PyClassImpl: PyClassDef {
             class.inherit_slots(base);
         }
 
-        class.extend_methods(class.slots.methods, ctx);
+        class.extend_methods(class.slots().methods, ctx);
     }
 
     #[must_use]

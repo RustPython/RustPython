@@ -7143,7 +7143,7 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 if let Some(cls) = callable.downcast_ref::<PyType>()
-                    && cls.slots.vectorcall.load().is_some()
+                    && cls.slots().vectorcall.load().is_some()
                 {
                     let (callable, args_vec) = self.take_call_args(nargs as usize);
                     let effective_nargs = args_vec.len();
@@ -7168,12 +7168,12 @@ impl ExecutingFrame<'_> {
                     && !self_or_null_is_some
                     && cached_version != 0
                     && let Some(cls) = callable.downcast_ref::<PyType>()
-                    && cls.tp_version_tag.load(Acquire) == cached_version
+                    && cls.tp_version_tag().load(Acquire) == cached_version
                     && let Some((init_func, init_func_version)) =
                         cls.get_cached_init_for_specialization(cached_version)
                     && init_func.func_version() == init_func_version
                     && init_func.has_exact_argcount(nargs + 1)
-                    && let Some(cls_alloc) = cls.slots.alloc.load()
+                    && let Some(cls_alloc) = cls.slots().alloc.load()
                 {
                     // The specialization runs `__init__` directly with no
                     // interpreter-visible trampoline frame. Deopt when the
@@ -7525,14 +7525,14 @@ impl ExecutingFrame<'_> {
                         if let Some(descr) = cls.get_direct_attr(attr_name) {
                             let descr_cls = descr.class();
                             if descr_cls
-                                .slots
+                                .slots()
                                 .flags
                                 .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
                             {
                                 // Method descriptor: push unbound func + self
                                 // CALL will prepend self as first positional arg
                                 found = Some((descr, true));
-                            } else if let Some(descr_get) = descr_cls.slots.descr_get.load() {
+                            } else if let Some(descr_get) = descr_cls.slots().descr_get.load() {
                                 // Has __get__ but not METHOD_DESCRIPTOR: bind it
                                 let bound = descr_get(
                                     &descr,
@@ -10089,7 +10089,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Only specialize if getattro is the default (PyBaseObject::getattro)
-        let is_default_getattro = cls.slots.getattro.load().is_some_and(|f| {
+        let is_default_getattro = cls.slots().getattro.load().is_some_and(|f| {
             crate::types::fn_addr(f)
                 == crate::types::fn_addr(PyBaseObject::getattro as crate::types::GetattroFunc)
         });
@@ -10163,7 +10163,7 @@ impl ExecutingFrame<'_> {
         }
 
         let cls_attr = cls.get_attr(attr_name);
-        let class_has_dict = cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+        let class_has_dict = cls.slots().flags.has_feature(PyTypeFlags::HAS_DICT);
 
         if oparg.is_method() {
             // Method specialization
@@ -10202,8 +10202,8 @@ impl ExecutingFrame<'_> {
             // Regular attribute access
             let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
                 let descr_cls = descr.class();
-                descr_cls.slots.descr_get.load().is_some()
-                    && descr_cls.slots.descr_set.load().is_some()
+                descr_cls.slots().descr_get.load().is_some()
+                    && descr_cls.slots().descr_set.load().is_some()
             });
             let has_descr_get = cls_attr
                 .as_ref()
@@ -10348,7 +10348,7 @@ impl ExecutingFrame<'_> {
         let (mcl_attr, mut metaclass_version) = mcl.lookup_ref_and_version_interned(attr_name, _vm);
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
-            if attr_class.slots.descr_set.load().is_some() {
+            if attr_class.slots().descr_set.load().is_some() {
                 // Data descriptor on metaclass — can't specialize
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
@@ -10565,7 +10565,7 @@ impl ExecutingFrame<'_> {
                     let cls = a.class();
                     // Check the cheap gates before the __getitem__ lookup, which
                     // takes the global type lock and may allocate a version tag.
-                    if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+                    if cls.slots().flags.has_feature(PyTypeFlags::HEAPTYPE)
                         && !self.specialization_eval_frame_active(vm)
                     {
                         let (getitem, type_version) =
@@ -11074,7 +11074,7 @@ impl ExecutingFrame<'_> {
 
         // type/str/tuple(x) and class-call specializations
         if let Some(cls) = callable.downcast_ref::<PyType>() {
-            if cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            if cls.slots().flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
                 if !self_or_null_is_some && nargs == 1 {
                     let new_op = if callable.is(&vm.ctx.types.type_type.as_object()) {
                         Some(Instruction::CallType1)
@@ -11090,7 +11090,7 @@ impl ExecutingFrame<'_> {
                         return;
                     }
                 }
-                if cls.slots.vectorcall.load().is_some() {
+                if cls.slots().vectorcall.load().is_some() {
                     self.specialize_at(instr_idx, cache_base, Instruction::CallBuiltinClass);
                     return;
                 }
@@ -11106,15 +11106,15 @@ impl ExecutingFrame<'_> {
             }
 
             // CallAllocAndEnterInit: heap type with default __new__
-            if !self_or_null_is_some && cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            if !self_or_null_is_some && cls.slots().flags.has_feature(PyTypeFlags::HEAPTYPE) {
                 // Capture the version before inspecting tp_new/tp_alloc so a
                 // concurrently installed __new__ invalidates the version this
                 // specialization is cached against.
                 let type_version = cls.version_for_specialization(vm);
                 let object_new = vm.ctx.types.object_type.slots().new.load();
-                let cls_new = cls.slots.new.load();
+                let cls_new = cls.slots().new.load();
                 let object_alloc = vm.ctx.types.object_type.slots().alloc.load();
-                let cls_alloc = cls.slots.alloc.load();
+                let cls_alloc = cls.slots().alloc.load();
                 if let (Some(cls_new_fn), Some(obj_new_fn), Some(cls_alloc_fn), Some(obj_alloc_fn)) =
                     (cls_new, object_new, cls_alloc, object_alloc)
                     && crate::types::fn_addr(cls_new_fn) == crate::types::fn_addr(obj_new_fn)
@@ -11518,14 +11518,14 @@ impl ExecutingFrame<'_> {
             Some(Instruction::ToBoolList)
         } else if cls.is(PyStr::class(&vm.ctx)) {
             Some(Instruction::ToBoolStr)
-        } else if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+        } else if cls.slots().flags.has_feature(PyTypeFlags::HEAPTYPE) {
             // Capture the version before inspecting the bool/len slots so a
             // concurrently installed __bool__/__len__ invalidates the version
             // the ToBoolAlwaysTrue guard is cached against.
             let type_version = cls.version_for_specialization(vm);
-            let has_bool_or_len = cls.slots.as_number.boolean.load().is_some()
-                || cls.slots.as_mapping.length.load().is_some()
-                || cls.slots.as_sequence.length.load().is_some();
+            let has_bool_or_len = cls.slots().as_number.boolean.load().is_some()
+                || cls.slots().as_mapping.length.load().is_some()
+                || cls.slots().as_sequence.length.load().is_some();
             if !has_bool_or_len {
                 if type_version != 0 {
                     unsafe {
@@ -11993,7 +11993,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Only specialize if setattr is the default (generic_setattr)
-        let is_default_setattr = cls.slots.setattro.load().is_some_and(|f| {
+        let is_default_setattr = cls.slots().setattro.load().is_some_and(|f| {
             crate::types::fn_addr(f)
                 == crate::types::fn_addr(PyBaseObject::slot_setattro as crate::types::SetattroFunc)
         });
@@ -12013,7 +12013,8 @@ impl ExecutingFrame<'_> {
         let cls_attr = cls.get_attr(attr_name);
         let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
             let descr_cls = descr.class();
-            descr_cls.slots.descr_get.load().is_some() && descr_cls.slots.descr_set.load().is_some()
+            descr_cls.slots().descr_get.load().is_some()
+                && descr_cls.slots().descr_set.load().is_some()
         });
 
         if has_data_descr {
