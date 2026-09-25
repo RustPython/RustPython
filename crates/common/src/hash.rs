@@ -31,6 +31,13 @@ pub struct HashSecret {
     k1: u64,
 }
 
+impl core::fmt::Debug for HashSecret {
+    /// Redacted - `k0`/`k1` are hash-DoS-mitigation key material, not diagnostic data.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HashSecret").finish_non_exhaustive()
+    }
+}
+
 impl BuildHasher for HashSecret {
     type Hasher = SipHasher24;
 

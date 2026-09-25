@@ -15,7 +15,7 @@ use crate::{
         type_::PyAttributes,
     },
     class::StaticType,
-    common::rc::PyRc,
+    common::{hash::HashSecret, rc::PyRc},
     exceptions,
     function::{
         HeapMethodDef, IntoPyGetterFunc, IntoPyNativeFn, IntoPySetterFunc, PyMethodDef,
@@ -55,6 +55,11 @@ pub struct Context {
     pub(crate) slot_new_wrapper: PyMethodDef,
     pub names: ConstName,
     // GC module state (callbacks and garbage lists)
+    /// The process-wide hash secret - same seed `VirtualMachine::state.hash_secret` uses by
+    /// default (`process_hash_secret_seed`), so a `str`/`bytes` hashed here and one hashed
+    /// through a VM agree. Diverges only if an embedder overrides a specific VM's `hash_seed`,
+    /// which nothing built from `Context` alone (e.g. constant-folded code) can see.
+    pub(crate) hash_secret: HashSecret,
 }
 
 macro_rules! declare_const_name {
@@ -422,6 +427,7 @@ impl Context {
             string_pool,
             slot_new_wrapper,
             names,
+            hash_secret: HashSecret::new(crate::vm::process_hash_secret_seed()),
         }
     }
 

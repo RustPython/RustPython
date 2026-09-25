@@ -111,6 +111,20 @@ impl PyFrozenSet {
         })
     }
 
+    /// Build directly from constant-literal elements with precomputed hashes, without a
+    /// `VirtualMachine` - used by `PyObjBag::make_constant`, which only has a `Context`. Safe
+    /// because a constant frozenset can only ever contain elements whose equality can't involve
+    /// a custom `__eq__` (ints/floats/bools/strings/bytes/tuples/frozensets/None/...).
+    pub(crate) fn from_constant_elements(
+        elements: Vec<(PyObjectRef, PyHash)>,
+        key_eq: impl Fn(&PyObject, &PyObject) -> bool,
+    ) -> Self {
+        Self {
+            inner: PySetInner::from_constant_elements(elements, key_eq),
+            ..Default::default()
+        }
+    }
+
     pub fn elements(&self) -> Vec<PyObjectRef> {
         self.inner.elements()
     }
@@ -194,6 +208,18 @@ impl PySetInner {
             set.add(&item, vm)?;
         }
         Ok(set)
+    }
+
+    /// See [`PyFrozenSet::from_constant_elements`].
+    pub(super) fn from_constant_elements(
+        elements: Vec<(PyObjectRef, PyHash)>,
+        key_eq: impl Fn(&PyObject, &PyObject) -> bool,
+    ) -> Self {
+        let set = Self::default();
+        for (obj, hash) in elements {
+            set.content.insert_no_vm(obj, hash, (), &key_eq);
+        }
+        set
     }
 
     /// Build a set from an arbitrary object, reusing stored hashes when the
