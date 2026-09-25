@@ -53,6 +53,10 @@ impl<R: BufRead> UnicodeLineReader<R> {
             }
         })
     }
+
+    fn raw_iter(&mut self) -> UnicodeRawReader<'_, R> {
+        UnicodeRawReader(self)
+    }
 }
 
 impl UnicodeLineReader<BufReader<File>> {
@@ -135,6 +139,16 @@ impl<R: BufRead> Iterator for UnicodeLineReader<R> {
         };
 
         Some(UnicodeLine { start, end, line })
+    }
+}
+
+struct UnicodeRawReader<'u, R: BufRead>(&'u mut UnicodeLineReader<R>);
+
+impl<R: BufRead> Iterator for UnicodeRawReader<'_, R> {
+    type Item = Box<str>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next_line_raw()
     }
 }
 
@@ -231,6 +245,21 @@ fn write_slice_unordered(
     write_slice_post(writer);
 }
 
+/// Helper to write raw values for data sources that don't follow the common format.
+///
+/// See: [`write_slice_display`]
+fn write_slice_raw<T, W: Write>(
+    writer: &mut W,
+    static_name: &str,
+    array_type: &str,
+    values: T,
+    mut f: impl FnMut(&mut W, T),
+) {
+    write_slice_pre(writer, static_name, array_type);
+    f(writer, values);
+    write_slice_post(writer);
+}
+
 fn write_slice_pre(writer: &mut impl Write, static_name: &str, array_type: &str) {
     write!(writer, "static {static_name}: &[{array_type}] = &[").unwrap();
 }
@@ -295,7 +324,6 @@ fn full_data_parsers_latest() {
 
     generate_decomp(decomp_lines);
     generate_algo_names(algo_names);
-    generate_name_lookups();
 }
 
 fn generate_decomp(decomp_lines: Vec<(u32, String)>) {
@@ -420,7 +448,7 @@ fn generate_algo_names(names: Vec<(u32, Box<str>)>) {
 /// accepts only a single character, so named sequences stay out of
 /// `lookup_character`.
 fn generate_name_lookups() {
-    let mut aliases: Vec<(String, u32)> = Vec::new();
+    let mut aliases = BTreeMap::new();
     for line in UnicodeLineReader::from_file_name("NameAliases.txt", true) {
         let name = line
             .field(
@@ -431,28 +459,12 @@ fn generate_name_lookups() {
                 )),
             )
             .to_ascii_uppercase();
-        aliases.push((name, line.start));
+        aliases.insert(name, line.start);
     }
-    aliases.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-    aliases.dedup_by(|a, b| a.0 == b.0);
 
-    let mut sequences: Vec<(String, String)> = Vec::new();
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("unicode")
-        .join("latest")
-        .join("NamedSequences.txt");
-    let file = File::open(&path).unwrap_or_else(|e| {
-        panic!(
-            "{e}: vendored Unicode data file should exist: {}",
-            path.display()
-        )
-    });
-    for raw in BufReader::new(file).lines() {
-        let raw = raw.unwrap();
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
+    let mut sequences = BTreeMap::new();
+    let mut sequences_reader = UnicodeLineReader::from_file_name("NamedSequences.txt", true);
+    for line in sequences_reader.raw_iter() {
         let (name, codes) = line
             .split_once(';')
             .unwrap_or_else(|| panic!("NamedSequences.txt line should be `NAME; HEX HEX`: {line}"));
@@ -466,25 +478,36 @@ fn generate_name_lookups() {
             escaped.push_str(&format!("{cp:X}"));
             escaped.push('}');
         }
-        sequences.push((name, escaped));
+        sequences.insert(name, escaped);
     }
-    sequences.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-    sequences.dedup_by(|a, b| a.0 == b.0);
 
     let mut writer = open_writer("name_lookups.rs");
-    writeln!(writer, "static NAME_ALIASES: &[(&str, char)] = &[").unwrap();
-    for (name, code) in &aliases {
-        let ch = char::from_u32(*code)
-            .unwrap_or_else(|| panic!("NameAliases.txt code point should be a scalar: {code:04X}"));
-        writeln!(writer, "    (\"{name}\", '\\u{{{:X}}}'),", ch as u32).unwrap();
-    }
-    writeln!(writer, "];").unwrap();
+    write_slice_raw(
+        &mut writer,
+        "NAME_ALIASES",
+        "(&str, char)",
+        aliases,
+        |writer, aliases| {
+            for (name, code) in &aliases {
+                let ch = char::from_u32(*code).unwrap_or_else(|| {
+                    panic!("NameAliases.txt code point should be a scalar: {code:04X}")
+                });
+                writeln!(writer, "(\"{name}\", '\\u{{{:X}}}'),", ch as u32).unwrap();
+            }
+        },
+    );
 
-    writeln!(writer, "static NAMED_SEQUENCES: &[(&str, &str)] = &[").unwrap();
-    for (name, escaped) in &sequences {
-        writeln!(writer, "    (\"{name}\", \"{escaped}\"),").unwrap();
-    }
-    writeln!(writer, "];").unwrap();
+    write_slice_raw(
+        &mut writer,
+        "NAMED_SEQUENCES",
+        "(&str, &str)",
+        sequences,
+        |writer, sequences| {
+            for (name, escaped) in &sequences {
+                writeln!(writer, "(\"{name}\", \"{escaped}\"),").unwrap();
+            }
+        },
+    );
 }
 
 /// Drive parsers that require the full 3.2.0 data.
@@ -864,6 +887,7 @@ fn drive_parsers() {
         bidi_class_3_2,
         binary_props_3_2,
         combining_class_3_2,
+        generate_name_lookups,
     ];
 
     let mut handles = Vec::with_capacity(parsers.len() + 2);
