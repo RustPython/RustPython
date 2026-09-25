@@ -290,7 +290,7 @@ mod _lzma {
 
     #[derive(FromArgs)]
     pub(super) struct LZMADecompressorConstructorArgs {
-        #[pyarg(any, default = FORMAT_AUTO, py_default = "FORMAT_AUTO")]
+        #[pyarg(any, default = FORMAT_AUTO)]
         format: i32,
         #[pyarg(any, optional)]
         memlimit: Option<u64>,

@@ -170,8 +170,14 @@ pub(crate) fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+#[derive(FromArgs)]
+pub struct FloatArgs {
+    #[pyarg(positional, name = "x", default, py_default = "0")]
+    value: OptionalArg<PyObjectRef>,
+}
+
 impl Constructor for PyFloat {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = FloatArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let float_type = vm.ctx.types.float_type;
@@ -187,17 +193,22 @@ impl Constructor for PyFloat {
             args.bind_for(vm, Self::NAME)?
         } else {
             match args.args.as_slice() {
-                [] => OptionalArg::Missing,
-                [value] => OptionalArg::Present(value.clone()),
+                [] => Self::Args {
+                    value: OptionalArg::Missing,
+                },
+                [value] => Self::Args {
+                    value: OptionalArg::Present(value.clone()),
+                },
                 slice => {
                     return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
                 }
             }
         };
+        let arg_value = &arg.value;
 
         // Optimization: return exact float as-is
         if cls.is(vm.ctx.types.float_type)
-            && let OptionalArg::Present(first) = &arg
+            && let OptionalArg::Present(first) = arg_value
             && first.class().is(vm.ctx.types.float_type)
         {
             return Ok(first.clone());
@@ -208,7 +219,7 @@ impl Constructor for PyFloat {
     }
 
     fn py_new(_cls: &Py<PyType>, arg: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        let float_val = match arg {
+        let float_val = match arg.value {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
                 if let Some(f) = val.try_float_opt(vm) {

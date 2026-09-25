@@ -145,6 +145,9 @@ pub trait PyClassDef {
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
 
+    /// `Name(sig)\n--\n\ndoc` when the constructor arguments form a signature.
+    const INTERNAL_DOC: Option<&'static str> = None;
+
     const METHOD_DEFS: &'static [PyMethodDef];
 
     fn impl_extend_class(ctx: &'static Context, class: &'static Py<PyType>);
@@ -256,7 +259,7 @@ pub trait PyClassImpl: PyClassDef {
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
             itemsize: Self::ITEMSIZE,
-            doc: Self::DOC,
+            doc: Self::INTERNAL_DOC.or(Self::DOC),
             methods: Self::METHOD_DEFS,
             ..Default::default()
         };

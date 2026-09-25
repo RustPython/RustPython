@@ -14,8 +14,9 @@ mod time;
 
 pub use argument::{
     ArgumentError, Callee, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
-    NameArgs, NameChanges, NameCoordinates, NameExcInfo, NameIntegers, NameKwargs, NameKwds,
-    NameKws, NameObjs, NameOthers, OptionalArg, OptionalOption, PosArgs,
+    NameArgs, NameChanges, NameCoordinates, NameExcInfo, NameFields, NameIntegers, NameIterables,
+    NameKeywords, NameKwargs, NameKwds, NameKws, NameObjs, NameOthers, OptionalArg, OptionalOption,
+    PosArgs, PositionalIterable,
 };
 pub(crate) use argument::{arity_message, unexpected_keyword_message};
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
@@ -32,7 +33,8 @@ pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
 pub use number::{ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgPrimitiveIndex, ArgSize};
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use signature::{
-    DefaultRepr, Param, ParamKind, SigArg, has_signature, internal_doc_bytes, internal_doc_len,
+    DefaultRepr, Param, ParamKind, SigArg, choose_class_params, has_signature, internal_doc_bytes,
+    internal_doc_len, real_signature,
 };
 pub use time::TimeoutSeconds;
 

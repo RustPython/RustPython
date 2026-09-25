@@ -133,6 +133,71 @@ impl SigArg {
     }
 }
 
+const fn name_eq(name: &str, bytes: &[u8]) -> bool {
+    let got = name.as_bytes();
+    if got.len() != bytes.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < got.len() {
+        if got[i] != bytes[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// `FuncArgs` contributes `*args, **kwargs`, which is not a callable's signature.
+#[must_use]
+const fn is_bare_funcargs(params: &[Param]) -> bool {
+    params.len() == 2
+        && matches!(params[0].kind, ParamKind::VarPositional)
+        && name_eq(params[0].name, b"args")
+        && matches!(params[1].kind, ParamKind::VarKeyword)
+        && name_eq(params[1].name, b"kwargs")
+}
+
+const fn params_representable(params: &[Param]) -> bool {
+    let mut i = 0;
+    while i < params.len() {
+        if let Some(DefaultRepr::Raw(text)) = params[i].default
+            && name_eq(text, b"<unrepresentable>")
+        {
+            return false;
+        }
+        if let ParamKind::Flatten(Some(inner)) = params[i].kind
+            && !params_representable(inner)
+        {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// `None`, a bare `FuncArgs`, and a default of `<unrepresentable>` contribute
+/// no signature. `Some(&[])` is `()`.
+#[must_use]
+pub const fn real_signature(params: Option<&[Param]>) -> Option<&[Param]> {
+    match params {
+        Some(ps) if !is_bare_funcargs(ps) && params_representable(ps) => Some(ps),
+        _ => None,
+    }
+}
+
+/// Prefer `preferred` when it is a real signature, otherwise `alternate`.
+#[must_use]
+pub const fn choose_class_params<'a>(
+    preferred: Option<&'a [Param]>,
+    alternate: Option<&'a [Param]>,
+) -> Option<&'a [Param]> {
+    match real_signature(preferred) {
+        Some(ps) => Some(ps),
+        None => real_signature(alternate),
+    }
+}
+
 /// False when an argument is a destructured pattern whose type has no [`FromArgs::PARAMS`].
 #[must_use]
 pub const fn has_signature(args: &[SigArg]) -> bool {

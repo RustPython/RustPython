@@ -10,7 +10,8 @@ pub(crate) mod _hashlib {
     use crate::vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyBytes, PyFrozenSet, PyStr, PyTypeRef, PyUtf8StrRef, PyValueError,
+            PyBaseExceptionRef, PyBytes, PyFrozenSet, PyStr, PyType, PyTypeRef, PyUtf8StrRef,
+            PyValueError,
         },
         class::StaticType,
         function::{ArgBytesLike, ArgPrimitiveIndex, ArgStrOrBytesLike, FuncArgs, OptionalArg},
@@ -470,7 +471,7 @@ pub(crate) mod _hashlib {
         }
     }
 
-    #[pyclass(with(Representable), flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
     impl PyHmac {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -542,7 +543,43 @@ pub(crate) mod _hashlib {
         }
     }
 
-    #[pyclass(with(Representable), flags(IMMUTABLETYPE))]
+    #[derive(FromArgs)]
+    pub(crate) struct HashTypeArgs {
+        #[pyarg(any)]
+        name: PyObjectRef,
+        #[pyarg(any, default, py_default = "b''")]
+        string: OptionalArg<PyObjectRef>,
+    }
+
+    impl Constructor for PyHmac {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            Err(vm.new_type_error("cannot create '_hashlib.HMAC' instances"))
+        }
+    }
+
+    impl Constructor for PyHasher {
+        type Args = HashTypeArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let HashTypeArgs { name, string } = args;
+            let _ = (name, string);
+            Err(vm.new_type_error("cannot create '_hashlib.HASH' instances"))
+        }
+    }
+
+    impl Constructor for PyHasherXof {
+        type Args = HashTypeArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let HashTypeArgs { name, string } = args;
+            let _ = (name, string);
+            Err(vm.new_type_error("cannot create '_hashlib.HASHXOF' instances"))
+        }
+    }
+
+    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
     impl PyHasher {
         fn new(name: &str, ctx: HashCtx, digest_size: usize) -> Self {
             Self {
@@ -642,7 +679,7 @@ pub(crate) mod _hashlib {
         }
     }
 
-    #[pyclass(with(Representable), flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
     impl PyHasherXof {
         fn new(name: &str, ctx: HashCtx) -> Self {
             Self {

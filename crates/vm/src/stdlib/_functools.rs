@@ -8,7 +8,9 @@ mod _functools {
             PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef, object,
         },
         common::{hash::PyHash, lock::PyRwLock},
-        function::{Either, FuncArgs, KwArgs, OptionalOption, PyComparisonValue, PySetterValue},
+        function::{
+            Either, FuncArgs, KwArgs, OptionalOption, PosArgs, PyComparisonValue, PySetterValue,
+        },
         object::AsObject,
         protocol::PyIter,
         pyclass,
@@ -404,14 +406,41 @@ mod _functools {
         }
     }
 
+    #[derive(FromArgs)]
+    pub(crate) struct PartialSig {
+        #[pyarg(positional)]
+        func: PyObjectRef,
+        #[pyarg(flatten)]
+        args: PosArgs<PyObjectRef>,
+        #[pyarg(flatten)]
+        keywords: KwArgs<PyObjectRef, crate::function::NameKeywords>,
+    }
+
     impl Constructor for PyPartial {
-        type Args = FuncArgs;
+        type Args = PartialSig;
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let zelf = Self::py_new_funcargs(args, vm)?;
+            zelf.into_ref_with_type(vm, cls).map(Into::into)
+        }
 
         fn py_new(
             _cls: &crate::Py<crate::builtins::PyType>,
-            args: Self::Args,
+            _args: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let Self::Args {
+                func,
+                args,
+                keywords,
+            } = _args;
+            let _ = (func, args, keywords);
+            Err(vm.new_type_error("use slot_new"))
+        }
+    }
+
+    impl PyPartial {
+        fn py_new_funcargs(args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
             let (func, args_slice) = args
                 .args
                 .split_first()

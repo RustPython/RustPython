@@ -967,13 +967,22 @@ pub(crate) mod _thread {
         }
     }
 
+    #[derive(FromArgs)]
+    struct ExceptHookNewArgs {
+        #[pyarg(positional, default, py_default = "()")]
+        iterable: crate::function::OptionalArg<crate::PyObjectRef>,
+    }
+
     impl Constructor for ExceptHookArgs {
         // Takes a single iterable argument like namedtuple
-        type Args = (crate::PyObjectRef,);
+        type Args = ExceptHookNewArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             // Convert the argument to a list/tuple and extract elements
-            let seq: Vec<crate::PyObjectRef> = args.0.try_to_value(vm)?;
+            let seq: Vec<crate::PyObjectRef> = match args.iterable {
+                crate::function::OptionalArg::Present(iterable) => iterable.try_to_value(vm)?,
+                crate::function::OptionalArg::Missing => Vec::new(),
+            };
             if seq.len() != 4 {
                 return Err(vm.new_type_error(format!(
                     "_ExceptHookArgs expected 4 arguments, got {}",
@@ -1132,7 +1141,15 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(GetAttr, SetAttr), flags(BASETYPE))]
+    impl Constructor for Local {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            Err(vm.new_type_error("use slot_new"))
+        }
+    }
+
+    #[pyclass(with(Constructor, GetAttr, SetAttr), flags(BASETYPE))]
     impl Local {
         fn custom_init(cls: &Py<PyType>, vm: &VirtualMachine) -> Option<crate::types::InitFunc> {
             let cls_init = cls.slots.init.load()?;

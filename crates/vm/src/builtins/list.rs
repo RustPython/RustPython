@@ -500,7 +500,7 @@ impl Constructor for PyList {
 }
 
 impl Initializer for PyList {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = crate::function::PositionalIterable;
 
     fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         let list_type = vm.ctx.types.list_type;
@@ -514,8 +514,12 @@ impl Initializer for PyList {
             args.bind_for(vm, Self::NAME)?
         } else {
             match args.args.as_slice() {
-                [] => OptionalArg::Missing,
-                [iterable] => OptionalArg::Present(iterable.clone()),
+                [] => Self::Args {
+                    iterable: OptionalArg::Missing,
+                },
+                [iterable] => Self::Args {
+                    iterable: OptionalArg::Present(iterable.clone()),
+                },
                 slice => {
                     return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
                 }
@@ -524,8 +528,8 @@ impl Initializer for PyList {
         Self::init(zelf.try_to_ref(vm)?, iterable, vm)
     }
 
-    fn init(zelf: &Py<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        let mut elements = if let OptionalArg::Present(iterable) = iterable {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        let mut elements = if let OptionalArg::Present(iterable) = args.iterable {
             vm.extract_elements_sized(&iterable, &|| 0, Ok)?
         } else {
             vec![]

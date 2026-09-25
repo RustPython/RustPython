@@ -83,13 +83,20 @@ mod fcntl {
     #[pyattr]
     use host_fcntl::F_GETPATH;
 
+    #[derive(FromArgs)]
+    struct FcntlArg {
+        #[pyarg(positional, name = "arg", default, py_default = "0")]
+        arg: OptionalArg<Either<ArgStrOrBytesLike, PyIntRef>>,
+    }
+
     #[pyfunction]
     fn fcntl(
-        _io::Fildes(fd): _io::Fildes,
+        fd: _io::Fildes,
         cmd: i32,
-        arg: OptionalArg<Either<ArgStrOrBytesLike, PyIntRef>>,
+        FcntlArg { arg }: FcntlArg,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let fd = fd.0;
         let int = match arg {
             OptionalArg::Present(Either::A(arg)) => {
                 let mut buf = [0u8; 1024];
@@ -119,14 +126,23 @@ mod fcntl {
         Ok(vm.new_pyobj(ret))
     }
 
+    #[derive(FromArgs)]
+    struct IoctlArgs {
+        #[pyarg(positional, name = "arg", default, py_default = "0")]
+        arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
+        #[pyarg(positional, name = "mutate_flag", default = true)]
+        mutate_flag: bool,
+    }
+
     #[pyfunction]
     fn ioctl(
-        _io::Fildes(fd): _io::Fildes,
+        fd: _io::Fildes,
         request: i64,
-        arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
-        mutate_flag: OptionalArg<bool>,
+        IoctlArgs { arg, mutate_flag }: IoctlArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let fd = fd.0;
+        let mutate_flag = OptionalArg::Present(mutate_flag);
         let request = host_fcntl::normalize_ioctl_request(request);
         let arg = arg.unwrap_or_else(|| Either::B(0));
         match arg {
@@ -187,7 +203,8 @@ mod fcntl {
     // XXX: at the time of writing, wasi and redox don't have the necessary constants/function
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
-    fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
+    fn flock(fd: _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
+        let fd = fd.0;
         // LOCK_EX without LOCK_NB waits for whoever holds the lock, which may
         // be for good.
         let ret = retry_on_eintr(
@@ -198,17 +215,26 @@ mod fcntl {
         Ok(vm.ctx.new_int(ret).into())
     }
 
+    #[derive(FromArgs)]
+    struct LockfArgs {
+        #[pyarg(positional, name = "len", default, py_default = "0")]
+        len: OptionalArg<PyIntRef>,
+        #[pyarg(positional, name = "start", default, py_default = "0")]
+        start: OptionalArg<PyIntRef>,
+        #[pyarg(positional, name = "whence", default, py_default = "0")]
+        whence: OptionalArg<i32>,
+    }
+
     // XXX: at the time of writing, wasi and redox don't have the necessary constants
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn lockf(
-        _io::Fildes(fd): _io::Fildes,
+        fd: _io::Fildes,
         cmd: i32,
-        len: OptionalArg<PyIntRef>,
-        start: OptionalArg<PyIntRef>,
-        whence: OptionalArg<i32>,
+        LockfArgs { len, start, whence }: LockfArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let fd = fd.0;
         let start = match start {
             OptionalArg::Present(s) => s.try_to_primitive(vm)?,
             OptionalArg::Missing => 0,

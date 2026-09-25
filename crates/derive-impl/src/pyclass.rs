@@ -174,6 +174,9 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 with_method_defs,
                 with_slots,
                 itemsize,
+                sig_initializer,
+                sig_constructor,
+                sig_structseq,
             } = extract_impl_attrs(attr, &impl_ty)?;
             let payload_ty = attr_payload.unwrap_or(payload_guess);
             context.getset_items.type_name = Some(payload_ty.to_string());
@@ -234,10 +237,18 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         >(&[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
                     )
                 };
+                let internal_doc = class_internal_doc(
+                    &payload_ty,
+                    sig_initializer,
+                    sig_constructor,
+                    sig_structseq,
+                );
                 quote! {
                     #imp
                     impl ::rustpython_vm::class::PyClassImpl for #payload_ty {
                         const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = #flags;
+
+                        const INTERNAL_DOC: Option<&'static str> = #internal_doc;
 
                         fn impl_extend_class(
                             ctx: &'static ::rustpython_vm::Context,
@@ -1949,6 +1960,9 @@ struct ExtractedImplAttrs {
     with_method_defs: Vec<TokenStream>,
     with_slots: TokenStream,
     itemsize: Option<syn::Expr>,
+    sig_initializer: bool,
+    sig_constructor: bool,
+    sig_structseq: bool,
 }
 
 fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<ExtractedImplAttrs> {
@@ -1968,6 +1982,9 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
     }];
     let mut payload = None;
     let mut itemsize = None;
+    let mut has_initializer = false;
+    let mut has_constructor = false;
+    let mut has_structseq = false;
 
     for attr in attr {
         match attr {
@@ -1999,6 +2016,13 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                                 quote!(<Self as #path>::__extend_slots),
                             )
                         };
+                        if path.is_ident("Initializer") {
+                            has_initializer = true;
+                        } else if path.is_ident("Constructor") {
+                            has_constructor = true;
+                        } else if path.is_ident("PyStructSequence") {
+                            has_structseq = true;
+                        }
                         let item_span = item.span().resolved_at(Span::call_site());
                         withs.push(quote_spanned! { path.span() =>
                             #extend_class(ctx, class);
@@ -2076,7 +2100,71 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
             #(#with_slots)*
         },
         itemsize,
+        sig_initializer: has_initializer,
+        sig_constructor: has_constructor,
+        sig_structseq: has_structseq,
     })
+}
+
+fn class_internal_doc(
+    payload: &Ident,
+    has_initializer: bool,
+    has_constructor: bool,
+    has_structseq: bool,
+) -> TokenStream {
+    let init_params = quote!(<<#payload as ::rustpython_vm::types::Initializer>::Args as ::rustpython_vm::function::FromArgs>::PARAMS);
+    let ctor_params = quote!(<<#payload as ::rustpython_vm::types::Constructor>::Args as ::rustpython_vm::function::FromArgs>::PARAMS);
+    let chosen = match (has_initializer, has_constructor) {
+        (true, true) => quote! {
+            ::rustpython_vm::function::choose_class_params(#init_params, #ctor_params)
+        },
+        (true, false) => quote! {
+            ::rustpython_vm::function::real_signature(#init_params)
+        },
+        (false, true) => quote! {
+            ::rustpython_vm::function::real_signature(#ctor_params)
+        },
+        (false, false) => quote!(None),
+    };
+    let chosen = if has_structseq {
+        quote! {
+            match #chosen {
+                Some(params) => Some(params),
+                None => ::rustpython_vm::types::STRUCT_SEQUENCE_PARAMS,
+            }
+        }
+    } else {
+        chosen
+    };
+    quote! {
+        {
+            const CHOSEN: Option<&'static [::rustpython_vm::function::Param]> = #chosen;
+            if CHOSEN.is_none() {
+                None
+            } else {
+                const ARGS: &[::rustpython_vm::function::SigArg] = &[
+                    ::rustpython_vm::function::SigArg {
+                        name: "",
+                        params: CHOSEN,
+                    },
+                ];
+                const DOC: &str = match <#payload as ::rustpython_vm::class::PyClassDef>::DOC {
+                    Some(doc) => doc,
+                    None => "",
+                };
+                const NAME: &str = <#payload as ::rustpython_vm::class::PyClassDef>::NAME;
+                const N: usize =
+                    ::rustpython_vm::function::internal_doc_len(NAME, ARGS, DOC);
+                const B: [u8; N] =
+                    ::rustpython_vm::function::internal_doc_bytes::<N>(NAME, ARGS, DOC);
+                const S: &str = match ::core::str::from_utf8(&B) {
+                    Ok(s) => s,
+                    Err(_) => panic!(),
+                };
+                Some(S)
+            }
+        }
+    }
 }
 
 fn impl_item_new<Item>(

@@ -6,10 +6,87 @@ pub(crate) use _blake2::module_def;
 mod _blake2 {
     use crate::hashlib::_hashlib::{Blake2Hash, BlakeHashArgs, local_blake2b, local_blake2s};
     use crate::vm::{
-        Context, Py, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBytes, PyIntRef, PyModule, PyTypeRef},
-        function::{ArgBytesLike, FuncArgs},
+        Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        builtins::{PyBytes, PyIntRef, PyModule, PyType, PyTypeRef},
+        function::{ArgBytesLike, ArgPrimitiveIndex, FuncArgs, OptionalArg},
+        types::Constructor,
     };
+
+    macro_rules! blake_sig {
+        ($name:ident, $digest:literal) => {
+            #[derive(FromArgs)]
+            struct $name {
+                #[pyarg(any, name = "data", default, py_default = "b''")]
+                data: OptionalArg<ArgBytesLike>,
+                #[pyarg(named, name = "digest_size", default, py_default = $digest)]
+                digest_size: OptionalArg<ArgPrimitiveIndex<i64>>,
+                #[pyarg(named, name = "key", default, py_default = "b''")]
+                key: OptionalArg<ArgBytesLike>,
+                #[pyarg(named, name = "salt", default, py_default = "b''")]
+                salt: OptionalArg<ArgBytesLike>,
+                #[pyarg(named, name = "person", default, py_default = "b''")]
+                person: OptionalArg<ArgBytesLike>,
+                #[pyarg(named, name = "fanout", default, py_default = "1")]
+                fanout: OptionalArg<ArgPrimitiveIndex<i64>>,
+                #[pyarg(named, name = "depth", default, py_default = "1")]
+                depth: OptionalArg<ArgPrimitiveIndex<i64>>,
+                #[pyarg(named, name = "leaf_size", default, py_default = "0")]
+                leaf_size: OptionalArg<PyObjectRef>,
+                #[pyarg(named, name = "node_offset", default, py_default = "0")]
+                node_offset: OptionalArg<PyObjectRef>,
+                #[pyarg(named, name = "node_depth", default, py_default = "0")]
+                node_depth: OptionalArg<ArgPrimitiveIndex<i64>>,
+                #[pyarg(named, name = "inner_size", default, py_default = "0")]
+                inner_size: OptionalArg<ArgPrimitiveIndex<i64>>,
+                #[pyarg(named, name = "last_node", default = false)]
+                last_node: bool,
+                #[pyarg(named, name = "usedforsecurity", default = true)]
+                usedforsecurity: bool,
+                #[pyarg(named, name = "string", optional)]
+                string: OptionalArg<ArgBytesLike>,
+            }
+
+            impl $name {
+                fn touch(self) {
+                    let Self {
+                        data,
+                        digest_size,
+                        key,
+                        salt,
+                        person,
+                        fanout,
+                        depth,
+                        leaf_size,
+                        node_offset,
+                        node_depth,
+                        inner_size,
+                        last_node,
+                        usedforsecurity,
+                        string,
+                    } = self;
+                    let _ = (
+                        data,
+                        digest_size,
+                        key,
+                        salt,
+                        person,
+                        fanout,
+                        depth,
+                        leaf_size,
+                        node_offset,
+                        node_depth,
+                        inner_size,
+                        last_node,
+                        usedforsecurity,
+                        string,
+                    );
+                }
+            }
+        };
+    }
+
+    blake_sig!(Blake2bSig, "64");
+    blake_sig!(Blake2sSig, "32");
 
     #[pyattr(name = "_GIL_MINSIZE")]
     const GIL_MINSIZE: u16 = 2048;
@@ -51,7 +128,7 @@ mod _blake2 {
         }
     }
 
-    #[pyclass(flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
     impl PyBlake2b {
         #[pyattr(name = "SALT_SIZE")]
         fn salt_size(ctx: &Context) -> PyIntRef {
@@ -124,13 +201,31 @@ mod _blake2 {
         inner: Blake2Hash,
     }
 
+    impl Constructor for PyBlake2b {
+        type Args = Blake2bSig;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            args.touch();
+            Err(vm.new_type_error("use slot_new"))
+        }
+    }
+
+    impl Constructor for PyBlake2s {
+        type Args = Blake2sSig;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            args.touch();
+            Err(vm.new_type_error("use slot_new"))
+        }
+    }
+
     impl core::fmt::Debug for PyBlake2s {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.write_str("blake2s")
         }
     }
 
-    #[pyclass(flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
     impl PyBlake2s {
         #[pyattr(name = "SALT_SIZE")]
         fn salt_size(ctx: &Context) -> PyIntRef {

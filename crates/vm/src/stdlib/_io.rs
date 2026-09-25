@@ -949,6 +949,24 @@ mod _io {
         buffer_size: isize,
     }
 
+    #[derive(FromArgs)]
+    struct BufferedInitArgs {
+        #[pyarg(any)]
+        raw: PyObjectRef,
+        #[pyarg(any, default = 131072)]
+        buffer_size: isize,
+    }
+
+    #[derive(FromArgs)]
+    struct BufferedRWPairArgs {
+        #[pyarg(positional)]
+        reader: PyObjectRef,
+        #[pyarg(positional)]
+        writer: PyObjectRef,
+        #[pyarg(positional, default = 131072)]
+        buffer_size: isize,
+    }
+
     bitflags::bitflags! {
         #[derive(Copy, Clone, Debug, PartialEq, Default)]
         struct BufferedFlags: u8 {
@@ -2134,7 +2152,7 @@ mod _io {
     }
 
     #[pyclass(
-        with(Constructor, BufferedMixin, BufferedReadable, Destructor),
+        with(Constructor, Initializer, BufferedMixin, BufferedReadable, Destructor),
         flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl BufferedReader {}
@@ -2155,6 +2173,20 @@ mod _io {
     }
 
     impl DefaultConstructor for BufferedReader {}
+
+    impl Initializer for BufferedReader {
+        type Args = BufferedInitArgs;
+
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.init(
+                args.raw,
+                BufferSize {
+                    buffer_size: args.buffer_size,
+                },
+                vm,
+            )
+        }
+    }
 
     #[pyclass]
     trait BufferedWritable: PyPayload {
@@ -2238,7 +2270,7 @@ mod _io {
     }
 
     #[pyclass(
-        with(Constructor, BufferedMixin, BufferedWritable, Destructor),
+        with(Constructor, Initializer, BufferedMixin, BufferedWritable, Destructor),
         flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl BufferedWriter {}
@@ -2259,6 +2291,20 @@ mod _io {
     }
 
     impl DefaultConstructor for BufferedWriter {}
+
+    impl Initializer for BufferedWriter {
+        type Args = BufferedInitArgs;
+
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.init(
+                args.raw,
+                BufferSize {
+                    buffer_size: args.buffer_size,
+                },
+                vm,
+            )
+        }
+    }
 
     #[pyattr]
     #[pyclass(name = "BufferedRandom", base = _BufferedIOBase)]
@@ -2308,6 +2354,7 @@ mod _io {
     #[pyclass(
         with(
             Constructor,
+            Initializer,
             BufferedMixin,
             BufferedReadable,
             BufferedWritable,
@@ -2333,6 +2380,20 @@ mod _io {
     }
 
     impl DefaultConstructor for BufferedRandom {}
+
+    impl Initializer for BufferedRandom {
+        type Args = BufferedInitArgs;
+
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.init(
+                args.raw,
+                BufferSize {
+                    buffer_size: args.buffer_size,
+                },
+                vm,
+            )
+        }
+    }
 
     #[pyattr]
     #[pyclass(name = "BufferedRWPair", base = _BufferedIOBase)]
@@ -2362,15 +2423,20 @@ mod _io {
     impl DefaultConstructor for BufferedRWPair {}
 
     impl Initializer for BufferedRWPair {
-        type Args = (PyObjectRef, PyObjectRef, BufferSize);
+        type Args = BufferedRWPairArgs;
 
         fn init(
             zelf: &Py<Self>,
-            (reader, writer, buffer_size): Self::Args,
+            BufferedRWPairArgs {
+                reader,
+                writer,
+                buffer_size,
+            }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            zelf.read.init(reader, buffer_size.clone(), vm)?;
-            zelf.write.init(writer, buffer_size, vm)?;
+            let size = BufferSize { buffer_size };
+            zelf.read.init(reader, size.clone(), vm)?;
+            zelf.write.init(writer, size, vm)?;
             Ok(())
         }
     }
@@ -2898,10 +2964,22 @@ mod _io {
 
     impl DefaultConstructor for TextIOWrapper {}
 
-    impl Initializer for TextIOWrapper {
-        type Args = (PyObjectRef, TextIOWrapperArgs);
+    #[derive(FromArgs)]
+    struct TextIOWrapperInitArgs {
+        #[pyarg(any)]
+        buffer: PyObjectRef,
+        #[pyarg(flatten)]
+        args: TextIOWrapperArgs,
+    }
 
-        fn init(zelf: &Py<Self>, (buffer, args): Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    impl Initializer for TextIOWrapper {
+        type Args = TextIOWrapperInitArgs;
+
+        fn init(
+            zelf: &Py<Self>,
+            TextIOWrapperInitArgs { buffer, args }: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let mut data = zelf.lock_opt(vm)?;
             *data = None;
 
@@ -2964,9 +3042,8 @@ mod _io {
                 let mut data = zelf_ref.lock_opt(vm)?;
                 *data = None;
             }
-            let (buffer, text_args): (PyObjectRef, TextIOWrapperArgs) =
-                args.bind_for(vm, Self::NAME)?;
-            Self::init(zelf_ref, (buffer, text_args), vm)
+            let parsed = args.bind_for(vm, Self::NAME)?;
+            Self::init(zelf_ref, parsed, vm)
         }
     }
 
@@ -4534,7 +4611,7 @@ mod _io {
 
     #[derive(FromArgs)]
     struct StringIONewArgs {
-        #[pyarg(positional, default = OptionalArg::Missing, py_default = "''")]
+        #[pyarg(any, name = "initial_value", default = OptionalArg::Missing, py_default = "''")]
         object: OptionalOption<PyStrRef>,
 
         // Omitted newline is \n. None selects universal newlines.
@@ -5713,7 +5790,7 @@ mod fileio {
 
     #[derive(FromArgs)]
     pub(super) struct FileIOArgs {
-        #[pyarg(positional)]
+        #[pyarg(any, name = "file")]
         name: PyObjectRef,
         // Omitted mode is stored as rb.
         #[pyarg(any, default, py_default = "'r'")]

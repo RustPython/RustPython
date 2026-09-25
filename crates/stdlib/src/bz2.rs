@@ -9,7 +9,7 @@ mod _bz2 {
         Py, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyType},
         common::lock::PyMutex,
-        function::{ArgBytesLike, OptionalArg},
+        function::ArgBytesLike,
         object::PyResult,
         types::Constructor,
     };
@@ -122,15 +122,20 @@ mod _bz2 {
         }
     }
 
+    #[derive(FromArgs)]
+    struct BZ2CompressorArgs {
+        #[pyarg(positional, default = 9)]
+        compresslevel: i32,
+    }
+
     impl Constructor for BZ2Compressor {
-        type Args = (OptionalArg<i32>,);
+        type Args = BZ2CompressorArgs;
 
         fn py_new(
             _cls: &Py<PyType>,
-            (compresslevel,): Self::Args,
+            BZ2CompressorArgs { compresslevel }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let compresslevel = compresslevel.unwrap_or(9);
             let compressor = backend::Compressor::new(i64::from(compresslevel))
                 .ok_or_else(|| vm.new_value_error("compresslevel must be between 1 and 9"))?;
             Ok(Self {

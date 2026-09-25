@@ -760,8 +760,8 @@ impl Representable for PyComplex {
 
 #[derive(FromArgs)]
 pub struct ComplexArgs {
-    #[pyarg(any, optional)]
+    #[pyarg(any, default, py_default = "0")]
     real: OptionalArg<PyObjectRef>,
-    #[pyarg(any, optional)]
+    #[pyarg(any, default, py_default = "0")]
     imag: OptionalArg<PyObjectRef>,
 }

@@ -56,7 +56,7 @@ impl PyPayload for PyEnumerate {
 pub struct EnumerateArgs {
     #[pyarg(any)]
     iterable: PyIter,
-    #[pyarg(any, optional)]
+    #[pyarg(any, default, py_default = "0")]
     start: OptionalArg<PyIntRef>,
 }
 

@@ -2473,10 +2473,21 @@ pub mod module {
     }
 
     #[cfg(unix)]
+    #[derive(FromArgs)]
+    struct PathconfArgs {
+        #[pyarg(any)]
+        path: OsPathOrFd<'static>,
+        #[pyarg(any)]
+        name: PathconfName,
+    }
+
+    #[cfg(unix)]
     #[pyfunction]
     fn pathconf(
-        path: OsPathOrFd<'_>,
-        PathconfName(name): PathconfName,
+        PathconfArgs {
+            path,
+            name: PathconfName(name),
+        }: PathconfArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
         match &path {
@@ -2496,7 +2507,12 @@ pub mod module {
         name: PathconfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
-        pathconf(OsPathOrFd::Fd(fd.into()), name, vm)
+        let path = OsPathOrFd::Fd(fd.into());
+        let OsPathOrFd::Fd(fd) = &path else {
+            unreachable!()
+        };
+        rustpython_host_env::posix::fpathconf(fd.as_raw(), name.0)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[pyattr]

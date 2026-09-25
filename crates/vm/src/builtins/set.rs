@@ -922,11 +922,11 @@ impl PySet {
 impl DefaultConstructor for PySet {}
 
 impl Initializer for PySet {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = crate::function::PositionalIterable;
 
-    fn init(zelf: &Py<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         zelf.clear();
-        if let OptionalArg::Present(it) = iterable {
+        if let OptionalArg::Present(it) = args.iterable {
             zelf.update(PosArgs::<PyObjectRef, NameOthers>::named(vec![it]), vm)?;
         }
         Ok(())
@@ -1089,7 +1089,7 @@ impl Representable for PySet {
 }
 
 impl Constructor for PyFrozenSet {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = crate::function::PositionalIterable;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let is_exact_frozenset = cls.is(vm.ctx.types.frozenset_type);
@@ -1112,7 +1112,8 @@ impl Constructor for PyFrozenSet {
 
         // Optimizations for exact frozenset type
         let iterable_opt = if is_exact_frozenset || is_frozenset_init {
-            let iterable: OptionalArg<PyObjectRef> = args.bind_for(vm, Self::NAME)?;
+            let iterable: crate::function::PositionalIterable = args.bind_for(vm, Self::NAME)?;
+            let iterable = iterable.iterable;
 
             // Return exact frozenset as-is
             if is_exact_frozenset
@@ -1133,7 +1134,13 @@ impl Constructor for PyFrozenSet {
             }
         };
 
-        let payload = Self::py_new(&cls, iterable_opt, vm)?;
+        let payload = Self::py_new(
+            &cls,
+            Self::Args {
+                iterable: iterable_opt,
+            },
+            vm,
+        )?;
 
         // Return empty frozenset singleton
         if is_exact_frozenset && payload.inner.len() == 0 {
@@ -1143,8 +1150,8 @@ impl Constructor for PyFrozenSet {
         payload.into_ref_with_type(vm, cls).map(Into::into)
     }
 
-    fn py_new(_cls: &Py<PyType>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        let inner = match iterable {
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        let inner = match args.iterable {
             OptionalArg::Present(iterable) => PySetInner::from_object(iterable, vm)?,
             OptionalArg::Missing => PySetInner::default(),
         };

@@ -275,13 +275,16 @@ mod termios {
     }
 
     #[pyfunction]
-    fn tcgetwinsize(Fildes(fd): Fildes, vm: &VirtualMachine) -> PyResult<(u16, u16)> {
+    fn tcgetwinsize(fd: Fildes, vm: &VirtualMachine) -> PyResult<(u16, u16)> {
+        let fd = fd.0;
         let size = host_termios::tcgetwinsize(fd).map_err(|e| termios_error(e, vm))?;
         Ok(size)
     }
 
     #[pyfunction]
-    fn tcsetwinsize(Fildes(fd): Fildes, size: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcsetwinsize(fd: Fildes, winsize: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = fd.0;
+        let size = winsize;
         let seq = size.try_sequence(vm)?;
         if seq.length(vm)? != 2 {
             return Err(vm.new_type_error("tcsetwinsize: size must be a 2 element sequence"));

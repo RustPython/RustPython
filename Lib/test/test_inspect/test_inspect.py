@@ -3511,7 +3511,6 @@ class TestSignatureObject(unittest.TestCase):
                            ('arg2', 1, ..., "positional_or_keyword")),
                           int))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: no signature found for builtin type <class 'classmethod'>
     def test_signature_on_classmethod(self):
         if not support.MISSING_C_DOCSTRINGS:
             self.assertEqual(self.signature(classmethod),
@@ -3535,7 +3534,6 @@ class TestSignatureObject(unittest.TestCase):
                            ('arg2', 1, ..., "keyword_only")),
                           ...))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: no signature found for builtin type <class 'staticmethod'>
     def test_signature_on_staticmethod(self):
         if not support.MISSING_C_DOCSTRINGS:
             self.assertEqual(self.signature(staticmethod),
@@ -4614,7 +4612,6 @@ class TestSignatureObject(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "callable.*is not supported"):
             self.assertEqual(inspect.signature(D), None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: no signature found for builtin type <class '_pickle.Pickler'>
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_signature_on_builtin_class(self):
@@ -5156,7 +5153,6 @@ class TestSignatureObject(unittest.TestCase):
         foo_sig = MySignature.from_callable(foo)
         self.assertIsInstance(foo_sig, MySignature)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: no signature found for builtin type <class '_pickle.Pickler'>
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_signature_from_callable_builtin_obj(self):

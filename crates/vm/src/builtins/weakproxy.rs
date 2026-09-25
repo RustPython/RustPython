@@ -1,8 +1,8 @@
-use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak};
+use super::{PyStr, PyStrRef, PyType, PyWeak};
 use crate::common::lock::LazyLock;
 use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-    class::{PyClassDef, PyClassImpl},
+    class::PyClassImpl,
     common::hash::PyHash,
     function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySetterValue},
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
@@ -37,31 +37,29 @@ impl PyPayload for PyWeakProxy {
 
 #[derive(FromArgs)]
 pub struct WeakProxyNewArgs {
-    #[pyarg(positional)]
+    #[pyarg(positional, name = "object")]
     referent: PyObjectRef,
-    #[pyarg(positional, optional)]
+    #[pyarg(positional, name = "callback", optional)]
     callback: OptionalArg<PyObjectRef>,
 }
 
 impl Constructor for PyWeakProxy {
-    type Args = WeakProxyNewArgs;
+    type Args = ();
 
-    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let _ = cls;
-        let Self::Args { referent, callback } = args.bind_for(vm, Self::NAME)?;
-        let callback = callback
-            .into_option()
-            .filter(|callback| !vm.is_none(callback));
-        let proxy = Self::new_weakproxy(referent.as_ref(), callback, vm)?;
-        Ok(proxy.into())
-    }
-
-    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unimplemented!("use slot_new")
+    fn py_new(cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        Err(vm.new_type_error(format!("cannot create '{}' instances", cls.slot_name())))
     }
 }
 
 impl PyWeakProxy {
+    pub fn from_new_args(args: WeakProxyNewArgs, vm: &VirtualMachine) -> PyResult<PyRef<PyWeak>> {
+        let WeakProxyNewArgs { referent, callback } = args;
+        let callback = callback
+            .into_option()
+            .filter(|callback| !vm.is_none(callback));
+        Self::new_weakproxy(referent.as_ref(), callback, vm)
+    }
+
     pub fn new_weakproxy(
         referent: &PyObject,
         callback: Option<PyObjectRef>,
@@ -92,8 +90,16 @@ impl PyWeakProxy {
 #[repr(transparent)]
 pub struct PyWeakCallableProxy(PyWeakProxy);
 
-#[pyclass(with(Callable))]
+#[pyclass(with(Callable, Constructor))]
 impl PyWeakCallableProxy {}
+
+impl Constructor for PyWeakCallableProxy {
+    type Args = ();
+
+    fn py_new(cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        Err(vm.new_type_error(format!("cannot create '{}' instances", cls.slot_name())))
+    }
+}
 
 impl Callable for PyWeakCallableProxy {
     type Args = FuncArgs;

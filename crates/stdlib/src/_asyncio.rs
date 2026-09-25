@@ -145,17 +145,17 @@ pub(crate) mod _asyncio {
         }
     }
 
+    #[derive(FromArgs)]
+    struct FutureInitArgs {
+        #[pyarg(named, name = "loop", optional)]
+        loop_: OptionalArg<PyObjectRef>,
+    }
+
     impl Initializer for PyFuture {
-        type Args = FuncArgs;
+        type Args = FutureInitArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            // Future does not accept positional arguments
-            if !args.args.is_empty() {
-                return Err(vm.new_type_error("Future() takes no positional arguments"));
-            }
-            // Extract only 'loop' keyword argument
-            let loop_ = args.kwargs.get("loop").cloned();
-            Self::py_init(zelf, loop_, vm)
+            Self::py_init(zelf, args.loop_.into_option(), vm)
         }
     }
 
@@ -1137,7 +1137,7 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct TaskInitArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         coro: PyObjectRef,
         #[pyarg(named, name = "loop", optional)]
         loop_: OptionalOption<PyObjectRef>,
@@ -1145,8 +1145,9 @@ pub(crate) mod _asyncio {
         name: OptionalOption<PyObjectRef>,
         #[pyarg(named, optional)]
         context: OptionalOption<PyObjectRef>,
-        #[pyarg(named, optional)]
-        eager_start: OptionalOption<bool>,
+        // None is false.
+        #[pyarg(named, optional, py_default = "False")]
+        eager_start: Option<bool>,
     }
 
     static TASK_NAME_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -1240,7 +1241,7 @@ pub(crate) mod _asyncio {
             };
             *zelf.task_name.write() = Some(name);
 
-            let eager_start = args.eager_start.flatten().unwrap_or(false);
+            let eager_start = args.eager_start.unwrap_or(false);
 
             // Check if we should do eager start: only if the loop is running
             let do_eager_start = if eager_start {

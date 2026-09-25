@@ -22,8 +22,16 @@ const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
         vm.new_tuple((zelf.class().to_owned(), (vm.ctx.new_tuple(zelf.to_vec()),)))
     },
     PyMethodFlags::METHOD,
-    None,
+    Some("__reduce__($self, /)\n--\n\n"),
 );
+
+/// Text signature `(iterable=(), /)` shared by every struct sequence.
+pub const STRUCT_SEQUENCE_PARAMS: Option<&'static [crate::function::Param]> =
+    Some(&[crate::function::Param {
+        name: "iterable",
+        kind: crate::function::ParamKind::PositionalOnly,
+        default: Some(crate::function::DefaultRepr::Raw("()")),
+    }]);
 
 /// The arguments every struct sequence constructor takes.
 #[derive(FromArgs)]

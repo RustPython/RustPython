@@ -6,6 +6,7 @@ mod zoo;
 pub use slot::*;
 pub use slot_defs::{SLOT_DEFS, SlotAccessor, SlotDef};
 pub use structseq::{
-    PyStructSequence, PyStructSequenceData, StructSequenceNewArgs, struct_sequence_new,
+    PyStructSequence, PyStructSequenceData, STRUCT_SEQUENCE_PARAMS, StructSequenceNewArgs,
+    struct_sequence_new,
 };
 pub(crate) use zoo::TypeZoo;

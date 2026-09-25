@@ -90,10 +90,10 @@ where
     }
 }
 
-impl From<KwArgs> for FuncArgs {
-    fn from(kwargs: KwArgs) -> Self {
+impl<Name: ArgName> From<KwArgs<PyObjectRef, Name>> for FuncArgs {
+    fn from(kwargs: KwArgs<PyObjectRef, Name>) -> Self {
         Self {
-            kwargs,
+            kwargs: KwArgs::new(kwargs.0),
             ..Default::default()
         }
     }
@@ -597,6 +597,9 @@ arg_name! {
     NameKwds = "kwds",
     NameKws = "kws",
     NameObjs = "objs",
+    NameIterables = "iterables",
+    NameKeywords = "keywords",
+    NameFields = "fields",
 }
 
 #[derive(Clone, Debug)]
@@ -855,6 +858,13 @@ where
     }
 }
 
+/// One positional-only iterable, defaulting to an empty tuple.
+#[derive(FromArgs)]
+pub struct PositionalIterable {
+    #[pyarg(positional, default, py_default = "()")]
+    pub iterable: OptionalArg<PyObjectRef>,
+}
+
 impl OptionalArg<PyObjectRef> {
     pub fn unwrap_or_none(self, vm: &VirtualMachine) -> PyObjectRef {
         self.unwrap_or_else(|| vm.ctx.none())
@@ -897,6 +907,8 @@ where
 // For functions that accept no arguments. Implemented explicitly instead of via
 // macro below to avoid unused warnings.
 impl FromArgs for () {
+    const PARAMS: Option<&'static [Param]> = Some(&[]);
+
     fn from_args(_vm: &VirtualMachine, _args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         Ok(())
     }
@@ -914,6 +926,14 @@ macro_rules! tuple_from_py_func_args {
         where
             $($T: FromArgs),+
         {
+            const PARAMS: Option<&'static [Param]> = {
+                if true $(&& $T::PARAMS.is_some())* {
+                    Some(&[$(Param::flatten($T::PARAMS)),*])
+                } else {
+                    None
+                }
+            };
+
             fn arity() -> RangeInclusive<usize> {
                 let mut min = 0;
                 let mut max = 0;

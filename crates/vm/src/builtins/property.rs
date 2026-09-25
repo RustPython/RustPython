@@ -60,13 +60,13 @@ impl PyPayload for PyProperty {
 
 #[derive(FromArgs)]
 pub struct PropertyArgs {
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     fget: Option<PyObjectRef>,
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     fset: Option<PyObjectRef>,
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     fdel: Option<PyObjectRef>,
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     doc: Option<PyObjectRef>,
 }
 
