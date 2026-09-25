@@ -2,10 +2,7 @@ use super::{
     core::{Py, PyObject, PyObjectRef, PyRef},
     payload::PyPayload,
 };
-use crate::common::{
-    atomic::{Ordering, PyAtomic, Radium},
-    lock::PyRwLockReadGuard,
-};
+use crate::common::atomic::{Ordering, PyAtomic, Radium};
 use crate::{
     VirtualMachine,
     builtins::{PyBaseExceptionRef, PyStrInterned, PyType},
@@ -728,46 +725,6 @@ impl PyObject {
 //         unsafe { &*(&**self as *const T as *const PyObject) }
 //     }
 // }
-
-/// A borrow of a reference to a Python object. This avoids having clone the `PyRef<T>`/
-/// `PyObjectRef`, which isn't that cheap as that increments the atomic reference counter.
-// TODO: check if we still need this
-#[allow(dead_code)]
-pub struct PyLease<'a, T: PyPayload> {
-    inner: PyRwLockReadGuard<'a, PyRef<T>>,
-}
-
-impl<T: PyPayload> PyLease<'_, T> {
-    #[inline(always)]
-    #[must_use]
-    pub fn into_owned(self) -> PyRef<T> {
-        self.inner.clone()
-    }
-}
-
-impl<T: PyPayload> Borrow<PyObject> for PyLease<'_, T> {
-    #[inline(always)]
-    fn borrow(&self) -> &PyObject {
-        self.inner.as_ref()
-    }
-}
-
-impl<T: PyPayload> Deref for PyLease<'_, T> {
-    type Target = PyRef<T>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T> fmt::Display for PyLease<'_, T>
-where
-    T: PyPayload + fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&**self, f)
-    }
-}
 
 impl<T: PyPayload> ToPyObject for PyRef<T> {
     #[inline(always)]
