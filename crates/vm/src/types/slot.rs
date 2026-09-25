@@ -1564,7 +1564,21 @@ impl PyType {
             SlotAccessor::SqLength => {
                 update_sub_slot!(as_sequence, length, sequence_len_wrapper, SeqLength)
             }
-            SlotAccessor::SqConcat | SlotAccessor::SqInplaceConcat if !ADD => {
+            SlotAccessor::SqConcat => {
+                // Python __add__ overrides use nb_add, not the inherited sq_concat.
+                let concat = match self.lookup_slot_in_mro(name, ctx, |sf| {
+                    if let SlotFunc::SeqConcat(f) = sf {
+                        Some(*f)
+                    } else {
+                        None
+                    }
+                }) {
+                    SlotLookupResult::NativeSlot(func) => Some(func),
+                    SlotLookupResult::PythonMethod | SlotLookupResult::NotFound => None,
+                };
+                self.slots.as_sequence.concat.store(concat);
+            }
+            SlotAccessor::SqInplaceConcat if !ADD => {
                 // Sequence concat uses sq_concat slot - no generic wrapper needed
                 // (handled by number protocol fallback)
                 accessor.inherit_from_mro(self);
