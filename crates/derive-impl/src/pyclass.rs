@@ -66,7 +66,6 @@ struct ImplContext {
     attribute_items: ItemNursery,
     method_items: MethodNursery,
     getset_items: GetSetNursery,
-    member_items: MemberNursery,
     extend_slots_items: ItemNursery,
     class_extensions: Vec<TokenStream>,
     errors: Vec<syn::Error>,
@@ -99,7 +98,6 @@ fn extract_items_into_context<'a, Item>(
     }
     context.errors.ok_or_push(context.method_items.validate());
     context.errors.ok_or_push(context.getset_items.validate());
-    context.member_items.validate();
 }
 
 pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Result<TokenStream> {
@@ -109,16 +107,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
             if imp.generics.params.is_empty() {
                 context.self_ty_subst = Some((*imp.self_ty).clone());
                 context.getset_items.class_ty = context.self_ty_subst.clone();
-                context.member_items.class_ty = context.self_ty_subst.clone();
             }
             extract_items_into_context(&mut context, imp.items.iter_mut());
-            let stripped = context.member_items.stripped.clone();
-            imp.items.retain(|item| match item {
-                syn::ImplItem::Const(const_item) => {
-                    !stripped.iter().any(|id| id == &const_item.ident)
-                }
-                _ => true,
-            });
 
             let attr_nonempty = !attr.is_empty();
             let (impl_ty, payload_guess, wrapped) = match imp.self_ty.as_ref() {
@@ -189,7 +179,6 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
             let payload_ty = attr_payload.unwrap_or(payload_guess);
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
-            let member_impl = &context.member_items;
             let extend_impl = context.attribute_items.validate()?;
             let slots_impl = context.extend_slots_items.validate()?;
             let class_extensions = &context.class_extensions;
@@ -204,7 +193,6 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
-                        #member_impl
                         #extend_impl
                         #(#class_extensions)*
                     }
@@ -302,7 +290,6 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
 
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
-            let member_impl = &context.member_items;
             let extend_impl = &context.attribute_items.validate()?;
             let slots_impl = &context.extend_slots_items.validate()?;
             let class_extensions = &context.class_extensions;
@@ -323,7 +310,6 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
-                        #member_impl
                         #extend_impl
                         #with_impl
                         #(#class_extensions)*
@@ -489,6 +475,17 @@ fn type_matches_path(ty: &syn::Type, path: &syn::Path) -> bool {
     type_last.ident == path_last.ident
 }
 
+struct MemberTableTokens<'a> {
+    members: &'a TokenStream,
+    parts: &'a TokenStream,
+    checks: &'a TokenStream,
+}
+
+struct ClassDefExtras<'a> {
+    attrs: &'a [Attribute],
+    member_table: MemberTableTokens<'a>,
+}
+
 fn generate_class_def(
     ident: &Ident,
     name: &str,
@@ -496,8 +493,9 @@ fn generate_class_def(
     base: Option<syn::Path>,
     metaclass: Option<String>,
     unhashable: bool,
-    attrs: &[Attribute],
+    extras: ClassDefExtras<'_>,
 ) -> Result<TokenStream> {
+    let attrs = extras.attrs;
     let module_key = module_name.unwrap_or("builtins");
     let attr_docs = crate::class_docs::attr_docs_tokens(module_name, name);
     let doc = rustpython_doc::get_qualified(module_key, name, None, true)
@@ -607,6 +605,12 @@ fn generate_class_def(
         None
     };
 
+    let MemberTableTokens {
+        members,
+        parts: member_parts_impl,
+        checks: member_checks,
+    } = extras.member_table;
+
     let tokens = quote! {
         impl ::rustpython_vm::class::PyClassDef for #ident {
             const NAME: &'static str = #name;
@@ -616,9 +620,16 @@ fn generate_class_def(
             const ATTR_DOCS: &'static [(&'static str, &'static str)] = #attr_docs;
             const BASICSIZE: usize = #basicsize;
             const UNHASHABLE: bool = #unhashable;
+            const MEMBERS: &'static [::rustpython_vm::builtins::descriptor::PyMemberSpec] = #members;
 
             type Base = #base_or_object;
+
+            fn assert_member_layout() {
+                #member_checks
+            }
         }
+
+        #member_parts_impl
 
         impl ::rustpython_vm::class::StaticType for #ident {
             fn static_cell() -> &'static ::rustpython_vm::common::static_cell::StaticCell<::rustpython_vm::builtins::PyTypeRef> {
@@ -674,11 +685,12 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         None
     };
 
-    let item = if base.is_some() {
+    let mut item = if base.is_some() {
         ensure_repr_c(item)
     } else {
         item
     };
+    let (members, member_parts, member_checks) = extract_py_members(&mut item)?;
 
     let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
 
@@ -704,7 +716,14 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         base.clone(),
         metaclass,
         unhashable,
-        attrs,
+        ClassDefExtras {
+            attrs,
+            member_table: MemberTableTokens {
+                members: &members,
+                parts: &member_parts,
+                checks: &member_checks,
+            },
+        },
     )?;
 
     const ALLOWED_TRAVERSE_OPTS: &[&str] = &["manual"];
@@ -1383,46 +1402,10 @@ where
     Item: ItemLike + ToTokens + GetIdent,
 {
     fn gen_impl_item(&self, args: ImplItemArgs<'_, Item>) -> Result<()> {
-        let const_item = args.item.constant().map_err(|_| {
-            self.new_syn_error(
-                args.item.span(),
-                "#[pymember] goes on a const whose name is the payload field",
-            )
-        })?;
-        let ident = const_item.ident().clone();
-
-        let item_attr = args.attrs.remove(self.index());
-        let item_meta = MemberItemMeta::from_attr(ident.clone(), &item_attr)?;
-
-        let py_name = item_meta.member_name()?;
-        let member_kind = item_meta.member_kind()?;
-        let field = item_meta.field_tokens(&ident)?;
-        let readonly = item_meta.readonly()?;
-        let audit_read = item_meta.audit_read()?;
-        let offset_expr = item_meta.offset_tokens()?;
-        let doc = item_meta.doc()?.or_else(|| args.attrs.doc());
-
-        args.context.member_items.add_item(MemberDecl {
-            name: py_name,
-            kind: member_kind,
-            field,
-            readonly,
-            audit_read,
-            offset_expr,
-            doc,
-            span: ident.span(),
-            cfgs: args.cfgs.to_vec(),
-        })?;
-        if !args
-            .context
-            .member_items
-            .stripped
-            .iter()
-            .any(|id| id == &ident)
-        {
-            args.context.member_items.stripped.push(ident);
-        }
-        Ok(())
+        Err(self.new_syn_error(
+            args.item.span(),
+            "belongs on a payload field, not in an impl. Put #[pymember(...)] on the struct field",
+        ))
     }
 }
 
@@ -1628,157 +1611,6 @@ impl ToTokens for GetSetNursery {
     }
 }
 
-/// Member type as string, matching `Py_T_*` codes.
-/// None means `MemberKind::ObjectEx`.
-type MemberKindStr = Option<String>;
-
-#[derive(Default)]
-struct MemberNursery {
-    items: Vec<MemberDecl>,
-    /// Const items consumed as member declarations. Removed from the impl.
-    stripped: Vec<Ident>,
-    validated: bool,
-    class_ty: Option<syn::Type>,
-}
-
-struct MemberDecl {
-    name: String,
-    kind: MemberKindStr,
-    field: TokenStream,
-    readonly: bool,
-    audit_read: bool,
-    /// When set, this expression is the byte offset and `field` is not read.
-    offset_expr: Option<TokenStream>,
-    doc: Option<String>,
-    span: Span,
-    cfgs: Vec<Attribute>,
-}
-
-impl MemberNursery {
-    fn add_item(&mut self, decl: MemberDecl) -> Result<()> {
-        assert!(!self.validated, "new item is not allowed after validation");
-        // Same name under different `#[cfg]`s is one member per configuration.
-        if self
-            .items
-            .iter()
-            .any(|item| item.name == decl.name && item.cfgs == decl.cfgs)
-        {
-            return Err(syn::Error::new(
-                decl.span,
-                format!("Multiple members with name '{}'", decl.name),
-            ));
-        }
-        match decl.kind.as_deref() {
-            None | Some("bool" | "object" | "object_ex" | "double") => {}
-            Some(other) => {
-                return Err(syn::Error::new(
-                    decl.span,
-                    format!("unknown member type '{other}'"),
-                ));
-            }
-        }
-        self.items.push(decl);
-        Ok(())
-    }
-
-    fn validate(&mut self) {
-        self.validated = true;
-    }
-}
-
-impl ToTokens for MemberNursery {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        assert!(self.validated, "Call `validate()` before token generation");
-        let properties = self.items.iter().map(|decl| {
-            let name = &decl.name;
-            let cfgs = &decl.cfgs;
-            let field = &decl.field;
-            let member_kind = match decl.kind.as_deref() {
-                Some("bool") => {
-                    quote!(::rustpython_vm::builtins::descriptor::MemberKind::Bool)
-                }
-                Some("object") => {
-                    quote!(::rustpython_vm::builtins::descriptor::MemberKind::Object)
-                }
-                Some("double") => {
-                    quote!(::rustpython_vm::builtins::descriptor::MemberKind::Double)
-                }
-                _ => {
-                    quote!(::rustpython_vm::builtins::descriptor::MemberKind::ObjectEx)
-                }
-            };
-            let layout = match (
-                decl.kind.as_deref(),
-                decl.readonly,
-                decl.offset_expr.is_some(),
-            ) {
-                (_, _, true) => None,
-                (Some("bool"), false, _) => {
-                    Some(quote!(::rustpython_vm::builtins::descriptor::BoolCell))
-                }
-                (Some("bool"), true, _) => {
-                    Some(quote!(::rustpython_vm::builtins::descriptor::BoolMember))
-                }
-                (Some("double"), false, _) => {
-                    Some(quote!(::rustpython_vm::builtins::descriptor::DoubleCell))
-                }
-                (Some("double"), true, _) => {
-                    Some(quote!(::rustpython_vm::builtins::descriptor::DoubleMember))
-                }
-                (_, false, _) => Some(quote!(::rustpython_vm::builtins::descriptor::ObjectCell)),
-                (_, true, _) => Some(quote!(::rustpython_vm::builtins::descriptor::ObjectMember)),
-            };
-            let check = match layout {
-                Some(layout) => quote_spanned! { decl.span =>
-                    #(#cfgs)*
-                    let _ = |payload: *const Self| {
-                        fn assert_member_field<T: #layout>(_: *const T) {}
-                        // SAFETY: `payload` is not dereferenced. `addr_of`
-                        // only names the field so its type can be checked.
-                        let field = unsafe { core::ptr::addr_of!((*payload).#field) };
-                        assert_member_field(field);
-                    };
-                },
-                None => quote! {},
-            };
-            let offset = if let Some(expr) = &decl.offset_expr {
-                quote! { #expr }
-            } else {
-                quote_spanned! { decl.span =>
-                    ::rustpython_vm::object::payload_offset::<Self>() as isize
-                        + ::core::mem::offset_of!(Self, #field) as isize
-                }
-            };
-            let mut flag_parts = Vec::new();
-            if decl.readonly {
-                flag_parts.push(quote!(::rustpython_vm::builtins::descriptor::PY_READONLY));
-            }
-            if decl.audit_read {
-                flag_parts.push(quote!(::rustpython_vm::builtins::descriptor::PY_AUDIT_READ));
-            }
-            let flags = if flag_parts.is_empty() {
-                quote!(0)
-            } else {
-                quote!(#(#flag_parts)|*)
-            };
-            let doc = attr_doc_expr(self.class_ty.as_ref(), name, decl.doc.clone());
-            quote_spanned! { decl.span =>
-                #check
-                #(#cfgs)*
-                {
-                    const DOC: Option<&str> = #doc;
-                    class.set_str_attr(
-                        #name,
-                        ctx.new_member(#name, #member_kind, #offset, #flags, class, DOC),
-                        ctx,
-                    );
-                }
-            }
-        });
-        tokens.extend(properties);
-    }
-}
-
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
@@ -1965,7 +1797,7 @@ impl ItemMeta for MemberItemMeta {
         "readonly",
         "audit_read",
         "name",
-        "field",
+        "path",
         "doc",
         "offset",
     ];
@@ -1980,29 +1812,41 @@ impl ItemMeta for MemberItemMeta {
 }
 
 impl MemberItemMeta {
-    fn member_name(&self) -> Result<String> {
-        let inner = self.inner();
-        Ok(inner
-            ._optional_str("name")?
-            .unwrap_or_else(|| inner.item_name()))
+    fn explicit_name(&self) -> Result<Option<String>> {
+        self.inner()._optional_str("name")
     }
 
     fn member_kind(&self) -> Result<Option<String>> {
-        self.inner()._optional_str("type")
+        let kind = self.inner()._optional_str("type")?;
+        if let Some(value) = &kind {
+            match value.as_str() {
+                "object" | "object_ex" | "bool" | "double" => {}
+                other => {
+                    let span = self
+                        .inner()
+                        .meta_map
+                        .get("type")
+                        .map_or_else(|| self.inner().meta_ident.span(), |(_, meta)| meta.span());
+                    return Err(syn::Error::new(
+                        span,
+                        format!("unknown member type '{other}'"),
+                    ));
+                }
+            }
+        }
+        Ok(kind)
     }
 
-    fn field_tokens(&self, ident: &Ident) -> Result<TokenStream> {
+    fn path_tokens(&self) -> Result<Option<TokenStream>> {
         let inner = self.inner();
-        let Some(value) = inner._optional_str("field")? else {
-            return Ok(ident.to_token_stream());
+        let Some(value) = inner._optional_str("path")? else {
+            return Ok(None);
         };
-        let Some((_, meta)) = inner.meta_map.get("field") else {
-            return Err(syn::Error::new(
-                ident.span(),
-                "internal error: `field` string is missing its meta entry",
-            ));
-        };
-        parse_member_tokens(&value, meta.span())
+        let span = inner
+            .meta_map
+            .get("path")
+            .map_or_else(|| inner.meta_ident.span(), |(_, meta)| meta.span());
+        parse_member_subpath(&value, span).map(Some)
     }
 
     fn readonly(&self) -> Result<bool> {
@@ -2014,17 +1858,16 @@ impl MemberItemMeta {
     }
 
     fn offset_tokens(&self) -> Result<Option<TokenStream>> {
-        let inner = self.inner();
-        let Some(value) = inner._optional_str("offset")? else {
+        let Some((_, meta)) = self.inner().meta_map.get("offset") else {
             return Ok(None);
         };
-        let Some((_, meta)) = inner.meta_map.get("offset") else {
+        let Meta::NameValue(name_value) = meta else {
             return Err(syn::Error::new(
-                inner.meta_ident.span(),
-                "internal error: `offset` string is missing its meta entry",
+                meta.span(),
+                "#[pymember(offset = ...)] must be an expression",
             ));
         };
-        parse_member_tokens(&value, meta.span()).map(Some)
+        Ok(Some(name_value.value.to_token_stream()))
     }
 
     fn doc(&self) -> Result<Option<String>> {
@@ -2032,10 +1875,336 @@ impl MemberItemMeta {
     }
 }
 
-fn parse_member_tokens(value: &str, span: Span) -> Result<TokenStream> {
-    value
-        .parse::<TokenStream>()
-        .map_err(|err| syn::Error::new(span, err))
+fn parse_member_subpath(value: &str, span: Span) -> Result<TokenStream> {
+    if value.is_empty() {
+        return Err(syn::Error::new(
+            span,
+            "#[pymember(path = ...)] must name a subfield",
+        ));
+    }
+    let stream: TokenStream = value.parse().map_err(|err| syn::Error::new(span, err))?;
+    let trees: Vec<TokenTree> = stream.into_iter().collect();
+    if trees.is_empty() {
+        return Err(syn::Error::new(
+            span,
+            "#[pymember(path = ...)] must name a subfield",
+        ));
+    }
+    let mut expect_ident = true;
+    for tree in &trees {
+        match tree {
+            TokenTree::Ident(_) if expect_ident => expect_ident = false,
+            TokenTree::Punct(punct) if !expect_ident && punct.as_char() == '.' => {
+                expect_ident = true;
+            }
+            _ => {
+                return Err(syn::Error::new(
+                    span,
+                    "#[pymember(path = ...)] must be a field path",
+                ));
+            }
+        }
+    }
+    if expect_ident {
+        return Err(syn::Error::new(
+            span,
+            "#[pymember(path = ...)] must be a field path",
+        ));
+    }
+    Ok(trees.into_iter().collect())
+}
+
+struct BuiltMember {
+    name: String,
+    cfgs: Vec<Attribute>,
+    kind: TokenStream,
+    offset: TokenStream,
+    flags: TokenStream,
+    doc: TokenStream,
+    check: TokenStream,
+    span: Span,
+}
+
+fn split_pymember_attrs(attrs: &mut Vec<Attribute>) -> Vec<Attribute> {
+    let mut kept = Vec::with_capacity(attrs.len());
+    let mut members = Vec::new();
+    for attr in attrs.drain(..) {
+        if attr.path().is_ident("pymember") {
+            members.push(attr);
+        } else {
+            kept.push(attr);
+        }
+    }
+    *attrs = kept;
+    members
+}
+
+fn field_cfg_attrs(attrs: &[Attribute]) -> Result<Vec<Attribute>> {
+    let mut cfgs = Vec::new();
+    for attr in attrs {
+        if attr.path().is_ident("cfg") {
+            if !matches!(attr.meta, syn::Meta::List(_)) {
+                return Err(syn::Error::new(
+                    attr.span(),
+                    "#[cfg] on a #[pymember] field must have a predicate",
+                ));
+            }
+            cfgs.push(attr.clone());
+        }
+    }
+    Ok(cfgs)
+}
+
+fn cfg_not_all(cfgs: &[Attribute]) -> TokenStream {
+    let preds = cfgs.iter().map(|attr| match &attr.meta {
+        syn::Meta::List(list) => list.tokens.clone(),
+        _ => quote!(all()),
+    });
+    quote!(#[cfg(not(all(#(#preds),*)))] )
+}
+
+fn member_kind_tokens(kind: Option<&str>, span: Span) -> Result<TokenStream> {
+    let name = match kind {
+        None | Some("object") => "Object",
+        Some("object_ex") => "ObjectEx",
+        Some("bool") => "Bool",
+        Some("double") => "Double",
+        Some(other) => {
+            return Err(syn::Error::new(
+                span,
+                format!("unknown member type '{other}'"),
+            ));
+        }
+    };
+    let ident = Ident::new(name, span);
+    Ok(quote!(::rustpython_vm::builtins::descriptor::MemberKind::#ident))
+}
+
+fn member_layout_tokens(kind: Option<&str>, readonly: bool) -> TokenStream {
+    let name = match (kind, readonly) {
+        (Some("bool"), false) => "BoolCell",
+        (Some("bool"), true) => "BoolMember",
+        (Some("double"), false) => "DoubleCell",
+        (Some("double"), true) => "DoubleMember",
+        (_, false) => "ObjectCell",
+        (_, true) => "ObjectMember",
+    };
+    let ident = Ident::new(name, Span::call_site());
+    quote!(::rustpython_vm::builtins::descriptor::#ident)
+}
+
+fn member_flag_tokens(readonly: bool, audit_read: bool) -> TokenStream {
+    let mut flag_parts = Vec::new();
+    if readonly {
+        flag_parts.push(quote!(::rustpython_vm::builtins::descriptor::PY_READONLY));
+    }
+    if audit_read {
+        flag_parts.push(quote!(::rustpython_vm::builtins::descriptor::PY_AUDIT_READ));
+    }
+    if flag_parts.is_empty() {
+        quote!(0)
+    } else {
+        quote!(#(#flag_parts)|*)
+    }
+}
+
+fn build_member(
+    attr: &Attribute,
+    field: Option<(&syn::Field, usize)>,
+    cfgs: &[Attribute],
+    class_ty: &syn::Type,
+    seen: &mut Vec<(String, Vec<Attribute>)>,
+) -> Result<BuiltMember> {
+    let fallback_ident = field
+        .and_then(|(field, _)| field.ident.clone())
+        .unwrap_or_else(|| Ident::new("member", attr.span()));
+    let meta = MemberItemMeta::from_attr(fallback_ident, attr)?;
+    let explicit_name = meta.explicit_name()?;
+    let name = if let Some(name) = explicit_name {
+        name
+    } else if let Some((field, _)) = field {
+        field
+            .ident
+            .as_ref()
+            .map(|ident| ident.to_string())
+            .ok_or_else(|| {
+                syn::Error::new(
+                    attr.span(),
+                    "#[pymember] on an unnamed field requires `name`",
+                )
+            })?
+    } else {
+        return Err(syn::Error::new(
+            attr.span(),
+            "#[pymember] on a struct requires `name`",
+        ));
+    };
+    if seen
+        .iter()
+        .any(|(seen_name, seen_cfgs)| seen_name == &name && seen_cfgs == cfgs)
+    {
+        return Err(syn::Error::new(
+            attr.span(),
+            format!("Multiple members with name '{name}'"),
+        ));
+    }
+    seen.push((name.clone(), cfgs.to_vec()));
+
+    let kind = meta.member_kind()?;
+    let path = meta.path_tokens()?;
+    let readonly = meta.readonly()?;
+    let audit_read = meta.audit_read()?;
+    let offset_expr = meta.offset_tokens()?;
+    if field.is_some() && offset_expr.is_some() {
+        return Err(syn::Error::new(
+            attr.span(),
+            "#[pymember(offset = ...)] is only valid on a struct, not on a field",
+        ));
+    }
+    if field.is_none() && path.is_some() {
+        return Err(syn::Error::new(
+            attr.span(),
+            "#[pymember(path = ...)] is only valid on a field",
+        ));
+    }
+    let (offset, check) = if let Some((field, index)) = field {
+        let index_tokens = match &field.ident {
+            Some(ident) => ident.to_token_stream(),
+            None => syn::Index::from(index).into_token_stream(),
+        };
+        let field_tokens = if let Some(path) = &path {
+            quote!(#index_tokens.#path)
+        } else {
+            index_tokens
+        };
+        let offset = quote_spanned! { attr.span() =>
+            ::rustpython_vm::object::payload_offset::<Self>() as isize
+                + ::core::mem::offset_of!(Self, #field_tokens) as isize
+        };
+        let layout = member_layout_tokens(kind.as_deref(), readonly);
+        let check = quote_spanned! { attr.span() =>
+            let _ = |payload: *const Self| {
+                fn assert_member_field<T: #layout>(_: *const T) {}
+                // SAFETY: `payload` is not dereferenced. `addr_of`
+                // only names the field so its type can be checked.
+                let field = unsafe { core::ptr::addr_of!((*payload).#field_tokens) };
+                assert_member_field(field);
+            };
+        };
+        (offset, check)
+    } else {
+        let Some(offset_expr) = offset_expr else {
+            return Err(syn::Error::new(
+                attr.span(),
+                "#[pymember] on a struct requires `offset`",
+            ));
+        };
+        (offset_expr, quote!())
+    };
+    let doc = attr_doc_expr(Some(class_ty), &name, meta.doc()?);
+    Ok(BuiltMember {
+        name,
+        cfgs: cfgs.to_vec(),
+        kind: member_kind_tokens(kind.as_deref(), attr.span())?,
+        offset,
+        flags: member_flag_tokens(readonly, audit_read),
+        doc,
+        check,
+        span: attr.span(),
+    })
+}
+
+fn emit_member_table(
+    ident: &Ident,
+    members: &[BuiltMember],
+) -> (TokenStream, TokenStream, TokenStream) {
+    if members.is_empty() {
+        return (quote!(&[]), quote!(), quote!());
+    }
+    let mut parts = TokenStream::new();
+    let mut checks = TokenStream::new();
+    let mut names = Vec::new();
+    for (index, member) in members.iter().enumerate() {
+        let const_name = Ident::new(&format!("__PYMEMBER_{index}"), member.span);
+        let cfgs = &member.cfgs;
+        let not_cfg = cfg_not_all(cfgs);
+        let kind = &member.kind;
+        let offset = &member.offset;
+        let flags = &member.flags;
+        let doc = &member.doc;
+        let name = &member.name;
+        let check = &member.check;
+        parts.extend(quote_spanned! { member.span =>
+            #(#cfgs)*
+            const #const_name: &'static [::rustpython_vm::builtins::descriptor::PyMemberSpec] = &[
+                ::rustpython_vm::builtins::descriptor::PyMemberSpec {
+                    name: #name,
+                    kind: #kind,
+                    offset: #offset,
+                    flags: #flags,
+                    doc: #doc,
+                },
+            ];
+            #not_cfg
+            const #const_name: &'static [::rustpython_vm::builtins::descriptor::PyMemberSpec] = &[];
+        });
+        if !check.is_empty() {
+            checks.extend(quote_spanned! { member.span =>
+                #(#cfgs)*
+                #check
+            });
+        }
+        names.push(const_name);
+    }
+    let len_terms = names.iter().map(|name| quote!(#ident::#name.len()));
+    let members_expr = quote! {
+        &::rustpython_vm::builtins::descriptor::PyMemberSpec::concat::<{ #(#len_terms)+* }>(
+            &[#(#ident::#names),*],
+        )
+    };
+    let parts_impl = quote! {
+        impl #ident {
+            #parts
+        }
+    };
+    (members_expr, parts_impl, checks)
+}
+
+fn extract_py_members(item: &mut Item) -> Result<(TokenStream, TokenStream, TokenStream)> {
+    let Item::Struct(item_struct) = item else {
+        return Ok((quote!(&[]), quote!(), quote!()));
+    };
+    let struct_ident = item_struct.ident.clone();
+    let class_ty: syn::Type = syn::parse_quote!(#struct_ident);
+    let mut seen = Vec::new();
+    let mut built = Vec::new();
+    for attr in split_pymember_attrs(&mut item_struct.attrs) {
+        built.push(build_member(&attr, None, &[], &class_ty, &mut seen)?);
+    }
+    let field_count = match &item_struct.fields {
+        syn::Fields::Named(fields) => fields.named.len(),
+        syn::Fields::Unnamed(fields) => fields.unnamed.len(),
+        syn::Fields::Unit => 0,
+    };
+    for index in 0..field_count {
+        let field = match &mut item_struct.fields {
+            syn::Fields::Named(fields) => &mut fields.named[index],
+            syn::Fields::Unnamed(fields) => &mut fields.unnamed[index],
+            syn::Fields::Unit => unreachable!(),
+        };
+        let cfgs = field_cfg_attrs(&field.attrs)?;
+        let attrs = split_pymember_attrs(&mut field.attrs);
+        for attr in &attrs {
+            built.push(build_member(
+                attr,
+                Some((field, index)),
+                &cfgs,
+                &class_ty,
+                &mut seen,
+            )?);
+        }
+    }
+    Ok(emit_member_table(&struct_ident, &built))
 }
 
 struct ExtractedImplAttrs {

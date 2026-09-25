@@ -872,6 +872,7 @@ mod _collections {
     #[derive(Debug)]
     struct PyDefaultDict {
         dict: PyDict,
+        #[pymember]
         default_factory: PyAtomicRef<PyObject>,
     }
 
@@ -904,9 +905,6 @@ mod _collections {
         flags(BASETYPE, MAPPING, HAS_DICT)
     )]
     impl PyDefaultDict {
-        #[pymember(type = "object")]
-        const default_factory: () = ();
-
         #[pymethod]
         fn __missing__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let factory = self

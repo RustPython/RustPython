@@ -771,9 +771,6 @@ impl FrameObject {
         }
     }
 
-    #[pymember(type = "bool", name = "f_trace_lines")]
-    const f_trace_lines: () = ();
-
     #[pygetset]
     fn f_trace_opcodes(&self, vm: &VirtualMachine) -> PyObjectRef {
         let trace_opcodes = self.iframe().cold().trace_opcodes.lock();

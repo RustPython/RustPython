@@ -65,8 +65,11 @@ fn format_missing_args(
 #[derive(Debug)]
 pub struct PyFunction {
     pub(crate) code: PyAtomicRef<PyCode>,
+    #[pymember(readonly, name = "__globals__")]
     pub(crate) globals: PyDictRef,
+    #[pymember(readonly, name = "__builtins__")]
     pub(crate) builtins: PyObjectRef,
+    #[pymember(readonly, name = "__closure__")]
     pub(crate) closure: Option<PyRef<PyTuple<PyCellRef>>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
@@ -74,7 +77,9 @@ pub struct PyFunction {
     type_params: PyMutex<PyTupleRef>,
     annotations: PyMutex<Option<PyDictRef>>,
     annotate: PyMutex<Option<PyObjectRef>>,
+    #[pymember(name = "__module__")]
     module: PyAtomicRef<PyObject>,
+    #[pymember(name = "__doc__")]
     doc: PyAtomicRef<PyObject>,
     func_version: AtomicU32,
     #[cfg(feature = "jit")]
@@ -1047,21 +1052,6 @@ impl PyFunction {
         self.func_version.store(0, Relaxed);
         crate::stdlib::_testinternalcapi::note_func_modification();
     }
-
-    #[pymember(type = "object", readonly, name = "__globals__")]
-    const globals: () = ();
-
-    #[pymember(type = "object", readonly, name = "__closure__")]
-    const closure: () = ();
-
-    #[pymember(type = "object", readonly, name = "__builtins__")]
-    const builtins: () = ();
-
-    #[pymember(type = "object", name = "__doc__")]
-    const doc: () = ();
-
-    #[pymember(type = "object", name = "__module__")]
-    const module: () = ();
 
     #[pygetset]
     fn __name__(&self) -> PyStrRef {

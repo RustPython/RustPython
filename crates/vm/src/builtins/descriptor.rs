@@ -434,10 +434,50 @@ impl core::fmt::Debug for PyMemberDef {
     }
 }
 
+/// Const-constructible member spec. Registered as a `PyMemberDef`.
+#[derive(Clone, Copy)]
+pub struct PyMemberSpec {
+    pub name: &'static str,
+    pub kind: MemberKind,
+    pub offset: isize,
+    pub flags: i32,
+    pub doc: Option<&'static str>,
+}
+
+impl PyMemberSpec {
+    /// Concatenate cfg-gated member groups into one table.
+    #[must_use]
+    pub const fn concat<const N: usize>(parts: &[&[Self]]) -> [Self; N] {
+        const EMPTY: PyMemberSpec = PyMemberSpec {
+            name: "",
+            kind: MemberKind::Object,
+            offset: 0,
+            flags: 0,
+            doc: None,
+        };
+        let mut out = [EMPTY; N];
+        let mut index = 0;
+        let mut part_index = 0;
+        while part_index < parts.len() {
+            let part = parts[part_index];
+            let mut item_index = 0;
+            while item_index < part.len() {
+                out[index] = part[item_index];
+                index += 1;
+                item_index += 1;
+            }
+            part_index += 1;
+        }
+        out
+    }
+}
+
 // = PyMemberDescrObject
 #[pyclass(name = "member_descriptor", module = false)]
 #[derive(Debug)]
 pub struct PyMemberDescriptor {
+    #[pymember(readonly, name = "__objclass__", path = "typ")]
+    #[pymember(readonly, name = "__name__", path = "name")]
     pub common: PyDescriptorOwned,
     pub member: PyMemberDef,
     pub access: MemberAccess,
@@ -515,12 +555,6 @@ fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResul
 
 #[pyclass(with(GetDescriptor, Representable), flags(DISALLOW_INSTANTIATION))]
 impl PyMemberDescriptor {
-    #[pymember(type = "object", readonly, name = "__objclass__", field = "common.typ")]
-    const __objclass__: () = ();
-
-    #[pymember(type = "object", readonly, name = "__name__", field = "common.name")]
-    const __name__: () = ();
-
     #[pygetset]
     fn __doc__(&self) -> Option<String> {
         self.member.doc.to_owned()

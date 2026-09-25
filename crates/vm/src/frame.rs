@@ -1530,6 +1530,7 @@ impl InterpreterFrame {
 pub struct FrameObject {
     /// `f_trace_lines`. Default true. The executing iframe reads this when it
     /// points at the frame object.
+    #[pymember(type = "bool", name = "f_trace_lines")]
     pub(crate) f_trace_lines: core::sync::atomic::AtomicBool,
     // Owned references — keep the pointed-to objects alive for InterpreterFrame's
     // raw pointers. Wrapped in Option so Traverse::clear can release them,

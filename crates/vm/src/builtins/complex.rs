@@ -23,6 +23,8 @@ use rustpython_common::hash;
 #[pyclass(module = false, name = "complex")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {
+    #[pymember(type = "double", readonly, name = "real", path = "re")]
+    #[pymember(type = "double", readonly, name = "imag", path = "im")]
     value: Complex64,
 }
 
@@ -541,12 +543,6 @@ impl PyComplex {
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyComplex {
-    #[pymember(type = "double", readonly, name = "real", field = "value.re")]
-    const real: () = ();
-
-    #[pymember(type = "double", readonly, name = "imag", field = "value.im")]
-    const imag: () = ();
-
     #[pymethod]
     fn conjugate(&self) -> Complex64 {
         self.value.conj()

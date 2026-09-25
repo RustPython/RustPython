@@ -43,9 +43,13 @@ impl FromArgs for SetNameArgs {
 #[pyclass(module = false, name = "property", traverse)]
 #[derive(Debug)]
 pub struct PyProperty {
+    #[pymember(name = "fget", readonly)]
     getter: PyAtomicRef<PyObject>,
+    #[pymember(name = "fset", readonly)]
     setter: PyAtomicRef<PyObject>,
+    #[pymember(name = "fdel", readonly)]
     deleter: PyAtomicRef<PyObject>,
+    #[pymember(name = "__doc__")]
     doc: PyAtomicRef<PyObject>,
     name: PyRwLock<Option<PyObjectRef>>,
     #[pytraverse(skip)]
@@ -160,18 +164,6 @@ impl PyProperty {
             }
         }
     }
-
-    #[pymember(type = "object", readonly, name = "fget")]
-    const getter: () = ();
-
-    #[pymember(type = "object", readonly, name = "fset")]
-    const setter: () = ();
-
-    #[pymember(type = "object", readonly, name = "fdel")]
-    const deleter: () = ();
-
-    #[pymember(type = "object", name = "__doc__")]
-    const doc: () = ();
 
     pub(crate) fn get_fget(&self) -> Option<PyObjectRef> {
         self.getter.load_owned()

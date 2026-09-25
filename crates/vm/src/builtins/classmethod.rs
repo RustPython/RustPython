@@ -32,6 +32,8 @@ use crate::{
 #[pyclass(module = false, name = "classmethod", traverse)]
 #[derive(Debug)]
 pub struct PyClassMethod {
+    #[pymember(readonly, name = "__func__")]
+    #[pymember(readonly, name = "__wrapped__")]
     callable: PyAtomicRef<PyObject>,
 }
 
@@ -116,10 +118,6 @@ impl PyClassMethod {
     flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
 )]
 impl PyClassMethod {
-    #[pymember(type = "object", readonly, name = "__func__")]
-    #[pymember(type = "object", readonly, name = "__wrapped__")]
-    const callable: () = ();
-
     #[pygetset]
     fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
         let callable = zelf.callable.load_owned().unwrap();
