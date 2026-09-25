@@ -734,7 +734,7 @@ fn value_to_bytes_endian(
         "c" => {
             // c_char - single byte (bytes, bytearray, or int 0-255)
             if let Some(bytes) = value.downcast_ref::<PyBytes>()
-                && !bytes.is_empty()
+                && !bytes.as_bytes().is_empty()
             {
                 SimpleStorageValue::Byte(bytes.as_bytes()[0])
             } else if let Some(bytearray) = value.downcast_ref::<PyByteArray>() {

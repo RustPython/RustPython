@@ -911,7 +911,7 @@ impl Deref for PyDecodeData<'_> {
     fn deref(&self) -> &Self::Target {
         match self {
             PyDecodeData::Original(data) => data,
-            PyDecodeData::Modified(data) => data,
+            PyDecodeData::Modified(data) => data.as_bytes(),
         }
     }
 }

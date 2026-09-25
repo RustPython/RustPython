@@ -3839,6 +3839,7 @@ impl VirtualMachine {
             .state
             .codec_registry
             .encode_text(s.to_owned(), "utf-8", Some(errors), self)?
+            .as_bytes()
             .to_vec();
         // XXX: this is sketchy on windows; it's not guaranteed that the
         //      OsStr encoding will always be compatible with WTF-8.

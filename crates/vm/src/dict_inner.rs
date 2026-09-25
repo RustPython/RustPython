@@ -1650,7 +1650,7 @@ impl DictKey for [u8] {
         } else {
             // Fall back to PyObjectRef implementation.
             let s = vm.ctx.new_bytes(self.to_vec());
-            s.key_eq(vm, other_key)
+            s.as_object().key_eq(vm, other_key)
         }
     }
 

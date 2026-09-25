@@ -140,8 +140,8 @@ impl PathConverter {
                 }))
             }
             b @ PyBytes => {
-                check_nul(&b)?;
-                let path = FsPath::bytes_as_os_str(&b, vm)?.to_owned();
+                check_nul(b.as_bytes())?;
+                let path = FsPath::bytes_as_os_str(b.as_bytes(), vm)?.to_owned();
                 Ok(Ok(OsPath {
                     path,
                     origin: Some(b.into()),

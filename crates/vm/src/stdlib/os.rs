@@ -532,7 +532,7 @@ pub(super) mod _os {
     ) -> Option<&[u8]> {
         match obj {
             crate::function::Either::A(s) if !s.contains_nuls() => Some(s.as_bytes()),
-            crate::function::Either::B(b) if !b.contains_nuls() => Some(b.as_bytes()),
+            crate::function::Either::B(b) if !b.payload.contains_nuls() => Some(b.as_bytes()),
             _ => {
                 cold_path();
                 None

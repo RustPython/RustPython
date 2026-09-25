@@ -3606,7 +3606,7 @@ mod _io {
             };
             let pos = Offset::try_from_object(vm, pos)?;
             let mut cookie = TextIOCookie {
-                start_pos: pos - next_input.len() as Offset,
+                start_pos: pos - next_input.as_bytes().len() as Offset,
                 dec_flags: *dec_flags,
                 ..Default::default()
             };
@@ -3632,7 +3632,7 @@ mod _io {
                 let n_decoded = decoder_decode(input)?;
                 if n_decoded.chars <= num_to_skip.chars {
                     let (dec_buffer, dec_flags) = decoder_getstate()?;
-                    if dec_buffer.is_empty() {
+                    if dec_buffer.as_bytes().is_empty() {
                         cookie.dec_flags = dec_flags;
                         num_to_skip -= n_decoded;
                         break;
@@ -3663,7 +3663,7 @@ mod _io {
                     n_decoded += n;
                     cookie.bytes_to_feed += 1;
                     let (dec_buffer, dec_flags) = decoder_getstate()?;
-                    if dec_buffer.is_empty() && n_decoded.chars <= num_to_skip.chars {
+                    if dec_buffer.as_bytes().is_empty() && n_decoded.chars <= num_to_skip.chars {
                         cookie.start_pos += cookie.bytes_to_feed as Offset;
                         num_to_skip -= n_decoded;
                         cookie.dec_flags = dec_flags;
