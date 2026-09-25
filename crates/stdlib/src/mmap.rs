@@ -14,7 +14,7 @@ mod mmap {
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
-        function::{ArgBytesLike, FuncArgs},
+        function::ArgBytesLike,
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
@@ -271,7 +271,7 @@ mod mmap {
 
     #[derive(FromArgs)]
     struct SeekArgs {
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "pos")]
         dist: isize,
         #[pyarg(positional, default = 0)]
         whence: core::ffi::c_int,
@@ -308,7 +308,7 @@ mod mmap {
 
     #[derive(FromArgs, Clone)]
     pub(super) struct FindOptions {
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "view")]
         sub: Vec<u8>,
         #[pyarg(positional, default = None)]
         start: Option<isize>,
@@ -915,25 +915,25 @@ mod mmap {
             &self,
             dest: PyIntRef,
             src: PyIntRef,
-            cnt: PyIntRef,
+            count: PyIntRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             fn args(
                 dest: &Py<PyInt>,
                 src: &Py<PyInt>,
-                cnt: &Py<PyInt>,
+                count: &Py<PyInt>,
                 size: usize,
                 vm: &VirtualMachine,
             ) -> Option<(usize, usize, usize)> {
                 if dest.as_bigint().is_negative()
                     || src.as_bigint().is_negative()
-                    || cnt.as_bigint().is_negative()
+                    || count.as_bigint().is_negative()
                 {
                     return None;
                 }
                 let dest = dest.try_to_primitive(vm).ok()?;
                 let src = src.try_to_primitive(vm).ok()?;
-                let cnt = cnt.try_to_primitive(vm).ok()?;
+                let cnt = count.try_to_primitive(vm).ok()?;
                 if dest > size || src > size || size - dest < cnt || size - src < cnt {
                     return None;
                 }
@@ -941,7 +941,7 @@ mod mmap {
             }
 
             let size = self.__len__();
-            let (dest, src, cnt) = args(&dest, &src, &cnt, size, vm)
+            let (dest, src, cnt) = args(&dest, &src, &count, size, vm)
                 .ok_or_else(|| vm.new_value_error("source, destination, or count out of range"))?;
 
             let dest_end = dest + cnt;
@@ -1265,7 +1265,13 @@ mod mmap {
         }
 
         #[pymethod]
-        fn __exit__(zelf: &Py<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(
+            zelf: &Py<Self>,
+            _exc_type: PyObjectRef,
+            _exc_value: PyObjectRef,
+            _traceback: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             zelf.close(vm)
         }
 

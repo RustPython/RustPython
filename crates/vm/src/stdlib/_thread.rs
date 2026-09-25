@@ -26,7 +26,10 @@ pub(crate) mod _thread {
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::ToPyException,
         frame::FrameObjectRef,
-        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
+        function::{
+            ArgCallable, FuncArgs, KwArgs, NameExcInfo, OptionalArg, PosArgs, PySetterValue,
+            TimeoutSeconds,
+        },
         object::{Traverse, TraverseFn},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
@@ -179,7 +182,11 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(
+            &self,
+            _args: PosArgs<crate::PyObjectRef, NameExcInfo>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             self.release(vm)
         }
 
@@ -323,7 +330,11 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(
+            &self,
+            _args: PosArgs<crate::PyObjectRef, NameExcInfo>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             self.release(vm)
         }
     }
@@ -464,8 +475,15 @@ pub(crate) mod _thread {
     }
 
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[derive(FromArgs)]
+    struct SetNameArgs {
+        #[pyarg(any)]
+        name: PyStrRef,
+    }
+
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     #[pyfunction]
-    fn set_name(name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_name(SetNameArgs { name }: SetNameArgs, vm: &VirtualMachine) -> PyResult<()> {
         #[cfg(windows)]
         {
             let units = truncate_thread_name_wide(name.as_wtf8());
@@ -743,7 +761,7 @@ pub(crate) mod _thread {
     #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
     #[derive(FromArgs)]
     struct InterruptMainArgs {
-        // SIGINT. The enum repr is not a literal.
+        // The signal enum's repr is not valid syntax in a text signature.
         #[pyarg(positional, optional, py_default = "2")]
         signum: OptionalArg<SignalNum>,
     }
@@ -1749,17 +1767,7 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn is_done(&self, f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            if !f_args.kwargs.is_empty() {
-                return Err(vm.new_type_error("_ThreadHandle.is_done() takes no keyword arguments"));
-            }
-            let given = f_args.args.len();
-            if given != 0 {
-                return Err(vm.new_type_error(format!(
-                    "_ThreadHandle.is_done() takes no arguments ({given} given)"
-                )));
-            }
-
+        fn is_done(&self, vm: &VirtualMachine) -> PyResult<bool> {
             // If completion was observed, perform one-time join cleanup
             // before returning True.
             let done = {
@@ -1774,19 +1782,7 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn _set_done(&self, f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            if !f_args.kwargs.is_empty() {
-                return Err(
-                    vm.new_type_error("_ThreadHandle._set_done() takes no keyword arguments")
-                );
-            }
-            let given = f_args.args.len();
-            if given != 0 {
-                return Err(vm.new_type_error(format!(
-                    "_ThreadHandle._set_done() takes no arguments ({given} given)"
-                )));
-            }
-
+        fn _set_done(&self, vm: &VirtualMachine) -> PyResult<()> {
             Self::set_done_internal(&self.inner, &self.done_event, vm)
         }
 

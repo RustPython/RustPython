@@ -5,7 +5,10 @@ use crate::{
         PyBaseExceptionRef, PyDict, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
-    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags},
+    function::{
+        Either, FuncArgs, KwArgs, NameChanges, OptionalArg, PyComparisonValue, PyMethodDef,
+        PyMethodFlags,
+    },
     iter::PyExactSizeIterator,
     protocol::{PyMappingMethods, PySequenceMethods},
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -309,11 +312,11 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 
     #[pymethod]
-    fn __replace__(zelf: PyRef<PyTuple>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if !args.args.is_empty() {
-            return Err(vm.new_type_error("__replace__() takes no positional arguments"));
-        }
-
+    fn __replace__(
+        zelf: PyRef<PyTuple>,
+        changes: KwArgs<PyObjectRef, NameChanges>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         if Self::Data::UNNAMED_FIELDS_LEN > 0 {
             return Err(vm.new_type_error(format!(
                 "__replace__() is not supported for {} because it has unnamed field(s)",
@@ -325,7 +328,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             Self::Data::REQUIRED_FIELD_NAMES.len() + Self::Data::OPTIONAL_FIELD_NAMES.len();
         let mut items: Vec<PyObjectRef> = zelf.as_slice()[..n_fields].to_vec();
 
-        let mut kwargs = args.kwargs;
+        let mut kwargs = changes;
 
         // Replace fields from kwargs
         let all_field_names: Vec<&str> = Self::Data::REQUIRED_FIELD_NAMES

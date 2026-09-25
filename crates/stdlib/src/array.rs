@@ -974,12 +974,12 @@ pub mod array {
         #[pymethod]
         fn index(
             &self,
-            x: PyObjectRef,
+            v: PyObjectRef,
             range: OptionalRangeArgs,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let (start, stop) = range.saturate(self.__len__(), vm)?;
-            self.read().index(x, start, stop, vm)
+            self.read().index(v, start, stop, vm)
         }
 
         #[pymethod]
@@ -1266,10 +1266,10 @@ pub mod array {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 

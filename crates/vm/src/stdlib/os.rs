@@ -255,9 +255,15 @@ pub(super) mod _os {
     #[pyattr]
     use crate::host_env::os::{ST_NOSUID, ST_RDONLY};
 
+    #[derive(FromArgs)]
+    struct CloseArgs {
+        #[pyarg(any)]
+        fd: crt_fd::Owned,
+    }
+
     #[pyfunction]
-    fn close(fd: crt_fd::Owned) -> io::Result<()> {
-        crt_fd::close(fd)
+    fn close(fd: CloseArgs) -> io::Result<()> {
+        crt_fd::close(fd.fd)
     }
 
     #[pyfunction]
@@ -320,9 +326,15 @@ pub(super) mod _os {
         fd.map_err(|err| OSErrorBuilder::with_filename_from_errno(&err, name, vm))
     }
 
+    #[derive(FromArgs)]
+    struct FsyncArgs<'a> {
+        #[pyarg(any)]
+        fd: crt_fd::Borrowed<'a>,
+    }
+
     #[pyfunction]
-    fn fsync(fd: crt_fd::Borrowed<'_>) -> io::Result<()> {
-        crt_fd::fsync(fd)
+    fn fsync(fd: FsyncArgs<'_>) -> io::Result<()> {
+        crt_fd::fsync(fd.fd)
     }
 
     #[pyfunction]
@@ -429,23 +441,27 @@ pub(super) mod _os {
         crate::host_env::fs::create_dir_all(&*os_path).map_err(|err| err.into_pyexception(vm))
     }
 
+    #[derive(FromArgs)]
+    struct PathDirFd<'a, const N: usize> {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, N>,
+    }
+
     #[cfg(not(windows))]
     #[pyfunction]
-    fn rmdir(
-        path: OsPath,
-        dir_fd: DirFd<'_, { RMDIR_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        crate::host_env::posix::remove_dir_at(dir_fd.get_opt(), &path.path)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+    fn rmdir(args: PathDirFd<'_, { RMDIR_DIR_FD as usize }>, vm: &VirtualMachine) -> PyResult<()> {
+        crate::host_env::posix::remove_dir_at(args.dir_fd.get_opt(), &args.path.path)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, args.path, vm))
     }
 
     #[cfg(windows)]
     #[pyfunction]
-    fn rmdir(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
-        let [] = dir_fd.0;
-        crate::host_env::fs::remove_dir(&path)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+    fn rmdir(args: PathDirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
+        let [] = args.dir_fd.0;
+        crate::host_env::fs::remove_dir(&args.path)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, args.path, vm))
     }
 
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
@@ -633,9 +649,10 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn readlink(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult {
+    fn readlink(args: PathDirFd<'_, 0>, vm: &VirtualMachine) -> PyResult {
+        let path = args.path;
         let mode = path.mode();
-        let [] = dir_fd.0;
+        let [] = args.dir_fd.0;
         let path =
             fs::read_link(&path).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
         Ok(mode.process_path(path, vm))
@@ -702,7 +719,7 @@ pub(super) mod _os {
             mode_bits: u32,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            match self.stat(self.stat_dir_fd(), FollowSymlinks(follow_symlinks), vm) {
+            match self.stat(FollowSymlinks(follow_symlinks), vm) {
                 Ok(stat_obj) => {
                     let st_mode: i32 = stat_obj.get_attr("st_mode", vm)?.try_into_value(vm)?;
                     #[allow(
@@ -816,18 +833,8 @@ pub(super) mod _os {
         }
 
         #[pymethod]
-        fn stat(
-            &self,
-            dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
-            follow_symlinks: FollowSymlinks,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            // Use stored dir_fd if the caller didn't provide one
-            let effective_dir_fd = if dir_fd == DirFd::default() {
-                self.stat_dir_fd()
-            } else {
-                dir_fd
-            };
+        fn stat(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
+            let effective_dir_fd = self.stat_dir_fd();
             let do_stat = |follow_symlinks| {
                 stat_at(
                     OsPath {
@@ -926,10 +933,10 @@ pub(super) mod _os {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
 
         #[pymethod]
@@ -1213,7 +1220,7 @@ pub(super) mod _os {
 
     #[derive(FromArgs)]
     struct ScandirArgs<'a> {
-        #[pyarg(positional, default = None)]
+        #[pyarg(any, default = None)]
         path: Option<OsPathOrFd<'a>>,
     }
 
@@ -1522,12 +1529,8 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn lstat(
-        path: OsPath,
-        dir_fd: DirFd<'_, { STAT_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        stat_at(path.into(), dir_fd, FollowSymlinks(false), vm)
+    fn lstat(args: PathDirFd<'_, { STAT_DIR_FD as usize }>, vm: &VirtualMachine) -> PyResult {
+        stat_at(args.path.into(), args.dir_fd, FollowSymlinks(false), vm)
     }
 
     fn curdir_inner(vm: &VirtualMachine) -> PyResult<PathBuf> {
@@ -1544,22 +1547,35 @@ pub(super) mod _os {
         Ok(OutputMode::Bytes.process_path(curdir_inner(vm)?, vm))
     }
 
+    #[derive(FromArgs)]
+    struct ChdirArgs {
+        #[pyarg(any)]
+        path: OsPath,
+    }
+
     #[pyfunction]
-    fn chdir(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
+    fn chdir(path: ChdirArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let path = path.path;
         crate::host_env::os::set_current_dir(&path.path)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
+    #[derive(FromArgs)]
+    struct FspathArgs {
+        #[pyarg(any)]
+        path: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult<FsPath> {
-        FsPath::try_from_path_like(path, false, vm)
+    fn fspath(path: FspathArgs, vm: &VirtualMachine) -> PyResult<FsPath> {
+        FsPath::try_from_path_like(path.path, false, vm)
     }
 
     #[derive(FromArgs)]
     struct RenameArgs<'fd> {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         src: PyObjectRef,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         dst: PyObjectRef,
         #[pyarg(flatten)]
         #[cfg_attr(not(any(unix, target_os = "wasi")), expect(dead_code))]
@@ -1651,9 +1667,15 @@ pub(super) mod _os {
         vm.ctx.new_int(cpu_count).into()
     }
 
+    #[derive(FromArgs)]
+    struct ExitStatus {
+        #[pyarg(any)]
+        status: i32,
+    }
+
     #[pyfunction]
-    fn _exit(status: i32) {
-        crate::host_env::os::exit(status)
+    fn _exit(status: ExitStatus) {
+        crate::host_env::os::exit(status.status)
     }
 
     #[pyfunction]
@@ -1769,8 +1791,16 @@ pub(super) mod _os {
     }
 
     #[cfg(any(unix, windows))]
+    #[derive(FromArgs)]
+    struct SystemArgs {
+        #[pyarg(any)]
+        command: PyStrRef,
+    }
+
+    #[cfg(any(unix, windows))]
     #[pyfunction]
-    fn system(command: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
+    fn system(command: SystemArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let command = command.command;
         let cstr = command.to_cstring(vm)?;
         let x = crate::host_env::os::system(cstr.as_c_str());
         Ok(x)
@@ -2002,8 +2032,17 @@ pub(super) mod _os {
         crt_fd::ftruncate(fd, length)
     }
 
+    #[derive(FromArgs)]
+    struct TruncateArgs {
+        #[pyarg(any)]
+        path: PyObjectRef,
+        #[pyarg(any)]
+        length: crt_fd::Offset,
+    }
+
     #[pyfunction]
-    fn truncate(path: PyObjectRef, length: crt_fd::Offset, vm: &VirtualMachine) -> PyResult<()> {
+    fn truncate(args: TruncateArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let TruncateArgs { path, length } = args;
         match path.clone().try_into_value::<crt_fd::Borrowed<'_>>(vm) {
             Ok(fd) => return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm)),
             Err(e) if e.fast_isinstance(vm.ctx.exceptions.warning) => return Err(e),
@@ -2039,8 +2078,16 @@ pub(super) mod _os {
     }
 
     #[cfg(unix)]
+    #[derive(FromArgs)]
+    struct WaitStatusArgs {
+        #[pyarg(any)]
+        status: i32,
+    }
+
+    #[cfg(unix)]
     #[pyfunction]
-    fn waitstatus_to_exitcode(status: i32, vm: &VirtualMachine) -> PyResult<i32> {
+    fn waitstatus_to_exitcode(status: WaitStatusArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let status = status.status;
         let status = u32::try_from(status)
             .map_err(|_| vm.new_value_error(format!("invalid WEXITSTATUS: {status}")))?;
 
@@ -2053,8 +2100,16 @@ pub(super) mod _os {
     }
 
     #[cfg(windows)]
+    #[derive(FromArgs)]
+    struct WaitStatusArgs {
+        #[pyarg(any)]
+        status: PyObjectRef,
+    }
+
+    #[cfg(windows)]
     #[pyfunction]
-    fn waitstatus_to_exitcode(status: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+    fn waitstatus_to_exitcode(status: WaitStatusArgs, vm: &VirtualMachine) -> PyResult<u32> {
+        let status = status.status;
         let status = status.try_index(vm)?.try_to_primitive_raw::<u64>(vm)?;
         let exitcode = status >> 8;
         // ExitProcess() accepts an UINT type:
@@ -2063,8 +2118,15 @@ pub(super) mod _os {
             .map_err(|_| vm.new_value_error(format!("Invalid exit code: {exitcode}")))
     }
 
+    #[derive(FromArgs)]
+    struct DeviceEncodingArgs {
+        #[pyarg(any)]
+        fd: i32,
+    }
+
     #[pyfunction]
-    fn device_encoding(fd: i32, _vm: &VirtualMachine) -> Option<String> {
+    fn device_encoding(fd: DeviceEncodingArgs, _vm: &VirtualMachine) -> Option<String> {
+        let fd = fd.fd;
         if !isatty(fd) {
             return None;
         }
@@ -2162,9 +2224,14 @@ pub(super) mod _os {
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
-    #[pyfunction]
-    #[pyfunction(name = "fstatvfs")]
-    fn statvfs(path: OsPathOrFd<'_>, vm: &VirtualMachine) -> PyResult {
+    #[derive(FromArgs)]
+    struct StatvfsArgs<'a> {
+        #[pyarg(any)]
+        path: OsPathOrFd<'a>,
+    }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    fn statvfs_inner(path: OsPathOrFd<'_>, vm: &VirtualMachine) -> PyResult {
         let st = match &path {
             OsPathOrFd::Path(p) => {
                 let cpath = p.clone().into_cstring(vm)?;
@@ -2176,6 +2243,18 @@ pub(super) mod _os {
             return Err(OSErrorBuilder::with_filename(&err, path, vm));
         }
         Ok(StatvfsResultData::from_statvfs(st.unwrap()).to_pyobject(vm))
+    }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    #[pyfunction]
+    fn statvfs(args: StatvfsArgs<'_>, vm: &VirtualMachine) -> PyResult {
+        statvfs_inner(args.path, vm)
+    }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    #[pyfunction]
+    fn fstatvfs(fd: OsPathOrFd<'_>, vm: &VirtualMachine) -> PyResult {
+        statvfs_inner(fd, vm)
     }
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {

@@ -7,7 +7,10 @@ mod math {
     use crate::vm::{
         AsObject, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
         builtins::{PyFloat, PyInt, PyIntRef, PyStrInterned, try_bigint_to_f64, try_f64_to_bigint},
-        function::{ArgIndex, ArgIntoFloat, ArgIterable, Either, OptionalArg, PosArgs},
+        function::{
+            ArgIndex, ArgIntoFloat, ArgIterable, Either, NameCoordinates, NameIntegers,
+            OptionalArg, PosArgs,
+        },
         identifier,
     };
     use malachite_bigint::BigInt;
@@ -47,9 +50,9 @@ mod math {
 
     #[derive(FromArgs)]
     struct IsCloseArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         a: ArgIntoFloat,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         b: ArgIntoFloat,
         // Missing means 1e-09.
         #[pyarg(named, optional, py_default = "1e-09")]
@@ -231,7 +234,7 @@ mod math {
     }
 
     #[pyfunction]
-    fn hypot(coordinates: PosArgs<ArgIntoFloat>) -> f64 {
+    fn hypot(coordinates: PosArgs<ArgIntoFloat, NameCoordinates>) -> f64 {
         let coords = ArgIntoFloat::vec_into_f64(coordinates.into_vec());
         pymath::math::hypot(&coords)
     }
@@ -773,7 +776,7 @@ mod math {
     }
 
     #[pyfunction]
-    fn gcd(args: PosArgs<ArgIndex>) -> BigInt {
+    fn gcd(args: PosArgs<ArgIndex, NameIntegers>) -> BigInt {
         let ints: Vec<_> = args
             .into_vec()
             .into_iter()
@@ -784,7 +787,7 @@ mod math {
     }
 
     #[pyfunction]
-    fn lcm(args: PosArgs<ArgIndex>) -> BigInt {
+    fn lcm(args: PosArgs<ArgIndex, NameIntegers>) -> BigInt {
         let ints: Vec<_> = args
             .into_vec()
             .into_iter()

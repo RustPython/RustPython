@@ -577,11 +577,11 @@ mod _pickle {
         #[pymethod]
         fn find_class(
             zelf: &Py<Self>,
-            module: PyObjectRef,
-            name: PyObjectRef,
+            module_name: PyObjectRef,
+            global_name: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            find_class_impl(zelf, module, name, vm)
+            find_class_impl(zelf, module_name, global_name, vm)
         }
 
         #[pygetset]

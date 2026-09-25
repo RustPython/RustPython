@@ -114,7 +114,7 @@ impl FuncArgs {
         A: Into<PosArgs>,
         K: Into<KwArgs>,
     {
-        let PosArgs(args) = args.into();
+        let PosArgs(args, _) = args.into();
         Self {
             args,
             kwargs: kwargs.into(),
@@ -572,8 +572,38 @@ impl<T: TryFromObject> FromArgOptional for T {
 // name coming through `f(**d)` is preserved instead of being rejected (see
 // issue #8228). `PyStr` is WTF-8 backed, and CPython only requires that a
 // keyword key be a `str`, not that it be valid UTF-8.
+pub trait ArgName {
+    const NAME: &'static str;
+}
+
+macro_rules! arg_name {
+    ($($ty:ident = $name:literal),* $(,)?) => {$(
+        #[derive(Clone, Copy, Debug)]
+        pub struct $ty;
+        impl ArgName for $ty {
+            const NAME: &'static str = $name;
+        }
+    )*};
+}
+
+arg_name! {
+    NameArgs = "args",
+    NameKwargs = "kwargs",
+    NameOthers = "others",
+    NameCoordinates = "coordinates",
+    NameIntegers = "integers",
+    NameChanges = "changes",
+    NameExcInfo = "exc_info",
+    NameKwds = "kwds",
+    NameKws = "kws",
+    NameObjs = "objs",
+}
+
 #[derive(Clone, Debug)]
-pub struct KwArgs<T = PyObjectRef>(KwArgsMap<T>);
+pub struct KwArgs<T = PyObjectRef, Name: ArgName = NameKwargs>(
+    KwArgsMap<T>,
+    core::marker::PhantomData<Name>,
+);
 
 /// The map behind [`KwArgs`].
 ///
@@ -585,11 +615,11 @@ pub type KwArgsMap<T> = IndexMap<Wtf8Buf, T, core::hash::BuildHasherDefault<Defa
 
 impl<T> Default for KwArgs<T> {
     fn default() -> Self {
-        Self(KwArgsMap::default())
+        Self(KwArgsMap::default(), core::marker::PhantomData)
     }
 }
 
-impl<T> Deref for KwArgs<T> {
+impl<T, Name: ArgName> Deref for KwArgs<T, Name> {
     type Target = KwArgsMap<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -597,13 +627,13 @@ impl<T> Deref for KwArgs<T> {
     }
 }
 
-impl<T> DerefMut for KwArgs<T> {
+impl<T, Name: ArgName> DerefMut for KwArgs<T, Name> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-unsafe impl<T> Traverse for KwArgs<T>
+unsafe impl<T, Name: ArgName> Traverse for KwArgs<T, Name>
 where
     T: Traverse,
 {
@@ -615,9 +645,11 @@ where
 impl<T> KwArgs<T> {
     #[must_use]
     pub const fn new(map: KwArgsMap<T>) -> Self {
-        Self(map)
+        Self(map, core::marker::PhantomData)
     }
+}
 
+impl<T, Name: ArgName> KwArgs<T, Name> {
     // `String` keys accepted `&str` lookups for free via `Borrow<str>`; `Wtf8Buf`
     // borrows only as `Wtf8`, so these inherent methods restore the `&str` interface
     // via the zero-cost `Wtf8::new` cast, keeping every call site unchanged.
@@ -642,17 +674,25 @@ impl<T> KwArgs<T> {
     pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
         self.swap_remove(name)
     }
+
+    #[must_use]
+    pub fn into_default(self) -> KwArgs<T> {
+        KwArgs(self.0, core::marker::PhantomData)
+    }
 }
 
 // Accept any key that converts into `Wtf8Buf` (notably `String`), so existing
 // call sites that build kwargs from string literals keep compiling unchanged.
 impl<K: Into<Wtf8Buf>, T> FromIterator<(K, T)> for KwArgs<T> {
     fn from_iter<I: IntoIterator<Item = (K, T)>>(iter: I) -> Self {
-        Self(iter.into_iter().map(|(k, v)| (k.into(), v)).collect())
+        Self(
+            iter.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+            core::marker::PhantomData,
+        )
     }
 }
 
-impl<'a, T> IntoIterator for &'a KwArgs<T> {
+impl<'a, T, Name: ArgName> IntoIterator for &'a KwArgs<T, Name> {
     type Item = (&'a Wtf8Buf, &'a T);
     type IntoIter = indexmap::map::Iter<'a, Wtf8Buf, T>;
 
@@ -661,7 +701,7 @@ impl<'a, T> IntoIterator for &'a KwArgs<T> {
     }
 }
 
-impl<T> IntoIterator for KwArgs<T> {
+impl<T, Name: ArgName> IntoIterator for KwArgs<T, Name> {
     type Item = (Wtf8Buf, T);
     type IntoIter = indexmap::map::IntoIter<Wtf8Buf, T>;
 
@@ -670,18 +710,18 @@ impl<T> IntoIterator for KwArgs<T> {
     }
 }
 
-impl<T> FromArgs for KwArgs<T>
+impl<T, Name: ArgName> FromArgs for KwArgs<T, Name>
 where
     T: TryFromObject,
 {
-    const PARAMS: Option<&'static [Param]> = Some(&[Param::var_keyword("kwargs")]);
+    const PARAMS: Option<&'static [Param]> = Some(&[Param::var_keyword(Name::NAME)]);
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = KwArgsMap::default();
         for (name, value) in args.remaining_keywords() {
             kwargs.insert(name, value.try_into_value(vm)?);
         }
-        Ok(Self(kwargs))
+        Ok(Self(kwargs, core::marker::PhantomData))
     }
 }
 
@@ -694,9 +734,12 @@ where
 /// `PosArgs` optionally accepts a generic type parameter to allow type checks
 /// or conversions of each argument.
 #[derive(Clone)]
-pub struct PosArgs<T = PyObjectRef>(Vec<T>);
+pub struct PosArgs<T = PyObjectRef, Name: ArgName = NameArgs>(
+    Vec<T>,
+    core::marker::PhantomData<Name>,
+);
 
-unsafe impl<T> Traverse for PosArgs<T>
+unsafe impl<T, Name: ArgName> Traverse for PosArgs<T, Name>
 where
     T: Traverse,
 {
@@ -708,7 +751,14 @@ where
 impl<T> PosArgs<T> {
     #[must_use]
     pub const fn new(args: Vec<T>) -> Self {
-        Self(args)
+        Self(args, core::marker::PhantomData)
+    }
+}
+
+impl<T, Name: ArgName> PosArgs<T, Name> {
+    #[must_use]
+    pub const fn named(args: Vec<T>) -> Self {
+        Self(args, core::marker::PhantomData)
     }
 
     #[must_use]
@@ -723,45 +773,45 @@ impl<T> PosArgs<T> {
 
 impl<T> From<Vec<T>> for PosArgs<T> {
     fn from(v: Vec<T>) -> Self {
-        Self(v)
+        Self(v, core::marker::PhantomData)
     }
 }
 
 impl From<()> for PosArgs<PyObjectRef> {
     fn from(_args: ()) -> Self {
-        Self(Vec::new())
+        Self(Vec::new(), core::marker::PhantomData)
     }
 }
 
-impl<T> AsRef<[T]> for PosArgs<T> {
+impl<T, Name: ArgName> AsRef<[T]> for PosArgs<T, Name> {
     fn as_ref(&self) -> &[T] {
         &self.0
     }
 }
 
-impl<T: PyPayload> PosArgs<PyRef<T>> {
+impl<T: PyPayload, Name: ArgName> PosArgs<PyRef<T>, Name> {
     pub fn into_tuple(self, vm: &VirtualMachine) -> PyTupleRef {
         vm.ctx
             .new_tuple(self.0.into_iter().map(Into::into).collect())
     }
 }
 
-impl<T> FromArgs for PosArgs<T>
+impl<T, Name: ArgName> FromArgs for PosArgs<T, Name>
 where
     T: TryFromObject,
 {
-    const PARAMS: Option<&'static [Param]> = Some(&[Param::var_positional("args")]);
+    const PARAMS: Option<&'static [Param]> = Some(&[Param::var_positional(Name::NAME)]);
 
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
         while let Some(value) = args.take_positional() {
             varargs.push(value.try_into_value(vm)?);
         }
-        Ok(Self(varargs))
+        Ok(Self(varargs, core::marker::PhantomData))
     }
 }
 
-impl<T> IntoIterator for PosArgs<T> {
+impl<T, Name: ArgName> IntoIterator for PosArgs<T, Name> {
     type Item = T;
     type IntoIter = alloc::vec::IntoIter<T>;
 

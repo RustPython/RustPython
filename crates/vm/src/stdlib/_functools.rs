@@ -295,7 +295,8 @@ mod _functools {
         }
 
         #[pymethod]
-        fn __setstate__(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn __setstate__(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let state = object;
             let state_tuple = state
                 .downcast::<PyTuple>()
                 .map_err(|_| vm.new_type_error("argument to __setstate__ must be a tuple"))?;
@@ -396,10 +397,10 @@ mod _functools {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 

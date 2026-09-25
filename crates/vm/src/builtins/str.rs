@@ -334,12 +334,12 @@ impl PyStrIterator {
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut internal = self.internal.lock();
         internal.1 = usize::MAX;
         internal
             .0
-            .set_state(&state, |obj, pos| pos.min(obj.char_len()), vm)
+            .set_state(&object, |obj, pos| pos.min(obj.char_len()), vm)
     }
 
     #[pymethod]

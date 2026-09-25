@@ -41,8 +41,15 @@ mod grp {
         }
     }
 
+    #[derive(FromArgs)]
+    struct GetGrGidArgs {
+        #[pyarg(any)]
+        id: PyIntRef,
+    }
+
     #[pyfunction]
-    fn getgrgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<GroupData> {
+    fn getgrgid(id: GetGrGidArgs, vm: &VirtualMachine) -> PyResult<GroupData> {
+        let gid = id.id;
         let gr_gid = gid.as_bigint();
         let gid = host_grp::gid_t::try_from(gr_gid).ok();
         let group = gid
@@ -60,8 +67,15 @@ mod grp {
         Ok(GroupData::from_group(group, vm))
     }
 
+    #[derive(FromArgs)]
+    struct GetGrNamArgs {
+        #[pyarg(any)]
+        name: PyUtf8StrRef,
+    }
+
     #[pyfunction]
-    fn getgrnam(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<GroupData> {
+    fn getgrnam(name: GetGrNamArgs, vm: &VirtualMachine) -> PyResult<GroupData> {
+        let name = name.name;
         if name.as_pystr().contains_nuls() {
             cold_path();
             return Err(exceptions::nul_char_error(vm));

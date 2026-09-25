@@ -14,7 +14,8 @@ mod time;
 
 pub use argument::{
     ArgumentError, Callee, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
-    OptionalArg, OptionalOption, PosArgs,
+    NameArgs, NameChanges, NameCoordinates, NameExcInfo, NameIntegers, NameKwargs, NameKwds,
+    NameKws, NameObjs, NameOthers, OptionalArg, OptionalOption, PosArgs,
 };
 pub(crate) use argument::{arity_message, unexpected_keyword_message};
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};

@@ -4,7 +4,7 @@ pub(crate) use _bz2::module_def;
 
 #[pymodule]
 mod _bz2 {
-    use crate::compression::DecompressArgs;
+    use crate::compression::DecompressorArgs;
     use crate::vm::{
         Py, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyType},
@@ -72,7 +72,7 @@ mod _bz2 {
     #[pyclass(with(Constructor))]
     impl BZ2Decompressor {
         #[pymethod]
-        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn decompress(&self, args: DecompressorArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let max_length = args.max_length();
             let data = &*args.data();
 

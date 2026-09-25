@@ -987,23 +987,23 @@ mod _socket {
     }
 
     #[pyfunction]
-    const fn htonl(x: u32) -> u32 {
-        u32::to_be(x)
+    const fn htonl(integer: u32) -> u32 {
+        u32::to_be(integer)
     }
 
     #[pyfunction]
-    const fn htons(x: u16) -> u16 {
-        u16::to_be(x)
+    const fn htons(integer: u16) -> u16 {
+        u16::to_be(integer)
     }
 
     #[pyfunction]
-    const fn ntohl(x: u32) -> u32 {
-        u32::from_be(x)
+    const fn ntohl(integer: u32) -> u32 {
+        u32::from_be(integer)
     }
 
     #[pyfunction]
-    const fn ntohs(x: u16) -> u16 {
-        u16::from_be(x)
+    const fn ntohs(integer: u16) -> u16 {
+        u16::from_be(integer)
     }
 
     #[cfg(unix)]
@@ -1836,25 +1836,21 @@ mod _socket {
         }
 
         #[pymethod]
-        fn connect(
-            &self,
-            address: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> Result<(), IoOrPyException> {
-            self.connect_inner(address, "connect", vm)
+        fn connect(&self, object: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
+            self.connect_inner(object, "connect", vm)
         }
 
         #[pymethod]
-        fn connect_ex(&self, address: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
-            match self.connect_inner(address, "connect_ex", vm) {
+        fn connect_ex(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
+            match self.connect_inner(object, "connect_ex", vm) {
                 Ok(()) => Ok(0),
                 Err(err) => err.errno(),
             }
         }
 
         #[pymethod]
-        fn bind(&self, address: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-            let sock_addr = self.extract_address(address, "bind", vm)?;
+        fn bind(&self, object: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
+            let sock_addr = self.extract_address(object, "bind", vm)?;
 
             if let Some(addr) = sock_addr.as_socket()
                 && let Ok(audit) = vm.sys_module.get_attr("audit", vm)
@@ -2325,9 +2321,9 @@ mod _socket {
         }
 
         #[pymethod]
-        fn setblocking(&self, block: bool) -> io::Result<()> {
-            self.timeout.store(if block { -1.0 } else { 0.0 });
-            self.sock()?.set_nonblocking(!block)
+        fn setblocking(&self, object: bool) -> io::Result<()> {
+            self.timeout.store(if object { -1.0 } else { 0.0 });
+            self.sock()?.set_nonblocking(!object)
         }
 
         #[pymethod]
@@ -2336,8 +2332,8 @@ mod _socket {
         }
 
         #[pymethod]
-        fn settimeout(&self, timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
-            let timeout = match timeout {
+        fn settimeout(&self, object: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+            let timeout = match object {
                 Some(t) => {
                     let f = t.into_float();
                     if f.is_nan() {
@@ -2413,8 +2409,8 @@ mod _socket {
         }
 
         #[pymethod]
-        fn shutdown(&self, how: i32, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-            let how = match how {
+        fn shutdown(&self, object: i32, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
+            let how = match object {
                 c::SHUT_RD => Shutdown::Read,
                 c::SHUT_WR => Shutdown::Write,
                 c::SHUT_RDWR => Shutdown::Both,
@@ -2713,8 +2709,8 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn inet_aton(ip_string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        inet::aton(ip_string.as_str().as_bytes())
+    fn inet_aton(ip_addr: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        inet::aton(ip_addr.as_str().as_bytes())
             .map(Vec::from)
             .ok_or_else(|| vm.new_os_error("illegal IP address string passed to inet_aton"))
     }
@@ -3156,15 +3152,15 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
+    fn if_nametoindex(oname: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
         #[cfg(windows)]
         {
-            let name = name.to_cstring(vm)?;
+            let name = oname.to_cstring(vm)?;
             host_socket::if_nametoindex_checked(&name).map_err(|_| vm.new_last_errno_error())
         }
         #[cfg(not(windows))]
         {
-            let name = name.to_cstring(vm)?;
+            let name = oname.to_cstring(vm)?;
             // in case 'if_nametoindex' does not set errno
             rustpython_host_env::os::set_errno(c::ENODEV);
             let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
@@ -3178,17 +3174,17 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
+    fn if_indextoname(if_index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
         #[cfg(windows)]
         {
-            host_socket::if_indextoname_checked(index).map_err(|_| vm.new_last_errno_error())
+            host_socket::if_indextoname_checked(if_index).map_err(|_| vm.new_last_errno_error())
         }
         #[cfg(not(windows))]
         {
             let mut buf = [0; c::IF_NAMESIZE + 1];
             // in case 'if_indextoname' does not set errno
             rustpython_host_env::os::set_errno(c::ENXIO);
-            let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
+            let ret = unsafe { c::if_indextoname(if_index, buf.as_mut_ptr()) };
             if ret.is_null() {
                 Err(vm.new_last_errno_error())
             } else {
@@ -3413,8 +3409,8 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn setdefaulttimeout(timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
-        let val = match timeout {
+    fn setdefaulttimeout(object: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+        let val = match object {
             Some(t) => {
                 let f = t.into_float();
                 if f.is_nan() {
@@ -3432,8 +3428,8 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn dup(x: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
-        let sock = get_raw_sock(&x, vm)?;
+    fn dup(object: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
+        let sock = get_raw_sock(&object, vm)?;
         let sock = core::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
         let newsock = sock.try_clone()?;
         let fd = into_sock_fileno(newsock);
@@ -3443,8 +3439,8 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn close(x: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-        Ok(close_inner(get_raw_sock(&x, vm)?)?)
+    fn close(object: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
+        Ok(close_inner(get_raw_sock(&object, vm)?)?)
     }
 
     fn close_inner(x: RawSocket) -> io::Result<()> {

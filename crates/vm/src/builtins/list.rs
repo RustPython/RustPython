@@ -360,16 +360,16 @@ impl PyList {
     #[pymethod]
     fn index(
         &self,
-        needle: PyObjectRef,
+        value: PyObjectRef,
         range: OptionalRangeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let (start, stop) = range.saturate(self.__len__(), vm)?;
-        let index = self.mut_index_range(vm, &needle, start..stop)?;
+        let index = self.mut_index_range(vm, &value, start..stop)?;
         if let Some(index) = index.into() {
             Ok(index)
         } else {
-            Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
+            Err(vm.new_value_error(format!("'{}' is not in list", value.str(vm)?)))
         }
     }
 
@@ -446,10 +446,10 @@ impl PyList {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
@@ -943,10 +943,10 @@ impl PyListIterator {
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(&state, |obj, pos| pos.min(obj.__len__()), vm)
+            .set_state(&object, |obj, pos| pos.min(obj.__len__()), vm)
     }
 
     #[pymethod]

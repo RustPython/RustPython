@@ -18,7 +18,10 @@ use crate::{
     },
     convert::ToPyResult,
     dict_inner::{self, DictSize},
-    function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
+    function::{
+        ArgIterable, FuncArgs, NameOthers, OptionalArg, PosArgs, PyArithmeticValue,
+        PyComparisonValue,
+    },
     protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::AsNumber,
@@ -660,8 +663,8 @@ impl PySet {
     }
 
     #[pymethod(coexist)]
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.contains(&needle, vm)
+    fn __contains__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.contains(&object, vm)
     }
 
     #[pymethod]
@@ -677,27 +680,39 @@ impl PySet {
     }
 
     #[pymethod]
-    fn union(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+    fn union(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         self.fold_op(others.into_iter(), PySetInner::union, vm)
     }
 
     #[pymethod]
-    fn intersection(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+    fn intersection(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         self.fold_op(others.into_iter(), PySetInner::intersection, vm)
     }
 
     #[pymethod]
-    fn difference(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+    fn difference(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         self.fold_op(others.into_iter(), PySetInner::difference, vm)
     }
 
     #[pymethod]
-    fn symmetric_difference(
-        &self,
-        others: PosArgs<ArgIterable>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        self.fold_op(others.into_iter(), PySetInner::symmetric_difference, vm)
+    fn symmetric_difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.fold_op(
+            core::iter::once(other),
+            PySetInner::symmetric_difference,
+            vm,
+        )
     }
 
     #[pymethod]
@@ -822,7 +837,11 @@ impl PySet {
     }
 
     #[pymethod]
-    fn update(&self, others: PosArgs<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
+    fn update(
+        &self,
+        others: PosArgs<PyObjectRef, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         for iterable in others {
             self.inner.update_internal(iterable, vm)?;
         }
@@ -832,7 +851,7 @@ impl PySet {
     #[pymethod]
     fn intersection_update(
         &self,
-        others: PosArgs<ArgIterable>,
+        others: PosArgs<ArgIterable, NameOthers>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         self.inner.intersection_update(others.into_iter(), vm)?;
@@ -848,7 +867,11 @@ impl PySet {
     }
 
     #[pymethod]
-    fn difference_update(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<()> {
+    fn difference_update(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.inner.difference_update(others.into_iter(), vm)
     }
 
@@ -863,13 +886,9 @@ impl PySet {
     }
 
     #[pymethod]
-    fn symmetric_difference_update(
-        &self,
-        others: PosArgs<ArgIterable>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn symmetric_difference_update(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         self.inner
-            .symmetric_difference_update(others.into_iter(), vm)
+            .symmetric_difference_update(core::iter::once(other), vm)
     }
 
     fn __ixor__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -893,10 +912,10 @@ impl PySet {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
@@ -908,7 +927,7 @@ impl Initializer for PySet {
     fn init(zelf: &Py<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         zelf.clear();
         if let OptionalArg::Present(it) = iterable {
-            zelf.update(PosArgs::new(vec![it]), vm)?;
+            zelf.update(PosArgs::<PyObjectRef, NameOthers>::named(vec![it]), vm)?;
         }
         Ok(())
     }
@@ -1158,8 +1177,8 @@ impl PyFrozenSet {
     }
 
     #[pymethod(coexist)]
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.contains(&needle, vm)
+    fn __contains__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.contains(&object, vm)
     }
 
     #[pymethod]
@@ -1181,27 +1200,39 @@ impl PyFrozenSet {
     }
 
     #[pymethod]
-    fn union(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+    fn union(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         self.fold_op(others.into_iter(), PySetInner::union, vm)
     }
 
     #[pymethod]
-    fn intersection(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+    fn intersection(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         self.fold_op(others.into_iter(), PySetInner::intersection, vm)
     }
 
     #[pymethod]
-    fn difference(&self, others: PosArgs<ArgIterable>, vm: &VirtualMachine) -> PyResult<Self> {
+    fn difference(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         self.fold_op(others.into_iter(), PySetInner::difference, vm)
     }
 
     #[pymethod]
-    fn symmetric_difference(
-        &self,
-        others: PosArgs<ArgIterable>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        self.fold_op(others.into_iter(), PySetInner::symmetric_difference, vm)
+    fn symmetric_difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.fold_op(
+            core::iter::once(other),
+            PySetInner::symmetric_difference,
+            vm,
+        )
     }
 
     #[pymethod]
@@ -1307,10 +1338,10 @@ impl PyFrozenSet {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 

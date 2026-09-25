@@ -785,10 +785,10 @@ impl PyBytesIterator {
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(&state, |obj, pos| pos.min(obj.as_bytes().len()), vm)
+            .set_state(&object, |obj, pos| pos.min(obj.as_bytes().len()), vm)
     }
 }
 

@@ -322,8 +322,8 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn _override_frozen_modules_for_tests(value: isize, vm: &VirtualMachine) {
-        vm.state.override_frozen_modules.store(value);
+    fn _override_frozen_modules_for_tests(r#override: isize, vm: &VirtualMachine) {
+        vm.state.override_frozen_modules.store(r#override);
     }
 
     #[pyfunction]
@@ -390,8 +390,16 @@ mod _imp {
         Ok(Some((data, info.package, origname)))
     }
 
+    #[derive(FromArgs)]
+    struct SourceHashArgs {
+        #[pyarg(any)]
+        key: u64,
+        #[pyarg(any)]
+        source: PyBytesRef,
+    }
+
     #[pyfunction]
-    fn source_hash(key: u64, source: PyBytesRef) -> Vec<u8> {
+    fn source_hash(SourceHashArgs { key, source }: SourceHashArgs) -> Vec<u8> {
         let hash: u64 = crate::common::hash::keyed_hash(key, source.as_bytes());
         hash.to_le_bytes().to_vec()
     }

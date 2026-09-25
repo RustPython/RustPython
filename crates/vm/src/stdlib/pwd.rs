@@ -68,8 +68,8 @@ mod pwd {
     }
 
     #[pyfunction]
-    fn getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<PasswdData> {
-        let uid_t = libc::uid_t::try_from(uid.as_bigint()).ok();
+    fn getpwuid(uidobj: PyIntRef, vm: &VirtualMachine) -> PyResult<PasswdData> {
+        let uid_t = libc::uid_t::try_from(uidobj.as_bigint()).ok();
         let user = uid_t
             .map(host_pwd::getpwuid)
             .transpose()
@@ -78,7 +78,7 @@ mod pwd {
         let user = user.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()))
+                    .new_str(format!("getpwuid(): uid not found: {}", uidobj.as_bigint()))
                     .into(),
             )
         })?;

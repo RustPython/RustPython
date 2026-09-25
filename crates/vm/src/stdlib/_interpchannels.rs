@@ -850,13 +850,7 @@ pub(crate) mod _interpchannels {
     }
 
     #[pyfunction]
-    fn list_all(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if !args.args.is_empty() || !args.kwargs.is_empty() {
-            return Err(vm.new_type_error(format!(
-                "_interpchannels.list_all() takes no arguments ({} given)",
-                args.args.len() + args.kwargs.len()
-            )));
-        }
+    fn list_all(vm: &VirtualMachine) -> PyResult {
         let chans: Vec<(i64, UnboundOp, i32)> = channels()
             .lock()
             .refs

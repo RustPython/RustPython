@@ -147,9 +147,9 @@ mod cmath {
 
     #[derive(FromArgs)]
     struct IsCloseArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         a: ArgIntoComplex,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         b: ArgIntoComplex,
         // Missing means 1e-09.
         #[pyarg(named, optional, py_default = "1e-09")]

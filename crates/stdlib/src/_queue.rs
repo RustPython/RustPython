@@ -195,8 +195,14 @@ mod _queue {
     }
 
     #[derive(FromArgs)]
+    struct ItemArg {
+        #[pyarg(any)]
+        item: PyObjectRef,
+    }
+
+    #[derive(FromArgs)]
     struct PutArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         item: PyObjectRef,
         #[expect(
             dead_code,
@@ -242,7 +248,7 @@ mod _queue {
         }
 
         #[pymethod]
-        fn put_nowait(&self, item: PyObjectRef, vm: &VirtualMachine) {
+        fn put_nowait(&self, ItemArg { item }: ItemArg, vm: &VirtualMachine) {
             self.push(item, vm);
         }
 
@@ -295,10 +301,10 @@ mod _queue {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 

@@ -17,7 +17,7 @@ use crate::{
     },
     convert::ToPyObject,
     function::Either,
-    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, NameExcInfo, OptionalArg, PosArgs, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PySequenceMethods, VecBuffer,
@@ -692,10 +692,10 @@ impl PyMemoryView {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 
     #[pyclassmethod]
@@ -847,7 +847,11 @@ impl PyMemoryView {
 
     // memory_exit
     #[pymethod]
-    fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn __exit__(
+        &self,
+        _exc_info: PosArgs<PyObjectRef, NameExcInfo>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.py_release(vm)
     }
 

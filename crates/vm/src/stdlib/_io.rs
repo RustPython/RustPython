@@ -226,6 +226,18 @@ mod _io {
         size: Option<ArgSize>,
     }
 
+    #[derive(Clone, Copy, FromArgs)]
+    struct StringIOPos {
+        #[pyarg(positional, name = "pos", default = None)]
+        size: Option<ArgSize>,
+    }
+
+    impl StringIOPos {
+        fn as_optional(self) -> OptionalPos {
+            OptionalPos { size: self.size }
+        }
+    }
+
     impl OptionalPos {
         fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
             OptionalSize { size: self.size }.try_usize(vm)
@@ -249,7 +261,7 @@ mod _io {
     #[derive(FromArgs)]
     pub(super) struct HowArg {
         #[pyarg(positional, default = 0)]
-        pub how: i32,
+        pub whence: i32,
     }
 
     #[derive(FromArgs)]
@@ -269,7 +281,7 @@ mod _io {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct IgnoredPos {
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, name = "size", default = None)]
         pos: Option<PyObjectRef>,
     }
 
@@ -289,7 +301,7 @@ mod _io {
     #[cfg(feature = "host_env")]
     #[derive(FromArgs)]
     pub(super) struct ObjLen {
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, name = "size", default = None)]
         pub len: Option<PyObjectRef>,
     }
 
@@ -513,7 +525,7 @@ mod _io {
         #[pymethod]
         fn seek(
             zelf: PyObjectRef,
-            _pos: PyObjectRef,
+            _offset: PyObjectRef,
             _whence: IgnoredWhence,
             vm: &VirtualMachine,
         ) -> PyResult {
@@ -852,13 +864,21 @@ mod _io {
             }
         }
         #[pymethod]
-        fn readinto(zelf: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-            Self::_readinto(&zelf, &b, "read", vm)
+        fn readinto(
+            zelf: PyObjectRef,
+            buffer: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<usize> {
+            Self::_readinto(&zelf, &buffer, "read", vm)
         }
 
         #[pymethod]
-        fn readinto1(zelf: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-            Self::_readinto(&zelf, &b, "read1", vm)
+        fn readinto1(
+            zelf: PyObjectRef,
+            buffer: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<usize> {
+            Self::_readinto(&zelf, &buffer, "read1", vm)
         }
 
         #[pymethod]
@@ -887,7 +907,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn write(zelf: PyObjectRef, _b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn write(zelf: PyObjectRef, _s: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             _unsupported(vm, &zelf, "write")
         }
 
@@ -897,7 +917,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn readline(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn readline(zelf: PyObjectRef, _size: IgnoredSize, vm: &VirtualMachine) -> PyResult {
             _unsupported(vm, &zelf, "readline")
         }
 
@@ -2029,19 +2049,27 @@ mod _io {
         }
 
         #[pymethod]
-        fn readinto(&self, buf: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+        fn readinto(
+            &self,
+            buffer: ArgMemoryBuffer,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<usize>> {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "readinto of closed file", vm)?;
-            data.readinto_generic(buf.into(), false, vm)
+            data.readinto_generic(buffer.into(), false, vm)
         }
 
         #[pymethod]
-        fn readinto1(&self, buf: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<Option<usize>> {
+        fn readinto1(
+            &self,
+            buffer: ArgMemoryBuffer,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<usize>> {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "readinto of closed file", vm)?;
-            data.readinto_generic(buf.into(), true, vm)
+            data.readinto_generic(buffer.into(), true, vm)
         }
 
         #[pymethod]
@@ -2135,7 +2163,7 @@ mod _io {
         fn writer(&self) -> &Self::Writer;
 
         #[pymethod]
-        fn write(&self, obj: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(&self, buffer: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
             // Check if close() is in progress (Issue #31976)
             // If closing, wait for close() to complete by spinning until raw is closed.
             // Note: This spin-wait has no timeout because close() is expected to always
@@ -2161,7 +2189,7 @@ mod _io {
             let raw = data.check_init(vm)?;
             ensure_unclosed(raw, "write to closed file", vm)?;
 
-            data.write(obj, vm)
+            data.write(buffer, vm)
         }
 
         #[pymethod]
@@ -2427,15 +2455,15 @@ mod _io {
 
     #[derive(FromArgs)]
     struct TextIOWrapperReconfigureArgs {
-        #[pyarg(any, default = None)]
+        #[pyarg(named, default = None)]
         encoding: Option<PyUtf8StrRef>,
-        #[pyarg(any, default = None)]
+        #[pyarg(named, default = None)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(any, default, py_default = "None")]
+        #[pyarg(named, default, py_default = "None")]
         newline: OptionalOption<Newlines>,
-        #[pyarg(any, default, py_default = "None")]
+        #[pyarg(named, default, py_default = "None")]
         line_buffering: OptionalOption<PyObjectRef>,
-        #[pyarg(any, default, py_default = "None")]
+        #[pyarg(named, default, py_default = "None")]
         write_through: OptionalOption<PyObjectRef>,
     }
 
@@ -3359,10 +3387,10 @@ mod _io {
         fn seek(
             zelf: PyRef<Self>,
             cookie: PyObjectRef,
-            how: HowArg,
+            whence: HowArg,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let how = how.how;
+            let how = whence.whence;
 
             let reset_encoder = |encoder, start_of_stream| {
                 if start_of_stream {
@@ -3664,7 +3692,7 @@ mod _io {
         }
 
         #[pymethod]
-        fn write(&self, obj: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(&self, text: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
             let mut textio = self.lock(vm)?;
             textio.check_closed(vm)?;
 
@@ -3673,9 +3701,9 @@ mod _io {
                 .as_ref()
                 .ok_or_else(|| new_unsupported_operation("not writable", vm))?;
 
-            let char_len = obj.char_len();
+            let char_len = text.char_len();
 
-            let data = obj.as_wtf8();
+            let data = text.as_wtf8();
 
             let replace_nl = match textio.newline {
                 Newlines::Lf => Some("\n"),
@@ -3691,10 +3719,10 @@ mod _io {
                 if has_lf {
                     PyStr::from(data.replace("\n".as_ref(), replace_nl.as_ref())).into_ref(&vm.ctx)
                 } else {
-                    obj
+                    text
                 }
             } else {
-                obj
+                text
             };
             let chunk = if let Some(encode_func) = *encode_func {
                 encode_func(chunk)
@@ -4651,15 +4679,15 @@ mod _io {
 
         // write string to underlying vector
         #[pymethod]
-        fn write(&self, data: PyStrRef, vm: &VirtualMachine) -> PyResult<u64> {
+        fn write(&self, s: PyStrRef, vm: &VirtualMachine) -> PyResult<u64> {
             let newline = self.newline.load();
-            let bytes = Self::translate_newlines(data.as_wtf8(), newline).into_bytes();
+            let bytes = Self::translate_newlines(s.as_wtf8(), newline).into_bytes();
             let mut buffer = self.buffer(vm)?;
-            self.observe_newlines(data.as_wtf8(), newline);
+            self.observe_newlines(s.as_wtf8(), newline);
             buffer
                 .write(&bytes)
                 .ok_or_else(|| vm.new_type_error("Error Writing String"))?;
-            Ok(data.char_len() as u64)
+            Ok(s.char_len() as u64)
         }
 
         // return the entire contents of the underlying
@@ -4671,9 +4699,9 @@ mod _io {
 
         // skip to the jth position
         #[pymethod]
-        fn seek(&self, offset: PyObjectRef, how: HowArg, vm: &VirtualMachine) -> PyResult<u64> {
-            let offset: isize = ArgSize::try_from_object(vm, offset)?.into();
-            let how = how.how;
+        fn seek(&self, pos: PyObjectRef, whence: HowArg, vm: &VirtualMachine) -> PyResult<u64> {
+            let offset: isize = ArgSize::try_from_object(vm, pos)?.into();
+            let how = whence.whence;
             let mut buffer = self.buffer(vm)?;
             let char_offset = match how {
                 0 if offset >= 0 => offset as usize,
@@ -4733,9 +4761,9 @@ mod _io {
         }
 
         #[pymethod]
-        fn truncate(&self, pos: OptionalPos, vm: &VirtualMachine) -> PyResult<usize> {
+        fn truncate(&self, pos: StringIOPos, vm: &VirtualMachine) -> PyResult<usize> {
             let mut buffer = self.buffer(vm)?;
-            let pos = match pos.try_usize(vm)? {
+            let pos = match pos.as_optional().try_usize(vm)? {
                 Some(pos) => pos,
                 None => Self::byte_offset_to_char(buffer.cursor.get_ref(), buffer.tell() as usize),
             };
@@ -4920,13 +4948,13 @@ mod _io {
         }
 
         #[pymethod]
-        fn write(&self, data: ArgContiguousBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
+        fn write(&self, b: ArgContiguousBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
             let mut buffer = self.try_resizable(vm)?;
             // Acquiring the buffer can run `__buffer__`, which may have closed us.
             if self.closed.load() {
                 return Err(io_closed_error(vm));
             }
-            data.with_ref(|b| buffer.write(b))
+            b.with_ref(|bytes| buffer.write(bytes))
                 .ok_or_else(|| vm.new_type_error("Error Writing Bytes"))
         }
 
@@ -4948,23 +4976,27 @@ mod _io {
         }
 
         #[pymethod]
-        fn readinto(zelf: &Py<Self>, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
+        fn readinto(
+            zelf: &Py<Self>,
+            buffer: ArgMemoryBuffer,
+            vm: &VirtualMachine,
+        ) -> PyResult<usize> {
             // Reading locks this object, and a destination that views it locks
             // it too, so such a destination is filled after the read is done.
-            if obj.source_object().is(zelf.as_object()) {
-                let mut data = vm.new_zeroed_bytes(obj.len())?;
+            if buffer.source_object().is(zelf.as_object()) {
+                let mut data = vm.new_zeroed_bytes(buffer.len())?;
                 let ret = zelf
                     .buffer(vm)?
                     .cursor
                     .read(&mut data)
                     .map_err(|_| vm.new_value_error("Error readinto from Take"))?;
-                obj.borrow_buf_mut()[..ret].copy_from_slice(&data[..ret]);
+                buffer.borrow_buf_mut()[..ret].copy_from_slice(&data[..ret]);
                 return Ok(ret);
             }
             let mut buf = zelf.buffer(vm)?;
             let ret = buf
                 .cursor
-                .read(&mut obj.borrow_buf_mut())
+                .read(&mut buffer.borrow_buf_mut())
                 .map_err(|_| vm.new_value_error("Error readinto from Take"))?;
 
             Ok(ret)
@@ -4972,8 +5004,8 @@ mod _io {
 
         //skip to the jth position
         #[pymethod]
-        fn seek(&self, offset: PyObjectRef, how: HowArg, vm: &VirtualMachine) -> PyResult<u64> {
-            let seek_from = seekfrom(vm, offset, how.how)?;
+        fn seek(&self, pos: PyObjectRef, whence: HowArg, vm: &VirtualMachine) -> PyResult<u64> {
+            let seek_from = seekfrom(vm, pos, whence.whence)?;
             let mut buffer = self.buffer(vm)?;
 
             // Handle negative positions by clamping to 0
@@ -5047,20 +5079,24 @@ mod _io {
         }
 
         #[pymethod]
-        fn __setstate__(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn __setstate__(
+            zelf: PyRef<Self>,
+            object: PyTupleRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             if zelf.closed.load() {
                 return Err(vm.new_value_error("__setstate__ on closed file"));
             }
-            if state.len() != 3 {
+            if object.len() != 3 {
                 return Err(vm.new_type_error(format!(
                     "__setstate__ argument should be 3-tuple, got {}",
-                    state.len()
+                    object.len()
                 )));
             }
 
-            let content: PyBytesRef = state[0].clone().try_into_value(vm)?;
-            let pos: u64 = state[1].clone().try_into_value(vm)?;
-            let dict = &state[2];
+            let content: PyBytesRef = object[0].clone().try_into_value(vm)?;
+            let pos: u64 = object[1].clone().try_into_value(vm)?;
+            let dict = &object[2];
 
             // Check exports and set content (like CHECK_EXPORTS)
             let mut buffer = zelf.try_resizable(vm)?;
@@ -5983,7 +6019,7 @@ mod fileio {
         #[pymethod]
         fn readinto(
             zelf: &Py<Self>,
-            obj: ArgMemoryBuffer,
+            buffer: ArgMemoryBuffer,
             vm: &VirtualMachine,
         ) -> PyResult<Option<usize>> {
             if !zelf.mode.load().is_superset(&host_io::FileMode::READABLE) {
@@ -5999,7 +6035,7 @@ mod fileio {
                 // The read answers from the file itself, so it returns without
                 // waiting on anyone; write where the caller asked directly.
                 // Seekability is not the question -- a pipe on Windows seeks.
-                let mut buf = obj.borrow_buf_mut();
+                let mut buf = buffer.borrow_buf_mut();
                 return Self::read_once_into(zelf, handle, &mut buf, vm);
             }
 
@@ -6011,20 +6047,16 @@ mod fileio {
             // waiting on a lock never reaches a safepoint, so holding that one
             // across the wait stops the world from being stopped at all. Read
             // aside and take the lock for the copy.
-            let mut scratch = vm.new_zeroed_bytes(obj.len())?;
+            let mut scratch = vm.new_zeroed_bytes(buffer.len())?;
             let ret = Self::read_once_into(zelf, handle, &mut scratch, vm)?;
             if let Some(n) = ret {
-                obj.borrow_buf_mut()[..n].copy_from_slice(&scratch[..n]);
+                buffer.borrow_buf_mut()[..n].copy_from_slice(&scratch[..n]);
             }
             Ok(ret)
         }
 
         #[pymethod]
-        fn write(
-            zelf: &Py<Self>,
-            obj: ArgBytesLike,
-            vm: &VirtualMachine,
-        ) -> PyResult<Option<usize>> {
+        fn write(zelf: &Py<Self>, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Option<usize>> {
             if !zelf.mode.load().is_superset(&host_io::FileMode::WRITABLE) {
                 return Err(new_unsupported_operation(
                     "File or stream is not writable",
@@ -6037,7 +6069,7 @@ mod fileio {
             // A pipe, socket or terminal takes the bytes only when the other
             // end makes room, which may be never; see readinto above for what
             // holding the source's lock across that wait costs.
-            let buf = obj.borrow_buf_unlocked(vm)?;
+            let buf = b.borrow_buf_unlocked(vm)?;
 
             // Loop on EINTR (PEP 475)
             let len = loop {
@@ -6097,10 +6129,10 @@ mod fileio {
         }
 
         #[pymethod]
-        fn seek(&self, offset: PyObjectRef, how: HowArg, vm: &VirtualMachine) -> PyResult<Offset> {
-            let how = how.how;
+        fn seek(&self, pos: PyObjectRef, whence: HowArg, vm: &VirtualMachine) -> PyResult<Offset> {
+            let how = whence.whence;
             let fd = self.get_fd(vm)?;
-            let offset = get_offset(&offset, vm)?;
+            let offset = get_offset(&pos, vm)?;
 
             host_io::seek(fd, offset, how).map_err(|e| e.into_pyexception(vm))
         }
@@ -6135,8 +6167,8 @@ mod fileio {
 
         /// fileio_dealloc_warn in Modules/_io/fileio.c
         #[pymethod(name = "_dealloc_warn")]
-        fn _dealloc_warn_method(zelf: &Py<Self>, source: PyObjectRef, vm: &VirtualMachine) {
-            Self::dealloc_warn(zelf, &source, vm);
+        fn _dealloc_warn_method(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) {
+            Self::dealloc_warn(zelf, &object, vm);
         }
     }
 

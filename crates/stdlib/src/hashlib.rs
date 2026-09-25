@@ -69,7 +69,7 @@ pub(crate) mod _hashlib {
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
     struct NewHashArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         name: PyUtf8StrRef,
         // Missing data is empty bytes.
         #[pyarg(any, optional, py_default = "b''")]
@@ -162,7 +162,7 @@ pub(crate) mod _hashlib {
     #[derive(FromArgs)]
     #[allow(unused)]
     struct XofDigestArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         length: isize,
     }
 
@@ -181,13 +181,19 @@ pub(crate) mod _hashlib {
     }
 
     #[derive(FromArgs)]
+    struct HmacUpdateArgs {
+        #[pyarg(any)]
+        msg: ArgBytesLike,
+    }
+
+    #[derive(FromArgs)]
     #[allow(unused)]
     struct HmacDigestArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         key: ArgBytesLike,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         msg: ArgBytesLike,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         digest: PyObjectRef,
     }
 
@@ -487,8 +493,8 @@ pub(crate) mod _hashlib {
         }
 
         #[pymethod]
-        fn update(&self, msg: ArgBytesLike) {
-            msg.with_ref(|bytes| self.ctx.update(bytes));
+        fn update(&self, args: HmacUpdateArgs) {
+            args.msg.with_ref(|bytes| self.ctx.update(bytes));
         }
 
         #[pymethod]
@@ -593,8 +599,8 @@ pub(crate) mod _hashlib {
         }
 
         #[pymethod]
-        fn update(&self, data: ArgBytesLike) {
-            data.with_ref(|bytes| self.ctx.update(bytes));
+        fn update(&self, obj: ArgBytesLike) {
+            obj.with_ref(|bytes| self.ctx.update(bytes));
         }
 
         #[pymethod]
@@ -1097,13 +1103,13 @@ pub(crate) mod _hashlib {
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
     pub(crate) struct NewHMACHashArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         key: ArgBytesLike,
         // Missing message is empty bytes.
         #[pyarg(any, optional, py_default = "b''")]
         msg: OptionalArg<Option<ArgBytesLike>>,
         // Missing digestmod is None.
-        #[pyarg(named, optional, py_default = "None")]
+        #[pyarg(any, optional, py_default = "None")]
         digestmod: OptionalArg<PyObjectRef>,
     }
 
@@ -1187,7 +1193,7 @@ pub(crate) mod _hashlib {
 
     #[derive(FromArgs)]
     struct ScryptArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         password: ArgBytesLike,
         #[pyarg(named)]
         salt: ArgBytesLike,

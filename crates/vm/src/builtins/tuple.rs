@@ -485,13 +485,13 @@ impl PyTuple {
     #[pymethod]
     fn index(
         &self,
-        needle: PyObjectRef,
+        value: PyObjectRef,
         range: OptionalRangeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let (start, stop) = range.saturate(self.as_slice().len(), vm)?;
         for (index, element) in self.as_slice().iter().enumerate().take(stop).skip(start) {
-            if vm.identical_or_equal(element, &needle)? {
+            if vm.identical_or_equal(element, &value)? {
                 return Ok(index);
             }
         }
@@ -527,10 +527,10 @@ impl PyTuple {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
@@ -716,10 +716,10 @@ impl PyTupleIterator {
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(&state, |obj, pos| pos.min(obj.as_slice().len()), vm)
+            .set_state(&object, |obj, pos| pos.min(obj.as_slice().len()), vm)
     }
 
     #[pymethod]

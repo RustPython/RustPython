@@ -544,10 +544,10 @@ impl PyDict {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
@@ -1566,10 +1566,10 @@ trait ViewSetOps: DictView {
     }
 
     #[pymethod]
-    fn isdisjoint(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+    fn isdisjoint(zelf: PyRef<Self>, object: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
         // TODO: to_set is an expensive operation. After merging #3316 rewrite implementation using PySequence_Contains.
         let zelf = Self::to_set(zelf, vm)?;
-        let result = zelf.isdisjoint(other, vm)?;
+        let result = zelf.isdisjoint(object, vm)?;
         Ok(result)
     }
 }

@@ -3,14 +3,41 @@
 */
 use super::PyType;
 use crate::common::lock::PyRwLock;
-use crate::function::{IntoFuncArgs, PosArgs};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::{FuncArgs, PySetterValue},
+    function::{ArgumentError, FromArgs, FuncArgs, Param, PySetterValue},
     types::{Constructor, GetDescriptor, Initializer},
 };
 use core::sync::atomic::{AtomicBool, Ordering};
+
+struct SetNameArgs {
+    _owner: PyObjectRef,
+    name: PyObjectRef,
+}
+
+impl FromArgs for SetNameArgs {
+    const PARAMS: Option<&'static [Param]> = Some(&[
+        Param::positional_only("owner"),
+        Param::positional_only("name"),
+    ]);
+
+    fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        let [owner, name]: [PyObjectRef; 2] =
+            core::mem::take(&mut args.args)
+                .try_into()
+                .map_err(|args: Vec<PyObjectRef>| {
+                    ArgumentError::Exception(vm.new_type_error(format!(
+                        "__set_name__() takes 2 positional arguments but {} were given",
+                        args.len()
+                    )))
+                })?;
+        Ok(Self {
+            _owner: owner,
+            name,
+        })
+    }
+}
 
 #[pyclass(module = false, name = "property", traverse)]
 #[derive(Debug)]
@@ -186,18 +213,8 @@ impl PyProperty {
     }
 
     #[pymethod]
-    fn __set_name__(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let func_args = args.into_args(vm);
-        let func_args_len = func_args.args.len();
-        let (_owner, name): (PyObjectRef, PyObjectRef) = func_args.bind(vm).map_err(|_e| {
-            vm.new_type_error(format!(
-                "__set_name__() takes 2 positional arguments but {func_args_len} were given"
-            ))
-        })?;
-
+    fn __set_name__(&self, SetNameArgs { name, .. }: SetNameArgs) {
         *self.name.write() = Some(name);
-
-        Ok(())
     }
 
     // Python builder functions
@@ -249,28 +266,28 @@ impl PyProperty {
     #[pymethod]
     fn getter(
         zelf: PyRef<Self>,
-        getter: Option<PyObjectRef>,
+        object: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(&zelf, getter, None, None, vm)
+        Self::clone_property_with(&zelf, object, None, None, vm)
     }
 
     #[pymethod]
     fn setter(
         zelf: PyRef<Self>,
-        setter: Option<PyObjectRef>,
+        object: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(&zelf, None, setter, None, vm)
+        Self::clone_property_with(&zelf, None, object, None, vm)
     }
 
     #[pymethod]
     fn deleter(
         zelf: PyRef<Self>,
-        deleter: Option<PyObjectRef>,
+        object: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(&zelf, None, None, deleter, vm)
+        Self::clone_property_with(&zelf, None, None, object, vm)
     }
 
     #[pygetset]

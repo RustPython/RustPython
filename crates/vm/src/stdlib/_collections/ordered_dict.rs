@@ -339,7 +339,7 @@ pub(crate) mod ordered_dict {
 
     #[derive(FromArgs)]
     struct ODictFromKeysArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         iterable: PyObjectRef,
         #[pyarg(any, default = None)]
         value: Option<PyObjectRef>,

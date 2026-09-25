@@ -125,13 +125,13 @@ mod decl {
     }
 
     #[pyfunction]
-    fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn sleep(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("time.sleep"), seconds.clone()), vm)?;
+            audit.call((vm.ctx.new_str("time.sleep"), object.clone()), vm)?;
         }
 
-        let seconds_type_name = seconds.class().name().to_owned();
-        let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
+        let seconds_type_name = object.class().name().to_owned();
+        let dur = object.try_into_value::<Duration>(vm).map_err(|e| {
             if e.class().is(vm.ctx.exceptions.value_error)
                 && let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok())
                 && s.as_bytes() == b"negative duration"
@@ -521,20 +521,20 @@ mod decl {
     }
 
     #[pyfunction]
-    fn mktime(t: StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
+    fn mktime(object: StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
         #[cfg(unix)]
         {
-            unix_mktime(&t, vm)
+            unix_mktime(&object, vm)
         }
 
         #[cfg(windows)]
         {
-            win_mktime(&t, vm)
+            win_mktime(&object, vm)
         }
 
         #[cfg(not(any(unix, windows)))]
         {
-            let datetime = t.to_date_time(vm)?;
+            let datetime = object.to_date_time(vm)?;
             // mktime interprets struct_time as local time
             let local_dt = datetime
                 .to_zoned(TimeZone::system())

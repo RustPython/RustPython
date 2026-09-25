@@ -4,7 +4,7 @@ pub(crate) use zlib::module_def;
 
 #[pymodule]
 mod zlib {
-    use crate::compression::DecompressArgs;
+    use crate::compression::{DecompressArgs, DecompressorArgs};
     use crate::vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyIntRef, PyType, PyTypeRef},
@@ -470,7 +470,7 @@ mod zlib {
         }
 
         #[pymethod]
-        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn decompress(&self, args: DecompressorArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let max_length = args.max_length();
             let data = &*args.data();
 

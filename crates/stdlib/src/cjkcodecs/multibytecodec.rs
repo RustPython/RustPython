@@ -1117,7 +1117,7 @@ mod _multibytecodec {
         }
 
         #[pymethod]
-        fn readlines(&self, args: StreamReadArgs, vm: &VirtualMachine) -> PyResult {
+        fn readlines(&self, args: StreamReadLinesArgs, vm: &VirtualMachine) -> PyResult {
             let size = size_hint(args.size, vm)?;
             let text = vm.ctx.new_str(self.iread("read", size, vm)?);
             vm.call_method(text.as_object(), "splitlines", (true,))
@@ -1207,8 +1207,8 @@ mod _multibytecodec {
         }
 
         #[pymethod]
-        fn write(&self, text: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self.iwrite(text, vm)
+        fn write(&self, strobj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            self.iwrite(strobj, vm)
         }
 
         #[pymethod]
@@ -1269,7 +1269,13 @@ mod _multibytecodec {
     /// The `sizeobj` conversion the stream reader's methods share.
     #[derive(FromArgs)]
     struct StreamReadArgs {
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, name = "sizeobj", default = None)]
+        size: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct StreamReadLinesArgs {
+        #[pyarg(positional, name = "sizehintobj", default = None)]
         size: Option<PyObjectRef>,
     }
 

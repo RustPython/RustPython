@@ -264,17 +264,25 @@ impl PyGenericAlias {
     }
 
     #[pymethod]
-    fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
+    fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
         PyTuple::new_ref(vec![self.__origin__()], &vm.ctx)
     }
 
     #[pymethod]
-    fn __instancecheck__(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __instancecheck__(
+        _zelf: PyRef<Self>,
+        _object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         Err(vm.new_type_error("isinstance() argument 2 cannot be a parameterized generic"))
     }
 
     #[pymethod]
-    fn __subclasscheck__(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __subclasscheck__(
+        _zelf: PyRef<Self>,
+        _object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
     }
 

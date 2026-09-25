@@ -402,16 +402,7 @@ pub(crate) mod _interpqueues {
     }
 
     #[pyfunction]
-    fn list_all(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if !args.kwargs.is_empty() {
-            return Err(vm.new_type_error("_interpqueues.list_all() takes no keyword arguments"));
-        }
-        if !args.args.is_empty() {
-            return Err(vm.new_type_error(format!(
-                "_interpqueues.list_all() takes no arguments ({} given)",
-                args.args.len()
-            )));
-        }
+    fn list_all(vm: &VirtualMachine) -> crate::builtins::PyListRef {
         let entries: Vec<_> = queues()
             .lock()
             .refs
@@ -434,7 +425,7 @@ pub(crate) mod _interpqueues {
                 );
             }
         }
-        Ok(vm.ctx.new_list(result).into())
+        vm.ctx.new_list(result)
     }
 
     #[pyfunction]

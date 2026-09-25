@@ -95,7 +95,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct A2bBase64Args {
-        #[pyarg(any)]
+        #[pyarg(positional, name = "data")]
         s: ArgAsciiBuffer,
         #[pyarg(named, default = false)]
         strict_mode: bool,
@@ -117,7 +117,7 @@ mod decl {
     struct A2bQpArgs {
         #[pyarg(any)]
         data: ArgAsciiBuffer,
-        #[pyarg(named, default = false)]
+        #[pyarg(any, default = false)]
         header: bool,
     }
 
@@ -131,11 +131,11 @@ mod decl {
     struct B2aQpArgs {
         #[pyarg(any)]
         data: ArgBytesLike,
-        #[pyarg(named, default = false)]
+        #[pyarg(any, default = false)]
         quotetabs: bool,
-        #[pyarg(named, default = true)]
+        #[pyarg(any, default = true)]
         istext: bool,
-        #[pyarg(named, default = false)]
+        #[pyarg(any, default = false)]
         header: bool,
     }
 

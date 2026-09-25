@@ -894,7 +894,7 @@ mod decl {
             changelist: PyObjectRef,
             #[pyarg(positional)]
             maxevents: i32,
-            #[pyarg(any, default = None)]
+            #[pyarg(positional, default = None)]
             timeout: Option<PyObjectRef>,
         }
 

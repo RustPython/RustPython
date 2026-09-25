@@ -1582,7 +1582,6 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(time.time),
             "time()")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_module_level_callable_o(self):
         try:
             import _stat
@@ -1609,12 +1608,10 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(set().add),
             "add(object, /) method of builtins.set instance")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_method_coexist_o(self):
         self.assertEqual(self._get_summary_line(set.__contains__),
             "__contains__(self, object, /) unbound builtins.set method")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bound_builtin_method_coexist_o(self):
         self.assertEqual(self._get_summary_line(set().__contains__),
             "__contains__(object, /) method of builtins.set instance")
@@ -1628,12 +1625,10 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(datetime.datetime.utcnow),
             "utcnow() class method of datetime.datetime")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_classmethod_o(self):
         self.assertEqual(self._get_summary_line(dict.__dict__['__class_getitem__']),
             "__class_getitem__(type, object, /) unbound builtins.dict method")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bound_builtin_classmethod_o(self):
         self.assertEqual(self._get_summary_line(dict.__class_getitem__),
             "__class_getitem__(object, /) class method of builtins.dict")

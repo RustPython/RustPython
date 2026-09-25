@@ -93,8 +93,9 @@ mod decl {
 
     #[derive(FromArgs)]
     struct DumpsArgs {
+        #[pyarg(positional)]
         value: PyObjectRef,
-        #[pyarg(any, default = 5)]
+        #[pyarg(positional, name = "version", default = 5)]
         _version: i32,
         #[pyarg(named, default = true)]
         allow_code: bool,
@@ -474,9 +475,11 @@ mod decl {
 
     #[derive(FromArgs)]
     struct DumpArgs {
+        #[pyarg(positional)]
         value: PyObjectRef,
+        #[pyarg(positional, name = "file")]
         f: PyObjectRef,
-        #[pyarg(any, default = 5)]
+        #[pyarg(positional, name = "version", default = 5)]
         _version: i32,
         #[pyarg(named, default = true)]
         allow_code: bool,
@@ -765,7 +768,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct LoadsArgs {
-        #[pyarg(any)]
+        #[pyarg(positional, name = "bytes")]
         // marshal_loads_impl takes `bytes: Py_buffer`, a y* argument.
         data: ArgBytesLike,
         #[pyarg(named, default = true)]
@@ -782,6 +785,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct LoadArgs {
+        #[pyarg(positional, name = "file")]
         f: PyObjectRef,
         #[pyarg(named, default = true)]
         allow_code: bool,

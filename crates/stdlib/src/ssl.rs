@@ -415,7 +415,7 @@ mod _ssl {
     struct WrapSocketArgs {
         sock: PyObjectRef,
         server_side: bool,
-        #[pyarg(positional, default = None)]
+        #[pyarg(any, default = None)]
         server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, default = None)]
         owner: Option<PyObjectRef>,
@@ -428,7 +428,7 @@ mod _ssl {
         incoming: PyRef<PyMemoryBIO>,
         outgoing: PyRef<PyMemoryBIO>,
         server_side: bool,
-        #[pyarg(named, default = None)]
+        #[pyarg(any, default = None)]
         server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, default = None)]
         owner: Option<PyObjectRef>,
@@ -458,7 +458,7 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct GetCertArgs {
-        #[pyarg(any, default = false)]
+        #[pyarg(positional, name = "der", default = false)]
         binary_form: bool,
     }
 
@@ -1193,14 +1193,14 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn set_ciphers(&self, ciphers: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_ciphers(&self, cipherlist: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
             // `SSL_CTX_set_cipher_list` reports one failure for a string it
             // cannot read and for a readable one that selects nothing, and the
             // TLS 1.3 suites are not among what it can select -- they have
             // their own setter -- so a string naming only those selects
             // nothing either.
             let (mut selected_ciphers, suite_b_kx_groups) =
-                cipher::CipherList::parse_to_rustls(ciphers.as_str())
+                cipher::CipherList::parse_to_rustls(cipherlist.as_str())
                     .ok()
                     .filter(|(suites, _)| suites.iter().any(|s| s.tls13().is_none()))
                     .ok_or_else(|| {
@@ -1449,17 +1449,17 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn load_dh_params(&self, filepath: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn load_dh_params(&self, path: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // Validate filepath is not None
-            if vm.is_none(&filepath) {
+            if vm.is_none(&path) {
                 return Err(vm.new_type_error("DH params filepath cannot be None"));
             }
 
             // Validate filepath is str or bytes
-            let path_str = if let Ok(s) = PyUtf8StrRef::try_from_object(vm, filepath.clone()) {
+            let path_str = if let Ok(s) = PyUtf8StrRef::try_from_object(vm, path.clone()) {
                 s.as_str().to_owned()
-            } else if filepath.check_buffer() {
-                let b = ArgBytesLike::try_from_object(vm, filepath)?;
+            } else if path.check_buffer() {
+                let b = ArgBytesLike::try_from_object(vm, path)?;
                 String::from_utf8(b.borrow_buf().to_vec())
                     .map_err(|_| vm.new_value_error("Invalid path encoding"))?
             } else {
@@ -3286,8 +3286,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn write(zelf: &Py<Self>, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-            let data_bytes = data.borrow_buf();
+        fn write(zelf: &Py<Self>, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            let data_bytes = b.borrow_buf();
             let data_len = data_bytes.len();
 
             if data_len == 0 {
@@ -3914,9 +3914,9 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn write(&self, buf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(&self, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
             // Check if it's a memoryview and if it's contiguous
-            if let Ok(mem_view) = buf.get_attr("c_contiguous", vm) {
+            if let Ok(mem_view) = b.get_attr("c_contiguous", vm) {
                 // It's a memoryview, check if contiguous
                 let is_contiguous: bool = mem_view.try_to_bool(vm)?;
                 if !is_contiguous {
@@ -3925,7 +3925,7 @@ mod _ssl {
             }
 
             // Convert to bytes-like object
-            let bytes_like = ArgBytesLike::try_from_object(vm, buf)?;
+            let bytes_like = ArgBytesLike::try_from_object(vm, b)?;
             let data = bytes_like.borrow_buf();
             self.inner.lock().write(&data).map_err(|err| {
                 vm.new_os_subtype_error(
@@ -4056,7 +4056,7 @@ mod _ssl {
     #[derive(FromArgs)]
     struct ChannelBindingArgs {
         // Missing means tls-unique.
-        #[pyarg(positional, optional, py_default = "'tls-unique'")]
+        #[pyarg(any, optional, py_default = "'tls-unique'")]
         cb_type: OptionalArg<PyUtf8StrRef>,
     }
 
@@ -4069,7 +4069,7 @@ mod _ssl {
     #[derive(FromArgs)]
     struct Txt2ObjArgs {
         txt: PyUtf8StrRef,
-        #[pyarg(named, default = false)]
+        #[pyarg(any, default = false)]
         name: bool,
     }
 

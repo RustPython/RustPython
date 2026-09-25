@@ -289,8 +289,8 @@ impl PyFloat {
     }
 
     #[pystaticmethod]
-    fn __getformat__(spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
-        if !matches!(spec.as_str(), "double" | "float") {
+    fn __getformat__(typestr: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
+        if !matches!(typestr.as_str(), "double" | "float") {
             return Err(
                 vm.new_value_error("__getformat__() argument 1 must be 'double' or 'float'")
             );

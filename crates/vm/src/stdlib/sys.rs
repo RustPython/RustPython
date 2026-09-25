@@ -778,8 +778,26 @@ pub mod sys {
 
     #[derive(FromArgs)]
     struct GetFrameArgs {
-        #[pyarg(positional, default = 0)]
+        #[pyarg(any, default = 0)]
         depth: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct SetMaxDigitsArgs {
+        #[pyarg(any)]
+        maxdigits: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct SetDepthArgs {
+        #[pyarg(any)]
+        depth: i32,
+    }
+
+    #[derive(FromArgs)]
+    struct AuditHookArgs {
+        #[pyarg(any)]
+        hook: PyObjectRef,
     }
 
     #[pyfunction]
@@ -1250,7 +1268,10 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn set_int_max_str_digits(maxdigits: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_int_max_str_digits(
+        SetMaxDigitsArgs { maxdigits }: SetMaxDigitsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let threshold = IntInfoData::INFO.str_digits_check_threshold;
         if maxdigits == 0 || maxdigits >= threshold {
             vm.state.int_max_str_digits.store(maxdigits);
@@ -1366,7 +1387,10 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn set_coroutine_origin_tracking_depth(depth: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_coroutine_origin_tracking_depth(
+        SetDepthArgs { depth }: SetDepthArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if depth < 0 {
             return Err(vm.new_value_error("depth must be >= 0"));
         }
@@ -1860,7 +1884,7 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn addaudithook(hook: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn addaudithook(AuditHookArgs { hook }: AuditHookArgs, vm: &VirtualMachine) -> PyResult<()> {
         let hooks = vm.audit_hooks.borrow().clone();
 
         if hooks.is_empty() {

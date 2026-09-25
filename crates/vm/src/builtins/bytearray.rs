@@ -562,6 +562,12 @@ impl PyByteArray {
 }
 
 #[derive(FromArgs)]
+struct ByteArrayReduceExArgs {
+    #[pyarg(positional, default = 0)]
+    proto: usize,
+}
+
+#[derive(FromArgs)]
 struct PopArgs {
     #[pyarg(positional, default = -1)]
     index: isize,
@@ -656,9 +662,10 @@ impl Py<PyByteArray> {
     #[pymethod]
     fn __reduce_ex__(
         &self,
-        _proto: usize,
+        args: ByteArrayReduceExArgs,
         vm: &VirtualMachine,
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+        let _ = args.proto;
         self.__reduce__(vm)
     }
 
@@ -925,10 +932,10 @@ impl PyByteArrayIterator {
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(&state, |obj, pos| pos.min(obj.__len__()), vm)
+            .set_state(&object, |obj, pos| pos.min(obj.__len__()), vm)
     }
 }
 

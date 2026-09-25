@@ -63,8 +63,8 @@ impl PyZip {
     }
 
     #[pymethod]
-    fn __setstate__(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) {
-        if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
+    fn __setstate__(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) {
+        if let Ok(obj) = ArgIntoBool::try_from_object(vm, object) {
             zelf.strict.store(obj.into(), atomic::Ordering::Release);
         }
     }

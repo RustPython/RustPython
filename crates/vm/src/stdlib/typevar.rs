@@ -97,7 +97,7 @@ pub(crate) mod typevar {
     )]
     impl TypeVar {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of TypeVar"))
         }
 
@@ -470,7 +470,7 @@ pub(crate) mod typevar {
     )]
     impl ParamSpec {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpec"))
         }
 
@@ -778,7 +778,7 @@ pub(crate) mod typevar {
         }
 
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of TypeVarTuple"))
         }
 
@@ -897,7 +897,7 @@ pub(crate) mod typevar {
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
     impl ParamSpecArgs {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecArgs"))
         }
 
@@ -961,7 +961,7 @@ pub(crate) mod typevar {
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
     impl ParamSpecKwargs {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecKwargs"))
         }
 

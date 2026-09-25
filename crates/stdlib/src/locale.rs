@@ -82,20 +82,20 @@ mod _locale {
 
     #[cfg(windows)]
     #[pyfunction]
-    fn strcoll(string1: PyUtf8StrRef, string2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
-        if string1.as_str().contains('\0') || string2.as_str().contains('\0') {
+    fn strcoll(os1: PyUtf8StrRef, os2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
+        if os1.as_str().contains('\0') || os2.as_str().contains('\0') {
             return Err(vm.new_value_error("embedded null character"));
         }
-        let w1: Vec<u16> = string1.as_str().encode_utf16().chain([0]).collect();
-        let w2: Vec<u16> = string2.as_str().encode_utf16().chain([0]).collect();
+        let w1: Vec<u16> = os1.as_str().encode_utf16().chain([0]).collect();
+        let w2: Vec<u16> = os2.as_str().encode_utf16().chain([0]).collect();
         Ok(vm.new_pyobj(host_locale::wcscoll(&w1, &w2)))
     }
 
     #[cfg(not(windows))]
     #[pyfunction]
-    fn strcoll(string1: PyUtf8StrRef, string2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
-        let cstr1 = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
-        let cstr2 = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
+    fn strcoll(os1: PyUtf8StrRef, os2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
+        let cstr1 = CString::new(os1.as_str()).map_err(|e| e.to_pyexception(vm))?;
+        let cstr2 = CString::new(os2.as_str()).map_err(|e| e.to_pyexception(vm))?;
         Ok(vm.new_pyobj(host_locale::strcoll(&cstr1, &cstr2)))
     }
 

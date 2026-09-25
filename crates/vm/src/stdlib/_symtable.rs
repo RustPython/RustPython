@@ -100,10 +100,10 @@ mod _symtable {
     fn symtable(
         source: ArgStrOrBytesLike,
         filename: FsPath,
-        mode: PyUtf8StrRef,
+        startstr: PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PySymbolTable>> {
-        let mode = mode
+        let mode = startstr
             .as_str()
             .parse::<compiler::Mode>()
             .map_err(|err| vm.new_value_error(err.to_string()))?;

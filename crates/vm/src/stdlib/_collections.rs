@@ -441,10 +441,10 @@ mod _collections {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 
@@ -920,14 +920,14 @@ mod _collections {
         }
 
         #[pymethod]
-        fn __missing__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __missing__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let factory = self.default_factory.read().clone();
 
             if let Some(f) = factory {
                 let value = f.call((), vm)?;
-                self.dict.setdefault(key, value, vm)
+                self.dict.setdefault(object, value, vm)
             } else {
-                Err(vm.new_key_error(key))
+                Err(vm.new_key_error(object))
             }
         }
 

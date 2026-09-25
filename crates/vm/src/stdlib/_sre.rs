@@ -211,16 +211,32 @@ mod _sre {
         }
     }
 
-    #[pyfunction]
-    fn compile(
+    #[derive(FromArgs)]
+    struct CompileArgs {
+        #[pyarg(any)]
         pattern: PyObjectRef,
+        #[pyarg(any)]
         flags: u16,
+        #[pyarg(any)]
         code: PyObjectRef,
+        #[pyarg(any)]
         groups: usize,
+        #[pyarg(any)]
         groupindex: PyDictRef,
+        #[pyarg(any)]
         indexgroup: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<Pattern> {
+    }
+
+    #[pyfunction]
+    fn compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<Pattern> {
+        let CompileArgs {
+            pattern,
+            flags,
+            code,
+            groups,
+            groupindex,
+            indexgroup,
+        } = args;
         // FIXME:
         // pattern could only be None if called by re.Scanner
         // re.Scanner has no official API and in CPython's implement
@@ -297,9 +313,15 @@ mod _sre {
     }
 
     #[derive(FromArgs)]
+    struct ExpandArgs {
+        #[pyarg(any)]
+        template: PyObjectRef,
+    }
+
+    #[derive(FromArgs)]
     struct DefaultArg {
         // Missing default is None.
-        #[pyarg(positional, optional, py_default = "None")]
+        #[pyarg(any, optional, py_default = "None")]
         default: OptionalArg<PyObjectRef>,
     }
 
@@ -695,10 +717,10 @@ mod _sre {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 
@@ -888,7 +910,11 @@ mod _sre {
         }
 
         #[pymethod]
-        fn expand(zelf: PyRef<Self>, template: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn expand(
+            zelf: PyRef<Self>,
+            ExpandArgs { template }: ExpandArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult {
             let template = Template::compile(zelf.pattern.clone(), template, vm)?;
             with_sre_str!(zelf.pattern, &zelf.string, vm, |s| {
                 let mut list: Vec<PyObjectRef> = Vec::new();
@@ -1030,10 +1056,10 @@ mod _sre {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 

@@ -3,7 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyDict,
     class::PyClassImpl,
-    function::{FuncArgs, PyComparisonValue},
+    function::{FuncArgs, KwArgs, NameChanges, PyComparisonValue},
     recursion::ReprGuard,
     types::{
         Comparable, Constructor, DefaultConstructor, Initializer, PyComparisonOp, Representable,
@@ -45,11 +45,11 @@ impl PyNamespace {
     }
 
     #[pymethod]
-    fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if !args.args.is_empty() {
-            return Err(vm.new_type_error("__replace__() takes no positional arguments"));
-        }
-
+    fn __replace__(
+        zelf: PyObjectRef,
+        changes: KwArgs<PyObjectRef, NameChanges>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         // Create a new instance of the same type
         let cls: PyObjectRef = zelf.class().to_owned().into();
         let result = cls.call((), vm)?;
@@ -77,7 +77,7 @@ impl PyNamespace {
         }
 
         // Update with the provided kwargs
-        for (name, value) in args.kwargs {
+        for (name, value) in changes {
             let name = vm.ctx.new_str(name);
             result.set_attr(&name, value, vm)?;
         }

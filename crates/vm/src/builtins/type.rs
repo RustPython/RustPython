@@ -19,7 +19,7 @@ use crate::{
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
-    function::{FuncArgs, KwArgs, PyMethodDef, PySetterValue},
+    function::{FuncArgs, KwArgs, NameKwds, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
@@ -2276,7 +2276,7 @@ impl PyType {
     fn __prepare__(
         _cls: PyTypeRef,
         _args: PrepareArgs,
-        _kwargs: KwArgs,
+        _kwargs: KwArgs<PyObjectRef, NameKwds>,
         vm: &VirtualMachine,
     ) -> PyDictRef {
         let _ = (_args.name, _args.bases);

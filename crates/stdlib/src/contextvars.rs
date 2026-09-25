@@ -541,10 +541,10 @@ mod _contextvars {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 
@@ -648,10 +648,10 @@ mod _contextvars {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
 
         #[pymethod]
@@ -662,7 +662,7 @@ mod _contextvars {
         #[pymethod]
         fn __exit__(
             zelf: &Py<Self>,
-            _ty: PyObjectRef,
+            _type: PyObjectRef,
             _val: PyObjectRef,
             _tb: PyObjectRef,
             vm: &VirtualMachine,

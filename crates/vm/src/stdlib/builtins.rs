@@ -23,7 +23,7 @@ mod builtins {
         common::hash::PyHash,
         function::{
             ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgPrimitiveIndex,
-            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, PosArgs,
+            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, NameKws, OptionalArg, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -738,7 +738,15 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn breakpoint(
+        args: PosArgs,
+        kws: KwArgs<PyObjectRef, NameKws>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let args = FuncArgs {
+            args: args.into_vec(),
+            kwargs: kws.into_default(),
+        };
         match vm
             .sys_module
             .get_attr(vm.ctx.intern_str("breakpointhook"), vm)
@@ -1140,15 +1148,17 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(reversed_method) = vm.get_method(obj.clone(), identifier!(vm, __reversed__)) {
+    pub fn reversed(sequence: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(reversed_method) =
+            vm.get_method(sequence.clone(), identifier!(vm, __reversed__))
+        {
             reversed_method?.call((), vm)
         } else {
-            vm.get_method_or_type_error(obj.clone(), identifier!(vm, __getitem__), || {
+            vm.get_method_or_type_error(sequence.clone(), identifier!(vm, __getitem__), || {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
-            let len = obj.length(vm)?;
-            let obj_iterator = PyReverseSequenceIterator::new(obj, len);
+            let len = sequence.length(vm)?;
+            let obj_iterator = PyReverseSequenceIterator::new(sequence, len);
             Ok(obj_iterator.into_pyobject(vm))
         }
     }

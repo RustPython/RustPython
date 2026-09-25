@@ -5,7 +5,7 @@ mod gc {
     use crate::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::PyListRef,
-        function::{FuncArgs, OptionalArg},
+        function::{NameObjs, OptionalArg, PosArgs},
         gc_state,
     };
 
@@ -176,10 +176,10 @@ mod gc {
 
     /// Return the list of objects directly referred to by any of the arguments.
     #[pyfunction]
-    fn get_referents(args: FuncArgs, vm: &VirtualMachine) -> PyListRef {
+    fn get_referents(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
         let mut result = Vec::new();
 
-        for obj in args.args {
+        for obj in objs.iter() {
             // Use the gc_get_referents method to get references
             result.extend(obj.gc_get_referents());
         }
@@ -189,12 +189,11 @@ mod gc {
 
     /// Return the list of objects that directly refer to any of the arguments.
     #[pyfunction]
-    fn get_referrers(args: FuncArgs, vm: &VirtualMachine) -> PyListRef {
+    fn get_referrers(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
         use std::collections::HashSet;
 
         // Build a set of target object pointers for fast lookup
-        let targets: HashSet<usize> = args
-            .args
+        let targets: HashSet<usize> = objs
             .iter()
             .map(|obj| obj.as_ref() as *const crate::PyObject as usize)
             .collect();

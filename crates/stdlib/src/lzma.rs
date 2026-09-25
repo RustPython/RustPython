@@ -4,7 +4,7 @@ pub(crate) use _lzma::module_def;
 
 #[pymodule]
 mod _lzma {
-    use crate::compression::DecompressArgs;
+    use crate::compression::DecompressorArgs;
     use alloc::fmt;
     use rustpython_common::{compression::lzma as backend, lock::PyMutex};
     use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytesRef, PyDict, PyType, PyTypeRef};
@@ -246,11 +246,8 @@ mod _lzma {
     }
 
     #[pyfunction]
-    fn _encode_filter_properties(
-        filter_spec: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
-        let spec = parse_filter_properties(&filter_spec, vm)?;
+    fn _encode_filter_properties(filter: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let spec = parse_filter_properties(&filter, vm)?;
         backend::encode_filter_properties(&spec).map_err(|error| map_backend_error(error, vm))
     }
 
@@ -329,7 +326,7 @@ mod _lzma {
     #[pyclass(with(Constructor))]
     impl LZMADecompressor {
         #[pymethod]
-        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn decompress(&self, args: DecompressorArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let max_length = args.max_length();
             let data = &*args.data();
             let mut state = self.state.lock();
