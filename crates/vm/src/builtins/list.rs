@@ -809,7 +809,7 @@ fn object_lt(
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
     #[allow(unpredictable_function_pointer_comparisons)]
-    if a.class().slots.richcompare.load() != Some(cmp) {
+    if a.class().slots().richcompare.load() != Some(cmp) {
         return a.rich_compare_bool(b, PyComparisonOp::Lt, vm);
     }
     match cmp(a, b, PyComparisonOp::Lt, vm)? {

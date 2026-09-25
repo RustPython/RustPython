@@ -52,7 +52,7 @@ impl PyObject {
     #[cold]
     #[inline(never)]
     fn try_to_bool_slow(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        let slots = &self.class().slots;
+        let slots = self.class().slots();
 
         // 1. Try nb_bool slot first
         if let Some(nb_bool) = slots.as_number.boolean.load() {

@@ -2038,7 +2038,7 @@ impl PyObject {
         // __del__ should only be called once (like _PyGC_FINALIZED check in GIL_DISABLED)
         // We call __del__ BEFORE clearing weakrefs to allow the finalizer to access
         // the object's weak references if needed.
-        let del = self.class().slots.del.load();
+        let del = self.class().slots().del.load();
         if let Some(slot_del) = del
             && !self.gc_finalized()
         {
@@ -2148,7 +2148,7 @@ impl PyObject {
     /// This allows proper resurrection detection.
     /// PyObject_CallFinalizerFromDealloc
     pub fn try_call_finalizer(&self) {
-        let del = self.class().slots.del.load();
+        let del = self.class().slots().del.load();
         if let Some(slot_del) = del
             && !self.gc_finalized()
             && self

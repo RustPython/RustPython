@@ -1474,7 +1474,12 @@ static BUFFER_WRAPPER_METHODS: BufferMethods = BufferMethods {
         // A native release runs when the memoryview itself is torn down; only a
         // Python-level hook on a foreign exporter has to be called here.
         if !mv.buffer.obj.is(&wrapper.exporter)
-            && wrapper.exporter.class().slots.python_release_buffer.load()
+            && wrapper
+                .exporter
+                .class()
+                .slots()
+                .python_release_buffer
+                .load()
         {
             call_python_release_buffer(&wrapper.exporter, mv.clone());
         }

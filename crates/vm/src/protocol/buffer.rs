@@ -312,7 +312,7 @@ impl PyBuffer {
         }
         // slot_bf_releasebuffer: a Python-level `__release_buffer__` runs first,
         // then the exporter's own release so export counts stay balanced.
-        if self.obj.class().slots.python_release_buffer.load() {
+        if self.obj.class().slots().python_release_buffer.load() {
             crate::builtins::memory::release_buffer_call_python(self);
         }
         (self.methods.release)(self)
@@ -368,7 +368,7 @@ impl PyObject {
     /// `__buffer__` is not mistaken for "not a buffer".
     #[must_use]
     pub fn check_buffer(&self) -> bool {
-        self.class().slots.as_buffer.load().is_some()
+        self.class().slots().as_buffer.load().is_some()
     }
 }
 

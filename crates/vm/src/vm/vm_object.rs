@@ -109,7 +109,7 @@ impl VirtualMachine {
         obj: Option<&PyObject>,
         cls: Option<&PyObject>,
     ) -> Option<PyResult> {
-        let descr_get = descr.class().slots.descr_get.load()?;
+        let descr_get = descr.class().slots().descr_get.load()?;
         Some(descr_get(descr, obj, cls, self))
     }
 

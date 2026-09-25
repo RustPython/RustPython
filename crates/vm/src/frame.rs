@@ -4918,7 +4918,7 @@ impl ExecutingFrame<'_> {
                 // Only rewrite the error if the type is truly not iterable
                 // (no __iter__ and no __getitem__). Preserve original TypeError
                 // from custom iterables that raise during iteration.
-                let not_iterable = iterable.class().slots.iter.load().is_none()
+                let not_iterable = iterable.class().slots().iter.load().is_none()
                     && iterable
                         .get_class_attr(vm.ctx.intern_str("__getitem__"))
                         .is_none();
@@ -8786,7 +8786,7 @@ impl ExecutingFrame<'_> {
             // Stack: [callable, self_or_null]
             let callable = self.nth_value(1);
             let func_str = Self::object_function_str(callable, vm);
-            let not_iterable = args_obj.class().slots.iter.load().is_none()
+            let not_iterable = args_obj.class().slots().iter.load().is_none()
                 && args_obj
                     .get_class_attr(vm.ctx.intern_str("__getitem__"))
                     .is_none();
@@ -9168,7 +9168,7 @@ impl ExecutingFrame<'_> {
     fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u32) -> FrameResult {
         let (before, after) = (before as usize, after as usize);
         let value = self.pop_value();
-        let not_iterable = value.class().slots.iter.load().is_none()
+        let not_iterable = value.class().slots().iter.load().is_none()
             && value
                 .get_class_attr(vm.ctx.intern_str("__getitem__"))
                 .is_none();
@@ -9697,7 +9697,7 @@ impl ExecutingFrame<'_> {
 
         // General path — iterate up to `size + 1` elements to avoid
         // consuming the entire iterator (fixes hang on infinite sequences).
-        let not_iterable = value.class().slots.iter.load().is_none()
+        let not_iterable = value.class().slots().iter.load().is_none()
             && value
                 .get_class_attr(vm.ctx.intern_str("__getitem__"))
                 .is_none();
@@ -10202,7 +10202,7 @@ impl ExecutingFrame<'_> {
             });
             let has_descr_get = cls_attr
                 .as_ref()
-                .is_some_and(|descr| descr.class().slots.descr_get.load().is_some());
+                .is_some_and(|descr| descr.class().slots().descr_get.load().is_some());
 
             if has_data_descr {
                 // Check for member descriptor (slot access)
@@ -11106,9 +11106,9 @@ impl ExecutingFrame<'_> {
                 // concurrently installed __new__ invalidates the version this
                 // specialization is cached against.
                 let type_version = cls.version_for_specialization(vm);
-                let object_new = vm.ctx.types.object_type.slots.new.load();
+                let object_new = vm.ctx.types.object_type.slots().new.load();
                 let cls_new = cls.slots.new.load();
-                let object_alloc = vm.ctx.types.object_type.slots.alloc.load();
+                let object_alloc = vm.ctx.types.object_type.slots().alloc.load();
                 let cls_alloc = cls.slots.alloc.load();
                 if let (Some(cls_new_fn), Some(obj_new_fn), Some(cls_alloc_fn), Some(obj_alloc_fn)) =
                     (cls_new, object_new, cls_alloc, object_alloc)

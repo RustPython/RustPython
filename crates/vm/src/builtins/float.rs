@@ -567,5 +567,5 @@ fn vectorcall_float(
 #[rustfmt::skip] // to avoid line splitting
 pub(crate) fn init(context: &'static Context) {
     PyFloat::extend_class(context, context.types.float_type);
-    context.types.float_type.slots.vectorcall.store(Some(vectorcall_float));
+    context.types.float_type.slots().vectorcall.store(Some(vectorcall_float));
 }

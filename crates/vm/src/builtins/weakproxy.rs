@@ -23,7 +23,7 @@ impl PyPayload for PyWeakProxy {
 
     #[inline]
     unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
-        <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots.basicsize
+        <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots().basicsize
             && obj
                 .class()
                 .fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
@@ -170,7 +170,7 @@ impl Iterable for PyWeakProxy {
 impl IterNext for PyWeakProxy {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let obj = zelf.try_upgrade(vm)?;
-        if obj.class().slots.iternext.load().is_none() {
+        if obj.class().slots().iternext.load().is_none() {
             return Err(vm.new_type_error("Weakref proxy referenced a non-iterator"));
         }
         PyIter::new(obj).next(vm)

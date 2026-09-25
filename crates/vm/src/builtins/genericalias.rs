@@ -373,7 +373,7 @@ fn subs_tvars(
                             let substituted_arg = &arg_items[idx];
 
                             // Check if this is a TypeVarTuple (has tp_iter)
-                            if param.class().slots.iter.load().is_some()
+                            if param.class().slots().iter.load().is_some()
                                 && substituted_arg.try_to_ref::<PyTuple>(vm).is_ok()
                             {
                                 // TypeVarTuple case - extend with tuple elements

@@ -1681,6 +1681,16 @@ impl Py<PyType> {
         self.payload().has_attr(attr_name)
     }
 
+    #[inline]
+    pub fn slots(&self) -> &PyTypeSlots {
+        &self.payload().slots
+    }
+
+    #[inline]
+    pub fn attributes(&self) -> &TypeNamespace {
+        &self.payload().attributes
+    }
+
     pub fn is_subtype(&self, other: &Self) -> bool {
         is_subtype_with_mro(&self.mro.read(), self, other)
     }
@@ -3045,7 +3055,7 @@ impl GetAttr for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(attr) = zelf_attr {
-            let descr_get = attr.class().slots.descr_get.load();
+            let descr_get = attr.class().slots().descr_get.load();
             if let Some(descr_get) = descr_get {
                 descr_get(attr.as_object(), None, Some(zelf.as_object()), vm)
             } else {
@@ -3088,7 +3098,7 @@ impl Py<PyType> {
         // CPython returns None if __doc__ is not in the type's own dict
         if let Some(doc_attr) = self.get_direct_attr(vm.ctx.intern_str("__doc__")) {
             // If it's a descriptor, call its __get__ method
-            let descr_get = doc_attr.class().slots.descr_get.load();
+            let descr_get = doc_attr.class().slots().descr_get.load();
             if let Some(descr_get) = descr_get {
                 descr_get(doc_attr.as_object(), None, Some(self.as_object()), vm)
             } else {
@@ -3173,7 +3183,7 @@ impl SetAttr for PyType {
             )));
         }
         if let Some(attr) = zelf.get_class_attr(attr_name) {
-            let descr_set = attr.class().slots.descr_set.load();
+            let descr_set = attr.class().slots().descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(&attr, zelf.to_owned().into(), value, vm);
             }
@@ -3269,7 +3279,7 @@ impl Callable for PyType {
             return Ok(obj);
         }
 
-        if let Some(init_method) = obj.class().slots.init.load() {
+        if let Some(init_method) = obj.class().slots().init.load() {
             init_method(&obj, init_args, vm)?;
         }
         Ok(obj)

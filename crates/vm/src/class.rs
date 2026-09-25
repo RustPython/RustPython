@@ -203,7 +203,7 @@ pub trait PyClassImpl: PyClassDef {
         // (Python doesn't add __new__ to __dict__ for inherited slots)
         // Exception: object itself should have __new__ in its dict
         if let Some(slot_new) = class.slots.new.load() {
-            let object_new = ctx.types.object_type.slots.new.load();
+            let object_new = ctx.types.object_type.slots().new.load();
             let is_object_itself = core::ptr::eq(class, ctx.types.object_type);
             let is_inherited_from_object = !is_object_itself
                 && object_new.is_some_and(|obj_new| fn_addr(slot_new) == fn_addr(obj_new));
