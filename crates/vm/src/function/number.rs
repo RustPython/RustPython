@@ -115,6 +115,11 @@ impl ArgIntoBool {
     pub fn into_bool(self) -> bool {
         self.value
     }
+
+    #[must_use]
+    pub const fn py_default(&self) -> super::DefaultRepr {
+        super::DefaultRepr::Bool(self.value)
+    }
 }
 
 impl From<ArgIntoBool> for bool {
@@ -177,6 +182,18 @@ impl<T> OptionalArg<ArgPrimitiveIndex<T>> {
         self.map(|x| x.value)
     }
 }
+
+macro_rules! arg_index_py_default {
+    ($($t:ty),+) => {$(
+        impl ArgPrimitiveIndex<$t> {
+            #[must_use]
+            pub const fn py_default(&self) -> super::DefaultRepr {
+                super::DefaultRepr::Int(self.value as i128)
+            }
+        }
+    )+};
+}
+arg_index_py_default!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, usize);
 
 impl<T> Deref for ArgPrimitiveIndex<T> {
     type Target = T;

@@ -36,7 +36,10 @@ const DEFAULT_DIR_FD: crt_fd::Borrowed<'static> = unsafe { crt_fd::Borrowed::bor
 
 pub trait DirFdKeyword: Clone + Copy + Eq + PartialEq {
     const NAME: &'static str;
-    const PARAMS: &'static [Param] = &[Param::keyword_only(Self::NAME, Some("None"))];
+    const PARAMS: &'static [Param] = &[Param::keyword_only(
+        Self::NAME,
+        Some(crate::function::DefaultRepr::None),
+    )];
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -468,7 +471,7 @@ pub(super) mod _os {
 
     #[derive(FromArgs)]
     struct ListDirArgs<'a> {
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         path: Option<OsPathOrFd<'a>>,
     }
 
@@ -1220,7 +1223,7 @@ pub(super) mod _os {
 
     #[derive(FromArgs)]
     struct ScandirArgs<'a> {
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         path: Option<OsPathOrFd<'a>>,
     }
 
@@ -2253,8 +2256,8 @@ pub(super) mod _os {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction]
-    fn fstatvfs(fd: OsPathOrFd<'_>, vm: &VirtualMachine) -> PyResult {
-        statvfs_inner(fd, vm)
+    fn fstatvfs(fd: crt_fd::Borrowed<'_>, vm: &VirtualMachine) -> PyResult {
+        statvfs_inner(OsPathOrFd::Fd(fd), vm)
     }
 
     pub(super) fn support_funcs() -> Vec<SupportFunc> {

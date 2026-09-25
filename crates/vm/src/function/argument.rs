@@ -877,7 +877,7 @@ where
     const PARAMS: Option<&'static [Param]> = Some(&[Param {
         name: "",
         kind: super::signature::ParamKind::PositionalOnly,
-        default: Some("<unrepresentable>"),
+        default: Some(super::signature::DefaultRepr::Raw("<unrepresentable>")),
     }]);
 
     fn arity() -> RangeInclusive<usize> {

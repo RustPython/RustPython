@@ -11,7 +11,7 @@ use crate::{
 
 #[derive(FromArgs)]
 pub struct SplitArgs<T: TryFromObject> {
-    #[pyarg(any, default = None)]
+    #[pyarg(any, optional)]
     sep: Option<T>,
     #[pyarg(any, default = -1)]
     maxsplit: isize,

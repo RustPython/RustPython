@@ -77,7 +77,7 @@ pub(crate) mod _hashlib {
         #[pyarg(named, default = true)]
         usedforsecurity: bool,
         // Missing string is None.
-        #[pyarg(named, optional, py_default = "None")]
+        #[pyarg(named, optional)]
         string: OptionalArg<ArgBytesLike>,
     }
 
@@ -123,7 +123,7 @@ pub(crate) mod _hashlib {
         #[pyarg(named, default = true)]
         usedforsecurity: bool,
         // Missing string is None.
-        #[pyarg(named, optional, py_default = "None")]
+        #[pyarg(named, optional)]
         pub string: OptionalArg<ArgBytesLike>,
     }
 
@@ -209,7 +209,7 @@ pub(crate) mod _hashlib {
         #[pyarg(any)]
         iterations: i64,
         // Missing dklen is None.
-        #[pyarg(any, optional, py_default = "None")]
+        #[pyarg(any, optional)]
         dklen: OptionalArg<PyObjectRef>,
     }
 
@@ -1109,7 +1109,7 @@ pub(crate) mod _hashlib {
         #[pyarg(any, optional, py_default = "b''")]
         msg: OptionalArg<Option<ArgBytesLike>>,
         // Missing digestmod is None.
-        #[pyarg(any, optional, py_default = "None")]
+        #[pyarg(any, optional)]
         digestmod: OptionalArg<PyObjectRef>,
     }
 

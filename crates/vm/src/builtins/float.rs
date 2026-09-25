@@ -252,7 +252,7 @@ pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
 
 #[derive(FromArgs)]
 struct RoundArgs {
-    #[pyarg(positional, default = None)]
+    #[pyarg(positional, optional)]
     ndigits: Option<PyIntRef>,
 }
 

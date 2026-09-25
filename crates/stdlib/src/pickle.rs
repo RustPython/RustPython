@@ -1955,11 +1955,11 @@ mod _pickle {
     pub(super) struct PicklerNewArgs {
         #[pyarg(any)]
         file: PyObjectRef,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         protocol: Option<PyObjectRef>,
         #[pyarg(any, default = true)]
         fix_imports: bool,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         buffer_callback: Option<PyObjectRef>,
     }
 
@@ -3779,11 +3779,11 @@ mod _pickle {
         obj: PyObjectRef,
         #[pyarg(any)]
         file: PyObjectRef,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         protocol: Option<PyObjectRef>,
         #[pyarg(named, default = true)]
         fix_imports: bool,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         buffer_callback: Option<PyObjectRef>,
     }
 
@@ -3819,11 +3819,11 @@ mod _pickle {
     pub(super) struct DumpsArgs {
         #[pyarg(any)]
         obj: PyObjectRef,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         protocol: Option<PyObjectRef>,
         #[pyarg(named, default = true)]
         fix_imports: bool,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         buffer_callback: Option<PyObjectRef>,
     }
 

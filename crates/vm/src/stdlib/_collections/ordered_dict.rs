@@ -325,7 +325,7 @@ pub(crate) mod ordered_dict {
     struct ODictSetDefaultArgs {
         #[pyarg(any)]
         key: PyObjectRef,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         default: Option<PyObjectRef>,
     }
 
@@ -341,7 +341,7 @@ pub(crate) mod ordered_dict {
     struct ODictFromKeysArgs {
         #[pyarg(any)]
         iterable: PyObjectRef,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         value: Option<PyObjectRef>,
     }
 

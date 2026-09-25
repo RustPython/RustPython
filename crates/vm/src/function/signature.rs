@@ -17,11 +17,24 @@ pub enum ParamKind {
     Flatten(Option<&'static [Param]>),
 }
 
+/// Python source for a parameter default, chosen so it can be rendered in a const context.
+#[derive(Clone, Copy, Debug)]
+pub enum DefaultRepr {
+    None,
+    Bool(bool),
+    Int(i128),
+    Float(f64),
+    Str(&'static str),
+    Bytes(&'static [u8]),
+    /// Verbatim Python source, including `py_default` text and `<unrepresentable>`.
+    Raw(&'static str),
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Param {
     pub name: &'static str,
     pub kind: ParamKind,
-    pub default: Option<&'static str>,
+    pub default: Option<DefaultRepr>,
 }
 
 impl Param {
@@ -44,7 +57,7 @@ impl Param {
     }
 
     #[must_use]
-    pub const fn keyword_only(name: &'static str, default: Option<&'static str>) -> Self {
+    pub const fn keyword_only(name: &'static str, default: Option<DefaultRepr>) -> Self {
         Self {
             name,
             kind: ParamKind::KeywordOnly,
@@ -239,13 +252,19 @@ const fn emit_text(buf: &mut [u8], st: St, text: &str) -> St {
     }
 }
 
-const fn emit_named(buf: &mut [u8], st: St, prefix: &str, name: &str, default: Option<&str>) -> St {
+const fn emit_named(
+    buf: &mut [u8],
+    st: St,
+    prefix: &str,
+    name: &str,
+    default: Option<DefaultRepr>,
+) -> St {
     let st = emit_sep(buf, st);
     let n = put_str(buf, st.n, prefix);
     let n = put_str(buf, n, name);
     let n = if let Some(default) = default {
         let n = put_byte(buf, n, b'=');
-        put_str(buf, n, default)
+        put_default(buf, n, default)
     } else {
         n
     };
@@ -253,6 +272,201 @@ const fn emit_named(buf: &mut [u8], st: St, prefix: &str, name: &str, default: O
         n,
         emitted: true,
         ..st
+    }
+}
+
+const HEX: &[u8; 16] = b"0123456789abcdef";
+
+const fn put_hex_byte(buf: &mut [u8], i: usize, b: u8) -> usize {
+    let n = put_str(buf, i, "\\x");
+    let n = put_byte(buf, n, HEX[(b >> 4) as usize]);
+    put_byte(buf, n, HEX[(b & 0xf) as usize])
+}
+
+const fn put_quoted(buf: &mut [u8], mut i: usize, bytes: &[u8], utf8: bool) -> usize {
+    i = put_byte(buf, i, b'\'');
+    let mut k = 0;
+    while k < bytes.len() {
+        let b = bytes[k];
+        if b == b'\\' {
+            i = put_str(buf, i, "\\\\");
+        } else if b == b'\'' {
+            i = put_str(buf, i, "\\'");
+        } else if b == b'\n' {
+            i = put_str(buf, i, "\\n");
+        } else if b == b'\r' {
+            i = put_str(buf, i, "\\r");
+        } else if b == b'\t' {
+            i = put_str(buf, i, "\\t");
+        } else if b < 0x20 || b == 0x7f || (!utf8 && b >= 0x80) {
+            i = put_hex_byte(buf, i, b);
+        } else {
+            i = put_byte(buf, i, b);
+        }
+        k += 1;
+    }
+    put_byte(buf, i, b'\'')
+}
+
+const fn put_u128(buf: &mut [u8], i: usize, mut v: u128) -> usize {
+    if v == 0 {
+        return put_byte(buf, i, b'0');
+    }
+    let mut digits = [0u8; 40];
+    let mut n = 0;
+    while v > 0 {
+        digits[n] = b'0' + (v % 10) as u8;
+        v /= 10;
+        n += 1;
+    }
+    let mut i = i;
+    while n > 0 {
+        n -= 1;
+        i = put_byte(buf, i, digits[n]);
+    }
+    i
+}
+
+const fn put_i128(buf: &mut [u8], i: usize, v: i128) -> usize {
+    if v < 0 {
+        let i = put_byte(buf, i, b'-');
+        put_u128(buf, i, (v as u128).wrapping_neg())
+    } else {
+        put_u128(buf, i, v as u128)
+    }
+}
+
+const fn put_exp(buf: &mut [u8], i: usize, exp: i32) -> usize {
+    let i = put_byte(buf, i, b'e');
+    let (i, exp) = if exp < 0 {
+        (put_byte(buf, i, b'-'), exp.wrapping_neg())
+    } else {
+        (put_byte(buf, i, b'+'), exp)
+    };
+    let exp = exp as u32;
+    if exp >= 10 {
+        let i = put_byte(buf, i, b'0' + (exp / 10) as u8);
+        put_byte(buf, i, b'0' + (exp % 10) as u8)
+    } else {
+        let i = put_byte(buf, i, b'0');
+        put_byte(buf, i, b'0' + exp as u8)
+    }
+}
+
+/// Shortest round-trip decimal, matching `float.__repr__` for finite values.
+const fn put_f64(buf: &mut [u8], i: usize, v: f64) -> usize {
+    if v.is_nan() {
+        return put_str(buf, i, "nan");
+    }
+    if v.is_infinite() {
+        return put_str(buf, i, if v.is_sign_negative() { "-inf" } else { "inf" });
+    }
+    if v == 0.0 {
+        return put_str(buf, i, if v.is_sign_negative() { "-0.0" } else { "0.0" });
+    }
+    let neg = v.is_sign_negative();
+    let mut i = if neg { put_byte(buf, i, b'-') } else { i };
+    let mut x = if neg { -v } else { v };
+    let mut exp: i32 = 0;
+    while x >= 10.0 && exp < 350 {
+        x /= 10.0;
+        exp += 1;
+    }
+    while x < 1.0 && exp > -350 {
+        x *= 10.0;
+        exp -= 1;
+    }
+    // 17 significant digits, then trim trailing zeros.
+    let mut digits = [0u8; 17];
+    let mut n = 0;
+    while n < 17 {
+        let d = x as u8;
+        digits[n] = d;
+        x = (x - d as f64) * 10.0;
+        n += 1;
+    }
+    if x >= 5.0 {
+        let mut k = 16;
+        loop {
+            if digits[k] < 9 {
+                digits[k] += 1;
+                break;
+            }
+            digits[k] = 0;
+            if k == 0 {
+                digits[0] = 1;
+                exp += 1;
+                break;
+            }
+            k -= 1;
+        }
+    }
+    while n > 1 && digits[n - 1] == 0 {
+        n -= 1;
+    }
+    let scientific = exp < -4 || exp >= 16;
+    if scientific {
+        i = put_byte(buf, i, b'0' + digits[0]);
+        if n > 1 {
+            i = put_byte(buf, i, b'.');
+            let mut k = 1;
+            while k < n {
+                i = put_byte(buf, i, b'0' + digits[k]);
+                k += 1;
+            }
+        }
+        put_exp(buf, i, exp)
+    } else if exp >= 0 {
+        let exp_us = exp as usize;
+        let mut k = 0;
+        while k <= exp_us && k < n {
+            i = put_byte(buf, i, b'0' + digits[k]);
+            k += 1;
+        }
+        while k <= exp_us {
+            i = put_byte(buf, i, b'0');
+            k += 1;
+        }
+        i = put_byte(buf, i, b'.');
+        if n as i32 > exp + 1 {
+            let mut k = exp as usize + 1;
+            while k < n {
+                i = put_byte(buf, i, b'0' + digits[k]);
+                k += 1;
+            }
+            i
+        } else {
+            put_byte(buf, i, b'0')
+        }
+    } else {
+        i = put_str(buf, i, "0.");
+        let mut z = 0;
+        while z < -exp - 1 {
+            i = put_byte(buf, i, b'0');
+            z += 1;
+        }
+        let mut k = 0;
+        while k < n {
+            i = put_byte(buf, i, b'0' + digits[k]);
+            k += 1;
+        }
+        i
+    }
+}
+
+const fn put_default(buf: &mut [u8], i: usize, default: DefaultRepr) -> usize {
+    match default {
+        DefaultRepr::None => put_str(buf, i, "None"),
+        DefaultRepr::Bool(true) => put_str(buf, i, "True"),
+        DefaultRepr::Bool(false) => put_str(buf, i, "False"),
+        DefaultRepr::Int(v) => put_i128(buf, i, v),
+        DefaultRepr::Float(v) => put_f64(buf, i, v),
+        DefaultRepr::Str(s) => put_quoted(buf, i, s.as_bytes(), true),
+        DefaultRepr::Bytes(b) => {
+            let i = put_byte(buf, i, b'b');
+            put_quoted(buf, i, b, false)
+        }
+        DefaultRepr::Raw(s) => put_str(buf, i, s),
     }
 }
 
@@ -319,4 +533,49 @@ const fn write_args(buf: &mut [u8], mut st: St, args: &[SigArg]) -> St {
         i += 1;
     }
     st
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DefaultRepr, Param, ParamKind, St, write_one};
+
+    fn rendered(default: DefaultRepr) -> String {
+        let mut buf = [0u8; 64];
+        let st = write_one(
+            &mut buf,
+            St {
+                n: 0,
+                emitted: false,
+                po_left: 0,
+                var_pos_seen: false,
+                star_emitted: true,
+            },
+            Param {
+                name: "x",
+                kind: ParamKind::KeywordOnly,
+                default: Some(default),
+            },
+            "",
+        );
+        let text = core::str::from_utf8(&buf[..st.n]).unwrap();
+        text.split_once('=').unwrap().1.to_owned()
+    }
+
+    #[test]
+    fn default_repr_text() {
+        assert_eq!(rendered(DefaultRepr::None), "None");
+        assert_eq!(rendered(DefaultRepr::Bool(true)), "True");
+        assert_eq!(rendered(DefaultRepr::Bool(false)), "False");
+        assert_eq!(rendered(DefaultRepr::Int(-15)), "-15");
+        assert_eq!(rendered(DefaultRepr::Int(0)), "0");
+        assert_eq!(rendered(DefaultRepr::Float(0.0)), "0.0");
+        assert_eq!(rendered(DefaultRepr::Float(-1.0)), "-1.0");
+        assert_eq!(rendered(DefaultRepr::Float(5.0)), "5.0");
+        assert_eq!(rendered(DefaultRepr::Float(1e-9)), "1e-09");
+        assert_eq!(rendered(DefaultRepr::Float(f64::INFINITY)), "inf");
+        assert_eq!(rendered(DefaultRepr::Float(f64::NEG_INFINITY)), "-inf");
+        assert_eq!(rendered(DefaultRepr::Str("a'b\n")), r"'a\'b\n'");
+        assert_eq!(rendered(DefaultRepr::Bytes(b"a'b")), r"b'a\'b'");
+        assert_eq!(rendered(DefaultRepr::Raw("sys.maxsize")), "sys.maxsize");
+    }
 }

@@ -89,10 +89,10 @@ mod zlib {
         #[pyarg(positional)]
         data: ArgBytesLike,
         // Z_DEFAULT_COMPRESSION.
-        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION), py_default = "-1")]
+        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION))]
         level: Level,
         // MAX_WBITS.
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS }, py_default = "15")]
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i32>,
     }
 
@@ -113,10 +113,10 @@ mod zlib {
         #[pyarg(positional)]
         data: ArgBytesLike,
         // MAX_WBITS.
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS }, py_default = "15")]
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i32>,
         // DEF_BUF_SIZE.
-        #[pyarg(any, default = ArgPrimitiveIndex { value: DEF_BUF_SIZE }, py_default = "16384")]
+        #[pyarg(any, default = ArgPrimitiveIndex { value: DEF_BUF_SIZE })]
         bufsize: ArgPrimitiveIndex<usize>,
     }
 
@@ -134,7 +134,7 @@ mod zlib {
     #[derive(FromArgs)]
     struct DecompressobjArgs {
         // MAX_WBITS.
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS }, py_default = "15")]
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i32>,
         // Missing dictionary is empty bytes.
         #[pyarg(any, optional, py_default = "b''")]
@@ -274,19 +274,19 @@ mod zlib {
     #[derive(FromArgs)]
     struct CompressobjArgs {
         // Z_DEFAULT_COMPRESSION.
-        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION), py_default = "-1")]
+        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION))]
         level: Level,
         #[pyarg(any, default = 8)]
         method: i32,
         // MAX_WBITS.
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS }, py_default = "15")]
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i32>,
         #[pyarg(any, name = "memLevel", default = 8)]
         mem_level: u8,
         #[pyarg(any, default = 0)]
         strategy: i32,
         // Missing dictionary is None.
-        #[pyarg(any, optional, py_default = "None")]
+        #[pyarg(any, optional)]
         zdict: OptionalArg<ArgBytesLike>,
     }
 
@@ -407,6 +407,14 @@ mod zlib {
 
         const fn value(self) -> Option<i32> {
             self.0
+        }
+
+        #[must_use]
+        pub(crate) const fn py_default(&self) -> crate::vm::function::DefaultRepr {
+            match self.0 {
+                Some(level) => crate::vm::function::DefaultRepr::Int(level as i128),
+                None => crate::vm::function::DefaultRepr::Raw("<unrepresentable>"),
+            }
         }
     }
 

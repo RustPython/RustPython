@@ -321,7 +321,7 @@ mod _sre {
     #[derive(FromArgs)]
     struct DefaultArg {
         // Missing default is None.
-        #[pyarg(any, optional, py_default = "None")]
+        #[pyarg(any, optional)]
         default: OptionalArg<PyObjectRef>,
     }
 
@@ -330,8 +330,8 @@ mod _sre {
         string: PyObjectRef,
         #[pyarg(any, default = 0)]
         pos: usize,
-        // Platform ssize maximum.
-        #[pyarg(any, default = sys::MAXSIZE as usize, py_default = "9223372036854775807")]
+        // Platform ssize maximum, shown as sys.maxsize.
+        #[pyarg(any, default = sys::MAXSIZE as usize, py_default = "sys.maxsize")]
         endpos: usize,
     }
 

@@ -412,9 +412,9 @@ mod builtins {
 
     #[derive(FromArgs)]
     struct ScopeArgs {
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         locals: Option<ArgMapping>,
     }
 
@@ -483,11 +483,11 @@ mod builtins {
     struct ExecArgs {
         #[pyarg(positional)]
         source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         locals: Option<ArgMapping>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         closure: Option<PyObjectRef>,
     }
 
@@ -1073,7 +1073,7 @@ mod builtins {
     struct PowArgs {
         base: PyObjectRef,
         exp: PyObjectRef,
-        #[pyarg(any, default = None, name = "mod")]
+        #[pyarg(any, optional, name = "mod")]
         modulus: Option<PyObjectRef>,
     }
 
@@ -1104,10 +1104,9 @@ mod builtins {
         // None means a newline; the string is filled in when printing.
         #[pyarg(named, default, py_default = "'\\n'")]
         end: Option<PyStrRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         file: Option<PyObjectRef>,
-        // ArgIntoBool::FALSE is not the literal false.
-        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
         flush: ArgIntoBool,
     }
 
@@ -1166,7 +1165,7 @@ mod builtins {
     #[derive(FromArgs)]
     pub(super) struct RoundArgs {
         number: PyObjectRef,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         ndigits: Option<PyObjectRef>,
     }
 
@@ -1260,10 +1259,10 @@ mod builtins {
     struct ImportArgs {
         #[pyarg(any)]
         name: PyObjectRef,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
         #[allow(dead_code)]
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         locals: Option<PyObjectRef>,
         // Missing means an empty fromlist.
         #[pyarg(any, default, py_default = "()")]

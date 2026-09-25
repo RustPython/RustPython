@@ -1269,13 +1269,13 @@ mod _multibytecodec {
     /// The `sizeobj` conversion the stream reader's methods share.
     #[derive(FromArgs)]
     struct StreamReadArgs {
-        #[pyarg(positional, name = "sizeobj", default = None)]
+        #[pyarg(positional, name = "sizeobj", optional)]
         size: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct StreamReadLinesArgs {
-        #[pyarg(positional, name = "sizehintobj", default = None)]
+        #[pyarg(positional, name = "sizehintobj", optional)]
         size: Option<PyObjectRef>,
     }
 

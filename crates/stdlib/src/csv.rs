@@ -603,7 +603,7 @@ mod _csv {
             Param {
                 name: "dialect",
                 kind: rustpython_vm::function::ParamKind::PositionalOrKeyword,
-                default: Some("'excel'"),
+                default: Some(rustpython_vm::function::DefaultRepr::Str("excel")),
             },
             Param::var_keyword("fmtparams"),
         ]);

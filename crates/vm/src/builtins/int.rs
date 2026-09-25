@@ -403,7 +403,7 @@ impl PyInt {
 
 #[derive(FromArgs)]
 struct RoundArgs {
-    #[pyarg(positional, default = None)]
+    #[pyarg(positional, optional)]
     ndigits: Option<PyIntRef>,
 }
 
@@ -811,11 +811,9 @@ pub(crate) struct IntOptions {
 #[derive(FromArgs)]
 struct IntFromByteArgs {
     bytes: PyObjectRef,
-    // ArgByteOrder::Big is not the text 'big'.
-    #[pyarg(any, default = ArgByteOrder::Big, py_default = "'big'")]
+    #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
-    // Any object is accepted by truthiness, so the Rust default is not a literal.
-    #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+    #[pyarg(named, default = ArgIntoBool::FALSE)]
     signed: ArgIntoBool,
 }
 
@@ -823,11 +821,9 @@ struct IntFromByteArgs {
 struct IntToByteArgs {
     #[pyarg(any, default = 1)]
     length: usize,
-    // ArgByteOrder::Big is not the text 'big'.
-    #[pyarg(any, default = ArgByteOrder::Big, py_default = "'big'")]
+    #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
-    // Any object is accepted by truthiness, so the Rust default is not a literal.
-    #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+    #[pyarg(named, default = ArgIntoBool::FALSE)]
     signed: ArgIntoBool,
 }
 

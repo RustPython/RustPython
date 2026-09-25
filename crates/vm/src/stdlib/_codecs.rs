@@ -46,10 +46,10 @@ mod _codecs {
     struct CodeArgs {
         obj: PyObjectRef,
         // None is replaced with utf-8 before the codec runs.
-        #[pyarg(any, default = None, py_default = "'utf-8'")]
+        #[pyarg(any, optional, py_default = "'utf-8'")]
         encoding: Option<PyUtf8StrRef>,
         // None is replaced with strict before the codec runs.
-        #[pyarg(any, default = None, py_default = "'strict'")]
+        #[pyarg(any, optional, py_default = "'strict'")]
         errors: Option<PyUtf8StrRef>,
     }
 
@@ -135,7 +135,7 @@ mod _codecs {
     struct EncodeArgs {
         #[pyarg(positional, name = "str")]
         s: PyStrRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
     }
 
@@ -158,7 +158,7 @@ mod _codecs {
     struct DecodeArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, name = "final", default = false)]
         final_decode: bool,
@@ -180,7 +180,7 @@ mod _codecs {
     struct DecodeArgsNoFinal {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
     }
 
@@ -274,7 +274,7 @@ mod _codecs {
     struct ReadBufferEncodeArgs {
         #[pyarg(positional, name = "data")]
         data: PyObjectRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         errors: Option<PyObjectRef>,
     }
 
@@ -294,7 +294,7 @@ mod _codecs {
     struct EscapeEncodeArgs {
         #[pyarg(positional)]
         data: PyBytesRef,
-        #[pyarg(positional, name = "errors", default = None)]
+        #[pyarg(positional, name = "errors", optional)]
         _errors: Option<PyUtf8StrRef>,
     }
 
@@ -309,7 +309,7 @@ mod _codecs {
     struct EscapeDecodeArgs {
         #[pyarg(positional)]
         data: PyObjectRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
     }
 
@@ -367,7 +367,7 @@ mod _codecs {
     struct EscapeTextDecodeArgs {
         #[pyarg(positional)]
         data: PyObjectRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, name = "final", default = true)]
         final_decode: bool,
@@ -428,7 +428,7 @@ mod _codecs {
     struct WideEncodeArgs {
         #[pyarg(positional, name = "str")]
         s: PyStrRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default = 0)]
         byteorder: i32,
@@ -530,7 +530,7 @@ mod _codecs {
     struct ExDecodeArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
         #[pyarg(positional, default = 0)]
         byteorder: i32,
@@ -641,9 +641,9 @@ mod _codecs {
     struct CharmapEncodeArgs {
         #[pyarg(positional, name = "str")]
         s: PyObjectRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         errors: Option<PyObjectRef>,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         mapping: Option<PyObjectRef>,
     }
 
@@ -651,9 +651,9 @@ mod _codecs {
     struct CharmapDecodeArgs {
         #[pyarg(positional)]
         data: PyObjectRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         errors: Option<PyObjectRef>,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         mapping: Option<PyObjectRef>,
     }
 

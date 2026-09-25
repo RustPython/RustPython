@@ -27,7 +27,7 @@ mod _random {
 
     #[derive(FromArgs)]
     struct SeedArgs {
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         n: Option<PyObjectRef>,
     }
 

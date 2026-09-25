@@ -70,27 +70,27 @@ pub(crate) mod _asyncio {
 
     #[derive(FromArgs)]
     struct CancelArgs {
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         msg: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct LoopArg {
-        #[pyarg(any, name = "loop", default = None)]
+        #[pyarg(any, name = "loop", optional)]
         loop_: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct GetStackArgs {
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         limit: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct PrintStackArgs {
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         limit: Option<PyObjectRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         file: Option<PyObjectRef>,
     }
 

@@ -2,7 +2,9 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 use syn::ext::IdentExt;
 use syn::meta::ParseNestedMeta;
-use syn::{Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Result, Token, parse_quote};
+use syn::{
+    Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Result, Token, Type, parse_quote,
+};
 
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
 /// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)
@@ -37,6 +39,8 @@ struct ArgAttribute {
     name: Option<String>,
     kind: ParameterKind,
     default: Option<DefaultValue>,
+    /// `optional` (missing argument is the Python `None` default). Bare `default` is separate.
+    optional: bool,
     py_default: Option<String>,
     error_msg: Option<String>,
 }
@@ -65,6 +69,7 @@ impl ArgAttribute {
                         name: None,
                         kind,
                         default: None,
+                        optional: false,
                         py_default: None,
                         error_msg: None,
                     });
@@ -89,7 +94,12 @@ impl ArgAttribute {
             }
             let val = meta.value()?;
             self.default = Some(Some(val.parse()?))
-        } else if meta.path.is_ident("default") || meta.path.is_ident("optional") {
+        } else if meta.path.is_ident("optional") {
+            self.optional = true;
+            if self.default.is_none() {
+                self.default = Some(None);
+            }
+        } else if meta.path.is_ident("default") {
             if self.default.is_none() {
                 self.default = Some(None);
             }
@@ -228,100 +238,143 @@ fn is_phantom(field: &Field) -> bool {
         .is_some_and(|ident| ident.unraw().to_string().starts_with("_phantom"))
 }
 
-fn python_str_repr(s: &str) -> String {
-    let mut out = String::from("'");
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\'' => out.push_str("\\'"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            _ => out.push(c),
-        }
-    }
-    out.push('\'');
-    out
+fn repr_path() -> TokenStream {
+    quote!(::rustpython_vm::function::DefaultRepr)
 }
 
-/// Bytes repr: `b'...'`, with the same escapes as `bytes.__repr__`.
-fn python_bytes_repr(bytes: &[u8]) -> String {
-    let quote = if bytes.contains(&b'\'') && !bytes.contains(&b'"') {
-        b'"'
-    } else {
-        b'\''
+fn is_primitive_int(ty: &Type) -> bool {
+    let Type::Path(path) = ty else {
+        return false;
     };
-    let mut out = String::from("b");
-    out.push(quote as char);
-    for &c in bytes {
-        if c == b'\\' || c == quote {
-            out.push('\\');
-            out.push(c as char);
-        } else if c == b'\t' {
-            out.push_str("\\t");
-        } else if c == b'\n' {
-            out.push_str("\\n");
-        } else if c == b'\r' {
-            out.push_str("\\r");
-        } else if !(b' '..0x7f).contains(&c) {
-            out.push_str(&format!("\\x{c:02x}"));
-        } else {
-            out.push(c as char);
-        }
+    if path.qself.is_some() {
+        return false;
     }
-    out.push(quote as char);
-    out
-}
-
-fn python_default_repr(default: Option<&DefaultValue>, py_default: Option<&str>) -> Option<String> {
-    if let Some(py_default) = py_default {
-        return Some(py_default.to_owned());
-    }
-    let expr = default?.as_ref();
-    Some(
-        expr.and_then(python_literal_repr)
-            .unwrap_or_else(|| "<unrepresentable>".to_owned()),
+    let Some(ident) = path.path.get_ident() else {
+        return false;
+    };
+    matches!(
+        ident.to_string().as_str(),
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
     )
 }
 
-/// Python source for a Rust literal default, or `None` when it has none.
-fn python_literal_repr(expr: &Expr) -> Option<String> {
+fn is_bool_ty(ty: &Type) -> bool {
+    matches!(&ty, Type::Path(path) if path.qself.is_none() && path.path.is_ident("bool"))
+}
+
+fn float_literal_text(digits: &str) -> String {
+    if digits.contains(['.', 'e', 'E']) {
+        digits.to_owned()
+    } else {
+        format!("{digits}.0")
+    }
+}
+
+/// Typed default for a literal, a negative literal, or the path `None`.
+fn literal_default_repr(expr: &Expr) -> Option<TokenStream> {
+    let repr = repr_path();
     match expr {
         Expr::Lit(syn::ExprLit { lit, .. }) => match lit {
-            Lit::Bool(b) => Some(if b.value { "True" } else { "False" }.to_owned()),
-            Lit::Int(i) => Some(i.base10_digits().to_owned()),
-            // `1f64` has digits `1`; keep it a float.
-            Lit::Float(f) => {
-                let digits = f.base10_digits();
-                Some(if digits.contains(['.', 'e', 'E']) {
-                    digits.to_owned()
-                } else {
-                    format!("{digits}.0")
-                })
+            Lit::Bool(b) => {
+                let v = b.value();
+                Some(quote!(#repr::Bool(#v)))
             }
-            Lit::Str(s) => Some(python_str_repr(&s.value())),
-            Lit::ByteStr(b) => Some(python_bytes_repr(&b.value())),
-            Lit::Byte(b) => Some(python_bytes_repr(&[b.value()])),
-            Lit::Char(c) => Some(python_str_repr(&c.value().to_string())),
+            Lit::Int(i) => {
+                let v: i128 = i.base10_parse().ok()?;
+                Some(quote!(#repr::Int(#v)))
+            }
+            Lit::Float(f) => {
+                let text = float_literal_text(f.base10_digits());
+                Some(quote!(#repr::Raw(#text)))
+            }
+            Lit::Str(s) => Some(quote!(#repr::Str(#s))),
+            Lit::ByteStr(b) => Some(quote!(#repr::Bytes(#b))),
+            Lit::Byte(b) => {
+                let v = b.value();
+                Some(quote!(#repr::Bytes(&[#v])))
+            }
+            Lit::Char(c) => {
+                let s = c.value().to_string();
+                Some(quote!(#repr::Str(#s)))
+            }
             _ => None,
         },
         Expr::Path(path) if path.qself.is_none() && path.path.is_ident("None") => {
-            Some("None".to_owned())
+            Some(quote!(#repr::None))
         }
         Expr::Unary(syn::ExprUnary {
             op: syn::UnOp::Neg(_),
             expr: inner,
             ..
-        }) => {
-            let inner = python_literal_repr(inner)?;
-            inner
-                .starts_with(|c: char| c.is_ascii_digit())
-                .then(|| format!("-{inner}"))
-        }
+        }) => match inner.as_ref() {
+            Expr::Lit(syn::ExprLit {
+                lit: Lit::Int(i), ..
+            }) => {
+                let v: i128 = i.base10_parse().ok()?;
+                let v = v.checked_neg()?;
+                Some(quote!(#repr::Int(#v)))
+            }
+            Expr::Lit(syn::ExprLit {
+                lit: Lit::Float(f), ..
+            }) => {
+                let text = float_literal_text(f.base10_digits());
+                text.starts_with(|c: char| c.is_ascii_digit()).then(|| {
+                    let text = format!("-{text}");
+                    quote!(#repr::Raw(#text))
+                })
+            }
+            _ => None,
+        },
         Expr::Paren(syn::ExprParen { expr: inner, .. })
-        | Expr::Group(syn::ExprGroup { expr: inner, .. }) => python_literal_repr(inner),
+        | Expr::Group(syn::ExprGroup { expr: inner, .. }) => literal_default_repr(inner),
         _ => None,
     }
+}
+
+fn value_default_repr(field: &Field, expr: &Expr) -> TokenStream {
+    if let Some(lit) = literal_default_repr(expr) {
+        return lit;
+    }
+    let repr = repr_path();
+    let ty = &field.ty;
+    if is_primitive_int(ty) {
+        quote!(#repr::Int((#expr) as i128))
+    } else if is_bool_ty(ty) && matches!(expr, Expr::Path(_)) {
+        quote!(#repr::Bool(#expr))
+    } else {
+        quote!({
+            const V: #ty = #expr;
+            V.py_default()
+        })
+    }
+}
+
+fn signature_default(field: &Field, attr: &ArgAttribute) -> TokenStream {
+    let repr = repr_path();
+    if let Some(text) = &attr.py_default {
+        return quote!(Some(#repr::Raw(#text)));
+    }
+    if let Some(Some(expr)) = &attr.default {
+        let value = value_default_repr(field, expr);
+        return quote!(Some(#value));
+    }
+    if attr.optional {
+        return quote!(Some(#repr::None));
+    }
+    if attr.default.is_some() {
+        return quote!(Some(#repr::Raw("<unrepresentable>")));
+    }
+    quote!(None)
 }
 
 fn param_token(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> {
@@ -340,11 +393,7 @@ fn param_token(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> {
         .clone()
         .or(name)
         .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))?;
-    let default = python_default_repr(attr.default.as_ref(), attr.py_default.as_deref());
-    let default_tok = match &default {
-        Some(default) => quote!(Some(#default)),
-        None => quote!(None),
-    };
+    let default_tok = signature_default(field, attr);
     let kind = match attr.kind {
         ParameterKind::PositionalOnly => {
             quote!(::rustpython_vm::function::ParamKind::PositionalOnly)

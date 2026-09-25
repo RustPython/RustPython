@@ -397,7 +397,7 @@ pub(crate) mod _elementtree {
     struct FindArgs {
         #[pyarg(any)]
         path: PyObjectRef,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         namespaces: Option<PyObjectRef>,
     }
 
@@ -405,9 +405,9 @@ pub(crate) mod _elementtree {
     struct FindTextArgs {
         #[pyarg(any)]
         path: PyObjectRef,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         default: Option<PyObjectRef>,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         namespaces: Option<PyObjectRef>,
     }
 
@@ -415,13 +415,13 @@ pub(crate) mod _elementtree {
     struct GetArgs {
         #[pyarg(any)]
         key: PyObjectRef,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         default: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct IterArgs {
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         tag: Option<PyObjectRef>,
     }
 
@@ -429,7 +429,7 @@ pub(crate) mod _elementtree {
     struct PiArgs {
         #[pyarg(positional)]
         target: PyObjectRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         text: Option<PyObjectRef>,
     }
 
@@ -437,7 +437,7 @@ pub(crate) mod _elementtree {
     struct SetEventsArgs {
         #[pyarg(positional)]
         events_queue: PyObjectRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         events_to_report: Option<PyObjectRef>,
     }
 

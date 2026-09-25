@@ -170,7 +170,7 @@ impl PyList {
 
 #[derive(FromArgs, Default, Traverse)]
 pub(crate) struct SortOptions {
-    #[pyarg(named, default = None)]
+    #[pyarg(named, optional)]
     key: Option<PyObjectRef>,
     #[pytraverse(skip)]
     #[pyarg(named, default = false)]

@@ -158,7 +158,7 @@ mod gc {
     /// Return the list of objects tracked by the collector.
     #[derive(FromArgs)]
     struct GetObjectsArgs {
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         generation: Option<i32>,
     }
 

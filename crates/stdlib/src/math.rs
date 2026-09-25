@@ -446,7 +446,7 @@ mod math {
         #[pyarg(positional)]
         y: ArgIntoFloat,
         // Missing means one step.
-        #[pyarg(named, optional, py_default = "None")]
+        #[pyarg(named, optional)]
         steps: OptionalArg<ArgIndex>,
     }
 
@@ -815,7 +815,7 @@ mod math {
     struct PermArgs {
         #[pyarg(positional)]
         n: ArgIndex,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         k: Option<ArgIndex>,
     }
 

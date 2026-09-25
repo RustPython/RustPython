@@ -16,9 +16,9 @@ mod _bisect {
         #[pyarg(any, optional, py_default = "0")]
         lo: OptionalArg<ArgIndex>,
         // Missing means the sequence length.
-        #[pyarg(any, optional, py_default = "None")]
+        #[pyarg(any, optional)]
         hi: OptionalArg<ArgIndex>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         key: Option<PyObjectRef>,
     }
 

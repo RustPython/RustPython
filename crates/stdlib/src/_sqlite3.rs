@@ -361,11 +361,11 @@ mod _sqlite3 {
         timeout: TimeoutSeconds,
         #[pyarg(any, default = 0)]
         detect_types: c_int,
-        #[pyarg(any, default = IsolationLevelArg(Some(vm.ctx.empty_str.to_owned())))]
+        #[pyarg(any, default = IsolationLevelArg(Some(vm.ctx.empty_str.to_owned())), py_default = "''")]
         isolation_level: IsolationLevelArg,
         #[pyarg(any, default = true)]
         check_same_thread: bool,
-        #[pyarg(any, default = Connection::class(&vm.ctx).to_owned())]
+        #[pyarg(any, default = Connection::class(&vm.ctx).to_owned(), py_default = "ConnectionType")]
         factory: PyTypeRef,
         // TODO: cache statements
         #[allow(dead_code)]
@@ -443,7 +443,7 @@ mod _sqlite3 {
         row: i64,
         #[pyarg(named, default)]
         readonly: bool,
-        #[pyarg(named, default = vm.ctx.new_str("main"))]
+        #[pyarg(named, default = vm.ctx.new_str("main"), py_default = "'main'")]
         name: PyStrRef,
     }
 

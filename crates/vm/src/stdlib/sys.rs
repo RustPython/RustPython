@@ -772,7 +772,7 @@ pub mod sys {
 
     #[derive(FromArgs)]
     struct ExitArgs {
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         status: Option<PyObjectRef>,
     }
 

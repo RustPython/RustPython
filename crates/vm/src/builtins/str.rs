@@ -1705,16 +1705,16 @@ impl AsSequence for PyStr {
 #[derive(FromArgs)]
 struct EncodeArgs {
     // None is filled in as utf-8 when encoding.
-    #[pyarg(any, default = None, py_default = "'utf-8'")]
+    #[pyarg(any, optional, py_default = "'utf-8'")]
     encoding: Option<PyUtf8StrRef>,
     // None is filled in as strict when encoding.
-    #[pyarg(any, default = None, py_default = "'strict'")]
+    #[pyarg(any, optional, py_default = "'strict'")]
     errors: Option<PyUtf8StrRef>,
 }
 
 #[derive(FromArgs)]
 struct StripArgs {
-    #[pyarg(positional, default = None)]
+    #[pyarg(positional, optional)]
     chars: Option<PyStrRef>,
 }
 

@@ -6,8 +6,8 @@ use crate::vm::function::{ArgBytesLike, ArgSize, OptionalArg};
 pub(crate) struct DecompressArgs {
     #[pyarg(positional)]
     data: ArgBytesLike,
-    // Missing max_length is unlimited, shown as -1.
-    #[pyarg(any, optional, py_default = "-1")]
+    // Omitted max_length is 0, which means unlimited for this call.
+    #[pyarg(any, optional, py_default = "0")]
     max_length: OptionalArg<ArgSize>,
 }
 

@@ -45,6 +45,13 @@ mod mmap {
         Copy = 3,
     }
 
+    impl AccessMode {
+        #[must_use]
+        pub(crate) const fn py_default(&self) -> crate::vm::function::DefaultRepr {
+            crate::vm::function::DefaultRepr::Raw("<unrepresentable>")
+        }
+    }
+
     impl<'a> TryFromBorrowedObject<'a> for AccessMode {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
             let i = u32::try_from_borrowed_object(vm, obj)?;
@@ -223,9 +230,9 @@ mod mmap {
         fileno: i32,
         #[pyarg(any)]
         length: isize,
-        #[pyarg(any, default = host_mmap::MAP_SHARED)]
+        #[pyarg(any, default = host_mmap::MAP_SHARED, py_default = "<unrepresentable>")]
         flags: core::ffi::c_int,
-        #[pyarg(any, default = host_mmap::PROT_WRITE | host_mmap::PROT_READ)]
+        #[pyarg(any, default = host_mmap::PROT_WRITE | host_mmap::PROT_READ, py_default = "<unrepresentable>")]
         prot: core::ffi::c_int,
         #[pyarg(any, default = AccessMode::Default)]
         access: AccessMode,
@@ -265,7 +272,7 @@ mod mmap {
 
     #[derive(FromArgs)]
     struct ReadArgs {
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         n: Option<PyObjectRef>,
     }
 
@@ -281,7 +288,7 @@ mod mmap {
     pub(super) struct FlushOptions {
         #[pyarg(positional, default = 0)]
         offset: isize,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         size: Option<isize>,
     }
 
@@ -310,9 +317,9 @@ mod mmap {
     pub(super) struct FindOptions {
         #[pyarg(positional, name = "view")]
         sub: Vec<u8>,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         start: Option<isize>,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         end: Option<isize>,
     }
 
@@ -324,7 +331,7 @@ mod mmap {
         // Missing means 0.
         #[pyarg(positional, default, py_default = "0")]
         start: Option<PyIntRef>,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         length: Option<PyIntRef>,
     }
 

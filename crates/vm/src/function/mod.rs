@@ -32,7 +32,7 @@ pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
 pub use number::{ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgPrimitiveIndex, ArgSize};
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use signature::{
-    Param, ParamKind, SigArg, has_signature, internal_doc_bytes, internal_doc_len,
+    DefaultRepr, Param, ParamKind, SigArg, has_signature, internal_doc_bytes, internal_doc_len,
 };
 pub use time::TimeoutSeconds;
 
@@ -45,6 +45,16 @@ use builtin::{BorrowedParam, OwnedParam, RefParam};
 pub enum ArgByteOrder {
     Big,
     Little,
+}
+
+impl ArgByteOrder {
+    #[must_use]
+    pub const fn py_default(&self) -> DefaultRepr {
+        match self {
+            Self::Big => DefaultRepr::Str("big"),
+            Self::Little => DefaultRepr::Str("little"),
+        }
+    }
 }
 
 impl<'a> TryFromBorrowedObject<'a> for ArgByteOrder {

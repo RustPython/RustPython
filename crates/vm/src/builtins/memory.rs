@@ -1200,8 +1200,8 @@ struct MemoryIndexArgs {
     value: PyObjectRef,
     #[pyarg(positional, default = 0)]
     start: isize,
-    // Omission is clamped to the view length; the text is the platform ssize maximum.
-    #[pyarg(positional, default = isize::MAX, py_default = "9223372036854775807")]
+    // Omission is clamped to the view length.
+    #[pyarg(positional, default = isize::MAX)]
     stop: isize,
 }
 

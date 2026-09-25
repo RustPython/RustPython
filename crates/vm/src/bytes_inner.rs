@@ -1206,7 +1206,7 @@ impl AnyStr for [u8] {
 
 #[derive(FromArgs)]
 pub(crate) struct ByteInnerStripOptions {
-    #[pyarg(positional, default = None)]
+    #[pyarg(positional, optional)]
     pub bytes: Option<PyBytesInner>,
 }
 
@@ -1223,10 +1223,10 @@ pub struct ByteInnerReplaceOptions {
 #[derive(FromArgs)]
 pub(crate) struct DecodeArgs {
     // None is filled in as utf-8 when decoding.
-    #[pyarg(any, default = None, py_default = "'utf-8'")]
+    #[pyarg(any, optional, py_default = "'utf-8'")]
     encoding: Option<PyUtf8StrRef>,
     // None is filled in as strict when decoding.
-    #[pyarg(any, default = None, py_default = "'strict'")]
+    #[pyarg(any, optional, py_default = "'strict'")]
     errors: Option<PyUtf8StrRef>,
 }
 

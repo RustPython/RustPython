@@ -274,7 +274,7 @@ mod _imp {
     struct FrozenObjectArgs {
         #[pyarg(positional)]
         name: PyUtf8StrRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         data: Option<PyObjectRef>,
     }
 

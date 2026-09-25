@@ -415,11 +415,11 @@ mod _ssl {
     struct WrapSocketArgs {
         sock: PyObjectRef,
         server_side: bool,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         server_hostname: Option<PyUtf8StrRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         owner: Option<PyObjectRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         session: Option<PyObjectRef>,
     }
 
@@ -428,21 +428,21 @@ mod _ssl {
         incoming: PyRef<PyMemoryBIO>,
         outgoing: PyRef<PyMemoryBIO>,
         server_side: bool,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         server_hostname: Option<PyUtf8StrRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         owner: Option<PyObjectRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         session: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct LoadVerifyLocationsArgs {
-        #[pyarg(any, default = None, error_msg = "path should be a str or bytes")]
+        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
         cafile: Option<Either<PyStrRef, ArgBytesLike>>,
-        #[pyarg(any, default = None, error_msg = "path should be a str or bytes")]
+        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
         capath: Option<Either<PyStrRef, ArgBytesLike>>,
-        #[pyarg(any, default = None, error_msg = "cadata should be a str or bytes")]
+        #[pyarg(any, optional, error_msg = "cadata should be a str or bytes")]
         cadata: Option<Either<PyStrRef, ArgBytesLike>>,
     }
 
@@ -450,15 +450,21 @@ mod _ssl {
     struct LoadCertChainArgs {
         #[pyarg(any, error_msg = "path should be a str or bytes")]
         certfile: Either<PyStrRef, ArgBytesLike>,
-        #[pyarg(any, default = None, error_msg = "path should be a str or bytes")]
+        #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
         keyfile: Option<Either<PyStrRef, ArgBytesLike>>,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         password: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct GetCertArgs {
         #[pyarg(positional, name = "der", default = false)]
+        binary_form: bool,
+    }
+
+    #[derive(FromArgs)]
+    struct GetCaCertsArgs {
+        #[pyarg(any, default = false)]
         binary_form: bool,
     }
 
@@ -1408,7 +1414,7 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_ca_certs(&self, args: GetCertArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        fn get_ca_certs(&self, args: GetCaCertsArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
             let binary_form = args.binary_form;
             let ca_certs_der = self.ca_certs_der.read();
 

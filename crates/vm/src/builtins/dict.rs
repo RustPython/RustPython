@@ -373,7 +373,7 @@ impl PyDict {
 struct DictGetArgs {
     #[pyarg(positional)]
     key: PyObjectRef,
-    #[pyarg(positional, default = None)]
+    #[pyarg(positional, optional)]
     default: Option<PyObjectRef>,
 }
 
@@ -381,7 +381,7 @@ struct DictGetArgs {
 struct FromKeysArgs {
     #[pyarg(positional)]
     iterable: ArgIterable,
-    #[pyarg(positional, default = None)]
+    #[pyarg(positional, optional)]
     value: Option<PyObjectRef>,
 }
 

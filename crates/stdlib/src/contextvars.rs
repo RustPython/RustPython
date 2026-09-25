@@ -72,7 +72,7 @@ mod _contextvars {
     struct ContextGetArgs {
         #[pyarg(positional)]
         key: PyObjectRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         default: Option<PyObjectRef>,
     }
 

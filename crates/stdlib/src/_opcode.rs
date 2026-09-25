@@ -26,9 +26,9 @@ mod _opcode {
     struct StackEffectArgs {
         #[pyarg(positional)]
         opcode: PyIntRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         oparg: Option<PyObjectRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         jump: Option<PyObjectRef>,
     }
 

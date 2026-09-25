@@ -18,18 +18,18 @@ mod _multiprocessing {
     struct AcquireArgs {
         #[pyarg(any, default = true)]
         block: bool,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         timeout: Option<crate::vm::PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct ExitArgs {
-        #[pyarg(positional, name = "exc_type", default = None)]
+        #[pyarg(positional, name = "exc_type", optional)]
         exc_type: Option<crate::vm::PyObjectRef>,
-        #[pyarg(positional, name = "exc_value", default = None)]
+        #[pyarg(positional, name = "exc_value", optional)]
         exc_value: Option<crate::vm::PyObjectRef>,
-        #[pyarg(positional, name = "exc_tb", default = None)]
+        #[pyarg(positional, name = "exc_tb", optional)]
         exc_tb: Option<crate::vm::PyObjectRef>,
     }
 
@@ -380,18 +380,18 @@ mod _multiprocessing {
     struct AcquireArgs {
         #[pyarg(any, default = true)]
         block: bool,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         timeout: Option<crate::vm::PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct ExitArgs {
-        #[pyarg(positional, name = "exc_type", default = None)]
+        #[pyarg(positional, name = "exc_type", optional)]
         exc_type: Option<crate::vm::PyObjectRef>,
-        #[pyarg(positional, name = "exc_value", default = None)]
+        #[pyarg(positional, name = "exc_value", optional)]
         exc_value: Option<crate::vm::PyObjectRef>,
-        #[pyarg(positional, name = "exc_tb", default = None)]
+        #[pyarg(positional, name = "exc_tb", optional)]
         exc_tb: Option<crate::vm::PyObjectRef>,
     }
 

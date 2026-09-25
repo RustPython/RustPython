@@ -68,7 +68,7 @@ mod decl {
         wlist: PyObjectRef,
         #[pyarg(positional)]
         xlist: PyObjectRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         timeout: Option<Either<f64, isize>>,
     }
 
@@ -714,9 +714,9 @@ mod decl {
         pub(crate) struct KeventNewArgs {
             #[pyarg(any)]
             ident: PyObjectRef,
-            #[pyarg(any, default = host_select::kqueue::DEFAULT_FILTER)]
+            #[pyarg(any, default = host_select::kqueue::DEFAULT_FILTER, py_default = "<unrepresentable>")]
             filter: i16,
-            #[pyarg(any, default = host_select::kqueue::DEFAULT_FLAGS)]
+            #[pyarg(any, default = host_select::kqueue::DEFAULT_FLAGS, py_default = "<unrepresentable>")]
             flags: u16,
             #[pyarg(any, default = 0)]
             fflags: u32,
@@ -894,7 +894,7 @@ mod decl {
             changelist: PyObjectRef,
             #[pyarg(positional)]
             maxevents: i32,
-            #[pyarg(positional, default = None)]
+            #[pyarg(positional, optional)]
             timeout: Option<PyObjectRef>,
         }
 

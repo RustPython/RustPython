@@ -17,19 +17,41 @@ use syn::punctuated::Punctuated;
 /// - `flatten`: take this field from the same argument list. No other keys.
 /// - `name = "..."`: Python parameter name. The field name is used when omitted.
 /// - `default`: missing argument stores `Default::default()`. Affects parsing.
+///   The signature text is `<unrepresentable>` unless `py_default` is set.
 /// - `default = <expr>`: missing argument stores that Rust value. Affects parsing.
-/// - `optional`: same as a bare `default`.
+/// - `optional`: same parsing as a bare `default`. The signature default is `None`.
 /// - `py_default = "<python source>"`: text copied verbatim into `__text_signature__`.
-///   Never affects parsing.
+///   Never affects parsing. Overrides every other signature default.
 /// - `error_msg = "..."`: type-error text when conversion fails.
 /// # Signature default
-/// An explicit `py_default` is used as written. Otherwise a Rust literal is
-/// converted to its Python repr (`True`/`False`, an int, a float, a quoted
-/// str, a bytes literal, a char, and the path `None`). Anything else renders `<unrepresentable>`, and
-/// `inspect.signature` raises `ValueError`.
+/// An explicit `py_default` is used as written. Otherwise:
+/// - a literal, a negative literal, or the path `None` becomes a typed default
+///   (`None`, `True`/`False`, an int, a quoted str, a bytes literal, a char;
+///   a float literal keeps its source text);
+/// - a non-literal on a primitive integer field becomes that value as a decimal int;
+/// - a path on a `bool` field becomes `True` or `False`;
+/// - any other expression uses `const V: FieldTy = <expr>; V.py_default()`.
 ///
-/// Prefer `default = <literal>` when that literal is the Python default.
-/// Use `py_default` only when the Rust value must differ.
+/// `py_default` is an inherent `pub const fn py_default(&self) -> DefaultRepr`.
+/// A type defines it once, and every `default = <expr>` of that type reuses it:
+///
+/// ```rust, ignore
+/// impl ArgByteOrder {
+///     pub const fn py_default(&self) -> DefaultRepr {
+///         match self {
+///             Self::Big => DefaultRepr::Str("big"),
+///             Self::Little => DefaultRepr::Str("little"),
+///         }
+///     }
+/// }
+///
+/// #[pyarg(any, default = ArgByteOrder::Big)]
+/// byteorder: ArgByteOrder, // signature shows 'big'
+/// ```
+///
+/// A bare `optional` renders `=None`. Keep `py_default` when the expression
+/// needs `vm` (so it is not const), or when an `OptionalArg` is missing in the
+/// body and the Python default is not `None`.
 /// ```rust, ignore
 /// #[derive(FromArgs)]
 /// struct OpenArgs {

@@ -222,13 +222,13 @@ mod _io {
     // truncate reports None. Missing still means the current position.
     #[derive(Clone, Copy, FromArgs)]
     struct OptionalPos {
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         size: Option<ArgSize>,
     }
 
     #[derive(Clone, Copy, FromArgs)]
     struct StringIOPos {
-        #[pyarg(positional, name = "pos", default = None)]
+        #[pyarg(positional, name = "pos", optional)]
         size: Option<ArgSize>,
     }
 
@@ -281,34 +281,34 @@ mod _io {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct IgnoredPos {
-        #[pyarg(positional, name = "size", default = None)]
+        #[pyarg(positional, name = "size", optional)]
         pos: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct ReadlinesHint {
         // Explicit None is unlimited, same as omission.
-        #[pyarg(positional, default = None, py_default = "-1")]
+        #[pyarg(positional, optional, py_default = "-1")]
         hint: Option<isize>,
     }
 
     #[derive(FromArgs)]
     struct ObjPos {
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         pos: Option<PyObjectRef>,
     }
 
     #[cfg(feature = "host_env")]
     #[derive(FromArgs)]
     pub(super) struct ObjLen {
-        #[pyarg(positional, name = "size", default = None)]
+        #[pyarg(positional, name = "size", optional)]
         pub len: Option<PyObjectRef>,
     }
 
     // An explicit None object is preserved; only omission becomes None.
     #[derive(FromArgs)]
     struct KeepNonePos {
-        #[pyarg(positional, default = OptionalArg::Missing, py_default = "None")]
+        #[pyarg(positional, optional)]
         pos: OptionalArg<PyObjectRef>,
     }
 
@@ -2438,12 +2438,12 @@ mod _io {
 
     #[derive(FromArgs)]
     struct TextIOWrapperArgs {
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         encoding: Option<PyUtf8StrRef>,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         errors: Option<PyUtf8StrRef>,
         // None means universal newlines.
-        #[pyarg(any, default, py_default = "None")]
+        #[pyarg(any, optional)]
         newline: OptionalOption<Newlines>,
         // None is false.
         #[pyarg(any, default, py_default = "False")]
@@ -2455,15 +2455,15 @@ mod _io {
 
     #[derive(FromArgs)]
     struct TextIOWrapperReconfigureArgs {
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         encoding: Option<PyUtf8StrRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(named, default, py_default = "None")]
+        #[pyarg(named, optional)]
         newline: OptionalOption<Newlines>,
-        #[pyarg(named, default, py_default = "None")]
+        #[pyarg(named, optional)]
         line_buffering: OptionalOption<PyObjectRef>,
-        #[pyarg(named, default, py_default = "None")]
+        #[pyarg(named, optional)]
         write_through: OptionalOption<PyObjectRef>,
     }
 
@@ -5316,15 +5316,15 @@ mod _io {
     pub struct OpenArgs {
         #[pyarg(any, default = -1)]
         pub buffering: isize,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         pub encoding: Option<PyUtf8StrRef>,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         pub errors: Option<PyUtf8StrRef>,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         pub newline: Option<PyUtf8StrRef>,
         #[pyarg(any, default = true)]
         pub closefd: bool,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         pub opener: Option<PyObjectRef>,
     }
 
@@ -5720,7 +5720,7 @@ mod fileio {
         mode: Option<PyUtf8StrRef>,
         #[pyarg(any, default = true)]
         closefd: bool,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         opener: Option<PyObjectRef>,
     }
 

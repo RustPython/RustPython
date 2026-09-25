@@ -351,11 +351,11 @@ mod _ssl {
         incoming: PyRef<PyMemoryBIO>,
         outgoing: PyRef<PyMemoryBIO>,
         server_side: bool,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         server_hostname: Option<PyUtf8StrRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         owner: Option<PyObjectRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         session: Option<PyObjectRef>,
     }
 
@@ -363,11 +363,11 @@ mod _ssl {
     struct WrapSocketArgs {
         sock: PyObjectRef,
         server_side: bool,
-        #[pyarg(positional, default = None)]
+        #[pyarg(positional, optional)]
         server_hostname: Option<PyUtf8StrRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         owner: Option<PyObjectRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         session: Option<PyObjectRef>,
     }
 
@@ -894,33 +894,33 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct LoadVerifyLocationsArgs {
-        #[pyarg(positional, default = None)]
+        #[pyarg(any, name = "cafile", optional)]
         _cafile: Option<PyObjectRef>,
-        #[pyarg(positional, default = None)]
+        #[pyarg(any, name = "capath", optional)]
         _capath: Option<PyObjectRef>,
-        #[pyarg(positional, default = None)]
+        #[pyarg(any, name = "cadata", optional)]
         _cadata: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct LoadCertChainArgs {
-        #[pyarg(positional)]
+        #[pyarg(any, name = "certfile")]
         _certfile: PyObjectRef,
-        #[pyarg(positional, default = None)]
+        #[pyarg(any, name = "keyfile", optional)]
         _keyfile: Option<PyObjectRef>,
-        #[pyarg(positional, default = None)]
+        #[pyarg(any, name = "password", optional)]
         _password: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct CaCertsArgs {
-        #[pyarg(positional, default = false)]
+        #[pyarg(any, name = "binary_form", default = false)]
         _binary_form: bool,
     }
 
     #[derive(FromArgs)]
     struct GetCertArgs {
-        #[pyarg(positional, default = false)]
+        #[pyarg(positional, name = "der", default = false)]
         binary_form: bool,
     }
 
