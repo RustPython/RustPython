@@ -35,13 +35,6 @@ impl PyFloat {
     }
 }
 
-impl Py<PyFloat> {
-    #[inline]
-    pub fn to_f64(&self) -> f64 {
-        self.payload().to_f64()
-    }
-}
-
 thread_local! {
     static FLOAT_FREELIST: Cell<crate::object::FreeList<PyFloat>> = const { Cell::new(crate::object::FreeList::new()) };
 }

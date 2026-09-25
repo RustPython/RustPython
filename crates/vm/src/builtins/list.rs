@@ -140,7 +140,7 @@ impl Py<PyList> {
     }
 
     #[inline]
-    pub fn __len__(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.payload().__len__()
     }
 }

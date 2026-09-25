@@ -1652,36 +1652,6 @@ impl PyType {
 
 impl Py<PyType> {
     #[inline]
-    pub fn name(&self) -> BorrowedValue<'_, str> {
-        self.payload().name()
-    }
-
-    #[inline]
-    pub fn slot_name(&self) -> BorrowedValue<'_, str> {
-        self.payload().slot_name()
-    }
-
-    #[inline]
-    pub fn set_attr(&self, attr_name: &'static PyStrInterned, value: PyObjectRef) {
-        self.payload().set_attr(attr_name, value)
-    }
-
-    #[inline]
-    pub fn get_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
-        self.payload().get_attr(attr_name)
-    }
-
-    #[inline]
-    pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
-        self.payload().get_direct_attr(attr_name)
-    }
-
-    #[inline]
-    pub fn has_attr(&self, attr_name: &'static PyStrInterned) -> bool {
-        self.payload().has_attr(attr_name)
-    }
-
-    #[inline]
     pub fn slots(&self) -> &PyTypeSlots {
         &self.payload().slots
     }

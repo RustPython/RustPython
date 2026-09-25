@@ -1069,13 +1069,6 @@ impl Representable for PySet {
     }
 }
 
-impl Py<PySet> {
-    #[inline]
-    pub fn add(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.payload().add(object, vm)
-    }
-}
-
 impl Constructor for PyFrozenSet {
     type Args = OptionalArg<PyObjectRef>;
 

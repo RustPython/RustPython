@@ -778,18 +778,8 @@ impl PyBaseException {
 #[pyclass]
 impl Py<PyBaseException> {
     #[inline]
-    pub fn args(&self) -> PyTupleRef {
-        self.payload().args()
-    }
-
-    #[inline]
     pub fn traceback(&self) -> Option<PyTracebackRef> {
         self.payload().__traceback__()
-    }
-
-    #[inline]
-    pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
-        self.payload().set_traceback(traceback)
     }
 
     #[pymethod]

@@ -2459,17 +2459,6 @@ impl FrameObject {
 
 impl Py<FrameObject> {
     #[inline(always)]
-    pub fn iframe(&self) -> &InterpreterFrame {
-        self.payload().iframe()
-    }
-
-    #[inline(always)]
-    #[allow(clippy::mut_from_ref)]
-    pub(crate) unsafe fn iframe_mut(&self) -> &mut InterpreterFrame {
-        unsafe { self.payload().iframe_mut() }
-    }
-
-    #[inline(always)]
     fn with_exec<R>(&self, vm: &VirtualMachine, f: impl FnOnce(ExecutingFrame<'_>) -> R) -> R {
         // SAFETY: FrameObject execution is single-threaded. Only one thread at a time
         // executes a given frame (enforced by the owner field and generator

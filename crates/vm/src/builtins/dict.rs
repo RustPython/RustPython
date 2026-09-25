@@ -751,23 +751,8 @@ impl Representable for PyDict {
 
 impl Py<PyDict> {
     #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.payload().is_empty()
-    }
-
-    #[inline]
-    pub fn size(&self) -> dict_inner::DictSize {
-        self.payload().size()
-    }
-
-    #[inline]
-    pub fn __len__(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.payload().__len__()
-    }
-
-    #[inline]
-    pub fn contains_key<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> bool {
-        self.payload().contains_key(key, vm)
     }
 
     #[inline]

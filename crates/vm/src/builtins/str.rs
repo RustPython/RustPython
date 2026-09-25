@@ -639,26 +639,6 @@ impl Py<PyStr> {
         self.payload().as_bytes()
     }
 
-    #[inline]
-    pub fn to_str(&self) -> Option<&str> {
-        self.payload().to_str()
-    }
-
-    #[inline]
-    pub fn byte_len(&self) -> usize {
-        self.payload().byte_len()
-    }
-
-    #[inline]
-    pub fn char_len(&self) -> usize {
-        self.payload().char_len()
-    }
-
-    #[inline]
-    pub fn to_string_lossy(&self) -> Cow<'_, str> {
-        self.payload().to_string_lossy()
-    }
-
     pub fn as_utf8(&self) -> Option<&Py<PyUtf8Str>> {
         if self.is_utf8() {
             // SAFETY: is_utf8() guarantees the PyUtf8Str invariant.
