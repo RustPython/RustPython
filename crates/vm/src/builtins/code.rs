@@ -340,7 +340,6 @@ fn const_hash(ctx: &Context, obj: &PyObject) -> crate::common::hash::PyHash {
 fn const_eq(a: &PyObject, b: &PyObject) -> bool {
     use crate::builtins::{PyBool, PyBytes, PyComplex, PyFloat, PyInt, PyStr, PyTuple};
     use crate::common::float_ops;
-    use num_traits::ToPrimitive;
 
     if a.is(b) {
         return true;
@@ -365,8 +364,7 @@ fn const_eq(a: &PyObject, b: &PyObject) -> bool {
     if let (Some(x), Some(y)) = (a.downcast_ref::<PyFloat>(), b.downcast_ref::<PyFloat>()) {
         return x.to_f64() == y.to_f64();
     }
-    // Complex vs. complex/int/float/bool - matches `Comparable for PyComplex`, which converts
-    // the other side to `f64` too (imprecise for huge ints, same as real Python).
+    // Complex vs. complex/int/float/bool.
     let a_complex = a.downcast_ref::<PyComplex>().map(|c| c.to_complex64());
     let b_complex = b.downcast_ref::<PyComplex>().map(|c| c.to_complex64());
     if let (Some(x), Some(y)) = (a_complex, b_complex) {
@@ -374,17 +372,17 @@ fn const_eq(a: &PyObject, b: &PyObject) -> bool {
     }
     if let Some(c) = a_complex.or(b_complex) {
         let other = if a_complex.is_some() { b } else { a };
-        let other_f64 = other
-            .downcast_ref::<PyFloat>()
-            .map(|f| f.to_f64())
-            .or_else(|| {
-                other
-                    .downcast_ref::<PyBool>()
-                    .map(|v| v.0.as_bigint())
-                    .or_else(|| other.downcast_ref::<PyInt>().map(|i| i.as_bigint()))
-                    .and_then(|i| i.to_f64())
-            });
-        return other_f64.is_some_and(|f| c.im == 0.0 && c.re == f);
+        if c.im != 0.0 {
+            return false;
+        }
+        if let Some(f) = other.downcast_ref::<PyFloat>() {
+            return c.re == f.to_f64();
+        }
+        let other_int = other
+            .downcast_ref::<PyBool>()
+            .map(|v| v.0.as_bigint())
+            .or_else(|| other.downcast_ref::<PyInt>().map(|i| i.as_bigint()));
+        return other_int.is_some_and(|i| float_ops::eq_int(c.re, i));
     }
     if let (Some(x), Some(y)) = (a.downcast_ref::<PyStr>(), b.downcast_ref::<PyStr>()) {
         return x.as_bytes() == y.as_bytes();
@@ -1900,6 +1898,15 @@ assert len(w) == 2
 v = frozenset({1, 1j, (1+0j), 1.0})
 assert len(v) == 2
 assert 1 in v and 1j in v and (1+0j) in v and 1.0 in v
+
+# huge int vs. a same-magnitude complex must compare exactly, not via lossy f64 rounding:
+# 2**114 + (2**61 - 1) and (2**114+0j) round to the same f64, but aren't equal. A `for` loop
+# (unlike a plain assignment) iterates the folded frozenset constant directly instead of
+# rebuilding it through set.update()'s real-VM equality, so this exercises `const_eq` itself.
+u_count = 0
+for _e in {20769187434139312819964994530574335, (20769187434139310514121985316880384+0j), 42}:
+    u_count += 1
+assert u_count == 3
 ";
             let opts = vm.compile_opts();
             let code =
