@@ -149,8 +149,8 @@ impl PyMemberDef {
                 flags,
                 doc,
             },
-            // `offset` is a byte offset from the object to a pointer cell.
-            access: MemberAccess::Slot,
+            // `offset` is a byte offset from the object to the field.
+            access: MemberAccess::Offset,
         };
 
         Ok(descriptor.into_ref(&vm.ctx))

@@ -116,6 +116,15 @@ where
     }
 }
 
+unsafe impl<T: crate::PyPayload> Traverse for super::ext::PyAtomicRef<Option<T>> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        if let Some(obj) = self.deref() {
+            traverse_fn(obj.as_object());
+        }
+    }
+}
+
 unsafe impl Traverse for super::ext::PyAtomicRef<PyObject> {
     #[inline]
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {

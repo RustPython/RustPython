@@ -292,12 +292,15 @@ impl PyModule {
         Self::new().into_ref_with_type(vm, cls).map(Into::into)
     }
 
-    #[pymember]
-    fn __dict__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        zelf.dict()
-            .map(Into::into)
-            .ok_or_else(|| vm.new_attribute_error("module has no __dict__"))
-    }
+    // The dict lives in the object extension, not the payload. The offset is
+    // the non-owning pointer at the front of that extension.
+    #[pymember(
+        type = "object",
+        readonly,
+        name = "__dict__",
+        offset = "::rustpython_vm::object::dict_member_offset()"
+    )]
+    const __dict__: () = ();
 
     #[pymethod]
     fn __dir__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {

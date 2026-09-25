@@ -2825,7 +2825,7 @@ impl Constructor for PyType {
                             qualname: PyRwLock::new(None),
                         },
                         member: member_def,
-                        access: MemberAccess::Slot,
+                        access: MemberAccess::Offset,
                     });
                 // __slots__ attributes always get a member descriptor
                 // (this overrides any inherited attribute from MRO)

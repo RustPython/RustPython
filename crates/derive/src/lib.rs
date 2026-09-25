@@ -210,6 +210,23 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// }
 /// ```
 /// ### pymember
+/// Declares an offset member on a unit const. The const is removed from the impl.
+/// Its name is the payload field unless `field` is set. `field` may be a nested
+/// path (`value.re`). The field type is checked against the member kind.
+///
+/// - `type`: `"object"`, `"object_ex"` (default), `"bool"`, or `"double"`.
+/// - `readonly`: reject stores. A writable object member must be `PyAtomicRef<PyObject>`,
+///   and a writable bool must be `AtomicBool`.
+/// - `audit_read`: audit `object.__getattr__` before the load.
+/// - `name`: Python attribute name. Defaults to the const name.
+/// - `field`: payload field path. Defaults to the const name.
+/// - `doc`: docstring. A `///` comment is used when this is omitted.
+/// - `offset`: expression used instead of the field offset, for storage that is
+///   not a payload field.
+/// ```rust, ignore
+/// #[pymember(type = "object", readonly, name = "fget")]
+/// const getter: () = ();
+/// ```
 /// # Trait
 /// `#[pyclass]` on traits functions a lot like `#[pyclass]` on `impl` blocks.
 /// Note that associated functions that are annotated with `#[pymethod]` or similar **must**

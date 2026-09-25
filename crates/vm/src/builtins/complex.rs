@@ -541,17 +541,11 @@ impl PyComplex {
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyComplex {
-    #[pymember]
-    fn real(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-        Ok(vm.ctx.new_float(zelf.value.re).into())
-    }
+    #[pymember(type = "double", readonly, name = "real", field = "value.re")]
+    const real: () = ();
 
-    #[pymember]
-    fn imag(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-        Ok(vm.ctx.new_float(zelf.value.im).into())
-    }
+    #[pymember(type = "double", readonly, name = "imag", field = "value.im")]
+    const imag: () = ();
 
     #[pymethod]
     fn conjugate(&self) -> Complex64 {
