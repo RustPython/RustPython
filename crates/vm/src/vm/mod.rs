@@ -124,7 +124,6 @@ pub struct VirtualMachine {
     /// Current running asyncio task for this thread
     pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
     pub(crate) callable_cache: CallableCache,
-    pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
     /// Side channel for TailCall: the bytecode loop stores the new frame
     /// pointer here before returning `ExecutionResult::TailCall`.
     /// Access only via `set_pending_tailcall` / `take_pending_tailcall`.
@@ -821,6 +820,8 @@ pub struct PyGlobalState {
     /// `atexit.unregister` can keep the entry it is comparing alive while the
     /// list is unlocked, and still recognize it afterwards by identity.
     pub atexit_funcs: PyMutex<Vec<PyRc<(PyObjectRef, FuncArgs)>>>,
+    /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
+    pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
     pub finalizing: AtomicBool,
     pub warnings: WarningsState,
@@ -1254,7 +1255,6 @@ impl VirtualMachine {
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
             callable_cache: CallableCache::default(),
-            audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(None),
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
             pending_gen_resume: core::cell::UnsafeCell::new(None),
@@ -3014,7 +3014,7 @@ impl VirtualMachine {
         event: &str,
         args: impl FnOnce() -> A,
     ) -> PyResult<()> {
-        if self.audit_hooks.borrow().is_empty() {
+        if self.state.audit_hooks.lock().is_empty() {
             return Ok(());
         }
         let event = self.ctx.new_str(event);

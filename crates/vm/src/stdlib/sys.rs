@@ -1781,7 +1781,7 @@ pub mod sys {
         args: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let hooks = vm.audit_hooks.borrow().clone();
+        let hooks = vm.state.audit_hooks.lock().clone();
 
         if hooks.is_empty() {
             return Ok(());
@@ -1838,7 +1838,7 @@ pub mod sys {
 
     #[pyfunction]
     fn audit(event: PyStrRef, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.audit_hooks.borrow().is_empty() {
+        if vm.state.audit_hooks.lock().is_empty() {
             return Ok(());
         }
 
@@ -1848,10 +1848,10 @@ pub mod sys {
 
     #[pyfunction]
     fn addaudithook(hook: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let hooks = vm.audit_hooks.borrow().clone();
+        let hooks = vm.state.audit_hooks.lock().clone();
 
         if hooks.is_empty() {
-            vm.audit_hooks.borrow_mut().push(hook);
+            vm.state.audit_hooks.lock().push(hook);
             return Ok(());
         }
 
@@ -1871,7 +1871,7 @@ pub mod sys {
             return Err(exc);
         }
 
-        vm.audit_hooks.borrow_mut().push(hook);
+        vm.state.audit_hooks.lock().push(hook);
         Ok(())
     }
 }

@@ -14,3 +14,12 @@ sys.audit = lambda *args: replaced.append(args)
 exec(code, {})
 assert ("exec", (code,)) in seen
 assert replaced == []
+
+# Hooks are per interpreter, so they also fire in other threads.
+import threading
+
+seen.clear()
+worker = threading.Thread(target=exec, args=(code, {}))
+worker.start()
+worker.join()
+assert ("exec", (code,)) in seen

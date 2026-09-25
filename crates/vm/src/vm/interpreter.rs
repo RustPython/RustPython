@@ -173,6 +173,7 @@ where
         thread_count: AtomicCell::new(0),
         hash_secret,
         atexit_funcs: PyMutex::default(),
+        audit_hooks: PyMutex::default(),
         codec_registry,
         finalizing: AtomicBool::new(false),
         warnings,
