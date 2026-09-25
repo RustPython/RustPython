@@ -71,7 +71,7 @@ pub fn offer_suggestions(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> Opti
         if vm.is_none(&name) {
             return None;
         }
-        let tb = exc.__traceback__()?;
+        let tb = exc.traceback()?;
         let tb = tb.iter().last().unwrap_or(tb);
 
         let varnames = tb.frame.iframe().code().to_owned().co_varnames(vm);

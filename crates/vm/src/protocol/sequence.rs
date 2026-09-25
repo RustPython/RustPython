@@ -153,7 +153,7 @@ impl PySequence<'_> {
     #[inline]
     #[must_use]
     pub fn slots(&self) -> &PySequenceSlots {
-        &self.obj.class().slots.as_sequence
+        &self.obj.class().slots().as_sequence
     }
 
     #[must_use]

@@ -322,7 +322,7 @@ pub(crate) mod _asyncio {
 
             // Save the original traceback for later restoration
             if let Ok(exc_ref) = exc.clone().downcast::<PyBaseException>() {
-                let tb = exc_ref.__traceback__().map(|tb| tb.into());
+                let tb = exc_ref.traceback().map(|tb| tb.into());
                 *zelf.fut_exception_tb.write() = tb;
             }
 
@@ -2296,7 +2296,7 @@ pub(crate) mod _asyncio {
         } else {
             task.base.fut_state.store(FutureState::Finished);
             // Save the original traceback for later restoration
-            let tb = exc.__traceback__().map(|tb| tb.into());
+            let tb = exc.traceback().map(|tb| tb.into());
             *task.base.fut_exception_tb.write() = tb;
             *task.base.fut_exception.write() = Some(exc.clone().into());
             task.base.fut_log_tb.store(true, Ordering::Relaxed);

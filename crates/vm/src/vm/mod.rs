@@ -1637,7 +1637,7 @@ impl VirtualMachine {
         let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
 
         let exc_type = e.class().to_owned();
-        let exc_traceback = e.__traceback__().to_pyobject(self); // TODO: actual traceback
+        let exc_traceback = e.traceback().to_pyobject(self); // TODO: actual traceback
         let exc_value = e.into();
         let args = stdlib::sys::UnraisableHookArgsData {
             exc_type,
@@ -3439,7 +3439,7 @@ impl VirtualMachine {
         attr_name: impl AsPyStr<'a>,
     ) -> PyResult<Option<PyObjectRef>> {
         let attr_name = attr_name.as_pystr(&self.ctx);
-        let getattro = obj.class().slots.getattro.load().unwrap();
+        let getattro = obj.class().slots().getattro.load().unwrap();
         let result = if fn_addr(getattro) == fn_addr(PyBaseObject::getattro as GetattroFunc) {
             obj.generic_getattr_opt(attr_name, None, self)
         } else {

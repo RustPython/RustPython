@@ -134,7 +134,7 @@ impl PyObject {
     #[inline]
     pub(crate) fn get_attr_inner(&self, attr_name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__: {:?} {:?}", self, attr_name);
-        let getattro = self.class().slots.getattro.load().unwrap();
+        let getattro = self.class().slots().getattro.load().unwrap();
         getattro(self, attr_name, vm).inspect_err(|exc| {
             vm.set_attribute_error_context(exc, self.to_owned(), attr_name.to_owned());
         })
@@ -191,7 +191,7 @@ impl PyObject {
             .interned_str(attr_name)
             .and_then(|attr_name| self.get_class_attr(attr_name));
         if let Some(attr) = &descr
-            && let Some(descriptor) = attr.class().slots.descr_set.load()
+            && let Some(descriptor) = attr.class().slots().descr_set.load()
         {
             return descriptor(attr, self.to_owned(), value, vm);
         }
@@ -205,7 +205,7 @@ impl PyObject {
             }
             // Only a type that left __setattr__ alone can be told about the
             // missing __dict__, since overriding it is what hides the slot.
-            let generic_setattro = self.class().slots.setattro.load().is_some_and(|f| {
+            let generic_setattro = self.class().slots().setattro.load().is_some_and(|f| {
                 crate::types::fn_addr(f)
                     == crate::types::fn_addr(
                         PyBaseObject::slot_setattro as crate::types::SetattroFunc,
@@ -338,7 +338,7 @@ impl PyObject {
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
         let call_cmp = |obj: &Self, other: &Self, op| {
-            let Some(cmp) = obj.class().slots.richcompare.load() else {
+            let Some(cmp) = obj.class().slots().richcompare.load() else {
                 return Ok(PyArithmeticValue::NotImplemented);
             };
             let r = match cmp(obj, other, op, vm)? {
@@ -420,7 +420,7 @@ impl PyObject {
 
     pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         vm.with_recursion("while getting the repr of an object", || {
-            self.class().slots.repr.load().map_or_else(
+            self.class().slots().repr.load().map_or_else(
                 || {
                     Err(vm.new_runtime_error(format!(
                     "BUG: object of type '{}' has no __repr__ method. This is a bug in RustPython.",
@@ -460,7 +460,7 @@ impl PyObject {
             Err(obj) => obj,
         };
 
-        // TODO: replace to obj.class().slots.str
+        // TODO: replace to obj.class().slots().str
         let Some(str_method) = vm.get_special_method(&obj, identifier!(vm, __str__))? else {
             return obj.repr(vm);
         };
@@ -720,7 +720,7 @@ impl PyObject {
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        if let Some(hash) = self.class().slots.hash.load() {
+        if let Some(hash) = self.class().slots().hash.load() {
             return vm.with_recursion("while hashing", || hash(self, vm));
         }
 
@@ -837,7 +837,7 @@ impl PyObject {
         // A type carrying a sequence table turns the deletion down in
         // PySequence_DelItem's words instead; every heap type carries one.
         let name = self.class().slot_name();
-        let msg = if seq.slots().has_any() || self.class().heaptype_ext.is_some() {
+        let msg = if seq.slots().has_any() || self.class().heaptype_ext().is_some() {
             format!("'{name}' object doesn't support item deletion")
         } else {
             format!("'{name}' object does not support item deletion")
@@ -859,7 +859,7 @@ impl PyObject {
             return Ok(None);
         };
 
-        let descr_get = res.class().slots.descr_get.load();
+        let descr_get = res.class().slots().descr_get.load();
         if let Some(descr_get) = descr_get {
             descr_get(res.as_object(), Some(self), Some(obj_cls.as_object()), vm).map(Some)
         } else {

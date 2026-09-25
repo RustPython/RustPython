@@ -797,7 +797,7 @@ impl PyType {
             interpreter_id: HeapTypeExt::creating_interpreter_id(),
         };
         let bases = PyTuple::new_ref_typed(bases, ctx);
-        let base = bases[0].clone();
+        let base = bases.as_slice()[0].clone();
 
         Self::new_heap_inner(
             base,
@@ -1651,6 +1651,26 @@ impl PyType {
 }
 
 impl Py<PyType> {
+    #[inline]
+    pub fn slots(&self) -> &PyTypeSlots {
+        &self.payload().slots
+    }
+
+    #[inline]
+    pub fn attributes(&self) -> &TypeNamespace {
+        &self.payload().attributes
+    }
+
+    #[inline]
+    pub fn tp_version_tag(&self) -> &AtomicU32 {
+        &self.payload().tp_version_tag
+    }
+
+    #[inline]
+    pub fn heaptype_ext(&self) -> Option<&HeapTypeExt> {
+        self.payload().heaptype_ext.as_deref()
+    }
+
     pub fn is_subtype(&self, other: &Self) -> bool {
         is_subtype_with_mro(&self.mro.read(), self, other)
     }
@@ -1722,7 +1742,7 @@ impl PyType {
     fn set_bases(zelf: &Py<Self>, bases_tuple: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
         // Rather than correctly re-initializing the class, we are skipping a few steps for now
-        if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+        if zelf.slots().flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error(format!(
                 "cannot set '__bases__' attribute of immutable type '{}'",
                 zelf.name()
@@ -3015,7 +3035,7 @@ impl GetAttr for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(attr) = zelf_attr {
-            let descr_get = attr.class().slots.descr_get.load();
+            let descr_get = attr.class().slots().descr_get.load();
             if let Some(descr_get) = descr_get {
                 descr_get(attr.as_object(), None, Some(zelf.as_object()), vm)
             } else {
@@ -3058,7 +3078,7 @@ impl Py<PyType> {
         // CPython returns None if __doc__ is not in the type's own dict
         if let Some(doc_attr) = self.get_direct_attr(vm.ctx.intern_str("__doc__")) {
             // If it's a descriptor, call its __get__ method
-            let descr_get = doc_attr.class().slots.descr_get.load();
+            let descr_get = doc_attr.class().slots().descr_get.load();
             if let Some(descr_get) = descr_get {
                 descr_get(doc_attr.as_object(), None, Some(self.as_object()), vm)
             } else {
@@ -3135,7 +3155,7 @@ impl SetAttr for PyType {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let attr_name = vm.ctx.intern_str(attr_name.as_wtf8());
-        if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+        if zelf.slots().flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error(format!(
                 "cannot set '{}' attribute of immutable type '{}'",
                 attr_name,
@@ -3143,7 +3163,7 @@ impl SetAttr for PyType {
             )));
         }
         if let Some(attr) = zelf.get_class_attr(attr_name) {
-            let descr_set = attr.class().slots.descr_set.load();
+            let descr_set = attr.class().slots().descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(&attr, zelf.to_owned().into(), value, vm);
             }
@@ -3160,9 +3180,9 @@ impl SetAttr for PyType {
             zelf.modified_inner();
 
             let prev_value = if let PySetterValue::Assign(value) = value {
-                zelf.attributes.insert(attr_name, value)
+                zelf.attributes().insert(attr_name, value)
             } else {
-                let prev_value = zelf.attributes.remove(attr_name);
+                let prev_value = zelf.attributes().remove(attr_name);
                 if prev_value.is_none() {
                     return Err(vm.new_attribute_error(format!(
                         "type object '{}' has no attribute '{}'",
@@ -3203,8 +3223,10 @@ impl Callable for PyType {
             }
         }
 
-        let Some(slot_new) = zelf.slots.new.load() else {
-            return Err(vm.new_type_error(format!("cannot create '{}' instances", zelf.slots.name)));
+        let Some(slot_new) = zelf.slots().new.load() else {
+            return Err(
+                vm.new_type_error(format!("cannot create '{}' instances", zelf.slots().name))
+            );
         };
 
         // Both the new and init slots consume args, so the init call gets a
@@ -3223,7 +3245,7 @@ impl Callable for PyType {
             // so a mismatch is conservative: if it ever compared unequal for the
             // wrapper it would only take the slower cloning path, never the fast
             // path incorrectly.
-            if zelf.slots.init.load().is_none()
+            if zelf.slots().init.load().is_none()
                 && !zelf.is(vm.ctx.types.type_type)
                 && crate::types::fn_addr(slot_new)
                     != crate::types::fn_addr(crate::types::new_wrapper as crate::types::NewFunc)
@@ -3239,7 +3261,7 @@ impl Callable for PyType {
             return Ok(obj);
         }
 
-        if let Some(init_method) = obj.class().slots.init.load() {
+        if let Some(init_method) = obj.class().slots().init.load() {
             init_method(&obj, init_args, vm)?;
         }
         Ok(obj)
@@ -3406,10 +3428,10 @@ fn vectorcall_type(
         if nargs == 1 && no_kwargs {
             return Ok(args[0].obj_type());
         }
-    } else if zelf.slots.call.load().is_none() && zelf.slots.new.load().is_some() {
+    } else if zelf.slots().call.load().is_none() && zelf.slots().new.load().is_some() {
         // Per-type constructor vectorcall for non-callable types (dict, list, int, etc.)
         // Also guard on slots.new to avoid dispatching for DISALLOW_INSTANTIATION types.
-        if let Some(type_vc) = zelf.slots.vectorcall.load() {
+        if let Some(type_vc) = zelf.slots().vectorcall.load() {
             return type_vc(zelf_obj, args, nargs, kwnames, vm);
         }
     }

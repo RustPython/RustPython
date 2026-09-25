@@ -358,11 +358,11 @@ impl VirtualMachine {
             0 => vec![],
             1 => {
                 let args0_repr = if str_single {
-                    varargs[0]
+                    varargs.as_slice()[0]
                         .str(vm)
                         .unwrap_or_else(|_| PyStr::from("<element str() failed>").into_ref(&vm.ctx))
                 } else {
-                    varargs[0].repr(vm).unwrap_or_else(|_| {
+                    varargs.as_slice()[0].repr(vm).unwrap_or_else(|_| {
                         PyStr::from("<element repr() failed>").into_ref(&vm.ctx)
                     })
                 };
@@ -383,7 +383,7 @@ impl VirtualMachine {
         &self,
         exc: PyBaseExceptionRef,
     ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
-        let tb = exc.__traceback__().to_pyobject(self);
+        let tb = exc.traceback().to_pyobject(self);
         let class = exc.class().to_owned();
         (class.into(), exc.into(), tb)
     }
@@ -777,6 +777,11 @@ impl PyBaseException {
 
 #[pyclass]
 impl Py<PyBaseException> {
+    #[inline]
+    pub fn traceback(&self) -> Option<PyTracebackRef> {
+        self.payload().__traceback__()
+    }
+
     #[pymethod]
     pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyStrRef {
         let str_args = vm.exception_args_as_string(&self.args(), true);
@@ -1249,7 +1254,7 @@ impl serde::Serialize for SerializeException<'_, '_> {
                     s.end()
                 }
             }
-            self.exc.__traceback__().map(Tracebacks)
+            self.exc.traceback().map(Tracebacks)
         };
         struc.serialize_field("traceback", &tbs)?;
         struc.serialize_field(
@@ -3413,7 +3418,7 @@ pub fn exception_group_match(
             let wrapped = eg_type.call((vm.ctx.new_str(""), excs), vm)?;
             // Copy traceback from original exception
             if let Ok(exc) = exc_value.to_owned().downcast::<types::PyBaseException>()
-                && let Some(tb) = exc.__traceback__()
+                && let Some(tb) = exc.traceback()
                 && let Ok(wrapped_exc) = wrapped.clone().downcast::<types::PyBaseException>()
             {
                 wrapped_exc.set_traceback(Some(tb));

@@ -292,7 +292,7 @@ impl VirtualMachine {
         iop_slot: PyNumberBinaryOp,
         op_slot: PyNumberBinaryOp,
     ) -> PyResult {
-        if let Some(slot) = a.class().slots.as_number.left_binary_op(iop_slot) {
+        if let Some(slot) = a.class().slots().as_number.left_binary_op(iop_slot) {
             let x = slot(a, b, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
@@ -419,7 +419,7 @@ impl VirtualMachine {
         op_slot: PyNumberTernaryOp,
         op_str: &str,
     ) -> PyResult {
-        if let Some(slot) = a.class().slots.as_number.left_ternary_op(iop_slot) {
+        if let Some(slot) = a.class().slots().as_number.left_ternary_op(iop_slot) {
             let x = slot(a, b, c, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);

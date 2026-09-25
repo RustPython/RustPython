@@ -550,6 +550,11 @@ impl PyBytes {
 
 #[pyclass]
 impl Py<PyBytes> {
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.payload().as_bytes()
+    }
+
     #[pymethod]
     fn __reduce_ex__(
         &self,
@@ -637,7 +642,7 @@ impl AsBuffer for PyBytes {
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buf = PyBuffer::new(
             zelf.to_owned().into(),
-            BufferDescriptor::simple(zelf.len(), true),
+            BufferDescriptor::simple(zelf.as_bytes().len(), true),
             &BUFFER_METHODS,
         );
         Ok(buf)
@@ -647,7 +652,9 @@ impl AsBuffer for PyBytes {
 impl AsMapping for PyBytes {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyBytes::mapping_downcast(mapping).len())),
+            length: atomic_func!(|mapping, _vm| {
+                Ok(PyBytes::mapping_downcast(mapping).as_bytes().len())
+            }),
             subscript: atomic_func!(
                 |mapping, needle, vm| PyBytes::mapping_downcast(mapping)._getitem(needle, vm)
             ),
@@ -660,7 +667,7 @@ impl AsMapping for PyBytes {
 impl AsSequence for PyBytes {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyBytes::sequence_downcast(seq).len())),
+            length: atomic_func!(|seq, _vm| Ok(PyBytes::sequence_downcast(seq).as_bytes().len())),
             concat: atomic_func!(|seq, other, vm| {
                 PyBytes::sequence_downcast(seq)
                     .inner
@@ -769,7 +776,7 @@ impl PyPayload for PyBytesIterator {
 impl PyBytesIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
-        self.internal.lock().length_hint(|obj| obj.len())
+        self.internal.lock().length_hint(|obj| obj.as_bytes().len())
     }
 
     #[pymethod]
@@ -787,7 +794,7 @@ impl PyBytesIterator {
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(&state, |obj, pos| pos.min(obj.len()), vm)
+            .set_state(&state, |obj, pos| pos.min(obj.as_bytes().len()), vm)
     }
 }
 

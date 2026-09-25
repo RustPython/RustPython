@@ -629,6 +629,16 @@ impl PyStr {
 }
 
 impl Py<PyStr> {
+    #[inline]
+    pub fn as_wtf8(&self) -> &Wtf8 {
+        self.payload().as_wtf8()
+    }
+
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.payload().as_bytes()
+    }
+
     pub fn as_utf8(&self) -> Option<&Py<PyUtf8Str>> {
         if self.is_utf8() {
             // SAFETY: is_utf8() guarantees the PyUtf8Str invariant.

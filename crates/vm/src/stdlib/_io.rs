@@ -3431,7 +3431,7 @@ mod _io {
                         num_to_skip -= n_decoded;
                         break;
                     }
-                    skip_bytes -= dec_buffer.len() as isize;
+                    skip_bytes -= dec_buffer.as_bytes().len() as isize;
                     skip_back = 1;
                 } else {
                     skip_bytes -= skip_back;

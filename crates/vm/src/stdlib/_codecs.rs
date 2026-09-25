@@ -287,7 +287,7 @@ mod _codecs {
     #[pyfunction]
     fn escape_encode(args: EscapeEncodeArgs, _vm: &VirtualMachine) -> (Vec<u8>, usize) {
         let encoded = encodings::escape::encode(args.data.as_bytes());
-        (encoded, args.data.len())
+        (encoded, args.data.as_bytes().len())
     }
 
     #[derive(FromArgs)]

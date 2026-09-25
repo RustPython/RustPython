@@ -186,7 +186,7 @@ fn type_slot_names(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Option<sup
 // object_getstate_default
 fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyResult {
     // Check itemsize
-    if required && obj.class().slots.itemsize > 0 {
+    if required && obj.class().slots().itemsize > 0 {
         return Err(vm.new_type_error(format!("cannot pickle {:.200} objects", obj.class().name())));
     }
 
@@ -205,22 +205,22 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 
     if required {
         // Start with PyBaseObject_Type's basicsize
-        let mut basicsize = vm.ctx.types.object_type.slots.basicsize;
+        let mut basicsize = vm.ctx.types.object_type.slots().basicsize;
 
         // Add __dict__ size if type has dict
-        if obj.class().slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
+        if obj.class().slots().flags.has_feature(PyTypeFlags::HAS_DICT) {
             basicsize += core::mem::size_of::<PyObjectRef>();
         }
 
         // Add __weakref__ size if type has weakref support
-        let has_weakref = if let Some(ref ext) = obj.class().heaptype_ext {
+        let has_weakref = if let Some(ext) = obj.class().heaptype_ext() {
             match &ext.slots {
                 None => true, // Heap type without __slots__ has automatic weakref
                 Some(slots) => slots.iter().any(|s| s.as_bytes() == b"__weakref__"),
             }
         } else {
             let weakref_name = vm.ctx.intern_str("__weakref__");
-            obj.class().attributes.contains(weakref_name)
+            obj.class().attributes().contains(weakref_name)
         };
         if has_weakref {
             basicsize += core::mem::size_of::<PyObjectRef>();
@@ -232,7 +232,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         }
 
         // Fail if actual type's basicsize > expected basicsize
-        if obj.class().slots.basicsize > basicsize {
+        if obj.class().slots().basicsize > basicsize {
             return Err(vm.new_type_error(format!("cannot pickle '{}' object", obj.class().name())));
         }
     }
@@ -326,7 +326,7 @@ impl PyBaseObject {
                 }
             }
             PyComparisonOp::Ne => {
-                let cmp = zelf.class().slots.richcompare.load().unwrap();
+                let cmp = zelf.class().slots().richcompare.load().unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
                     Either::A(obj) => PyArithmeticValue::from_object(vm, obj)
                         .map(|obj| obj.try_to_bool(vm))
@@ -524,7 +524,7 @@ impl PyBaseObject {
 
     #[pymethod]
     fn __sizeof__(zelf: PyObjectRef) -> usize {
-        zelf.class().slots.basicsize
+        zelf.class().slots().basicsize
     }
 }
 
@@ -580,7 +580,11 @@ pub fn object_generic_set_dict(
 pub(crate) fn init(ctx: &'static Context) {
     // Manually set alloc/init slots - derive macro doesn't generate extend_slots
     // for trait impl that overrides #[pyslot] method
-    ctx.types.object_type.slots.alloc.store(Some(generic_alloc));
+    ctx.types
+        .object_type
+        .slots()
+        .alloc
+        .store(Some(generic_alloc));
     ctx.types
         .object_type
         .slots

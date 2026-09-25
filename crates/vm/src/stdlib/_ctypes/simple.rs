@@ -90,7 +90,7 @@ fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResul
             // c_set: accepts bytes(len=1), bytearray(len=1), or int(0-255)
             if value
                 .downcast_ref_if_exact::<PyBytes>(vm)
-                .is_some_and(|v| v.len() == 1)
+                .is_some_and(|v| v.as_bytes().len() == 1)
                 || value
                     .downcast_ref_if_exact::<PyByteArray>(vm)
                     .is_some_and(|v| v.borrow_buf().len() == 1)
@@ -303,7 +303,7 @@ impl PyCSimpleType {
             // c_char: 1 byte character
             Some("c") => {
                 if let Some(bytes) = value.downcast_ref::<PyBytes>()
-                    && bytes.len() == 1
+                    && bytes.as_bytes().len() == 1
                 {
                     return create_simple_with_value("c", &value);
                 }
