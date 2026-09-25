@@ -1691,6 +1691,16 @@ impl Py<PyType> {
         &self.payload().attributes
     }
 
+    #[inline]
+    pub fn tp_version_tag(&self) -> &AtomicU32 {
+        &self.payload().tp_version_tag
+    }
+
+    #[inline]
+    pub fn heaptype_ext(&self) -> Option<&HeapTypeExt> {
+        self.payload().heaptype_ext.as_deref()
+    }
+
     pub fn is_subtype(&self, other: &Self) -> bool {
         is_subtype_with_mro(&self.mro.read(), self, other)
     }

@@ -837,7 +837,7 @@ impl PyObject {
         // A type carrying a sequence table turns the deletion down in
         // PySequence_DelItem's words instead; every heap type carries one.
         let name = self.class().slot_name();
-        let msg = if seq.slots().has_any() || self.class().heaptype_ext.is_some() {
+        let msg = if seq.slots().has_any() || self.class().heaptype_ext().is_some() {
             format!("'{name}' object doesn't support item deletion")
         } else {
             format!("'{name}' object does not support item deletion")

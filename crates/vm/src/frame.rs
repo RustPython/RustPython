@@ -6015,7 +6015,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     let owner = self.pop_stackref();
@@ -6034,7 +6034,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && !owner.has_instance_dict()
                     && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
@@ -6054,7 +6054,8 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
                     // Check instance dict doesn't shadow the method.
                     let shadowed = match self.shadowing_instance_attr(cache_base, attr_name, vm) {
                         Ok(shadowed) => shadowed.is_some(),
@@ -6082,7 +6083,8 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
                     // Type version matches — no data descriptor for this attr.
                     // Try direct dict lookup, skipping full descriptor protocol.
                     if let Some(dict) = owner.dict()
@@ -6105,7 +6107,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
                 {
                     // Try the cached entry index first; a hit is an identity
@@ -6143,7 +6145,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(module) = owner.downcast_ref_if_exact::<PyModule>(vm)
                     && let Ok(value) = module.get_attr(attr_name, vm)
                 {
@@ -6166,7 +6168,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     self.pop_stackref();
@@ -6188,7 +6190,8 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
                     // Instance dict has priority — check if attr is shadowed
                     if let Some(value) = self.shadowing_instance_attr(cache_base, attr_name, vm)? {
                         self.pop_stackref();
@@ -6251,7 +6254,7 @@ impl ExecutingFrame<'_> {
                     && metaclass_version != 0
                     && let Some(owner_type) = owner.downcast_ref::<PyType>()
                     && owner_type.tp_version_tag.load(Acquire) == type_version
-                    && owner.class().tp_version_tag.load(Acquire) == metaclass_version
+                    && owner.class().tp_version_tag().load(Acquire) == metaclass_version
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     self.pop_stackref();
@@ -6276,7 +6279,7 @@ impl ExecutingFrame<'_> {
                     && !self.specialization_eval_frame_active(vm)
                     && type_version != 0
                     && func_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(func_obj) =
                         self.try_read_cached_descriptor(cache_base, type_version)
                     && let Some(func) = func_obj.downcast_ref_if_exact::<PyFunction>(vm)
@@ -6300,7 +6303,8 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
                     let slot_offset =
                         self.code.instructions.read_cache_u32(cache_base + 3) as usize;
                     if let Some(value) = owner.get_slot(slot_offset) {
@@ -6326,7 +6330,7 @@ impl ExecutingFrame<'_> {
 
                 if type_version != 0
                     && !self.specialization_eval_frame_active(vm)
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(fget_obj) =
                         self.try_read_cached_descriptor(cache_base, type_version)
                     && let Some(func) = fget_obj.downcast_ref_if_exact::<PyFunction>(vm)
@@ -6349,7 +6353,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
                 {
                     self.pop_stackref(); // owner
@@ -6371,7 +6375,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
                 {
                     self.pop_stackref(); // owner
@@ -6387,7 +6391,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let version_match = type_version != 0 && {
                     let owner = self.top_value();
-                    owner.class().tp_version_tag.load(Acquire) == type_version
+                    owner.class().tp_version_tag().load(Acquire) == type_version
                 };
 
                 if version_match {
@@ -6473,7 +6477,7 @@ impl ExecutingFrame<'_> {
                 let owner = self.nth_value(1);
                 if !self.specialization_eval_frame_active(vm)
                     && type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some((func, func_version)) =
                         owner.class().get_cached_getitem_for_specialization()
                     && func.func_version() == func_version
@@ -7706,7 +7710,8 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let obj = self.top_value();
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
-                if cached_version != 0 && obj.class().tp_version_tag.load(Acquire) == cached_version
+                if cached_version != 0
+                    && obj.class().tp_version_tag().load(Acquire) == cached_version
                 {
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), true, vm);

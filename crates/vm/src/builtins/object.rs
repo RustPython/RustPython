@@ -213,7 +213,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         }
 
         // Add __weakref__ size if type has weakref support
-        let has_weakref = if let Some(ref ext) = obj.class().heaptype_ext {
+        let has_weakref = if let Some(ext) = obj.class().heaptype_ext() {
             match &ext.slots {
                 None => true, // Heap type without __slots__ has automatic weakref
                 Some(slots) => slots.iter().any(|s| s.as_bytes() == b"__weakref__"),
