@@ -874,7 +874,6 @@ unsafe impl Traverse for FrameLocals {
 /// to keep the hot InterpreterFrame small.
 pub(crate) struct FrameColdData {
     pub trace: PyMutex<Option<PyObjectRef>>,
-    pub trace_lines: PyMutex<bool>,
     pub trace_opcodes: PyMutex<bool>,
     pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
     pub f_extra_locals: PyMutex<Option<PyDictRef>>,
@@ -897,7 +896,6 @@ impl Default for FrameColdData {
     fn default() -> Self {
         Self {
             trace: PyMutex::new(None),
-            trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(Vec::new()),
             f_extra_locals: PyMutex::new(None),
@@ -1494,7 +1492,8 @@ impl InterpreterFrame {
         self.cold.get().map(|b| &**b)
     }
 
-    /// `f_trace_lines` of the materialized frame object, or the cold default.
+    /// `f_trace_lines` of the materialized frame object. True when the frame
+    /// has not been materialized.
     pub(crate) fn trace_lines_flag(&self) -> bool {
         let mat = self.materialized.load(atomic::Ordering::Relaxed);
         if mat != 0 {
@@ -1504,7 +1503,7 @@ impl InterpreterFrame {
                 .f_trace_lines
                 .load(core::sync::atomic::Ordering::Relaxed);
         }
-        self.cold_opt().is_none_or(|c| *c.trace_lines.lock())
+        true
     }
 
     /// Thread still running the frame this one was materialized from, or 0.
@@ -3373,7 +3372,7 @@ impl ExecutingFrame<'_> {
             .is_some_and(|c| *c.trace_opcodes.lock())
     }
 
-    /// f_trace_lines, defaulting to true when cold data is not allocated.
+    /// f_trace_lines, defaulting to true when no frame object exists.
     #[inline]
     fn trace_lines_is_set(&self) -> bool {
         self.iframe().trace_lines_flag()
