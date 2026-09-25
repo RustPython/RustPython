@@ -20,7 +20,7 @@ use crate::{
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use alloc::fmt;
-use core::cell::Cell;
+use core::cell::UnsafeCell;
 use core::ops::{Neg, Not};
 use core::ptr::NonNull;
 use malachite_bigint::{BigInt, Sign};
@@ -52,7 +52,7 @@ where
 
 // spell-checker:ignore MAXFREELIST
 thread_local! {
-    static INT_FREELIST: Cell<crate::object::FreeList<PyInt>> = const { Cell::new(crate::object::FreeList::new()) };
+    static INT_FREELIST: UnsafeCell<crate::object::FreeList<PyInt>> = const { UnsafeCell::new(crate::object::FreeList::new()) };
 }
 
 impl PyPayload for PyInt {
@@ -70,32 +70,12 @@ impl PyPayload for PyInt {
 
     #[inline]
     unsafe fn freelist_push(obj: *mut PyObject) -> bool {
-        INT_FREELIST
-            .try_with(|fl| {
-                let mut list = fl.take();
-                let stored = if list.len() < Self::MAX_FREELIST {
-                    list.push(obj);
-                    true
-                } else {
-                    false
-                };
-                fl.set(list);
-                stored
-            })
-            .unwrap_or(false)
+        unsafe { crate::object::FreeList::push_local(&INT_FREELIST, obj) }
     }
 
     #[inline]
     unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
-        INT_FREELIST
-            .try_with(|fl| {
-                let mut list = fl.take();
-                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
-                fl.set(list);
-                result
-            })
-            .ok()
-            .flatten()
+        crate::object::FreeList::pop_local(&INT_FREELIST)
     }
 }
 

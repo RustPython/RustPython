@@ -471,7 +471,7 @@ impl Context {
             let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
             return self.int_cache_pool[inner_idx].clone();
         }
-        PyInt::from(i).into_ref(self)
+        PyRef::new_exact_ref(PyInt::from(i), self)
     }
 
     /// Borrow a cached small integer whose lifetime is tied to this context.
@@ -495,7 +495,7 @@ impl Context {
 
     #[inline]
     pub fn new_float(&self, value: f64) -> PyRef<PyFloat> {
-        PyFloat::from(value).into_ref(self)
+        PyRef::new_exact_ref(PyFloat::from(value), self)
     }
 
     #[inline]

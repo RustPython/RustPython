@@ -262,6 +262,29 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         unsafe { trashcan::end() };
     }
 }
+/// Dealloc for payloads that have a freelist and no `tp_clear`. An instance
+/// of exactly the base class with nothing attached — no `__del__`, weakrefs,
+/// dict or member slots, GC tracking or QSBR publication — needs nothing from
+/// `default_dealloc` but its freelist push, so it gets there directly instead
+/// of through the `__del__`/weakref/trashcan/clear machinery. Anything else
+/// takes `default_dealloc`, which re-checks all of it.
+pub(super) unsafe fn freelist_dealloc<T: PyPayload>(obj: *mut PyObject) {
+    let obj_ref = unsafe { &*(obj as *const PyObject) };
+    let typ = obj_ref.class();
+    let plain = core::ptr::eq(typ, T::class(crate::vm::Context::genesis()))
+        && typ.slots.del.load().is_none()
+        && !typ.slots.flags.intersects(
+            crate::types::PyTypeFlags::HAS_DICT | crate::types::PyTypeFlags::HAS_WEAKREF,
+        )
+        && typ.slots.member_count == 0
+        && !obj_ref.is_gc_tracked()
+        && !obj_ref.0.ref_count.is_published();
+    if plain && unsafe { T::freelist_push(obj) } {
+        return;
+    }
+    unsafe { default_dealloc::<T>(obj) }
+}
+
 pub(super) unsafe fn debug_obj<T: PyPayload + core::fmt::Debug>(
     x: &PyObject,
     f: &mut fmt::Formatter<'_>,
@@ -1464,6 +1487,53 @@ impl<T: PyPayload> Drop for FreeList<T> {
                 alloc::alloc::dealloc(ptr as *mut u8, core::alloc::Layout::new::<PyInner<T>>());
             }
         }
+    }
+}
+
+impl<T: PyPayload> FreeList<T> {
+    /// Push a dead husk onto this thread's freelist in `key`, unless it is
+    /// full or the thread-local is already gone.
+    ///
+    /// The list is edited in place rather than moved out of a `Cell` and back,
+    /// which copied the whole `Vec` twice per object. Nothing between taking
+    /// the `&mut` and dropping it can re-enter: `Vec::push` only calls the
+    /// allocator, never Python code or another freelist.
+    ///
+    /// # Safety
+    /// Same contract as [`PyPayload::freelist_push`].
+    #[inline]
+    pub(crate) unsafe fn push_local(
+        key: &'static std::thread::LocalKey<core::cell::UnsafeCell<Self>>,
+        obj: *mut PyObject,
+    ) -> bool {
+        key.try_with(|cell| {
+            // SAFETY: see above; no other borrow of this cell is live.
+            let list = unsafe { &mut *cell.get() };
+            if list.items.len() < T::MAX_FREELIST {
+                list.items.push(obj);
+                true
+            } else {
+                false
+            }
+        })
+        .unwrap_or(false)
+    }
+
+    /// Pop a husk from this thread's freelist in `key`, editing it in place
+    /// (see [`Self::push_local`]).
+    #[inline]
+    pub(crate) fn pop_local(
+        key: &'static std::thread::LocalKey<core::cell::UnsafeCell<Self>>,
+    ) -> Option<NonNull<PyObject>> {
+        key.try_with(|cell| {
+            // SAFETY: `Vec::pop` cannot re-enter; no other borrow is live.
+            let list = unsafe { &mut *cell.get() };
+            list.items
+                .pop()
+                .map(|p| unsafe { NonNull::new_unchecked(p) })
+        })
+        .ok()
+        .flatten()
     }
 }
 
@@ -2820,6 +2890,41 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
             }
         }
 
+        Self { ptr }
+    }
+
+    /// `new_ref` for an instance of exactly `T::class(ctx)`, a static type
+    /// whose instances carry no dict. `default_dealloc` only pushes instances
+    /// of exactly that class onto `T`'s freelist, so a reused husk already
+    /// points at it: the dict and heap-type checks, the type swap and the
+    /// type reference clone `new_ref` does for an arbitrary class are skipped.
+    #[inline(always)]
+    pub(crate) fn new_exact_ref(payload: T, ctx: &crate::vm::Context) -> Self {
+        let class = T::class(ctx);
+        debug_assert!(class.heaptype_ext.is_none());
+        debug_assert!(
+            !class
+                .slots
+                .flags
+                .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+        );
+        let Some(cached) = (unsafe { T::freelist_pop(&payload) }) else {
+            return Self::new_ref(payload, class.to_owned(), None);
+        };
+        let inner = cached.as_ptr() as *mut PyInner<T>;
+        unsafe {
+            core::ptr::write(&mut (*inner).ref_count, RefCount::new());
+            (*inner).gc_bits.store(0, Ordering::Relaxed);
+            core::ptr::drop_in_place(&mut (*inner).payload);
+            core::ptr::write(&mut (*inner).payload, payload);
+            debug_assert!(core::ptr::eq(&*(*inner).typ, class));
+        }
+        let ptr = unsafe { NonNull::new_unchecked(inner.cast::<Py<T>>()) };
+        if <T as crate::object::MaybeTraverse>::HAS_TRAVERSE && !T::NEW_REF_UNTRACKED {
+            unsafe {
+                crate::gc_state::track_new_object(ptr.cast());
+            }
+        }
         Self { ptr }
     }
 }
