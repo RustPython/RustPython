@@ -1071,6 +1071,7 @@ impl Representable for PyCSimple {
         // vs subclass of simple type (like class X(c_int): pass)
         let bases = cls.bases.read();
         let is_direct_simple = bases
+            .as_slice()
             .iter()
             .any(|base| base.name().to_string() == "_SimpleCData");
 
@@ -1249,6 +1250,7 @@ impl PyCSimple {
             let bases = cls.bases.read();
             // If base is NOT _SimpleCData, then it's a subclass of a subclass
             !bases
+                .as_slice()
                 .iter()
                 .any(|base| base.name().to_string() == "_SimpleCData")
         };

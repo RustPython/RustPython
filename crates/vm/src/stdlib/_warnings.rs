@@ -137,7 +137,7 @@ mod _warnings {
         // Validate skip_file_prefixes: each element must be a str
         let skip_prefixes = args.skip_file_prefixes.into_option();
         if let Some(ref prefixes) = skip_prefixes {
-            for item in prefixes.iter() {
+            for item in prefixes.as_slice() {
                 if !item.class().is(vm.ctx.types.str_type) {
                     return Err(vm.new_type_error("skip_file_prefixes must be a tuple of strs"));
                 }

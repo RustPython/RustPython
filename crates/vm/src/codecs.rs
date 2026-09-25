@@ -44,7 +44,7 @@ pub struct PyCodec(PyTupleRef);
 impl PyCodec {
     #[inline]
     pub fn from_tuple(tuple: PyTupleRef) -> Result<Self, PyTupleRef> {
-        if tuple.len() == 4 {
+        if tuple.as_slice().len() == 4 {
             Ok(Self(tuple))
         } else {
             Err(tuple)
@@ -63,12 +63,12 @@ impl PyCodec {
 
     #[inline]
     pub fn get_encode_func(&self) -> &PyObject {
-        &self.0[0]
+        &self.0.as_slice()[0]
     }
 
     #[inline]
     pub fn get_decode_func(&self) -> &PyObject {
-        &self.0[1]
+        &self.0.as_slice()[1]
     }
 
     pub fn is_text_codec(&self, vm: &VirtualMachine) -> PyResult<bool> {
@@ -90,10 +90,10 @@ impl PyCodec {
         let res = res
             .downcast::<PyTuple>()
             .ok()
-            .filter(|tuple| tuple.len() == 2)
+            .filter(|tuple| tuple.as_slice().len() == 2)
             .ok_or_else(|| vm.new_type_error("encoder must return a tuple (object, integer)"))?;
         // we don't actually care about the integer
-        Ok(res[0].clone())
+        Ok(res.as_slice()[0].clone())
     }
 
     pub fn decode(
@@ -110,10 +110,10 @@ impl PyCodec {
         let res = res
             .downcast::<PyTuple>()
             .ok()
-            .filter(|tuple| tuple.len() == 2)
+            .filter(|tuple| tuple.as_slice().len() == 2)
             .ok_or_else(|| vm.new_type_error("decoder must return a tuple (object,integer)"))?;
         // we don't actually care about the integer
-        Ok(res[0].clone())
+        Ok(res.as_slice()[0].clone())
     }
 
     pub fn get_incremental_encoder(

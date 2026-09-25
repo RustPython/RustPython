@@ -190,10 +190,12 @@ pub(super) mod types {
                     })?;
                     let result_tuple: PyTupleRef = result.try_into_value(vm)?;
                     let match_part = result_tuple
+                        .as_slice()
                         .first()
                         .cloned()
                         .unwrap_or_else(|| vm.ctx.none());
                     let rest_part = result_tuple
+                        .as_slice()
                         .get(1)
                         .cloned()
                         .unwrap_or_else(|| vm.ctx.none());
@@ -229,7 +231,10 @@ pub(super) mod types {
         #[pymethod]
         fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let message = zelf.msg.str(vm)?;
-            let num_excs = zelf.excs.downcast_ref::<PyTuple>().map_or(0, |t| t.len());
+            let num_excs = zelf
+                .excs
+                .downcast_ref::<PyTuple>()
+                .map_or(0, |t| t.as_slice().len());
 
             let suffix = if num_excs == 1 { "" } else { "s" };
             let mut result = message.as_wtf8().to_owned();
@@ -251,16 +256,17 @@ pub(super) mod types {
                     .map_err(|_| vm.new_type_error("__repr__ returned non-string"))?
             } else {
                 let args = zelf.base.args();
-                let exceptions_obj =
-                    if args.len() == 2 && args[1].downcast_ref::<PyList>().is_some() {
-                        let list = match zelf.excs.downcast_ref::<PyTuple>() {
-                            Some(tuple) => vm.ctx.new_list(tuple.to_vec()),
-                            None => vm.ctx.new_list(vec![]),
-                        };
-                        list.into()
-                    } else {
-                        zelf.excs.to_owned()
+                let exceptions_obj = if args.as_slice().len() == 2
+                    && args.as_slice()[1].downcast_ref::<PyList>().is_some()
+                {
+                    let list = match zelf.excs.downcast_ref::<PyTuple>() {
+                        Some(tuple) => vm.ctx.new_list(tuple.as_slice().to_vec()),
+                        None => vm.ctx.new_list(vec![]),
                     };
+                    list.into()
+                } else {
+                    zelf.excs.to_owned()
+                };
                 exceptions_obj.repr(vm)?
             };
 
@@ -411,7 +417,7 @@ pub(super) mod types {
             .excs
             .downcast_ref::<PyTuple>()
             .ok_or_else(|| vm.new_type_error("exceptions must be a tuple"))?;
-        Ok(tuple.to_vec())
+        Ok(tuple.as_slice().to_vec())
     }
 
     enum ConditionMatcher {

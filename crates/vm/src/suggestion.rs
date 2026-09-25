@@ -75,7 +75,9 @@ pub fn offer_suggestions(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> Opti
         let tb = tb.iter().last().unwrap_or(tb);
 
         let varnames = tb.frame.iframe().code().to_owned().co_varnames(vm);
-        if let Some(suggestions) = calculate_suggestions(varnames.iter().map(|o| &**o), &name) {
+        if let Some(suggestions) =
+            calculate_suggestions(varnames.as_slice().iter().map(|o| &**o), &name)
+        {
             return Some(suggestions);
         };
 

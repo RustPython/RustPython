@@ -230,7 +230,10 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         let has_weakref = if let Some(ext) = obj.class().heaptype_ext() {
             match &ext.slots {
                 None => true, // Heap type without __slots__ has automatic weakref
-                Some(slots) => slots.iter().any(|s| s.as_bytes() == b"__weakref__"),
+                Some(slots) => slots
+                    .as_slice()
+                    .iter()
+                    .any(|s| s.as_bytes() == b"__weakref__"),
             }
         } else {
             let weakref_name = vm.ctx.intern_str("__weakref__");
@@ -623,10 +626,10 @@ fn get_new_arguments(
             ))
         })?;
 
-        if newargs_tuple.len() != 2 {
+        if newargs_tuple.as_slice().len() != 2 {
             return Err(vm.new_value_error(format!(
                 "__getnewargs_ex__ should return a tuple of length 2, not {}",
-                newargs_tuple.len()
+                newargs_tuple.as_slice().len()
             )));
         }
 

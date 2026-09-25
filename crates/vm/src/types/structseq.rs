@@ -19,7 +19,10 @@ use crate::{
 const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
     "__reduce__",
     |zelf: PyRef<PyTuple>, vm: &VirtualMachine| -> PyTupleRef {
-        vm.new_tuple((zelf.class().to_owned(), (vm.ctx.new_tuple(zelf.to_vec()),)))
+        vm.new_tuple((
+            zelf.class().to_owned(),
+            (vm.ctx.new_tuple(zelf.as_slice().to_vec()),),
+        ))
     },
     PyMethodFlags::METHOD,
     Some("__reduce__($self, /)\n--\n\n"),
@@ -157,7 +160,7 @@ static STRUCT_SEQUENCE_AS_SEQUENCE: LazyLock<PySequenceMethods> =
             // Convert to visible-only tuple, then use regular tuple concat
             let n_seq = get_visible_len(seq.obj, vm)?;
             let tuple = seq.obj.downcast_ref::<PyTuple>().unwrap();
-            let visible: Vec<_> = tuple.iter().take(n_seq).cloned().collect();
+            let visible: Vec<_> = tuple.as_slice().iter().take(n_seq).cloned().collect();
             let visible_tuple = PyTuple::new_ref(visible, &vm.ctx);
             // Use tuple's concat implementation
             visible_tuple
@@ -169,7 +172,7 @@ static STRUCT_SEQUENCE_AS_SEQUENCE: LazyLock<PySequenceMethods> =
             // Convert to visible-only tuple, then use regular tuple repeat
             let n_seq = get_visible_len(seq.obj, vm)?;
             let tuple = seq.obj.downcast_ref::<PyTuple>().unwrap();
-            let visible: Vec<_> = tuple.iter().take(n_seq).cloned().collect();
+            let visible: Vec<_> = tuple.as_slice().iter().take(n_seq).cloned().collect();
             let visible_tuple = PyTuple::new_ref(visible, &vm.ctx);
             // Use tuple's repeat implementation
             visible_tuple.as_object().sequence_unchecked().repeat(n, vm)
@@ -189,12 +192,12 @@ static STRUCT_SEQUENCE_AS_SEQUENCE: LazyLock<PySequenceMethods> =
             if idx >= n_seq {
                 return Err(vm.new_index_error("tuple index out of range"));
             }
-            Ok(tuple[idx].clone())
+            Ok(tuple.as_slice()[idx].clone())
         }),
         contains: atomic_func!(|seq, needle, vm| {
             let n_seq = get_visible_len(seq.obj, vm)?;
             let tuple = seq.obj.downcast_ref::<PyTuple>().unwrap();
-            for item in tuple.iter().take(n_seq) {
+            for item in tuple.as_slice().iter().take(n_seq) {
                 if item.rich_compare_bool(needle, PyComparisonOp::Eq, vm)? {
                     return Ok(true);
                 }
@@ -292,6 +295,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         let (body, suffix) =
             if let Some(_guard) = rustpython_vm::recursion::ReprGuard::enter(vm, zelf.as_ref()) {
                 let fields: PyResult<Vec<_>> = zelf
+                    .as_slice()
                     .iter()
                     .map(|value| value.as_ref())
                     .zip(field_names.iter().copied())
@@ -468,7 +472,7 @@ fn struct_sequence_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         .downcast_ref::<PyTuple>()
         .ok_or_else(|| vm.new_type_error("expected tuple"))?;
     let n_seq = get_visible_len(&zelf, vm)?;
-    let visible: Vec<_> = tuple.iter().take(n_seq).cloned().collect();
+    let visible: Vec<_> = tuple.as_slice().iter().take(n_seq).cloned().collect();
     let visible_tuple = PyTuple::new_ref(visible, &vm.ctx);
     visible_tuple
         .as_object()
@@ -487,7 +491,7 @@ fn struct_sequence_hash(
         .ok_or_else(|| vm.new_type_error("expected tuple"))?;
     let n_seq = get_visible_len(zelf, vm)?;
     // Create a visible-only tuple and hash it
-    let visible: Vec<_> = tuple.iter().take(n_seq).cloned().collect();
+    let visible: Vec<_> = tuple.as_slice().iter().take(n_seq).cloned().collect();
     let visible_tuple = PyTuple::new_ref(visible, &vm.ctx);
     visible_tuple.as_object().hash(vm)
 }
@@ -510,7 +514,7 @@ fn struct_sequence_richcompare(
 
     let zelf_len = get_visible_len(zelf, vm)?;
     // For other, try to get visible len; if it fails (not a struct sequence), use full length
-    let other_len = get_visible_len(other, vm).unwrap_or(other_tuple.len());
+    let other_len = get_visible_len(other, vm).unwrap_or(other_tuple.as_slice().len());
 
     let zelf_visible = &zelf_tuple.as_slice()[..zelf_len];
     let other_visible = &other_tuple.as_slice()[..other_len];

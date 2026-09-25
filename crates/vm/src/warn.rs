@@ -365,23 +365,25 @@ fn filter_search(
         };
         let tmp_item = PyTupleRef::try_from_object(vm, tmp_item)
             .ok()
-            .filter(|t| t.len() == 5)
+            .filter(|t| t.as_slice().len() == 5)
             .ok_or_else(|| {
                 vm.new_value_error(format!("warnings.{list_name} item {i} isn't a 5-tuple"))
             })?;
 
         /* action, msg, cat, mod, ln = item */
-        let action = &tmp_item[0];
+        let action = &tmp_item.as_slice()[0];
         if !action.class().is(vm.ctx.types.str_type) {
             return Err(vm.new_type_error(format!(
                 "action must be a string, not '{}'",
                 action.class().name()
             )));
         }
-        let good_msg = check_matched(&tmp_item[1], text, vm)?;
-        let is_subclass = category.is_subclass(&tmp_item[2], vm)?;
-        let good_mod = check_matched(&tmp_item[3], module, vm)?;
-        let ln: usize = tmp_item[4].try_int(vm).map_or(0, |v| v.as_u32_mask() as _);
+        let good_msg = check_matched(&tmp_item.as_slice()[1], text, vm)?;
+        let is_subclass = category.is_subclass(&tmp_item.as_slice()[2], vm)?;
+        let good_mod = check_matched(&tmp_item.as_slice()[3], module, vm)?;
+        let ln: usize = tmp_item.as_slice()[4]
+            .try_int(vm)
+            .map_or(0, |v| v.as_u32_mask() as _);
 
         if good_msg && is_subclass && good_mod && (ln == 0 || lineno == ln) {
             return Ok(Some(action.to_owned()));
@@ -478,7 +480,7 @@ pub fn warn_with_skip(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     if let Some(prefixes) = skip_file_prefixes
-        && !prefixes.is_empty()
+        && !prefixes.as_slice().is_empty()
         && stack_level < 2
     {
         stack_level = 2;
@@ -676,7 +678,7 @@ fn show_warning(
 fn is_filename_to_skip(frame: &crate::frame::FrameObject, prefixes: &Py<PyTuple>) -> bool {
     let filename = frame.f_code().co_filename();
     let filename_bytes = filename.as_bytes();
-    prefixes.iter().any(|prefix| {
+    prefixes.as_slice().iter().any(|prefix| {
         prefix
             .downcast_ref::<PyStr>()
             .is_some_and(|s| filename_bytes.starts_with(s.as_bytes()))

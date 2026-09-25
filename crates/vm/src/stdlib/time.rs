@@ -131,7 +131,7 @@ mod decl {
         let seconds_type_name = object.class().name().to_owned();
         let dur = object.try_into_value::<Duration>(vm).map_err(|e| {
             if e.class().is(vm.ctx.exceptions.value_error)
-                && let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok())
+                && let Some(s) = e.args().as_slice().first().and_then(|arg| arg.str(vm).ok())
                 && s.as_bytes() == b"negative duration"
             {
                 return vm.new_value_error("sleep length must be non-negative");

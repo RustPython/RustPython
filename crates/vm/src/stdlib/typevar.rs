@@ -258,13 +258,13 @@ pub(crate) mod typevar {
 
             // Find our index in parameters
             let self_obj: PyObjectRef = zelf.to_owned().into();
-            let param_index = params_tuple.iter().position(|p| p.is(&self_obj));
+            let param_index = params_tuple.as_slice().iter().position(|p| p.is(&self_obj));
 
             if let Some(index) = param_index {
                 // Check if we have enough arguments
-                if args_tuple.len() <= index && zelf.has_default(vm) {
+                if args_tuple.as_slice().len() <= index && zelf.has_default(vm) {
                     // Need to add default value
-                    let mut new_args = args_tuple.iter().cloned().collect::<Vec<PyObjectRef>>();
+                    let mut new_args = args_tuple.as_slice().to_vec();
 
                     // Add default value at the correct position
                     while new_args.len() <= index {

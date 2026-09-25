@@ -207,8 +207,8 @@ pub(crate) fn get_jit_args<'a>(
 
     // fill in positional defaults
     if let Some(defaults) = defaults {
-        for (i, default) in defaults.iter().enumerate() {
-            let arg_idx = i + arg_count as usize - defaults.len();
+        for (i, default) in defaults.as_slice().iter().enumerate() {
+            let arg_idx = i + arg_count as usize - defaults.as_slice().len();
             if !jit_args.is_set(arg_idx) {
                 jit_args.set(arg_idx, get_jit_value(vm, default)?)?;
             }

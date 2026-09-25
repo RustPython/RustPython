@@ -19,7 +19,7 @@ mod sequence;
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
 
 fn tuple_to_args(tuple: &Py<PyTuple>) -> PosArgs {
-    tuple.iter().cloned().collect::<Vec<_>>().into()
+    tuple.as_slice().iter().cloned().collect::<Vec<_>>().into()
 }
 
 fn dict_to_kwargs(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> {
@@ -89,7 +89,7 @@ pub unsafe extern "C" fn PyObject_Vectorcall(
         let kwnames: Option<&[PyObjectRef]> = unsafe {
             kwnames
                 .assume_borrowed_or_opt()
-                .map(|tuple| Ok(&***tuple.try_downcast_ref::<PyTuple>(vm)?))
+                .map(|tuple| Ok(tuple.try_downcast_ref::<PyTuple>(vm)?.as_slice()))
                 .transpose()?
         };
 
@@ -150,7 +150,7 @@ pub unsafe extern "C" fn PyVectorcall_Call(
         let callable = unsafe { callable.assume_borrowed() };
         let tuple = unsafe { tuple.assume_borrowed_and_cast::<PyTuple>(vm) }?;
 
-        let mut args = tuple.iter().cloned().collect::<Vec<_>>();
+        let mut args = tuple.as_slice().iter().cloned().collect::<Vec<_>>();
         let num_positional_args = args.len();
 
         let mut kwnames = Vec::new();

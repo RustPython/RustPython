@@ -366,7 +366,7 @@ fn first_invalid_constant_type(vm: &VirtualMachine, value_object: &PyObject) -> 
                         obj.class().name()
                     ))
                 })?;
-            for item in tuple.iter() {
+            for item in tuple.as_slice() {
                 if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item)? {
                     return Ok(invalid_type);
                 }

@@ -38,7 +38,7 @@ pub(crate) mod ssl_error {
 
             // Otherwise return str(args)
             let args = zelf.args();
-            if args.len() == 1 {
+            if args.as_slice().len() == 1 {
                 args.as_slice()[0].str(vm)
             } else {
                 args.as_object().str(vm)

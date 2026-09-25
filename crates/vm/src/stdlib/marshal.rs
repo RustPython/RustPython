@@ -355,12 +355,12 @@ mod decl {
             buf.write_slice(&data);
         } else if let Some(t) = obj.downcast_ref::<PyTuple>() {
             // From 4 on a short tuple carries its length in a single byte.
-            if version >= 4 && t.len() < 256 {
+            if version >= 4 && t.as_slice().len() < 256 {
                 buf.write_u8(b')');
-                buf.write_u8(t.len() as u8);
+                buf.write_u8(t.as_slice().len() as u8);
             } else {
                 buf.write_u8(b'(');
-                buf.write_u32(t.len() as u32);
+                buf.write_u32(t.as_slice().len() as u32);
             }
             for elem in t.as_slice() {
                 write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
@@ -590,7 +590,7 @@ mod decl {
                 .ok_or(marshal::MarshalError::BadType)?;
             // SAFETY: compiler-core calls this only on a fresh placeholder,
             // once per index, before returning it to Python code.
-            unsafe { tuple.set_marshal_item(index, value) };
+            unsafe { tuple.payload.set_marshal_item(index, value) };
             Ok(())
         }
         fn make_code(&self, code: CodeObject) -> Result<Self::Value, marshal::MarshalError> {

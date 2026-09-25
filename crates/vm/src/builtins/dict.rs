@@ -1682,16 +1682,16 @@ impl AsSequence for PyDictItems {
                     Some(needle) => needle,
                     None => return Ok(false),
                 };
-                if needle.len() != 2 {
+                if needle.as_slice().len() != 2 {
                     return Ok(false);
                 }
 
                 let zelf = PyDictItems::sequence_downcast(seq);
-                let key = &needle[0];
+                let key = &needle.as_slice()[0];
                 if !zelf.dict.__contains__(key, vm)? {
                     return Ok(false);
                 }
-                let value = &needle[1];
+                let value = &needle.as_slice()[1];
                 let found = zelf.dict().__getitem__(key.to_owned(), vm)?;
                 vm.identical_or_equal(&found, value)
             }),

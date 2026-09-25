@@ -385,8 +385,8 @@ impl PyMemoryView {
         self.format_spec
             .unpack(&bytes[pos..pos + self.format_spec.size()], vm)
             .map(|x| {
-                if x.len() == 1 {
-                    x[0].to_owned()
+                if x.as_slice().len() == 1 {
+                    x.as_slice()[0].to_owned()
                 } else {
                     x.into()
                 }
@@ -863,7 +863,7 @@ impl PyMemoryView {
                 return Ok(zelf.into());
             }
             if let Some(tuple) = needle.downcast_ref::<PyTuple>()
-                && tuple.is_empty()
+                && tuple.as_slice().is_empty()
             {
                 return zelf.unpack_single(zelf.desc.offset as usize, vm);
             }
@@ -1170,7 +1170,7 @@ impl Py<PyMemoryView> {
             if needle.is(&vm.ctx.ellipsis) {
                 return self.pack_single(self.desc.offset as usize, value, vm);
             } else if let Some(tuple) = needle.downcast_ref::<PyTuple>()
-                && tuple.is_empty()
+                && tuple.as_slice().is_empty()
             {
                 return self.pack_single(self.desc.offset as usize, value, vm);
             }
@@ -1249,16 +1249,17 @@ impl TryFromObject for SubscriptNeedle {
             return Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }));
         }
         if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
-            if tuple.iter().all(|x| x.number().is_index()) {
+            if tuple.as_slice().iter().all(|x| x.number().is_index()) {
                 // ptr_from_tuple: each item is converted where it sits, and the
                 // conversion can run Python that releases the view.
                 let indices = tuple
+                    .as_slice()
                     .iter()
                     .map(|x| x.try_index(vm)?.try_to_primitive::<isize>(vm))
                     .try_collect()?;
                 return Ok(Self::MultiIndex(indices));
             }
-            if tuple.iter().all(|x| x.downcastable::<PySlice>()) {
+            if tuple.as_slice().iter().all(|x| x.downcastable::<PySlice>()) {
                 return Err(
                     vm.new_not_implemented_error("multi-dimensional slicing is not implemented")
                 );
@@ -1649,8 +1650,8 @@ fn format_unpack(
     vm: &VirtualMachine,
 ) -> PyResult<PyObjectRef> {
     format_spec.unpack(bytes, vm).map(|x| {
-        if x.len() == 1 {
-            x[0].to_owned()
+        if x.as_slice().len() == 1 {
+            x.as_slice()[0].to_owned()
         } else {
             x.into()
         }

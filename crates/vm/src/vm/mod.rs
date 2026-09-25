@@ -3142,7 +3142,7 @@ impl VirtualMachine {
         let fromlist_empty = self.is_none(&from_list)
             || from_list
                 .downcast_ref::<PyTuple>()
-                .is_some_and(|tuple| tuple.is_empty());
+                .is_some_and(|tuple| tuple.as_slice().is_empty());
         if level == 0
             && fromlist_empty
             && builtins.is(self.builtins.dict().as_object())
@@ -3392,7 +3392,7 @@ impl VirtualMachine {
                     i += 1;
                 }
             }
-            ref t @ PyTuple => Ok(t.iter().cloned().map(f).collect()),
+            ref t @ PyTuple => Ok(t.as_slice().iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
                 Ok(self.map_py_iter(obj, hint, f))

@@ -1432,7 +1432,7 @@ pub(super) mod _os {
                 vm,
             )?;
             let tuple = result.downcast_ref::<PyTuple>().unwrap();
-            let mut items: Vec<PyObjectRef> = tuple.to_vec();
+            let mut items: Vec<PyObjectRef> = tuple.as_slice().to_vec();
 
             // Copy integer time fields to hidden float timestamp slots when not provided.
             // indices 7-9: st_atime_int, st_mtime_int, st_ctime_int
@@ -1835,10 +1835,10 @@ pub(super) mod _os {
     #[pyfunction]
     fn utime(args: UtimeArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         let parse_tup = |tup: &Py<PyTuple>| -> Option<(PyObjectRef, PyObjectRef)> {
-            if tup.len() != 2 {
+            if tup.as_slice().len() != 2 {
                 None
             } else {
-                Some((tup[0].clone(), tup[1].clone()))
+                Some((tup.as_slice()[0].clone(), tup.as_slice()[1].clone()))
             }
         };
         let (acc, modif) = match (args.times, args.ns) {

@@ -320,7 +320,7 @@ impl<'a, R> core::iter::IntoIterator for &'a Py<PyTuple<R>> {
     type IntoIter = core::slice::Iter<'a, R>;
 
     fn into_iter(self) -> Self::IntoIter {
-        PyTuple::as_slice(self).iter()
+        self.as_slice().iter()
     }
 }
 
@@ -375,7 +375,7 @@ impl PyTuple<PyObjectRef> {
             // This only works for `tuple` itself, not its subclasses.
             zelf
         } else {
-            let v = zelf.elements.mul(vm, value)?;
+            let v = zelf.as_slice().mul(vm, value)?;
             let elements = v.into_boxed_slice();
             Self {
                 elements: TupleElements::new(elements),
@@ -385,12 +385,14 @@ impl PyTuple<PyObjectRef> {
     }
 }
 
-impl Py<PyTuple> {
+impl<R> Py<PyTuple<R>> {
     #[inline]
-    pub fn as_slice(&self) -> &[PyObjectRef] {
-        self.payload().as_slice()
+    pub fn as_slice(&self) -> &[R] {
+        self.payload.as_slice()
     }
+}
 
+impl Py<PyTuple> {
     pub fn extract_tuple<'a, T: FromPyTuple<'a>>(&'a self, vm: &VirtualMachine) -> PyResult<T> {
         T::from_pytuple(self, vm)
     }
@@ -535,7 +537,7 @@ impl PyTuple {
         let tup_arg = if zelf.class().is(vm.ctx.types.tuple_type) {
             zelf
         } else {
-            Self::new_ref(zelf.elements.as_slice().to_vec(), &vm.ctx)
+            Self::new_ref(zelf.as_slice().to_vec(), &vm.ctx)
         };
         (tup_arg,)
     }
@@ -556,9 +558,9 @@ impl AsMapping for PyTuple {
             length: atomic_func!(|mapping, _vm| {
                 Ok(PyTuple::mapping_downcast(mapping).as_slice().len())
             }),
-            subscript: atomic_func!(
-                |mapping, needle, vm| PyTuple::mapping_downcast(mapping)._getitem(needle, vm)
-            ),
+            subscript: atomic_func!(|mapping, needle, vm| PyTuple::mapping_downcast(mapping)
+                .payload
+                ._getitem(needle, vm)),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
         &AS_MAPPING
@@ -568,7 +570,7 @@ impl AsMapping for PyTuple {
 impl AsSequence for PyTuple {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyTuple::sequence_downcast(seq).__len__())),
+            length: atomic_func!(|seq, _vm| Ok(PyTuple::sequence_downcast(seq).as_slice().len())),
             concat: atomic_func!(|seq, other, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
                 match PyTuple::__add__(zelf.to_owned(), other.to_owned(), vm) {
@@ -585,11 +587,11 @@ impl AsSequence for PyTuple {
             }),
             item: atomic_func!(|seq, i, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
-                zelf.elements.getitem_by_index(vm, i)
+                zelf.as_slice().getitem_by_index(vm, i)
             }),
             contains: atomic_func!(|seq, needle, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
-                zelf._contains(needle, vm)
+                zelf.payload._contains(needle, vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
@@ -755,7 +757,7 @@ impl PyTupleIterator {
     pub(crate) fn fast_next(&self) -> Option<PyObjectRef> {
         locked_next(&self.internal, |tuple, pos| {
             Ok(PyIterReturn::from_result(
-                tuple.get(pos).cloned().ok_or(None),
+                tuple.as_slice().get(pos).cloned().ok_or(None),
             ))
         })
         .ok()
@@ -771,7 +773,7 @@ impl IterNext for PyTupleIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         locked_next(&zelf.internal, |tuple, pos| {
             Ok(PyIterReturn::from_result(
-                tuple.get(pos).cloned().ok_or(None),
+                tuple.as_slice().get(pos).cloned().ok_or(None),
             ))
         })
     }

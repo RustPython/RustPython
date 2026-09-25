@@ -1295,12 +1295,12 @@ mod _socket {
                             obj.class().name()
                         ))
                     })?;
-                    if tuple.len() != 2 {
+                    if tuple.as_slice().len() != 2 {
                         return Err(vm
                             .new_type_error("AF_INET address must be a pair (host, post)")
                             .into());
                     }
-                    let addr = Address::from_tuple(&tuple, vm)?;
+                    let addr = Address::from_tuple(tuple.as_slice(), vm)?;
                     let mut addr4 = get_addr(vm, addr.host, c::AF_INET)?;
                     match &mut addr4 {
                         SocketAddr::V4(addr4) => {
@@ -1318,13 +1318,13 @@ mod _socket {
                             obj.class().name()
                         ))
                     })?;
-                    match tuple.len() {
+                    match tuple.as_slice().len() {
                         2..=4 => {}
                         _ => return Err(vm.new_type_error(
                             "AF_INET6 address must be a tuple (host, port[, flowinfo[, scopeid]])",
                         ).into()),
                     }
-                    let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(&tuple, vm)?;
+                    let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(tuple.as_slice(), vm)?;
                     let mut addr6 = get_addr(vm, addr.host, c::AF_INET6)?;
                     match &mut addr6 {
                         SocketAddr::V6(addr6) => {
@@ -2525,10 +2525,10 @@ mod _socket {
     impl TryFromObject for Address {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             let tuple = PyTupleRef::try_from_object(vm, obj)?;
-            if tuple.len() != 2 {
+            if tuple.as_slice().len() != 2 {
                 Err(vm.new_type_error("Address tuple should have only 2 values"))
             } else {
-                Self::from_tuple(&tuple, vm)
+                Self::from_tuple(tuple.as_slice(), vm)
             }
         }
     }
@@ -3084,13 +3084,13 @@ mod _socket {
         flags: i32,
         vm: &VirtualMachine,
     ) -> Result<(String, String), IoOrPyException> {
-        match address.len() {
+        match address.as_slice().len() {
             2..=4 => {}
             _ => {
                 return Err(vm.new_type_error("illegal sockaddr argument").into());
             }
         }
-        let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(&address, vm)?;
+        let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(address.as_slice(), vm)?;
         let hints = host_socket::dns::AddrInfoHints {
             address: c::AF_UNSPEC,
             socktype: c::SOCK_DGRAM,
@@ -3110,7 +3110,7 @@ mod _socket {
         }
         match &mut ainfo.sockaddr {
             SocketAddr::V4(_) => {
-                if address.len() != 2 {
+                if address.as_slice().len() != 2 {
                     return Err(vm.new_os_error("IPv4 sockaddr must be 2 tuple").into());
                 }
             }

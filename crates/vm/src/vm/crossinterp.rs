@@ -214,7 +214,8 @@ impl SharedValue {
         if cls.is(vm.ctx.types.tuple_type) {
             let t = obj.downcast_ref::<PyTuple>().unwrap();
             return Some(
-                t.iter()
+                t.as_slice()
+                    .iter()
                     .map(|item| {
                         vm.with_recursion("while sharing a tuple", || {
                             Self::from_object(item, fallback, vm)
@@ -626,13 +627,20 @@ fn verify_stateless_function(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyRe
             render_repr(&func.builtins, vm)
         ))
     })?;
-    if func.__defaults__().is_some_and(|d| !d.is_empty()) {
+    if func
+        .__defaults__()
+        .is_some_and(|d| !d.as_slice().is_empty())
+    {
         return Err(vm.new_value_error("defaults not supported"));
     }
     if func.__kwdefaults__().is_some_and(|d| !d.is_empty()) {
         return Err(vm.new_value_error("keyword defaults not supported"));
     }
-    if func.closure.as_ref().is_some_and(|c| !c.is_empty()) {
+    if func
+        .closure
+        .as_ref()
+        .is_some_and(|c| !c.as_slice().is_empty())
+    {
         return Err(vm.new_value_error("closures not supported"));
     }
     verify_stateless(&func.code, Some((&func.globals, builtins)), vm)

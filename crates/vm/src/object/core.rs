@@ -461,7 +461,7 @@ pub struct Py<T> {
 
     pub(super) typ: PyAtomicRef<PyType>, // __class__ member
 
-    pub(super) payload: T,
+    pub(crate) payload: T,
 }
 pub const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<Py<()>>();
 
@@ -3197,7 +3197,7 @@ mod tests {
         assert!(hierarchy.weakref_type.class().is(&hierarchy.type_type));
 
         let object_bases = hierarchy.object_type.bases.read();
-        assert!(object_bases.is_empty());
+        assert!(object_bases.as_slice().is_empty());
         assert!(object_bases.as_untyped().is(&hierarchy.empty_tuple));
         assert!(object_bases.as_untyped().class().is(&hierarchy.tuple_type));
         drop(object_bases);
@@ -3208,8 +3208,8 @@ mod tests {
             &hierarchy.weakref_type,
         ] {
             let bases = typ.bases.read();
-            assert_eq!(bases.len(), 1);
-            assert!(bases[0].is(&hierarchy.object_type));
+            assert_eq!(bases.as_slice().len(), 1);
+            assert!(bases.as_slice()[0].is(&hierarchy.object_type));
             assert!(bases.as_untyped().class().is(&hierarchy.tuple_type));
         }
     }
