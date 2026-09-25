@@ -1374,15 +1374,17 @@ impl PyStr {
     fn _pad(
         &self,
         width: isize,
-        fillchar: OptionalArg<PyStrRef>,
+        fillchar: PyStrRef,
         pad: fn(&Wtf8, usize, CodePoint, usize) -> Option<Wtf8Buf>,
         vm: &VirtualMachine,
     ) -> PyResult<Wtf8Buf> {
-        let fillchar = fillchar.map_or(Ok(' '.into()), |ref s| {
-            s.as_wtf8().code_points().exactly_one().map_err(|_| {
+        let fillchar = fillchar
+            .as_wtf8()
+            .code_points()
+            .exactly_one()
+            .map_err(|_| {
                 vm.new_type_error("The fill character must be exactly one character long")
-            })
-        })?;
+            })?;
         if self.len() as isize >= width {
             return Ok(self.as_wtf8().to_owned());
         }
@@ -1722,9 +1724,8 @@ struct StripArgs {
 struct PadArgs {
     #[pyarg(positional)]
     width: isize,
-    // A missing fill is a space.
-    #[pyarg(positional, optional, py_default = "' '")]
-    fillchar: OptionalArg<PyStrRef>,
+    #[pyarg(positional, default = " ")]
+    fillchar: PyStrRef,
 }
 
 pub(crate) fn encode_string(

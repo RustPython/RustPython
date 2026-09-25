@@ -307,9 +307,8 @@ mod _sre {
 
     #[derive(FromArgs)]
     struct GroupArg {
-        // Missing group is 0.
-        #[pyarg(positional, optional, py_default = "0")]
-        group: OptionalArg<PyObjectRef>,
+        #[pyarg(positional, default = 0)]
+        group: PyObjectRef,
     }
 
     #[derive(FromArgs)]
@@ -902,10 +901,9 @@ mod _sre {
         #[pymethod]
         fn span(&self, args: GroupArg, vm: &VirtualMachine) -> PyResult<(isize, isize)> {
             let GroupArg { group } = args;
-            let index = group.map_or(Ok(0), |group| {
-                self.get_index(&group, vm)
-                    .ok_or_else(|| vm.new_index_error("no such group"))
-            })?;
+            let index = self
+                .get_index(&group, vm)
+                .ok_or_else(|| vm.new_index_error("no such group"))?;
             Ok(self.regs[index])
         }
 

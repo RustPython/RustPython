@@ -72,7 +72,7 @@ pub(crate) mod _hashlib {
     struct NewHashArgs {
         #[pyarg(any)]
         name: PyUtf8StrRef,
-        // Missing data is empty bytes.
+        // Missing still allows the string keyword; b'' does not.
         #[pyarg(any, optional, py_default = "b''")]
         data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = true)]
@@ -118,7 +118,7 @@ pub(crate) mod _hashlib {
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
     pub(crate) struct HashArgs {
-        // Missing data is empty bytes.
+        // Missing still allows the string keyword; b'' does not.
         #[pyarg(any, optional, py_default = "b''")]
         pub data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = true)]
@@ -546,8 +546,8 @@ pub(crate) mod _hashlib {
     pub(crate) struct HashTypeArgs {
         #[pyarg(any)]
         name: PyObjectRef,
-        #[pyarg(any, default, py_default = "b''")]
-        string: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = b"")]
+        string: PyObjectRef,
     }
 
     impl Constructor for PyHmac {
@@ -1144,7 +1144,7 @@ pub(crate) mod _hashlib {
         // Missing message is empty bytes.
         #[pyarg(any, optional, py_default = "b''")]
         msg: Option<ArgBytesLike>,
-        // Missing digestmod is None.
+        // Missing is an error. The signature shows None.
         #[pyarg(any, optional, py_default = "None")]
         digestmod: OptionalArg<PyObjectRef>,
     }

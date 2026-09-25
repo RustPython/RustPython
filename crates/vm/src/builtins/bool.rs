@@ -89,6 +89,7 @@ impl Debug for PyBool {
 
 #[derive(FromArgs)]
 pub struct BoolArgs {
+    // Missing skips conversion and is False.
     #[pyarg(positional, default, py_default = "False")]
     object: OptionalArg<PyObjectRef>,
 }

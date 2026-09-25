@@ -678,27 +678,24 @@ mod _multibytecodec {
     struct IncrementalEncodeArgs {
         #[pyarg(any)]
         input: PyObjectRef,
-        // Missing means False. Any object is accepted by truthiness.
-        #[pyarg(any, optional, name = "final", py_default = "False")]
-        final_input: OptionalArg<PyObjectRef>,
+        // Any object is accepted by truthiness.
+        #[pyarg(any, name = "final", default = false)]
+        final_input: PyObjectRef,
     }
 
     #[derive(FromArgs)]
     struct IncrementalDecodeArgs {
         #[pyarg(any)]
         input: ArgBytesLike,
-        // Missing means False. Any object is accepted by truthiness.
-        #[pyarg(any, optional, name = "final", py_default = "False")]
-        final_input: OptionalArg<PyObjectRef>,
+        // Any object is accepted by truthiness.
+        #[pyarg(any, name = "final", default = false)]
+        final_input: PyObjectRef,
     }
 
     /// The `bool(accept={int})` conversion the `final` arguments share, which
     /// takes any object and can run `__bool__`.
-    fn final_arg(final_input: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<bool> {
-        match final_input {
-            OptionalArg::Present(obj) => obj.try_to_bool(vm),
-            OptionalArg::Missing => Ok(false),
-        }
+    fn final_arg(final_input: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        final_input.try_to_bool(vm)
     }
 
     #[pyattr]

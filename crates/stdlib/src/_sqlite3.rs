@@ -361,7 +361,7 @@ mod _sqlite3 {
         timeout: TimeoutSeconds,
         #[pyarg(any, default = 0)]
         detect_types: c_int,
-        #[pyarg(any, default = IsolationLevelArg(Some(vm.ctx.empty_str.to_owned())), py_default = "''")]
+        #[pyarg(any, default = "")]
         isolation_level: IsolationLevelArg,
         #[pyarg(any, default = true)]
         check_same_thread: bool,
@@ -440,10 +440,10 @@ mod _sqlite3 {
         #[pyarg(positional)]
         column: PyStrRef,
         #[pyarg(positional)]
-        row: i64,
+        rowid: i64,
         #[pyarg(named, default)]
         readonly: bool,
-        #[pyarg(named, default = vm.ctx.new_str("main"), py_default = "'main'")]
+        #[pyarg(named, default = "main")]
         name: PyStrRef,
     }
 
@@ -1120,7 +1120,7 @@ mod _sqlite3 {
                     name.as_ptr(),
                     table.as_ptr(),
                     column.as_ptr(),
-                    args.row,
+                    args.rowid,
                     (!args.readonly) as c_int,
                     &mut blob,
                 )

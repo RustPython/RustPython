@@ -37,7 +37,7 @@ mod mmap {
     use rustpython_host_env::nt as host_nt;
 
     #[repr(C)]
-    #[derive(PartialEq, Eq, Debug)]
+    #[derive(Copy, Clone, PartialEq, Eq, Debug)]
     enum AccessMode {
         Default = 0,
         Read = 1,
@@ -47,8 +47,8 @@ mod mmap {
 
     impl AccessMode {
         #[must_use]
-        pub(crate) const fn py_default(&self) -> crate::vm::function::DefaultRepr {
-            crate::vm::function::DefaultRepr::Raw("<unrepresentable>")
+        pub(crate) const fn py_default(self) -> crate::vm::function::DefaultRepr {
+            crate::vm::function::DefaultRepr::Int(self as i128)
         }
     }
 
@@ -328,7 +328,7 @@ mod mmap {
     pub(super) struct AdviseOptions {
         #[pyarg(positional)]
         option: core::ffi::c_int,
-        // Missing means 0.
+        // None means 0.
         #[pyarg(positional, default, py_default = "0")]
         start: Option<PyIntRef>,
         #[pyarg(positional, optional)]

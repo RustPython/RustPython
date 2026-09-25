@@ -54,20 +54,18 @@ mod math {
         a: ArgIntoFloat,
         #[pyarg(any)]
         b: ArgIntoFloat,
-        // Missing means 1e-09.
-        #[pyarg(named, optional, py_default = "1e-09")]
-        rel_tol: OptionalArg<ArgIntoFloat>,
-        // Missing means 0.0.
-        #[pyarg(named, optional, py_default = "0.0")]
-        abs_tol: OptionalArg<ArgIntoFloat>,
+        #[pyarg(named, default = 1e-09)]
+        rel_tol: ArgIntoFloat,
+        #[pyarg(named, default = 0.0)]
+        abs_tol: ArgIntoFloat,
     }
 
     #[pyfunction]
     fn isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let a = args.a.into_float();
         let b = args.b.into_float();
-        let rel_tol = args.rel_tol.into_option().map(|v| v.into_float());
-        let abs_tol = args.abs_tol.into_option().map(|v| v.into_float());
+        let rel_tol = Some(args.rel_tol.into_float());
+        let abs_tol = Some(args.abs_tol.into_float());
 
         pymath::math::isclose(a, b, rel_tol, abs_tol)
             .map_err(|_| vm.new_value_error("tolerances must be non-negative"))

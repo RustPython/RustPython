@@ -110,6 +110,13 @@ impl ArgAttribute {
                 return Err(meta.error("py_default already set"));
             }
             let val = meta.value()?.parse::<syn::LitStr>()?;
+            if val.value() == "<unrepresentable>" {
+                return Err(meta.error(
+                    "py_default = \"<unrepresentable>\" is not allowed; use OptionalArg when a \
+                     missing argument is a distinct state, or give the default's type a real \
+                     py_default()",
+                ));
+            }
             self.py_default = Some(val.value());
         } else if meta.path.is_ident("name") {
             if self.name.is_some() {
@@ -188,16 +195,36 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
 
     let ending = if let Some(default) = attr.default {
         let ty = &field.ty;
-        let default = match default {
-            Some(expr) => match absolute_const_ident(&expr)? {
-                Some(name) => parse_quote!(::core::convert::Into::into(#name)),
-                None => expr,
-            },
-            None => parse_quote!(::std::default::Default::default()),
+        let literal_obj = match &default {
+            Some(expr) if !keeps_direct_literal(ty) && !is_wrapped_arg_ty(ty) => {
+                literal_object_expr(expr)
+            }
+            _ => None,
         };
-        quote! {
-            .map(<#ty as ::rustpython_vm::function::FromArgOptional>::from_inner)
-            .unwrap_or_else(|| #default)
+        if let Some(obj) = literal_obj {
+            quote! {
+                .map(<#ty as ::rustpython_vm::function::FromArgOptional>::from_inner)
+                .map(::core::result::Result::Ok)
+                .unwrap_or_else(|| {
+                    <#ty as ::rustpython_vm::convert::TryFromObject>::try_from_object(
+                        vm,
+                        ::rustpython_vm::convert::ToPyObject::to_pyobject(#obj, vm),
+                    )
+                    .map_err(::rustpython_vm::function::ArgumentError::from)
+                })?
+            }
+        } else {
+            let default = match default {
+                Some(expr) => match absolute_const_ident(&expr)? {
+                    Some(name) => parse_quote!(::core::convert::Into::into(#name)),
+                    None => expr,
+                },
+                None => parse_quote!(::std::default::Default::default()),
+            };
+            quote! {
+                .map(<#ty as ::rustpython_vm::function::FromArgOptional>::from_inner)
+                .unwrap_or_else(|| #default)
+            }
         }
     } else {
         // A parameter a call may name is named back when it is missing; one
@@ -307,6 +334,79 @@ fn is_bool_ty(ty: &Type) -> bool {
     matches!(&ty, Type::Path(path) if path.qself.is_none() && path.path.is_ident("bool"))
 }
 
+fn is_float_ty(ty: &Type) -> bool {
+    let Type::Path(path) = ty else {
+        return false;
+    };
+    let Some(last) = path.path.segments.last() else {
+        return false;
+    };
+    path.qself.is_none()
+        && matches!(last.arguments, syn::PathArguments::None)
+        && matches!(last.ident.to_string().as_str(), "f32" | "f64")
+}
+
+fn is_static_str(ty: &Type) -> bool {
+    let Type::Reference(reference) = ty else {
+        return false;
+    };
+    reference
+        .lifetime
+        .as_ref()
+        .is_some_and(|lifetime| lifetime.ident == "static")
+        && matches!(
+            reference.elem.as_ref(),
+            Type::Path(path) if path.qself.is_none() && path.path.is_ident("str")
+        )
+}
+
+/// Primitives and `&'static str` store the literal itself.
+fn keeps_direct_literal(ty: &Type) -> bool {
+    is_primitive_int(ty) || is_bool_ty(ty) || is_float_ty(ty) || is_static_str(ty)
+}
+
+/// `optional` / `OptionalArg` / `Option` keep their own missing-state rules.
+fn is_wrapped_arg_ty(ty: &Type) -> bool {
+    let Type::Path(path) = ty else {
+        return false;
+    };
+    let Some(last) = path.path.segments.last() else {
+        return false;
+    };
+    matches!(
+        last.ident.to_string().as_str(),
+        "OptionalArg" | "Option" | "OptionalOption"
+    )
+}
+
+/// Expression passed to `ToPyObject` for a string, bytes, int, float, or bool literal.
+fn literal_object_expr(expr: &Expr) -> Option<TokenStream> {
+    match expr {
+        Expr::Lit(syn::ExprLit { lit, .. }) => match lit {
+            Lit::Str(_) | Lit::ByteStr(_) | Lit::Bool(_) => Some(expr.to_token_stream()),
+            Lit::Int(_) => Some(quote!((#expr as i128))),
+            Lit::Float(_) => Some(quote!((#expr as f64))),
+            _ => None,
+        },
+        Expr::Unary(syn::ExprUnary {
+            op: syn::UnOp::Neg(_),
+            expr: inner,
+            ..
+        }) => match inner.as_ref() {
+            Expr::Lit(syn::ExprLit {
+                lit: Lit::Int(_), ..
+            }) => Some(quote!((#expr as i128))),
+            Expr::Lit(syn::ExprLit {
+                lit: Lit::Float(_), ..
+            }) => Some(quote!((#expr as f64))),
+            _ => None,
+        },
+        Expr::Paren(syn::ExprParen { expr: inner, .. })
+        | Expr::Group(syn::ExprGroup { expr: inner, .. }) => literal_object_expr(inner),
+        _ => None,
+    }
+}
+
 fn float_literal_text(digits: &str) -> String {
     if digits.contains(['.', 'e', 'E']) {
         digits.to_owned()
@@ -414,7 +514,18 @@ fn signature_default(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> 
         );
     }
     if attr.default.is_some() {
-        return Ok(quote!(Some(#repr::Raw("<unrepresentable>"))));
+        // A bare `default` on a primitive is its zero value.
+        let ty = &field.ty;
+        let value = if is_primitive_int(ty) {
+            quote!(#repr::Int(0))
+        } else if is_bool_ty(ty) {
+            quote!(#repr::Bool(false))
+        } else if is_float_ty(ty) {
+            quote!(#repr::Raw("0.0"))
+        } else {
+            quote!(#repr::Unrepresentable)
+        };
+        return Ok(quote!(Some(#value)));
     }
     Ok(quote!(None))
 }

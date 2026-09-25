@@ -220,14 +220,14 @@ impl ByteInnerFindOptions {
 pub struct ByteInnerPaddingOptions {
     #[pyarg(positional)]
     width: isize,
-    // A missing fill is a space.
-    #[pyarg(positional, optional, py_default = "b' '")]
-    fillchar: OptionalArg<PyObjectRef>,
+    #[pyarg(positional, default = b" ")]
+    fillchar: PyObjectRef,
 }
 
 impl ByteInnerPaddingOptions {
     fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
-        let fillchar = if let OptionalArg::Present(v) = self.fillchar {
+        let fillchar = {
+            let v = self.fillchar;
             try_as_bytes(v.clone(), |bytes| bytes.iter().copied().exactly_one().ok())
                 .flatten()
                 .ok_or_else(|| {
@@ -237,8 +237,6 @@ impl ByteInnerPaddingOptions {
                         v.class().name()
                     ))
                 })?
-        } else {
-            b' ' // default is space
         };
 
         Ok((self.width, fillchar))
@@ -249,9 +247,8 @@ impl ByteInnerPaddingOptions {
 pub struct ByteInnerTranslateOptions {
     #[pyarg(positional)]
     table: Option<PyObjectRef>,
-    // A missing delete is empty bytes.
-    #[pyarg(any, optional, py_default = "b''")]
-    delete: OptionalArg<PyObjectRef>,
+    #[pyarg(any, default = b"")]
+    delete: PyObjectRef,
 }
 
 impl ByteInnerTranslateOptions {
@@ -267,12 +264,9 @@ impl ByteInnerTranslateOptions {
             },
         )?;
 
-        let delete = match self.delete {
-            OptionalArg::Present(byte) => {
-                let byte: PyBytesInner = byte.try_into_value(vm)?;
-                byte.elements
-            }
-            _ => vec![],
+        let delete = {
+            let byte: PyBytesInner = self.delete.try_into_value(vm)?;
+            byte.elements
         };
 
         Ok((table, delete))

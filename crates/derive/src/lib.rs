@@ -17,8 +17,15 @@ use syn::punctuated::Punctuated;
 /// - `flatten`: take this field from the same argument list. No other keys.
 /// - `name = "..."`: Python parameter name. The field name is used when omitted.
 /// - `default`: missing argument stores `Default::default()`. Affects parsing.
-///   The signature text is `<unrepresentable>` unless `py_default` is set.
+///   The signature text is `0`, `False` or `0.0` for a primitive integer, `bool`
+///   or float field, and `<unrepresentable>` otherwise, unless `py_default` is set.
 /// - `default = <expr>`: missing argument stores that Rust value. Affects parsing.
+///   A string, byte-string, integer (optionally negated), float, or bool literal
+///   on any field that is not a Rust primitive (`i8`..`i128`, `u8`..`u128`,
+///   `isize`, `usize`, `f32`, `f64`, `bool`), `&'static str`, `Option<T>`, or
+///   `OptionalArg<T>` is converted only when the argument is missing:
+///   `<FieldTy as TryFromObject>::try_from_object(vm, ToPyObject::to_pyobject(LIT, vm))?`.
+///   A byte-string literal becomes a Python `bytes` object.
 /// - `default = ::NAME`: `NAME` is one identifier. The signature copies that
 ///   name, and the missing argument stores `Into::into(NAME)` (the leading
 ///   `::` is not Rust syntax for a local constant). A longer `::` path is a
@@ -29,6 +36,9 @@ use syn::punctuated::Punctuated;
 ///   `<unrepresentable>`. Any other type is rejected.
 /// - `py_default = "<python source>"`: text copied verbatim into `__text_signature__`.
 ///   Never affects parsing. Overrides every other signature default.
+///   `py_default = "<unrepresentable>"` is a compile error. Use `OptionalArg`
+///   when a missing argument is a distinct state, or give the default's type a
+///   real `py_default()`.
 /// - `error_msg = "..."`: type-error text when conversion fails.
 /// # Signature default
 /// An explicit `py_default` is used as written. Otherwise:
@@ -78,6 +88,8 @@ use syn::punctuated::Punctuated;
 /// struct OpenArgs {
 ///     #[pyarg(any, default = 0o777)]
 ///     mode: i32, // signature shows 511
+///     #[pyarg(named, default = "main")]
+///     name: PyStrRef, // signature shows 'main'
 /// }
 ///
 /// #[derive(FromArgs)]

@@ -11,7 +11,7 @@ mod decl {
         class::PyClassDef,
         common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
         convert::ToPyObject,
-        function::{FuncArgs, NameIterables, OptionalArg, PosArgs},
+        function::{FuncArgs, NameIterables, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         stdlib::sys,
@@ -200,11 +200,11 @@ mod decl {
 
     #[derive(FromArgs)]
     struct CountNewArgs {
-        #[pyarg(any, default, py_default = "0")]
-        start: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = 0)]
+        start: PyObjectRef,
 
-        #[pyarg(any, default, py_default = "1")]
-        step: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = 1)]
+        step: PyObjectRef,
     }
 
     impl Constructor for PyItertoolsCount {
@@ -215,8 +215,6 @@ mod decl {
             Self::Args { start, step }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let start = start.into_option().unwrap_or_else(|| vm.new_pyobj(0));
-            let step = step.into_option().unwrap_or_else(|| vm.new_pyobj(1));
             if !PyNumber::check(&start) || !PyNumber::check(&step) {
                 return Err(vm.new_type_error("a number is required"));
             }

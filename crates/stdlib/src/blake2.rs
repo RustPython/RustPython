@@ -6,9 +6,9 @@ pub(crate) use _blake2::module_def;
 mod _blake2 {
     use crate::hashlib::_hashlib::{Blake2Hash, BlakeHashArgs, local_blake2b, local_blake2s};
     use crate::vm::{
-        Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Context, Py, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBytes, PyIntRef, PyModule, PyType, PyTypeRef},
-        function::{ArgBytesLike, ArgPrimitiveIndex, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, FuncArgs},
         types::Constructor,
     };
 
@@ -16,34 +16,34 @@ mod _blake2 {
         ($name:ident, $digest:literal) => {
             #[derive(FromArgs)]
             struct $name {
-                #[pyarg(any, default, py_default = "b''")]
-                data: OptionalArg<ArgBytesLike>,
-                #[pyarg(named, default, py_default = $digest)]
-                digest_size: OptionalArg<ArgPrimitiveIndex<i64>>,
-                #[pyarg(named, default, py_default = "b''")]
-                key: OptionalArg<ArgBytesLike>,
-                #[pyarg(named, default, py_default = "b''")]
-                salt: OptionalArg<ArgBytesLike>,
-                #[pyarg(named, default, py_default = "b''")]
-                person: OptionalArg<ArgBytesLike>,
-                #[pyarg(named, default, py_default = "1")]
-                fanout: OptionalArg<ArgPrimitiveIndex<i64>>,
-                #[pyarg(named, default, py_default = "1")]
-                depth: OptionalArg<ArgPrimitiveIndex<i64>>,
-                #[pyarg(named, default, py_default = "0")]
-                leaf_size: OptionalArg<PyObjectRef>,
-                #[pyarg(named, default, py_default = "0")]
-                node_offset: OptionalArg<PyObjectRef>,
-                #[pyarg(named, default, py_default = "0")]
-                node_depth: OptionalArg<ArgPrimitiveIndex<i64>>,
-                #[pyarg(named, default, py_default = "0")]
-                inner_size: OptionalArg<ArgPrimitiveIndex<i64>>,
+                #[pyarg(any, default = b"")]
+                data: ArgBytesLike,
+                #[pyarg(named, default = $digest)]
+                digest_size: i64,
+                #[pyarg(named, default = b"")]
+                key: ArgBytesLike,
+                #[pyarg(named, default = b"")]
+                salt: ArgBytesLike,
+                #[pyarg(named, default = b"")]
+                person: ArgBytesLike,
+                #[pyarg(named, default = 1)]
+                fanout: i64,
+                #[pyarg(named, default = 1)]
+                depth: i64,
+                #[pyarg(named, default = 0)]
+                leaf_size: i64,
+                #[pyarg(named, default = 0)]
+                node_offset: i64,
+                #[pyarg(named, default = 0)]
+                node_depth: i64,
+                #[pyarg(named, default = 0)]
+                inner_size: i64,
                 #[pyarg(named, default = false)]
                 last_node: bool,
                 #[pyarg(named, default = true)]
                 usedforsecurity: bool,
-                #[pyarg(named, optional, py_default = "None")]
-                string: OptionalArg<ArgBytesLike>,
+                #[pyarg(named, optional)]
+                string: Option<ArgBytesLike>,
             }
 
             impl $name {
@@ -85,8 +85,8 @@ mod _blake2 {
         };
     }
 
-    blake_sig!(Blake2bSig, "64");
-    blake_sig!(Blake2sSig, "32");
+    blake_sig!(Blake2bSig, 64);
+    blake_sig!(Blake2sSig, 32);
 
     #[pyattr(name = "_GIL_MINSIZE")]
     const GIL_MINSIZE: u16 = 2048;

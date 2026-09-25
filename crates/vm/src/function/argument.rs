@@ -553,7 +553,7 @@ impl<T> OptionalArgDefault for Option<T> {
 
 impl<T> OptionalArgDefault for OptionalArg<T> {
     const PY_DEFAULT: super::signature::DefaultRepr =
-        super::signature::DefaultRepr::Raw("<unrepresentable>");
+        super::signature::DefaultRepr::Unrepresentable;
 }
 
 impl<T: TryFromObject> FromArgOptional for OptionalArg<T> {
@@ -903,7 +903,7 @@ where
     const PARAMS: Option<&'static [Param]> = Some(&[Param {
         name: "",
         kind: super::signature::ParamKind::PositionalOnly,
-        default: Some(super::signature::DefaultRepr::Raw("<unrepresentable>")),
+        default: Some(super::signature::DefaultRepr::Unrepresentable),
     }]);
 
     fn arity() -> RangeInclusive<usize> {

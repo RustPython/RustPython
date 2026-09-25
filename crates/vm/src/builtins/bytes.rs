@@ -60,6 +60,12 @@ impl ToPyObject for Vec<u8> {
     }
 }
 
+impl<const N: usize> ToPyObject for &[u8; N] {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_bytes(self.as_slice().to_vec()).into()
+    }
+}
+
 impl Deref for PyBytes {
     type Target = [u8];
 

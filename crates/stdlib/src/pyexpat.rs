@@ -170,7 +170,9 @@ mod _pyexpat {
         VirtualMachine,
         builtins::{PyBytesRef, PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
-        function::{ArgBytesLike, ArgPrimitiveIndex, Either, IntoFuncArgs, OptionalArg},
+        function::{
+            ArgBytesLike, ArgPrimitiveIndex, Either, IntoFuncArgs, OptionalArg, OptionalOption,
+        },
         types::Constructor,
     };
     use alloc::collections::VecDeque;
@@ -805,10 +807,14 @@ mod _pyexpat {
     impl PyExpatLikeXmlParser {
         fn new(
             namespace_separator: Option<String>,
-            intern: Option<PyObjectRef>,
+            intern: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyExpatLikeXmlParserRef {
-            let intern_dict = intern.unwrap_or_else(|| vm.ctx.new_dict().into());
+            let intern_dict = match intern {
+                OptionalArg::Missing => vm.ctx.new_dict().into(),
+                OptionalArg::Present(Some(obj)) => obj,
+                OptionalArg::Present(None) => vm.ctx.none(),
+            };
             Self {
                 namespace_separator,
                 base: PyRwLock::new(None),
@@ -1425,8 +1431,8 @@ mod _pyexpat {
         encoding: Option<PyStrRef>,
         #[pyarg(any, optional)]
         namespace_separator: Option<PyUtf8StrRef>,
-        #[pyarg(any, optional, py_default = "<unrepresentable>")]
-        intern: Option<PyObjectRef>,
+        #[pyarg(any, optional)]
+        intern: OptionalOption<PyObjectRef>,
     }
 
     #[pyfunction(name = "ParserCreate")]

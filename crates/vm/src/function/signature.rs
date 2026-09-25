@@ -26,8 +26,10 @@ pub enum DefaultRepr {
     Float(f64),
     Str(&'static str),
     Bytes(&'static [u8]),
-    /// Verbatim Python source, including `py_default` text and `<unrepresentable>`.
+    /// Verbatim Python source from `py_default`.
     Raw(&'static str),
+    /// The argument may be omitted, and that state is not a Python value.
+    Unrepresentable,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -161,9 +163,7 @@ const fn is_bare_funcargs(params: &[Param]) -> bool {
 const fn params_representable(params: &[Param]) -> bool {
     let mut i = 0;
     while i < params.len() {
-        if let Some(DefaultRepr::Raw(text)) = params[i].default
-            && name_eq(text, b"<unrepresentable>")
-        {
+        if let Some(DefaultRepr::Unrepresentable) = params[i].default {
             return false;
         }
         if let ParamKind::Flatten(Some(inner)) = params[i].kind
@@ -532,6 +532,7 @@ const fn put_default(buf: &mut [u8], i: usize, default: DefaultRepr) -> usize {
             put_quoted(buf, i, b, false)
         }
         DefaultRepr::Raw(s) => put_str(buf, i, s),
+        DefaultRepr::Unrepresentable => put_str(buf, i, "<unrepresentable>"),
     }
 }
 
@@ -642,5 +643,6 @@ mod tests {
         assert_eq!(rendered(DefaultRepr::Str("a'b\n")), r"'a\'b\n'");
         assert_eq!(rendered(DefaultRepr::Bytes(b"a'b")), r"b'a\'b'");
         assert_eq!(rendered(DefaultRepr::Raw("sys.maxsize")), "sys.maxsize");
+        assert_eq!(rendered(DefaultRepr::Unrepresentable), "<unrepresentable>");
     }
 }

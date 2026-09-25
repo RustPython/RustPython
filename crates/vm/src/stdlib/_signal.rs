@@ -24,7 +24,7 @@ pub(crate) mod _signal {
         unix => {
             use crate::{
                 builtins::{PyBaseExceptionRef, PyTypeRef},
-                function::{ArgIntoFloat, OptionalArg},
+                function::ArgIntoFloat,
             };
             use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
 
@@ -273,9 +273,8 @@ pub(crate) mod _signal {
         which: i32,
         #[pyarg(positional)]
         seconds: ArgIntoFloat,
-        // Missing interval is 0.0.
-        #[pyarg(positional, optional, py_default = "0.0")]
-        interval: OptionalArg<ArgIntoFloat>,
+        #[pyarg(positional, default = 0.0)]
+        interval: ArgIntoFloat,
     }
 
     #[cfg(unix)]
@@ -287,7 +286,7 @@ pub(crate) mod _signal {
             interval,
         } = args;
         let seconds: f64 = seconds.into();
-        let interval: f64 = interval.map(|v| v.into()).unwrap_or(0.0);
+        let interval: f64 = interval.into();
         let new = libc::itimerval {
             it_value: double_to_timeval(seconds),
             it_interval: double_to_timeval(interval),
@@ -372,6 +371,9 @@ pub(crate) mod _signal {
 
         Ok(old_fd as i64)
     }
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    use crate::function::OptionalArg;
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyfunction]

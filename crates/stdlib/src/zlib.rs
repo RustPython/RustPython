@@ -53,16 +53,15 @@ mod zlib {
     struct Adler32Args {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        // Missing checksum starts at 1.
-        #[pyarg(positional, optional, py_default = "1")]
-        value: OptionalArg<PyIntRef>,
+        #[pyarg(positional, default = 1)]
+        value: PyIntRef,
     }
 
     #[pyfunction]
     fn adler32(args: Adler32Args) -> u32 {
         let Adler32Args { data, value } = args;
         data.with_ref(|data| {
-            let value = value.map_or(1, |i| i.as_u32_mask());
+            let value = value.as_u32_mask();
             let mut hasher = Adler32::from_value(value);
             hasher.update_buffer(data);
             hasher.hash()
@@ -73,9 +72,8 @@ mod zlib {
     struct Crc32Args {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        // Missing checksum starts at 0.
-        #[pyarg(positional, optional, py_default = "0")]
-        value: OptionalArg<PyIntRef>,
+        #[pyarg(positional, default = 0)]
+        value: PyIntRef,
     }
 
     #[pyfunction]

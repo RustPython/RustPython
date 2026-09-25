@@ -8,7 +8,6 @@ mod syslog {
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyStr, PyStrRef},
         convert::ToPyException,
-        function::OptionalArg,
         utils::ToCString,
     };
     use rustpython_host_env::syslog as host_syslog;
@@ -69,15 +68,15 @@ mod syslog {
     struct OpenLogArgs {
         #[pyarg(any, optional)]
         ident: Option<PyStrRef>,
-        #[pyarg(any, optional, py_default = "0")]
-        logoption: OptionalArg<i32>,
+        #[pyarg(any, default = 0)]
+        logoption: i32,
         #[pyarg(any, default = ::LOG_USER)]
         facility: i32,
     }
 
     #[pyfunction]
     fn openlog(args: OpenLogArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let logoption = args.logoption.unwrap_or(0);
+        let logoption = args.logoption;
         let facility = args.facility;
         let ident = match args.ident.clone() {
             Some(ident) => Some(ident_to_utf8_cstring(&ident, vm)?),

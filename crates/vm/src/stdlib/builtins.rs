@@ -107,18 +107,16 @@ mod builtins {
         // CPython parity: flags / optimize accept any object with __index__,
         // not just exact int. Matches the argument conversion used by
         // builtin_compile_impl.
-        // Missing means 0. Any object with __index__ is accepted.
-        #[pyarg(any, optional, py_default = "0")]
-        flags: OptionalArg<ArgPrimitiveIndex<i32>>,
-        // CPython parity: dont_inherit goes through PyObject_IsTrue, so
-        // arbitrary objects with `__bool__` are accepted (and any exception
-        // raised inside `__bool__` propagates) — not the strict bool type.
-        // Missing means False.
-        #[pyarg(any, optional, py_default = "False")]
-        dont_inherit: OptionalArg<ArgIntoBool>,
-        // Missing means -1.
-        #[pyarg(any, optional, py_default = "-1")]
-        optimize: OptionalArg<ArgPrimitiveIndex<i32>>,
+        // Any object with __index__ is accepted.
+        #[pyarg(any, default = 0)]
+        flags: ArgPrimitiveIndex<i32>,
+        // dont_inherit goes through PyObject_IsTrue, so arbitrary objects
+        // with `__bool__` are accepted (and any exception raised inside
+        // `__bool__` propagates) — not the strict bool type.
+        #[pyarg(any, default = false)]
+        dont_inherit: ArgIntoBool,
+        #[pyarg(any, default = -1)]
+        optimize: ArgPrimitiveIndex<i32>,
         #[pyarg(named, default = -1)]
         _feature_version: i32,
     }
@@ -202,20 +200,20 @@ mod builtins {
             let feature_version = args._feature_version;
 
             let mode_str = args.mode.as_str();
-            let flags: i32 = args.flags.map_or(0, |v| v.value);
+            let flags: i32 = args.flags.value;
             let cf = CompilerFlags::from_bits_retain(flags);
 
             if (flags & !CompilerFlags::ALLOWED_FLAGS.bits()) != 0 {
                 return Err(vm.new_value_error("compile(): unrecognised flags"));
             }
 
-            let optimize: i32 = args.optimize.map_or(-1, |v| v.value);
+            let optimize: i32 = args.optimize.value;
             let optimize: u8 = match optimize {
                 -1 => vm.state.config.settings.optimize.min(2),
                 0..=2 => optimize as u8,
                 _ => return Err(vm.new_value_error("compile(): invalid optimize value")),
             };
-            let dont_inherit = args.dont_inherit.map_or(false, ArgIntoBool::into_bool);
+            let dont_inherit = args.dont_inherit.into_bool();
             let is_ast_only = cf.contains(CompilerFlags::ONLY_AST);
             let future_features = merge_compile_future_features(flags, dont_inherit, vm);
 
@@ -678,9 +676,8 @@ mod builtins {
     struct FormatArgs {
         #[pyarg(positional)]
         value: PyObjectRef,
-        // Missing means an empty format spec.
-        #[pyarg(positional, optional, py_default = "''")]
-        format_spec: OptionalArg<PyStrRef>,
+        #[pyarg(positional, default = "")]
+        format_spec: PyStrRef,
     }
 
     #[derive(FromArgs)]
@@ -692,7 +689,7 @@ mod builtins {
 
     #[pyfunction]
     fn format(args: FormatArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        vm.format(&args.value, args.format_spec.unwrap_or(vm.ctx.new_str("")))
+        vm.format(&args.value, args.format_spec)
     }
 
     #[pyfunction]
@@ -1225,7 +1222,7 @@ mod builtins {
         #[pyarg(positional)]
         iterable: ArgIterable,
         // The int object needs the VM, so the default is not a literal.
-        #[pyarg(any, default = vm.ctx.new_int(0).into(), py_default = "0")]
+        #[pyarg(any, default = 0)]
         start: PyObjectRef,
     }
 

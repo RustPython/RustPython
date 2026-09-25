@@ -4607,6 +4607,7 @@ mod _io {
 
     #[derive(FromArgs)]
     struct StringIONewArgs {
+        // None means an empty buffer.
         #[pyarg(any, optional, py_default = "''")]
         initial_value: Option<PyStrRef>,
 
@@ -4937,6 +4938,7 @@ mod _io {
 
     #[derive(FromArgs)]
     struct BytesIOArgs {
+        // None means an empty buffer.
         #[pyarg(any, optional, py_default = "b''")]
         initial_bytes: Option<ArgBytesLike>,
     }
@@ -5357,21 +5359,15 @@ mod _io {
     #[derive(FromArgs)]
     struct IoOpenArgs {
         file: PyObjectRef,
-        // None is filled in as r.
-        #[pyarg(any, default = OptionalArg::Missing, py_default = "'r'")]
-        mode: OptionalArg<PyUtf8StrRef>,
+        #[pyarg(any, default = "r")]
+        mode: PyUtf8StrRef,
         #[pyarg(flatten)]
         opts: OpenArgs,
     }
 
     #[pyfunction]
     fn open(args: IoOpenArgs, vm: &VirtualMachine) -> PyResult {
-        io_open(
-            args.file,
-            args.mode.as_ref().into_option().map(|s| s.as_str()),
-            args.opts,
-            vm,
-        )
+        io_open(args.file, Some(args.mode.as_str()), args.opts, vm)
     }
 
     #[derive(FromArgs)]

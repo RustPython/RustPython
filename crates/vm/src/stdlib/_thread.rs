@@ -848,9 +848,8 @@ pub(crate) mod _thread {
 
     #[derive(FromArgs)]
     struct StackSizeArgs {
-        // Missing size is 0.
-        #[pyarg(positional, optional, py_default = "0")]
-        size: OptionalArg<PyIntRef>,
+        #[pyarg(positional, default = 0)]
+        size: PyIntRef,
     }
 
     #[pyfunction]
@@ -858,7 +857,7 @@ pub(crate) mod _thread {
         const MIN_SIZE: usize = PY_OS_MIN_STACK_SIZE + SYSTEM_PAGE_SIZE;
         let StackSizeArgs { size } = args;
 
-        let Ok(size) = size.map_or(Ok(0), |v| v.try_to_primitive(vm)) else {
+        let Ok(size) = size.try_to_primitive(vm) else {
             return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
         };
 

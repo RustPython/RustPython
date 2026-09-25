@@ -85,8 +85,8 @@ mod fcntl {
 
     #[derive(FromArgs)]
     struct FcntlArg {
-        #[pyarg(positional, default, py_default = "0")]
-        arg: OptionalArg<Either<ArgStrOrBytesLike, PyIntRef>>,
+        #[pyarg(positional, default = 0)]
+        arg: Either<ArgStrOrBytesLike, PyIntRef>,
     }
 
     #[pyfunction]
@@ -97,7 +97,7 @@ mod fcntl {
         vm: &VirtualMachine,
     ) -> PyResult {
         let int = match arg {
-            OptionalArg::Present(Either::A(arg)) => {
+            Either::A(arg) => {
                 let mut buf = [0u8; 1024];
                 let arg_len;
                 {
@@ -114,8 +114,7 @@ mod fcntl {
                 )?;
                 return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
             }
-            OptionalArg::Present(Either::B(i)) => i.as_u32_mask(),
-            OptionalArg::Missing => 0,
+            Either::B(i) => i.as_u32_mask(),
         };
         let ret = retry_on_eintr(
             vm,
@@ -127,8 +126,8 @@ mod fcntl {
 
     #[derive(FromArgs)]
     struct IoctlArgs {
-        #[pyarg(positional, default, py_default = "0")]
-        arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
+        #[pyarg(positional, default = 0)]
+        arg: Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>,
         #[pyarg(positional, default = true)]
         mutate_flag: bool,
     }
@@ -142,7 +141,6 @@ mod fcntl {
     ) -> PyResult {
         let mutate_flag = OptionalArg::Present(mutate_flag);
         let request = host_fcntl::normalize_ioctl_request(request);
-        let arg = arg.unwrap_or_else(|| Either::B(0));
         match arg {
             Either::A(buf_kind) => {
                 const BUF_SIZE: usize = 1024;
@@ -214,12 +212,12 @@ mod fcntl {
 
     #[derive(FromArgs)]
     struct LockfArgs {
-        #[pyarg(positional, default, py_default = "0")]
-        len: OptionalArg<PyIntRef>,
-        #[pyarg(positional, default, py_default = "0")]
-        start: OptionalArg<PyIntRef>,
-        #[pyarg(positional, default, py_default = "0")]
-        whence: OptionalArg<i32>,
+        #[pyarg(positional, default = 0)]
+        len: PyIntRef,
+        #[pyarg(positional, default = 0)]
+        start: PyIntRef,
+        #[pyarg(positional, default = 0)]
+        whence: i32,
     }
 
     // XXX: at the time of writing, wasi and redox don't have the necessary constants
@@ -231,18 +229,8 @@ mod fcntl {
         LockfArgs { len, start, whence }: LockfArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let start = match start {
-            OptionalArg::Present(s) => s.try_to_primitive(vm)?,
-            OptionalArg::Missing => 0,
-        };
-        let len = match len {
-            OptionalArg::Present(l_) => l_.try_to_primitive(vm)?,
-            OptionalArg::Missing => 0,
-        };
-        let whence = match whence {
-            OptionalArg::Present(w) => w,
-            OptionalArg::Missing => 0,
-        };
+        let start = start.try_to_primitive(vm)?;
+        let len = len.try_to_primitive(vm)?;
         // F_LOCK and F_TLOCK differ in exactly this: the first one waits.
         let ret = retry_on_eintr(
             vm,

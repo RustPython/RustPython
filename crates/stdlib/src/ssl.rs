@@ -3828,7 +3828,7 @@ mod _ssl {
             args: ChannelBindingArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyBytesRef>> {
-            let cb_type_str = args.cb_type.as_ref().map_or("tls-unique", |s| s.as_str());
+            let cb_type_str = args.cb_type.as_str();
             if cb_type_str != "tls-unique" {
                 return Err(super::msg::unknown_binding_type_error(cb_type_str, vm));
             }
@@ -4061,9 +4061,8 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct ChannelBindingArgs {
-        // Missing means tls-unique.
-        #[pyarg(any, optional, py_default = "'tls-unique'")]
-        cb_type: OptionalArg<PyUtf8StrRef>,
+        #[pyarg(any, default = "tls-unique")]
+        cb_type: PyUtf8StrRef,
     }
 
     #[derive(FromArgs)]

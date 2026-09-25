@@ -172,6 +172,7 @@ pub(crate) fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
 
 #[derive(FromArgs)]
 pub struct FloatArgs {
+    // Missing is 0.0 without parsing. Subclass init builds Missing itself.
     #[pyarg(positional, default, py_default = "0")]
     x: OptionalArg<PyObjectRef>,
 }
