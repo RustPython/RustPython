@@ -751,11 +751,6 @@ impl Representable for PyDict {
 
 impl Py<PyDict> {
     #[inline]
-    pub fn len(&self) -> usize {
-        self.payload().__len__()
-    }
-
-    #[inline]
     fn exact_dict(&self, vm: &VirtualMachine) -> bool {
         self.class().is(vm.ctx.types.dict_type)
     }

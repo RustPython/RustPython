@@ -751,8 +751,8 @@ impl Constructor for PyCFuncPtr {
                 .ok_or_else(|| vm.new_type_error("Expected a string"))?
                 .to_string();
             let dll = tuple
-                .iter()
-                .nth(1)
+                .as_slice()
+                .get(1)
                 .ok_or_else(|| vm.new_type_error("Expected a tuple with at least 2 elements"))?
                 .clone();
 
