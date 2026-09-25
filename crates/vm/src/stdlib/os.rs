@@ -1717,10 +1717,8 @@ pub(super) mod _os {
         #[pyarg(any)]
         dst: OsPath,
         #[pyarg(flatten)]
-        #[cfg_attr(not(any(unix, target_os = "wasi")), expect(dead_code))]
         src_dir_fd: DirFd<'fd, { LINK_DIR_FD as usize }, SrcDirFd>,
         #[pyarg(flatten)]
-        #[cfg_attr(not(any(unix, target_os = "wasi")), expect(dead_code))]
         dst_dir_fd: DirFd<'fd, { LINK_DIR_FD as usize }, DstDirFd>,
         #[pyarg(named, default = cfg!(not(windows)), py_default = "(os.name != 'nt')")]
         follow_symlinks: bool,
