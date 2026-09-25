@@ -594,17 +594,15 @@ pub(crate) mod _thread {
         let args: PyTupleRef = args_obj.clone().try_into_value(vm)?;
         let kwargs: Option<PyDictRef> = kwargs_obj.map(|obj| obj.try_into_value(vm)).transpose()?;
 
-        vm.sys_module.get_attr("audit", vm)?.call(
+        vm.audit("_thread.start_new_thread", || {
             (
-                "_thread.start_new_thread",
                 func_obj,
                 args_obj,
                 kwargs
                     .as_ref()
                     .map_or_else(|| vm.ctx.none(), |k| k.clone().into()),
-            ),
-            vm,
-        )?;
+            )
+        })?;
 
         if !vm.state.allow_threads() {
             return Err(vm.new_runtime_error(
@@ -1898,17 +1896,15 @@ pub(crate) mod _thread {
             None
         };
 
-        vm.sys_module.get_attr("audit", vm)?.call(
+        vm.audit("_thread.start_joinable_thread", || {
             (
-                "_thread.start_joinable_thread",
                 function_obj,
                 daemon,
                 handle
                     .as_ref()
                     .map_or_else(|| vm.ctx.none(), |h| h.clone().into()),
-            ),
-            vm,
-        )?;
+            )
+        })?;
 
         if !vm.state.allow_threads() {
             return Err(vm.new_runtime_error(

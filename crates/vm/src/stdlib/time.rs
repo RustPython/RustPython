@@ -126,9 +126,7 @@ mod decl {
 
     #[pyfunction]
     fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("time.sleep"), seconds.clone()), vm)?;
-        }
+        vm.audit("time.sleep", || (seconds.clone(),))?;
 
         let seconds_type_name = seconds.class().name().to_owned();
         let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {

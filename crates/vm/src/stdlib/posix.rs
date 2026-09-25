@@ -858,11 +858,7 @@ pub mod module {
             );
         }
 
-        // RustPython does not yet have C-level audit hooks; call sys.audit()
-        // to preserve Python-visible behavior and failure semantics.
-        vm.sys_module
-            .get_attr("audit", vm)?
-            .call(("os.fork",), vm)?;
+        vm.audit("os.fork", || ())?;
 
         py_os_before_fork(vm);
         let pid = rustpython_host_env::posix::fork();
@@ -907,9 +903,7 @@ pub mod module {
             );
         }
 
-        vm.sys_module
-            .get_attr("audit", vm)?
-            .call(("os.forkpty",), vm)?;
+        vm.audit("os.forkpty", || ())?;
 
         py_os_before_fork(vm);
         let result = rustpython_host_env::posix::forkpty();

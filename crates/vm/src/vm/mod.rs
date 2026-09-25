@@ -3007,6 +3007,21 @@ impl VirtualMachine {
         }
     }
 
+    /// `PySys_Audit`: raise audit `event` to the registered hooks. `args` is only built when a hook
+    /// is registered.
+    pub fn audit<A: crate::function::IntoFuncArgs>(
+        &self,
+        event: &str,
+        args: impl FnOnce() -> A,
+    ) -> PyResult<()> {
+        if self.audit_hooks.borrow().is_empty() {
+            return Ok(());
+        }
+        let event = self.ctx.new_str(event);
+        let args = self.ctx.new_tuple(args().into_args(self).args);
+        crate::stdlib::sys::sys::run_audit_hooks(&event, args.as_object(), self)
+    }
+
     #[inline]
     pub(crate) fn enter_tracing(&self) {
         self.tracing_depth.set(self.tracing_depth.get() + 1);

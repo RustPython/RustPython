@@ -995,9 +995,7 @@ pub mod sys {
         let depth = depth.into_option().unwrap_or(0);
         let frame_ref = crate::frame::frame_at_offset(depth, vm)
             .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("sys._getframe"), frame_ref.to_owned()), vm)?;
-        }
+        vm.audit("sys._getframe", || (frame_ref.to_owned(),))?;
 
         Ok(frame_ref)
     }
@@ -1008,9 +1006,7 @@ pub mod sys {
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
         let depth = depth.into_option().unwrap_or(0);
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("sys._getframemodulename"), depth), vm)?;
-        }
+        vm.audit("sys._getframemodulename", || (depth,))?;
 
         // Get the frame at the specified depth
         let func_obj = match crate::frame::frame_at_offset(depth, vm) {

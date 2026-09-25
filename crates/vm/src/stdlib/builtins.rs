@@ -134,15 +134,9 @@ mod builtins {
     }
 
     fn audit_compile_source(vm: &VirtualMachine, source: &[u8], filename: &str) -> PyResult<()> {
-        vm.sys_module.get_attr("audit", vm)?.call(
-            (
-                vm.ctx.new_str("compile"),
-                vm.ctx.new_bytes(source.to_vec()),
-                vm.ctx.new_str(filename),
-            ),
-            vm,
-        )?;
-        Ok(())
+        vm.audit("compile", || {
+            (vm.ctx.new_bytes(source.to_vec()), vm.ctx.new_str(filename))
+        })
     }
 
     fn trim_eval_source_bytes(mut source: &[u8]) -> &[u8] {
@@ -243,14 +237,7 @@ mod builtins {
             if args.source.is_instance(&ast_type, vm)? {
                 let explicit_future_annotations =
                     future_features.contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-                vm.sys_module.get_attr("audit", vm)?.call(
-                    (
-                        vm.ctx.new_str("compile"),
-                        args.source.clone(),
-                        vm.ctx.none(),
-                    ),
-                    vm,
-                )?;
+                vm.audit("compile", || (args.source.clone(), vm.ctx.none()))?;
 
                 // compile(ast_node, ..., PyCF_ONLY_AST) returns the AST after validation
                 if is_ast_only {
@@ -480,7 +467,7 @@ mod builtins {
     #[derive(FromArgs)]
     struct ExecArgs {
         #[pyarg(positional)]
-        source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
+        source: Either<PyRef<crate::builtins::PyCode>, ArgStrOrBytesLike>,
         #[pyarg(any, default)]
         globals: Option<PyObjectRef>,
         #[pyarg(any, default)]
@@ -534,7 +521,7 @@ mod builtins {
 
     #[pyfunction]
     fn eval(
-        source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
+        source: Either<PyRef<crate::builtins::PyCode>, ArgStrOrBytesLike>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -542,7 +529,7 @@ mod builtins {
 
         // source as string
         let code = match source {
-            Either::A(either) => {
+            Either::B(either) => {
                 let source = match &either {
                     ArgStrOrBytesLike::Str(source) => {
                         let source = source.try_as_utf8(vm)?.as_str();
@@ -569,9 +556,9 @@ mod builtins {
                         decode_eval_exec_source_bytes(vm, source, "eval")?
                     }
                 };
-                Ok(Either::A(vm.ctx.new_utf8_str(source)))
+                Ok(Either::B(vm.ctx.new_utf8_str(source)))
             }
-            Either::B(code) => Ok(Either::B(code)),
+            Either::A(code) => Ok(Either::A(code)),
         }?;
         run_code(vm, code, scope, crate::compiler::Mode::Eval, "eval", None)
     }
@@ -587,7 +574,7 @@ mod builtins {
         let scope = ScopeArgs { globals, locals }.make_scope(vm, "exec")?;
         let closure = closure.flatten();
         let (source, closure) = match source {
-            Either::A(either) => {
+            Either::B(either) => {
                 if closure.is_some() {
                     return Err(
                         vm.new_type_error("closure can only be used when source is a code object")
@@ -617,11 +604,11 @@ mod builtins {
                         decode_eval_exec_source_bytes(vm, source, "exec")?
                     }
                 };
-                (Either::A(vm.ctx.new_utf8_str(source)), None)
+                (Either::B(vm.ctx.new_utf8_str(source)), None)
             }
-            Either::B(code) => {
+            Either::A(code) => {
                 let closure = exec_closure(&code, closure, vm)?;
-                (Either::B(code), closure)
+                (Either::A(code), closure)
             }
         };
         run_code(
@@ -636,7 +623,7 @@ mod builtins {
 
     fn run_code(
         vm: &VirtualMachine,
-        source: Either<PyUtf8StrRef, PyRef<crate::builtins::PyCode>>,
+        source: Either<PyRef<crate::builtins::PyCode>, PyUtf8StrRef>,
         scope: crate::scope::Scope,
         #[allow(unused_variables)] mode: crate::compiler::Mode,
         func: &str,
@@ -645,7 +632,7 @@ mod builtins {
         // Determine code object:
         let code_obj = match source {
             #[cfg(feature = "rustpython-compiler")]
-            Either::A(string) => {
+            Either::B(string) => {
                 let source = string.as_str();
                 let mut opts = vm.compile_opts();
                 if let Some(code) = crate::frame::current_code() {
@@ -655,13 +642,11 @@ mod builtins {
                     .map_err(|err| err.into_pyexception(vm, Some(source)))?
             }
             #[cfg(not(feature = "rustpython-compiler"))]
-            Either::A(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED)),
-            Either::B(code_obj) => code_obj,
+            Either::B(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED)),
+            Either::A(code_obj) => code_obj,
         };
 
-        vm.sys_module
-            .get_attr("audit", vm)?
-            .call((vm.ctx.new_str("exec"), code_obj.clone()), vm)?;
+        vm.audit("exec", || (code_obj.clone(),))?;
 
         if closure.is_none() && !code_obj.freevars.is_empty() {
             return Err(vm.new_type_error(format!(

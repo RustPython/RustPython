@@ -425,14 +425,9 @@ impl PyMemberDescriptor {
 
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if self.member.flags & PY_AUDIT_READ != 0 {
-            vm.sys_module.get_attr("audit", vm)?.call(
-                (
-                    vm.ctx.new_str("object.__getattr__"),
-                    obj.clone(),
-                    vm.ctx.new_str(self.member.name.as_str()),
-                ),
-                vm,
-            )?;
+            vm.audit("object.__getattr__", || {
+                (obj.clone(), vm.ctx.new_str(self.member.name.as_str()))
+            })?;
         }
         match self.access {
             MemberAccess::Func { get, .. } => get(vm, obj),
