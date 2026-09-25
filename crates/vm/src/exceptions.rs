@@ -358,11 +358,11 @@ impl VirtualMachine {
             0 => vec![],
             1 => {
                 let args0_repr = if str_single {
-                    varargs[0]
+                    varargs.as_slice()[0]
                         .str(vm)
                         .unwrap_or_else(|_| PyStr::from("<element str() failed>").into_ref(&vm.ctx))
                 } else {
-                    varargs[0].repr(vm).unwrap_or_else(|_| {
+                    varargs.as_slice()[0].repr(vm).unwrap_or_else(|_| {
                         PyStr::from("<element repr() failed>").into_ref(&vm.ctx)
                     })
                 };

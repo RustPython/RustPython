@@ -797,7 +797,7 @@ impl PyType {
             interpreter_id: HeapTypeExt::creating_interpreter_id(),
         };
         let bases = PyTuple::new_ref_typed(bases, ctx);
-        let base = bases[0].clone();
+        let base = bases.as_slice()[0].clone();
 
         Self::new_heap_inner(
             base,

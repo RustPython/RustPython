@@ -369,7 +369,7 @@ fn subs_tvars(
 
                     for arg in sub_params.iter() {
                         if let Some(idx) = tuple_index(params.as_slice(), arg) {
-                            let param = &params[idx];
+                            let param = &params.as_slice()[idx];
                             let substituted_arg = &arg_items[idx];
 
                             // Check if this is a TypeVarTuple (has tp_iter)

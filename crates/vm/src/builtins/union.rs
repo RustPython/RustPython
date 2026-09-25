@@ -365,7 +365,7 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<U
 pub fn make_union(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult {
     let result = dedup_and_flatten_args(args, vm)?;
     Ok(match result.args.len() {
-        1 => result.args[0].to_owned(),
+        1 => result.args.as_slice()[0].to_owned(),
         _ => PyUnion::from_components(result, vm)?.to_pyobject(vm),
     })
 }
@@ -383,7 +383,7 @@ impl PyUnion {
         Ok(if new_args.is_empty() {
             make_union(&new_args, vm)?
         } else {
-            let mut tmp = new_args[0].to_owned();
+            let mut tmp = new_args.as_slice()[0].to_owned();
             for arg in new_args.iter().skip(1) {
                 tmp = vm._or(&tmp, arg)?;
             }
