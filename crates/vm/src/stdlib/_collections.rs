@@ -940,7 +940,11 @@ mod _collections {
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let cls = zelf.class().to_owned();
 
-            let default_factory = zelf.default_factory.load_owned();
+            // NULL and None both mean "no factory": the args tuple is empty.
+            let default_factory = zelf
+                .default_factory
+                .load_owned()
+                .filter(|factory| !vm.is_none(factory));
             let factory_tuple_elements =
                 default_factory.map_or_else(Vec::new, |factory| vec![factory]);
             let factory_tuple = vm.ctx.new_tuple(factory_tuple_elements);

@@ -216,7 +216,8 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///
 /// - `type`: `"object"`, `"object_ex"` (default), `"bool"`, or `"double"`.
 /// - `readonly`: reject stores. A writable object member must be `PyAtomicRef<PyObject>`,
-///   and a writable bool must be `AtomicBool`.
+///   a writable bool must be `AtomicBool`, and a writable double must be an
+///   atomic 64-bit cell (`AtomicU64`) holding the `f64` bits.
 /// - `audit_read`: audit `object.__getattr__` before the load.
 /// - `name`: Python attribute name. Defaults to the const name.
 /// - `field`: payload field path. Defaults to the const name.

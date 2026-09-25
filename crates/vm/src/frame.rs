@@ -10224,6 +10224,7 @@ impl ExecutingFrame<'_> {
                 if let Some(ref descr) = cls_attr
                     && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
                     && let Some(offset) = member_descr.slot_offset()
+                    && !member_descr.member.audit_read()
                     && cls.fast_issubclass(&member_descr.common.typ)
                 {
                     unsafe {
