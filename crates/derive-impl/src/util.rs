@@ -756,11 +756,19 @@ fn is_vm_or_callee(ty: &Type) -> bool {
 }
 
 fn arg_name(pat: &syn::Pat) -> String {
-    let syn::Pat::Ident(pat) = pat else {
-        return String::new();
-    };
-    let ident = pat.ident.unraw().to_string();
-    ident.strip_prefix('_').unwrap_or(&ident).to_owned()
+    match pat {
+        syn::Pat::Ident(pat) => {
+            let ident = pat.ident.unraw().to_string();
+            ident.strip_prefix('_').unwrap_or(&ident).to_owned()
+        }
+        // `Fildes(fd): Fildes` contributes `fd`. One binding only: a wider
+        // pattern has no single parameter name. The name is unused when the
+        // type supplies parameters.
+        syn::Pat::TupleStruct(pat) if pat.elems.len() == 1 => arg_name(&pat.elems[0]),
+        syn::Pat::Reference(pat) => arg_name(&pat.pat),
+        syn::Pat::Paren(pat) => arg_name(&pat.pat),
+        _ => String::new(),
+    }
 }
 
 fn mentions_self(ty: &Type) -> bool {

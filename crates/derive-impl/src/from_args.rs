@@ -188,7 +188,13 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
 
     let ending = if let Some(default) = attr.default {
         let ty = &field.ty;
-        let default = default.unwrap_or_else(|| parse_quote!(::std::default::Default::default()));
+        let default = match default {
+            Some(expr) => match absolute_const_ident(&expr)? {
+                Some(name) => parse_quote!(::core::convert::Into::into(#name)),
+                None => expr,
+            },
+            None => parse_quote!(::std::default::Default::default()),
+        };
         quote! {
             .map(<#ty as ::rustpython_vm::function::FromArgOptional>::from_inner)
             .unwrap_or_else(|| #default)
@@ -247,25 +253,53 @@ fn is_primitive_int(ty: &Type) -> bool {
     let Type::Path(path) = ty else {
         return false;
     };
-    if path.qself.is_some() {
-        return false;
-    }
-    let Some(ident) = path.path.get_ident() else {
+    let Some(last) = path.path.segments.last() else {
         return false;
     };
-    matches!(
-        ident.to_string().as_str(),
-        "i8" | "i16"
-            | "i32"
-            | "i64"
-            | "i128"
-            | "isize"
-            | "u8"
-            | "u16"
-            | "u32"
-            | "u64"
-            | "u128"
-            | "usize"
+    // The last segment decides, so `core::ffi::c_int` counts too.
+    path.qself.is_none()
+        && matches!(last.arguments, syn::PathArguments::None)
+        && matches!(
+            last.ident.to_string().as_str(),
+            "i8" | "i16"
+                | "i32"
+                | "i64"
+                | "i128"
+                | "isize"
+                | "u8"
+                | "u16"
+                | "u32"
+                | "u64"
+                | "u128"
+                | "usize"
+                | "c_short"
+                | "c_ushort"
+                | "c_int"
+                | "c_uint"
+                | "c_long"
+                | "c_ulong"
+                | "c_longlong"
+                | "c_ulonglong"
+        )
+}
+
+/// `default = ::NAME` copies `NAME` into the signature. The Rust value is
+/// `Into::into(NAME)`: a leading `::` would name an extern crate.
+fn absolute_const_ident(expr: &Expr) -> Result<Option<Ident>> {
+    let Expr::Path(path) = expr else {
+        return Ok(None);
+    };
+    if path.qself.is_some() || path.path.leading_colon.is_none() {
+        return Ok(None);
+    }
+    let segments = &path.path.segments;
+    if segments.len() == 1 && matches!(segments[0].arguments, syn::PathArguments::None) {
+        return Ok(Some(segments[0].ident.clone()));
+    }
+    bail_span!(
+        expr,
+        "`default = ::NAME` takes one identifier so that name is copied into the signature; \
+         use a plain path for a typed value"
     )
 }
 
@@ -360,23 +394,29 @@ fn value_default_repr(field: &Field, expr: &Expr) -> TokenStream {
     }
 }
 
-fn signature_default(field: &Field, attr: &ArgAttribute) -> TokenStream {
+fn signature_default(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> {
     let repr = repr_path();
     if let Some(text) = &attr.py_default {
-        return quote!(Some(#repr::Raw(#text)));
+        return Ok(quote!(Some(#repr::Raw(#text))));
     }
     if let Some(Some(expr)) = &attr.default {
+        if let Some(name) = absolute_const_ident(expr)? {
+            let name = name.to_string();
+            return Ok(quote!(Some(#repr::Raw(#name))));
+        }
         let value = value_default_repr(field, expr);
-        return quote!(Some(#value));
+        return Ok(quote!(Some(#value)));
     }
     if attr.optional {
         let ty = &field.ty;
-        return quote!(Some(<#ty as ::rustpython_vm::function::OptionalArgDefault>::PY_DEFAULT));
+        return Ok(
+            quote!(Some(<#ty as ::rustpython_vm::function::OptionalArgDefault>::PY_DEFAULT)),
+        );
     }
     if attr.default.is_some() {
-        return quote!(Some(#repr::Raw("<unrepresentable>")));
+        return Ok(quote!(Some(#repr::Raw("<unrepresentable>"))));
     }
-    quote!(None)
+    Ok(quote!(None))
 }
 
 fn param_token(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> {
@@ -395,7 +435,7 @@ fn param_token(field: &Field, attr: &ArgAttribute) -> Result<TokenStream> {
         .clone()
         .or(name)
         .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))?;
-    let default_tok = signature_default(field, attr);
+    let default_tok = signature_default(field, attr)?;
     let kind = match attr.kind {
         ParameterKind::PositionalOnly => {
             quote!(::rustpython_vm::function::ParamKind::PositionalOnly)

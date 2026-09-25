@@ -230,9 +230,9 @@ mod mmap {
         fileno: i32,
         #[pyarg(any)]
         length: isize,
-        #[pyarg(any, default = host_mmap::MAP_SHARED, py_default = "<unrepresentable>")]
+        #[pyarg(any, default = host_mmap::MAP_SHARED)]
         flags: core::ffi::c_int,
-        #[pyarg(any, default = host_mmap::PROT_WRITE | host_mmap::PROT_READ, py_default = "<unrepresentable>")]
+        #[pyarg(any, default = host_mmap::PROT_WRITE | host_mmap::PROT_READ)]
         prot: core::ffi::c_int,
         #[pyarg(any, default = AccessMode::Default)]
         access: AccessMode,

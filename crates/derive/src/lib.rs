@@ -19,6 +19,11 @@ use syn::punctuated::Punctuated;
 /// - `default`: missing argument stores `Default::default()`. Affects parsing.
 ///   The signature text is `<unrepresentable>` unless `py_default` is set.
 /// - `default = <expr>`: missing argument stores that Rust value. Affects parsing.
+/// - `default = ::NAME`: `NAME` is one identifier. The signature copies that
+///   name, and the missing argument stores `Into::into(NAME)` (the leading
+///   `::` is not Rust syntax for a local constant). A longer `::` path is a
+///   compile error. An explicit `py_default` still wins. A path without a
+///   leading `::` stays a typed value.
 /// - `optional`: same parsing as a bare `default`. The field type must implement
 ///   `OptionalArgDefault`. `Option<T>` renders `None`; `OptionalArg<T>` renders
 ///   `<unrepresentable>`. Any other type is rejected.
@@ -32,7 +37,13 @@ use syn::punctuated::Punctuated;
 ///   a float literal keeps its source text);
 /// - a non-literal on a primitive integer field becomes that value as a decimal int;
 /// - a path on a `bool` field becomes `True` or `False`;
+/// - `::NAME` is the name, verbatim;
 /// - any other expression uses `const V: FieldTy = <expr>; V.py_default()`.
+///
+/// A function argument whose pattern is a one-field tuple struct takes the
+/// parameter name from that field. `Fildes(fd): Fildes` is `fd`. A reference
+/// or parentheses around the inner pattern are skipped. When the argument
+/// type supplies parameters, this name is ignored.
 ///
 /// `py_default` is an inherent `pub const fn py_default(&self) -> DefaultRepr`.
 /// A type defines it once, and every `default = <expr>` of that type reuses it:

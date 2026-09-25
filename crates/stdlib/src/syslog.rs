@@ -71,14 +71,14 @@ mod syslog {
         ident: Option<PyStrRef>,
         #[pyarg(any, optional, py_default = "0")]
         logoption: OptionalArg<i32>,
-        #[pyarg(any, optional, py_default = "LOG_USER")]
-        facility: OptionalArg<i32>,
+        #[pyarg(any, default = ::LOG_USER)]
+        facility: i32,
     }
 
     #[pyfunction]
     fn openlog(args: OpenLogArgs, vm: &VirtualMachine) -> PyResult<()> {
         let logoption = args.logoption.unwrap_or(0);
-        let facility = args.facility.unwrap_or(LOG_USER);
+        let facility = args.facility;
         let ident = match args.ident.clone() {
             Some(ident) => Some(ident_to_utf8_cstring(&ident, vm)?),
             None => get_argv(vm)
@@ -128,7 +128,13 @@ mod syslog {
         }
 
         if !host_syslog::is_open() {
-            openlog(OpenLogArgs::default(), vm)?;
+            openlog(
+                OpenLogArgs {
+                    facility: LOG_USER,
+                    ..OpenLogArgs::default()
+                },
+                vm,
+            )?;
         }
 
         let cmsg = msg.to_cstring(vm)?;

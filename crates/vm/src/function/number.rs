@@ -177,6 +177,12 @@ pub struct ArgPrimitiveIndex<T> {
     pub value: T,
 }
 
+impl<T> From<T> for ArgPrimitiveIndex<T> {
+    fn from(value: T) -> Self {
+        Self { value }
+    }
+}
+
 impl<T> OptionalArg<ArgPrimitiveIndex<T>> {
     pub fn into_primitive(self) -> OptionalArg<T> {
         self.map(|x| x.value)

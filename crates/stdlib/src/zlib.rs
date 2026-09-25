@@ -88,11 +88,9 @@ mod zlib {
     struct PyFuncCompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        // Z_DEFAULT_COMPRESSION.
-        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION))]
+        #[pyarg(any, default = ::Z_DEFAULT_COMPRESSION)]
         level: Level,
-        // MAX_WBITS.
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
+        #[pyarg(any, default = ::MAX_WBITS)]
         wbits: ArgPrimitiveIndex<i32>,
     }
 
@@ -112,11 +110,9 @@ mod zlib {
     struct PyFuncDecompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        // MAX_WBITS.
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
+        #[pyarg(any, default = ::MAX_WBITS)]
         wbits: ArgPrimitiveIndex<i32>,
-        // DEF_BUF_SIZE.
-        #[pyarg(any, default = ArgPrimitiveIndex { value: DEF_BUF_SIZE })]
+        #[pyarg(any, default = ::DEF_BUF_SIZE)]
         bufsize: ArgPrimitiveIndex<usize>,
     }
 
@@ -133,8 +129,7 @@ mod zlib {
 
     #[derive(FromArgs)]
     struct DecompressobjArgs {
-        // MAX_WBITS.
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
+        #[pyarg(any, default = ::MAX_WBITS)]
         wbits: ArgPrimitiveIndex<i32>,
         // Missing dictionary is empty bytes.
         #[pyarg(any, optional, py_default = "b''")]
@@ -273,17 +268,15 @@ mod zlib {
 
     #[derive(FromArgs)]
     struct CompressobjArgs {
-        // Z_DEFAULT_COMPRESSION.
-        #[pyarg(any, default = Level::new(Z_DEFAULT_COMPRESSION))]
+        #[pyarg(any, default = ::Z_DEFAULT_COMPRESSION)]
         level: Level,
-        #[pyarg(any, default = 8)]
+        #[pyarg(any, default = ::DEFLATED)]
         method: i32,
-        // MAX_WBITS.
-        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
+        #[pyarg(any, default = ::MAX_WBITS)]
         wbits: ArgPrimitiveIndex<i32>,
-        #[pyarg(any, name = "memLevel", default = 8)]
+        #[pyarg(any, name = "memLevel", default = ::DEF_MEM_LEVEL)]
         mem_level: u8,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default = ::Z_DEFAULT_STRATEGY)]
         strategy: i32,
         // Missing dictionary is None.
         #[pyarg(any, optional, py_default = "None")]
@@ -408,13 +401,11 @@ mod zlib {
         const fn value(self) -> Option<i32> {
             self.0
         }
+    }
 
-        #[must_use]
-        pub(crate) const fn py_default(&self) -> crate::vm::function::DefaultRepr {
-            match self.0 {
-                Some(level) => crate::vm::function::DefaultRepr::Int(level as i128),
-                None => crate::vm::function::DefaultRepr::Raw("<unrepresentable>"),
-            }
+    impl From<i32> for Level {
+        fn from(level: i32) -> Self {
+            Self::new(level)
         }
     }
 
@@ -444,8 +435,18 @@ mod zlib {
         }
     }
 
+    // `decompressobj` shows MAX_WBITS. This constructor shows the integer.
+    #[derive(FromArgs)]
+    struct ZlibDecompressorArgs {
+        #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
+        wbits: ArgPrimitiveIndex<i32>,
+        // Missing dictionary is empty bytes.
+        #[pyarg(any, optional, py_default = "b''")]
+        zdict: OptionalArg<ArgBytesLike>,
+    }
+
     impl Constructor for ZlibDecompressor {
-        type Args = DecompressobjArgs;
+        type Args = ZlibDecompressorArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let decompress =

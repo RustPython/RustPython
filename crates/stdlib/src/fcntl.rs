@@ -91,12 +91,11 @@ mod fcntl {
 
     #[pyfunction]
     fn fcntl(
-        fd: _io::Fildes,
+        _io::Fildes(fd): _io::Fildes,
         cmd: i32,
         FcntlArg { arg }: FcntlArg,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let fd = fd.0;
         let int = match arg {
             OptionalArg::Present(Either::A(arg)) => {
                 let mut buf = [0u8; 1024];
@@ -136,12 +135,11 @@ mod fcntl {
 
     #[pyfunction]
     fn ioctl(
-        fd: _io::Fildes,
+        _io::Fildes(fd): _io::Fildes,
         request: i64,
         IoctlArgs { arg, mutate_flag }: IoctlArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let fd = fd.0;
         let mutate_flag = OptionalArg::Present(mutate_flag);
         let request = host_fcntl::normalize_ioctl_request(request);
         let arg = arg.unwrap_or_else(|| Either::B(0));
@@ -203,8 +201,7 @@ mod fcntl {
     // XXX: at the time of writing, wasi and redox don't have the necessary constants/function
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
-    fn flock(fd: _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
-        let fd = fd.0;
+    fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
         // LOCK_EX without LOCK_NB waits for whoever holds the lock, which may
         // be for good.
         let ret = retry_on_eintr(
@@ -229,12 +226,11 @@ mod fcntl {
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn lockf(
-        fd: _io::Fildes,
+        _io::Fildes(fd): _io::Fildes,
         cmd: i32,
         LockfArgs { len, start, whence }: LockfArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let fd = fd.0;
         let start = match start {
             OptionalArg::Present(s) => s.try_to_primitive(vm)?,
             OptionalArg::Missing => 0,

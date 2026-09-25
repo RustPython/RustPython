@@ -714,9 +714,9 @@ mod decl {
         pub(crate) struct KeventNewArgs {
             #[pyarg(any)]
             ident: PyObjectRef,
-            #[pyarg(any, default = host_select::kqueue::DEFAULT_FILTER, py_default = "<unrepresentable>")]
+            #[pyarg(any, default = host_select::kqueue::DEFAULT_FILTER)]
             filter: i16,
-            #[pyarg(any, default = host_select::kqueue::DEFAULT_FLAGS, py_default = "<unrepresentable>")]
+            #[pyarg(any, default = host_select::kqueue::DEFAULT_FLAGS)]
             flags: u16,
             #[pyarg(any, default = 0)]
             fflags: u32,
