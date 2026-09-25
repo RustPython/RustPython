@@ -476,13 +476,13 @@ pub const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<Py<()>>();
 #[must_use]
 #[inline]
 pub const fn payload_offset<T>() -> usize {
-    core::mem::offset_of!(PyInner<T>, payload)
+    core::mem::offset_of!(Py<T>, payload)
 }
 
-/// Byte offset of the instance-dict pointer from the start of `PyInner`.
+/// Byte offset of the instance-dict pointer from the start of `Py`.
 ///
 /// The pointer is the first field of `ObjExt`, which sits immediately in front
-/// of `PyInner`. The cell owns the dict.
+/// of `Py`. The cell owns the dict.
 #[must_use]
 #[inline]
 pub const fn dict_member_offset() -> isize {
