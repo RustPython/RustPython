@@ -577,7 +577,9 @@ This will become an error in Python 3.15.",
                 ast_replace(&zelf, args, vm)
             },
             PyMethodFlags::METHOD,
-            Some("__replace__($self, /, **fields)\n--\n\n"),
+            Some(
+                "__replace__($self, /, **fields)\n--\n\nReturn a copy of the AST node with new values for the specified fields.",
+            ),
         );
         let base_type = NodeAst::static_type();
         ast_type.set_str_attr(

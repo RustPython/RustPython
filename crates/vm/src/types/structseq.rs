@@ -319,6 +319,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         Ok(vm.ctx.new_str(repr_str))
     }
 
+    /// Return a copy of the structure with new values for the specified fields.
     #[pymethod]
     fn __replace__(
         zelf: PyRef<PyTuple>,

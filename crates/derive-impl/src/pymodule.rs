@@ -8,7 +8,7 @@ use crate::util::{
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
-use rustpython_doc::DB;
+
 use std::collections::HashSet;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
@@ -141,6 +141,9 @@ impl FromStr for AttrName {
 #[derive(Default)]
 struct ModuleContext {
     name: String,
+    /// `#[pymodule(sub)]` bodies are merged into the parent module, so the
+    /// Rust module name is not the Python module name.
+    is_sub: bool,
     function_items: FunctionNursery,
     attribute_items: ItemNursery,
     has_module_exec: bool,
@@ -160,6 +163,7 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
     // generation resources
     let mut context = ModuleContext {
         name: module_meta.simple_name()?,
+        is_sub: module_meta.sub()?,
         ..Default::default()
     };
     let items = module_item.items_mut().ok_or_else(|| {
@@ -251,7 +255,10 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
     let module_name = context.name.as_str();
     let function_items = context.function_items.validate()?;
     let attribute_items = context.attribute_items.validate()?;
-    let doc = doc.or_else(|| DB.get(module_name).copied().map(str::to_owned));
+    let doc = rustpython_doc::get(module_name)
+        .filter(|doc| !doc.is_empty())
+        .map(str::to_owned)
+        .or(doc);
     let doc = if let Some(doc) = doc {
         quote!(Some(#doc))
     } else {
@@ -647,6 +654,27 @@ trait ModuleItem: ContentItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()>;
 }
 
+/// Doc for `module.func` when this body is a `#[pymodule(sub)]` and the Rust
+/// module name is not the Python module. Used only when exactly one module
+/// owns that function name.
+fn unique_submodule_func_doc(name: &str) -> Option<String> {
+    let suffix = format!(".{name}");
+    let mut found = None;
+    for (key, doc) in rustpython_doc::DB {
+        let Some(module) = key.strip_suffix(&suffix) else {
+            continue;
+        };
+        if module.is_empty() || module.contains('.') {
+            continue;
+        }
+        if found.is_some() {
+            return None;
+        }
+        found = Some((*doc).to_owned());
+    }
+    found.filter(|doc| !doc.is_empty())
+}
+
 impl ModuleItem for FunctionItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
         let func = args
@@ -685,11 +713,21 @@ impl ModuleItem for FunctionItem {
         let docs = py_names
             .iter()
             .map(|py_name| {
-                let doc = rust_doc.clone().or_else(|| {
-                    DB.get(&format!("{module}.{py_name}"))
-                        .copied()
-                        .map(str::to_owned)
-                });
+                let doc = rustpython_doc::get_qualified(module, py_name, None, false)
+                    .filter(|doc| !doc.is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        if args.context.is_sub {
+                            unique_submodule_func_doc(py_name)
+                        } else {
+                            None
+                        }
+                    })
+                    .or_else(|| rust_doc.clone());
+                let doc = match doc {
+                    Some(doc) => quote!(Some(#doc)),
+                    None => quote!(None),
+                };
                 internal_doc_tokens(func.sig(), py_name, None, doc, None, Some("$module"))
             })
             .collect();

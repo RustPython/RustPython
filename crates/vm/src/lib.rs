@@ -128,4 +128,5 @@ pub use rustpython_literal as literal;
 #[doc(hidden)]
 pub mod __exports {
     pub use paste;
+    pub use rustpython_doc;
 }

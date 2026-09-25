@@ -867,27 +867,30 @@ fn args_const(pieces: &[SigPiece]) -> TokenStream {
 
 /// Expression of type `Option<&'static str>`: the internal doc, or the plain
 /// doc when the arguments cannot form a signature.
+/// `doc` is a const `Option<&'static str>`. A table entry wins; an empty
+/// string is no docstring. The text is composed into the internal doc so
+/// `__text_signature__` stays on the signature half.
 pub(crate) fn internal_doc_tokens(
     sig: &Signature,
     py_name: &str,
     implicit_self: Option<&str>,
-    doc: Option<String>,
+    doc: TokenStream,
     self_ty: Option<&Type>,
     leading_marker: Option<&str>,
 ) -> TokenStream {
     let args_const = args_const(&sig_pieces(sig, implicit_self, self_ty, leading_marker));
-    let plain = match &doc {
-        Some(doc) => quote!(Some(#doc)),
-        None => quote!(None),
-    };
-    let doc_text = doc.unwrap_or_default();
     quote! {
         {
             #args_const
+            const DOC_OPT: Option<&str> = #doc;
             if !::rustpython_vm::function::has_signature(ARGS) {
-                #plain
+                if let Some(doc) = DOC_OPT {
+                    if doc.is_empty() { None } else { Some(doc) }
+                } else {
+                    None
+                }
             } else {
-                const DOC: &str = #doc_text;
+                const DOC: &str = if let Some(doc) = DOC_OPT { doc } else { "" };
                 const N: usize = ::rustpython_vm::function::internal_doc_len(#py_name, ARGS, DOC);
                 const B: [u8; N] =
                     ::rustpython_vm::function::internal_doc_bytes::<N>(#py_name, ARGS, DOC);

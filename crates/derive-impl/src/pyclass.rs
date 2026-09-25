@@ -7,7 +7,6 @@ use crate::util::{
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
-use rustpython_doc::DB;
 use std::collections::{HashMap, HashSet};
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
@@ -109,6 +108,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
         Item::Impl(mut imp) => {
             if imp.generics.params.is_empty() {
                 context.self_ty_subst = Some((*imp.self_ty).clone());
+                context.getset_items.class_ty = context.self_ty_subst.clone();
+                context.member_items.class_ty = context.self_ty_subst.clone();
             }
             extract_items_into_context(&mut context, imp.items.iter_mut());
 
@@ -179,8 +180,6 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 sig_structseq,
             } = extract_impl_attrs(attr, &impl_ty)?;
             let payload_ty = attr_payload.unwrap_or(payload_guess);
-            context.getset_items.type_name = Some(payload_ty.to_string());
-            context.member_items.type_name = Some(payload_ty.to_string());
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
             let member_impl = &context.member_items;
@@ -294,8 +293,6 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 ..
             } = extract_impl_attrs(attr, &trai.ident)?;
 
-            context.getset_items.type_name = Some(trai.ident.to_string());
-            context.member_items.type_name = Some(trai.ident.to_string());
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
             let member_impl = &context.member_items;
@@ -423,6 +420,54 @@ fn ensure_repr_c(mut item: Item) -> Item {
 }
 
 /// Check if a type matches a given path (handles simple cases like `Foo` or `path::to::Foo`)
+fn class_def_ty(self_ty: Option<&syn::Type>) -> Option<TokenStream> {
+    let ty = self_ty?;
+    if let syn::Type::Path(type_path) = ty
+        && let Some(segment) = type_path.path.segments.last()
+        && (segment.ident == "Py" || segment.ident == "PyRef")
+        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+        && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+    {
+        return Some(quote!(#inner));
+    }
+    Some(quote!(#ty))
+}
+
+/// Const `Option<&'static str>`: table entry, else the Rust doc.
+/// Generic impls cannot name `Self` from a nested const, so they keep the Rust doc.
+fn attr_doc_expr(self_ty: Option<&syn::Type>, attr: &str, rust_doc: Option<String>) -> TokenStream {
+    let fallback = match rust_doc {
+        Some(doc) => quote!(Some(#doc)),
+        None => quote!(None),
+    };
+    let Some(ty) = class_def_ty(self_ty) else {
+        return fallback;
+    };
+    quote! {
+        {
+            const MODULE: &str = match <#ty as ::rustpython_vm::class::PyClassDef>::MODULE_NAME {
+                Some(module) => module,
+                None => "builtins",
+            };
+            const CLASS: &str = <#ty as ::rustpython_vm::class::PyClassDef>::NAME;
+            const EXACT: Option<&str> = ::rustpython_vm::__exports::rustpython_doc::get_attr(MODULE, CLASS, #attr);
+            const QUALIFIED: Option<&str> = ::rustpython_vm::__exports::rustpython_doc::class_attr_doc(
+                <#ty as ::rustpython_vm::class::PyClassDef>::MODULE_NAME,
+                CLASS,
+                #attr,
+            );
+            const RUST_DOC: Option<&str> = #fallback;
+            if let Some(doc) = EXACT {
+                if doc.is_empty() { QUALIFIED } else { Some(doc) }
+            } else if QUALIFIED.is_some() {
+                QUALIFIED
+            } else {
+                RUST_DOC
+            }
+        }
+    }
+}
+
 fn type_matches_path(ty: &syn::Type, path: &syn::Path) -> bool {
     // Compare by converting both to string representation for macro hygiene
     let ty_str = quote!(#ty).to_string().replace(' ', "");
@@ -446,21 +491,6 @@ fn type_matches_path(ty: &syn::Type, path: &syn::Path) -> bool {
     type_last.ident == path_last.ident
 }
 
-fn cpython_attr_doc(rust_type: &str, attr: &str) -> Option<String> {
-    let stripped = rust_type.strip_prefix("Py").unwrap_or(rust_type);
-    let lower = stripped.to_ascii_lowercase();
-    let underscored = format!("_{stripped}");
-    let class_names = [rust_type, stripped, lower.as_str(), underscored.as_str()];
-    for (key, doc) in &DB {
-        if class_names.iter().any(|class| {
-            *key == format!("{class}.{attr}") || key.ends_with(&format!(".{class}.{attr}"))
-        }) {
-            return Some((*doc).to_owned());
-        }
-    }
-    None
-}
-
 fn generate_class_def(
     ident: &Ident,
     name: &str,
@@ -470,12 +500,11 @@ fn generate_class_def(
     unhashable: bool,
     attrs: &[Attribute],
 ) -> Result<TokenStream> {
-    let doc = attrs.doc().or_else(|| {
-        let module_name = module_name.unwrap_or("builtins");
-        DB.get(&format!("{module_name}.{name}"))
-            .copied()
-            .map(str::to_owned)
-    });
+    let module_key = module_name.unwrap_or("builtins");
+    let doc = rustpython_doc::get_qualified(module_key, name, None, true)
+        .filter(|doc| !doc.is_empty())
+        .map(str::to_owned)
+        .or_else(|| attrs.doc());
     let doc = if let Some(doc) = doc {
         quote!(Some(#doc))
     } else {
@@ -1163,7 +1192,11 @@ where
             func.sig(),
             &py_name,
             implicit_self,
-            args.attrs.doc(),
+            attr_doc_expr(
+                args.context.self_ty_subst.as_ref(),
+                &py_name,
+                args.attrs.doc(),
+            ),
             args.context.self_ty_subst.as_ref(),
             None,
         );
@@ -1492,7 +1525,7 @@ struct GetSetEntry {
 struct GetSetNursery {
     map: HashMap<(String, Vec<Attribute>), GetSetEntry>,
     validated: bool,
-    type_name: Option<String>,
+    class_ty: Option<syn::Type>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1566,27 +1599,27 @@ impl ToTokens for GetSetNursery {
                 Some(setter) => quote_spanned! { setter.span() => .with_set(Self::#setter)},
                 None => quote! {},
             };
-            let doc = entry.doc.clone().or_else(|| {
-                self.type_name
-                    .as_deref()
-                    .and_then(|ty| cpython_attr_doc(ty, name))
-            });
-            let doc = match &doc {
-                Some(doc) => quote! { .with_doc(#doc) },
-                None => quote! {},
-            };
+            let doc = attr_doc_expr(self.class_ty.as_ref(), name, entry.doc.clone());
             quote_spanned! { getter.span() =>
                 #( #cfgs )*
-                class.set_str_attr(
-                    #name,
-                    ::rustpython_vm::PyRef::new_ref(
-                        ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class)
-                            .with_get(Self::#getter)
-                            #setter
-                            #doc,
-                            ctx.types.getset_type.to_owned(), None),
-                    ctx
-                );
+                {
+                    const DOC: Option<&str> = #doc;
+                    let mut getset = ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class)
+                        .with_get(Self::#getter)
+                        #setter;
+                    if let Some(doc) = DOC {
+                        getset = getset.with_doc(doc);
+                    }
+                    class.set_str_attr(
+                        #name,
+                        ::rustpython_vm::PyRef::new_ref(
+                            getset,
+                            ctx.types.getset_type.to_owned(),
+                            None,
+                        ),
+                        ctx,
+                    );
+                }
             }
         });
         tokens.extend(properties);
@@ -1601,7 +1634,7 @@ type MemberKindStr = Option<String>;
 struct MemberNursery {
     map: HashMap<String, MemberNurseryEntry>,
     validated: bool,
-    type_name: Option<String>,
+    class_ty: Option<syn::Type>,
 }
 
 struct MemberNurseryEntry {
@@ -1695,21 +1728,16 @@ impl ToTokens for MemberNursery {
                 }
             };
             let getter = entry.getter.as_ref().unwrap();
-            let doc = entry.doc.clone().or_else(|| {
-                self.type_name
-                    .as_deref()
-                    .and_then(|ty| cpython_attr_doc(ty, name))
-            });
-            let doc = match &doc {
-                Some(doc) => quote! { Some(#doc) },
-                None => quote! { None },
-            };
+            let doc = attr_doc_expr(self.class_ty.as_ref(), name, entry.doc.clone());
             quote_spanned! { getter.span() =>
-                class.set_str_attr(
-                    #name,
-                    ctx.new_member(#name, #member_kind, Self::#getter, #setter, class, #doc),
-                    ctx,
-                );
+                {
+                    const DOC: Option<&str> = #doc;
+                    class.set_str_attr(
+                        #name,
+                        ctx.new_member(#name, #member_kind, Self::#getter, #setter, class, DOC),
+                        ctx,
+                    );
+                }
             }
         });
         tokens.extend(properties);

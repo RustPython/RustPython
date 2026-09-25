@@ -5,7 +5,7 @@ use crate::{
     builtins::{PyBaseObject, PyType, PyTypeRef, descriptor::PyWrapper},
     function::PyMethodDef,
     object::Py,
-    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, fn_addr, hash_not_implemented},
+    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, SLOT_DEFS_COUNT, fn_addr, hash_not_implemented},
     vm::Context,
 };
 use rustpython_common::static_cell;
@@ -15,8 +15,9 @@ use rustpython_common::static_cell;
 /// Iterates SLOT_DEFS and creates a PyWrapper for each slot that:
 /// 1. Has a function set in the type's slots
 /// 2. Doesn't already have an attribute in the type's dict
-pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
-    for def in SLOT_DEFS {
+pub fn add_operators<T: PyClassImpl>(class: &'static Py<PyType>, ctx: &Context) {
+    for (index, def) in SLOT_DEFS.iter().enumerate() {
+        let plain_doc = T::SLOT_DOCS[index];
         // Skip __new__ - it has special handling
         if def.name == "__new__" {
             continue;
@@ -56,6 +57,7 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
             name: attr_name,
             wrapped: slot_func,
             doc: Some(def.doc),
+            plain_doc,
         };
         class.set_attr(attr_name, wrapper.into_ref(ctx).into());
     }
@@ -142,8 +144,102 @@ pub trait PyClassDef {
     type Base: PyClassDef;
 }
 
+const fn join_doc<const N: usize>(prefix: &str, body: &str) -> [u8; N] {
+    let mut out = [0u8; N];
+    let prefix = prefix.as_bytes();
+    let body = body.as_bytes();
+    let mut i = 0;
+    while i < prefix.len() {
+        out[i] = prefix[i];
+        i += 1;
+    }
+    let mut j = 0;
+    while j < body.len() {
+        out[i + j] = body[j];
+        j += 1;
+    }
+    out
+}
+
+macro_rules! prefixed_class_doc {
+    ($name:ident, $prefix:literal, $key:literal) => {
+        const $name: &str = {
+            const BODY: &str = match rustpython_doc::get($key) {
+                Some(doc) => doc,
+                None => "",
+            };
+            const PREFIX: &str = $prefix;
+            const N: usize = PREFIX.len() + BODY.len();
+            const B: [u8; N] = join_doc::<N>(PREFIX, BODY);
+            match core::str::from_utf8(&B) {
+                Ok(doc) => doc,
+                Err(_) => PREFIX,
+            }
+        };
+    };
+}
+
+prefixed_class_doc!(
+    ATTRGETTER_SLOT_DOC,
+    "attrgetter(attr, /, *attrs)\n--\n\n",
+    "_operator.attrgetter"
+);
+prefixed_class_doc!(
+    ITEMGETTER_SLOT_DOC,
+    "itemgetter(item, /, *items)\n--\n\n",
+    "_operator.itemgetter"
+);
+prefixed_class_doc!(
+    METHODCALLER_SLOT_DOC,
+    "methodcaller(name, /, *args, **kwargs)\n--\n\n",
+    "_operator.methodcaller"
+);
+
+const OBJECT_SLOT_DOC: &str = {
+    const BODY: &str = match rustpython_doc::get("builtins.object") {
+        Some(doc) => doc,
+        None => "",
+    };
+    const ARGS: &[crate::function::SigArg] = &[crate::function::SigArg {
+        name: "",
+        params: Some(&[]),
+    }];
+    const N: usize = crate::function::internal_doc_len("object", ARGS, BODY);
+    const B: [u8; N] = crate::function::internal_doc_bytes::<N>("object", ARGS, BODY);
+    match core::str::from_utf8(&B) {
+        Ok(doc) => doc,
+        Err(_) => BODY,
+    }
+};
+
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
+
+    /// Plain docstring for each [`SLOT_DEFS`] entry, resolved while this impl
+    /// is compiled. `None` keeps the slotdef text.
+    const SLOT_DOCS: [Option<&'static str>; SLOT_DEFS_COUNT] = {
+        let module = match Self::MODULE_NAME {
+            Some(module) => module,
+            None => "builtins",
+        };
+        let mut docs = [None; SLOT_DEFS_COUNT];
+        let mut i = 0;
+        while i < SLOT_DEFS_COUNT {
+            let name = SLOT_DEFS[i].name;
+            let exact = rustpython_doc::get_attr(module, Self::NAME, name);
+            docs[i] = if let Some(doc) = exact {
+                if doc.is_empty() {
+                    rustpython_doc::class_attr_doc(Self::MODULE_NAME, Self::NAME, name)
+                } else {
+                    Some(doc)
+                }
+            } else {
+                rustpython_doc::class_attr_doc(Self::MODULE_NAME, Self::NAME, name)
+            };
+            i += 1;
+        }
+        docs
+    };
 
     /// `Name(sig)\n--\n\ndoc` when the constructor arguments form a signature.
     const INTERNAL_DOC: Option<&'static str> = None;
@@ -220,7 +316,7 @@ pub trait PyClassImpl: PyClassDef {
         }
 
         // Add slot wrappers using SLOT_DEFS array
-        add_operators(class, ctx);
+        add_operators::<Self>(class, ctx);
 
         // Inherit slots from base types after slots are fully initialized
         for base in class.bases.read().iter() {
@@ -259,7 +355,20 @@ pub trait PyClassImpl: PyClassDef {
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
             itemsize: Self::ITEMSIZE,
-            doc: Self::INTERNAL_DOC.or(Self::DOC),
+            doc: if let Some(doc) = Self::INTERNAL_DOC {
+                Some(doc)
+            } else if Self::MODULE_NAME.is_none() && Self::NAME.as_bytes() == b"object" {
+                Some(OBJECT_SLOT_DOC)
+            } else if Self::MODULE_NAME == Some("_operator") {
+                match Self::NAME {
+                    "attrgetter" => Some(ATTRGETTER_SLOT_DOC),
+                    "itemgetter" => Some(ITEMGETTER_SLOT_DOC),
+                    "methodcaller" => Some(METHODCALLER_SLOT_DOC),
+                    _ => Self::DOC,
+                }
+            } else {
+                Self::DOC
+            },
             methods: Self::METHOD_DEFS,
             ..Default::default()
         };

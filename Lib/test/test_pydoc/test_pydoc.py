@@ -1450,7 +1450,6 @@ class TestDescriptions(unittest.TestCase):
         expected = 'C in module %s object' % __name__
         self.assertIn(expected, pydoc.render_doc(c))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_generic_alias(self):
         self.assertEqual(pydoc.describe(typing.List[int]), '_GenericAlias')
         doc = pydoc.render_doc(typing.List[int], renderer=pydoc.plaintext)
@@ -1466,7 +1465,6 @@ class TestDescriptions(unittest.TestCase):
         if not MISSING_C_DOCSTRINGS:
             self.assertIn(list.__doc__.strip().splitlines()[0], doc)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_union_type(self):
         self.assertEqual(pydoc.describe(typing.Union[int, str]), 'Union')
         doc = pydoc.render_doc(typing.Union[int, str], renderer=pydoc.plaintext)

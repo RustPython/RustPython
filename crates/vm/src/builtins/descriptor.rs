@@ -1066,7 +1066,10 @@ pub(crate) struct PyWrapper {
     pub typ: &'static Py<PyType>,
     pub name: &'static PyStrInterned,
     pub wrapped: SlotFunc,
+    /// Slot text, including the text signature.
     pub doc: Option<&'static str>,
+    /// Plain docstring for this slot when the table has one.
+    pub plain_doc: Option<&'static str>,
 }
 
 impl PyPayload for PyWrapper {
@@ -1138,6 +1141,9 @@ impl PyWrapper {
 
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
+        if let Some(doc) = self.plain_doc {
+            return Some(doc);
+        }
         let doc = self.doc?;
         type_::get_doc_from_internal_doc(self.name.as_str(), doc)
     }
@@ -1224,6 +1230,9 @@ impl PyMethodWrapper {
 
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
+        if let Some(doc) = self.wrapper.plain_doc {
+            return Some(doc);
+        }
         let doc = self.wrapper.doc?;
         type_::get_doc_from_internal_doc(self.wrapper.name.as_str(), doc)
     }

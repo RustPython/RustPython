@@ -4,7 +4,7 @@ mod structseq;
 mod zoo;
 
 pub use slot::*;
-pub use slot_defs::{SLOT_DEFS, SlotAccessor, SlotDef};
+pub use slot_defs::{SLOT_DEFS, SLOT_DEFS_COUNT, SlotAccessor, SlotDef};
 pub use structseq::{
     PyStructSequence, PyStructSequenceData, STRUCT_SEQUENCE_PARAMS, StructSequenceNewArgs,
     struct_sequence_new,
