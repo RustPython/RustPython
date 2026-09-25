@@ -306,9 +306,9 @@ fn const_hash(ctx: &Context, obj: &PyObject) -> crate::common::hash::PyHash {
         hash::fix_sentinel(ret)
     } else if let Some(s) = obj.downcast_ref::<PyStr>() {
         // Matches `PyStr::hash` - strings hash their WTF-8 bytes, not a validated `&str`.
-        ctx.hash_secret.hash_bytes(s.as_bytes())
+        ctx.hash_secret.load().hash_bytes(s.as_bytes())
     } else if let Some(b) = obj.downcast_ref::<PyBytes>() {
-        ctx.hash_secret.hash_bytes(b.as_bytes())
+        ctx.hash_secret.load().hash_bytes(b.as_bytes())
     } else if let Some(t) = obj.downcast_ref::<PyTuple>() {
         let hashes = t
             .as_slice()

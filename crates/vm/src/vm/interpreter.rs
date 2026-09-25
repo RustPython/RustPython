@@ -121,6 +121,8 @@ where
                 None => super::process_hash_secret_seed(),
             };
             let hash_secret = HashSecret::new(seed);
+            // So `ctx.new_code` constants hash the same way this interpreter does.
+            ctx.hash_secret.store(hash_secret);
 
             let int_max_str_digits = AtomicCell::new(match config.settings.int_max_str_digits {
                 -1 => 4300,

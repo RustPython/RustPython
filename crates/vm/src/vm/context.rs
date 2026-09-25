@@ -26,6 +26,7 @@ use crate::{
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
 use core::ffi::{CStr, c_void};
+use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
@@ -55,11 +56,9 @@ pub struct Context {
     pub(crate) slot_new_wrapper: PyMethodDef,
     pub names: ConstName,
     // GC module state (callbacks and garbage lists)
-    /// The process-wide hash secret - same seed `VirtualMachine::state.hash_secret` uses by
-    /// default (`process_hash_secret_seed`), so a `str`/`bytes` hashed here and one hashed
-    /// through a VM agree. Diverges only if an embedder overrides a specific VM's `hash_seed`,
-    /// which nothing built from `Context` alone (e.g. constant-folded code) can see.
-    pub(crate) hash_secret: HashSecret,
+    /// Hash secret for `str`/`bytes` built from `Context` alone, synced to the first real
+    /// interpreter's secret so they agree with its `VirtualMachine` hashing.
+    pub(crate) hash_secret: AtomicCell<HashSecret>,
 }
 
 macro_rules! declare_const_name {
@@ -427,7 +426,7 @@ impl Context {
             string_pool,
             slot_new_wrapper,
             names,
-            hash_secret: HashSecret::new(crate::vm::process_hash_secret_seed()),
+            hash_secret: AtomicCell::new(HashSecret::new(crate::vm::process_hash_secret_seed())),
         }
     }
 
