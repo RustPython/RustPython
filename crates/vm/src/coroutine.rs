@@ -655,7 +655,7 @@ pub(crate) fn unraisable_while_closing(
 ) {
     // Explicit close() leaves the traceback to the caller frame.
     // Finalize has no caller frame, so attach the generator site here.
-    if e.__traceback__().is_none()
+    if e.traceback().is_none()
         && let Some(frame) = coro.frame_opt()
     {
         let lasti = frame.lasti().saturating_mul(2);

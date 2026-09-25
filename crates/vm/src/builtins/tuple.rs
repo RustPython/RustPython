@@ -317,18 +317,18 @@ impl<R> PyTuple<R> {
     #[inline]
     #[must_use]
     pub fn len(&self) -> usize {
-        self.elements.len()
+        self.as_slice().len()
     }
 
     #[inline]
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.elements.is_empty()
+        self.as_slice().is_empty()
     }
 
     #[inline]
     pub fn iter(&self) -> core::slice::Iter<'_, R> {
-        self.elements.iter()
+        self.as_slice().iter()
     }
 }
 
@@ -367,7 +367,7 @@ impl PyTuple<PyObjectRef> {
     }
 
     fn repeat(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Ok(if zelf.elements.is_empty() || value == 0 {
+        Ok(if zelf.is_empty() || value == 0 {
             vm.ctx.empty_tuple.clone()
         } else if value == 1 && zelf.class().is(vm.ctx.types.tuple_type) {
             // Special case: when some `tuple` is multiplied by `1`,
@@ -453,9 +453,9 @@ impl PyTuple {
         vm: &VirtualMachine,
     ) -> PyArithmeticValue<PyRef<Self>> {
         let added = other.downcast::<Self>().map(|other| {
-            if other.elements.is_empty() && zelf.class().is(vm.ctx.types.tuple_type) {
+            if other.is_empty() && zelf.class().is(vm.ctx.types.tuple_type) {
                 zelf
-            } else if zelf.elements.is_empty() && other.class().is(vm.ctx.types.tuple_type) {
+            } else if zelf.is_empty() && other.class().is(vm.ctx.types.tuple_type) {
                 other
             } else {
                 let elements = zelf
@@ -486,7 +486,7 @@ impl PyTuple {
     #[inline]
     #[must_use]
     pub fn __len__(&self) -> usize {
-        self.elements.len()
+        self.len()
     }
 
     fn __mul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -521,7 +521,7 @@ impl PyTuple {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let (start, stop) = range.saturate(self.len(), vm)?;
-        for (index, element) in self.elements.iter().enumerate().take(stop).skip(start) {
+        for (index, element) in self.iter().enumerate().take(stop).skip(start) {
             if vm.identical_or_equal(element, &needle)? {
                 return Ok(index);
             }
@@ -615,7 +615,7 @@ impl AsNumber for PyTuple {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             boolean: Some(|number, _vm| {
                 let zelf = number.obj.downcast_ref::<PyTuple>().unwrap();
-                Ok(!zelf.elements.is_empty())
+                Ok(!zelf.is_empty())
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -666,7 +666,7 @@ impl Representable for PyTuple {
             let s = if zelf.len() == 1 {
                 wtf8_concat!("(", zelf.elements[0].repr(vm)?.as_wtf8(), ",)")
             } else {
-                collection_repr(None, "(", ")", "()", zelf.elements.iter().map(|o| &**o), vm)?
+                collection_repr(None, "(", ")", "()", zelf.iter().map(|o| &**o), vm)?
             };
             vm.ctx.new_str(s)
         } else {

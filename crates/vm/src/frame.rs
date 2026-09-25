@@ -2681,7 +2681,7 @@ pub(crate) fn trampoline_handle_exception(
 
     // Add traceback entry at the call site.
     if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {
-        let next = exception.__traceback__();
+        let next = exception.traceback();
         let new_traceback = PyTraceback::new(next, exec.frame_object(vm), idx as u32 * 2, loc.line);
         exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
     }
@@ -3524,7 +3524,7 @@ impl ExecutingFrame<'_> {
             let exc_type: PyObjectRef = exc.class().to_owned().into();
             let exc_value: PyObjectRef = exc.to_owned().into();
             let exc_tb: PyObjectRef = exc
-                .__traceback__()
+                .traceback()
                 .map_or_else(|| vm.ctx.none(), |tb| -> PyObjectRef { tb.into() });
             let tuple = vm.ctx.new_tuple(vec![exc_type, exc_value, exc_tb]).into();
             vm.trace_event(crate::protocol::TraceEvent::Exception, Some(tuple))?;
@@ -3599,7 +3599,7 @@ impl ExecutingFrame<'_> {
                         Ok(_) => {}
                         Err(exception) => {
                             if let Some((loc, _end_loc)) = self.code.locations.get(idx) {
-                                let next = exception.__traceback__();
+                                let next = exception.traceback();
                                 let new_traceback = PyTraceback::new(
                                     next,
                                     self.frame_object(vm),
@@ -3708,7 +3708,7 @@ impl ExecutingFrame<'_> {
                     vm: &VirtualMachine,
                 ) -> FrameResult {
                     if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
-                        let next = exception.__traceback__();
+                        let next = exception.traceback();
                         let new_traceback = PyTraceback::new(
                             next,
                             frame.frame_object(vm),
@@ -3791,14 +3791,14 @@ impl ExecutingFrame<'_> {
                             // Check if the exception already has traceback entries before
                             // we add ours. If it does, it was propagated from a callee
                             // function and we should not re-contextualize it.
-                            let had_prior_traceback = exception.__traceback__().is_some();
+                            let had_prior_traceback = exception.traceback().is_some();
 
                             // PyTraceBack_Here always adds a new entry without
                             // checking for duplicates. Each time an exception passes through
                             // a frame (e.g., in a loop with repeated raise statements),
                             // a new traceback entry is added.
                             if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
-                                let next = exception.__traceback__();
+                                let next = exception.traceback();
 
                                 let new_traceback = PyTraceback::new(
                                     next,
@@ -4010,7 +4010,7 @@ impl ExecutingFrame<'_> {
                     let idx = self.lasti().saturating_sub(1) as usize;
                     if idx < self.code.locations.len() {
                         let (loc, _end_loc) = self.code.locations[idx];
-                        let next = err.__traceback__();
+                        let next = err.traceback();
                         let new_traceback =
                             PyTraceback::new(next, self.frame_object(vm), idx as u32 * 2, loc.line);
                         err.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
@@ -4068,7 +4068,7 @@ impl ExecutingFrame<'_> {
                         let idx = self.lasti().saturating_sub(1) as usize;
                         if idx < self.code.locations.len() {
                             let (loc, _end_loc) = self.code.locations[idx];
-                            let next = err.__traceback__();
+                            let next = err.traceback();
                             let new_traceback = PyTraceback::new(
                                 next,
                                 self.frame_object(vm),
@@ -4117,7 +4117,7 @@ impl ExecutingFrame<'_> {
         let idx = self.lasti().saturating_sub(1) as usize;
         if idx < self.code.locations.len() {
             let (loc, _end_loc) = self.code.locations[idx];
-            let next = exception.__traceback__();
+            let next = exception.traceback();
             let new_traceback =
                 PyTraceback::new(next, self.frame_object(vm), idx as u32 * 2, loc.line);
             exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));

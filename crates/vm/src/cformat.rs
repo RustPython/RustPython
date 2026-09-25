@@ -138,7 +138,7 @@ fn spec_format_bytes(
             // CPython parity: bytes `%c` accepts a single byte or any object
             // with `__index__` in range(256).
             if let Some(b) = obj.downcast_ref::<PyBytes>() {
-                if b.len() == 1 {
+                if b.as_bytes().len() == 1 {
                     return Ok(spec.format_char(b.as_bytes()[0]));
                 }
             } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
@@ -155,7 +155,7 @@ fn spec_format_bytes(
                 // A bytes-like argument that is not one byte long is named by
                 // its length rather than by its type.
                 let what = if let Some(b) = obj.downcast_ref::<PyBytes>() {
-                    format!("a bytes object of length {}", b.len())
+                    format!("a bytes object of length {}", b.as_bytes().len())
                 } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
                     format!("a bytearray object of length {}", ba.borrow_buf().len())
                 } else {

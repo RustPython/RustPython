@@ -383,7 +383,7 @@ impl VirtualMachine {
         &self,
         exc: PyBaseExceptionRef,
     ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
-        let tb = exc.__traceback__().to_pyobject(self);
+        let tb = exc.traceback().to_pyobject(self);
         let class = exc.class().to_owned();
         (class.into(), exc.into(), tb)
     }
@@ -783,7 +783,7 @@ impl Py<PyBaseException> {
     }
 
     #[inline]
-    pub fn __traceback__(&self) -> Option<PyTracebackRef> {
+    pub fn traceback(&self) -> Option<PyTracebackRef> {
         self.payload().__traceback__()
     }
 
@@ -1264,7 +1264,7 @@ impl serde::Serialize for SerializeException<'_, '_> {
                     s.end()
                 }
             }
-            self.exc.__traceback__().map(Tracebacks)
+            self.exc.traceback().map(Tracebacks)
         };
         struc.serialize_field("traceback", &tbs)?;
         struc.serialize_field(
@@ -3428,7 +3428,7 @@ pub fn exception_group_match(
             let wrapped = eg_type.call((vm.ctx.new_str(""), excs), vm)?;
             // Copy traceback from original exception
             if let Ok(exc) = exc_value.to_owned().downcast::<types::PyBaseException>()
-                && let Some(tb) = exc.__traceback__()
+                && let Some(tb) = exc.traceback()
                 && let Ok(wrapped_exc) = wrapped.clone().downcast::<types::PyBaseException>()
             {
                 wrapped_exc.set_traceback(Some(tb));

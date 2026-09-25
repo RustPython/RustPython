@@ -1637,7 +1637,7 @@ impl VirtualMachine {
         let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
 
         let exc_type = e.class().to_owned();
-        let exc_traceback = e.__traceback__().to_pyobject(self); // TODO: actual traceback
+        let exc_traceback = e.traceback().to_pyobject(self); // TODO: actual traceback
         let exc_value = e.into();
         let args = stdlib::sys::UnraisableHookArgsData {
             exc_type,

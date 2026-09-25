@@ -260,7 +260,7 @@ pub unsafe extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut Py
     with_vm(|vm| {
         let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
         let tb = exc
-            .__traceback__()
+            .traceback()
             .map(|tb| tb.into_object().into_raw().as_ptr())
             .unwrap_or_default();
         Ok(tb)
