@@ -101,7 +101,7 @@ unsafe impl Traverse for PyTuple {
 }
 
 thread_local! {
-    // A single freelist for all tuple sizes: `PyInner<PyTuple>` is a
+    // A single freelist for all tuple sizes: `Py<PyTuple>` is a
     // fixed-size allocation (elements are a separate boxed slice that is
     // dropped and replaced on reuse), so husks are interchangeable.
     // freelist_push must not read the payload — it runs after tp_clear,

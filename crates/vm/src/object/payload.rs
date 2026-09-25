@@ -69,7 +69,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// must not rely on its pre-clear contents.
     ///
     /// # Safety
-    /// `obj` must be a valid pointer to a `PyInner<Self>` with refcount 0
+    /// `obj` must be a valid pointer to a `Py<Self>` with refcount 0
     /// whose tp_clear has already run, with no outstanding borrows into the
     /// payload (`PyRef::new_ref` may pop and reuse the husk immediately).
     #[inline]
@@ -82,7 +82,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// reinitialize `ref_count`, `gc_bits`, and `payload`.
     ///
     /// # Safety
-    /// The returned pointer (if Some) must point to a valid `PyInner<Self>`
+    /// The returned pointer (if Some) must point to a valid `Py<Self>`
     /// whose payload is still initialized from a previous allocation. The caller
     /// will drop and overwrite `payload` before reuse.
     #[inline]
