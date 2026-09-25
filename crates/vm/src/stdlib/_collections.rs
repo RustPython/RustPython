@@ -873,7 +873,7 @@ mod _collections {
     struct PyDefaultDict {
         dict: PyDict,
         #[pymember]
-        default_factory: PyAtomicRef<PyObject>,
+        default_factory: PyAtomicRef<Option<PyObject>>,
     }
 
     impl Default for PyDefaultDict {
@@ -924,7 +924,7 @@ mod _collections {
         #[pymethod(name = "__copy__")]
         fn copy(&self) -> Self {
             let default_factory = match self.default_factory.load_owned() {
-                Some(factory) => PyAtomicRef::from(factory),
+                Some(factory) => PyAtomicRef::from(Some(factory)),
                 None => PyAtomicRef::new_empty(),
             };
 
@@ -994,7 +994,7 @@ mod _collections {
             Ok(Self {
                 dict,
                 default_factory: match default_factory {
-                    Some(factory) => PyAtomicRef::from(factory),
+                    Some(factory) => PyAtomicRef::from(Some(factory)),
                     None => PyAtomicRef::new_empty(),
                 },
             }

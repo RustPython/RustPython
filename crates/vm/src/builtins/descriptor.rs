@@ -364,7 +364,11 @@ impl BoolMember for core::sync::atomic::AtomicBool {}
 pub trait BoolCell: BoolMember {}
 impl BoolCell for core::sync::atomic::AtomicBool {}
 
-/// A field at `object + offset` is one nullable object pointer.
+/// A field at `object + offset` is one object pointer.
+///
+/// Readonly members may be a plain pointer. Writable members are an atomic
+/// cell: `PyAtomicRef<PyObject>` when the pointer is never null, or
+/// `PyAtomicRef<Option<PyObject>>` when it may be.
 #[doc(hidden)]
 pub trait ObjectMember {}
 impl ObjectMember for PyObjectRef {}
@@ -372,6 +376,7 @@ impl ObjectMember for Option<PyObjectRef> {}
 impl<T> ObjectMember for PyRef<T> {}
 impl<T> ObjectMember for Option<PyRef<T>> {}
 impl ObjectMember for crate::object::PyAtomicRef<PyObject> {}
+impl ObjectMember for crate::object::PyAtomicRef<Option<PyObject>> {}
 impl<T: PyPayload> ObjectMember for crate::object::PyAtomicRef<Option<T>> {}
 impl ObjectMember for &'static crate::builtins::PyStrInterned {}
 
@@ -379,6 +384,7 @@ impl ObjectMember for &'static crate::builtins::PyStrInterned {}
 #[doc(hidden)]
 pub trait ObjectCell: ObjectMember {}
 impl ObjectCell for crate::object::PyAtomicRef<PyObject> {}
+impl ObjectCell for crate::object::PyAtomicRef<Option<PyObject>> {}
 
 /// A field at `object + offset` is an `f64` or the bits of one.
 #[doc(hidden)]

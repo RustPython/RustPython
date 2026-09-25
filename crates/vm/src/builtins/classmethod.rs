@@ -64,7 +64,7 @@ impl GetDescriptor for PyClassMethod {
             Some(cls) => cls.to_owned(),
             None => _obj.class().to_owned().into(),
         };
-        let callable = zelf.callable.load_owned().unwrap();
+        let callable = zelf.callable.load_owned();
         Ok(PyBoundMethod::new(cls, callable).into_ref(&vm.ctx).into())
     }
 }
@@ -101,7 +101,7 @@ impl Initializer for PyClassMethod {
 
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         let callable = args.function;
-        zelf.callable.store(Some(callable.clone()));
+        zelf.callable.store(callable.clone());
         functools_wraps(zelf.as_object(), &callable, vm)
     }
 }
@@ -120,7 +120,7 @@ impl PyClassMethod {
 impl PyClassMethod {
     #[pygetset]
     fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.load_owned().unwrap();
+        let callable = zelf.callable.load_owned();
         descriptor_get_wrapped_attribute(
             &callable,
             zelf.as_object(),
@@ -146,7 +146,7 @@ impl PyClassMethod {
 
     #[pygetset]
     fn __annotate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.load_owned().unwrap();
+        let callable = zelf.callable.load_owned();
         descriptor_get_wrapped_attribute(
             &callable,
             zelf.as_object(),
@@ -172,7 +172,7 @@ impl PyClassMethod {
 
     #[pygetset]
     fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let callable = self.callable.load_owned().unwrap();
+        let callable = self.callable.load_owned();
         if let Ok(Some(is_abstract)) = vm.get_attribute_opt(&callable, "__isabstractmethod__") {
             is_abstract
         } else {
@@ -184,7 +184,6 @@ impl PyClassMethod {
     fn set___isabstractmethod__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.callable
             .load_owned()
-            .unwrap()
             .set_attr("__isabstractmethod__", value, vm)?;
         Ok(())
     }
@@ -202,7 +201,7 @@ impl PyClassMethod {
 impl Representable for PyClassMethod {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let callable = zelf.callable.load_owned().unwrap().repr(vm)?;
+        let callable = zelf.callable.load_owned().repr(vm)?;
         let class = Self::class(&vm.ctx);
 
         let repr = match (
