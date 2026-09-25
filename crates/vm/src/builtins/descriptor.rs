@@ -349,20 +349,24 @@ impl MemberKind {
 }
 
 pub const PY_READONLY: i32 = 1;
-pub(crate) const PY_AUDIT_READ: i32 = 2;
+#[doc(hidden)]
+pub const PY_AUDIT_READ: i32 = 2;
 pub const PY_RELATIVE_OFFSET: i32 = 8;
 
 /// A byte at `object + offset` is a bool the generic member code can load.
-pub(crate) trait BoolMember {}
+#[doc(hidden)]
+pub trait BoolMember {}
 impl BoolMember for bool {}
 impl BoolMember for core::sync::atomic::AtomicBool {}
 
 /// A writable bool member. Only an atomic cell may change after publication.
-pub(crate) trait BoolCell: BoolMember {}
+#[doc(hidden)]
+pub trait BoolCell: BoolMember {}
 impl BoolCell for core::sync::atomic::AtomicBool {}
 
 /// A field at `object + offset` is one nullable object pointer.
-pub(crate) trait ObjectMember {}
+#[doc(hidden)]
+pub trait ObjectMember {}
 impl ObjectMember for PyObjectRef {}
 impl ObjectMember for Option<PyObjectRef> {}
 impl<T> ObjectMember for PyRef<T> {}
@@ -372,12 +376,21 @@ impl<T: PyPayload> ObjectMember for crate::object::PyAtomicRef<Option<T>> {}
 impl ObjectMember for &'static crate::builtins::PyStrInterned {}
 
 /// A writable object member. The cell owns the pointer and updates it atomically.
-pub(crate) trait ObjectCell: ObjectMember {}
+#[doc(hidden)]
+pub trait ObjectCell: ObjectMember {}
 impl ObjectCell for crate::object::PyAtomicRef<PyObject> {}
 
-/// A field at `object + offset` is an `f64`.
-pub(crate) trait DoubleMember {}
+/// A field at `object + offset` is an `f64` or the bits of one.
+#[doc(hidden)]
+pub trait DoubleMember {}
 impl DoubleMember for f64 {}
+impl DoubleMember for core::sync::atomic::AtomicU64 {}
+
+/// A writable double member. The cell stores the `f64` bits and may change
+/// after publication, so only an atomic 64-bit cell is accepted.
+#[doc(hidden)]
+pub trait DoubleCell: DoubleMember {}
+impl DoubleCell for core::sync::atomic::AtomicU64 {}
 
 /// Where `PyMemberDef.offset` points.
 ///
@@ -402,6 +415,10 @@ pub struct PyMemberDef {
 impl PyMemberDef {
     pub(crate) fn readonly(&self) -> bool {
         self.flags & PY_READONLY != 0
+    }
+
+    pub(crate) fn audit_read(&self) -> bool {
+        self.flags & PY_AUDIT_READ != 0
     }
 }
 
@@ -592,9 +609,23 @@ fn member_get_one(
             vm.ctx.new_bool(raw).into()
         }
         MemberKind::Double => {
-            // SAFETY: a double member addresses an `f64`. Readonly values are
-            // not written after the object is published.
-            let raw = unsafe { member_addr(obj, offset).cast::<f64>().read() };
+            let raw = if member.readonly() {
+                // SAFETY: a readonly double member addresses an `f64` that is
+                // not written after publication. A plain `f64` may be only
+                // 4-byte aligned, so this is a plain read and not an atomic
+                // access.
+                unsafe { member_addr(obj, offset).cast::<f64>().read() }
+            } else {
+                // SAFETY: a writable double member, including a C-API member
+                // without `Py_READONLY`, addresses an aligned atomic 64-bit
+                // cell holding the `f64` bits. The macro accepts only
+                // `DoubleCell` (`AtomicU64`).
+                let bits = unsafe {
+                    (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicU64>())
+                        .load(core::sync::atomic::Ordering::Relaxed)
+                };
+                f64::from_bits(bits)
+            };
             vm.ctx.new_float(raw).into()
         }
     };
@@ -647,8 +678,14 @@ fn member_set_one(
                 return Err(vm.new_type_error("can't delete numeric/char attribute"));
             };
             let number = value.try_float(vm)?.to_f64();
-            // SAFETY: a writable double member addresses an `f64`.
-            unsafe { member_addr(obj, offset).cast::<f64>().write(number) };
+            // SAFETY: a writable double member, including a C-API member
+            // without `Py_READONLY`, addresses an aligned atomic 64-bit cell
+            // holding the `f64` bits. Readonly members are rejected before
+            // this call.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicU64>())
+                    .store(number.to_bits(), core::sync::atomic::Ordering::Relaxed);
+            }
         }
     }
     Ok(())

@@ -1396,10 +1396,10 @@ where
 
         let py_name = item_meta.member_name()?;
         let member_kind = item_meta.member_kind()?;
-        let field = item_meta.field_path(&ident)?;
+        let field = item_meta.field_tokens(&ident)?;
         let readonly = item_meta.readonly()?;
         let audit_read = item_meta.audit_read()?;
-        let offset_expr = item_meta.offset_expr()?;
+        let offset_expr = item_meta.offset_tokens()?;
         let doc = item_meta.doc()?.or_else(|| args.attrs.doc());
 
         args.context.member_items.add_item(MemberDecl {
@@ -1411,6 +1411,7 @@ where
             offset_expr,
             doc,
             span: ident.span(),
+            cfgs: args.cfgs.to_vec(),
         })?;
         if !args
             .context
@@ -1643,19 +1644,25 @@ struct MemberNursery {
 struct MemberDecl {
     name: String,
     kind: MemberKindStr,
-    field: String,
+    field: TokenStream,
     readonly: bool,
     audit_read: bool,
     /// When set, this expression is the byte offset and `field` is not read.
-    offset_expr: Option<String>,
+    offset_expr: Option<TokenStream>,
     doc: Option<String>,
     span: Span,
+    cfgs: Vec<Attribute>,
 }
 
 impl MemberNursery {
     fn add_item(&mut self, decl: MemberDecl) -> Result<()> {
         assert!(!self.validated, "new item is not allowed after validation");
-        if self.items.iter().any(|item| item.name == decl.name) {
+        // Same name under different `#[cfg]`s is one member per configuration.
+        if self
+            .items
+            .iter()
+            .any(|item| item.name == decl.name && item.cfgs == decl.cfgs)
+        {
             return Err(syn::Error::new(
                 decl.span,
                 format!("Multiple members with name '{}'", decl.name),
@@ -1684,6 +1691,8 @@ impl ToTokens for MemberNursery {
         assert!(self.validated, "Call `validate()` before token generation");
         let properties = self.items.iter().map(|decl| {
             let name = &decl.name;
+            let cfgs = &decl.cfgs;
+            let field = &decl.field;
             let member_kind = match decl.kind.as_deref() {
                 Some("bool") => {
                     quote!(::rustpython_vm::builtins::descriptor::MemberKind::Bool)
@@ -1710,15 +1719,18 @@ impl ToTokens for MemberNursery {
                 (Some("bool"), true, _) => {
                     Some(quote!(::rustpython_vm::builtins::descriptor::BoolMember))
                 }
-                (Some("double"), _, _) => {
+                (Some("double"), false, _) => {
+                    Some(quote!(::rustpython_vm::builtins::descriptor::DoubleCell))
+                }
+                (Some("double"), true, _) => {
                     Some(quote!(::rustpython_vm::builtins::descriptor::DoubleMember))
                 }
                 (_, false, _) => Some(quote!(::rustpython_vm::builtins::descriptor::ObjectCell)),
                 (_, true, _) => Some(quote!(::rustpython_vm::builtins::descriptor::ObjectMember)),
             };
-            let field: TokenStream = decl.field.parse().unwrap_or_else(|_| quote!(field));
             let check = match layout {
                 Some(layout) => quote_spanned! { decl.span =>
+                    #(#cfgs)*
                     let _ = |payload: *const Self| {
                         fn assert_member_field<T: #layout>(_: *const T) {}
                         // SAFETY: `payload` is not dereferenced. `addr_of`
@@ -1730,7 +1742,6 @@ impl ToTokens for MemberNursery {
                 None => quote! {},
             };
             let offset = if let Some(expr) = &decl.offset_expr {
-                let expr: TokenStream = expr.parse().unwrap_or_else(|_| quote!(0));
                 quote! { #expr }
             } else {
                 quote_spanned! { decl.span =>
@@ -1753,6 +1764,7 @@ impl ToTokens for MemberNursery {
             let doc = attr_doc_expr(self.class_ty.as_ref(), name, decl.doc.clone());
             quote_spanned! { decl.span =>
                 #check
+                #(#cfgs)*
                 {
                     const DOC: Option<&str> = #doc;
                     class.set_str_attr(
@@ -1979,11 +1991,18 @@ impl MemberItemMeta {
         self.inner()._optional_str("type")
     }
 
-    fn field_path(&self, ident: &Ident) -> Result<String> {
-        Ok(self
-            .inner()
-            ._optional_str("field")?
-            .unwrap_or_else(|| ident.to_string()))
+    fn field_tokens(&self, ident: &Ident) -> Result<TokenStream> {
+        let inner = self.inner();
+        let Some(value) = inner._optional_str("field")? else {
+            return Ok(ident.to_token_stream());
+        };
+        let Some((_, meta)) = inner.meta_map.get("field") else {
+            return Err(syn::Error::new(
+                ident.span(),
+                "internal error: `field` string is missing its meta entry",
+            ));
+        };
+        parse_member_tokens(&value, meta.span())
     }
 
     fn readonly(&self) -> Result<bool> {
@@ -1994,13 +2013,29 @@ impl MemberItemMeta {
         self.inner()._bool("audit_read")
     }
 
-    fn offset_expr(&self) -> Result<Option<String>> {
-        self.inner()._optional_str("offset")
+    fn offset_tokens(&self) -> Result<Option<TokenStream>> {
+        let inner = self.inner();
+        let Some(value) = inner._optional_str("offset")? else {
+            return Ok(None);
+        };
+        let Some((_, meta)) = inner.meta_map.get("offset") else {
+            return Err(syn::Error::new(
+                inner.meta_ident.span(),
+                "internal error: `offset` string is missing its meta entry",
+            ));
+        };
+        parse_member_tokens(&value, meta.span()).map(Some)
     }
 
     fn doc(&self) -> Result<Option<String>> {
         self.inner()._optional_str("doc")
     }
+}
+
+fn parse_member_tokens(value: &str, span: Span) -> Result<TokenStream> {
+    value
+        .parse::<TokenStream>()
+        .map_err(|err| syn::Error::new(span, err))
 }
 
 struct ExtractedImplAttrs {
