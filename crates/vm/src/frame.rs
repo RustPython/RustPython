@@ -1590,7 +1590,7 @@ fn cleared_frame_access() -> ! {
 thread_local! {
     /// Free list of dead frame objects for reuse. Entries are cleared husks
     /// (`iframe == None`) whose child references were already released.
-    /// PyInner<FrameObject> is fixed-size (localsplus storage is out-of-line),
+    /// Py<FrameObject> is fixed-size (localsplus storage is out-of-line),
     /// so a single bucket suffices.
     static FRAME_FREELIST: core::cell::Cell<crate::object::FreeList<FrameObject>> =
         const { core::cell::Cell::new(crate::object::FreeList::new()) };

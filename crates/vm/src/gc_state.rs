@@ -408,7 +408,7 @@ impl GcState {
     ///
     /// Like [`Self::track_object`], but for the hot allocation path only:
     /// `obj`'s `gc_bits` must still hold its freshly-initialized value of `0`
-    /// (true right after `PyInner::new` or a freelist pop, both of which zero
+    /// (true right after `Py::new` or a freelist pop, both of which zero
     /// it), so the tracked bit can go in with a plain store instead of the
     /// `fetch_or` `set_gc_tracked()` needs to be safe for the general case
     /// (e.g. re-tracking a resurrected object, whose bits are not zero — it
