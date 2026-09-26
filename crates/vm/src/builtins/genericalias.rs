@@ -41,7 +41,7 @@ pub struct PyGenericAlias {
     #[pymember(name = "__args__")]
     args: PyTupleRef,
     parameters: PyTupleRef,
-    #[pymember(name = "__unpacked__", type = "bool")]
+    #[pymember(name = "__unpacked__")]
     starred: bool, // for __unpacked__ attribute
 }
 

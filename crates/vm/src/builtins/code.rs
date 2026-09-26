@@ -471,10 +471,10 @@ pub struct CoMonitoringData {
 
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
-    #[pymember(name = "co_argcount", type = "uint", path = "arg_count")]
-    #[pymember(name = "co_posonlyargcount", type = "uint", path = "posonlyarg_count")]
-    #[pymember(name = "co_kwonlyargcount", type = "uint", path = "kwonlyarg_count")]
-    #[pymember(name = "co_stacksize", type = "uint", path = "max_stackdepth")]
+    #[pymember(name = "co_argcount", path = "arg_count")]
+    #[pymember(name = "co_posonlyargcount", path = "posonlyarg_count")]
+    #[pymember(name = "co_kwonlyargcount", path = "kwonlyarg_count")]
+    #[pymember(name = "co_stacksize", path = "max_stackdepth")]
     #[pymember(name = "co_name", path = "obj_name")]
     #[pymember(name = "co_qualname", path = "qualname")]
     pub code: CodeObject,

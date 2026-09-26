@@ -27,7 +27,7 @@ fn warn_unawaited_asyncgen_method(ag: &Py<PyAsyncGen>, method: &str, vm: &Virtua
 #[derive(Debug)]
 pub struct PyAsyncGen {
     inner: Coro,
-    #[pymember(name = "ag_running", type = "bool")]
+    #[pymember(name = "ag_running")]
     running_async: AtomicBool,
     // whether hooks have been initialized
     ag_hooks_inited: AtomicCell<bool>,
