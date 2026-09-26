@@ -1037,7 +1037,7 @@ mod _json {
                 return Ok(true);
             }
             if let Some(i) = key.downcast_ref::<PyInt>() {
-                self.write_text(&Wtf8Buf::from(i.to_str_radix_10()), out, vm)?;
+                self.write_text(&Wtf8Buf::from(i.payload().to_str_radix_10()), out, vm)?;
                 return Ok(true);
             }
             if self.skipkeys {
@@ -1267,7 +1267,7 @@ mod _json {
                     out.push_str("false");
                     Ok(())
                 } else if let Some(i) = obj.downcast_ref::<PyInt>() {
-                    out.push_str(&i.to_str_radix_10());
+                    out.push_str(&i.payload().to_str_radix_10());
                     Ok(())
                 } else if let Some(f) = obj.downcast_ref::<PyFloat>() {
                     let text = self.float_repr(f.to_f64(), vm)?;

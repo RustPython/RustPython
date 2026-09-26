@@ -455,7 +455,7 @@ impl PyObject {
         let obj = match obj.downcast_exact::<PyInt>(vm) {
             Ok(int) => {
                 check_int_to_str_digits(int.as_bigint(), vm)?;
-                return Ok(vm.ctx.new_str(int.to_str_radix_10()));
+                return Ok(vm.ctx.new_str(int.payload.to_str_radix_10()));
             }
             Err(obj) => obj,
         };

@@ -430,8 +430,8 @@ fn constant_data_to_object(vm: &VirtualMachine, constant: ConstantData) -> PyObj
         )
         .unwrap()
         .into_pyobject(vm),
-        ConstantData::Float { value } => vm.ctx.new_float(value).into_pyobject(vm),
-        ConstantData::Complex { value } => vm.ctx.new_complex(value).into_pyobject(vm),
+        ConstantData::Float { value } => vm.ctx.new_float(value).into(),
+        ConstantData::Complex { value } => vm.ctx.new_complex(value).into(),
         ConstantData::Ellipsis => vm.ctx.ellipsis.clone().into(),
         ConstantData::Code { .. } | ConstantData::Slice { .. } => {
             unreachable!("ast.Constant values cannot contain code objects or slices")
@@ -525,7 +525,7 @@ impl Node for ConstantLiteral {
             )
             .unwrap()
             .into_pyobject(vm),
-            Self::Float(value) => vm.ctx.new_float(value).into_pyobject(vm),
+            Self::Float(value) => vm.ctx.new_float(value).into(),
             Self::Complex { real, imag } => vm
                 .ctx
                 .new_complex(num_complex::Complex::new(real, imag))

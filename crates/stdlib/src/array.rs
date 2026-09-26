@@ -523,7 +523,7 @@ pub mod array {
         ($($t:ty,)*) => {$(
             impl ArrayElement for $t {
                 fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                    obj.try_index(vm)?.try_to_primitive_raw(vm)
+                    obj.try_index(vm)?.payload().try_to_primitive_raw(vm)
                 }
                 fn byteswap(self) -> Self {
                     <$t>::swap_bytes(self)

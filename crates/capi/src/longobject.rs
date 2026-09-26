@@ -396,9 +396,9 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLongMask(obj: *mut PyObject) -> c_ulon
     with_vm::<PyResult<c_ulong>, _>(|vm| {
         let int = unsafe { obj.assume_borrowed() }.to_owned().try_index(vm)?;
         if const { c_ulong::BITS == 32 } {
-            Ok(c_ulong::from(int.as_u32_mask()))
+            Ok(c_ulong::from(int.payload().as_u32_mask()))
         } else {
-            Ok(int.as_u64_mask() as c_ulong)
+            Ok(int.payload().as_u64_mask() as c_ulong)
         }
     })
 }
@@ -407,7 +407,7 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLongMask(obj: *mut PyObject) -> c_ulon
 pub unsafe extern "C" fn PyLong_AsUnsignedLongLongMask(obj: *mut PyObject) -> c_ulonglong {
     with_vm::<PyResult<c_ulonglong>, _>(|vm| {
         let int = unsafe { obj.assume_borrowed() }.to_owned().try_index(vm)?;
-        Ok(int.as_u64_mask())
+        Ok(int.payload().as_u64_mask())
     })
 }
 
