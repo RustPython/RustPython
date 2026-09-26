@@ -1814,7 +1814,6 @@ cm(x) class method of test.test_pydoc.test_pydoc.X
         self.assertEqual(self._get_summary_line(type(sys.float_info).max),
                          "max")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_namedtuple_field_descriptor(self):
         Box = namedtuple('Box', ('width', 'height'))

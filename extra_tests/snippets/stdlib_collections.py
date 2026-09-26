@@ -59,9 +59,9 @@ repr(d)
 
 # namedtuple fields are `_tuplegetter` descriptors
 import pickle
+from _collections import _count_elements, _tuplegetter
 from collections import Counter, OrderedDict, defaultdict, namedtuple
 
-from _collections import _count_elements, _tuplegetter
 from testutils import assert_raises
 
 Point = namedtuple("Point", "x y")
