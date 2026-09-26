@@ -529,7 +529,7 @@ impl Node for ConstantLiteral {
             Self::Complex { real, imag } => vm
                 .ctx
                 .new_complex(num_complex::Complex::new(real, imag))
-                .into_pyobject(vm),
+                .into(),
             Self::Ellipsis => vm.ctx.ellipsis.clone().into(),
         }
     }

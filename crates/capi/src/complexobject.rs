@@ -23,7 +23,7 @@ fn try_to_complex(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Complex64> {
                 Err(type_err)
             }
         },
-        |complex| Ok(complex.to_complex()),
+        |complex| Ok(complex.as_complex()),
     )
 }
 

@@ -1756,7 +1756,7 @@ fn py_to_constant_data(
     }
     if let Ok(complex) = obj.clone().downcast::<crate::builtins::PyComplex>() {
         return Ok(ConstantData::Complex {
-            value: complex.to_complex(),
+            value: complex.as_complex(),
         });
     }
     if obj.class().is(vm.ctx.types.str_type) {

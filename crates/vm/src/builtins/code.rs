@@ -216,7 +216,7 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
         }
         ref f @ super::float::PyFloat => BorrowedConstant::Float { value: f.to_f64() },
         ref c @ super::complex::PyComplex => BorrowedConstant::Complex {
-            value: c.to_complex()
+            value: c.as_complex()
         },
         ref s @ super::pystr::PyStr => BorrowedConstant::Str { value: s.as_wtf8() },
         ref b @ super::bytes::PyBytes => BorrowedConstant::Bytes {

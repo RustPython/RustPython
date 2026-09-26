@@ -53,7 +53,7 @@ mod decl {
                     f(DumpableValue::Float(pyfloat.to_f64()))
                 }
                 ref pycomplex @ PyComplex => {
-                    f(DumpableValue::Complex(pycomplex.to_complex64()))
+                    f(DumpableValue::Complex(pycomplex.as_complex()))
                 }
                 ref pystr @ PyStr => {
                     f(DumpableValue::Str(pystr.as_wtf8()))
@@ -315,7 +315,7 @@ mod decl {
                 write_float_str(buf, f.to_f64());
             }
         } else if let Some(c) = obj.downcast_ref::<PyComplex>() {
-            let cv = c.to_complex64();
+            let cv = c.as_complex();
             if version > 1 {
                 buf.write_u8(b'y');
                 buf.write_u64(cv.re.to_bits());
