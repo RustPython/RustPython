@@ -11,5 +11,11 @@ license-file = "LICENSE"
 [lib]
 doctest = false # Crashes when true
 
+[build-dependencies]
+xz = { workspace = true }
+
+[dev-dependencies]
+xz = { workspace = true }
+
 [lints]
 workspace = true

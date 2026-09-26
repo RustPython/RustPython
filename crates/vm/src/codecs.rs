@@ -174,6 +174,10 @@ impl CodecsRegistry {
                         name: $name,
                         func: crate::function::static_func($func),
                         flags: crate::function::PyMethodFlags::O,
+                        #[cfg(feature = "doc")]
+                        doc_off: 0,
+                        #[cfg(feature = "doc")]
+                        doc_len: 0,
                         doc: Some(concat!($name, "($self, object, /)\n--\n\n")),
                     }
                 };

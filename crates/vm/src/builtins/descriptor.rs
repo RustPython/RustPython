@@ -5,7 +5,9 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
-    function::{Callee, FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue, PySsize},
+    function::{
+        Callee, FuncArgs, ItemDoc, PyMethodDef, PyMethodFlags, PySetterValue, PySsize, plain_doc,
+    },
     protocol::{PyNumberBinaryFunc, PyNumberTernaryFunc, PyNumberUnaryFunc},
     types::{
         Callable, Comparable, DelFunc, DescrGetFunc, DescrSetFunc, GenericMethod, GetDescriptor,
@@ -138,8 +140,7 @@ impl PyMethodDescriptor {
 
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
-        let doc = self.method.doc?;
-        type_::get_doc_from_internal_doc(self.method.name, doc)
+        type_::rendered_item_doc(self.method.name, self.method.item_doc())
     }
 
     #[pygetset]
@@ -287,8 +288,7 @@ impl PyClassMethodDescriptor {
 
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
-        let doc = self.method.doc?;
-        type_::get_doc_from_internal_doc(self.method.name, doc)
+        type_::rendered_item_doc(self.method.name, self.method.item_doc())
     }
 
     #[pygetset]
@@ -453,7 +453,7 @@ pub struct PyMemberDef {
     pub kind: MemberKind,
     pub offset: isize,
     pub flags: i32,
-    pub doc: Option<String>,
+    pub doc: ItemDoc,
 }
 
 impl PyMemberDef {
@@ -485,7 +485,7 @@ pub struct PyMemberSpec {
     pub kind: MemberKind,
     pub offset: isize,
     pub flags: i32,
-    pub doc: Option<&'static str>,
+    pub doc: ItemDoc,
 }
 
 impl PyMemberSpec {
@@ -497,7 +497,7 @@ impl PyMemberSpec {
             kind: MemberKind::Object,
             offset: 0,
             flags: 0,
-            doc: None,
+            doc: ItemDoc::NONE,
         };
         let mut out = [EMPTY; N];
         let mut index = 0;
@@ -604,8 +604,8 @@ fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResul
 #[pyclass(with(GetDescriptor, Representable), flags(DISALLOW_INSTANTIATION))]
 impl PyMemberDescriptor {
     #[pygetset]
-    fn __doc__(&self) -> Option<String> {
-        self.member.doc.to_owned()
+    fn __doc__(&self) -> Option<&'static str> {
+        plain_doc(self.member.doc)
     }
 
     #[pygetset]
@@ -1373,7 +1373,8 @@ pub(crate) struct PyWrapper {
     /// Slot text, including the text signature.
     pub doc: Option<&'static str>,
     /// Plain docstring for this slot when the table has one.
-    pub plain_doc: Option<&'static str>,
+    pub plain_off: u32,
+    pub plain_len: u32,
 }
 
 impl PyPayload for PyWrapper {
@@ -1435,8 +1436,8 @@ impl PyWrapper {
 
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
-        if let Some(doc) = self.plain_doc {
-            return Some(doc);
+        if self.plain_len != 0 {
+            return crate::function::db_doc(self.plain_off, self.plain_len);
         }
         let doc = self.doc?;
         type_::get_doc_from_internal_doc(self.name.as_str(), doc)
@@ -1520,8 +1521,8 @@ impl PyMethodWrapper {
 
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
-        if let Some(doc) = self.wrapper.plain_doc {
-            return Some(doc);
+        if self.wrapper.plain_len != 0 {
+            return crate::function::db_doc(self.wrapper.plain_off, self.wrapper.plain_len);
         }
         let doc = self.wrapper.doc?;
         type_::get_doc_from_internal_doc(self.wrapper.name.as_str(), doc)

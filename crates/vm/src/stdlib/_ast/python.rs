@@ -42,7 +42,7 @@ pub(crate) mod _ast {
                     ast_deepcopy(&zelf, &memo, vm)
                 },
                 PyMethodFlags::METHOD,
-                None,
+                crate::function::ItemDoc::NONE,
             );
 
             class.set_str_attr(
@@ -569,7 +569,7 @@ This will become an error in Python 3.15.",
                 ast_reduce(&zelf, vm)
             },
             PyMethodFlags::METHOD,
-            Some("__reduce__($self, /)\n--\n\n"),
+            crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
         );
         const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
             "__replace__",
@@ -577,7 +577,7 @@ This will become an error in Python 3.15.",
                 ast_replace(&zelf, args, vm)
             },
             PyMethodFlags::METHOD,
-            Some(
+            crate::function::ItemDoc::static_text(
                 "__replace__($self, /, **fields)\n--\n\nReturn a copy of the AST node with new values for the specified fields.",
             ),
         );

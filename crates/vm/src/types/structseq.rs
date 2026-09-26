@@ -25,7 +25,7 @@ const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
         ))
     },
     PyMethodFlags::METHOD,
-    Some("__reduce__($self, /)\n--\n\n"),
+    crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
 );
 
 /// Text signature `(iterable=(), /)` shared by every struct sequence.

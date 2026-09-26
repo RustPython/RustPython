@@ -18,7 +18,7 @@ use crate::{
     common::rc::PyRc,
     exceptions,
     function::{
-        HeapMethodDef, IntoPyGetterFunc, IntoPyNativeFn, IntoPySetterFunc, PyMethodDef,
+        HeapMethodDef, IntoPyGetterFunc, IntoPyNativeFn, IntoPySetterFunc, ItemDoc, PyMethodDef,
         PyMethodFlags,
     },
     intern::{InternableString, MaybeInternedString, StringPool},
@@ -361,7 +361,7 @@ impl Context {
             names.__new__.as_str(),
             PyType::__new__,
             PyMethodFlags::METHOD,
-            Some(
+            ItemDoc::static_text(
                 "__new__($type, /, *args, **kwargs)\n--\n\nCreate and return a new object.  See help(type) for accurate signature.",
             ),
         );
@@ -641,7 +641,7 @@ impl Context {
         name: &'static str,
         f: F,
         flags: PyMethodFlags,
-        doc: Option<&'static str>,
+        doc: ItemDoc,
     ) -> PyRef<HeapMethodDef>
     where
         F: IntoPyNativeFn<FKind>,
@@ -650,7 +650,11 @@ impl Context {
             name,
             func: Box::leak(Box::new(f.into_func())),
             flags,
-            doc,
+            #[cfg(feature = "doc")]
+            doc_off: doc.offset,
+            #[cfg(feature = "doc")]
+            doc_len: doc.len,
+            doc: doc.text,
         };
         let payload = HeapMethodDef::new(def);
         PyRef::new_ref(payload, self.types.method_def.to_owned(), None)
@@ -664,7 +668,7 @@ impl Context {
         offset: isize,
         flags: i32,
         class: &'static Py<PyType>,
-        doc: Option<&str>,
+        doc: ItemDoc,
     ) -> PyRef<PyMemberDescriptor> {
         let member_descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
@@ -677,7 +681,7 @@ impl Context {
                 kind,
                 offset,
                 flags,
-                doc: doc.map(str::to_owned),
+                doc,
             },
             access: MemberAccess::Offset,
         };
@@ -701,7 +705,7 @@ impl Context {
                 kind: MemberKind::Object,
                 offset: index as isize,
                 flags: PY_READONLY,
-                doc: None,
+                doc: ItemDoc::NONE,
             },
             access: MemberAccess::TupleItem,
         };

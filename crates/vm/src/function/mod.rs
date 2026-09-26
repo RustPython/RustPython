@@ -2,6 +2,7 @@ mod argument;
 mod arithmetic;
 mod buffer;
 mod builtin;
+mod doctext;
 mod either;
 mod fspath;
 mod getargs;
@@ -24,6 +25,7 @@ pub use buffer::{
     ArgAsciiBuffer, ArgBytesLike, ArgContiguousBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike,
 };
 pub use builtin::{IntoPyNativeFn, PyNativeFn, static_func, static_raw_func};
+pub use doctext::{ItemDoc, db_doc, plain_doc};
 pub use either::Either;
 pub use fspath::FsPath;
 pub(crate) use getargs::ArgSpec;
@@ -36,7 +38,7 @@ pub use number::{
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use signature::{
     DefaultRepr, Param, ParamKind, SigArg, choose_class_params, has_signature, internal_doc_bytes,
-    internal_doc_len, real_signature,
+    internal_doc_len, real_signature, signature_prefix_bytes, signature_prefix_len,
 };
 pub use time::TimeoutSeconds;
 

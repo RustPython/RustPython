@@ -184,8 +184,7 @@ impl PyNativeFunction {
     // meth_get__doc__ in CPython
     #[pygetset]
     fn __doc__(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
-        let doc = zelf.0.value.doc?;
-        type_::get_doc_from_internal_doc(zelf.0.value.name, doc)
+        type_::rendered_item_doc(zelf.0.value.name, zelf.0.value.item_doc())
     }
 
     // meth_get__self__ in CPython
@@ -221,8 +220,7 @@ impl PyNativeFunction {
     #[pygetset]
     fn __text_signature__(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
         let doc = zelf.0.value.doc?;
-        let signature = type_::get_text_signature_from_internal_doc(zelf.0.value.name, doc)?;
-        Some(signature)
+        type_::get_text_signature_from_internal_doc(zelf.0.value.name, doc)
     }
 }
 

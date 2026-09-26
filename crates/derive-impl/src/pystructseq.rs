@@ -530,17 +530,11 @@ pub(crate) fn impl_pystruct_sequence(
         rustpython_doc::get(&format!("posix.{class_name}"))
             .or_else(|| rustpython_doc::get(&format!("nt.{class_name}")))
     });
-    let db_doc = db_doc.filter(|doc| !doc.is_empty()).map(str::to_owned);
-    let doc = struct_item
-        .attrs
-        .doc()
-        .filter(|doc| !doc.is_empty())
-        .or(db_doc);
-    let doc = match doc {
-        Some(doc) => quote!(Some(#doc)),
-        None => quote!(None),
-    };
-    let attr_docs = crate::class_docs::attr_docs_tokens(module_name.as_deref(), &class_name);
+    let rust_doc = struct_item.attrs.doc().filter(|doc| !doc.is_empty());
+    let db = if rust_doc.is_some() { None } else { db_doc };
+    let doc = crate::class_docs::item_doc_tokens(db, rust_doc);
+    let (attr_docs, attr_names) =
+        crate::class_docs::attr_docs_tokens(module_name.as_deref(), &class_name);
 
     let output = quote! {
         // The Python type struct - newtype wrapping PyTuple
@@ -553,8 +547,11 @@ pub(crate) fn impl_pystruct_sequence(
             const NAME: &'static str = #class_name;
             const MODULE_NAME: Option<&'static str> = #module_name_tokens;
             const TP_NAME: &'static str = #module_class_name;
-            const DOC: Option<&'static str> = #doc;
-            const ATTR_DOCS: &'static [(&'static str, &'static str)] = #attr_docs;
+            const DOC: ::rustpython_vm::function::ItemDoc = #doc;
+            #[cfg(feature = "doc")]
+            const ATTR_DOCS: &'static [(&'static str, u32, u32)] = #attr_docs;
+            #[cfg(not(feature = "doc"))]
+            const ATTR_DOCS: &'static [&'static str] = #attr_names;
             const BASICSIZE: usize = 0;
             const UNHASHABLE: bool = false;
 

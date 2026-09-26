@@ -75,7 +75,7 @@ jobs:
           libtool: true
 
       - name: Build RustPython
-        run: cargo build --release --target=${{ matrix.target }} --verbose --no-default-features --features stdlib,stdio,importlib,encodings,sqlite,host_env,ssl-rustls-aws-lc,threading,jit
+        run: cargo build --release --target=${{ matrix.target }} --verbose --no-default-features --features stdlib,stdio,importlib,encodings,sqlite,host_env,ssl-rustls-aws-lc,threading,jit,doc
 
       - name: Rename Binary
         run: cp target/${{ matrix.target }}/release/rustpython target/rustpython-release-${{ runner.os }}-${{ matrix.target }}
@@ -107,7 +107,7 @@ jobs:
           targets: wasm32-wasip1
 
       - name: Build RustPython
-        run: cargo build --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib --release
+        run: cargo build --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,doc --release
 
       - name: Rename Binary
         run: cp target/wasm32-wasip1/release/rustpython.wasm target/rustpython-release-wasm32-wasip1.wasm
