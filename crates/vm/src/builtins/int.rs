@@ -206,9 +206,12 @@ fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
         bits,
         |base, bits| base << bits,
         |bits, vm| {
-            // CPython's limit: `isize::MAX / 4` digits of 30 bits.
-            const MAX_SHIFT: u128 = (isize::MAX as u128 / 4) * 30;
-            if bits.to_u128().is_none_or(|bits| bits >= MAX_SHIFT) {
+            // CPython's limit: `(i64::MAX - 1) / 30` digits of 30 bits.
+            const MAX_DIGITS: u128 = (i64::MAX as u128 - 1) / 30;
+            let digits = bits.to_u128().map(|shift| {
+                u128::from(base.bits().div_ceil(30)) + shift / 30 + u128::from(shift % 30 != 0)
+            });
+            if digits.is_none_or(|digits| digits > MAX_DIGITS) {
                 return Err(vm.new_overflow_error("too many digits in integer"));
             }
             let shift = bits.to_u64().ok_or_else(|| vm.no_memory_error())?;
