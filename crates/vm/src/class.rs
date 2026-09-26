@@ -135,6 +135,8 @@ pub trait PyClassDef {
     const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
+    /// Attribute name → doc, sorted by name. `""` is an explicit empty doc.
+    const ATTR_DOCS: &'static [(&'static str, &'static str)] = &[];
     const BASICSIZE: usize;
     const ITEMSIZE: usize = 0;
     const UNHASHABLE: bool = false;
@@ -144,73 +146,48 @@ pub trait PyClassDef {
     type Base: PyClassDef;
 }
 
-const fn join_doc<const N: usize>(prefix: &str, body: &str) -> [u8; N] {
-    let mut out = [0u8; N];
-    let prefix = prefix.as_bytes();
-    let body = body.as_bytes();
+const fn cmp_str(left: &str, right: &str) -> i8 {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    let n = if left.len() < right.len() {
+        left.len()
+    } else {
+        right.len()
+    };
     let mut i = 0;
-    while i < prefix.len() {
-        out[i] = prefix[i];
+    while i < n {
+        if left[i] != right[i] {
+            return if left[i] < right[i] { -1 } else { 1 };
+        }
         i += 1;
     }
-    let mut j = 0;
-    while j < body.len() {
-        out[i + j] = body[j];
-        j += 1;
+    if left.len() == right.len() {
+        0
+    } else if left.len() < right.len() {
+        -1
+    } else {
+        1
     }
-    out
 }
 
-macro_rules! prefixed_class_doc {
-    ($name:ident, $prefix:literal, $key:literal) => {
-        const $name: &str = {
-            const BODY: &str = match rustpython_doc::get($key) {
-                Some(doc) => doc,
-                None => "",
-            };
-            const PREFIX: &str = $prefix;
-            const N: usize = PREFIX.len() + BODY.len();
-            const B: [u8; N] = join_doc::<N>(PREFIX, BODY);
-            match core::str::from_utf8(&B) {
-                Ok(doc) => doc,
-                Err(_) => PREFIX,
-            }
-        };
-    };
-}
-
-prefixed_class_doc!(
-    ATTRGETTER_SLOT_DOC,
-    "attrgetter(attr, /, *attrs)\n--\n\n",
-    "_operator.attrgetter"
-);
-prefixed_class_doc!(
-    ITEMGETTER_SLOT_DOC,
-    "itemgetter(item, /, *items)\n--\n\n",
-    "_operator.itemgetter"
-);
-prefixed_class_doc!(
-    METHODCALLER_SLOT_DOC,
-    "methodcaller(name, /, *args, **kwargs)\n--\n\n",
-    "_operator.methodcaller"
-);
-
-const OBJECT_SLOT_DOC: &str = {
-    const BODY: &str = match rustpython_doc::get("builtins.object") {
-        Some(doc) => doc,
-        None => "",
-    };
-    const ARGS: &[crate::function::SigArg] = &[crate::function::SigArg {
-        name: "",
-        params: Some(&[]),
-    }];
-    const N: usize = crate::function::internal_doc_len("object", ARGS, BODY);
-    const B: [u8; N] = crate::function::internal_doc_bytes::<N>("object", ARGS, BODY);
-    match core::str::from_utf8(&B) {
-        Ok(doc) => doc,
-        Err(_) => BODY,
+/// Doc for `name` in a sorted attribute-doc table.
+#[must_use]
+pub const fn attr_doc<'a>(table: &'a [(&'a str, &'a str)], name: &str) -> Option<&'a str> {
+    let mut lo = 0;
+    let mut hi = table.len();
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        let ord = cmp_str(table[mid].0, name);
+        if ord == 0 {
+            return Some(table[mid].1);
+        } else if ord < 0 {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
     }
-};
+    None
+}
 
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
@@ -218,23 +195,12 @@ pub trait PyClassImpl: PyClassDef {
     /// Plain docstring for each [`SLOT_DEFS`] entry, resolved while this impl
     /// is compiled. `None` keeps the slotdef text.
     const SLOT_DOCS: [Option<&'static str>; SLOT_DEFS_COUNT] = {
-        let module = match Self::MODULE_NAME {
-            Some(module) => module,
-            None => "builtins",
-        };
         let mut docs = [None; SLOT_DEFS_COUNT];
         let mut i = 0;
         while i < SLOT_DEFS_COUNT {
-            let name = SLOT_DEFS[i].name;
-            let exact = rustpython_doc::get_attr(module, Self::NAME, name);
-            docs[i] = if let Some(doc) = exact {
-                if doc.is_empty() {
-                    rustpython_doc::class_attr_doc(Self::MODULE_NAME, Self::NAME, name)
-                } else {
-                    Some(doc)
-                }
-            } else {
-                rustpython_doc::class_attr_doc(Self::MODULE_NAME, Self::NAME, name)
+            docs[i] = match attr_doc(Self::ATTR_DOCS, SLOT_DEFS[i].name) {
+                Some(doc) if !doc.is_empty() => Some(doc),
+                _ => None,
             };
             i += 1;
         }
@@ -357,15 +323,6 @@ pub trait PyClassImpl: PyClassDef {
             itemsize: Self::ITEMSIZE,
             doc: if let Some(doc) = Self::INTERNAL_DOC {
                 Some(doc)
-            } else if Self::MODULE_NAME.is_none() && Self::NAME.as_bytes() == b"object" {
-                Some(OBJECT_SLOT_DOC)
-            } else if Self::MODULE_NAME == Some("_operator") {
-                match Self::NAME {
-                    "attrgetter" => Some(ATTRGETTER_SLOT_DOC),
-                    "itemgetter" => Some(ITEMGETTER_SLOT_DOC),
-                    "methodcaller" => Some(METHODCALLER_SLOT_DOC),
-                    _ => Self::DOC,
-                }
             } else {
                 Self::DOC
             },

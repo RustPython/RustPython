@@ -7,7 +7,7 @@ mod _operator {
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
         class::PyClassDef,
         common::wtf8::{Wtf8, Wtf8Buf},
-        function::{ArgBytesLike, Either, FuncArgs},
+        function::{ArgBytesLike, ArgumentError, Either, FromArgs, FuncArgs, Param},
         protocol::PyIter,
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp, Representable},
@@ -400,10 +400,24 @@ mod _operator {
         }
     }
 
+    struct AttrGetterArgs(FuncArgs);
+
+    impl FromArgs for AttrGetterArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param::positional_only("attr"),
+            Param::var_positional("attrs"),
+        ]);
+
+        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            Ok(Self(core::mem::take(args)))
+        }
+    }
+
     impl Constructor for PyAttrGetter {
-        type Args = FuncArgs;
+        type Args = AttrGetterArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let args = args.0;
             let n_attr = args.args.len();
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
@@ -487,10 +501,24 @@ mod _operator {
             vm.new_pyobj((zelf.class().to_owned(), items))
         }
     }
+    struct ItemGetterArgs(FuncArgs);
+
+    impl FromArgs for ItemGetterArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param::positional_only("item"),
+            Param::var_positional("items"),
+        ]);
+
+        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            Ok(Self(core::mem::take(args)))
+        }
+    }
+
     impl Constructor for PyItemGetter {
-        type Args = FuncArgs;
+        type Args = ItemGetterArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let args = args.0;
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
                 return Err(vm.new_type_error("itemgetter() takes no keyword arguments"));
@@ -582,14 +610,28 @@ mod _operator {
         }
     }
 
-    impl Constructor for PyMethodCaller {
-        type Args = (PyObjectRef, FuncArgs);
+    struct MethodCallerArgs(FuncArgs);
 
-        fn py_new(
-            _cls: &Py<PyType>,
-            (name, args): Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult<Self> {
+    impl FromArgs for MethodCallerArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param::positional_only("name"),
+            Param::var_positional("args"),
+            Param::var_keyword("kwargs"),
+        ]);
+
+        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            Ok(Self(core::mem::take(args)))
+        }
+    }
+
+    impl Constructor for PyMethodCaller {
+        type Args = MethodCallerArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let mut args = args.0;
+            let name = args.take_positional().ok_or_else(|| {
+                vm.new_type_error("methodcaller needs at least one argument, the method name")
+            })?;
             let name = name
                 .try_into_value(vm)
                 .map_err(|_| vm.new_type_error("method name must be a string"))?;

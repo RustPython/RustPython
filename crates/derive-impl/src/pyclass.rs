@@ -445,22 +445,13 @@ fn attr_doc_expr(self_ty: Option<&syn::Type>, attr: &str, rust_doc: Option<Strin
     };
     quote! {
         {
-            const MODULE: &str = match <#ty as ::rustpython_vm::class::PyClassDef>::MODULE_NAME {
-                Some(module) => module,
-                None => "builtins",
-            };
-            const CLASS: &str = <#ty as ::rustpython_vm::class::PyClassDef>::NAME;
-            const EXACT: Option<&str> = ::rustpython_vm::__exports::rustpython_doc::get_attr(MODULE, CLASS, #attr);
-            const QUALIFIED: Option<&str> = ::rustpython_vm::__exports::rustpython_doc::class_attr_doc(
-                <#ty as ::rustpython_vm::class::PyClassDef>::MODULE_NAME,
-                CLASS,
+            const FOUND: Option<&str> = ::rustpython_vm::class::attr_doc(
+                <#ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
                 #attr,
             );
             const RUST_DOC: Option<&str> = #fallback;
-            if let Some(doc) = EXACT {
-                if doc.is_empty() { QUALIFIED } else { Some(doc) }
-            } else if QUALIFIED.is_some() {
-                QUALIFIED
+            if let Some(doc) = FOUND {
+                if doc.is_empty() { None } else { Some(doc) }
             } else {
                 RUST_DOC
             }
@@ -501,6 +492,7 @@ fn generate_class_def(
     attrs: &[Attribute],
 ) -> Result<TokenStream> {
     let module_key = module_name.unwrap_or("builtins");
+    let attr_docs = crate::class_docs::attr_docs_tokens(module_name, name);
     let doc = rustpython_doc::get_qualified(module_key, name, None, true)
         .filter(|doc| !doc.is_empty())
         .map(str::to_owned)
@@ -614,6 +606,7 @@ fn generate_class_def(
             const MODULE_NAME: Option<&'static str> = #module_name;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: Option<&'static str> = #doc;
+            const ATTR_DOCS: &'static [(&'static str, &'static str)] = #attr_docs;
             const BASICSIZE: usize = #basicsize;
             const UNHASHABLE: bool = #unhashable;
 
