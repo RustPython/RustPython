@@ -309,8 +309,10 @@ impl Representable for PyClassMethodDescriptor {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(i32)]
 pub enum MemberKind {
+    Int = 1,
     Double = 4,
     Object = 6,
+    Uint = 11,
     Bool = 14,
     ObjectEx = 16,
 }
@@ -319,8 +321,10 @@ impl MemberKind {
     #[must_use]
     pub fn from_i32(value: i32) -> Option<Self> {
         match value {
+            1 => Some(Self::Int),
             4 => Some(Self::Double),
             6 => Some(Self::Object),
+            11 => Some(Self::Uint),
             14 => Some(Self::Bool),
             16 => Some(Self::ObjectEx),
             _ => None,
@@ -343,6 +347,28 @@ impl BoolMember for core::sync::atomic::AtomicBool {}
 #[doc(hidden)]
 pub trait BoolCell: BoolMember {}
 impl BoolCell for core::sync::atomic::AtomicBool {}
+
+/// A field at `object + offset` is a C `int`.
+#[doc(hidden)]
+pub trait IntMember {}
+impl IntMember for i32 {}
+impl IntMember for core::sync::atomic::AtomicI32 {}
+
+/// A writable `int` member. Only an atomic cell may change after publication.
+#[doc(hidden)]
+pub trait IntCell: IntMember {}
+impl IntCell for core::sync::atomic::AtomicI32 {}
+
+/// A field at `object + offset` is a C `unsigned int`.
+#[doc(hidden)]
+pub trait UintMember {}
+impl UintMember for u32 {}
+impl UintMember for core::sync::atomic::AtomicU32 {}
+
+/// A writable `unsigned int` member. Only an atomic cell may change after publication.
+#[doc(hidden)]
+pub trait UintCell: UintMember {}
+impl UintCell for core::sync::atomic::AtomicU32 {}
 
 /// A field at `object + offset` is one object pointer.
 ///
@@ -479,7 +505,7 @@ impl PyMemberDescriptor {
         }
         match self.member.kind {
             MemberKind::Object | MemberKind::ObjectEx => Some(self.member.offset),
-            MemberKind::Bool | MemberKind::Double => None,
+            MemberKind::Bool | MemberKind::Double | MemberKind::Int | MemberKind::Uint => None,
         }
     }
 
@@ -603,6 +629,72 @@ fn member_addr(obj: &PyObject, offset: isize) -> *mut u8 {
     (obj as *const PyObject as *const u8).wrapping_add(offset as usize) as *mut u8
 }
 
+fn warn_member(vm: &VirtualMachine, message: &str) -> PyResult<()> {
+    crate::warn::warn(
+        vm.ctx.new_str(message).into(),
+        Some(vm.ctx.exceptions.runtime_warning.to_owned()),
+        1,
+        None,
+        vm,
+    )
+}
+
+fn load_i32(obj: &PyObject, offset: isize, readonly: bool) -> i32 {
+    let addr = member_addr(obj, offset);
+    if readonly {
+        // SAFETY: a readonly int member addresses an `i32` that is not written
+        // after publication.
+        unsafe { addr.cast::<i32>().read() }
+    } else {
+        // SAFETY: a writable int member addresses an aligned `AtomicI32`.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicI32>())
+                .load(core::sync::atomic::Ordering::Relaxed)
+        }
+    }
+}
+
+fn load_u32(obj: &PyObject, offset: isize, readonly: bool) -> u32 {
+    let addr = member_addr(obj, offset);
+    if readonly {
+        // SAFETY: a readonly uint member addresses a `u32` that is not written
+        // after publication.
+        unsafe { addr.cast::<u32>().read() }
+    } else {
+        // SAFETY: a writable uint member addresses an aligned `AtomicU32`.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU32>())
+                .load(core::sync::atomic::Ordering::Relaxed)
+        }
+    }
+}
+
+fn member_as_c_long(value: &PyObject, vm: &VirtualMachine) -> PyResult<core::ffi::c_long> {
+    let int_obj = value.try_index(vm)?;
+    core::ffi::c_long::try_from(int_obj.as_bigint())
+        .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))
+}
+
+fn member_uint_value(
+    value: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<(u32, Option<&'static str>)> {
+    let int_obj = value.try_index(vm)?;
+    let big = int_obj.as_bigint();
+    if big.sign() == malachite_bigint::Sign::Minus {
+        let long_val = core::ffi::c_long::try_from(big)
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
+        let stored = (long_val as core::ffi::c_ulong) as u32;
+        return Ok((stored, Some("Writing negative value into unsigned field")));
+    }
+    let ulong_val = core::ffi::c_ulong::try_from(big)
+        .map_err(|_| vm.new_overflow_error("Python int too large to convert to C unsigned long"))?;
+    let stored = ulong_val as u32;
+    let warning = (ulong_val > u32::MAX as core::ffi::c_ulong)
+        .then_some("Truncation of value to unsigned int");
+    Ok((stored, warning))
+}
+
 // PyMember_GetOne. `offset` is a byte offset from the object to the field.
 fn member_get_one(
     obj: &PyObject,
@@ -629,6 +721,14 @@ fn member_get_one(
             };
             vm.ctx.new_bool(raw).into()
         }
+        MemberKind::Int => vm
+            .ctx
+            .new_int(load_i32(obj, offset, member.readonly()))
+            .into(),
+        MemberKind::Uint => vm
+            .ctx
+            .new_int(load_u32(obj, offset, member.readonly()))
+            .into(),
         MemberKind::Double => {
             let raw = if member.readonly() {
                 // SAFETY: a readonly double member addresses an `f64` that is
@@ -692,6 +792,39 @@ fn member_set_one(
             unsafe {
                 (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicBool>())
                     .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        MemberKind::Int => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let long_val = member_as_c_long(&value, vm)?;
+            let stored = long_val as i32;
+            // SAFETY: a writable int member addresses an aligned `AtomicI32`.
+            // Readonly members are rejected before this call.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicI32>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+            let truncated = long_val > i32::MAX as core::ffi::c_long
+                || long_val < i32::MIN as core::ffi::c_long;
+            if truncated {
+                warn_member(vm, "Truncation of value to int")?;
+            }
+        }
+        MemberKind::Uint => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let (stored, warning) = member_uint_value(&value, vm)?;
+            // SAFETY: a writable uint member addresses an aligned `AtomicU32`.
+            // Readonly members are rejected before this call.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicU32>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+            if let Some(warning) = warning {
+                warn_member(vm, warning)?;
             }
         }
         MemberKind::Double => {

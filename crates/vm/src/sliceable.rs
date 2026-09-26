@@ -395,7 +395,7 @@ impl SaturatedSlice {
         let start = to_isize_index(vm, slice.start_ref(vm))?
             .unwrap_or_else(|| if step.is_negative() { isize::MAX } else { 0 });
 
-        let stop = to_isize_index(vm, &slice.stop(vm))?.unwrap_or_else(|| {
+        let stop = to_isize_index(vm, &slice.stop)?.unwrap_or_else(|| {
             if step.is_negative() {
                 isize::MIN
             } else {
