@@ -33,10 +33,11 @@ pub struct PyDescriptorOwned {
 
 #[pyclass(name = "method_descriptor", module = false)]
 pub struct PyMethodDescriptor {
+    #[pymember(readonly, name = "__objclass__", path = "typ")]
+    #[pymember(readonly, name = "__name__", path = "name")]
     pub common: PyDescriptor,
     pub method: &'static PyMethodDef,
     // vectorcall: vector_call_func,
-    pub objclass: &'static Py<PyType>, // TODO: move to tp_members
     /// Prevent HeapMethodDef from being freed while this descriptor references it
     pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
@@ -50,7 +51,6 @@ impl PyMethodDescriptor {
                 qualname: PyRwLock::new(None),
             },
             method,
-            objclass: typ,
             _method_def_owner: None,
         }
     }
@@ -128,11 +128,6 @@ impl PyMethodDescriptor {
 )]
 impl PyMethodDescriptor {
     #[pygetset]
-    const fn __name__(&self) -> &'static PyStrInterned {
-        self.common.name
-    }
-
-    #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.common.typ.name(), self.common.name)
     }
@@ -147,11 +142,6 @@ impl PyMethodDescriptor {
     fn __text_signature__(&self) -> Option<&'static str> {
         let doc = self.method.doc?;
         type_::get_text_signature_from_internal_doc(self.method.name, doc)
-    }
-
-    #[pygetset]
-    fn __objclass__(&self) -> PyTypeRef {
-        self.objclass.to_owned()
     }
 
     #[pymethod]
@@ -179,9 +169,10 @@ impl Representable for PyMethodDescriptor {
 /// METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
 #[pyclass(name = "classmethod_descriptor", module = false)]
 pub struct PyClassMethodDescriptor {
+    #[pymember(readonly, name = "__objclass__", path = "typ")]
+    #[pymember(readonly, name = "__name__", path = "name")]
     pub common: PyDescriptor,
     pub method: &'static PyMethodDef,
-    pub objclass: &'static Py<PyType>,
     pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
 
@@ -194,7 +185,6 @@ impl PyClassMethodDescriptor {
                 qualname: PyRwLock::new(None),
             },
             method,
-            objclass: typ,
             _method_def_owner: None,
         }
     }
@@ -287,11 +277,6 @@ impl Callable for PyClassMethodDescriptor {
 )]
 impl PyClassMethodDescriptor {
     #[pygetset]
-    const fn __name__(&self) -> &'static PyStrInterned {
-        self.common.name
-    }
-
-    #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.common.typ.name(), self.common.name)
     }
@@ -306,11 +291,6 @@ impl PyClassMethodDescriptor {
     fn __text_signature__(&self) -> Option<&'static str> {
         let doc = self.method.doc?;
         type_::get_text_signature_from_internal_doc(self.method.name, doc)
-    }
-
-    #[pygetset]
-    fn __objclass__(&self) -> PyTypeRef {
-        self.objclass.to_owned()
     }
 }
 
@@ -379,6 +359,7 @@ impl ObjectMember for crate::object::PyAtomicRef<PyObject> {}
 impl ObjectMember for crate::object::PyAtomicRef<Option<PyObject>> {}
 impl<T: PyPayload> ObjectMember for crate::object::PyAtomicRef<Option<T>> {}
 impl ObjectMember for &'static crate::builtins::PyStrInterned {}
+impl<T: PyPayload> ObjectMember for &'static Py<T> {}
 
 /// A writable object member. The cell owns the pointer and updates it atomically.
 #[doc(hidden)]
@@ -1160,7 +1141,9 @@ fn parse_buffer_flags(
 #[pyclass(name = "wrapper_descriptor", module = false)]
 #[derive(Debug)]
 pub(crate) struct PyWrapper {
+    #[pymember(readonly, name = "__objclass__")]
     pub typ: &'static Py<PyType>,
+    #[pymember(readonly, name = "__name__")]
     pub name: &'static PyStrInterned,
     pub wrapped: SlotFunc,
     /// Slot text, including the text signature.
@@ -1222,18 +1205,8 @@ impl Callable for PyWrapper {
 )]
 impl PyWrapper {
     #[pygetset]
-    fn __name__(&self) -> &'static PyStrInterned {
-        self.name
-    }
-
-    #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.typ.name(), self.name)
-    }
-
-    #[pygetset]
-    fn __objclass__(&self) -> PyTypeRef {
-        self.typ.to_owned()
     }
 
     #[pygetset]
@@ -1273,6 +1246,7 @@ impl Representable for PyWrapper {
 #[derive(Debug)]
 pub(crate) struct PyMethodWrapper {
     pub wrapper: PyRef<PyWrapper>,
+    #[pymember(readonly, name = "__self__")]
     #[pytraverse(skip)]
     pub obj: PyObjectRef,
 }
@@ -1305,11 +1279,6 @@ impl Callable for PyMethodWrapper {
     flags(DISALLOW_INSTANTIATION)
 )]
 impl PyMethodWrapper {
-    #[pygetset]
-    fn __self__(&self) -> PyObjectRef {
-        self.obj.clone()
-    }
-
     #[pygetset]
     fn __name__(&self) -> &'static PyStrInterned {
         self.wrapper.name
