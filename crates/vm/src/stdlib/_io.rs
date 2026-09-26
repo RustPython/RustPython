@@ -131,8 +131,8 @@ mod _io {
         convert::ToPyObject,
         exceptions::nul_char_error,
         function::{
-            ArgBytesLike, ArgContiguousBytesLike, ArgIterable, ArgMemoryBuffer, ArgSize, Either,
-            FsPath, FuncArgs, IntoFuncArgs, OptionalArg, OptionalOption, PySetterValue,
+            ArgBytesLike, ArgContiguousBytesLike, ArgIterable, ArgMemoryBuffer, Either, FsPath,
+            FuncArgs, IntoFuncArgs, OptionalArg, OptionalOption, PySetterValue, PySsize,
         },
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
@@ -216,20 +216,20 @@ mod _io {
     pub(super) struct OptionalSize {
         // Missing reads the rest of the stream. None stays None so -1 and omission match.
         #[pyarg(positional, default, py_default = "-1")]
-        size: Option<ArgSize>,
+        size: Option<PySsize>,
     }
 
     // truncate reports None. Missing still means the current position.
     #[derive(Clone, Copy, FromArgs)]
     struct OptionalPos {
         #[pyarg(positional, optional)]
-        size: Option<ArgSize>,
+        size: Option<PySsize>,
     }
 
     #[derive(Clone, Copy, FromArgs)]
     struct StringIOPos {
         #[pyarg(positional, optional)]
-        pos: Option<ArgSize>,
+        pos: Option<PySsize>,
     }
 
     impl StringIOPos {
@@ -333,7 +333,6 @@ mod _io {
         pub(super) fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
             self.size
                 .map(|v| {
-                    let v = *v;
                     if v >= 0 {
                         Ok(v as usize)
                     } else {
@@ -2013,7 +2012,7 @@ mod _io {
         fn read(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Option<PyBytesRef>> {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
-            let n = size.size.map_or(-1, |s| *s);
+            let n = size.size.unwrap_or(-1);
             if n < -1 {
                 return Err(vm.new_value_error("read length must be non-negative or -1"));
             }
@@ -4776,7 +4775,7 @@ mod _io {
         // skip to the jth position
         #[pymethod]
         fn seek(&self, pos: PyObjectRef, whence: HowArg, vm: &VirtualMachine) -> PyResult<u64> {
-            let offset: isize = ArgSize::try_from_object(vm, pos)?.into();
+            let offset: isize = isize::try_from_object(vm, pos)?;
             let how = whence.whence;
             let mut buffer = self.buffer(vm)?;
             let char_offset = match how {
@@ -4899,7 +4898,7 @@ mod _io {
 
             let content: PyStrRef = state[0].clone().try_into_value(vm)?;
             let newline = Newlines::try_from_object(vm, state[1].clone())?;
-            let pos: isize = ArgSize::try_from_object(vm, state[2].clone())?.into();
+            let pos: isize = isize::try_from_object(vm, state[2].clone())?;
             if pos < 0 {
                 return Err(vm.new_value_error("negative seek position"));
             }

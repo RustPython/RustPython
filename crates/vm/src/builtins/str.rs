@@ -17,7 +17,7 @@ use crate::{
     },
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
-    function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIterable, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     intern::PyInterned,
     object::{MaybeTraverse, Traverse, TraverseFn},
     protocol::{
@@ -770,8 +770,8 @@ impl PyStr {
         core::mem::size_of::<Self>() + self.byte_len() * core::mem::size_of::<u8>()
     }
 
-    fn __mul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::repeat(zelf, value.into(), vm)
+    fn __mul__(zelf: PyRef<Self>, value: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::repeat(zelf, value, vm)
     }
 
     #[inline]
@@ -1407,10 +1407,10 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn zfill(&self, width: ArgSize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    fn zfill(&self, width: PySsize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let filled = self
             .as_wtf8()
-            .py_zfill(width.into())
+            .py_zfill(width)
             .ok_or_else(|| vm.no_memory_error())?;
         // SAFETY: this is safe-guaranteed because the original self.as_wtf8() is valid wtf8
         Ok(unsafe { Wtf8Buf::from_bytes_unchecked(filled) })
@@ -1440,17 +1440,17 @@ impl PyStr {
 
     #[pymethod]
     fn center(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        self._pad(args.width.into(), args.fillchar, AnyStr::py_center, vm)
+        self._pad(args.width, args.fillchar, AnyStr::py_center, vm)
     }
 
     #[pymethod]
     fn ljust(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        self._pad(args.width.into(), args.fillchar, AnyStr::py_ljust, vm)
+        self._pad(args.width, args.fillchar, AnyStr::py_ljust, vm)
     }
 
     #[pymethod]
     fn rjust(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        self._pad(args.width.into(), args.fillchar, AnyStr::py_rjust, vm)
+        self._pad(args.width, args.fillchar, AnyStr::py_rjust, vm)
     }
 
     #[pymethod]
@@ -1769,7 +1769,7 @@ struct StripArgs {
 #[derive(FromArgs)]
 struct PadArgs {
     #[pyarg(positional)]
-    width: ArgSize,
+    width: PySsize,
     #[pyarg(positional, default = " ")]
     fillchar: PyStrRef,
 }

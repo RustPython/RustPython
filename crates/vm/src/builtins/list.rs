@@ -13,7 +13,7 @@ use crate::{
     builtins::{PyFloat, PyInt, PyStr, PyTuple},
     class::{PyClassDef, PyClassImpl},
     convert::ToPyObject,
-    function::{ArgSize, Either, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
@@ -215,12 +215,8 @@ impl PyList {
         Ok(())
     }
 
-    #[pymethod(name = "insert")]
-    fn py_insert(&self, index: ArgSize, object: PyObjectRef) {
-        self.insert(index.into(), object);
-    }
-
-    pub(crate) fn insert(&self, index: isize, object: PyObjectRef) {
+    #[pymethod]
+    pub(crate) fn insert(&self, index: PySsize, object: PyObjectRef) {
         let mut elements = self.borrow_vec_mut();
         let index = elements.saturate_index(index);
         elements.insert(index, object);
@@ -344,12 +340,12 @@ impl PyList {
         self._setitem(needle, value, vm)
     }
 
-    fn __mul__(&self, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        self.repeat(n.into(), vm)
+    fn __mul__(&self, n: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        self.repeat(n, vm)
     }
 
-    fn __imul__(zelf: PyRef<Self>, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::irepeat(zelf, n.into(), vm)
+    fn __imul__(zelf: PyRef<Self>, n: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::irepeat(zelf, n, vm)
     }
 
     #[pymethod]

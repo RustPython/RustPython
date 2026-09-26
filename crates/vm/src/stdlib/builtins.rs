@@ -21,8 +21,8 @@ mod builtins {
         bytecode,
         common::hash::PyHash,
         function::{
-            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgPrimitiveIndex,
-            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, NameKws, OptionalArg, PosArgs,
+            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike, Either,
+            FsPath, FuncArgs, KwArgs, NameKws, OptionalArg, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -110,14 +110,14 @@ mod builtins {
         // builtin_compile_impl.
         // Any object with __index__ is accepted.
         #[pyarg(any, default = 0)]
-        flags: ArgPrimitiveIndex<i32>,
+        flags: i32,
         // dont_inherit goes through PyObject_IsTrue, so arbitrary objects
         // with `__bool__` are accepted (and any exception raised inside
         // `__bool__` propagates) — not the strict bool type.
         #[pyarg(any, default = false)]
         dont_inherit: ArgIntoBool,
         #[pyarg(any, default = -1)]
-        optimize: ArgPrimitiveIndex<i32>,
+        optimize: i32,
         #[pyarg(named, default = -1)]
         _feature_version: i32,
     }
@@ -195,14 +195,14 @@ mod builtins {
             let feature_version = args._feature_version;
 
             let mode_str = args.mode.as_str();
-            let flags: i32 = args.flags.value;
+            let flags: i32 = args.flags;
             let cf = CompilerFlags::from_bits_retain(flags);
 
             if (flags & !CompilerFlags::ALLOWED_FLAGS.bits()) != 0 {
                 return Err(vm.new_value_error("compile(): unrecognised flags"));
             }
 
-            let optimize: i32 = args.optimize.value;
+            let optimize: i32 = args.optimize;
             let optimize: u8 = match optimize {
                 -1 => vm.state.config.settings.optimize.min(2),
                 0..=2 => optimize as u8,

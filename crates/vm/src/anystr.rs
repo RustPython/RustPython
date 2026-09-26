@@ -7,24 +7,15 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyInt, PyIntRef, PyTuple},
     convert::TryFromBorrowedObject,
-    function::{ArgPrimitiveIndex, ArgSize, OptionalArg},
+    function::PySsize,
 };
 
 #[derive(FromArgs)]
 pub struct SplitArgs<T: TryFromObject> {
     #[pyarg(any, optional)]
     sep: Option<T>,
-    // `OptionalArg` rather than a literal default, which `ArgSize` cannot be built
-    // from. It also keeps an explicit `None` a TypeError, as CPython has it, where
-    // `Option` would read it as absent. Absent still means -1, i.e. no limit.
-    #[pyarg(any, optional, py_default = "-1")]
-    maxsplit: OptionalArg<ArgSize>,
-}
-
-impl<T: TryFromObject> SplitArgs<T> {
-    fn maxsplit(&self) -> isize {
-        self.maxsplit.into_primitive().unwrap_or(-1)
-    }
+    #[pyarg(any, default = -1)]
+    maxsplit: PySsize,
 }
 
 #[derive(FromArgs)]
@@ -35,15 +26,13 @@ pub struct SplitLinesArgs {
 
 #[derive(FromArgs)]
 pub struct ExpandTabsArgs {
-    // As in `SplitArgs`: absent still means a tab stop of 8.
-    #[pyarg(any, optional, py_default = "8")]
-    tabsize: OptionalArg<ArgPrimitiveIndex<i32>>,
+    #[pyarg(any, default = 8)]
+    tabsize: i32,
 }
 
 impl ExpandTabsArgs {
     pub fn tabsize(&self) -> usize {
-        let tabsize = self.tabsize.into_primitive().unwrap_or(8);
-        tabsize.to_usize().unwrap_or(0)
+        self.tabsize.to_usize().unwrap_or(0)
     }
 }
 
@@ -204,20 +193,19 @@ pub(crate) trait AnyStr {
         if args.sep.as_ref().is_some_and(|sep| sep.is_empty()) {
             return Err(vm.new_value_error("empty separator"));
         }
-        let maxsplit = args.maxsplit();
         let splits = if let Some(pattern) = args.sep {
             let Some(pattern) = pattern.as_ref() else {
                 return Ok(vec![full_obj()]);
             };
-            if maxsplit < 0 {
+            if args.maxsplit < 0 {
                 split(self, pattern, vm)
             } else {
                 // Widen before adding: `isize::MAX + 1` overflows, and `sys.maxsize`
                 // is a legitimate maxsplit.
-                splitn(self, pattern, maxsplit as usize + 1, vm)
+                splitn(self, pattern, args.maxsplit as usize + 1, vm)
             }
         } else {
-            split_whitespace(self, maxsplit, vm)
+            split_whitespace(self, args.maxsplit, vm)
         };
         Ok(splits)
     }

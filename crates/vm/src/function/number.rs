@@ -171,62 +171,10 @@ impl TryFromObject for ArgIndex {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-#[repr(transparent)]
-pub struct ArgPrimitiveIndex<T> {
-    pub value: T,
-}
-
-impl<T> From<T> for ArgPrimitiveIndex<T> {
-    fn from(value: T) -> Self {
-        Self { value }
-    }
-}
-
-impl<T> OptionalArg<ArgPrimitiveIndex<T>> {
-    pub fn into_primitive(self) -> OptionalArg<T> {
-        self.map(|x| x.value)
-    }
-}
-
-macro_rules! arg_index_py_default {
-    ($($t:ty),+) => {$(
-        impl ArgPrimitiveIndex<$t> {
-            #[must_use]
-            pub const fn py_default(&self) -> super::DefaultRepr {
-                super::DefaultRepr::Int(self.value as i128)
-            }
-        }
-    )+};
-}
-arg_index_py_default!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, usize);
-
-impl<T> Deref for ArgPrimitiveIndex<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.value
-    }
-}
-
-impl<T> TryFromObject for ArgPrimitiveIndex<T>
-where
-    T: PrimInt + for<'a> TryFrom<&'a BigInt>,
-{
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(Self {
-            value: obj.try_index(vm)?.try_to_primitive(vm)?,
-        })
-    }
-}
-
-pub type ArgSize = ArgPrimitiveIndex<isize>;
-
-impl From<ArgSize> for isize {
-    fn from(arg: ArgSize) -> Self {
-        arg.value
-    }
-}
+/// A signed size or index argument (`Py_ssize_t`).
+pub type PySsize = isize;
+/// An unsigned size argument (`size_t`).
+pub type PySize = usize;
 
 /// An `int` (or subclass, including `bool`) converted to a Rust primitive.
 ///

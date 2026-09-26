@@ -31,7 +31,7 @@ pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
 pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
 pub use number::{
-    ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgPrimitiveIndex, ArgSize, ArgStrictInt,
+    ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgStrictInt, PySize, PySsize,
 };
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use signature::{
