@@ -11,12 +11,14 @@ mod _collections {
         VirtualMachine, atomic_func,
         builtins::{
             IterStatus::{Active, Exhausted},
-            PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyStr, PyType, PyTypeRef,
+            PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyStr, PyTuple, PyType, PyTypeRef,
             locked_step,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
-        function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue},
+        function::{
+            ArgIterable, FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue, PySsize,
+        },
         object::{Traverse, TraverseFn},
         protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
@@ -24,7 +26,8 @@ mod _collections {
         sliceable::SequenceIndexOp,
         types::{
             AsMapping, AsNumber, AsSequence, Comparable, Constructor, DefaultConstructor,
-            Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
+            GetDescriptor, Initializer, IterNext, Iterable, PyComparisonOp, Representable,
+            SelfIter,
         },
         utils::collection_repr,
         vm::MAX_MEMORY_SIZE,
@@ -1072,6 +1075,154 @@ mod _collections {
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER
+        }
+    }
+
+    #[pyfunction]
+    fn _count_elements(
+        mapping: PyObjectRef,
+        iterable: ArgIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let iter = iterable.iter(vm)?;
+        let one = vm.ctx.new_int(1);
+        let get_name = vm.ctx.intern_str("get");
+        let dict_type = vm.ctx.types.dict_type;
+        let class = mapping.class();
+        let inherited_from_dict = |name| {
+            class
+                .get_attr(name)
+                .zip(dict_type.get_attr(name))
+                .is_some_and(|(own, dict)| own.is(&dict))
+        };
+        // A dict whose type keeps `dict.get`/`dict.__setitem__` is updated in place,
+        // hashing each key once and never consulting `__missing__`.
+        if let Some(dict) = mapping.downcast_ref::<PyDict>()
+            && inherited_from_dict(get_name)
+            && inherited_from_dict(identifier!(vm, __setitem__))
+        {
+            let entries = dict._as_dict_inner();
+            for key in iter {
+                let key = key?;
+                let hash = key.hash(vm)?;
+                let count = match entries.get_known_hash(vm, &*key, hash)? {
+                    Some(old) => vm._add(&old, one.as_object())?,
+                    None => one.clone().into(),
+                };
+                entries.insert_known_hash(vm, &*key, hash, count)?;
+            }
+            return Ok(());
+        }
+        let get = mapping.get_attr(get_name, vm)?;
+        let zero: PyObjectRef = vm.ctx.new_int(0).into();
+        for key in iter {
+            let key = key?;
+            let old = get.call((key.clone(), zero.clone()), vm)?;
+            let count = vm._add(&old, one.as_object())?;
+            mapping.set_item(&*key, count, vm)?;
+        }
+        Ok(())
+    }
+
+    #[pyattr]
+    #[pyclass(module = "collections", name = "_tuplegetter", traverse)]
+    #[derive(Debug, PyPayload)]
+    struct PyTupleGetter {
+        #[pytraverse(skip)]
+        index: isize,
+        doc: PyRwLock<Option<PyObjectRef>>,
+    }
+
+    impl Constructor for PyTupleGetter {
+        type Args = (PySsize, PyObjectRef);
+
+        fn py_new(
+            _cls: &Py<PyType>,
+            (index, doc): Self::Args,
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self {
+                index,
+                doc: PyRwLock::new(Some(doc)),
+            })
+        }
+    }
+
+    #[pyclass(with(Constructor, GetDescriptor, Representable))]
+    impl PyTupleGetter {
+        fn doc(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.doc.read().clone().unwrap_or_else(|| vm.ctx.none())
+        }
+
+        #[pymember(type = "object")]
+        fn __doc__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+            let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+            Ok(zelf.doc(vm))
+        }
+
+        #[pymember(type = "object", setter)]
+        fn set___doc__(
+            vm: &VirtualMachine,
+            zelf: PyObjectRef,
+            value: PySetterValue,
+        ) -> PyResult<()> {
+            let zelf: &Py<Self> = zelf.try_to_value(vm)?;
+            *zelf.doc.write() = match value {
+                PySetterValue::Assign(doc) => Some(doc),
+                PySetterValue::Delete => None,
+            };
+            Ok(())
+        }
+
+        #[pyslot]
+        fn descr_set(
+            _zelf: &PyObject,
+            _obj: PyObjectRef,
+            value: PySetterValue,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            Err(vm.new_attribute_error(match value {
+                PySetterValue::Assign(_) => "can't set attribute",
+                PySetterValue::Delete => "can't delete attribute",
+            }))
+        }
+
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTypeRef, (isize, PyObjectRef)) {
+            (zelf.class().to_owned(), (zelf.index, zelf.doc(vm)))
+        }
+    }
+
+    impl GetDescriptor for PyTupleGetter {
+        fn descr_get(
+            zelf: &PyObject,
+            obj: Option<&PyObject>,
+            _cls: Option<&PyObject>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
+            if vm.is_none(obj) {
+                return Ok(zelf.to_owned().into());
+            }
+            let Some(tuple) = obj.downcast_ref::<PyTuple>() else {
+                return Err(vm.new_type_error(format!(
+                    "descriptor for index '{}' for tuple subclasses doesn't apply to '{}' object",
+                    zelf.index,
+                    obj.class().name()
+                )));
+            };
+            usize::try_from(zelf.index)
+                .ok()
+                .and_then(|index| tuple.as_slice().get(index))
+                .cloned()
+                .ok_or_else(|| vm.new_index_error("tuple index out of range"))
+        }
+    }
+
+    impl Representable for PyTupleGetter {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let doc = zelf.doc(vm).repr(vm)?;
+            Ok(format!("{}({}, {})", zelf.class().name(), zelf.index, doc))
         }
     }
 }

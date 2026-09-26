@@ -56,3 +56,53 @@ b = BadRepr()
 d = deque([1, b, 2])
 b.d = d
 repr(d)
+
+# namedtuple fields are `_tuplegetter` descriptors
+import pickle
+from _collections import _count_elements, _tuplegetter
+from collections import Counter, OrderedDict, defaultdict, namedtuple
+
+from testutils import assert_raises
+
+Point = namedtuple("Point", "x y")
+p = Point(1, 2)
+assert type(Point.x) is _tuplegetter
+assert (p.x, p.y) == (1, 2)
+assert repr(Point.x) == "_tuplegetter(0, 'Alias for field number 0')"
+assert Point.x.__get__(None, Point) is Point.x
+assert Point.y.__get__((5, 6)) == 6
+assert pickle.loads(pickle.dumps(Point.y)).__get__((5, 6)) == 6
+with assert_raises(TypeError):
+    Point.x.__get__([1, 2])
+with assert_raises(IndexError):
+    _tuplegetter(3, None).__get__((1, 2))
+with assert_raises(AttributeError):
+    p.x = 3
+with assert_raises(AttributeError):
+    del p.x
+Point.x.__doc__ = "The x-coordinate"
+assert repr(Point.x) == "_tuplegetter(0, 'The x-coordinate')"
+
+# `_count_elements` behind Counter
+counts = {}
+_count_elements(counts, "abca")
+assert counts == {"a": 2, "b": 1, "c": 1}
+assert Counter("abracadabra").most_common(1) == [("a", 5)]
+ordered = OrderedDict()
+_count_elements(ordered, "bab")
+assert list(ordered.items()) == [("b", 2), ("a", 1)]
+factory = defaultdict(lambda: 100)
+_count_elements(factory, "a")
+assert factory == {"a": 1}
+
+
+class Scaled(dict):
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value * 10)
+
+
+scaled = Scaled()
+_count_elements(scaled, "aab")
+assert scaled == {"a": 110, "b": 10}
+with assert_raises(AttributeError):
+    _count_elements([], "a")
