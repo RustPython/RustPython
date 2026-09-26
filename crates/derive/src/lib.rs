@@ -216,11 +216,12 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///
 /// - `type`: `"object"` (default), `"object_ex"`, `"bool"`, `"double"`,
 ///   `"int"` (`i32`), or `"uint"` (`u32`).
-/// - `readonly`: reject stores. A writable object member must be
-///   `PyAtomicRef<PyObject>` (never null) or `PyAtomicRef<Option<PyObject>>`
-///   (nullable), a writable bool must be `AtomicBool`, a writable int must be
-///   `AtomicI32`, a writable uint must be `AtomicU32`, and a writable double
-///   must be an atomic 64-bit cell (`AtomicU64`) holding the `f64` bits.
+/// - `writable`: accept stores. Members are readonly without it. A writable
+///   object member must be `PyAtomicRef<PyObject>` (never null) or
+///   `PyAtomicRef<Option<PyObject>>` (nullable), a writable bool must be
+///   `AtomicBool`, a writable int must be `AtomicI32`, a writable uint must be
+///   `AtomicU32`, and a writable double must be an atomic 64-bit cell
+///   (`AtomicU64`) holding the `f64` bits.
 /// - `audit_read`: audit `object.__getattr__` before the load.
 /// - `name`: Python attribute name. Defaults to the field name.
 /// - `path`: subfield of the annotated field (`value` with `path = "re"`).
@@ -231,7 +232,7 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// required there and rejected on a field. One field may carry several
 /// `#[pymember]` attributes. A `#[cfg]` on the field gates that entry.
 /// ```rust, ignore
-/// #[pymember(name = "fget", readonly)]
+/// #[pymember(name = "fget")]
 /// getter: PyAtomicRef<Option<PyObject>>,
 /// ```
 /// # Trait

@@ -16,7 +16,7 @@ use crossbeam_utils::atomic::AtomicCell;
 // PyCoro_Type in CPython
 pub struct PyCoroutine {
     inner: Coro,
-    #[pymember(name = "cr_origin", readonly)]
+    #[pymember(name = "cr_origin")]
     origin: Option<PyTupleRef>,
 }
 

@@ -23,8 +23,8 @@ use rustpython_common::hash;
 #[pyclass(module = false, name = "complex")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {
-    #[pymember(type = "double", readonly, name = "real", path = "re")]
-    #[pymember(type = "double", readonly, name = "imag", path = "im")]
+    #[pymember(type = "double", name = "real", path = "re")]
+    #[pymember(type = "double", name = "imag", path = "im")]
     value: Complex64,
 }
 

@@ -33,8 +33,8 @@ pub struct PyDescriptorOwned {
 
 #[pyclass(name = "method_descriptor", module = false)]
 pub struct PyMethodDescriptor {
-    #[pymember(readonly, name = "__objclass__", path = "typ")]
-    #[pymember(readonly, name = "__name__", path = "name")]
+    #[pymember(name = "__objclass__", path = "typ")]
+    #[pymember(name = "__name__", path = "name")]
     pub common: PyDescriptor,
     pub method: &'static PyMethodDef,
     // vectorcall: vector_call_func,
@@ -169,8 +169,8 @@ impl Representable for PyMethodDescriptor {
 /// METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
 #[pyclass(name = "classmethod_descriptor", module = false)]
 pub struct PyClassMethodDescriptor {
-    #[pymember(readonly, name = "__objclass__", path = "typ")]
-    #[pymember(readonly, name = "__name__", path = "name")]
+    #[pymember(name = "__objclass__", path = "typ")]
+    #[pymember(name = "__name__", path = "name")]
     pub common: PyDescriptor,
     pub method: &'static PyMethodDef,
     pub(crate) _method_def_owner: Option<PyObjectRef>,
@@ -489,8 +489,8 @@ impl PyMemberSpec {
 #[pyclass(name = "member_descriptor", module = false)]
 #[derive(Debug)]
 pub struct PyMemberDescriptor {
-    #[pymember(readonly, name = "__objclass__", path = "typ")]
-    #[pymember(readonly, name = "__name__", path = "name")]
+    #[pymember(name = "__objclass__", path = "typ")]
+    #[pymember(name = "__name__", path = "name")]
     pub common: PyDescriptorOwned,
     pub member: PyMemberDef,
     pub access: MemberAccess,
@@ -1274,9 +1274,9 @@ fn parse_buffer_flags(
 #[pyclass(name = "wrapper_descriptor", module = false)]
 #[derive(Debug)]
 pub(crate) struct PyWrapper {
-    #[pymember(readonly, name = "__objclass__")]
+    #[pymember(name = "__objclass__")]
     pub typ: &'static Py<PyType>,
-    #[pymember(readonly, name = "__name__")]
+    #[pymember(name = "__name__")]
     pub name: &'static PyStrInterned,
     pub wrapped: SlotFunc,
     /// Slot text, including the text signature.
@@ -1379,7 +1379,7 @@ impl Representable for PyWrapper {
 #[derive(Debug)]
 pub(crate) struct PyMethodWrapper {
     pub wrapper: PyRef<PyWrapper>,
-    #[pymember(readonly, name = "__self__")]
+    #[pymember(name = "__self__")]
     #[pytraverse(skip)]
     pub obj: PyObjectRef,
 }

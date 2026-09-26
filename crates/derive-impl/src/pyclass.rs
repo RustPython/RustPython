@@ -1794,7 +1794,7 @@ struct MemberItemMeta(ItemMetaInner);
 impl ItemMeta for MemberItemMeta {
     const ALLOWED_NAMES: &'static [&'static str] = &[
         "type",
-        "readonly",
+        "writable",
         "audit_read",
         "name",
         "path",
@@ -1849,8 +1849,8 @@ impl MemberItemMeta {
         parse_member_subpath(&value, span).map(Some)
     }
 
-    fn readonly(&self) -> Result<bool> {
-        self.inner()._bool("readonly")
+    fn writable(&self) -> Result<bool> {
+        self.inner()._bool("writable")
     }
 
     fn audit_read(&self) -> Result<bool> {
@@ -2079,7 +2079,7 @@ fn build_member(
 
     let kind = meta.member_kind()?;
     let path = meta.path_tokens()?;
-    let readonly = meta.readonly()?;
+    let readonly = !meta.writable()?;
     let audit_read = meta.audit_read()?;
     let offset_expr = meta.offset_tokens()?;
     if field.is_some() && offset_expr.is_some() {

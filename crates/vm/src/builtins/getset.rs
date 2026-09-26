@@ -11,11 +11,11 @@ use crate::{
 
 #[pyclass(module = false, name = "getset_descriptor", traverse = "manual")]
 pub struct PyGetSet {
-    #[pymember(readonly, name = "__name__")]
+    #[pymember(name = "__name__")]
     name: &'static crate::builtins::PyStrInterned,
     /// `d_type`. Owned: a type's namespace can outlive the type, and the
     /// descriptors it holds have to stay valid for as long as it does.
-    #[pymember(readonly, name = "__objclass__")]
+    #[pymember(name = "__objclass__")]
     class: PyRef<PyType>,
     getter: Option<PyGetterFunc>,
     setter: Option<PySetterFunc>,

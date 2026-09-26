@@ -19,11 +19,11 @@ use num_traits::{One, Signed, Zero};
 #[pyclass(module = false, name = "slice", unhashable = true, traverse = "manual")]
 #[derive(Debug)]
 pub struct PySlice {
-    #[pymember(readonly)]
+    #[pymember]
     pub start: Option<PyObjectRef>,
-    #[pymember(readonly)]
+    #[pymember]
     pub stop: PyObjectRef,
-    #[pymember(readonly)]
+    #[pymember]
     pub step: Option<PyObjectRef>,
 }
 

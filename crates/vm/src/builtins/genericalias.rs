@@ -36,12 +36,12 @@ static ATTR_BLOCKED: [&str; 3] = ["__bases__", "__copy__", "__deepcopy__"];
 
 #[pyclass(module = "types", name = "GenericAlias")]
 pub struct PyGenericAlias {
-    #[pymember(name = "__origin__", readonly)]
+    #[pymember(name = "__origin__")]
     origin: PyObjectRef,
-    #[pymember(name = "__args__", readonly)]
+    #[pymember(name = "__args__")]
     args: PyTupleRef,
     parameters: PyTupleRef,
-    #[pymember(name = "__unpacked__", type = "bool", readonly)]
+    #[pymember(name = "__unpacked__", type = "bool")]
     starred: bool, // for __unpacked__ attribute
 }
 

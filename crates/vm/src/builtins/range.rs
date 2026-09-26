@@ -64,11 +64,11 @@ fn iter_search(
 #[pyclass(module = false, name = "range")]
 #[derive(Debug, Clone)]
 pub struct PyRange {
-    #[pymember(type = "object_ex", readonly)]
+    #[pymember(type = "object_ex")]
     pub start: PyIntRef,
-    #[pymember(type = "object_ex", readonly)]
+    #[pymember(type = "object_ex")]
     pub stop: PyIntRef,
-    #[pymember(type = "object_ex", readonly)]
+    #[pymember(type = "object_ex")]
     pub step: PyIntRef,
 }
 

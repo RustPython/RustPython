@@ -15,8 +15,8 @@ use crate::{
 #[pyclass(module = false, name = "staticmethod", traverse)]
 #[derive(Debug)]
 pub struct PyStaticMethod {
-    #[pymember(readonly, name = "__func__")]
-    #[pymember(readonly, name = "__wrapped__")]
+    #[pymember(name = "__func__")]
+    #[pymember(name = "__wrapped__")]
     pub callable: PyAtomicRef<PyObject>,
 }
 

@@ -85,11 +85,7 @@ impl PyModuleDef {
 #[pyclass(module = false, name = "module")]
 // The dict lives in the object extension, not the payload. The offset is
 // the dict cell at the front of that extension.
-#[pymember(
-    readonly,
-    name = "__dict__",
-    offset = ::rustpython_vm::object::dict_member_offset()
-)]
+#[pymember(name = "__dict__", offset = ::rustpython_vm::object::dict_member_offset())]
 #[derive(Debug)]
 pub struct PyModule {
     // PyObject *md_dict;
