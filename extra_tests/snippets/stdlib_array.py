@@ -1,3 +1,4 @@
+import sys
 from array import array
 from pickle import dumps, loads
 
@@ -180,6 +181,6 @@ def test_frombytes_of_itself():
 
 # Repeating an empty array by a huge count returns at once
 empty = array("i")
-assert empty * (2**63 - 1) == array("i")
-empty *= 2**63 - 1
+assert empty * sys.maxsize == array("i")
+empty *= sys.maxsize
 assert empty == array("i")
