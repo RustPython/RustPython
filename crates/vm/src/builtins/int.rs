@@ -311,18 +311,6 @@ impl PyInt {
     pub const fn as_bigint(&self) -> &BigInt {
         &self.value
     }
-
-    #[inline]
-    fn general_op<F>(&self, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
-    where
-        F: Fn(&BigInt, &BigInt) -> PyResult,
-    {
-        if let Some(other) = other.downcast_ref::<Self>() {
-            op(&self.value, other.as_bigint())
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
 }
 
 impl Py<PyInt> {
@@ -439,25 +427,24 @@ impl Py<PyInt> {
             .map(|other| op(self.as_bigint(), other.as_bigint()));
         PyArithmeticValue::from_option(r)
     }
-}
 
-#[derive(FromArgs)]
-struct RoundArgs {
-    #[pyarg(positional, optional)]
-    ndigits: Option<PyIntRef>,
-}
+    #[inline]
+    fn general_op<F>(&self, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
+    where
+        F: Fn(&BigInt, &BigInt) -> PyResult,
+    {
+        if let Some(other) = other.downcast_ref::<PyInt>() {
+            op(self.as_bigint(), other.as_bigint())
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
 
-#[pyclass(
-    itemsize = 4,
-    flags(BASETYPE, _MATCH_SELF),
-    with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
-)]
-impl PyInt {
     fn modpow(&self, other: &PyObject, modulus: &PyObject, vm: &VirtualMachine) -> PyResult {
-        if other.downcast_ref::<Self>().is_none() {
+        if other.downcast_ref::<PyInt>().is_none() {
             return Ok(vm.ctx.not_implemented());
         }
-        let modulus = match modulus.downcast_ref::<Self>() {
+        let modulus = match modulus.downcast_ref::<PyInt>() {
             Some(val) => val.as_bigint(),
             None => return Ok(vm.ctx.not_implemented()),
         };
@@ -496,7 +483,20 @@ impl PyInt {
             vm,
         )
     }
+}
 
+#[derive(FromArgs)]
+struct RoundArgs {
+    #[pyarg(positional, optional)]
+    ndigits: Option<PyIntRef>,
+}
+
+#[pyclass(
+    itemsize = 4,
+    flags(BASETYPE, _MATCH_SELF),
+    with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
+)]
+impl PyInt {
     #[pymethod]
     fn __round__(zelf: PyRef<Self>, args: RoundArgs, vm: &VirtualMachine) -> PyRef<Self> {
         if let Some(ndigits) = args.ndigits {
@@ -790,9 +790,9 @@ impl PyInt {
         power: Some(|a, b, c, vm| {
             if let Some(a) = a.downcast_ref::<Self>() {
                 if vm.is_none(c) {
-                    a.payload.general_op(b, |a, b| inner_pow(a, b, vm), vm)
+                    a.general_op(b, |a, b| inner_pow(a, b, vm), vm)
                 } else {
-                    a.payload.modpow(b, c, vm)
+                    a.modpow(b, c, vm)
                 }
             } else {
                 Ok(vm.ctx.not_implemented())
