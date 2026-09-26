@@ -114,7 +114,7 @@ mod fcntl {
                 )?;
                 return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
             }
-            Either::B(i) => i.payload().as_u32_mask(),
+            Either::B(i) => i.as_u32_mask(),
         };
         let ret = retry_on_eintr(
             vm,

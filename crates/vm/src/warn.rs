@@ -287,7 +287,7 @@ fn already_warned(
 
     let version_matches = version_obj.as_ref().is_some_and(|v| {
         v.try_int(vm)
-            .is_ok_and(|i| i.payload.as_u32_mask() as usize == current_version)
+            .is_ok_and(|i| i.as_u32_mask() as usize == current_version)
     });
 
     if version_matches {
@@ -383,7 +383,7 @@ fn filter_search(
         let good_mod = check_matched(&tmp_item.as_slice()[3], module, vm)?;
         let ln: usize = tmp_item.as_slice()[4]
             .try_int(vm)
-            .map_or(0, |v| v.payload.as_u32_mask() as _);
+            .map_or(0, |v| v.as_u32_mask() as _);
 
         if good_msg && is_subclass && good_mod && (ln == 0 || lineno == ln) {
             return Ok(Some(action.to_owned()));

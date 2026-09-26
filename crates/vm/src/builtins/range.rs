@@ -424,9 +424,10 @@ impl Py<PyRange> {
 
 impl PyRange {
     fn protocol_length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        PyInt::from(self.__len__())
-            .try_to_primitive::<isize>(vm)
+        self.__len__()
+            .to_isize()
             .map(|x| x as usize)
+            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to Rust isize"))
     }
 }
 

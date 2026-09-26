@@ -312,16 +312,47 @@ impl PyInt {
         &self.value
     }
 
+    #[inline]
+    fn int_op<F>(&self, other: &PyObject, op: F) -> PyArithmeticValue<BigInt>
+    where
+        F: Fn(&BigInt, &BigInt) -> BigInt,
+    {
+        let r = other
+            .downcast_ref::<Self>()
+            .map(|other| op(&self.value, other.as_bigint()));
+        PyArithmeticValue::from_option(r)
+    }
+
+    #[inline]
+    fn general_op<F>(&self, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
+    where
+        F: Fn(&BigInt, &BigInt) -> PyResult,
+    {
+        if let Some(other) = other.downcast_ref::<Self>() {
+            op(&self.value, other.as_bigint())
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+}
+
+impl Py<PyInt> {
+    #[must_use]
+    #[inline]
+    pub const fn as_bigint(&self) -> &BigInt {
+        self.payload.as_bigint()
+    }
+
     /// Extract the inline magnitude without the generic primitive-conversion path.
     #[inline(always)]
     pub(crate) fn try_to_i64_fast(&self) -> Option<i64> {
-        let bits = self.value.bits();
+        let bits = self.as_bigint().bits();
         if bits > i64::BITS as u64 {
             return None;
         }
-        let magnitude = self.value.iter_u64_digits().next().unwrap_or(0);
+        let magnitude = self.as_bigint().iter_u64_digits().next().unwrap_or(0);
         let signed_magnitude = i64::try_from(magnitude).ok();
-        match self.value.sign() {
+        match self.as_bigint().sign() {
             Sign::Minus if magnitude == 1u64 << 63 => Some(i64::MIN),
             Sign::Minus => signed_magnitude.map(|value| -value),
             Sign::NoSign | Sign::Plus => signed_magnitude,
@@ -332,9 +363,9 @@ impl PyInt {
     #[inline]
     #[must_use]
     pub fn to_str_radix_10(&self) -> String {
-        match self.value.to_i64() {
+        match self.as_bigint().to_i64() {
             Some(i) => itoa::Buffer::new().format(i).to_owned(),
-            None => self.value.to_string(),
+            None => self.as_bigint().to_string(),
         }
     }
 
@@ -383,45 +414,6 @@ impl PyInt {
                 core::any::type_name::<I>()
             ))
         })
-    }
-
-    #[inline]
-    fn int_op<F>(&self, other: &PyObject, op: F) -> PyArithmeticValue<BigInt>
-    where
-        F: Fn(&BigInt, &BigInt) -> BigInt,
-    {
-        let r = other
-            .downcast_ref::<Self>()
-            .map(|other| op(&self.value, other.as_bigint()));
-        PyArithmeticValue::from_option(r)
-    }
-
-    #[inline]
-    fn general_op<F>(&self, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
-    where
-        F: Fn(&BigInt, &BigInt) -> PyResult,
-    {
-        if let Some(other) = other.downcast_ref::<Self>() {
-            op(&self.value, other.as_bigint())
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-}
-
-impl Py<PyInt> {
-    #[must_use]
-    #[inline]
-    pub const fn as_bigint(&self) -> &BigInt {
-        self.payload.as_bigint()
-    }
-
-    #[inline]
-    pub fn try_to_primitive<'a, I>(&'a self, vm: &VirtualMachine) -> PyResult<I>
-    where
-        I: PrimInt + TryFrom<&'a BigInt>,
-    {
-        self.payload.try_to_primitive(vm)
     }
 }
 
@@ -753,7 +745,7 @@ impl Representable for PyInt {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         check_int_to_str_digits(zelf.as_bigint(), vm)?;
-        Ok(zelf.payload.to_str_radix_10())
+        Ok(zelf.to_str_radix_10())
     }
 }
 

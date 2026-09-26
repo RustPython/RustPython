@@ -2960,7 +2960,7 @@ fn specialization_compact_int_value(i: &Py<PyInt>) -> Option<isize> {
     // _PyLong_IsCompact(): a one-digit PyLong (base 2^30),
     // i.e. abs(value) <= 2^30 - 1.
     const CPYTHON_COMPACT_LONG_ABS_MAX: i64 = (1i64 << 30) - 1;
-    let v = i.payload.try_to_i64_fast()?;
+    let v = i.try_to_i64_fast()?;
     if (-CPYTHON_COMPACT_LONG_ABS_MAX..=CPYTHON_COMPACT_LONG_ABS_MAX).contains(&v) {
         Some(v as isize)
     } else {
@@ -9568,7 +9568,7 @@ impl ExecutingFrame<'_> {
         checked: fn(i64, i64) -> Option<i64>,
         fallback: impl FnOnce(&BigInt, &BigInt) -> BigInt,
     ) -> PyObjectRef {
-        if let (Some(av), Some(bv)) = (a.payload.try_to_i64_fast(), b.payload.try_to_i64_fast())
+        if let (Some(av), Some(bv)) = (a.try_to_i64_fast(), b.try_to_i64_fast())
             && let Some(result) = checked(av, bv)
         {
             return vm.ctx.new_int(result).into();
