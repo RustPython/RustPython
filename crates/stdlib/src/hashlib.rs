@@ -107,7 +107,7 @@ pub(crate) mod _hashlib {
         node_depth: OptionalArg<ArgPrimitiveIndex<i64>>,
         #[pyarg(named, optional)]
         inner_size: OptionalArg<ArgPrimitiveIndex<i64>>,
-        #[pyarg(named, default = false)]
+        #[pyarg(named, default)]
         last_node: bool,
         #[pyarg(named, default = true)]
         usedforsecurity: bool,
@@ -1239,7 +1239,7 @@ pub(crate) mod _hashlib {
         r: ArgPrimitiveIndex<i64>,
         #[pyarg(named)]
         p: ArgPrimitiveIndex<i64>,
-        #[pyarg(named, default = 0)]
+        #[pyarg(named, default)]
         maxmem: i64,
         #[pyarg(named, default = 64)]
         dklen: i64,

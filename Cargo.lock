@@ -4140,7 +4140,6 @@ dependencies = [
  "rustpython-compiler",
  "rustpython-compiler-core",
  "rustpython-derive",
- "rustpython-doc",
  "rustpython-host_env",
  "rustpython-jit",
  "rustpython-literal",

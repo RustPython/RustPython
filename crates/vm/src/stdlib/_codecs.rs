@@ -160,7 +160,7 @@ mod _codecs {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, name = "final", default = false)]
+        #[pyarg(positional, name = "final", default)]
         final_decode: bool,
     }
 
@@ -430,7 +430,7 @@ mod _codecs {
         str: PyStrRef,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         byteorder: i32,
     }
 
@@ -532,9 +532,9 @@ mod _codecs {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         byteorder: i32,
-        #[pyarg(positional, name = "final", default = false)]
+        #[pyarg(positional, name = "final", default)]
         final_decode: bool,
     }
 
@@ -799,7 +799,7 @@ mod _codecs_windows {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, default = false)]
+        #[pyarg(positional, default)]
         #[allow(dead_code)]
         r#final: bool,
     }
@@ -915,7 +915,7 @@ mod _codecs_windows {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, default = false)]
+        #[pyarg(positional, default)]
         #[allow(dead_code)]
         r#final: bool,
     }
@@ -1257,7 +1257,7 @@ mod _codecs_windows {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, default = false)]
+        #[pyarg(positional, default)]
         r#final: bool,
     }
 

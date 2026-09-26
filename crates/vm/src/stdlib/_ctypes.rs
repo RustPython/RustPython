@@ -592,7 +592,7 @@ pub(crate) mod _ctypes {
     pub(crate) struct ByRefArgs {
         #[pyarg(positional)]
         pub(crate) obj: PyObjectRef,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         pub(crate) offset: isize,
     }
 

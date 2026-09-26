@@ -777,7 +777,7 @@ mod _winapi {
         handle: WinHandle,
         #[pyarg(any)]
         buffer: crate::function::ArgBytesLike,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         overlapped: bool,
     }
 
@@ -817,7 +817,7 @@ mod _winapi {
         handle: WinHandle,
         #[pyarg(any)]
         size: u32,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         overlapped: bool,
     }
 

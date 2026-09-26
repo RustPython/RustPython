@@ -68,7 +68,7 @@ mod syslog {
     struct OpenLogArgs {
         #[pyarg(any, optional)]
         ident: Option<PyStrRef>,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         logoption: i32,
         #[pyarg(any, default = ::LOG_USER)]
         facility: i32,

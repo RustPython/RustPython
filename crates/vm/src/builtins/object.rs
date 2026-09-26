@@ -5,7 +5,10 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyResult,
-    function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
+    function::{
+        ArgumentError, Either, FromArgs, FuncArgs, Param, PyArithmeticValue, PyComparisonValue,
+        PySetterValue,
+    },
     types::{Constructor, Initializer, PyComparisonOp},
 };
 use itertools::Itertools;
@@ -28,11 +31,22 @@ impl PyPayload for PyBaseObject {
     }
 }
 
+pub struct ObjectArgs;
+
+impl FromArgs for ObjectArgs {
+    const PARAMS: Option<&'static [Param]> = Some(&[]);
+
+    fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        core::mem::take(args);
+        Ok(Self)
+    }
+}
+
 impl Constructor for PyBaseObject {
-    type Args = FuncArgs;
+    type Args = ObjectArgs;
 
     // = object_new
-    fn slot_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() || !args.kwargs.is_empty() {
             // Check if type's __new__ != object.__new__
             let tp_new = cls.get_attr(identifier!(vm, __new__));
@@ -111,7 +125,7 @@ pub(crate) fn generic_alloc(cls: PyTypeRef, _nitems: usize, vm: &VirtualMachine)
 }
 
 impl Initializer for PyBaseObject {
-    type Args = FuncArgs;
+    type Args = ObjectArgs;
 
     // object_init: excess_args validation
     fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {

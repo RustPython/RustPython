@@ -748,11 +748,11 @@ mod decl {
     struct DumpTracebackLaterArgs {
         #[pyarg(positional, error_msg = "timeout must be a number (int or float)")]
         timeout: ArgIntoFloat,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         repeat: bool,
         #[pyarg(any, default)]
         file: OptionalArg<PyObjectRef>,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         exit: bool,
     }
 
@@ -877,7 +877,7 @@ mod decl {
         file: OptionalArg<PyObjectRef>,
         #[pyarg(any, default = true)]
         all_threads: bool,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         chain: bool,
     }
 
@@ -930,7 +930,7 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct SigsegvArgs {
-        #[pyarg(positional, default = false)]
+        #[pyarg(positional, default)]
         release_gil: bool,
     }
 
@@ -1027,7 +1027,7 @@ mod decl {
     struct RaiseExceptionArgs {
         #[pyarg(positional)]
         code: u32,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         flags: u32,
     }
 

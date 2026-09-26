@@ -1368,9 +1368,9 @@ pub(crate) mod _elementtree {
         comment_factory: Option<PyObjectRef>,
         #[pyarg(named, default)]
         pi_factory: Option<PyObjectRef>,
-        #[pyarg(named, default = false)]
+        #[pyarg(named, default)]
         insert_comments: bool,
-        #[pyarg(named, default = false)]
+        #[pyarg(named, default)]
         insert_pis: bool,
     }
 

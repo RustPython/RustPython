@@ -563,7 +563,7 @@ impl PyByteArray {
 
 #[derive(FromArgs)]
 struct ByteArrayReduceExArgs {
-    #[pyarg(positional, default = 0)]
+    #[pyarg(positional, default)]
     proto: usize,
 }
 

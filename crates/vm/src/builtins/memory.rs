@@ -1198,7 +1198,7 @@ impl Py<PyMemoryView> {
 struct MemoryIndexArgs {
     #[pyarg(positional)]
     value: PyObjectRef,
-    #[pyarg(positional, default = 0)]
+    #[pyarg(positional, default)]
     start: isize,
     // Omission is clamped to the view length.
     #[pyarg(positional, default = isize::MAX)]

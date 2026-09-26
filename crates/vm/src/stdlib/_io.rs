@@ -248,26 +248,26 @@ mod _io {
     #[derive(Clone, Copy, FromArgs)]
     #[allow(dead_code)]
     struct PeekSize {
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         size: isize,
     }
 
     #[derive(FromArgs)]
     struct WhenceArg {
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         whence: i32,
     }
 
     #[derive(FromArgs)]
     pub(super) struct HowArg {
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         pub whence: i32,
     }
 
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct IgnoredWhence {
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         whence: i32,
     }
 
@@ -4519,7 +4519,7 @@ mod _io {
     struct NewlineDecodeArgs {
         #[pyarg(any)]
         input: PyObjectRef,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         r#final: bool,
     }
 

@@ -2,6 +2,7 @@
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/main/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-derive/")]
 
+extern crate alloc;
 extern crate proc_macro;
 
 #[macro_use]
@@ -9,6 +10,7 @@ mod error;
 #[macro_use]
 mod util;
 
+mod class_docs;
 mod compile_bytecode;
 mod from_args;
 mod pyclass;

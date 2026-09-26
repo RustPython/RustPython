@@ -535,6 +535,7 @@ pub(crate) fn impl_pystruct_sequence(
         Some(doc) => quote!(Some(#doc)),
         None => quote!(None),
     };
+    let attr_docs = crate::class_docs::attr_docs_tokens(module_name.as_deref(), &class_name);
 
     let output = quote! {
         // The Python type struct - newtype wrapping PyTuple
@@ -548,6 +549,7 @@ pub(crate) fn impl_pystruct_sequence(
             const MODULE_NAME: Option<&'static str> = #module_name_tokens;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: Option<&'static str> = #doc;
+            const ATTR_DOCS: &'static [(&'static str, &'static str)] = #attr_docs;
             const BASICSIZE: usize = 0;
             const UNHASHABLE: bool = false;
 

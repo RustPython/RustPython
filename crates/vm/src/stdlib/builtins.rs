@@ -1249,7 +1249,7 @@ mod builtins {
         // Missing means an empty fromlist.
         #[pyarg(any, default, py_default = "()")]
         fromlist: Option<PyObjectRef>,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         level: i32,
     }
 

@@ -155,7 +155,7 @@ pub(crate) mod _struct {
     #[derive(FromArgs)]
     struct UpdateFromArgs {
         buffer: ArgBytesLike,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         offset: isize,
     }
 
