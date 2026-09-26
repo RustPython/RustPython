@@ -15,7 +15,6 @@ mod builtins {
             PyUtf8StrRef,
             enumerate::PyReverseSequenceIterator,
             function::{PyCell, PyCellRef, PyFunction},
-            int::PyIntRef,
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
         },
@@ -71,7 +70,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn bin(number: PyIntRef) -> String {
+    fn bin(number: ArgIndex) -> String {
+        let number = number.into_int_ref();
         let x = number.as_bigint();
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
@@ -86,7 +86,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<CodePoint> {
+    fn chr(i: ArgIndex, vm: &VirtualMachine) -> PyResult<CodePoint> {
+        let i = i.into_int_ref();
         let value = i
             .as_bigint()
             .to_u32()

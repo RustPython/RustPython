@@ -7,10 +7,10 @@ mod zlib {
     use crate::compression::{DecompressArgs, DecompressorArgs};
     use crate::vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyBytesRef, PyIntRef, PyType, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyBytesRef, PyType, PyTypeRef},
         common::lock::PyMutex,
         convert::TryFromBorrowedObject,
-        function::{ArgBytesLike, ArgPrimitiveIndex, ArgSize, OptionalArg},
+        function::{ArgBytesLike, ArgIndex, ArgPrimitiveIndex, ArgSize, OptionalArg},
         types::Constructor,
     };
     use adler32::RollingAdler32 as Adler32;
@@ -54,14 +54,14 @@ mod zlib {
         #[pyarg(positional)]
         data: ArgBytesLike,
         #[pyarg(positional, default = 1)]
-        value: PyIntRef,
+        value: ArgIndex,
     }
 
     #[pyfunction]
     fn adler32(args: Adler32Args) -> u32 {
         let Adler32Args { data, value } = args;
         data.with_ref(|data| {
-            let value = value.as_u32_mask();
+            let value = value.into_int_ref().as_u32_mask();
             let mut hasher = Adler32::from_value(value);
             hasher.update_buffer(data);
             hasher.hash()
@@ -73,7 +73,7 @@ mod zlib {
         #[pyarg(positional)]
         data: ArgBytesLike,
         #[pyarg(positional, default = 0)]
-        value: PyIntRef,
+        value: ArgIndex,
     }
 
     #[pyfunction]

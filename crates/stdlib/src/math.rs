@@ -407,12 +407,18 @@ mod math {
         pymath::math::frexp(x.into_float())
     }
 
-    #[pyfunction]
-    fn ldexp(
+    #[derive(FromArgs)]
+    struct LdexpArgs {
+        #[pyarg(positional)]
         x: Either<PyRef<PyFloat>, PyIntRef>,
+        // Refuses anything that is not an `int`, including objects with `__index__`.
+        #[pyarg(positional, error_msg = "Expected an int as second argument to ldexp.")]
         i: PyIntRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<f64> {
+    }
+
+    #[pyfunction]
+    fn ldexp(args: LdexpArgs, vm: &VirtualMachine) -> PyResult<f64> {
+        let LdexpArgs { x, i } = args;
         let value = match x {
             Either::A(f) => f.to_f64(),
             Either::B(z) => try_bigint_to_f64(z.as_bigint(), vm)?,
@@ -796,7 +802,8 @@ mod math {
     }
 
     #[pyfunction]
-    fn factorial(n: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+    fn factorial(n: ArgIndex, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let n = n.into_int_ref();
         // Check for negative before overflow - negative values are always invalid
         if n.as_bigint().is_negative() {
             return Err(vm.new_value_error("factorial() not defined for negative values"));

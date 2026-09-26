@@ -11,8 +11,8 @@ mod decl {
     use super::new_binascii_error;
     use crate::vm::{
         PyResult, VirtualMachine,
-        builtins::{PyIntRef, PyTypeRef},
-        function::{ArgAsciiBuffer, ArgBytesLike, OptionalArg},
+        builtins::PyTypeRef,
+        function::{ArgAsciiBuffer, ArgBytesLike, ArgIndex, OptionalArg},
     };
     use rustpython_common::binascii;
 
@@ -67,11 +67,11 @@ mod decl {
         #[pyarg(positional)]
         data: ArgBytesLike,
         #[pyarg(positional, default = 0)]
-        crc: PyIntRef,
+        crc: ArgIndex,
     }
 
-    pub(crate) fn crc32(data: ArgBytesLike, crc: PyIntRef) -> u32 {
-        let crc = crc.as_u32_mask();
+    pub(crate) fn crc32(data: ArgBytesLike, crc: ArgIndex) -> u32 {
+        let crc = crc.into_int_ref().as_u32_mask();
         data.with_ref(|bytes| binascii::crc32(bytes, crc))
     }
 
@@ -82,8 +82,8 @@ mod decl {
     }
 
     #[pyfunction]
-    pub(crate) fn crc_hqx(data: ArgBytesLike, crc: PyIntRef) -> u32 {
-        data.with_ref(|bytes| binascii::crc_hqx(bytes, crc.as_u32_mask()))
+    pub(crate) fn crc_hqx(data: ArgBytesLike, crc: ArgIndex) -> u32 {
+        data.with_ref(|bytes| binascii::crc_hqx(bytes, crc.into_int_ref().as_u32_mask()))
     }
 
     #[derive(FromArgs)]

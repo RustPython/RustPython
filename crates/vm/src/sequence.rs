@@ -1,6 +1,5 @@
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult,
-    builtins::PyIntRef,
     function::OptionalArg,
     sliceable::SequenceIndexOp,
     types::PyComparisonOp,
@@ -166,8 +165,7 @@ pub struct OptionalRangeArgs {
 impl OptionalRangeArgs {
     pub fn saturate(self, len: usize, vm: &VirtualMachine) -> PyResult<(usize, usize)> {
         let saturate = |obj: PyObjectRef| -> PyResult<_> {
-            obj.try_into_value(vm)
-                .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
+            Ok(obj.try_index(vm)?.as_bigint().saturated_at(len))
         };
         let start = saturate(self.start)?;
         let stop = self.stop.map_or(Ok(len), saturate)?;
