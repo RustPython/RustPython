@@ -247,22 +247,9 @@ impl PyBytes {
         Ok(vm.ctx.new_str(zelf.payload.inner.repr_bytes(vm)?))
     }
 
-    fn __add__(&self, other: ArgBytesLike) -> Vec<u8> {
-        self.inner.add(&other.borrow_buf())
-    }
-
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let needle = ByteInnerSub::from_contains_arg(needle, vm)?;
-        self.inner.contains(needle, vm)
-    }
-
     #[pystaticmethod]
     fn maketrans(frm: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         PyBytesInner::maketrans(frm, to, vm)
-    }
-
-    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        self._getitem(needle, vm)
     }
 
     #[pymethod]
@@ -527,11 +514,6 @@ impl PyBytes {
         zelf.repeat(value.into_int_ref().try_to_primitive(vm)?, vm)
     }
 
-    fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let formatted = self.inner.cformat(values, vm)?;
-        Ok(formatted.into())
-    }
-
     #[pymethod]
     fn __getnewargs__(&self, vm: &VirtualMachine) -> PyTupleRef {
         let param: Vec<PyObjectRef> = self.elements().map(|x| x.to_pyobject(vm)).collect();
@@ -554,6 +536,24 @@ impl Py<PyBytes> {
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
         self.payload().as_bytes()
+    }
+
+    fn __add__(&self, other: ArgBytesLike) -> Vec<u8> {
+        self.payload.inner.add(&other.borrow_buf())
+    }
+
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let needle = ByteInnerSub::from_contains_arg(needle, vm)?;
+        self.payload.inner.contains(needle, vm)
+    }
+
+    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        self.payload._getitem(needle, vm)
+    }
+
+    fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        let formatted = self.payload.inner.cformat(values, vm)?;
+        Ok(formatted.into())
     }
 
     #[pymethod]
@@ -656,9 +656,9 @@ impl AsMapping for PyBytes {
             length: atomic_func!(|mapping, _vm| {
                 Ok(PyBytes::mapping_downcast(mapping).as_bytes().len())
             }),
-            subscript: atomic_func!(|mapping, needle, vm| PyBytes::mapping_downcast(mapping)
-                .payload
-                ._getitem(needle, vm)),
+            subscript: atomic_func!(
+                |mapping, needle, vm| PyBytes::mapping_downcast(mapping).__getitem__(needle, vm)
+            ),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
         &AS_MAPPING
@@ -689,9 +689,7 @@ impl AsSequence for PyBytes {
                     .map(|x| vm.ctx.new_bytes(vec![x]).into())
             }),
             contains: atomic_func!(|seq, other, vm| {
-                PyBytes::sequence_downcast(seq)
-                    .payload
-                    .__contains__(other.to_owned(), vm)
+                PyBytes::sequence_downcast(seq).__contains__(other.to_owned(), vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
@@ -704,7 +702,7 @@ impl AsNumber for PyBytes {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             remainder: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyBytes>() {
-                    a.payload().__mod__(b.to_owned(), vm).to_pyresult(vm)
+                    a.__mod__(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
