@@ -1720,7 +1720,7 @@ pub(super) mod types {
         pub(super) traceback: PyRwLock<Option<PyTracebackRef>>,
         pub(super) cause: PyRwLock<Option<PyRef<Self>>>,
         pub(super) context: PyRwLock<Option<PyRef<Self>>>,
-        #[pymember(type = "bool", name = "__suppress_context__", writable, doc = false)]
+        #[pymember(name = "__suppress_context__", writable, doc = false)]
         pub(super) suppress_context: AtomicBool,
         pub(super) args: PyRwLock<PyTupleRef>,
     }
@@ -3284,8 +3284,8 @@ pub(super) mod types {
     pub struct PyUnicodeDecodeError(
         #[pymember(name = "encoding", path = "encoding", writable)]
         #[pymember(name = "object", path = "object", writable)]
-        #[pymember(name = "start", path = "start", type = "py_ssize_t", writable)]
-        #[pymember(name = "end", path = "end", type = "py_ssize_t", writable)]
+        #[pymember(name = "start", path = "start", writable)]
+        #[pymember(name = "end", path = "end", writable)]
         #[pymember(name = "reason", path = "reason", writable)]
         PyUnicodeError,
     );
@@ -3356,8 +3356,8 @@ pub(super) mod types {
     pub struct PyUnicodeEncodeError(
         #[pymember(name = "encoding", path = "encoding", writable)]
         #[pymember(name = "object", path = "object", writable)]
-        #[pymember(name = "start", path = "start", type = "py_ssize_t", writable)]
-        #[pymember(name = "end", path = "end", type = "py_ssize_t", writable)]
+        #[pymember(name = "start", path = "start", writable)]
+        #[pymember(name = "end", path = "end", writable)]
         #[pymember(name = "reason", path = "reason", writable)]
         PyUnicodeError,
     );
@@ -3428,8 +3428,8 @@ pub(super) mod types {
     pub struct PyUnicodeTranslateError(
         #[pymember(name = "encoding", path = "encoding", writable)]
         #[pymember(name = "object", path = "object", writable)]
-        #[pymember(name = "start", path = "start", type = "py_ssize_t", writable)]
-        #[pymember(name = "end", path = "end", type = "py_ssize_t", writable)]
+        #[pymember(name = "start", path = "start", writable)]
+        #[pymember(name = "end", path = "end", writable)]
         #[pymember(name = "reason", path = "reason", writable)]
         PyUnicodeError,
     );

@@ -87,11 +87,11 @@ pub(crate) mod typevar {
         evaluate_constraints: PyObjectRef,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
-        #[pymember(name = "__covariant__", type = "bool")]
+        #[pymember(name = "__covariant__")]
         covariant: bool,
-        #[pymember(name = "__contravariant__", type = "bool")]
+        #[pymember(name = "__contravariant__")]
         contravariant: bool,
-        #[pymember(name = "__infer_variance__", type = "bool")]
+        #[pymember(name = "__infer_variance__")]
         infer_variance: bool,
     }
 
@@ -445,11 +445,11 @@ pub(crate) mod typevar {
         bound: Option<PyObjectRef>,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
-        #[pymember(name = "__covariant__", type = "bool")]
+        #[pymember(name = "__covariant__")]
         covariant: bool,
-        #[pymember(name = "__contravariant__", type = "bool")]
+        #[pymember(name = "__contravariant__")]
         contravariant: bool,
-        #[pymember(name = "__infer_variance__", type = "bool")]
+        #[pymember(name = "__infer_variance__")]
         infer_variance: bool,
     }
 

@@ -344,84 +344,97 @@ pub const PY_READONLY: i32 = 1;
 pub const PY_AUDIT_READ: i32 = 2;
 pub const PY_RELATIVE_OFFSET: i32 = 8;
 
-/// A byte at `object + offset` is a bool the generic member code can load.
+/// Kind of a `#[pymember]` field. The macro reads [`MemberLayout::KIND`].
 #[doc(hidden)]
-pub trait BoolMember {}
-impl BoolMember for bool {}
-impl BoolMember for core::sync::atomic::AtomicBool {}
+pub trait MemberLayout {
+    const KIND: MemberKind;
+}
 
-/// A writable bool member. Only an atomic cell may change after publication.
+/// Writable `#[pymember]` field. Only an atomic cell may change after publication.
 #[doc(hidden)]
-pub trait BoolCell: BoolMember {}
-impl BoolCell for core::sync::atomic::AtomicBool {}
+pub trait MemberCell: MemberLayout {}
 
-/// A field at `object + offset` is a C `int`.
+/// `KIND` of the field named by `probe`. `probe` is not called.
 #[doc(hidden)]
-pub trait IntMember {}
-impl IntMember for i32 {}
-impl IntMember for core::sync::atomic::AtomicI32 {}
+#[must_use]
+pub const fn member_kind_of<T: MemberLayout, Owner>(
+    _: for<'a> fn(&'a Owner) -> &'a T,
+) -> MemberKind {
+    <T as MemberLayout>::KIND
+}
 
-/// A writable `int` member. Only an atomic cell may change after publication.
-#[doc(hidden)]
-pub trait IntCell: IntMember {}
-impl IntCell for core::sync::atomic::AtomicI32 {}
+impl MemberLayout for bool {
+    const KIND: MemberKind = MemberKind::Bool;
+}
+impl MemberLayout for core::sync::atomic::AtomicBool {
+    const KIND: MemberKind = MemberKind::Bool;
+}
+impl MemberCell for core::sync::atomic::AtomicBool {}
 
-/// A field at `object + offset` is a C `unsigned int`.
-#[doc(hidden)]
-pub trait UintMember {}
-impl UintMember for u32 {}
-impl UintMember for core::sync::atomic::AtomicU32 {}
+impl MemberLayout for i32 {
+    const KIND: MemberKind = MemberKind::Int;
+}
+impl MemberLayout for core::sync::atomic::AtomicI32 {
+    const KIND: MemberKind = MemberKind::Int;
+}
+impl MemberCell for core::sync::atomic::AtomicI32 {}
 
-/// A writable `unsigned int` member. Only an atomic cell may change after publication.
-#[doc(hidden)]
-pub trait UintCell: UintMember {}
-impl UintCell for core::sync::atomic::AtomicU32 {}
+impl MemberLayout for u32 {
+    const KIND: MemberKind = MemberKind::Uint;
+}
+impl MemberLayout for core::sync::atomic::AtomicU32 {
+    const KIND: MemberKind = MemberKind::Uint;
+}
+impl MemberCell for core::sync::atomic::AtomicU32 {}
 
-/// A field at `object + offset` is one object pointer.
-///
-/// Readonly members may be a plain pointer. Writable members are an atomic
-/// cell: `PyAtomicRef<PyObject>` when the pointer is never null, or
-/// `PyAtomicRef<Option<PyObject>>` when it may be.
-#[doc(hidden)]
-pub trait ObjectMember {}
-impl ObjectMember for PyObjectRef {}
-impl ObjectMember for Option<PyObjectRef> {}
-impl<T> ObjectMember for PyRef<T> {}
-impl<T> ObjectMember for Option<PyRef<T>> {}
-impl ObjectMember for crate::object::PyAtomicRef<PyObject> {}
-impl ObjectMember for crate::object::PyAtomicRef<Option<PyObject>> {}
-impl<T: PyPayload> ObjectMember for crate::object::PyAtomicRef<Option<T>> {}
-impl ObjectMember for &'static crate::builtins::PyStrInterned {}
-impl<T: PyPayload> ObjectMember for &'static Py<T> {}
+// One object pointer. Readonly members may be a plain pointer. Writable
+// members are an atomic cell: `PyAtomicRef<PyObject>` when the pointer is
+// never null, or `PyAtomicRef<Option<PyObject>>` when it may be.
+impl MemberLayout for PyObjectRef {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl MemberLayout for Option<PyObjectRef> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl<T> MemberLayout for PyRef<T> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl<T> MemberLayout for Option<PyRef<T>> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl MemberLayout for crate::object::PyAtomicRef<PyObject> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl MemberLayout for crate::object::PyAtomicRef<Option<PyObject>> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl<T: PyPayload> MemberLayout for crate::object::PyAtomicRef<Option<T>> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl MemberLayout for &'static crate::builtins::PyStrInterned {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl<T: PyPayload> MemberLayout for &'static Py<T> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl MemberCell for crate::object::PyAtomicRef<PyObject> {}
+impl MemberCell for crate::object::PyAtomicRef<Option<PyObject>> {}
 
-/// A writable object member. The cell owns the pointer and updates it atomically.
-#[doc(hidden)]
-pub trait ObjectCell: ObjectMember {}
-impl ObjectCell for crate::object::PyAtomicRef<PyObject> {}
-impl ObjectCell for crate::object::PyAtomicRef<Option<PyObject>> {}
+impl MemberLayout for f64 {
+    const KIND: MemberKind = MemberKind::Double;
+}
+impl MemberLayout for crate::common::atomic::AtomicF64 {
+    const KIND: MemberKind = MemberKind::Double;
+}
+impl MemberCell for crate::common::atomic::AtomicF64 {}
 
-/// A field at `object + offset` is an `f64` or the bits of one.
-#[doc(hidden)]
-pub trait DoubleMember {}
-impl DoubleMember for f64 {}
-impl DoubleMember for core::sync::atomic::AtomicU64 {}
-
-/// A writable double member. The cell stores the `f64` bits and may change
-/// after publication, so only an atomic 64-bit cell is accepted.
-#[doc(hidden)]
-pub trait DoubleCell: DoubleMember {}
-impl DoubleCell for core::sync::atomic::AtomicU64 {}
-
-/// A field at `object + offset` is a `Py_ssize_t`.
-#[doc(hidden)]
-pub trait PySsizeMember {}
-impl PySsizeMember for isize {}
-impl PySsizeMember for core::sync::atomic::AtomicIsize {}
-
-/// A writable `Py_ssize_t` member. Only an atomic cell may change after publication.
-#[doc(hidden)]
-pub trait PySsizeCell: PySsizeMember {}
-impl PySsizeCell for core::sync::atomic::AtomicIsize {}
+impl MemberLayout for isize {
+    const KIND: MemberKind = MemberKind::PySsizeT;
+}
+impl MemberLayout for core::sync::atomic::AtomicIsize {
+    const KIND: MemberKind = MemberKind::PySsizeT;
+}
+impl MemberCell for core::sync::atomic::AtomicIsize {}
 
 /// Where `PyMemberDef.offset` points.
 ///
@@ -760,15 +773,12 @@ fn member_get_one(
                 // access.
                 unsafe { member_addr(obj, offset).cast::<f64>().read() }
             } else {
-                // SAFETY: a writable double member, including a C-API member
-                // without `Py_READONLY`, addresses an aligned atomic 64-bit
-                // cell holding the `f64` bits. The macro accepts only
-                // `DoubleCell` (`AtomicU64`).
-                let bits = unsafe {
-                    (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicU64>())
+                // SAFETY: a writable double member addresses an aligned
+                // `AtomicF64`. The macro accepts only `MemberCell`.
+                unsafe {
+                    (*member_addr(obj, offset).cast::<crate::common::atomic::AtomicF64>())
                         .load(core::sync::atomic::Ordering::Relaxed)
-                };
-                f64::from_bits(bits)
+                }
             };
             vm.ctx.new_float(raw).into()
         }
@@ -779,7 +789,7 @@ fn member_get_one(
                 unsafe { member_addr(obj, offset).cast::<isize>().read() }
             } else {
                 // SAFETY: a writable `Py_ssize_t` member addresses an aligned
-                // `AtomicIsize`. The macro accepts only `PySsizeCell`.
+                // `AtomicIsize`. The macro accepts only `MemberCell`.
                 unsafe {
                     (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicIsize>())
                         .load(core::sync::atomic::Ordering::Relaxed)
@@ -870,13 +880,11 @@ fn member_set_one(
                 return Err(vm.new_type_error("can't delete numeric/char attribute"));
             };
             let number = value.try_float(vm)?.to_f64();
-            // SAFETY: a writable double member, including a C-API member
-            // without `Py_READONLY`, addresses an aligned atomic 64-bit cell
-            // holding the `f64` bits. Readonly members are rejected before
-            // this call.
+            // SAFETY: a writable double member addresses an aligned `AtomicF64`.
+            // Readonly members are rejected before this call.
             unsafe {
-                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicU64>())
-                    .store(number.to_bits(), core::sync::atomic::Ordering::Relaxed);
+                (*member_addr(obj, offset).cast::<crate::common::atomic::AtomicF64>())
+                    .store(number, core::sync::atomic::Ordering::Relaxed);
             }
         }
         MemberKind::PySsizeT => {

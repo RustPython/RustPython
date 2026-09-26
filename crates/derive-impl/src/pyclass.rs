@@ -1819,14 +1819,22 @@ impl MemberItemMeta {
     fn member_kind(&self) -> Result<Option<String>> {
         let kind = self.inner()._optional_str("type")?;
         if let Some(value) = &kind {
+            let span = self
+                .inner()
+                .meta_map
+                .get("type")
+                .map_or_else(|| self.inner().meta_ident.span(), |(_, meta)| meta.span());
             match value.as_str() {
-                "object" | "object_ex" | "bool" | "double" | "int" | "uint" | "py_ssize_t" => {}
+                "object_ex" => {}
+                "object" | "bool" | "double" | "int" | "uint" | "py_ssize_t" => {
+                    return Err(syn::Error::new(
+                        span,
+                        format!(
+                            "member kind is inferred from the field type; remove `type = \"{value}\"`"
+                        ),
+                    ));
+                }
                 other => {
-                    let span = self
-                        .inner()
-                        .meta_map
-                        .get("type")
-                        .map_or_else(|| self.inner().meta_ident.span(), |(_, meta)| meta.span());
                     return Err(syn::Error::new(
                         span,
                         format!("unknown member type '{other}'"),
@@ -1984,15 +1992,45 @@ fn cfg_not_all(cfgs: &[Attribute]) -> TokenStream {
     quote!(#[cfg(not(all(#(#preds),*)))] )
 }
 
-fn member_kind_tokens(kind: Option<&str>, span: Span) -> Result<TokenStream> {
-    let name = match kind {
-        None | Some("object") => "Object",
-        Some("object_ex") => "ObjectEx",
-        Some("bool") => "Bool",
-        Some("double") => "Double",
-        Some("int") => "Int",
-        Some("uint") => "Uint",
-        Some("py_ssize_t") => "PySsizeT",
+fn member_kind_tokens(
+    kind: Option<&str>,
+    field_tokens: Option<&TokenStream>,
+    span: Span,
+) -> Result<TokenStream> {
+    let Some(field_tokens) = field_tokens else {
+        let name = match kind {
+            None => "Object",
+            Some("object_ex") => "ObjectEx",
+            Some(other) => {
+                return Err(syn::Error::new(
+                    span,
+                    format!("unknown member type '{other}'"),
+                ));
+            }
+        };
+        let ident = Ident::new(name, span);
+        return Ok(quote!(::rustpython_vm::builtins::descriptor::MemberKind::#ident));
+    };
+    let inferred = quote_spanned! { span =>
+        ::rustpython_vm::builtins::descriptor::member_kind_of(
+            |payload: &Self| &payload.#field_tokens,
+        )
+    };
+    let kind = match kind {
+        None => inferred,
+        Some("object_ex") => quote_spanned! { span =>
+            {
+                let inferred = #inferred;
+                ::core::assert!(
+                    matches!(
+                        inferred,
+                        ::rustpython_vm::builtins::descriptor::MemberKind::Object
+                    ),
+                    "`type = \"object_ex\"` requires an object field",
+                );
+                ::rustpython_vm::builtins::descriptor::MemberKind::ObjectEx
+            }
+        },
         Some(other) => {
             return Err(syn::Error::new(
                 span,
@@ -2000,24 +2038,14 @@ fn member_kind_tokens(kind: Option<&str>, span: Span) -> Result<TokenStream> {
             ));
         }
     };
-    let ident = Ident::new(name, span);
-    Ok(quote!(::rustpython_vm::builtins::descriptor::MemberKind::#ident))
+    Ok(kind)
 }
 
-fn member_layout_tokens(kind: Option<&str>, readonly: bool) -> TokenStream {
-    let name = match (kind, readonly) {
-        (Some("bool"), false) => "BoolCell",
-        (Some("bool"), true) => "BoolMember",
-        (Some("double"), false) => "DoubleCell",
-        (Some("double"), true) => "DoubleMember",
-        (Some("int"), false) => "IntCell",
-        (Some("int"), true) => "IntMember",
-        (Some("uint"), false) => "UintCell",
-        (Some("uint"), true) => "UintMember",
-        (Some("py_ssize_t"), false) => "PySsizeCell",
-        (Some("py_ssize_t"), true) => "PySsizeMember",
-        (_, false) => "ObjectCell",
-        (_, true) => "ObjectMember",
+fn member_layout_tokens(readonly: bool) -> TokenStream {
+    let name = if readonly {
+        "MemberLayout"
+    } else {
+        "MemberCell"
     };
     let ident = Ident::new(name, Span::call_site());
     quote!(::rustpython_vm::builtins::descriptor::#ident)
@@ -2097,7 +2125,7 @@ fn build_member(
             "#[pymember(path = ...)] is only valid on a field",
         ));
     }
-    let (offset, check) = if let Some((field, index)) = field {
+    let (offset, check, kind_tokens) = if let Some((field, index)) = field {
         let index_tokens = match &field.ident {
             Some(ident) => ident.to_token_stream(),
             None => syn::Index::from(index).into_token_stream(),
@@ -2111,7 +2139,7 @@ fn build_member(
             ::rustpython_vm::object::payload_offset::<Self>() as isize
                 + ::core::mem::offset_of!(Self, #field_tokens) as isize
         };
-        let layout = member_layout_tokens(kind.as_deref(), readonly);
+        let layout = member_layout_tokens(readonly);
         let check = quote_spanned! { attr.span() =>
             let _ = |payload: *const Self| {
                 fn assert_member_field<T: #layout>(_: *const T) {}
@@ -2121,7 +2149,8 @@ fn build_member(
                 assert_member_field(field);
             };
         };
-        (offset, check)
+        let kind_tokens = member_kind_tokens(kind.as_deref(), Some(&field_tokens), attr.span())?;
+        (offset, check, kind_tokens)
     } else {
         let Some(offset_expr) = offset_expr else {
             return Err(syn::Error::new(
@@ -2129,7 +2158,8 @@ fn build_member(
                 "#[pymember] on a struct requires `offset`",
             ));
         };
-        (offset_expr, quote!())
+        let kind_tokens = member_kind_tokens(kind.as_deref(), None, attr.span())?;
+        (offset_expr, quote!(), kind_tokens)
     };
     let doc = match meta.doc()? {
         // An explicit string is the docstring. The attribute-doc table is not
@@ -2141,7 +2171,7 @@ fn build_member(
     Ok(BuiltMember {
         name,
         cfgs: cfgs.to_vec(),
-        kind: member_kind_tokens(kind.as_deref(), attr.span())?,
+        kind: kind_tokens,
         offset,
         flags: member_flag_tokens(readonly, audit_read),
         doc,
