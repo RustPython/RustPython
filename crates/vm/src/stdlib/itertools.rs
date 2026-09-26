@@ -11,7 +11,7 @@ mod decl {
         class::PyClassDef,
         common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
         convert::ToPyObject,
-        function::{FuncArgs, OptionalArg, OptionalOption, PosArgs},
+        function::{FuncArgs, NameIterables, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         stdlib::sys,
@@ -34,7 +34,7 @@ mod decl {
         active: PyRwLock<Option<PyIter>>,
     }
 
-    #[pyclass(with(IterNext, Iterable), flags(BASETYPE, HAS_DICT))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE, HAS_DICT))]
     impl PyItertoolsChain {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -73,10 +73,18 @@ mod decl {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
+        }
+    }
+
+    impl Constructor for PyItertoolsChain {
+        type Args = PosArgs<PyObjectRef, NameIterables>;
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            Err(vm.new_type_error("use slot_new"))
         }
     }
 
@@ -138,6 +146,12 @@ mod decl {
     }
 
     #[derive(FromArgs)]
+    struct IterablePosArg {
+        #[pyarg(positional)]
+        iterable: PyIter,
+    }
+
+    #[derive(FromArgs)]
     struct CompressNewArgs {
         #[pyarg(any)]
         data: PyIter,
@@ -186,11 +200,11 @@ mod decl {
 
     #[derive(FromArgs)]
     struct CountNewArgs {
-        #[pyarg(any, optional)]
-        start: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = 0)]
+        start: PyObjectRef,
 
-        #[pyarg(any, optional)]
-        step: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = 1)]
+        step: PyObjectRef,
     }
 
     impl Constructor for PyItertoolsCount {
@@ -201,8 +215,6 @@ mod decl {
             Self::Args { start, step }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let start = start.into_option().unwrap_or_else(|| vm.new_pyobj(0));
-            let step = step.into_option().unwrap_or_else(|| vm.new_pyobj(1));
             if !PyNumber::check(&start) || !PyNumber::check(&step) {
                 return Err(vm.new_type_error("a number is required"));
             }
@@ -258,10 +270,11 @@ mod decl {
     }
 
     impl Constructor for PyItertoolsCycle {
-        type Args = PyIter;
+        type Args = IterablePosArg;
         const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
-        fn py_new(_cls: &Py<PyType>, iter: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            let iter = args.iterable;
             Ok(Self {
                 iter,
                 saved: PyRwLock::new(Vec::new()),
@@ -316,7 +329,7 @@ mod decl {
     struct PyRepeatNewArgs {
         object: PyObjectRef,
         #[pyarg(any, optional)]
-        times: OptionalArg<PyObjectRef>,
+        times: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsRepeat {
@@ -327,7 +340,7 @@ mod decl {
             Self::Args { object, times }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let times = match times.into_option() {
+            let times = match times {
                 Some(obj) => {
                     let int = obj.try_index(vm)?;
                     let val: isize = int.try_to_primitive(vm)?;
@@ -605,9 +618,10 @@ mod decl {
 
     #[derive(FromArgs)]
     struct GroupByArgs {
+        #[pyarg(any)]
         iterable: PyIter,
         #[pyarg(any, optional)]
-        key: OptionalOption<PyObjectRef>,
+        key: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsGroupBy {
@@ -620,7 +634,7 @@ mod decl {
         ) -> PyResult<Self> {
             Ok(Self {
                 iterable,
-                key_func: key.flatten(),
+                key_func: key,
                 state: PyMutex::new(GroupByState::default()),
             })
         }
@@ -898,7 +912,7 @@ mod decl {
     #[derive(FromArgs)]
     struct FilterFalseNewArgs {
         #[pyarg(positional)]
-        predicate: PyObjectRef,
+        function: PyObjectRef,
         #[pyarg(positional)]
         iterable: PyIter,
     }
@@ -909,14 +923,11 @@ mod decl {
 
         fn py_new(
             _cls: &Py<PyType>,
-            Self::Args {
-                predicate,
-                iterable,
-            }: Self::Args,
+            Self::Args { function, iterable }: Self::Args,
             _vm: &VirtualMachine,
         ) -> PyResult<Self> {
             Ok(Self {
-                predicate,
+                predicate: function,
                 iterable,
             })
         }
@@ -959,11 +970,12 @@ mod decl {
 
     #[derive(FromArgs)]
     struct AccumulateArgs {
+        #[pyarg(any)]
         iterable: PyIter,
         #[pyarg(any, optional)]
-        func: OptionalOption<PyObjectRef>,
+        func: Option<PyObjectRef>,
         #[pyarg(named, optional)]
-        initial: OptionalOption<PyObjectRef>,
+        initial: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsAccumulate {
@@ -972,8 +984,8 @@ mod decl {
         fn py_new(_cls: &Py<PyType>, args: AccumulateArgs, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
                 iterable: args.iterable,
-                bin_op: args.func.flatten(),
-                initial: args.initial.flatten(),
+                bin_op: args.func,
+                initial: args.initial,
                 acc_value: PyRwLock::new(None),
             })
         }
@@ -1071,9 +1083,10 @@ mod decl {
     }
 
     impl Constructor for PyItertoolsTee {
-        type Args = PyIter;
+        type Args = IterablePosArg;
 
-        fn py_new(_cls: &Py<PyType>, iterator: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let iterator = args.iterable;
             // An iterator that is already a tee shares its buffer rather than
             // getting one of its own.
             if let Some(tee) = iterator.as_object().downcast_ref::<Self>() {
@@ -1113,9 +1126,17 @@ mod decl {
         }
     }
 
+    #[derive(FromArgs)]
+    struct TeeArgs {
+        #[pyarg(positional)]
+        iterable: PyIter,
+        #[pyarg(positional, default = 2)]
+        n: isize,
+    }
+
     #[pyfunction]
-    fn tee(iterable: PyIter, n: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        let n = n.unwrap_or(2);
+    fn tee(args: TeeArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let TeeArgs { iterable, n } = args;
         if n < 0 {
             return Err(vm.new_value_error("n must be >= 0"));
         }
@@ -1170,19 +1191,19 @@ mod decl {
 
     #[derive(FromArgs)]
     struct ProductArgs {
-        #[pyarg(named, optional)]
-        repeat: OptionalArg<isize>,
+        #[pyarg(named, default = 1)]
+        repeat: isize,
     }
 
     impl Constructor for PyItertoolsProduct {
-        type Args = (PosArgs<PyObjectRef>, ProductArgs);
+        type Args = (PosArgs<PyObjectRef, NameIterables>, ProductArgs);
 
         fn py_new(
             _cls: &Py<PyType>,
             (iterables, args): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let repeat = args.repeat.unwrap_or(1);
+            let repeat = args.repeat;
             if repeat < 0 {
                 return Err(vm.new_value_error("repeat argument cannot be negative"));
             }
@@ -1525,10 +1546,10 @@ mod decl {
 
     #[derive(FromArgs)]
     struct PermutationsNewArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         iterable: PyObjectRef,
-        #[pyarg(positional, optional)]
-        r: OptionalOption<PyObjectRef>,
+        #[pyarg(any, optional)]
+        r: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsPermutations {
@@ -1544,7 +1565,7 @@ mod decl {
             let n = pool.len();
             // If r is not provided, r == n. If provided, r must be a positive integer, or None.
             // If None, it behaves the same as if it was not provided.
-            let r = match r.flatten() {
+            let r = match r {
                 Some(r) => {
                     let val = r
                         .downcast_ref::<PyInt>()
@@ -1651,18 +1672,18 @@ mod decl {
     #[derive(FromArgs)]
     struct ZipLongestArgs {
         #[pyarg(named, optional)]
-        fillvalue: OptionalArg<PyObjectRef>,
+        fillvalue: Option<PyObjectRef>,
     }
 
     impl Constructor for PyItertoolsZipLongest {
-        type Args = (PosArgs<PyIter>, ZipLongestArgs);
+        type Args = (PosArgs<PyIter, NameIterables>, ZipLongestArgs);
 
         fn py_new(
             _cls: &Py<PyType>,
             (iterators, args): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let fillvalue = args.fillvalue.unwrap_or_none(vm);
+            let fillvalue = args.fillvalue.unwrap_or_else(|| vm.ctx.none());
             let iterators = iterators.into_vec();
             Ok(Self {
                 iterators,
@@ -1718,9 +1739,10 @@ mod decl {
     }
 
     impl Constructor for PyItertoolsPairwise {
-        type Args = PyIter;
+        type Args = IterablePosArg;
 
-        fn py_new(_cls: &Py<PyType>, iterator: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            let iterator = args.iterable;
             Ok(Self {
                 iterator,
                 old: PyRwLock::new(None),
@@ -1773,9 +1795,9 @@ mod decl {
 
     #[derive(FromArgs)]
     struct BatchedNewArgs {
-        #[pyarg(positional)]
-        iterable_ref: PyObjectRef,
-        #[pyarg(positional)]
+        #[pyarg(any)]
+        iterable: PyObjectRef,
+        #[pyarg(any)]
         n: PyIntRef,
         #[pyarg(named, default = false)]
         strict: bool,
@@ -1787,7 +1809,7 @@ mod decl {
         fn py_new(
             _cls: &Py<PyType>,
             Self::Args {
-                iterable_ref,
+                iterable,
                 n,
                 strict,
             }: Self::Args,
@@ -1800,7 +1822,7 @@ mod decl {
             let n = n
                 .to_usize()
                 .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to usize"))?;
-            let iterable = PyIter::try_from_object(vm, iterable_ref)?;
+            let iterable = PyIter::try_from_object(vm, iterable)?;
 
             Ok(Self {
                 iterable,

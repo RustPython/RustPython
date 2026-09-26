@@ -7,9 +7,86 @@ mod _blake2 {
     use crate::hashlib::_hashlib::{Blake2Hash, BlakeHashArgs, local_blake2b, local_blake2s};
     use crate::vm::{
         Context, Py, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBytes, PyIntRef, PyModule, PyTypeRef},
+        builtins::{PyBytes, PyIntRef, PyModule, PyType, PyTypeRef},
         function::{ArgBytesLike, FuncArgs},
+        types::Constructor,
     };
+
+    macro_rules! blake_sig {
+        ($name:ident, $digest:literal) => {
+            #[derive(FromArgs)]
+            struct $name {
+                #[pyarg(any, default = b"")]
+                data: ArgBytesLike,
+                #[pyarg(named, default = $digest)]
+                digest_size: i64,
+                #[pyarg(named, default = b"")]
+                key: ArgBytesLike,
+                #[pyarg(named, default = b"")]
+                salt: ArgBytesLike,
+                #[pyarg(named, default = b"")]
+                person: ArgBytesLike,
+                #[pyarg(named, default = 1)]
+                fanout: i64,
+                #[pyarg(named, default = 1)]
+                depth: i64,
+                #[pyarg(named, default = 0)]
+                leaf_size: i64,
+                #[pyarg(named, default = 0)]
+                node_offset: i64,
+                #[pyarg(named, default = 0)]
+                node_depth: i64,
+                #[pyarg(named, default = 0)]
+                inner_size: i64,
+                #[pyarg(named, default = false)]
+                last_node: bool,
+                #[pyarg(named, default = true)]
+                usedforsecurity: bool,
+                #[pyarg(named, optional)]
+                string: Option<ArgBytesLike>,
+            }
+
+            impl $name {
+                fn touch(self) {
+                    let Self {
+                        data,
+                        digest_size,
+                        key,
+                        salt,
+                        person,
+                        fanout,
+                        depth,
+                        leaf_size,
+                        node_offset,
+                        node_depth,
+                        inner_size,
+                        last_node,
+                        usedforsecurity,
+                        string,
+                    } = self;
+                    let _ = (
+                        data,
+                        digest_size,
+                        key,
+                        salt,
+                        person,
+                        fanout,
+                        depth,
+                        leaf_size,
+                        node_offset,
+                        node_depth,
+                        inner_size,
+                        last_node,
+                        usedforsecurity,
+                        string,
+                    );
+                }
+            }
+        };
+    }
+
+    blake_sig!(Blake2bSig, 64);
+    blake_sig!(Blake2sSig, 32);
 
     #[pyattr(name = "_GIL_MINSIZE")]
     const GIL_MINSIZE: u16 = 2048;
@@ -51,7 +128,7 @@ mod _blake2 {
         }
     }
 
-    #[pyclass(flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
     impl PyBlake2b {
         #[pyattr(name = "SALT_SIZE")]
         fn salt_size(ctx: &Context) -> PyIntRef {
@@ -124,13 +201,31 @@ mod _blake2 {
         inner: Blake2Hash,
     }
 
+    impl Constructor for PyBlake2b {
+        type Args = Blake2bSig;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            args.touch();
+            Err(vm.new_type_error("use slot_new"))
+        }
+    }
+
+    impl Constructor for PyBlake2s {
+        type Args = Blake2sSig;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            args.touch();
+            Err(vm.new_type_error("use slot_new"))
+        }
+    }
+
     impl core::fmt::Debug for PyBlake2s {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.write_str("blake2s")
         }
     }
 
-    #[pyclass(flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor), flags(IMMUTABLETYPE))]
     impl PyBlake2s {
         #[pyattr(name = "SALT_SIZE")]
         fn salt_size(ctx: &Context) -> PyIntRef {

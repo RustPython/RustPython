@@ -131,7 +131,13 @@ impl PyCPointerType {
             && value.is_instance(type_ref.as_object(), vm)?
         {
             // Return byref(value)
-            return super::_ctypes::byref(value, crate::function::OptionalArg::Missing, vm);
+            return super::_ctypes::byref(
+                super::_ctypes::ByRefArgs {
+                    obj: value,
+                    offset: 0,
+                },
+                vm,
+            );
         }
 
         // 4. Array/Pointer instances with compatible proto

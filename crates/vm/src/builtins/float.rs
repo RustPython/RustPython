@@ -8,9 +8,7 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     common::{float_ops, format::FormatSpec, hash, wtf8::Wtf8Buf},
     convert::{IntoPyException, ToPyObject, ToPyResult},
-    function::{
-        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue,
-    },
+    function::{ArgBytesLike, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
@@ -172,8 +170,15 @@ pub(crate) fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+#[derive(FromArgs)]
+pub struct FloatArgs {
+    // Missing is 0.0 without parsing. Subclass init builds Missing itself.
+    #[pyarg(positional, default, py_default = "0")]
+    x: OptionalArg<PyObjectRef>,
+}
+
 impl Constructor for PyFloat {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = FloatArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let float_type = vm.ctx.types.float_type;
@@ -189,17 +194,22 @@ impl Constructor for PyFloat {
             args.bind_for(vm, Self::NAME)?
         } else {
             match args.args.as_slice() {
-                [] => OptionalArg::Missing,
-                [value] => OptionalArg::Present(value.clone()),
+                [] => Self::Args {
+                    x: OptionalArg::Missing,
+                },
+                [value] => Self::Args {
+                    x: OptionalArg::Present(value.clone()),
+                },
                 slice => {
                     return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
                 }
             }
         };
+        let arg_value = &arg.x;
 
         // Optimization: return exact float as-is
         if cls.is(vm.ctx.types.float_type)
-            && let OptionalArg::Present(first) = &arg
+            && let OptionalArg::Present(first) = arg_value
             && first.class().is(vm.ctx.types.float_type)
         {
             return Ok(first.clone());
@@ -210,7 +220,7 @@ impl Constructor for PyFloat {
     }
 
     fn py_new(_cls: &Py<PyType>, arg: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        let float_val = match arg {
+        let float_val = match arg.x {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
                 if let Some(f) = val.try_float_opt(vm) {
@@ -252,6 +262,12 @@ pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
     })
 }
 
+#[derive(FromArgs)]
+struct RoundArgs {
+    #[pyarg(positional, optional)]
+    ndigits: Option<PyIntRef>,
+}
+
 #[expect(
     clippy::trivially_copy_pass_by_ref,
     reason = "Needs to comply with a signature"
@@ -285,8 +301,8 @@ impl PyFloat {
     }
 
     #[pystaticmethod]
-    fn __getformat__(spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
-        if !matches!(spec.as_str(), "double" | "float") {
+    fn __getformat__(typestr: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
+        if !matches!(typestr.as_str(), "double" | "float") {
             return Err(
                 vm.new_value_error("__getformat__() argument 1 must be 'double' or 'float'")
             );
@@ -318,8 +334,8 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn __round__(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
-        let ndigits = ndigits.flatten();
+    fn __round__(&self, args: RoundArgs, vm: &VirtualMachine) -> PyResult {
+        let ndigits = args.ndigits;
         let value = if let Some(ndigits) = ndigits {
             let ndigits = ndigits.as_bigint();
             let ndigits = match ndigits.to_i32() {

@@ -7,7 +7,7 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     convert::ToPyObject,
-    function::{OptionalArg, PyComparisonValue},
+    function::PyComparisonValue,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use itertools::Itertools;
@@ -79,12 +79,8 @@ impl Constructor for PyInterpolation {
             vm.ctx.none()
         };
 
-        let expression = args
-            .expression
-            .unwrap_or_else(|| vm.ctx.empty_str.to_owned());
-        let format_spec = args
-            .format_spec
-            .unwrap_or_else(|| vm.ctx.empty_str.to_owned());
+        let expression = args.expression;
+        let format_spec = args.format_spec;
 
         Ok(Self {
             value: args.value,
@@ -99,16 +95,16 @@ impl Constructor for PyInterpolation {
 pub struct InterpolationArgs {
     #[pyarg(positional)]
     value: PyObjectRef,
-    #[pyarg(any, optional)]
-    expression: OptionalArg<PyStrRef>,
+    #[pyarg(any, default = "")]
+    expression: PyStrRef,
     #[pyarg(
         any,
         optional,
         error_msg = "Interpolation() argument 'conversion' must be str or None"
     )]
     conversion: Option<PyStrRef>,
-    #[pyarg(any, optional)]
-    format_spec: OptionalArg<PyStrRef>,
+    #[pyarg(any, default = "")]
+    format_spec: PyStrRef,
 }
 
 #[pyclass(with(Constructor, Comparable, Hashable, Representable))]

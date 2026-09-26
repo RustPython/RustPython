@@ -588,12 +588,17 @@ pub(crate) mod _ctypes {
         }
     }
 
+    #[derive(FromArgs)]
+    pub(crate) struct ByRefArgs {
+        #[pyarg(positional)]
+        pub(crate) obj: PyObjectRef,
+        #[pyarg(positional, default = 0)]
+        pub(crate) offset: isize,
+    }
+
     #[pyfunction]
-    pub(crate) fn byref(
-        obj: PyObjectRef,
-        offset: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    pub(crate) fn byref(args: ByRefArgs, vm: &VirtualMachine) -> PyResult {
+        let ByRefArgs { obj, offset } = args;
         use super::CArgValue;
 
         // Check if obj is a ctypes instance
@@ -606,7 +611,7 @@ pub(crate) mod _ctypes {
             )));
         }
 
-        let offset_val = offset.unwrap_or(0);
+        let offset_val = offset;
 
         // Get buffer address: (char *)((CDataObject *)obj)->b_ptr + offset
         let ptr_val = if let Some(simple) = obj.downcast_ref::<PyCSimple>() {
@@ -632,10 +637,10 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction]
-    fn alignment(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
+    fn alignment(object: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
         use crate::builtins::PyType;
 
-        let obj = match &tp {
+        let obj = match &object {
             Either::A(t) => t.as_object(),
             Either::B(o) => o.as_ref(),
         };
@@ -679,7 +684,7 @@ pub(crate) mod _ctypes {
         }
 
         // Get the type object to check
-        let type_obj: PyObjectRef = match &tp {
+        let type_obj: PyObjectRef = match &object {
             Either::A(t) => t.clone().into(),
             Either::B(obj) => obj.class().to_owned().into(),
         };
@@ -722,7 +727,7 @@ pub(crate) mod _ctypes {
         }
 
         // For instances, delegate to their class
-        if let Either::B(obj) = &tp
+        if let Either::B(obj) = &object
             && !obj.class().is(vm.ctx.types.type_type.as_ref())
         {
             return alignment(Either::A(obj.class().to_owned()), vm);
@@ -847,13 +852,15 @@ pub(crate) mod _ctypes {
     /// - ndim: number of dimensions
     /// - shape: tuple of dimension sizes
     #[pyfunction]
-    fn buffer_info(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // Determine if obj is a type or an instance
-        let is_type = obj.class().fast_issubclass(vm.ctx.types.type_type.as_ref());
+    fn buffer_info(object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // Determine if object is a type or an instance
+        let is_type = object
+            .class()
+            .fast_issubclass(vm.ctx.types.type_type.as_ref());
         let cls = if is_type {
-            obj
+            object
         } else {
-            obj.class().to_owned().into()
+            object.class().to_owned().into()
         };
 
         // Get format from type - try _type_ first (for simple types), then _stg_info_format_
@@ -963,15 +970,15 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction(name = "Py_INCREF")]
-    fn py_incref(obj: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
+    fn py_incref(object: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
         // TODO:
-        obj
+        object
     }
 
     #[pyfunction(name = "Py_DECREF")]
-    fn py_decref(obj: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
+    fn py_decref(object: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
         // TODO:
-        obj
+        object
     }
 
     #[cfg(target_os = "macos")]

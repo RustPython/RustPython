@@ -3858,9 +3858,6 @@ dependencies = [
 [[package]]
 name = "rustpython-doc"
 version = "0.6.0"
-dependencies = [
- "phf 0.14.0",
-]
 
 [[package]]
 name = "rustpython-host_env"
@@ -4143,6 +4140,7 @@ dependencies = [
  "rustpython-compiler",
  "rustpython-compiler-core",
  "rustpython-derive",
+ "rustpython-doc",
  "rustpython-host_env",
  "rustpython-jit",
  "rustpython-literal",

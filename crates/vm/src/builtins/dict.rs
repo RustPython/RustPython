@@ -370,10 +370,18 @@ impl PyDict {
 }
 
 #[derive(FromArgs)]
+struct DictGetArgs {
+    #[pyarg(positional)]
+    key: PyObjectRef,
+    #[pyarg(positional, optional)]
+    default: Option<PyObjectRef>,
+}
+
+#[derive(FromArgs)]
 struct FromKeysArgs {
     #[pyarg(positional)]
     iterable: ArgIterable,
-    #[pyarg(positional, default = None)]
+    #[pyarg(positional, optional)]
     value: Option<PyObjectRef>,
 }
 
@@ -451,27 +459,26 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn get(
-        &self,
-        key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn get(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
         Ok(self
             .entries
-            .get(vm, &*key)?
-            .unwrap_or_else(|| default.unwrap_or_none(vm)))
+            .get(vm, &*args.key)?
+            .unwrap_or_else(|| args.default.unwrap_or_else(|| vm.ctx.none())))
     }
 
-    #[pymethod]
     pub(crate) fn setdefault(
         &self,
         key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
+        default: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        self.entries
-            .setdefault(vm, &*key, || default.unwrap_or_none(vm))
+        self.entries.setdefault(vm, &*key, || default)
+    }
+
+    #[pymethod(name = "setdefault")]
+    fn setdefault_py(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
+        let default = args.default.unwrap_or_else(|| vm.ctx.none());
+        self.setdefault(args.key, default, vm)
     }
 
     #[pymethod]
@@ -537,10 +544,10 @@ impl PyDict {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
@@ -1559,10 +1566,10 @@ trait ViewSetOps: DictView {
     }
 
     #[pymethod]
-    fn isdisjoint(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+    fn isdisjoint(zelf: PyRef<Self>, object: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
         // TODO: to_set is an expensive operation. After merging #3316 rewrite implementation using PySequence_Contains.
         let zelf = Self::to_set(zelf, vm)?;
-        let result = zelf.isdisjoint(other, vm)?;
+        let result = zelf.isdisjoint(object, vm)?;
         Ok(result)
     }
 }

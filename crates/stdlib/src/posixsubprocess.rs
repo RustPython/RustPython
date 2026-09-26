@@ -40,13 +40,13 @@ mod _posixsubprocess {
         }
 
         let extra_groups = args
-            .groups_list
+            .extra_groups
             .as_ref()
             .map(|l| Vec::<RawGid>::try_from_borrowed_object(vm, l.as_object()))
             .map(|res| res.map(|groups| groups.into_iter().map(|gid| gid.0).collect::<Vec<_>>()))
             .transpose()?;
         let argv = args.args.iter().collect::<CharPtrVec<'_>>();
-        let envp = args.env_list.as_ref().map(CharPtrVec::from_iter);
+        let envp = args.env.as_ref().map(CharPtrVec::from_iter);
         let procargs = ProcArgs {
             argv: &argv,
             envp: envp.as_deref(),
@@ -239,11 +239,11 @@ impl TryFromObject for RawGid {
 
 gen_args! {
     args: ArgSequence<CStrPathLike> /* list */,
-    exec_list: ArgSequence<CStrPathLike> /* list */,
+    executable_list: ArgSequence<CStrPathLike> /* list */,
     close_fds: bool,
-    fds_to_keep: ArgSequence<BorrowedFd<'fd>>,
+    pass_fds: ArgSequence<BorrowedFd<'fd>>,
     cwd: Option<CStrPathLike>,
-    env_list: Option<ArgSequence<CStrPathLike>>,
+    env: Option<ArgSequence<CStrPathLike>>,
     p2cread: MaybeFd,
     p2cwrite: MaybeFd,
     c2pread: MaybeFd,
@@ -256,7 +256,7 @@ gen_args! {
     call_setsid: bool,
     pgid_to_set: host_posix::pid_t,
     gid: Option<RawGid>,
-    groups_list: Option<PyListRef>,
+    extra_groups: Option<PyListRef>,
     uid: Option<RawUid>,
     child_umask: i32,
     preexec_fn: Option<PyObjectRef>,
@@ -313,7 +313,7 @@ fn exec_inner(
     vm: &VirtualMachine,
 ) -> std::io::Result<Never> {
     host_posix::setup_child_fds(
-        args.fds_to_keep.as_slice(),
+        args.pass_fds.as_slice(),
         args.errpipe_write.as_fd(),
         args.p2cread.as_raw_fd(),
         args.p2cwrite.as_raw_fd(),
@@ -355,11 +355,11 @@ fn exec_inner(
     *ctx = ExecErrorContext::Exec;
 
     if args.close_fds {
-        host_posix::close_fds(2, args.fds_to_keep.as_slice());
+        host_posix::close_fds(2, args.pass_fds.as_slice());
     }
 
     let err = host_posix::exec_replace(
-        args.exec_list.as_slice(),
+        args.executable_list.as_slice(),
         procargs.argv.as_ptr(),
         procargs.envp.map(CharPtrSlice::as_ptr),
     );

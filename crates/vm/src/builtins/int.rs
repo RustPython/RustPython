@@ -13,8 +13,7 @@ use crate::{
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
-        PyComparisonValue,
+        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err, numeric_literal_from_str},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -402,6 +401,12 @@ impl PyInt {
     }
 }
 
+#[derive(FromArgs)]
+struct RoundArgs {
+    #[pyarg(positional, optional)]
+    ndigits: Option<PyIntRef>,
+}
+
 #[pyclass(
     itemsize = 4,
     flags(BASETYPE, _MATCH_SELF),
@@ -465,12 +470,8 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn __round__(
-        zelf: PyRef<Self>,
-        ndigits: OptionalOption<PyIntRef>,
-        vm: &VirtualMachine,
-    ) -> PyRef<Self> {
-        if let Some(ndigits) = ndigits.flatten() {
+    fn __round__(zelf: PyRef<Self>, args: RoundArgs, vm: &VirtualMachine) -> PyRef<Self> {
+        if let Some(ndigits) = args.ndigits {
             let ndigits = ndigits.as_bigint();
             // round(12345, -2) == 12300
             // If precision >= 0, then any integer is already rounded correctly
@@ -575,7 +576,7 @@ impl PyInt {
         args: IntFromByteArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let signed = args.signed.map_or(false, Into::into);
+        let signed = args.signed.into();
         // PyObject_Bytes, so an iterable of ints is as good as a buffer
         let bytes = bytes_from_object(vm, &args.bytes)?;
         let value = match (args.byteorder, signed) {
@@ -801,9 +802,11 @@ impl PyInt {
 
 #[derive(FromArgs)]
 pub(crate) struct IntOptions {
-    #[pyarg(positional, optional)]
+    // Missing means 0. None is not an int.
+    #[pyarg(positional, optional, py_default = "0")]
     val_options: OptionalArg<PyObjectRef>,
-    #[pyarg(any, optional)]
+    // Missing means no base was passed. The shown default is 10.
+    #[pyarg(any, optional, py_default = "10")]
     base: OptionalArg<PyObjectRef>,
 }
 
@@ -812,19 +815,17 @@ struct IntFromByteArgs {
     bytes: PyObjectRef,
     #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
-    #[pyarg(named, optional)]
-    signed: OptionalArg<ArgIntoBool>,
+    #[pyarg(named, default = ArgIntoBool::FALSE)]
+    signed: ArgIntoBool,
 }
 
 #[derive(FromArgs)]
 struct IntToByteArgs {
     #[pyarg(any, default = 1)]
     length: usize,
-    // ArgByteOrder::Big is not the text 'big'.
-    #[pyarg(any, default = ArgByteOrder::Big, py_default = "'big'")]
+    #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
-    // Any object is accepted by truthiness, so the Rust default is not a literal.
-    #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+    #[pyarg(named, default = ArgIntoBool::FALSE)]
     signed: ArgIntoBool,
 }
 

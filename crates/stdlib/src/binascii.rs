@@ -62,10 +62,23 @@ mod decl {
             .map_err(|e| new_binascii_error(e, vm))
     }
 
-    #[pyfunction]
-    pub(crate) fn crc32(data: ArgBytesLike, crc: OptionalArg<PyIntRef>) -> u32 {
-        let crc = crc.map_or(0, |i| i.as_u32_mask());
+    #[derive(FromArgs)]
+    struct Crc32Args {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(positional, default = 0)]
+        crc: PyIntRef,
+    }
+
+    pub(crate) fn crc32(data: ArgBytesLike, crc: PyIntRef) -> u32 {
+        let crc = crc.as_u32_mask();
         data.with_ref(|bytes| binascii::crc32(bytes, crc))
+    }
+
+    #[pyfunction(name = "crc32")]
+    fn crc32_py(args: Crc32Args) -> u32 {
+        let Crc32Args { data, crc } = args;
+        crc32(data, crc)
     }
 
     #[pyfunction]
@@ -81,16 +94,16 @@ mod decl {
 
     #[derive(FromArgs)]
     struct A2bBase64Args {
-        #[pyarg(any)]
-        s: ArgAsciiBuffer,
+        #[pyarg(positional)]
+        data: ArgAsciiBuffer,
         #[pyarg(named, default = false)]
         strict_mode: bool,
     }
 
     #[pyfunction]
     fn a2b_base64(args: A2bBase64Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let A2bBase64Args { s, strict_mode } = args;
-        s.with_ref(|b| binascii::a2b_base64(b, strict_mode))
+        let A2bBase64Args { data, strict_mode } = args;
+        data.with_ref(|b| binascii::a2b_base64(b, strict_mode))
             .map_err(|e| new_binascii_error(e, vm))
     }
 
@@ -103,7 +116,7 @@ mod decl {
     struct A2bQpArgs {
         #[pyarg(any)]
         data: ArgAsciiBuffer,
-        #[pyarg(named, default = false)]
+        #[pyarg(any, default = false)]
         header: bool,
     }
 
@@ -117,11 +130,11 @@ mod decl {
     struct B2aQpArgs {
         #[pyarg(any)]
         data: ArgBytesLike,
-        #[pyarg(named, default = false)]
+        #[pyarg(any, default = false)]
         quotetabs: bool,
-        #[pyarg(named, default = true)]
+        #[pyarg(any, default = true)]
         istext: bool,
-        #[pyarg(named, default = false)]
+        #[pyarg(any, default = false)]
         header: bool,
     }
 

@@ -5,7 +5,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyResult,
-    function::{Callee, Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
+    function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
     types::{Constructor, Initializer, PyComparisonOp},
 };
 use itertools::Itertools;
@@ -294,9 +294,8 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 
 #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
 impl PyBaseObject {
-    #[pymethod(raw)]
-    fn __getstate__(vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
-        let (zelf,): (PyObjectRef,) = args.bind_for(vm, callee)?;
+    #[pymethod]
+    fn __getstate__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         object_getstate_default(&zelf, false, vm)
     }
 
@@ -389,7 +388,7 @@ impl PyBaseObject {
     }
 
     #[pyclassmethod]
-    fn __subclasshook__(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+    fn __subclasshook__(_cls: PyTypeRef, _object: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }
 

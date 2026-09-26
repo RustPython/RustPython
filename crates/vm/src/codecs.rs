@@ -168,15 +168,25 @@ impl CodecsRegistry {
         }
 
         let methods = METHODS.get_or_init(|| {
-            crate::define_methods![
-                "strict_errors" => strict_errors as EMPTY,
-                "ignore_errors" => ignore_errors as EMPTY,
-                "replace_errors" => replace_errors as EMPTY,
-                "xmlcharrefreplace_errors" => xmlcharrefreplace_errors as EMPTY,
-                "backslashreplace_errors" => backslashreplace_errors as EMPTY,
-                "namereplace_errors" => namereplace_errors as EMPTY,
-                "surrogatepass_errors" => surrogatepass_errors as EMPTY,
-                "surrogateescape_errors" => surrogateescape_errors as EMPTY
+            macro_rules! error_handler {
+                ($name:literal, $func:ident) => {
+                    crate::function::PyMethodDef {
+                        name: $name,
+                        func: crate::function::static_func($func),
+                        flags: crate::function::PyMethodFlags::O,
+                        doc: Some(concat!($name, "($self, object, /)\n--\n\n")),
+                    }
+                };
+            }
+            vec![
+                error_handler!("strict_errors", strict_errors),
+                error_handler!("ignore_errors", ignore_errors),
+                error_handler!("replace_errors", replace_errors),
+                error_handler!("xmlcharrefreplace_errors", xmlcharrefreplace_errors),
+                error_handler!("backslashreplace_errors", backslashreplace_errors),
+                error_handler!("namereplace_errors", namereplace_errors),
+                error_handler!("surrogatepass_errors", surrogatepass_errors),
+                error_handler!("surrogateescape_errors", surrogateescape_errors),
             ]
             .into_boxed_slice()
         });

@@ -211,16 +211,32 @@ mod _sre {
         }
     }
 
-    #[pyfunction]
-    fn compile(
+    #[derive(FromArgs)]
+    struct CompileArgs {
+        #[pyarg(any)]
         pattern: PyObjectRef,
+        #[pyarg(any)]
         flags: u16,
+        #[pyarg(any)]
         code: PyObjectRef,
+        #[pyarg(any)]
         groups: usize,
+        #[pyarg(any)]
         groupindex: PyDictRef,
+        #[pyarg(any)]
         indexgroup: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<Pattern> {
+    }
+
+    #[pyfunction]
+    fn compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<Pattern> {
+        let CompileArgs {
+            pattern,
+            flags,
+            code,
+            groups,
+            groupindex,
+            indexgroup,
+        } = args;
         // FIXME:
         // pattern could only be None if called by re.Scanner
         // re.Scanner has no official API and in CPython's implement
@@ -290,11 +306,31 @@ mod _sre {
     }
 
     #[derive(FromArgs)]
+    struct GroupArg {
+        #[pyarg(positional, default = 0)]
+        group: PyObjectRef,
+    }
+
+    #[derive(FromArgs)]
+    struct ExpandArgs {
+        #[pyarg(any)]
+        template: PyObjectRef,
+    }
+
+    #[derive(FromArgs)]
+    struct DefaultArg {
+        // Missing default is None.
+        #[pyarg(any, optional, py_default = "None")]
+        default: OptionalArg<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
     struct StringArgs {
         string: PyObjectRef,
         #[pyarg(any, default = 0)]
         pos: usize,
-        #[pyarg(any, default = sys::MAXSIZE as usize)]
+        // Platform ssize maximum, shown as sys.maxsize.
+        #[pyarg(any, default = sys::MAXSIZE as usize, py_default = "sys.maxsize")]
         endpos: usize,
     }
 
@@ -471,7 +507,13 @@ mod _sre {
                         m.get_slice(zelf.groups, s, vm)
                             .unwrap_or_else(|| empty.clone())
                     } else {
-                        m.groups(OptionalArg::Present(empty.clone()), vm)?.into()
+                        m.groups(
+                            DefaultArg {
+                                default: OptionalArg::Present(empty.clone()),
+                            },
+                            vm,
+                        )?
+                        .into()
                     };
 
                     match_list.push(item);
@@ -674,10 +716,10 @@ mod _sre {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 
@@ -847,30 +889,30 @@ mod _sre {
         }
 
         #[pymethod]
-        fn start(&self, group: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<isize> {
-            self.span(group, vm).map(|x| x.0)
+        fn start(&self, args: GroupArg, vm: &VirtualMachine) -> PyResult<isize> {
+            self.span(args, vm).map(|x| x.0)
         }
 
         #[pymethod]
-        fn end(&self, group: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<isize> {
-            self.span(group, vm).map(|x| x.1)
+        fn end(&self, args: GroupArg, vm: &VirtualMachine) -> PyResult<isize> {
+            self.span(args, vm).map(|x| x.1)
         }
 
         #[pymethod]
-        fn span(
-            &self,
-            group: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<(isize, isize)> {
-            let index = group.map_or(Ok(0), |group| {
-                self.get_index(&group, vm)
-                    .ok_or_else(|| vm.new_index_error("no such group"))
-            })?;
+        fn span(&self, args: GroupArg, vm: &VirtualMachine) -> PyResult<(isize, isize)> {
+            let GroupArg { group } = args;
+            let index = self
+                .get_index(&group, vm)
+                .ok_or_else(|| vm.new_index_error("no such group"))?;
             Ok(self.regs[index])
         }
 
         #[pymethod]
-        fn expand(zelf: PyRef<Self>, template: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn expand(
+            zelf: PyRef<Self>,
+            ExpandArgs { template }: ExpandArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult {
             let template = Template::compile(zelf.pattern.clone(), template, vm)?;
             with_sre_str!(zelf.pattern, &zelf.string, vm, |s| {
                 let mut list: Vec<PyObjectRef> = Vec::new();
@@ -925,12 +967,8 @@ mod _sre {
         }
 
         #[pymethod]
-        fn groups(
-            &self,
-            default: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyTupleRef> {
-            let default = default.unwrap_or_else(|| vm.ctx.none());
+        fn groups(&self, args: DefaultArg, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            let default = args.default.unwrap_or_else(|| vm.ctx.none());
 
             with_sre_str!(self.pattern, &self.string, vm, |str_drive| {
                 let v: Vec<PyObjectRef> = (1..self.regs.len())
@@ -944,12 +982,8 @@ mod _sre {
         }
 
         #[pymethod]
-        fn groupdict(
-            &self,
-            default: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyDictRef> {
-            let default = default.unwrap_or_else(|| vm.ctx.none());
+        fn groupdict(&self, args: DefaultArg, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+            let default = args.default.unwrap_or_else(|| vm.ctx.none());
 
             with_sre_str!(self.pattern, &self.string, vm, |str_drive| {
                 let dict = vm.ctx.new_dict();
@@ -1020,10 +1054,10 @@ mod _sre {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 

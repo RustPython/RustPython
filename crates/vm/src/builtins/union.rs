@@ -167,21 +167,21 @@ impl PyUnion {
     }
 
     #[pymethod]
-    fn __mro_entries__(zelf: PyRef<Self>, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __mro_entries__(zelf: PyRef<Self>, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error(format!("Cannot subclass {}", zelf.repr(vm)?)))
     }
 
     #[pyclassmethod]
     fn __class_getitem__(
         _cls: crate::builtins::PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
         // Convert args to tuple if not already
-        let args_tuple = if let Some(tuple) = args.downcast_ref::<PyTuple>() {
+        let args_tuple = if let Some(tuple) = object.downcast_ref::<PyTuple>() {
             tuple.to_owned()
         } else {
-            PyTuple::new_ref(vec![args], &vm.ctx)
+            PyTuple::new_ref(vec![object], &vm.ctx)
         };
 
         // Check for empty union

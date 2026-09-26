@@ -7,7 +7,7 @@ mod _operator {
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
         class::PyClassDef,
         common::wtf8::{Wtf8, Wtf8Buf},
-        function::{ArgBytesLike, Either, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, Either, FuncArgs},
         protocol::PyIter,
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp, Representable},
@@ -219,19 +219,28 @@ mod _operator {
         a.set_item(&*b, c, vm)
     }
 
+    #[derive(FromArgs)]
+    struct LengthHintArgs {
+        #[pyarg(positional)]
+        obj: PyObjectRef,
+        // The value is checked as an exact int.
+        #[pyarg(positional, default = 0)]
+        default: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult<usize> {
+    fn length_hint(args: LengthHintArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        let LengthHintArgs { obj, default } = args;
+        if !default.fast_isinstance(vm.ctx.types.int_type) {
+            return Err(vm.new_type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                default.class().name()
+            )));
+        }
         let default: usize = default
-            .map(|v| {
-                if !v.fast_isinstance(vm.ctx.types.int_type) {
-                    return Err(vm.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer",
-                        v.class().name()
-                    )));
-                }
-                v.downcast_ref::<PyInt>().unwrap().try_to_primitive(vm)
-            })
-            .unwrap_or(Ok(0))?;
+            .downcast_ref::<PyInt>()
+            .unwrap()
+            .try_to_primitive(vm)?;
         obj.length_hint(default, vm)
     }
 

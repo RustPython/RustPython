@@ -16,7 +16,7 @@ mod _ssl {
             PyUtf8StrRef,
         },
         common::lock::{PyMutex, PyRwLock},
-        function::{ArgBytesLike, OptionalArg, OptionalOption},
+        function::{ArgBytesLike, OptionalArg},
         stdlib::_warnings,
         types::Constructor,
     };
@@ -252,9 +252,9 @@ mod _ssl {
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PyMemoryBIO {
         #[pymethod]
-        fn read(&self, len: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        fn read(&self, args: MemoryBioReadArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
             let mut bio = self.inner.lock();
-            let read_len = match len {
+            let read_len = match args.len {
                 OptionalArg::Present(n) if n >= 0 => n as usize,
                 OptionalArg::Present(n) => {
                     return Err(vm.new_value_error(format!("negative read length: {n}")));
@@ -350,14 +350,13 @@ mod _ssl {
     struct WrapBioArgs {
         incoming: PyRef<PyMemoryBIO>,
         outgoing: PyRef<PyMemoryBIO>,
+        server_side: bool,
         #[pyarg(named, optional)]
-        server_side: OptionalArg<bool>,
+        server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
-        server_hostname: OptionalArg<Option<PyUtf8StrRef>>,
+        owner: Option<PyObjectRef>,
         #[pyarg(named, optional)]
-        owner: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
-        session: OptionalArg<PyObjectRef>,
+        session: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -365,11 +364,11 @@ mod _ssl {
         sock: PyObjectRef,
         server_side: bool,
         #[pyarg(positional, optional)]
-        server_hostname: OptionalArg<Option<PyUtf8StrRef>>,
+        server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
-        owner: OptionalArg<PyObjectRef>,
+        owner: Option<PyObjectRef>,
         #[pyarg(named, optional)]
-        session: OptionalArg<PyObjectRef>,
+        session: Option<PyObjectRef>,
     }
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
@@ -478,22 +477,13 @@ mod _ssl {
         fn set_default_verify_paths(&self) {}
 
         #[pymethod]
-        fn load_verify_locations(
-            &self,
-            _cafile: OptionalOption<PyObjectRef>,
-            _capath: OptionalOption<PyObjectRef>,
-            _cadata: OptionalOption<PyObjectRef>,
-        ) {
+        fn load_verify_locations(&self, args: LoadVerifyLocationsArgs) {
+            let _ = (args.cafile, args.capath, args.cadata);
         }
 
         #[pymethod]
-        fn load_cert_chain(
-            &self,
-            _certfile: PyObjectRef,
-            _keyfile: OptionalOption<PyObjectRef>,
-            _password: OptionalOption<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn load_cert_chain(&self, args: LoadCertChainArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let _ = (args.certfile, args.keyfile, args.password);
             Err(ssl_error(vm, "certificate files are unavailable").upcast())
         }
 
@@ -511,7 +501,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_ca_certs(&self, _binary_form: OptionalArg<bool>, vm: &VirtualMachine) -> PyResult {
+        fn get_ca_certs(&self, args: CaCertsArgs, vm: &VirtualMachine) -> PyResult {
+            let _ = args.binary_form;
             Ok(vm.ctx.new_list(Vec::new()).into())
         }
 
@@ -521,8 +512,8 @@ mod _ssl {
             args: WrapBioArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<PySSLSocket>> {
-            let server_side = args.server_side.unwrap_or(false);
-            let hostname = match args.server_hostname.into_option().flatten() {
+            let server_side = args.server_side;
+            let hostname = match args.server_hostname {
                 Some(name) => {
                     let hostname = name.as_str();
                     validate_hostname(hostname)
@@ -575,7 +566,7 @@ mod _ssl {
                         inner: PyMutex::new(MemoryBio::new()),
                     }
                     .into_ref(&vm.ctx),
-                    server_side: OptionalArg::Present(args.server_side),
+                    server_side: args.server_side,
                     server_hostname: args.server_hostname,
                     owner: args.owner,
                     session: args.session,
@@ -836,10 +827,10 @@ mod _ssl {
         #[pymethod]
         fn getpeercert(
             &self,
-            binary_form: OptionalArg<bool>,
+            args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let binary = binary_form.unwrap_or(false);
+            let binary = args.der;
             let der = {
                 let guard = self.connection.lock();
                 let Some(conn) = guard.as_ref() else {
@@ -896,6 +887,45 @@ mod _ssl {
                     .map(|proto| String::from_utf8_lossy(proto).into_owned())
             })
         }
+    }
+
+    #[derive(FromArgs)]
+    struct MemoryBioReadArgs {
+        // Missing reads pending bytes. A passed negative length is still an error.
+        #[pyarg(positional, optional, py_default = "-1")]
+        len: OptionalArg<i32>,
+    }
+
+    #[derive(FromArgs)]
+    struct LoadVerifyLocationsArgs {
+        #[pyarg(any, optional)]
+        cafile: Option<PyObjectRef>,
+        #[pyarg(any, optional)]
+        capath: Option<PyObjectRef>,
+        #[pyarg(any, optional)]
+        cadata: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct LoadCertChainArgs {
+        #[pyarg(any)]
+        certfile: PyObjectRef,
+        #[pyarg(any, optional)]
+        keyfile: Option<PyObjectRef>,
+        #[pyarg(any, optional)]
+        password: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct CaCertsArgs {
+        #[pyarg(any, default = false)]
+        binary_form: bool,
+    }
+
+    #[derive(FromArgs)]
+    struct GetCertArgs {
+        #[pyarg(positional, default = false)]
+        der: bool,
     }
 
     #[derive(FromArgs)]

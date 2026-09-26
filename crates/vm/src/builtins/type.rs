@@ -19,7 +19,7 @@ use crate::{
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
-    function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
+    function::{ArgumentError, FromArgs, FuncArgs, KwArgs, Param, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
@@ -2273,13 +2273,7 @@ impl PyType {
     }
 
     #[pyclassmethod]
-    fn __prepare__(
-        _cls: PyTypeRef,
-        _name: OptionalArg<PyObjectRef>,
-        _bases: OptionalArg<PyObjectRef>,
-        _kwargs: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyDictRef {
+    fn __prepare__(_cls: PyTypeRef, _args: PrepareArgs, vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
     }
 
@@ -2417,6 +2411,22 @@ impl PyType {
             }
         }
         Ok(())
+    }
+}
+
+/// Accepts and ignores any arguments.
+struct PrepareArgs;
+
+impl FromArgs for PrepareArgs {
+    const PARAMS: Option<&'static [Param]> = Some(&[
+        Param::positional_only("name"),
+        Param::positional_only("bases"),
+        Param::var_keyword("kwds"),
+    ]);
+
+    fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        core::mem::take(args);
+        Ok(Self)
     }
 }
 

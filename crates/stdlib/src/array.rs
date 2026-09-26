@@ -764,6 +764,12 @@ pub mod array {
         }
     }
 
+    #[derive(FromArgs)]
+    struct PopArgs {
+        #[pyarg(positional, default = -1)]
+        i: isize,
+    }
+
     #[pyclass(
         flags(BASETYPE, HAS_WEAKREF),
         with(
@@ -968,12 +974,12 @@ pub mod array {
         #[pymethod]
         fn index(
             &self,
-            x: PyObjectRef,
+            v: PyObjectRef,
             range: OptionalRangeArgs,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let (start, stop) = range.saturate(self.__len__(), vm)?;
-            self.read().index(x, start, stop, vm)
+            self.read().index(v, start, stop, vm)
         }
 
         #[pymethod]
@@ -983,12 +989,12 @@ pub mod array {
         }
 
         #[pymethod]
-        fn pop(zelf: &Py<Self>, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
+        fn pop(zelf: &Py<Self>, args: PopArgs, vm: &VirtualMachine) -> PyResult {
             let mut w = zelf.try_resizable(vm)?;
             if w.len() == 0 {
                 Err(vm.new_index_error("pop from empty array"))
             } else {
-                w.pop(i.unwrap_or(-1), vm)
+                w.pop(args.i, vm)
             }
         }
 
@@ -1260,10 +1266,10 @@ pub mod array {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 

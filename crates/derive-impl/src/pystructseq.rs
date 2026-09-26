@@ -524,6 +524,17 @@ pub(crate) fn impl_pystruct_sequence(
     } else {
         class_name.clone()
     };
+    let doc = rustpython_doc::get(module_class_name.as_str()).or_else(|| {
+        // os re-exports the posix/nt struct sequences.
+        let class_name = module_class_name.strip_prefix("os.")?;
+        rustpython_doc::get(&format!("posix.{class_name}"))
+            .or_else(|| rustpython_doc::get(&format!("nt.{class_name}")))
+    });
+    let doc = doc.filter(|doc| !doc.is_empty());
+    let doc = match doc {
+        Some(doc) => quote!(Some(#doc)),
+        None => quote!(None),
+    };
 
     let output = quote! {
         // The Python type struct - newtype wrapping PyTuple
@@ -536,7 +547,7 @@ pub(crate) fn impl_pystruct_sequence(
             const NAME: &'static str = #class_name;
             const MODULE_NAME: Option<&'static str> = #module_name_tokens;
             const TP_NAME: &'static str = #module_class_name;
-            const DOC: Option<&'static str> = None;
+            const DOC: Option<&'static str> = #doc;
             const BASICSIZE: usize = 0;
             const UNHASHABLE: bool = false;
 

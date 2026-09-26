@@ -45,15 +45,21 @@ impl From<PyObjectRef> for PyStaticMethod {
     }
 }
 
+#[derive(FromArgs)]
+pub struct StaticMethodArgs {
+    #[pyarg(positional)]
+    function: PyObjectRef,
+}
+
 impl Constructor for PyStaticMethod {
-    type Args = PyObjectRef;
+    type Args = StaticMethodArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Validate the signature here, but defer storing the callable and
         // copying its attributes to `__init__` so that subclasses overriding
         // `__init__` without calling `super().__init__()` see `__func__` as
         // `None`, matching CPython.
-        let _: Self::Args = args.bind_for(vm, Self::NAME)?;
+        let _: StaticMethodArgs = args.bind_for(vm, Self::NAME)?;
         let result = Self {
             callable: PyMutex::new(vm.ctx.none()),
         }
@@ -81,9 +87,10 @@ impl PyStaticMethod {
 }
 
 impl Initializer for PyStaticMethod {
-    type Args = PyObjectRef;
+    type Args = StaticMethodArgs;
 
-    fn init(zelf: &Py<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        let callable = args.function;
         *zelf.callable.lock() = callable.clone();
         functools_wraps(zelf.as_object(), &callable, vm)
     }
@@ -180,10 +187,10 @@ impl PyStaticMethod {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 

@@ -5,7 +5,7 @@ use super::type_;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine, atomic_func,
-    builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType},
+    builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::{PyClassDef, PyClassImpl},
     common::hash,
     convert::ToPyObject,
@@ -55,14 +55,39 @@ impl PyPayload for PyGenericAlias {
     }
 }
 
-impl Constructor for PyGenericAlias {
-    type Args = FuncArgs;
+#[derive(FromArgs)]
+pub struct GenericAliasArgs {
+    #[pyarg(positional)]
+    origin: PyObjectRef,
+    #[pyarg(positional)]
+    args: PyObjectRef,
+}
 
-    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+impl Constructor for PyGenericAlias {
+    type Args = GenericAliasArgs;
+
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.kwargs.is_empty() {
             return Err(vm.new_type_error("GenericAlias() takes no keyword arguments"));
         }
-        let (origin, arguments): (PyObjectRef, PyObjectRef) = args.bind_for(vm, Self::NAME)?;
+        let GenericAliasArgs {
+            origin,
+            args: arguments,
+        } = args.bind_for(vm, Self::NAME)?;
+        let arguments = if let Ok(tuple) = arguments.try_to_ref::<PyTuple>(vm) {
+            tuple.to_owned()
+        } else {
+            PyTuple::new_ref(vec![arguments], &vm.ctx)
+        };
+        let payload = Self::new(origin, arguments, false, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        let GenericAliasArgs {
+            origin,
+            args: arguments,
+        } = args;
         let args = if let Ok(tuple) = arguments.try_to_ref::<PyTuple>(vm) {
             tuple.to_owned()
         } else {
@@ -264,17 +289,25 @@ impl PyGenericAlias {
     }
 
     #[pymethod]
-    fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
+    fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
         PyTuple::new_ref(vec![self.__origin__()], &vm.ctx)
     }
 
     #[pymethod]
-    fn __instancecheck__(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __instancecheck__(
+        _zelf: PyRef<Self>,
+        _object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         Err(vm.new_type_error("isinstance() argument 2 cannot be a parameterized generic"))
     }
 
     #[pymethod]
-    fn __subclasscheck__(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __subclasscheck__(
+        _zelf: PyRef<Self>,
+        _object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
     }
 

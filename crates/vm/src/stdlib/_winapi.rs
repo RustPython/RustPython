@@ -396,14 +396,20 @@ mod _winapi {
         WindowsSysResult(host_winapi::terminate_process(h.0, exit_code))
     }
 
+    #[derive(FromArgs)]
+    struct OptionalJobName {
+        #[pyarg(positional, optional)]
+        name: Option<PyStrRef>,
+    }
+
     #[pyfunction]
     fn CreateJobObject(
         _security_attributes: PyObjectRef,
-        name: OptionalArg<Option<PyStrRef>>,
+        name: OptionalJobName,
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
         let name = name
-            .flatten()
+            .name
             .map(|name| name.as_wtf8().to_wide_cstring())
             .transpose()
             .map_err(|_| nul_char_error(vm))?;
