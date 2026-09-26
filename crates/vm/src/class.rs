@@ -303,8 +303,14 @@ pub trait PyClassImpl: PyClassDef {
         // Add slot wrappers using SLOT_DEFS array
         add_operators::<Self>(class, ctx);
 
-        // Inherit slots from base types after slots are fully initialized
-        for base in class.bases.read().as_slice() {
+        // Same walk as init_slots: a slot such as tp_init is copied only from
+        // a base that defines it, so a static grandchild must see that base
+        // in the MRO, not only its direct bases.
+        let mro = {
+            let guard = class.mro.read();
+            guard[1..].to_vec()
+        };
+        for base in &mro {
             class.inherit_slots(base);
         }
 
