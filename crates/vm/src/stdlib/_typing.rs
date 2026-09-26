@@ -165,7 +165,7 @@ pub(crate) mod decl {
     /// Handles tuples specially by wrapping in parentheses.
     fn typing_type_repr_value(value: &PyObject, vm: &VirtualMachine) -> PyResult {
         if let Ok(tuple) = value.try_to_ref::<PyTuple>(vm) {
-            let mut parts = Vec::with_capacity(tuple.len());
+            let mut parts = Vec::with_capacity(tuple.as_slice().len());
             for item in tuple {
                 parts.push(typing_type_repr(item, vm)?);
             }
@@ -281,7 +281,7 @@ pub(crate) mod decl {
         }
 
         fn __getitem__(zelf: &Py<Self>, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            if zelf.type_params.is_empty() {
+            if zelf.type_params.as_slice().is_empty() {
                 return Err(vm.new_type_error("Only generic type aliases are subscriptable"));
             }
             let args_tuple = if let Ok(tuple) = args.try_to_ref::<PyTuple>(vm) {
@@ -318,7 +318,7 @@ pub(crate) mod decl {
             type_params: &Py<PyTuple>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyTupleRef>> {
-            if type_params.is_empty() {
+            if type_params.as_slice().is_empty() {
                 return Ok(None);
             }
             let no_default = &vm.ctx.typing_no_default;
@@ -473,6 +473,7 @@ pub(crate) mod decl {
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
         let has_tvt = type_params
+            .as_slice()
             .iter()
             .any(|p| p.downcastable::<crate::stdlib::typevar::TypeVarTuple>());
         if !has_tvt {
@@ -481,6 +482,7 @@ pub(crate) mod decl {
         let typing = vm.import("typing", 0)?;
         let unpack_cls = typing.get_attr("Unpack", vm)?;
         let new_params: Vec<PyObjectRef> = type_params
+            .as_slice()
             .iter()
             .map(|p| {
                 if p.downcastable::<crate::stdlib::typevar::TypeVarTuple>() {

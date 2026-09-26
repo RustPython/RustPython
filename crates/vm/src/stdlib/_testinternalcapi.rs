@@ -1756,7 +1756,7 @@ fn py_to_constant_data(
     }
     if let Ok(complex) = obj.clone().downcast::<crate::builtins::PyComplex>() {
         return Ok(ConstantData::Complex {
-            value: complex.to_complex(),
+            value: complex.as_complex(),
         });
     }
     if obj.class().is(vm.ctx.types.str_type) {
@@ -1774,8 +1774,8 @@ fn py_to_constant_data(
     }
     if obj.class().is(vm.ctx.types.tuple_type) {
         let tuple = obj.downcast::<crate::builtins::PyTuple>().unwrap();
-        let mut elements = Vec::with_capacity(tuple.len());
-        for item in tuple.iter() {
+        let mut elements = Vec::with_capacity(tuple.as_slice().len());
+        for item in tuple.as_slice() {
             elements.push(py_to_constant_data(item.clone(), vm)?);
         }
         return Ok(ConstantData::Tuple { elements });

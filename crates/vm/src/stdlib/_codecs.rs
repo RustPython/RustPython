@@ -1186,7 +1186,7 @@ mod _codecs_windows {
             let new_pos_obj = tuple_slice[1].clone();
 
             if let Some(bytes) = replacement.downcast_ref::<PyBytes>() {
-                output.extend_from_slice(bytes);
+                output.extend_from_slice(bytes.as_bytes());
             } else if let Some(rep_str) = replacement.downcast_ref::<PyStr>() {
                 // Replacement string - try to encode each character
                 for rcp in rep_str.as_wtf8().code_points() {

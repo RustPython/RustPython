@@ -26,6 +26,14 @@ pub struct PyComplex {
     value: Complex64,
 }
 
+impl Py<PyComplex> {
+    #[must_use]
+    #[inline]
+    pub const fn as_complex(&self) -> Complex64 {
+        self.payload.to_complex()
+    }
+}
+
 // spell-checker:ignore MAXFREELIST
 thread_local! {
     static COMPLEX_FREELIST: Cell<crate::object::FreeList<PyComplex>> = const { Cell::new(crate::object::FreeList::new()) };
@@ -88,7 +96,7 @@ impl PyObjectRef {
     /// and whether the  object was a complex originally or coerced into one
     pub fn try_complex(&self, vm: &VirtualMachine) -> PyResult<Option<(Complex64, bool)>> {
         if let Some(complex) = self.downcast_ref_if_exact::<PyComplex>(vm) {
-            return Ok(Some((complex.value, true)));
+            return Ok(Some((complex.as_complex(), true)));
         }
         if let Some(method) = vm.get_method(self.clone(), identifier!(vm, __complex__)) {
             let result = method?.call((), vm)?;
@@ -108,11 +116,11 @@ impl PyObjectRef {
                     vm,
                 )?;
 
-                return Ok(Some((ret.value, true)));
+                return Ok(Some((ret.as_complex(), true)));
             }
 
             return match result.downcast_ref::<PyComplex>() {
-                Some(complex_obj) => Ok(Some((complex_obj.value, true))),
+                Some(complex_obj) => Ok(Some((complex_obj.as_complex(), true))),
                 None => Err(vm.new_type_error(format!(
                     "__complex__ returned non-complex (type '{}')",
                     result.class().name()
@@ -122,7 +130,7 @@ impl PyObjectRef {
         // `complex` does not have a `__complex__` by default, so subclasses might not either,
         // use the actual stored value in this case
         if let Some(complex) = self.downcast_ref::<PyComplex>() {
-            return Ok(Some((complex.value, true)));
+            return Ok(Some((complex.as_complex(), true)));
         }
 
         if let Some(float) = self.try_float_opt(vm) {
@@ -139,7 +147,7 @@ pub(crate) fn init(context: &'static Context) {
 
 fn to_op_complex(value: &PyObject, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
     let r = if let Some(complex) = value.downcast_ref::<PyComplex>() {
-        Some(complex.value)
+        Some(complex.as_complex())
     } else {
         float::to_op_float(value, vm)?.map(|float| Complex64::new(float, 0.0))
     };
@@ -513,14 +521,16 @@ impl PyComplex {
     {
         let value = match (a.downcast_ref::<Self>(), b.downcast_ref::<Self>()) {
             // complex + complex
-            (Some(a_complex), Some(b_complex)) => cc_op(a_complex.value, b_complex.value),
+            (Some(a_complex), Some(b_complex)) => {
+                cc_op(a_complex.as_complex(), b_complex.as_complex())
+            }
             (Some(a_complex), None) => {
                 let Some(b_real) = float::to_op_float(b, vm)? else {
                     return Ok(vm.ctx.not_implemented());
                 };
 
                 // complex + real
-                cr_op(a_complex.value, b_real)
+                cr_op(a_complex.as_complex(), b_real)
             }
             (None, Some(b_complex)) => {
                 let Some(a_real) = float::to_op_float(a, vm)? else {
@@ -528,7 +538,7 @@ impl PyComplex {
                 };
 
                 // real + complex
-                rc_op(a_real, b_complex.value)
+                rc_op(a_real, b_complex.as_complex())
             }
             (None, None) => return Ok(vm.ctx.not_implemented()),
         };
@@ -544,13 +554,13 @@ impl PyComplex {
     #[pymember]
     fn real(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-        Ok(vm.ctx.new_float(zelf.value.re).into())
+        Ok(vm.ctx.new_float(zelf.as_complex().re).into())
     }
 
     #[pymember]
     fn imag(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-        Ok(vm.ctx.new_float(zelf.value.im).into())
+        Ok(vm.ctx.new_float(zelf.as_complex().im).into())
     }
 
     #[pymethod]
@@ -578,9 +588,9 @@ impl PyComplex {
             FormatSpec::parse(format_spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
         let result = if format_spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
-            format_spec.format_complex_locale(&zelf.value, &locale)
+            format_spec.format_complex_locale(&zelf.as_complex(), &locale)
         } else {
-            format_spec.format_complex(&zelf.value)
+            format_spec.format_complex(&zelf.as_complex())
         };
         result
             .map(Wtf8Buf::from_string)
@@ -617,7 +627,7 @@ impl PyRef<PyComplex> {
         if self.is(vm.ctx.types.complex_type) {
             self
         } else {
-            PyComplex::from(self.value).into_ref(&vm.ctx)
+            PyComplex::from(self.as_complex()).into_ref(&vm.ctx)
         }
     }
 }
@@ -631,10 +641,10 @@ impl Comparable for PyComplex {
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             let result = if let Some(other) = other.downcast_ref::<Self>() {
-                zelf.value == other.value
+                zelf.as_complex() == other.as_complex()
             } else {
                 match float::to_op_float(other, vm) {
-                    Ok(Some(other)) => zelf.value == other.into(),
+                    Ok(Some(other)) => zelf.as_complex() == other.into(),
                     Err(_) => false,
                     Ok(None) => return Ok(PyComparisonValue::NotImplemented),
                 }
@@ -647,7 +657,7 @@ impl Comparable for PyComplex {
 impl Hashable for PyComplex {
     #[inline]
     fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
-        let value = zelf.value;
+        let value = zelf.as_complex();
 
         let re_hash =
             hash::hash_float(value.re).unwrap_or_else(|| hash::hash_object_id(zelf.get_id()));
@@ -705,14 +715,14 @@ impl AsNumber for PyComplex {
                 }
             }),
             negative: Some(|number, vm| {
-                let value = PyComplex::number_downcast(number).value;
+                let value = PyComplex::number_downcast(number).as_complex();
                 (-value).to_pyresult(vm)
             }),
             positive: Some(|number, vm| {
                 PyComplex::number_downcast_exact(number, vm).to_pyresult(vm)
             }),
             absolute: Some(|number, vm| {
-                let value = PyComplex::number_downcast(number).value;
+                let value = PyComplex::number_downcast(number).as_complex();
                 let result = value.norm();
                 // Check for overflow: hypot returns inf for finite inputs that overflow
                 if result.is_infinite() && value.re.is_finite() && value.im.is_finite() {
@@ -720,7 +730,9 @@ impl AsNumber for PyComplex {
                 }
                 result.to_pyresult(vm)
             }),
-            boolean: Some(|number, _vm| Ok(!PyComplex::number_downcast(number).value.is_zero())),
+            boolean: Some(|number, _vm| {
+                Ok(!PyComplex::number_downcast(number).as_complex().is_zero())
+            }),
             true_divide: Some(|a, b, vm| {
                 PyComplex::complex_real_binop(
                     a,
@@ -746,7 +758,7 @@ impl AsNumber for PyComplex {
     }
 
     fn clone_exact(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        vm.ctx.new_complex(zelf.value)
+        vm.ctx.new_complex(zelf.as_complex())
     }
 }
 
@@ -755,7 +767,7 @@ impl Representable for PyComplex {
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         // TODO: when you fix this, move it to rustpython_common::complex::repr and update
         //       ast/src/unparse.rs + impl Display for Constant in ast/src/constant.rs
-        let Complex64 { re, im } = zelf.value;
+        let Complex64 { re, im } = zelf.as_complex();
         Ok(rustpython_literal::complex::to_string(re, im))
     }
 }

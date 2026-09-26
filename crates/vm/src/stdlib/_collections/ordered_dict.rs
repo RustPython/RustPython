@@ -1148,13 +1148,14 @@ pub(crate) mod ordered_dict {
                 let Some(needle) = item.downcast_ref::<PyTuple>() else {
                     continue;
                 };
-                if needle.len() != 2 {
+                if needle.as_slice().len() != 2 {
                     continue;
                 }
-                let Some(found) = self.od.dict.inner_getitem_opt(&*needle[0], vm)? else {
+                let Some(found) = self.od.dict.inner_getitem_opt(&*needle.as_slice()[0], vm)?
+                else {
                     continue;
                 };
-                if vm.identical_or_equal(&found, &needle[1])? {
+                if vm.identical_or_equal(&found, &needle.as_slice()[1])? {
                     return Ok(false);
                 }
             }
@@ -1189,15 +1190,15 @@ pub(crate) mod ordered_dict {
                         Some(needle) => needle,
                         None => return Ok(false),
                     };
-                    if needle.len() != 2 {
+                    if needle.as_slice().len() != 2 {
                         return Ok(false);
                     }
                     let zelf = PyOrderedDictItems::sequence_downcast(seq);
-                    let key = &needle[0];
+                    let key = &needle.as_slice()[0];
                     let Some(found) = zelf.od.dict.inner_getitem_opt(&**key, vm)? else {
                         return Ok(false);
                     };
-                    vm.identical_or_equal(&found, &needle[1])
+                    vm.identical_or_equal(&found, &needle.as_slice()[1])
                 }),
                 ..PySequenceMethods::NOT_IMPLEMENTED
             };

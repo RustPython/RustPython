@@ -683,7 +683,7 @@ mod _pickle {
                 let mapped: PyTupleRef = mapped.downcast().map_err(|_| {
                     vm.new_runtime_error("_compat_pickle.NAME_MAPPING values must be 2-tuples")
                 })?;
-                if mapped.len() != 2 {
+                if mapped.as_slice().len() != 2 {
                     return Err(
                         vm.new_runtime_error("_compat_pickle.NAME_MAPPING values must be 2-tuples")
                     );
@@ -1533,7 +1533,9 @@ mod _pickle {
             return Ok(());
         }
         let (state, slotstate) = match state.downcast_ref::<PyTuple>() {
-            Some(t) if t.len() == 2 => (t.as_slice()[0].clone(), Some(t.as_slice()[1].clone())),
+            Some(t) if t.as_slice().len() == 2 => {
+                (t.as_slice()[0].clone(), Some(t.as_slice()[1].clone()))
+            }
             _ => (state, None),
         };
         if !vm.is_none(&state) && state.try_to_bool(vm)? {
@@ -1592,7 +1594,7 @@ mod _pickle {
         let key: PyTupleRef = key
             .downcast()
             .map_err(|_| vm.new_value_error("_inverted_registry values must be 2-tuples"))?;
-        if key.len() != 2 {
+        if key.as_slice().len() != 2 {
             return Err(vm.new_value_error("_inverted_registry values must be 2-tuples"));
         }
         let module = key.as_slice()[0].clone();
@@ -2077,7 +2079,7 @@ mod _pickle {
                     let pair: PyTupleRef = val
                         .downcast()
                         .map_err(|_| vm.new_type_error("'memo' values must be 2-item tuples"))?;
-                    if pair.len() != 2 {
+                    if pair.as_slice().len() != 2 {
                         return Err(vm.new_type_error("'memo' values must be 2-item tuples"));
                     }
                     let idx = pair.as_slice()[0]
@@ -2494,7 +2496,7 @@ mod _pickle {
 
         fn save_tuple(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             let tuple = obj.downcast_ref::<PyTuple>().expect("tuple");
-            let n = tuple.len();
+            let n = tuple.as_slice().len();
             if n == 0 {
                 if self.bin {
                     self.write(&[EMPTY_TUPLE as u8]);
@@ -2750,7 +2752,7 @@ mod _pickle {
                             let pair: PyTupleRef = o.downcast().map_err(|_| {
                                 vm.new_type_error("dict items iterator must return 2-tuples")
                             })?;
-                            if pair.len() != 2 {
+                            if pair.as_slice().len() != 2 {
                                 return Err(
                                     vm.new_type_error("dict items iterator must return 2-tuples")
                                 );
@@ -3616,7 +3618,7 @@ mod _pickle {
                         Ok(p) => p,
                         Err(_) => continue,
                     };
-                    if pair.len() != 2 {
+                    if pair.as_slice().len() != 2 {
                         continue;
                     }
                     let (key, module) = (pair.as_slice()[0].clone(), pair.as_slice()[1].clone());

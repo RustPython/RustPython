@@ -153,7 +153,7 @@ mod _ssl {
                 return strerror.str(vm);
             }
             let args = zelf.args();
-            if args.len() == 1 {
+            if args.as_slice().len() == 1 {
                 args.as_slice()[0].str(vm)
             } else {
                 args.as_object().str(vm)

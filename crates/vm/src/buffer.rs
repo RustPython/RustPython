@@ -789,7 +789,7 @@ macro_rules! make_pack_complex {
                 data: &mut [u8],
             ) -> Result<(), PackError> {
                 let c = if let Some(value) = arg.downcast_ref::<PyComplex>() {
-                    value.to_complex()
+                    value.as_complex()
                 } else {
                     ArgIntoComplex::try_from_object(vm, arg)
                         .map_err(|_| {

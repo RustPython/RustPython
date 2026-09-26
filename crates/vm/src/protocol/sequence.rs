@@ -430,7 +430,7 @@ impl PySequence<'_> {
         F: FnMut(&PyObject) -> PyResult<R>,
     {
         if let Some(tuple) = self.obj.downcast_ref_if_exact::<PyTuple>(vm) {
-            tuple.iter().map(|x| f(x.as_ref())).collect()
+            tuple.as_slice().iter().map(|x| f(x.as_ref())).collect()
         } else if let Some(list) = self.obj.downcast_ref_if_exact::<PyList>(vm) {
             list.borrow_vec().iter().map(|x| f(x.as_ref())).collect()
         } else {

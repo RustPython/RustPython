@@ -701,7 +701,7 @@ pub(crate) mod _thread {
         }
 
         let args = FuncArgs::new(
-            args.to_vec(),
+            args.as_slice().to_vec(),
             kwargs
                 .map_or_else(
                     || Ok(Default::default()),

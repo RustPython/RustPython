@@ -366,7 +366,7 @@ impl PyFunction {
                 .lock()
                 .0
                 .as_ref()
-                .map_or(0, |d| d.len());
+                .map_or(0, |d| d.as_slice().len());
             let n_required = n_expected_args - n_defaults;
             let (takes_msg, plural) = if n_defaults > 0 {
                 (format!("from {n_required} to {n_expected_args}"), true)
@@ -1002,7 +1002,7 @@ impl PyFunction {
     #[pygetset(setter)]
     fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) -> PyResult<()> {
         let n_free = code.freevars.len();
-        let n_closure = self.closure.as_ref().map_or(0, |c| c.len());
+        let n_closure = self.closure.as_ref().map_or(0, |c| c.as_slice().len());
         if n_closure != n_free {
             return Err(vm.new_value_error(format!(
                 "{}() requires a code object with {} free vars, not {}",
@@ -1350,12 +1350,12 @@ impl Constructor for PyFunction {
         // Handle closure - must be a tuple of cells
         let closure = if let Some(closure_tuple) = args.closure {
             // Check that closure length matches code's free variables
-            if closure_tuple.len() != args.code.freevars.len() {
+            if closure_tuple.as_slice().len() != args.code.freevars.len() {
                 return Err(vm.new_value_error(format!(
                     "{} requires closure of length {}, not {}",
                     args.code.obj_name,
                     args.code.freevars.len(),
-                    closure_tuple.len()
+                    closure_tuple.as_slice().len()
                 )));
             }
 

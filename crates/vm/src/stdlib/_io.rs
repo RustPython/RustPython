@@ -2890,10 +2890,10 @@ mod _io {
             }
             let res = self.encode.call(args, vm)?;
             let tuple: PyTupleRef = res.try_into_value(vm)?;
-            if tuple.len() != 2 {
+            if tuple.as_slice().len() != 2 {
                 return Err(vm.new_type_error("encoder must return a tuple (object, integer)"));
             }
-            Ok(tuple[0].clone())
+            Ok(tuple.as_slice()[0].clone())
         }
 
         #[pymethod]
@@ -2935,10 +2935,10 @@ mod _io {
             }
             let res = self.decode.call(args, vm)?;
             let tuple: PyTupleRef = res.try_into_value(vm)?;
-            if tuple.len() != 2 {
+            if tuple.as_slice().len() != 2 {
                 return Err(vm.new_type_error("decoder must return a tuple (object, integer)"));
             }
-            Ok(tuple[0].clone())
+            Ok(tuple.as_slice()[0].clone())
         }
 
         #[pymethod]
@@ -3606,7 +3606,7 @@ mod _io {
             };
             let pos = Offset::try_from_object(vm, pos)?;
             let mut cookie = TextIOCookie {
-                start_pos: pos - next_input.len() as Offset,
+                start_pos: pos - next_input.as_bytes().len() as Offset,
                 dec_flags: *dec_flags,
                 ..Default::default()
             };
@@ -3632,7 +3632,7 @@ mod _io {
                 let n_decoded = decoder_decode(input)?;
                 if n_decoded.chars <= num_to_skip.chars {
                     let (dec_buffer, dec_flags) = decoder_getstate()?;
-                    if dec_buffer.is_empty() {
+                    if dec_buffer.as_bytes().is_empty() {
                         cookie.dec_flags = dec_flags;
                         num_to_skip -= n_decoded;
                         break;
@@ -3663,7 +3663,7 @@ mod _io {
                     n_decoded += n;
                     cookie.bytes_to_feed += 1;
                     let (dec_buffer, dec_flags) = decoder_getstate()?;
-                    if dec_buffer.is_empty() && n_decoded.chars <= num_to_skip.chars {
+                    if dec_buffer.as_bytes().is_empty() && n_decoded.chars <= num_to_skip.chars {
                         cookie.start_pos += cookie.bytes_to_feed as Offset;
                         num_to_skip -= n_decoded;
                         cookie.dec_flags = dec_flags;
@@ -4889,20 +4889,20 @@ mod _io {
             if zelf.closed.load() {
                 return Err(vm.new_value_error("__setstate__ on closed file"));
             }
-            if state.len() != 4 {
+            if state.as_slice().len() != 4 {
                 return Err(vm.new_type_error(format!(
                     "__setstate__ argument should be 4-tuple, got {}",
-                    state.len()
+                    state.as_slice().len()
                 )));
             }
 
-            let content: PyStrRef = state[0].clone().try_into_value(vm)?;
-            let newline = Newlines::try_from_object(vm, state[1].clone())?;
-            let pos: isize = isize::try_from_object(vm, state[2].clone())?;
+            let content: PyStrRef = state.as_slice()[0].clone().try_into_value(vm)?;
+            let newline = Newlines::try_from_object(vm, state.as_slice()[1].clone())?;
+            let pos: isize = isize::try_from_object(vm, state.as_slice()[2].clone())?;
             if pos < 0 {
                 return Err(vm.new_value_error("negative seek position"));
             }
-            let dict = &state[3];
+            let dict = &state.as_slice()[3];
 
             // Set content and position
             let raw_bytes = content.as_bytes().to_vec();
@@ -5162,16 +5162,16 @@ mod _io {
             if zelf.closed.load() {
                 return Err(vm.new_value_error("__setstate__ on closed file"));
             }
-            if object.len() != 3 {
+            if object.as_slice().len() != 3 {
                 return Err(vm.new_type_error(format!(
                     "__setstate__ argument should be 3-tuple, got {}",
-                    object.len()
+                    object.as_slice().len()
                 )));
             }
 
-            let content: PyBytesRef = object[0].clone().try_into_value(vm)?;
-            let pos: u64 = object[1].clone().try_into_value(vm)?;
-            let dict = &object[2];
+            let content: PyBytesRef = object.as_slice()[0].clone().try_into_value(vm)?;
+            let pos: u64 = object.as_slice()[1].clone().try_into_value(vm)?;
+            let dict = &object.as_slice()[2];
 
             // Check exports and set content (like CHECK_EXPORTS)
             let mut buffer = zelf.try_resizable(vm)?;

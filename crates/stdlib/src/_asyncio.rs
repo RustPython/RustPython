@@ -408,7 +408,7 @@ pub(crate) mod _asyncio {
                 let item = list.borrow_vec().first().cloned();
                 if let Some(item) = item {
                     let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
-                    let cb = tuple.first().unwrap().clone();
+                    let cb = tuple.as_slice().first().unwrap().clone();
                     let cmp = vm.identical_or_equal(&cb, &func)?;
                     if cmp {
                         *self.fut_callbacks.write() = None;
@@ -445,7 +445,7 @@ pub(crate) mod _asyncio {
                 };
 
                 let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
-                let cb = tuple.first().unwrap().clone();
+                let cb = tuple.as_slice().first().unwrap().clone();
                 let cmp = vm.identical_or_equal(&cb, &func)?;
 
                 if !cmp {
@@ -544,7 +544,8 @@ pub(crate) mod _asyncio {
                 let items: Vec<_> = list.borrow_vec().iter().cloned().collect();
                 for item in items {
                     if let Some(tuple) = item.downcast_ref::<PyTuple>()
-                        && let (Some(cb), Some(ctx)) = (tuple.first(), tuple.get(1))
+                        && let (Some(cb), Some(ctx)) =
+                            (tuple.as_slice().first(), tuple.as_slice().get(1))
                     {
                         callbacks_to_call.push((cb.clone(), Some(ctx.clone())));
                     }
@@ -1425,7 +1426,7 @@ pub(crate) mod _asyncio {
                 let item = list.borrow_vec().first().cloned();
                 if let Some(item) = item {
                     let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
-                    let cb = tuple.first().unwrap().clone();
+                    let cb = tuple.as_slice().first().unwrap().clone();
                     let cmp = vm.identical_or_equal(&cb, &func)?;
                     if cmp {
                         *self.base.fut_callbacks.write() = None;
@@ -1462,7 +1463,7 @@ pub(crate) mod _asyncio {
                 };
 
                 let tuple: &Py<PyTuple> = item.downcast_ref().unwrap();
-                let cb = tuple.first().unwrap().clone();
+                let cb = tuple.as_slice().first().unwrap().clone();
                 let cmp = vm.identical_or_equal(&cb, &func)?;
 
                 if !cmp {
@@ -1504,7 +1505,8 @@ pub(crate) mod _asyncio {
                 let items: Vec<_> = list.borrow_vec().iter().cloned().collect();
                 for item in items {
                     if let Some(tuple) = item.downcast_ref::<PyTuple>()
-                        && let (Some(cb), Some(ctx)) = (tuple.first(), tuple.get(1))
+                        && let (Some(cb), Some(ctx)) =
+                            (tuple.as_slice().first(), tuple.as_slice().get(1))
                     {
                         callbacks_to_call.push((cb.clone(), Some(ctx.clone())));
                     }

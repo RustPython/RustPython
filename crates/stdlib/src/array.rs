@@ -523,7 +523,7 @@ pub mod array {
         ($($t:ty,)*) => {$(
             impl ArrayElement for $t {
                 fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                    obj.try_index(vm)?.try_to_primitive_raw(vm)
+                    obj.try_index(vm)?.try_to_primitive_in_range(vm)
                 }
                 fn byteswap(self) -> Self {
                     <$t>::swap_bytes(self)
@@ -955,7 +955,7 @@ pub mod array {
                 .downcast::<PyBytes>()
                 .map_err(|_| vm.new_type_error("read() didn't return bytes"))?;
 
-            let not_enough_bytes = b.len() != n_bytes;
+            let not_enough_bytes = b.as_bytes().len() != n_bytes;
 
             self._from_bytes(b.as_bytes(), itemsize, vm)?;
 
