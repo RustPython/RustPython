@@ -288,10 +288,8 @@ mod decl {
 
         impl TryFromObject for EventMask {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                use crate::builtins::PyInt;
-                let int = obj
-                    .downcast::<PyInt>()
-                    .map_err(|_| vm.new_type_error("argument must be an integer"))?;
+                // Event masks go through the integer converter, so `__index__` counts.
+                let int = obj.try_index(vm)?;
 
                 let val = int.as_bigint();
                 if val.is_negative() {

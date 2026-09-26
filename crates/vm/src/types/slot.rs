@@ -362,12 +362,8 @@ pub(crate) fn python_as_buffer(
 // slot_sq_length
 pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     let ret = vm.call_special_method(obj, identifier!(vm, __len__), ())?;
-    let len = ret.downcast_ref::<PyInt>().ok_or_else(|| {
-        vm.new_type_error(format!(
-            "'{}' object cannot be interpreted as an integer",
-            ret.class()
-        ))
-    })?;
+    // `__len__` may return any object with `__index__`, not only `int`.
+    let len = ret.try_index(vm)?;
     let len = len.as_bigint();
     if len.is_negative() {
         return Err(vm.new_value_error("__len__() should return >= 0"));

@@ -14,7 +14,7 @@ pub(crate) mod _hashlib {
             PyValueError,
         },
         class::StaticType,
-        function::{ArgBytesLike, ArgPrimitiveIndex, ArgStrOrBytesLike, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, ArgStrOrBytesLike, FuncArgs, OptionalArg},
         types::{Constructor, Representable},
     };
     use core::mem::MaybeUninit;
@@ -88,7 +88,7 @@ pub(crate) mod _hashlib {
         #[pyarg(any, optional)]
         pub data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, optional)]
-        digest_size: OptionalArg<ArgPrimitiveIndex<i64>>,
+        digest_size: OptionalArg<i64>,
         #[pyarg(named, optional)]
         key: OptionalArg<ArgBytesLike>,
         #[pyarg(named, optional)]
@@ -96,17 +96,17 @@ pub(crate) mod _hashlib {
         #[pyarg(named, optional)]
         person: OptionalArg<ArgBytesLike>,
         #[pyarg(named, optional)]
-        fanout: OptionalArg<ArgPrimitiveIndex<i64>>,
+        fanout: OptionalArg<i64>,
         #[pyarg(named, optional)]
-        depth: OptionalArg<ArgPrimitiveIndex<i64>>,
+        depth: OptionalArg<i64>,
         #[pyarg(named, optional)]
         leaf_size: OptionalArg<PyObjectRef>,
         #[pyarg(named, optional)]
         node_offset: OptionalArg<PyObjectRef>,
         #[pyarg(named, optional)]
-        node_depth: OptionalArg<ArgPrimitiveIndex<i64>>,
+        node_depth: OptionalArg<i64>,
         #[pyarg(named, optional)]
-        inner_size: OptionalArg<ArgPrimitiveIndex<i64>>,
+        inner_size: OptionalArg<i64>,
         #[pyarg(named, default)]
         last_node: bool,
         #[pyarg(named, default = true)]
@@ -951,7 +951,7 @@ pub(crate) mod _hashlib {
             max_node_offset,
         } = limits;
         let data = resolve_data(args.data, args.string, vm)?;
-        let digest_size = args.digest_size.map_or(default_digest_size, |v| v.value);
+        let digest_size = args.digest_size.unwrap_or(default_digest_size);
         if digest_size < 1 || digest_size as u64 > max_digest_size as u64 {
             return Err(vm.new_value_error(format!(
                 "digest_size for {display} must be between 1 and {max_digest_size} bytes, here it is {digest_size}"
@@ -994,11 +994,11 @@ pub(crate) mod _hashlib {
             );
         }
 
-        let fanout = args.fanout.map_or(1, |v| v.value);
+        let fanout = args.fanout.unwrap_or(1);
         if !(0..=255).contains(&fanout) {
             return Err(vm.new_value_error("fanout must be between 0 and 255"));
         }
-        let depth = args.depth.map_or(1, |v| v.value);
+        let depth = args.depth.unwrap_or(1);
         if !(1..=255).contains(&depth) {
             return Err(vm.new_value_error("depth must be between 1 and 255"));
         }
@@ -1021,11 +1021,11 @@ pub(crate) mod _hashlib {
             None => 0,
         };
 
-        let node_depth = args.node_depth.map_or(0, |v| v.value);
+        let node_depth = args.node_depth.unwrap_or(0);
         if !(0..=255).contains(&node_depth) {
             return Err(vm.new_value_error("node_depth must be between 0 and 255"));
         }
-        let inner_size = args.inner_size.map_or(0, |v| v.value);
+        let inner_size = args.inner_size.unwrap_or(0);
         if inner_size < 0 || inner_size as u64 > max_digest_size as u64 {
             return Err(vm.new_value_error(format!(
                 "inner_size must be between 0 and is {max_digest_size}"
@@ -1234,11 +1234,11 @@ pub(crate) mod _hashlib {
         #[pyarg(named)]
         salt: ArgBytesLike,
         #[pyarg(named)]
-        n: ArgPrimitiveIndex<i64>,
+        n: i64,
         #[pyarg(named)]
-        r: ArgPrimitiveIndex<i64>,
+        r: i64,
         #[pyarg(named)]
-        p: ArgPrimitiveIndex<i64>,
+        p: i64,
         #[pyarg(named, default)]
         maxmem: i64,
         #[pyarg(named, default = 64)]
@@ -1259,7 +1259,7 @@ pub(crate) mod _hashlib {
             return Err(vm.new_overflow_error("salt is too long."));
         }
 
-        let n = u64::try_from(args.n.value).unwrap_or(0);
+        let n = u64::try_from(args.n).unwrap_or(0);
         if n < 2 || !n.is_power_of_two() {
             return Err(vm.new_value_error("n must be a power of 2."));
         }
@@ -1267,13 +1267,13 @@ pub(crate) mod _hashlib {
             vm.new_value_error("Invalid parameter combination for n, r, p, maxmem.")
         })?;
 
-        let r = u32::try_from(args.r.value)
+        let r = u32::try_from(args.r)
             .ok()
             .filter(|&value| value > 0)
             .ok_or_else(|| {
                 vm.new_value_error("Invalid parameter combination for n, r, p, maxmem.")
             })?;
-        let p = u32::try_from(args.p.value)
+        let p = u32::try_from(args.p)
             .ok()
             .filter(|&value| value > 0)
             .ok_or_else(|| {

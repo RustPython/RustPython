@@ -10,7 +10,7 @@ use crate::{
     atomic_func,
     class::{PyClassDef, PyClassImpl},
     convert::{ToPyObject, TransmuteFromObject},
-    function::{ArgSize, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySsize},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -474,8 +474,8 @@ impl PyTuple {
         self.as_slice().len()
     }
 
-    fn __mul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::repeat(zelf, value.into(), vm)
+    fn __mul__(zelf: PyRef<Self>, value: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::repeat(zelf, value, vm)
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {

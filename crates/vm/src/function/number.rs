@@ -171,37 +171,35 @@ impl TryFromObject for ArgIndex {
     }
 }
 
+/// A signed size or index argument (`Py_ssize_t`).
+pub type PySsize = isize;
+/// An unsigned size argument (`size_t`).
+pub type PySize = usize;
+
+/// An `int` (or subclass, including `bool`) converted to a Rust primitive.
+///
+/// Unlike the primitive `TryFromObject` impls, this never calls `__index__`.
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
-pub struct ArgPrimitiveIndex<T> {
+pub struct ArgStrictInt<T> {
     pub value: T,
 }
 
-impl<T> From<T> for ArgPrimitiveIndex<T> {
-    fn from(value: T) -> Self {
-        Self { value }
+impl<T> ArgStrictInt<T> {
+    #[inline]
+    #[must_use]
+    pub fn into_primitive(self) -> T {
+        self.value
     }
 }
 
-impl<T> OptionalArg<ArgPrimitiveIndex<T>> {
+impl<T> OptionalArg<ArgStrictInt<T>> {
     pub fn into_primitive(self) -> OptionalArg<T> {
         self.map(|x| x.value)
     }
 }
 
-macro_rules! arg_index_py_default {
-    ($($t:ty),+) => {$(
-        impl ArgPrimitiveIndex<$t> {
-            #[must_use]
-            pub const fn py_default(&self) -> super::DefaultRepr {
-                super::DefaultRepr::Int(self.value as i128)
-            }
-        }
-    )+};
-}
-arg_index_py_default!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, usize);
-
-impl<T> Deref for ArgPrimitiveIndex<T> {
+impl<T> Deref for ArgStrictInt<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -209,21 +207,13 @@ impl<T> Deref for ArgPrimitiveIndex<T> {
     }
 }
 
-impl<T> TryFromObject for ArgPrimitiveIndex<T>
+impl<T> TryFromObject for ArgStrictInt<T>
 where
     T: PrimInt + for<'a> TryFrom<&'a BigInt>,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(Self {
-            value: obj.try_index(vm)?.try_to_primitive(vm)?,
-        })
-    }
-}
-
-pub type ArgSize = ArgPrimitiveIndex<isize>;
-
-impl From<ArgSize> for isize {
-    fn from(arg: ArgSize) -> Self {
-        arg.value
+        // Same check the primitive conversions used before they grew `__index__`.
+        let value = obj.try_value_with(|int: &Py<PyInt>| int.try_to_primitive(vm), vm)?;
+        Ok(Self { value })
     }
 }
