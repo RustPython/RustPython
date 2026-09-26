@@ -1472,36 +1472,36 @@ impl PyStr {
     // https://docs.python.org/3/library/stdtypes.html#str.translate
     #[pymethod]
     pub fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        vm.get_method_or_type_error(table.clone(), identifier!(vm, __getitem__), || {
-            format!(
-                "'{}' object is not subscriptable",
-                table.class().slot_name()
-            )
-        })?;
-
-        let mut translated = Wtf8Buf::new();
+        let dict = table.downcast_ref_if_exact::<PyDict>(vm);
+        let mut translated = Wtf8Buf::with_capacity(self.as_wtf8().len());
         for cp in self.as_wtf8().code_points() {
-            match table.get_item(&*cp.to_u32().to_pyobject(vm), vm) {
-                Ok(value) => {
-                    if let Some(text) = value.downcast_ref::<Self>() {
-                        translated.push_wtf8(text.as_wtf8());
-                    } else if let Some(bigint) = value.downcast_ref::<PyInt>() {
-                        let mapped = bigint
-                            .as_bigint()
-                            .to_u32()
-                            .and_then(CodePoint::from_u32)
-                            .ok_or_else(|| {
-                                vm.new_value_error("character mapping must be in range(0x110000)")
-                            })?;
-                        translated.push(mapped);
-                    } else if !vm.is_none(&value) {
-                        return Err(
-                            vm.new_type_error("character mapping must return integer, None or str")
-                        );
-                    }
-                }
-                Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => translated.push(cp),
-                Err(e) => return Err(e),
+            let key = cp.to_u32().to_pyobject(vm);
+            // `charmaptranslate_lookup`: a missing key or any `LookupError` leaves `cp` unchanged.
+            let value = match dict {
+                Some(dict) => dict.get_item_opt(&*key, vm)?,
+                None => match table.get_item(&*key, vm) {
+                    Ok(value) => Some(value),
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.lookup_error) => None,
+                    Err(e) => return Err(e),
+                },
+            };
+            let Some(value) = value else {
+                translated.push(cp);
+                continue;
+            };
+            if let Some(text) = value.downcast_ref::<Self>() {
+                translated.push_wtf8(text.as_wtf8());
+            } else if let Some(bigint) = value.downcast_ref::<PyInt>() {
+                let mapped = bigint
+                    .as_bigint()
+                    .to_u32()
+                    .and_then(CodePoint::from_u32)
+                    .ok_or_else(|| {
+                        vm.new_value_error("character mapping must be in range(0x110000)")
+                    })?;
+                translated.push(mapped);
+            } else if !vm.is_none(&value) {
+                return Err(vm.new_type_error("character mapping must return integer, None or str"));
             }
         }
         Ok(translated)
