@@ -18,7 +18,7 @@ mod decl {
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyStr, PyStrRef, PyTypeRef},
         class::PyClassDef,
-        function::{Either, FuncArgs, OptionalArg},
+        function::{Either, FuncArgs, OptionalArg, OptionalOption},
         types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
     };
     #[cfg(target_os = "wasi")]
@@ -340,12 +340,6 @@ mod decl {
             .map_err(|_| vm.new_overflow_error("timestamp out of range for platform time_t"))
     }
 
-    #[derive(FromArgs)]
-    struct OptionalSecs {
-        #[pyarg(positional, optional)]
-        secs: Option<Either<f64, i64>>,
-    }
-
     #[cfg(not(any(unix, windows)))]
     fn naive_or_local(secs: Option<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<Zoned> {
         Ok(match secs {
@@ -477,8 +471,12 @@ mod decl {
 
     /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
     #[pyfunction]
-    fn gmtime(args: OptionalSecs, vm: &VirtualMachine) -> PyResult<StructTimeData> {
-        let secs = args.secs;
+    fn gmtime(
+        secs: OptionalOption<Either<f64, i64>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<StructTimeData> {
+        // `[seconds]` has no text signature; None is the same as missing.
+        let secs = secs.flatten();
         cfg_select! {
             any(unix, windows) => {
                 let ts = match secs {
@@ -498,8 +496,12 @@ mod decl {
     }
 
     #[pyfunction]
-    fn localtime(args: OptionalSecs, vm: &VirtualMachine) -> PyResult<StructTimeData> {
-        let secs = args.secs;
+    fn localtime(
+        secs: OptionalOption<Either<f64, i64>>,
+        vm: &VirtualMachine,
+    ) -> PyResult<StructTimeData> {
+        // `[seconds]` has no text signature; None is the same as missing.
+        let secs = secs.flatten();
         cfg_select! {
             any(unix, windows) => {
                 let ts = match secs {
@@ -568,8 +570,9 @@ mod decl {
     }
 
     #[pyfunction]
-    fn ctime(args: OptionalSecs, vm: &VirtualMachine) -> PyResult<String> {
-        let secs = args.secs;
+    fn ctime(secs: OptionalOption<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<String> {
+        // `[seconds]` has no text signature; None is the same as missing.
+        let secs = secs.flatten();
         #[cfg(any(unix, windows))]
         {
             let ts = match secs {
