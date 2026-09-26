@@ -1402,7 +1402,7 @@ impl Hashable for PyMemoryView {
         if !zelf.buffer.obj.downcastable::<PyBufferWindow>() {
             zelf.while_exported(|| zelf.buffer.obj.hash(vm))?;
         }
-        let val = zelf.contiguous_or_collect(|bytes| vm.state.hash_secret.hash_bytes(bytes));
+        let val = zelf.contiguous_or_collect(|bytes| crate::vm::hash_secret().hash_bytes(bytes));
         let _ = zelf.hash.set(val);
         Ok(*zelf.hash.get().unwrap())
     }

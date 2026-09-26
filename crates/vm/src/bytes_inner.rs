@@ -402,8 +402,8 @@ impl PyBytesInner {
         )
     }
 
-    pub fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {
-        vm.state.hash_secret.hash_bytes(&self.elements)
+    pub fn hash(&self, _vm: &VirtualMachine) -> hash::PyHash {
+        crate::vm::hash_secret().hash_bytes(&self.elements)
     }
 
     pub fn add(&self, other: &[u8]) -> Vec<u8> {
