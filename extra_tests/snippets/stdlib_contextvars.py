@@ -54,3 +54,30 @@ class ReentrantEq:
 ctx1.run(nested.set, ReentrantEq())
 ctx2.run(nested.set, object())
 assert ctx1 == ctx2
+
+try:
+    import _interpreters
+    import gc
+except ImportError:
+    _interpreters = None
+
+if _interpreters is not None:
+    child = _interpreters.create()
+    try:
+        assert _interpreters.run_string(
+            child,
+            """
+import contextvars
+contextvars.ContextVar('child_marker').set(42)
+""",
+        ) is None
+    finally:
+        _interpreters.destroy(child)
+
+    gc.collect()
+    assert [
+        (var.name, value)
+        for var, value in copy_context().items()
+        if var.name == "child_marker"
+    ] == []
+

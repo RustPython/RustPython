@@ -1,14 +1,6 @@
 pub(crate) use _contextvars::PyContext;
 pub(crate) use _contextvars::module_def;
 
-use crate::vm::PyRef;
-use core::cell::RefCell;
-
-thread_local! {
-    // TODO: Vec doesn't seem to match copy behavior
-    static CONTEXTS: RefCell<Vec<PyRef<PyContext>>> = RefCell::default();
-}
-
 #[pymodule]
 mod _contextvars {
     use crate::vm::{
@@ -110,10 +102,9 @@ mod _contextvars {
                 )));
             }
 
-            super::CONTEXTS.with_borrow_mut(|ctxs| {
-                zelf.inner.idx.store(ctxs.len(), Ordering::Relaxed);
-                ctxs.push(zelf.to_owned());
-            });
+            let mut ctxs = vm.context_stack.borrow_mut();
+            zelf.inner.idx.store(ctxs.len(), Ordering::Relaxed);
+            ctxs.push(zelf.to_owned().into());
 
             Ok(())
         }
@@ -126,14 +117,11 @@ mod _contextvars {
                 )));
             }
 
-            super::CONTEXTS.with_borrow_mut(|ctxs| {
-                ctxs.pop_if(|ctx| ctx.get_id() == zelf.get_id())
-                    .map(drop)
-                    .ok_or_else(|| {
-                        vm.new_runtime_error(
-                            "cannot exit context: thread state references a different context object"
-                        )
-                    })
+            let mut ctxs = vm.context_stack.borrow_mut();
+            ctxs.pop_if(|ctx| ctx.is(zelf)).map(drop).ok_or_else(|| {
+                vm.new_runtime_error(
+                    "cannot exit context: thread state references a different context object",
+                )
             })?;
             zelf.inner.entered.store(false, Ordering::Release);
 
@@ -141,18 +129,17 @@ mod _contextvars {
         }
 
         fn current(vm: &VirtualMachine) -> PyRef<Self> {
-            super::CONTEXTS.with_borrow_mut(|ctxs| {
-                if let Some(ctx) = ctxs.last() {
-                    ctx.clone()
-                } else {
-                    let ctx = Self::empty(vm);
-                    ctx.inner.idx.store(0, Ordering::Relaxed);
-                    ctx.inner.entered.store(true, Ordering::Release);
-                    let ctx = ctx.into_ref(&vm.ctx);
-                    ctxs.push(ctx);
-                    ctxs[0].clone()
-                }
-            })
+            let mut ctxs = vm.context_stack.borrow_mut();
+            if let Some(ctx) = ctxs.last() {
+                ctx.clone().downcast::<Self>().unwrap()
+            } else {
+                let ctx = Self::empty(vm);
+                ctx.inner.idx.store(0, Ordering::Relaxed);
+                ctx.inner.entered.store(true, Ordering::Release);
+                let ctx = ctx.into_ref(&vm.ctx);
+                ctxs.push(ctx.clone().into());
+                ctx
+            }
         }
 
         fn contains(&self, needle: &Py<ContextVar>) -> bool {
@@ -449,10 +436,12 @@ mod _contextvars {
         ) -> PyResult<Option<PyObjectRef>> {
             // The replaced cache entry comes back out so that dropping it, which
             // can run a __del__ that calls back in, happens with no lock held.
-            let (found, replaced) = super::CONTEXTS.with_borrow(|ctxs| {
-                let Some(ctx) = ctxs.last() else {
+            let (found, replaced) = (|| {
+                let ctxs = vm.context_stack.borrow();
+                let Some(ctx_obj) = ctxs.last() else {
                     return (None, None);
                 };
+                let ctx = ctx_obj.downcast_ref::<PyContext>().unwrap();
                 let mut cached = zelf.cached.lock();
                 if let Some(cached) = &*cached
                     && zelf.cached_id.load(Ordering::SeqCst) == ctx.get_id()
@@ -471,7 +460,7 @@ mod _contextvars {
                 });
 
                 (Some(obj), replaced)
-            });
+            })();
             drop(replaced);
 
             let value = if let Some(value) = found {
