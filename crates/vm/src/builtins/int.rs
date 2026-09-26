@@ -313,17 +313,6 @@ impl PyInt {
     }
 
     #[inline]
-    fn int_op<F>(&self, other: &PyObject, op: F) -> PyArithmeticValue<BigInt>
-    where
-        F: Fn(&BigInt, &BigInt) -> BigInt,
-    {
-        let r = other
-            .downcast_ref::<Self>()
-            .map(|other| op(&self.value, other.as_bigint()));
-        PyArithmeticValue::from_option(r)
-    }
-
-    #[inline]
     fn general_op<F>(&self, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: Fn(&BigInt, &BigInt) -> PyResult,
@@ -427,6 +416,29 @@ impl Py<PyInt> {
             ))
         })
     }
+
+    pub(crate) fn __xor__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+        self.int_op(&other, |a, b| a ^ b)
+    }
+
+    pub(crate) fn __or__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+        self.int_op(&other, |a, b| a | b)
+    }
+
+    pub(crate) fn __and__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
+        self.int_op(&other, |a, b| a & b)
+    }
+
+    #[inline]
+    fn int_op<F>(&self, other: &PyObject, op: F) -> PyArithmeticValue<BigInt>
+    where
+        F: Fn(&BigInt, &BigInt) -> BigInt,
+    {
+        let r = other
+            .downcast_ref::<PyInt>()
+            .map(|other| op(self.as_bigint(), other.as_bigint()));
+        PyArithmeticValue::from_option(r)
+    }
 }
 
 #[derive(FromArgs)]
@@ -441,18 +453,6 @@ struct RoundArgs {
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyInt {
-    pub(crate) fn __xor__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(&other, |a, b| a ^ b)
-    }
-
-    pub(crate) fn __or__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(&other, |a, b| a | b)
-    }
-
-    pub(crate) fn __and__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(&other, |a, b| a & b)
-    }
-
     fn modpow(&self, other: &PyObject, modulus: &PyObject, vm: &VirtualMachine) -> PyResult {
         if other.downcast_ref::<Self>().is_none() {
             return Ok(vm.ctx.not_implemented());
