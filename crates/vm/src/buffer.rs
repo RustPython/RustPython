@@ -1,6 +1,6 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyBytesRef, PyComplex, PyTuple, PyTupleRef, PyType, PyTypeRef},
     common::{static_cell, str::wchar_t},
     convert::ToPyObject,
     exceptions,
@@ -780,7 +780,7 @@ struct PackFloatComplex(f32, f32);
 struct PackDoubleComplex(f64, f64);
 
 macro_rules! make_pack_complex {
-    ($T:ty, $Elem:ty, $Bits:ty) => {
+    ($T:ty, $Elem:ty, $Bits:ty, $fmt:literal) => {
         impl Packable for $T {
             fn pack<E: ByteOrder>(
                 vm: &VirtualMachine,
@@ -788,20 +788,37 @@ macro_rules! make_pack_complex {
                 arg: PyObjectRef,
                 data: &mut [u8],
             ) -> Result<(), PackError> {
-                let c = ArgIntoComplex::try_from_object(vm, arg)
-                    .map_err(|_| {
-                        PackError::new(
-                            PackErrorKind::Type,
-                            vm,
-                            "required argument is not a complex",
-                        )
-                    })?
-                    .into_complex();
-                let half = size_of::<$Elem>();
-                (c.re as $Elem).to_bits().pack_int::<E>(&mut data[..half]);
-                (c.im as $Elem)
-                    .to_bits()
-                    .pack_int::<E>(&mut data[half..half * 2]);
+                let c = if let Some(value) = arg.downcast_ref::<PyComplex>() {
+                    value.to_complex()
+                } else {
+                    ArgIntoComplex::try_from_object(vm, arg)
+                        .map_err(|_| {
+                            PackError::new(
+                                PackErrorKind::Type,
+                                vm,
+                                "required argument is not a complex",
+                            )
+                        })?
+                        .into_complex()
+                };
+                for (component, bytes) in [c.re, c.im]
+                    .into_iter()
+                    .zip(data.chunks_exact_mut(size_of::<$Elem>()))
+                {
+                    let narrowed = component as $Elem;
+                    // CPython uses native casts for matching-endian complex formats.
+                    if E::convert(1u16) != 1 && narrowed.is_infinite() != component.is_infinite() {
+                        return Err(PackError {
+                            kind: PackErrorKind::Value,
+                            exception: vm.new_overflow_error(concat!(
+                                "float too large to pack with ",
+                                $fmt,
+                                " format"
+                            )),
+                        });
+                    }
+                    narrowed.to_bits().pack_int::<E>(bytes);
+                }
                 Ok(())
             }
 
@@ -815,8 +832,8 @@ macro_rules! make_pack_complex {
     };
 }
 
-make_pack_complex!(PackFloatComplex, f32, u32);
-make_pack_complex!(PackDoubleComplex, f64, u64);
+make_pack_complex!(PackFloatComplex, f32, u32, "f");
+make_pack_complex!(PackDoubleComplex, f64, u64, "d");
 
 impl Packable for f16 {
     fn pack<E: ByteOrder>(

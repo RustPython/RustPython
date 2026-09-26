@@ -94,7 +94,9 @@ impl PyObjectRef {
             let result = method?.call((), vm)?;
 
             let ret_class = result.class().to_owned();
-            if let Some(ret) = result.downcast_ref::<PyComplex>() {
+            if let Some(ret) = result.downcast_ref::<PyComplex>()
+                && !result.class().is(vm.ctx.types.complex_type)
+            {
                 _warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
