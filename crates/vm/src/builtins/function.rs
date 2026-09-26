@@ -111,8 +111,11 @@ unsafe impl Traverse for PyFunction {
         // Traverse additional fields that may contain references
         self.type_params.lock().traverse(tracer_fn);
         self.annotations.lock().traverse(tracer_fn);
+        self.annotate.lock().traverse(tracer_fn);
         self.module.traverse(tracer_fn);
         self.doc.traverse(tracer_fn);
+        self.name.lock().traverse(tracer_fn);
+        self.qualname.lock().traverse(tracer_fn);
     }
 
     fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
