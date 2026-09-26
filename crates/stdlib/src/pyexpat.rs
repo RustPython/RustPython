@@ -170,9 +170,7 @@ mod _pyexpat {
         VirtualMachine,
         builtins::{PyBytesRef, PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
-        function::{
-            ArgBytesLike, ArgPrimitiveIndex, Either, IntoFuncArgs, OptionalArg, OptionalOption,
-        },
+        function::{ArgBytesLike, Either, IntoFuncArgs, OptionalArg, OptionalOption},
         types::Constructor,
     };
     use alloc::collections::VecDeque;
@@ -1016,7 +1014,7 @@ mod _pyexpat {
         }
 
         #[pymethod(name = "SetParamEntityParsing")]
-        fn set_param_entity_parsing(&self, _flag: ArgPrimitiveIndex<i32>) -> i32 {
+        fn set_param_entity_parsing(&self, _flag: i32) -> i32 {
             // Compatibility shim: xml.sax requires this setup API, but xml-rs
             // does not expose Expat parameter entity parsing configuration.
             1

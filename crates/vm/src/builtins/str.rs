@@ -17,7 +17,7 @@ use crate::{
     },
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
-    function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIterable, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     intern::PyInterned,
     object::{MaybeTraverse, Traverse, TraverseFn},
     protocol::{
@@ -770,8 +770,8 @@ impl PyStr {
         core::mem::size_of::<Self>() + self.byte_len() * core::mem::size_of::<u8>()
     }
 
-    fn __mul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::repeat(zelf, value.into(), vm)
+    fn __mul__(zelf: PyRef<Self>, value: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::repeat(zelf, value, vm)
     }
 
     #[inline]
@@ -1407,7 +1407,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    fn zfill(&self, width: PySsize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let filled = self
             .as_wtf8()
             .py_zfill(width)
@@ -1769,7 +1769,7 @@ struct StripArgs {
 #[derive(FromArgs)]
 struct PadArgs {
     #[pyarg(positional)]
-    width: isize,
+    width: PySsize,
     #[pyarg(positional, default = " ")]
     fillchar: PyStrRef,
 }

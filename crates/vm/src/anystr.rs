@@ -7,6 +7,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyInt, PyIntRef, PyTuple},
     convert::TryFromBorrowedObject,
+    function::PySsize,
 };
 
 #[derive(FromArgs)]
@@ -14,7 +15,7 @@ pub struct SplitArgs<T: TryFromObject> {
     #[pyarg(any, optional)]
     sep: Option<T>,
     #[pyarg(any, default = -1)]
-    maxsplit: isize,
+    maxsplit: PySsize,
 }
 
 #[derive(FromArgs)]
@@ -199,7 +200,9 @@ pub(crate) trait AnyStr {
             if args.maxsplit < 0 {
                 split(self, pattern, vm)
             } else {
-                splitn(self, pattern, (args.maxsplit + 1) as usize, vm)
+                // Widen before adding: `isize::MAX + 1` overflows, and `sys.maxsize`
+                // is a legitimate maxsplit.
+                splitn(self, pattern, args.maxsplit as usize + 1, vm)
             }
         } else {
             split_whitespace(self, args.maxsplit, vm)

@@ -23,7 +23,7 @@ use crate::{
         },
     },
     convert::{ToPyObject, ToPyResult},
-    function::{ArgBytesLike, ArgSize, PyComparisonValue},
+    function::{ArgBytesLike, PyComparisonValue, PySsize},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PyNumberMethods, PySequenceMethods,
@@ -519,12 +519,12 @@ impl PyByteArray {
         self.inner().title().into()
     }
 
-    fn __mul__(&self, value: ArgSize, vm: &VirtualMachine) -> PyResult<Self> {
-        self.repeat(value.into(), vm)
+    fn __mul__(&self, value: PySsize, vm: &VirtualMachine) -> PyResult<Self> {
+        self.repeat(value, vm)
     }
 
-    fn __imul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::irepeat(&zelf, value.into(), vm)?;
+    fn __imul__(zelf: PyRef<Self>, value: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::irepeat(&zelf, value, vm)?;
         Ok(zelf)
     }
 

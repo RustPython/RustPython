@@ -5,7 +5,7 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
-    function::{ArgSize, Callee, FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
+    function::{Callee, FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue, PySsize},
     protocol::{PyNumberBinaryFunc, PyNumberTernaryFunc, PyNumberUnaryFunc},
     types::{
         Callable, Comparable, DelFunc, DescrGetFunc, DescrSetFunc, GenericMethod, GetDescriptor,
@@ -932,8 +932,8 @@ impl SlotFunc {
                 func(obj.sequence_unchecked(), &other, vm)
             }
             Self::SeqRepeat(func) => {
-                let (n,): (ArgSize,) = args.bind(vm)?;
-                func(obj.sequence_unchecked(), n.into(), vm)
+                let (n,): (PySsize,) = args.bind(vm)?;
+                func(obj.sequence_unchecked(), n, vm)
             }
             Self::SeqItem(func) => {
                 let (index,): (isize,) = args.bind(vm)?;

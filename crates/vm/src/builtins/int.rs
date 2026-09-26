@@ -14,6 +14,7 @@ use crate::{
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
         ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
+        PySsize,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err, numeric_literal_from_str},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -114,9 +115,16 @@ macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl<'a> TryFromBorrowedObject<'a> for $t {
             fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-                obj.try_value_with(|int: &Py<PyInt>| {
-                    int.try_to_primitive(vm)
-                }, vm)
+                // `int` (and subclasses, including `bool`) is taken as-is.
+                // Anything else must supply `__index__`, which `try_index` calls.
+                let owned;
+                let int = if let Some(int) = obj.downcast_ref::<PyInt>() {
+                    int
+                } else {
+                    owned = obj.try_index(vm)?;
+                    &owned
+                };
+                int.try_to_primitive(vm)
             }
         }
     )*};
@@ -591,7 +599,11 @@ impl PyInt {
     #[pymethod]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
         let signed: bool = args.signed.into();
+        // Bound as `isize`, so a length past `isize::MAX` is an OverflowError rather
+        // than a failed allocation later on.
         let byte_len = args.length;
+        let byte_len = usize::try_from(byte_len)
+            .map_err(|_| vm.new_value_error("length argument must be non-negative"))?;
 
         let value = self.as_bigint();
         match value.sign() {
@@ -822,7 +834,7 @@ struct IntFromByteArgs {
 #[derive(FromArgs)]
 struct IntToByteArgs {
     #[pyarg(any, default = 1)]
-    length: usize,
+    length: PySsize,
     #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
     #[pyarg(named, default = ArgIntoBool::FALSE)]
