@@ -1,10 +1,10 @@
 use crate::{
     AsObject, Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    builtins::{PyBaseExceptionRef, PyBytesRef, PyComplex, PyTuple, PyTupleRef, PyType, PyTypeRef},
     common::{static_cell, str::wchar_t},
     convert::ToPyObject,
     exceptions,
-    function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
+    function::{ArgBytesLike, ArgIntoBool, ArgIntoComplex, ArgIntoFloat},
 };
 
 use rustpython_common::wtf8::Wtf8Buf;
@@ -13,6 +13,7 @@ use core::{fmt, iter::Peekable, mem};
 use half::f16;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
+use num_complex::Complex64;
 use num_traits::{PrimInt, ToPrimitive};
 use std::os::raw;
 
@@ -156,6 +157,8 @@ pub(crate) enum FormatType {
     Half = b'e',
     Float = b'f',
     Double = b'd',
+    FloatComplex = b'F',
+    DoubleComplex = b'D',
     LongDouble = b'g',
     VoidP = b'P',
     PyObject = b'O',
@@ -220,6 +223,8 @@ impl FormatType {
                     Self::Half => nonnative_info!(f16, $end),
                     Self::Float => nonnative_info!(f32, $end),
                     Self::Double => nonnative_info!(f64, $end),
+                    Self::FloatComplex => nonnative_info!([f32; 2], $end),
+                    Self::DoubleComplex => nonnative_info!([f64; 2], $end),
                     Self::LongDouble => nonnative_info!(f64, $end), // long double same as double
                     Self::PyObject => nonnative_info!(usize, $end), // pointer size
                     _ => unreachable!(),                            // size_t or void*
@@ -259,6 +264,8 @@ impl FormatType {
                 Self::Half => native_info!(f16),
                 Self::Float => native_info!(raw::c_float),
                 Self::Double => native_info!(raw::c_double),
+                Self::FloatComplex => native_info!([raw::c_float; 2]),
+                Self::DoubleComplex => native_info!([raw::c_double; 2]),
                 Self::LongDouble => native_info!(raw::c_double), // long double same as double for now
                 Self::VoidP => native_info!(*mut raw::c_void),
                 Self::PyObject => native_info!(*mut raw::c_void), // pointer to PyObject
@@ -760,6 +767,64 @@ macro_rules! make_pack_float {
 
 make_pack_float!(f32, "f");
 make_pack_float!(f64, "d");
+
+macro_rules! make_pack_complex {
+    ($T:ty, $fmt:literal) => {
+        impl Packable for [$T; 2] {
+            fn pack<E: ByteOrder>(
+                vm: &VirtualMachine,
+                _code: FormatType,
+                arg: PyObjectRef,
+                data: &mut [u8],
+            ) -> Result<(), PackError> {
+                let value = if let Some(value) = arg.downcast_ref::<PyComplex>() {
+                    value.to_complex()
+                } else {
+                    ArgIntoComplex::try_from_object(vm, arg)
+                        .map_err(|_| {
+                            PackError::new(
+                                PackErrorKind::Type,
+                                vm,
+                                "required argument is not a complex",
+                            )
+                        })?
+                        .into_complex()
+                };
+                for (component, bytes) in [value.re, value.im]
+                    .into_iter()
+                    .zip(data.chunks_exact_mut(mem::size_of::<$T>()))
+                {
+                    let narrowed = component as $T;
+                    // CPython uses native casts for matching-endian complex formats.
+                    if E::convert(1u16) != 1 && narrowed.is_infinite() != component.is_infinite() {
+                        return Err(PackError {
+                            kind: PackErrorKind::Value,
+                            exception: vm.new_overflow_error(concat!(
+                                "float too large to pack with ",
+                                $fmt,
+                                " format"
+                            )),
+                        });
+                    }
+                    narrowed.to_bits().pack_int::<E>(bytes);
+                }
+                Ok(())
+            }
+
+            fn unpack<E: ByteOrder>(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
+                let (real, imag) = data.split_at(mem::size_of::<$T>());
+                Complex64::new(
+                    <$T>::from_bits(PackInt::unpack_int::<E>(real)) as f64,
+                    <$T>::from_bits(PackInt::unpack_int::<E>(imag)) as f64,
+                )
+                .to_pyobject(vm)
+            }
+        }
+    };
+}
+
+make_pack_complex!(f32, "f");
+make_pack_complex!(f64, "d");
 
 impl Packable for f16 {
     fn pack<E: ByteOrder>(
