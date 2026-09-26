@@ -3979,7 +3979,7 @@ mod _ssl {
     // SSLSession - represents a cached SSL session
     // NOTE: This is an EMULATION - actual session data is managed by Rustls internally
     #[pyattr]
-    #[pyclass(name = "SSLSession", module = "ssl")]
+    #[pyclass(name = "SSLSession", module = "ssl", unhashable = true)]
     #[derive(Debug, PyPayload)]
     struct PySSLSession {
         context_identity: Arc<()>,

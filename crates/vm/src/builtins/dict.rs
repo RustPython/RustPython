@@ -1165,10 +1165,11 @@ macro_rules! dict_view {
         $class_name: literal,
         $iter_class_name: literal,
         $reverse_iter_class_name: literal,
+        $unhashable: literal,
         $project_fn: expr,
         $result_fn: expr
     ) => {
-        #[pyclass(module = false, name = $class_name)]
+        #[pyclass(module = false, name = $class_name, unhashable = $unhashable)]
         #[derive(Debug)]
         pub(crate) struct $name {
             pub(crate) dict: PyDictRef,
@@ -1456,6 +1457,7 @@ dict_view! {
     "dict_keys",
     "dict_keyiterator",
     "dict_reversekeyiterator",
+    true,
     |key: &PyObject, _value| key.to_owned(),
     |_vm: &VirtualMachine, key: PyObjectRef| key
 }
@@ -1470,6 +1472,7 @@ dict_view! {
     "dict_values",
     "dict_valueiterator",
     "dict_reversevalueiterator",
+    false,
     |_key: &PyObject, value: &PyObjectRef| value.clone(),
     |_vm: &VirtualMachine, value: PyObjectRef| value
 }
@@ -1484,6 +1487,7 @@ dict_view! {
     "dict_items",
     "dict_itemiterator",
     "dict_reverseitemiterator",
+    true,
     |key: &PyObject, value: &PyObjectRef| (key.to_owned(), value.clone()),
     // Builds a tuple, so it runs after the dict's read guard is released.
     |vm: &VirtualMachine, (key, value): (PyObjectRef, PyObjectRef)|
