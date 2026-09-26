@@ -9,7 +9,6 @@ use crate::{
     protocol::PyIterReturn,
     vm::GenFrameLink,
 };
-use core::sync::atomic::Ordering;
 use crossbeam_utils::atomic::AtomicCell;
 
 impl ExecutionResult {
@@ -522,7 +521,7 @@ impl Coro {
     }
 
     pub fn frame_opt(&self) -> Option<FrameObjectRef> {
-        self.frame.try_to_owned(Ordering::Acquire)
+        self.frame.load_owned()
     }
 
     pub fn code(&self) -> PyRef<PyCode> {

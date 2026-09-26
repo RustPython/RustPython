@@ -404,43 +404,6 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
         unsafe { self.inner.load(ordering).cast::<Py<T>>().as_ref() }
     }
 
-    pub fn to_owned(&self) -> Option<PyRef<T>> {
-        self.to_owned_ordering(Ordering::Relaxed)
-    }
-
-    pub fn to_owned_ordering(&self, ordering: Ordering) -> Option<PyRef<T>> {
-        self.deref_ordering(ordering).map(|x| x.to_owned())
-    }
-
-    /// Try-incref read of the current value.
-    ///
-    /// Unlike [`Self::to_owned`], this never increfs a destructed object:
-    /// it uses a conditional incref and revalidates that the slot still
-    /// holds the same pointer. Returns `None` when the slot is empty.
-    ///
-    /// Soundness relies on published-object memory being reclaimed only
-    /// after a QSBR grace period (see `object::qsbr`), so the refcount
-    /// word of a concurrently swapped-out value stays readable.
-    pub fn try_to_owned(&self, ordering: Ordering) -> Option<PyRef<T>> {
-        loop {
-            let ptr = self.inner.load(ordering);
-            if ptr.is_null() {
-                return None;
-            }
-            if let Some(obj) = unsafe { PyObject::try_to_owned_from_ptr(ptr.cast::<PyObject>()) } {
-                if core::ptr::eq(self.inner.load(Ordering::Acquire), ptr) {
-                    // SAFETY: the slot only ever stores `PyRef<T>` values.
-                    return Some(unsafe { obj.downcast_unchecked::<T>() });
-                }
-                drop(obj);
-            }
-            // Slot changed or the value was torn down mid-read; a failed
-            // incref with an unchanged slot is impossible (the slot's own
-            // strong ref keeps the value alive), so this loop progresses.
-            core::hint::spin_loop();
-        }
-    }
-
     /// # Safety
     /// The caller is responsible to keep the returned PyRef alive
     /// until no more reference can be used via PyAtomicRef::deref()
@@ -461,7 +424,13 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
     }
 
     /// Strong reference to the current value, or `None` when the slot is empty.
-    pub(crate) fn load_owned(&self) -> Option<PyRef<T>> {
+    ///
+    /// This is the owned read for a nullable cell. A concurrent store may drop
+    /// the previous value; the incref is retried until it applies to the
+    /// pointer still in the slot. Published-object memory is reclaimed only
+    /// after a QSBR grace period (see `object::qsbr`), so the refcount word of
+    /// a swapped-out value stays readable.
+    pub fn load_owned(&self) -> Option<PyRef<T>> {
         cell_load_owned(&self.inner).map(downcast_cell)
     }
 
@@ -670,7 +639,13 @@ impl PyAtomicRef<Option<PyObject>> {
     }
 
     /// Strong reference to the current value, or `None` when the slot is empty.
-    pub(crate) fn load_owned(&self) -> Option<PyObjectRef> {
+    ///
+    /// This is the owned read for a nullable cell. A concurrent store may drop
+    /// the previous value; the incref is retried until it applies to the
+    /// pointer still in the slot. Published-object memory is reclaimed only
+    /// after a QSBR grace period (see `object::qsbr`), so the refcount word of
+    /// a swapped-out value stays readable.
+    pub fn load_owned(&self) -> Option<PyObjectRef> {
         cell_load_owned(&self.inner)
     }
 
@@ -692,14 +667,6 @@ impl PyAtomicRef<Option<PyObject>> {
 
     pub fn deref_ordering(&self, ordering: Ordering) -> Option<&PyObject> {
         unsafe { self.inner.load(ordering).cast::<PyObject>().as_ref() }
-    }
-
-    pub fn to_owned(&self) -> Option<PyObjectRef> {
-        self.to_owned_ordering(Ordering::Relaxed)
-    }
-
-    pub fn to_owned_ordering(&self, ordering: Ordering) -> Option<PyObjectRef> {
-        self.deref_ordering(ordering).map(|x| x.to_owned())
     }
 
     /// # Safety

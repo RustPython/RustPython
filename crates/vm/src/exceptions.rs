@@ -1957,7 +1957,7 @@ pub(super) mod types {
                 None => vm.ctx.new_dict(),
             };
             let _ = state.del_item("obj", vm);
-            if let Some(name) = zelf.name.to_owned() {
+            if let Some(name) = zelf.name.load_owned() {
                 state.set_item("name", name, vm)?;
             }
             Ok(state.into())
@@ -2088,7 +2088,7 @@ pub(super) mod types {
             let exc: &Py<Self> = zelf
                 .downcast_ref()
                 .expect("slot wrapper checked ImportError");
-            if let Some(msg) = exc.msg.to_owned()
+            if let Some(msg) = exc.msg.load_owned()
                 && msg.class().is(vm.ctx.types.str_type)
             {
                 return msg.str(vm);
@@ -2122,9 +2122,9 @@ pub(super) mod types {
                 dict.set_item(key, value, vm)?;
                 Ok(())
             };
-            insert("name", exc.name.to_owned())?;
-            insert("path", exc.path.to_owned())?;
-            insert("name_from", exc.name_from.to_owned())?;
+            insert("name", exc.name.load_owned())?;
+            insert("path", exc.path.load_owned())?;
+            insert("name_from", exc.name_from.load_owned())?;
             if let Some(state) = state {
                 result.push(state.into());
             }
@@ -2551,7 +2551,7 @@ pub(super) mod types {
         // to, both follow the filename itself having been taken.
         let has_filename = exc
             .filename
-            .to_owned()
+            .load_owned()
             .as_ref()
             .is_some_and(|f| !vm.is_none(f));
         if (3..=5).contains(&len) && has_filename {
@@ -2988,7 +2988,7 @@ pub(super) mod types {
 
             let maybe_lineno = exc
                 .lineno
-                .to_owned()
+                .load_owned()
                 .filter(|obj| obj.class().is(vm.ctx.types.int_type))
                 .and_then(|obj| {
                     obj.downcast_ref::<PyInt>()
@@ -2996,14 +2996,14 @@ pub(super) mod types {
                 });
             let maybe_filename = exc
                 .filename
-                .to_owned()
+                .load_owned()
                 .filter(|obj| obj.fast_isinstance(vm.ctx.types.str_type))
                 .map(|obj| {
                     obj.str(vm)
                         .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
                 });
 
-            let msg = match exc.msg.to_owned() {
+            let msg = match exc.msg.load_owned() {
                 Some(obj) => obj
                     .str(vm)
                     .unwrap_or_else(|_| vm.ctx.new_str("<msg str() failed>")),
@@ -3176,7 +3176,7 @@ pub(super) mod types {
         cell: &PyAtomicRef<Option<PyObject>>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
-        match cell.deref() {
+        match cell.load_owned() {
             Some(obj) => obj.str(vm),
             None => Ok(vm.ctx.new_str("<NULL>")),
         }
@@ -3187,7 +3187,7 @@ pub(super) mod types {
         as_bytes: bool,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let Some(obj) = exc.object.to_owned() else {
+        let Some(obj) = exc.object.load_owned() else {
             return Err(vm.new_type_error("UnicodeError 'object' attribute is not set"));
         };
         let ok = if as_bytes {

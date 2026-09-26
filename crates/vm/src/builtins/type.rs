@@ -330,7 +330,7 @@ impl TypeSpecializationCache {
             new.as_object().mark_cache_published();
         }
         // SAFETY: reclamation of published objects is deferred via QSBR;
-        // racing try_to_owned readers never touch freed memory.
+        // racing load_owned readers never touch freed memory.
         let old = unsafe { self.init.swap(new_init) };
         if let Some(old) = old {
             // Dropping may run arbitrary Python; defer past the type lock.
@@ -1399,10 +1399,7 @@ impl PyType {
             return None;
         }
         // Check order: pointer (Acquire) then function version.
-        let init = ext
-            .specialization_cache
-            .init
-            .try_to_owned(Ordering::Acquire)?;
+        let init = ext.specialization_cache.init.load_owned()?;
         let cached_version = ext
             .specialization_cache
             .init_version
@@ -1447,10 +1444,7 @@ impl PyType {
     pub(crate) fn get_cached_getitem_for_specialization(&self) -> Option<(PyRef<PyFunction>, u32)> {
         let ext = self.heaptype_ext.as_ref()?;
         // Check order: pointer (Acquire) then function version.
-        let getitem = ext
-            .specialization_cache
-            .getitem
-            .try_to_owned(Ordering::Acquire)?;
+        let getitem = ext.specialization_cache.getitem.load_owned()?;
         let cached_version = ext
             .specialization_cache
             .getitem_version
@@ -1776,7 +1770,10 @@ impl PyType {
 
         // Reject reparenting onto a base whose instances have an incompatible
         // object layout.
-        let old_base = zelf.base.deref().unwrap_or(vm.ctx.types.object_type);
+        let old_base_owned = zelf.base.load_owned();
+        let old_base = old_base_owned
+            .as_deref()
+            .unwrap_or(vm.ctx.types.object_type);
         compatible_for_assignment(old_base, &new_base, "__bases__", vm)?;
 
         // References released inside the critical section are collected here
@@ -3325,7 +3322,7 @@ fn get_builtin_base_with_dict(typ: &Py<PyType>, vm: &VirtualMachine) -> Option<P
         {
             return Some(t);
         }
-        current = t.base.to_owned();
+        current = t.base.load_owned();
     }
     None
 }
@@ -3487,7 +3484,7 @@ pub(crate) fn call_slot_new(
         .load()
         .is_some_and(|f| fn_addr(f) == fn_addr(new_wrapper as NewFunc))
     {
-        match staticbase.base.to_owned() {
+        match staticbase.base.load_owned() {
             Some(base) => staticbase = base,
             None => break,
         }

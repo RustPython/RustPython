@@ -246,7 +246,7 @@ pub(super) mod types {
             let class_name = zelf.class().name().to_owned();
             let message = zelf.msg.repr(vm)?;
 
-            let exceptions_str = if let Some(saved) = zelf.excs_str.to_owned() {
+            let exceptions_str = if let Some(saved) = zelf.excs_str.load_owned() {
                 saved
                     .downcast::<crate::builtins::PyStr>()
                     .map_err(|_| vm.new_type_error("__repr__ returned non-string"))?
