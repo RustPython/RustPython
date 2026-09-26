@@ -1813,9 +1813,7 @@ pub(crate) fn parse(
         options.clone(),
         explicit_future_features.contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
-    if let Some(error) = rustpython_compiler::pre_parse_source_error(&source_file) {
-        return Err(error);
-    }
+    rustpython_compiler::pre_parse_source_error(&source_file)?;
     let parsed = parser::parse_unchecked(barry_source.source(), options);
     let type_comment_source =
         type_comments.then(|| TypeCommentSource::new(source, parsed.tokens()));
