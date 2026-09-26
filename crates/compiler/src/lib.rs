@@ -6859,12 +6859,11 @@ fn is_compound_stmt(stmt: &ast::Stmt) -> bool {
 /// after it can walk, and each of those recurses without a limit of its own.
 /// The symbol table applies the same limit, but `compile(..., PyCF_ONLY_AST)`
 /// returns before reaching it.
-#[must_use]
 pub fn too_deeply_nested_error(
     ast: &ast::Mod,
     source_file: &SourceFile,
     limit: usize,
-) -> Option<CompileError> {
+) -> Result<(), CompileError> {
     use ast::visitor::Visitor;
 
     struct DepthChecker {
@@ -6918,9 +6917,11 @@ pub fn too_deeply_nested_error(
         ast::Mod::Expression(expression) => checker.visit_expr(&expression.body),
     }
 
-    let range = checker.too_deep?;
+    let Some(range) = checker.too_deep else {
+        return Ok(());
+    };
     let (location, end_location) = source_locations(source_file, range.start(), range.end());
-    Some(CompileError::Codegen(codegen::error::CodegenError {
+    Err(CompileError::Codegen(codegen::error::CodegenError {
         location: Some(location),
         end_location: Some(end_location),
         error: codegen::error::CodegenErrorType::RecursionError,
@@ -7307,9 +7308,7 @@ fn _compile_with_syntax_warning_handler<'a>(
         return Err(error);
     }
     let ast = parsed.into_syntax();
-    if let Some(error) = too_deeply_nested_error(&ast, &source_file, opts.recursion_limit) {
-        return Err(error);
-    }
+    too_deeply_nested_error(&ast, &source_file, opts.recursion_limit)?;
     if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
         return Err(error);
     }
@@ -7605,11 +7604,7 @@ pub fn _compile_symtable(
                 return Err(error);
             }
             let ast = ast.into_syntax();
-            if let Some(error) =
-                too_deeply_nested_error(&ast, &source_file, CompileOpts::default().recursion_limit)
-            {
-                return Err(error);
-            }
+            too_deeply_nested_error(&ast, &source_file, CompileOpts::default().recursion_limit)?;
             if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
                 return Err(error);
             }
@@ -7639,11 +7634,7 @@ pub fn _compile_symtable(
                 return Err(error);
             }
             let ast = ast.into_syntax();
-            if let Some(error) =
-                too_deeply_nested_error(&ast, &source_file, CompileOpts::default().recursion_limit)
-            {
-                return Err(error);
-            }
+            too_deeply_nested_error(&ast, &source_file, CompileOpts::default().recursion_limit)?;
             if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
                 return Err(error);
             }

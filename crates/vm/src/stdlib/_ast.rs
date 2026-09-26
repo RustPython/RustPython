@@ -1884,13 +1884,11 @@ pub(crate) fn parse(
         return Err(error);
     }
     let mut top = parsed.into_syntax();
-    if let Some(error) = rustpython_compiler::too_deeply_nested_error(
+    rustpython_compiler::too_deeply_nested_error(
         &top,
         &source_file,
         rustpython_compiler::CompileOpts::default().recursion_limit,
-    ) {
-        return Err(error);
-    }
+    )?;
     if let Some(error) = rustpython_compiler::unsupported_grammar_error(&top, &source_file) {
         return Err(error);
     }
