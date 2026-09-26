@@ -1133,15 +1133,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "csv-core"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "704a3c26996a80471189265814dbc2c257598b96b8a7feae2d31ace646bb9782"
-dependencies = [
- "memchr",
-]
-
-[[package]]
 name = "ctr"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4036,7 +4027,6 @@ dependencies = [
  "ascii",
  "constant_time_eq 0.6.0",
  "crossbeam-utils",
- "csv-core",
  "flame",
  "foreign-types-shared",
  "getrandom 0.4.3",
