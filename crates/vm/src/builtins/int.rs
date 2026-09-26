@@ -152,12 +152,17 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
         float::float_pow(v1, v2, vm)
     } else {
         let value = if let Some(v2) = int2.to_u64() {
-            // |int1| >= 2 raised to v2 has at least (bits - 1) * v2 + 1 bits.
+            // malachite builds a power of two at its exact size. Otherwise it allocates
+            // `bits * v2` bits for the result plus a scratch buffer of up to the same size.
             let base_bits = int1.bits();
             if base_bits > 1 {
-                let bits = (base_bits - 1)
-                    .checked_mul(v2)
-                    .and_then(|b| b.checked_add(1));
+                let bits = if int1.trailing_zeros() == Some(base_bits - 1) {
+                    (base_bits - 1)
+                        .checked_mul(v2)
+                        .and_then(|b| b.checked_add(1))
+                } else {
+                    base_bits.checked_mul(v2).and_then(|b| b.checked_mul(2))
+                };
                 reserve_result_bits(bits, vm)?;
             }
             return Ok(vm.ctx.new_int(Pow::pow(int1, v2)).into());
@@ -222,8 +227,8 @@ fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
     )
 }
 
-/// num-bigint aborts the process when it cannot allocate a result. Before building one of at
-/// least `bits` bits, check that it can be allocated at all, so an impossible result is a
+/// malachite aborts the process when it cannot allocate. Before an operation that allocates
+/// `bits` bits, check that they can be allocated at all, so an impossible result is a
 /// `MemoryError`.
 fn reserve_result_bits(bits: Option<u64>, vm: &VirtualMachine) -> PyResult<()> {
     // Results below this size are not worth the extra allocation.
