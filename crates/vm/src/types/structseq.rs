@@ -22,7 +22,7 @@ const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
         vm.new_tuple((zelf.class().to_owned(), (vm.ctx.new_tuple(zelf.to_vec()),)))
     },
     PyMethodFlags::METHOD,
-    Some("__reduce__($self, /)\n--\n\n"),
+    crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
 );
 
 /// Text signature `(iterable=(), /)` shared by every struct sequence.

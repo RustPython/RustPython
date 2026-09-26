@@ -212,6 +212,19 @@ pub const fn has_signature(args: &[SigArg]) -> bool {
 }
 
 #[must_use]
+pub const fn signature_prefix_len(name: &str, args: &[SigArg]) -> usize {
+    write_signature_prefix(&mut [], name, args)
+}
+
+#[must_use]
+pub const fn signature_prefix_bytes<const N: usize>(name: &str, args: &[SigArg]) -> [u8; N] {
+    let mut buf = [0u8; N];
+    let written = write_signature_prefix(&mut buf, name, args);
+    assert!(written == N);
+    buf
+}
+
+#[must_use]
 pub const fn internal_doc_len(name: &str, args: &[SigArg], doc: &str) -> usize {
     write_internal_doc(&mut [], name, args, doc)
 }
@@ -232,7 +245,7 @@ struct St {
     star_emitted: bool,
 }
 
-const fn write_internal_doc(buf: &mut [u8], name: &str, args: &[SigArg], doc: &str) -> usize {
+const fn write_signature_prefix(buf: &mut [u8], name: &str, args: &[SigArg]) -> usize {
     let mut n = put_str(buf, 0, name);
     n = put_byte(buf, n, b'(');
     let st = write_args(
@@ -246,7 +259,11 @@ const fn write_internal_doc(buf: &mut [u8], name: &str, args: &[SigArg], doc: &s
         },
         args,
     );
-    n = put_str(buf, st.n, ")\n--\n\n");
+    put_str(buf, st.n, ")\n--\n\n")
+}
+
+const fn write_internal_doc(buf: &mut [u8], name: &str, args: &[SigArg], doc: &str) -> usize {
+    let n = write_signature_prefix(buf, name, args);
     put_str(buf, n, doc)
 }
 

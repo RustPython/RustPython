@@ -4,7 +4,10 @@ use super::PyType;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc, PySetterValue},
+    function::{
+        IntoPyGetterFunc, IntoPySetterFunc, ItemDoc, PyGetterFunc, PySetterFunc, PySetterValue,
+        plain_doc,
+    },
     object::{Traverse, TraverseFn},
     types::{GetDescriptor, Representable},
 };
@@ -17,7 +20,7 @@ pub struct PyGetSet {
     class: PyRef<PyType>,
     getter: Option<PyGetterFunc>,
     setter: Option<PySetterFunc>,
-    doc: Option<String>,
+    doc: ItemDoc,
 }
 
 impl core::fmt::Debug for PyGetSet {
@@ -85,13 +88,13 @@ impl PyGetSet {
             class: class.to_owned(),
             getter: None,
             setter: None,
-            doc: None,
+            doc: ItemDoc::NONE,
         }
     }
 
     #[must_use]
-    pub fn with_doc(mut self, doc: impl Into<String>) -> Self {
-        self.doc = Some(doc.into());
+    pub fn with_doc(mut self, doc: ItemDoc) -> Self {
+        self.doc = doc;
         self
     }
 
@@ -148,8 +151,8 @@ impl PyGetSet {
     }
 
     #[pygetset]
-    fn __doc__(&self) -> Option<String> {
-        self.doc.clone()
+    fn __doc__(&self) -> Option<&'static str> {
+        plain_doc(self.doc)
     }
 
     #[pymember]

@@ -231,6 +231,7 @@ macro_rules! named_function {
                 stringify!($func),
                 [<$module _ $func>],
                 ::rustpython_vm::function::PyMethodFlags::empty(),
+                ::rustpython_vm::function::ItemDoc::NONE,
             )
             .to_function()
             .with_module(ctx.intern_str(stringify!($module)).into())
