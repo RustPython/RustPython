@@ -319,6 +319,8 @@ pub enum MemberKind {
     Uint = 11,
     Bool = 14,
     ObjectEx = 16,
+    /// `Py_ssize_t`. Writable cells are `AtomicIsize`.
+    PySsizeT = 19,
 }
 
 impl MemberKind {
@@ -331,6 +333,7 @@ impl MemberKind {
             11 => Some(Self::Uint),
             14 => Some(Self::Bool),
             16 => Some(Self::ObjectEx),
+            19 => Some(Self::PySsizeT),
             _ => None,
         }
     }
@@ -408,6 +411,17 @@ impl DoubleMember for core::sync::atomic::AtomicU64 {}
 #[doc(hidden)]
 pub trait DoubleCell: DoubleMember {}
 impl DoubleCell for core::sync::atomic::AtomicU64 {}
+
+/// A field at `object + offset` is a `Py_ssize_t`.
+#[doc(hidden)]
+pub trait PySsizeMember {}
+impl PySsizeMember for isize {}
+impl PySsizeMember for core::sync::atomic::AtomicIsize {}
+
+/// A writable `Py_ssize_t` member. Only an atomic cell may change after publication.
+#[doc(hidden)]
+pub trait PySsizeCell: PySsizeMember {}
+impl PySsizeCell for core::sync::atomic::AtomicIsize {}
 
 /// Where `PyMemberDef.offset` points.
 ///
@@ -509,7 +523,11 @@ impl PyMemberDescriptor {
         }
         match self.member.kind {
             MemberKind::Object | MemberKind::ObjectEx => Some(self.member.offset),
-            MemberKind::Bool | MemberKind::Double | MemberKind::Int | MemberKind::Uint => None,
+            MemberKind::Bool
+            | MemberKind::Double
+            | MemberKind::Int
+            | MemberKind::Uint
+            | MemberKind::PySsizeT => None,
         }
     }
 
@@ -753,6 +771,21 @@ fn member_get_one(
             };
             vm.ctx.new_float(raw).into()
         }
+        MemberKind::PySsizeT => {
+            let raw = if member.readonly() {
+                // SAFETY: a readonly `Py_ssize_t` member addresses an `isize`
+                // that is not written after publication.
+                unsafe { member_addr(obj, offset).cast::<isize>().read() }
+            } else {
+                // SAFETY: a writable `Py_ssize_t` member addresses an aligned
+                // `AtomicIsize`. The macro accepts only `PySsizeCell`.
+                unsafe {
+                    (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicIsize>())
+                        .load(core::sync::atomic::Ordering::Relaxed)
+                }
+            };
+            vm.ctx.new_int(raw).into()
+        }
     };
     Ok(value)
 }
@@ -843,6 +876,27 @@ fn member_set_one(
             unsafe {
                 (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicU64>())
                     .store(number.to_bits(), core::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        MemberKind::PySsizeT => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            // PyLong_AsSsize_t: an int (bool included). No `__index__`.
+            if !value.fast_isinstance(vm.ctx.types.int_type) {
+                return Err(vm.new_type_error("an integer is required"));
+            }
+            let Some(int_obj) = value.downcast_ref::<crate::builtins::PyInt>() else {
+                return Err(vm.new_type_error("an integer is required"));
+            };
+            let stored = isize::try_from(int_obj.as_bigint()).map_err(|_| {
+                vm.new_overflow_error("Python int too large to convert to C ssize_t")
+            })?;
+            // SAFETY: a writable `Py_ssize_t` member addresses an aligned
+            // `AtomicIsize`. Readonly members are rejected before this call.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicIsize>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
             }
         }
     }
