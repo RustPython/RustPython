@@ -1202,10 +1202,15 @@ impl<T: PyPayload> Py<T> {
     /// object it points at until its own `Drop` unlinks it, and a thread
     /// walking that list reads the class off every node it passes, so the
     /// class has to outlive the payload.
-    unsafe fn drop_fields(ptr: *mut Self) {
+    unsafe fn drop_fields(ptr: *mut Self, drop_type: bool) {
         unsafe {
             core::ptr::drop_in_place(&raw mut (*ptr).payload);
-            core::ptr::drop_in_place(&raw mut (*ptr).typ);
+            if drop_type {
+                core::ptr::drop_in_place(&raw mut (*ptr).typ);
+            } else {
+                // `tp_dealloc` decrefs the class after `tp_free` returns.
+                core::mem::forget(core::ptr::read(&raw mut (*ptr).typ));
+            }
         }
     }
 
@@ -1215,6 +1220,20 @@ impl<T: PyPayload> Py<T> {
     /// # Safety
     /// `ptr` must be a valid pointer from `Py::new` and must not be used after this call.
     unsafe fn dealloc(ptr: *mut Self) {
+        unsafe { Self::dealloc_inner(ptr, true) }
+    }
+
+    /// Release the allocation after a C `tp_dealloc` dropped the foreign value
+    /// in the body. Does not run `__del__`. The class reference stays so the
+    /// caller can decref it after `tp_free` returns.
+    ///
+    /// # Safety
+    /// `ptr` must be a valid pointer from `Py::new` and must not be used after this call.
+    pub(crate) unsafe fn dealloc_keep_type(ptr: *mut Self) {
+        unsafe { Self::dealloc_inner(ptr, false) }
+    }
+
+    unsafe fn dealloc_inner(ptr: *mut Self, drop_type: bool) {
         unsafe {
             let (flags, member_count) = (*ptr).read_type_flags();
             let has_ext =
@@ -1249,7 +1268,7 @@ impl<T: PyPayload> Py<T> {
 
                 let alloc_ptr = (ptr as *mut u8).sub(inner_offset);
 
-                Self::drop_fields(ptr);
+                Self::drop_fields(ptr, drop_type);
 
                 // Drop member cells, then ObjExt. WeakRefList is in front of the cells.
                 let mut cursor = alloc_ptr;
@@ -1277,15 +1296,40 @@ impl<T: PyPayload> Py<T> {
                 }
             } else if published {
                 let layout = core::alloc::Layout::new::<Self>();
-                Self::drop_fields(ptr);
+                Self::drop_fields(ptr, drop_type);
                 crate::object::qsbr::free_delayed(ptr as *mut u8, layout);
             } else {
-                Self::drop_fields(ptr);
+                Self::drop_fields(ptr, drop_type);
                 // The fields are gone; the box is only here to free the memory
                 // the matching `Box::new` in `new` allocated.
                 drop(Box::from_raw(ptr.cast::<core::mem::MaybeUninit<Self>>()));
             }
         }
+    }
+}
+
+/// `tp_free` for an instance whose C `tp_dealloc` already ran.
+///
+/// Drops the C body and the header. Does not run `__del__` and does not decref
+/// the class; the caller decrefs the class after this returns.
+///
+/// # Safety
+/// `obj` must point at an instance whose payload is a `PyCBody`, already off
+/// the GC list, and it must not be used after this call.
+pub unsafe extern "C" fn rustpython_free(obj: *mut core::ffi::c_void) {
+    unsafe {
+        let obj = obj.cast::<PyObject>();
+        debug_assert!(!obj.is_null());
+        debug_assert!(
+            !(*obj).is_gc_tracked(),
+            "tp_free ran while the object was still GC-tracked"
+        );
+        debug_assert_eq!(
+            (*obj).0.vtable.typeid,
+            super::PyCBody::PAYLOAD_TYPE_ID,
+            "tp_free expected a C body"
+        );
+        Py::<super::PyCBody>::dealloc_keep_type(obj.cast());
     }
 }
 
@@ -2124,7 +2168,22 @@ impl PyObject {
     /// _Py_Dealloc: dispatch to type's dealloc
     #[inline(never)]
     unsafe fn drop_slow(ptr: NonNull<Self>) {
-        let dealloc = unsafe { ptr.as_ref().0.vtable.dealloc };
+        let obj = unsafe { ptr.as_ref() };
+        // One load. Types with no C slots store None and take the path below.
+        let tp_dealloc = obj.class().slots.c_slots().and_then(|c| c.dealloc.load());
+        if let Some(tp_dealloc) = tp_dealloc {
+            if obj.drop_slow_inner().is_err() {
+                return;
+            }
+            if obj.is_gc_tracked() {
+                unsafe { crate::gc_state::gc_state().untrack_object(ptr) };
+            }
+            // Handoff: `tp_dealloc` frees the object through `tp_free`.
+            // The pointer is invalid once the call returns.
+            unsafe { tp_dealloc(ptr.as_ptr()) };
+            return;
+        }
+        let dealloc = obj.0.vtable.dealloc;
         unsafe { dealloc(ptr.as_ptr()) }
     }
 

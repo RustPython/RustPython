@@ -242,8 +242,28 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                     sig_constructor,
                     sig_structseq,
                 );
+                // The table names `Self`, so it has to be an associated const on the
+                // payload, not a `static` item inside `extend_slots`.
+                let static_c_slots_impl = if sig_constructor {
+                    quote! {
+                        impl ::rustpython_vm::types::HasStaticCSlots for #payload_ty {
+                            const TABLE: ::rustpython_vm::types::StaticCSlots =
+                                ::rustpython_vm::types::StaticCSlots {
+                                    new: Some(::rustpython_vm::types::CSlotPair {
+                                        rust: <#payload_ty as ::rustpython_vm::types::Constructor>::slot_new as _,
+                                        c: ::rustpython_vm::types::c_new_for::<
+                                            ::rustpython_vm::types::ViaConstructor<#payload_ty>,
+                                        > as _,
+                                    }),
+                                };
+                        }
+                    }
+                } else {
+                    quote! {}
+                };
                 quote! {
                     #imp
+                    #static_c_slots_impl
                     impl ::rustpython_vm::class::PyClassImpl for #payload_ty {
                         const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = #flags;
 
@@ -2067,6 +2087,9 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                         } else if path.is_ident("Constructor") {
                             quote_spanned! { item_span =>
                                 slots.new.store(Some(<Self as ::rustpython_vm::types::Constructor>::slot_new as _));
+                                slots.static_c_slots.store(Some(
+                                    &<Self as ::rustpython_vm::types::HasStaticCSlots>::TABLE,
+                                ));
                             }
                         } else {
                             quote_spanned! { item_span =>
