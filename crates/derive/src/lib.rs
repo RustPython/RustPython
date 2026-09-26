@@ -215,13 +215,14 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// `member_descriptor` per entry. The field type is checked against the member kind.
 ///
 /// - `type`: `"object"` (default), `"object_ex"`, `"bool"`, `"double"`,
-///   `"int"` (`i32`), or `"uint"` (`u32`).
+///   `"int"` (`i32`), `"uint"` (`u32`), or `"py_ssize_t"` (`isize`, `Py_ssize_t`).
 /// - `writable`: accept stores. Members are readonly without it. A writable
 ///   object member must be `PyAtomicRef<PyObject>` (never null) or
 ///   `PyAtomicRef<Option<PyObject>>` (nullable), a writable bool must be
 ///   `AtomicBool`, a writable int must be `AtomicI32`, a writable uint must be
-///   `AtomicU32`, and a writable double must be an atomic 64-bit cell
-///   (`AtomicU64`) holding the `f64` bits.
+///   `AtomicU32`, a writable double must be an atomic 64-bit cell
+///   (`AtomicU64`) holding the `f64` bits, and a writable py_ssize_t must be
+///   `AtomicIsize`.
 /// - `audit_read`: audit `object.__getattr__` before the load.
 /// - `name`: Python attribute name. Defaults to the field name.
 /// - `path`: subfield of the annotated field (`value` with `path = "re"`).

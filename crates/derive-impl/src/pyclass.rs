@@ -1820,7 +1820,7 @@ impl MemberItemMeta {
         let kind = self.inner()._optional_str("type")?;
         if let Some(value) = &kind {
             match value.as_str() {
-                "object" | "object_ex" | "bool" | "double" | "int" | "uint" => {}
+                "object" | "object_ex" | "bool" | "double" | "int" | "uint" | "py_ssize_t" => {}
                 other => {
                     let span = self
                         .inner()
@@ -1992,6 +1992,7 @@ fn member_kind_tokens(kind: Option<&str>, span: Span) -> Result<TokenStream> {
         Some("double") => "Double",
         Some("int") => "Int",
         Some("uint") => "Uint",
+        Some("py_ssize_t") => "PySsizeT",
         Some(other) => {
             return Err(syn::Error::new(
                 span,
@@ -2013,6 +2014,8 @@ fn member_layout_tokens(kind: Option<&str>, readonly: bool) -> TokenStream {
         (Some("int"), true) => "IntMember",
         (Some("uint"), false) => "UintCell",
         (Some("uint"), true) => "UintMember",
+        (Some("py_ssize_t"), false) => "PySsizeCell",
+        (Some("py_ssize_t"), true) => "PySsizeMember",
         (_, false) => "ObjectCell",
         (_, true) => "ObjectMember",
     };
