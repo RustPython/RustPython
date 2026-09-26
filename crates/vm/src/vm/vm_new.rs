@@ -960,6 +960,26 @@ impl VirtualMachine {
             }
             _ => false,
         };
+        // CPython reports the unparenthesized exception types error with a range stopping
+        // just before the `:` that closes the `except` clause, which covers the `as NAME`
+        // part, while the parser reports the exception types alone. The exclusive end that
+        // yields is the column of the `:`. See `invalid_except_stmt_end`.
+        let except_as_end = cfg_select! {
+            feature = "parser" => {
+                if msg == "multiple exception types must be parenthesized when using 'as'"
+                    && let crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        raw_location,
+                        ..
+                    }) = error
+                    && let Some(source) = source
+                {
+                    invalid_except_stmt_end(source, raw_location.end().to_usize())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
 
         let syntax_error = self.new_exception_msg(syntax_error_type, msg.into());
 
@@ -992,6 +1012,8 @@ impl VirtualMachine {
             } else if narrow_caret {
                 let (l, o) = error.python_location();
                 (l, (o + 1) as isize)
+            } else if let Some((l, o)) = except_as_end {
+                (l, o as isize)
             } else {
                 (end_lineno, end_offset as isize)
             };
@@ -1275,4 +1297,74 @@ fn scan_quoted_string_for_incomplete(bytes: &[u8], quote_index: usize) -> Quoted
         triple,
         unescaped_newline: false,
     }
+}
+
+/// Returns the exclusive end of the range CPython reports for its `invalid_except_stmt`
+/// rule, as a 1-based `(line, column)` pair whose column counts characters, not bytes.
+/// Being exclusive, that column is the one the `:` closing the `except` clause sits on:
+/// the `:` itself is not part of the range.
+///
+/// CPython raises that error only once the whole clause has matched, and reports a range
+/// starting at the first exception type and stopping just before the `:`, so the range
+/// covers the `as NAME` part as well:
+///
+/// ```text
+/// except A, B as e:
+///        ^^^^^^^^^   offset = 8, end_offset = 17
+/// ```
+///
+/// ```text
+/// invalid_except_stmt:
+///     | 'except' a=expression ',' expressions 'as' NAME  ':' {
+///         RAISE_SYNTAX_ERROR_STARTING_FROM(a, "multiple exception types must be parenthesized when using 'as'") }
+/// ```
+///
+/// The parser reports the exception types alone, so the `:` is looked up here. Only
+/// `as NAME` can follow the exception types, which is why the first `:` after them is the
+/// one closing the clause. `types_end` is a byte offset into `source`.
+///
+/// Returns `None` when the clause has no `:`, in which case CPython reports a different
+/// error and the range is left alone.
+#[cfg(feature = "parser")]
+fn invalid_except_stmt_end(source: &str, types_end: usize) -> Option<(usize, usize)> {
+    let bytes = source.as_bytes();
+    let mut index = types_end;
+
+    let colon = loop {
+        match *bytes.get(index)? {
+            b':' => break index,
+            // An explicit line join continues the clause on the next line.
+            b'\\' => {
+                index += 1;
+                if bytes.get(index) == Some(&b'\r') {
+                    index += 1;
+                }
+                if bytes.get(index) != Some(&b'\n') {
+                    return None;
+                }
+                index += 1;
+            }
+            b'\n' | b'\r' | b'#' => return None,
+            _ => index += 1,
+        }
+    };
+
+    // Only `as NAME` may appear between the exception types and the `:`. CPython reports a
+    // different error when the name is missing, so leave the range alone in that case.
+    // An explicit line join may sit anywhere in between, so drop the backslashes and let
+    // the newline they escape count as the ordinary whitespace around `as`.
+    let between = source.get(types_end..colon)?.replace('\\', " ");
+    let name = between.trim().strip_prefix("as")?;
+    if !name.starts_with(char::is_whitespace) || name.trim().is_empty() {
+        return None;
+    }
+
+    let before = source.get(..colon)?;
+    let line = before.bytes().filter(|&byte| byte == b'\n').count() + 1;
+    let line_start = before.rfind('\n').map_or(0, |index| index + 1);
+    // `line_start` and `colon` are byte offsets, but the column counts characters, so a
+    // non-ASCII exception type or `as NAME` would otherwise push the column too far right.
+    let column = source.get(line_start..colon)?.chars().count() + 1;
+
+    Some((line, column))
 }
