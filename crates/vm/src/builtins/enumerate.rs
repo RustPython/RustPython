@@ -6,7 +6,6 @@ use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
     raise_if_stop,
     types::{Constructor, IterNext, Iterable, SelfIter},
@@ -56,8 +55,8 @@ impl PyPayload for PyEnumerate {
 pub struct EnumerateArgs {
     #[pyarg(any)]
     iterable: PyIter,
-    #[pyarg(any, optional)]
-    start: OptionalArg<PyIntRef>,
+    #[pyarg(any, default = 0)]
+    start: PyIntRef,
 }
 
 impl Constructor for PyEnumerate {
@@ -68,12 +67,9 @@ impl Constructor for PyEnumerate {
         Self::Args { iterable, start }: Self::Args,
         _vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let counter = match start {
-            OptionalArg::Present(start) => match start.as_bigint().to_usize() {
-                Some(n) => Counter::Small(n),
-                None => Counter::Big(start.as_bigint().clone()),
-            },
-            OptionalArg::Missing => Counter::Small(0),
+        let counter = match start.as_bigint().to_usize() {
+            Some(n) => Counter::Small(n),
+            None => Counter::Big(start.as_bigint().clone()),
         };
         Ok(Self {
             counter: PyRwLock::new(counter),
@@ -82,20 +78,17 @@ impl Constructor for PyEnumerate {
     }
 }
 
-#[pyclass(with(Py, IterNext, Iterable, Constructor), flags(BASETYPE))]
-impl PyEnumerate {
+#[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
+impl Py<PyEnumerate> {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
-}
 
-#[pyclass]
-impl Py<PyEnumerate> {
     #[pymethod]
     fn __reduce__(&self) -> (PyTypeRef, (PyIter, BigInt)) {
         (
@@ -174,7 +167,7 @@ impl PyReverseSequenceIterator {
 
     #[pymethod]
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.lock().set_state(state, |_, pos| pos, vm)
+        self.internal.lock().set_state(&state, |_, pos| pos, vm)
     }
 
     #[pymethod]

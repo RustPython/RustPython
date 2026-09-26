@@ -68,6 +68,14 @@ mod _contextvars {
         inner: ContextInner,
     }
 
+    #[derive(FromArgs)]
+    struct ContextGetArgs {
+        #[pyarg(positional)]
+        key: PyObjectRef,
+        #[pyarg(positional, optional)]
+        default: Option<PyObjectRef>,
+    }
+
     impl PyContext {
         fn empty(vm: &VirtualMachine) -> Self {
             Self {
@@ -218,18 +226,13 @@ mod _contextvars {
         }
 
         #[pymethod]
-        fn get(
-            &self,
-            key: PyObjectRef,
-            default: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<Option<PyObjectRef>> {
-            let key = context_check_key_type(&key, vm)?;
+        fn get(&self, args: ContextGetArgs, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+            let key = context_check_key_type(&args.key, vm)?;
             let found = self.get_inner(key);
             if found.is_some() {
                 Ok(found)
             } else {
-                Ok(default.into_option())
+                Ok(args.default)
             }
         }
 
@@ -538,10 +541,10 @@ mod _contextvars {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 
@@ -645,10 +648,10 @@ mod _contextvars {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
 
         #[pymethod]
@@ -659,7 +662,7 @@ mod _contextvars {
         #[pymethod]
         fn __exit__(
             zelf: &Py<Self>,
-            _ty: PyObjectRef,
+            _type: PyObjectRef,
             _val: PyObjectRef,
             _tb: PyObjectRef,
             vm: &VirtualMachine,

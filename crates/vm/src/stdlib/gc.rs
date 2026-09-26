@@ -5,7 +5,7 @@ mod gc {
     use crate::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::PyListRef,
-        function::{FuncArgs, OptionalArg},
+        function::{NameObjs, OptionalArg, PosArgs},
         gc_state,
     };
 
@@ -42,14 +42,13 @@ mod gc {
     /// Run a garbage collection. Returns the number of unreachable objects found.
     #[derive(FromArgs)]
     struct CollectArgs {
-        #[pyarg(any, optional)]
-        generation: OptionalArg<i32>,
+        #[pyarg(any, default = 2)]
+        generation: i32,
     }
 
     #[pyfunction]
     fn collect(args: CollectArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let generation = args.generation;
-        let generation_num = generation.unwrap_or(2);
+        let generation_num = args.generation;
         if !(0..=2).contains(&generation_num) {
             return Err(vm.new_value_error("invalid generation"));
         }
@@ -160,12 +159,12 @@ mod gc {
     #[derive(FromArgs)]
     struct GetObjectsArgs {
         #[pyarg(any, optional)]
-        generation: OptionalArg<Option<i32>>,
+        generation: Option<i32>,
     }
 
     #[pyfunction]
     fn get_objects(args: GetObjectsArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
-        let generation_opt = args.generation.flatten();
+        let generation_opt = args.generation;
         if let Some(g) = generation_opt
             && !(0..=2).contains(&g)
         {
@@ -177,10 +176,10 @@ mod gc {
 
     /// Return the list of objects directly referred to by any of the arguments.
     #[pyfunction]
-    fn get_referents(args: FuncArgs, vm: &VirtualMachine) -> PyListRef {
+    fn get_referents(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
         let mut result = Vec::new();
 
-        for obj in args.args {
+        for obj in objs.iter() {
             // Use the gc_get_referents method to get references
             result.extend(obj.gc_get_referents());
         }
@@ -190,12 +189,11 @@ mod gc {
 
     /// Return the list of objects that directly refer to any of the arguments.
     #[pyfunction]
-    fn get_referrers(args: FuncArgs, vm: &VirtualMachine) -> PyListRef {
+    fn get_referrers(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
         use std::collections::HashSet;
 
         // Build a set of target object pointers for fast lookup
-        let targets: HashSet<usize> = args
-            .args
+        let targets: HashSet<usize> = objs
             .iter()
             .map(|obj| obj.as_ref() as *const crate::PyObject as usize)
             .collect();
@@ -238,7 +236,7 @@ mod gc {
                 continue;
             }
             if refers_to_target(obj.as_ref()) {
-                result.push(obj.clone());
+                result.push(obj);
             }
         }
 

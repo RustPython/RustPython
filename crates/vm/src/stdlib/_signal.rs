@@ -24,7 +24,7 @@ pub(crate) mod _signal {
         unix => {
             use crate::{
                 builtins::{PyBaseExceptionRef, PyTypeRef},
-                function::{ArgIntoFloat, OptionalArg},
+                function::ArgIntoFloat,
             };
             use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
 
@@ -267,15 +267,26 @@ pub(crate) mod _signal {
     }
 
     #[cfg(unix)]
-    #[pyfunction]
-    fn setitimer(
+    #[derive(FromArgs)]
+    struct SetitimerArgs {
+        #[pyarg(positional)]
         which: i32,
+        #[pyarg(positional)]
         seconds: ArgIntoFloat,
-        interval: OptionalArg<ArgIntoFloat>,
-        vm: &VirtualMachine,
-    ) -> PyResult<(f64, f64)> {
+        #[pyarg(positional, default = 0.0)]
+        interval: ArgIntoFloat,
+    }
+
+    #[cfg(unix)]
+    #[pyfunction]
+    fn setitimer(args: SetitimerArgs, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
+        let SetitimerArgs {
+            which,
+            seconds,
+            interval,
+        } = args;
         let seconds: f64 = seconds.into();
-        let interval: f64 = interval.map(|v| v.into()).unwrap_or(0.0);
+        let interval: f64 = interval.into();
         let new = libc::itimerval {
             it_value: double_to_timeval(seconds),
             it_interval: double_to_timeval(interval),
@@ -304,6 +315,7 @@ pub(crate) mod _signal {
 
     #[derive(FromArgs)]
     struct SetWakeupFdArgs {
+        #[pyarg(positional)]
         fd: WakeupFd,
         #[pyarg(named, default = true)]
         warn_on_full_buffer: bool,
@@ -359,6 +371,9 @@ pub(crate) mod _signal {
 
         Ok(old_fd as i64)
     }
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    use crate::function::OptionalArg;
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyfunction]

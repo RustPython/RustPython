@@ -49,7 +49,6 @@ class TestRlcompleter(unittest.TestCase):
         self.assertEqual(self.completer.global_matches('CompleteM'),
                 ['CompleteMe(' if MISSING_C_DOCSTRINGS else 'CompleteMe()'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_attr_matches(self):
         # test with builtins namespace
         self.assertEqual(self.stdcompleter.attr_matches('str.s'),

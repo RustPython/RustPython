@@ -14,7 +14,7 @@ mod _socket {
     #[cfg(all(unix, not(target_os = "redox")))]
     use crate::vm::convert::ToPyException;
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
             PyUtf8StrRef,
@@ -22,7 +22,7 @@ mod _socket {
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
             ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
-            OptionalArg, OptionalOption,
+            FuncArgs, OptionalArg,
         },
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
         utils::ToCString,
@@ -134,6 +134,16 @@ mod _socket {
         SO_J1939_ERRQUEUE, SO_J1939_FILTER, SO_J1939_PROMISC, SO_J1939_SEND_PRIO, SOL_CAN_BASE,
         SOL_CAN_RAW,
     };
+
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const J1939_EE_INFO_NONE: i32 = 0;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const J1939_EE_INFO_TX_ABORT: i32 = 1;
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    const J1939_FILTER_MAX: i32 = 512;
 
     #[cfg(target_os = "linux")]
     #[pyattr]
@@ -652,6 +662,260 @@ mod _socket {
     ))]
     #[pyattr]
     use host_socket::{BDADDR_ANY, BDADDR_LOCAL};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const BTPROTO_L2CAP: i32 = 0;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_L2CAP: i32 = 135;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const BTPROTO_HCI: i32 = 1;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_HCI: i32 = 134;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const BTPROTO_SCO: i32 = 2;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_SCO: i32 = 137;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const BTPROTO_RFCOMM: i32 = 3;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_RFCOMM: i32 = 136;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const SOL_HCI: i32 = 0;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_HCI: i32 = 0x0802;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const HCI_DATA_DIR: i32 = 1;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const HCI_DATA_DIR: i32 = 2;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const SOL_L2CAP: i32 = 6;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_L2CAP: i32 = 0x1609;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const SOL_SCO: i32 = 17;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_SCO: i32 = 0x0209;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const SOL_RFCOMM: i32 = 18;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_RFCOMM: i32 = 0x0816;
+
+    // Linux <bluetooth/bluetooth.h> / <bluetooth/hci.h> / <bluetooth/l2cap.h>
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const SOL_BLUETOOTH: i32 = 274;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_DEV_NONE: i32 = 0xffff;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_RAW: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_USER: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_MONITOR: i32 = 2;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_CONTROL: i32 = 3;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_LOGGING: i32 = 4;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_TIME_STAMP: i32 = 3;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY: i32 = 4;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_SDP: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_LOW: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_MEDIUM: i32 = 2;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_HIGH: i32 = 3;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_FIPS: i32 = 4;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_FLUSHABLE: i32 = 8;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_FLUSHABLE_OFF: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_FLUSHABLE_ON: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_POWER: i32 = 9;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_POWER_FORCE_ACTIVE_OFF: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_POWER_FORCE_ACTIVE_ON: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY: i32 = 10;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY_BREDR_ONLY: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY_BREDR_PREFERRED: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY_AMP_PREFERRED: i32 = 2;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_VOICE: i32 = 11;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_VOICE_TRANSPARENT: i32 = 0x0003;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_VOICE_CVSD_16BIT: i32 = 0x0060;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SNDMTU: i32 = 12;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_RCVMTU: i32 = 13;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_PHY: i32 = 14;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_PHY_BR_1M_1SLOT: i32 = 0x0001;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_MODE: i32 = 16;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_MODE_BASIC: i32 = 0x00;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM: i32 = 0x03;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_MASTER: i32 = 0x0001;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_AUTH: i32 = 0x0002;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_ENCRYPT: i32 = 0x0004;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_TRUSTED: i32 = 0x0008;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_RELIABLE: i32 = 0x0010;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_SECURE: i32 = 0x0020;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const BDADDR_BREDR: i32 = 0x00;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const BDADDR_LE_PUBLIC: i32 = 0x01;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const BDADDR_LE_RANDOM: i32 = 0x02;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const HCI_FILTER: i32 = 2;
     // HERE IS WHERE THE BLUETOOTH CONSTANTS END
 
     #[cfg(windows)]
@@ -723,23 +987,23 @@ mod _socket {
     }
 
     #[pyfunction]
-    const fn htonl(x: u32) -> u32 {
-        u32::to_be(x)
+    const fn htonl(integer: u32) -> u32 {
+        u32::to_be(integer)
     }
 
     #[pyfunction]
-    const fn htons(x: u16) -> u16 {
-        u16::to_be(x)
+    const fn htons(integer: u16) -> u16 {
+        u16::to_be(integer)
     }
 
     #[pyfunction]
-    const fn ntohl(x: u32) -> u32 {
-        u32::from_be(x)
+    const fn ntohl(integer: u32) -> u32 {
+        u32::from_be(integer)
     }
 
     #[pyfunction]
-    const fn ntohs(x: u16) -> u16 {
-        u16::from_be(x)
+    const fn ntohs(integer: u16) -> u16 {
+        u16::from_be(integer)
     }
 
     #[cfg(unix)]
@@ -761,7 +1025,7 @@ mod _socket {
     };
 }
 
-    fn get_raw_sock(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
+    fn get_raw_sock(obj: &PyObject, vm: &VirtualMachine) -> PyResult<RawSocket> {
         #[cfg(unix)]
         type CastFrom = core::ffi::c_long;
         #[cfg(windows)]
@@ -1183,43 +1447,88 @@ mod _socket {
                             obj.class().name()
                         ))
                     })?;
-                    if tuple.is_empty() || tuple.len() > 2 {
-                        return Err(vm
-                            .new_type_error(
-                                "AF_CAN address must be a tuple (interface,) or (interface, addr)",
-                            )
-                            .into());
-                    }
-                    let interface: PyStrRef = tuple[0].clone().downcast().map_err(|obj| {
-                        vm.new_type_error(format!(
-                            "{}(): AF_CAN interface must be str, not {}",
-                            caller,
-                            obj.class().name()
-                        ))
-                    })?;
+                    let proto = self.proto.load();
+                    let interface: PyStrRef = tuple
+                        .first()
+                        .cloned()
+                        .ok_or_else(|| {
+                            vm.new_type_error("AF_CAN address must be a tuple (interface, )")
+                        })?
+                        .downcast()
+                        .map_err(|obj| {
+                            vm.new_type_error(format!(
+                                "{}(): AF_CAN interface must be str, not {}",
+                                caller,
+                                obj.class().name()
+                            ))
+                        })?;
                     let interface = interface.try_into_utf8(vm).map_err(IoOrPyException::from)?;
                     let ifname = interface.as_str();
 
-                    // Get interface index
                     let ifindex = if ifname.is_empty() {
-                        0 // Bind to all CAN interfaces
+                        0
+                    } else if ifname.len() >= 16 {
+                        return Err(vm.new_os_error("AF_CAN interface name too long").into());
                     } else {
-                        // Check interface name length (IFNAMSIZ is typically 16)
-                        if ifname.len() >= 16 {
-                            return Err(vm.new_os_error("interface name too long").into());
-                        }
                         let cstr = alloc::ffi::CString::new(ifname)
                             .map_err(|_| vm.new_os_error("invalid interface name"))?;
                         host_socket::if_nametoindex_checked(cstr.as_c_str())? as i32
                     };
 
-                    // Create sockaddr_can
                     let mut storage: c::sockaddr_storage = unsafe { core::mem::zeroed() };
                     let can_addr = &mut storage as *mut c::sockaddr_storage as *mut c::sockaddr_can;
                     unsafe {
                         (*can_addr).can_family = c::AF_CAN as c::sa_family_t;
                         (*can_addr).can_ifindex = ifindex;
                     }
+
+                    match proto {
+                        c::CAN_RAW | c::CAN_BCM => {
+                            if tuple.len() != 1 {
+                                return Err(vm
+                                    .new_type_error("AF_CAN address must be a tuple (interface, )")
+                                    .into());
+                            }
+                        }
+                        c::CAN_ISOTP => {
+                            if tuple.len() != 3 {
+                                return Err(vm
+                                    .new_type_error(
+                                        "AF_CAN ISOTP address must be a tuple (interface, rx_id, tx_id)",
+                                    )
+                                    .into());
+                            }
+                            let rx_id = tuple[1].try_index(vm)?.try_to_primitive::<u32>(vm)?;
+                            let tx_id = tuple[2].try_index(vm)?.try_to_primitive::<u32>(vm)?;
+                            unsafe {
+                                (*can_addr).can_addr.tp.rx_id = rx_id;
+                                (*can_addr).can_addr.tp.tx_id = tx_id;
+                            }
+                        }
+                        c::CAN_J1939 => {
+                            if tuple.len() != 4 {
+                                return Err(vm
+                                    .new_type_error(
+                                        "AF_CAN J1939 address must be a tuple (interface, name, pgn, addr)",
+                                    )
+                                    .into());
+                            }
+                            let name = tuple[1].try_index(vm)?.try_to_primitive::<u64>(vm)?;
+                            let pgn = tuple[2].try_index(vm)?.try_to_primitive::<u32>(vm)?;
+                            let jaddr = tuple[3].try_index(vm)?.try_to_primitive::<u8>(vm)?;
+                            unsafe {
+                                (*can_addr).can_addr.j1939.name = name;
+                                (*can_addr).can_addr.j1939.pgn = pgn;
+                                (*can_addr).can_addr.j1939.addr = jaddr;
+                            }
+                        }
+                        _ => {
+                            return Err(vm
+                                .new_os_error(format!("{caller}(): unsupported CAN protocol"))
+                                .into());
+                        }
+                    }
+
                     let storage: host_socket::raw::SockAddrStorage =
                         unsafe { core::mem::transmute(storage) };
                     Ok(unsafe {
@@ -1343,20 +1652,27 @@ mod _socket {
 
     #[derive(FromArgs)]
     pub struct SocketInitArgs {
+        #[pyarg(any, default = -1)]
+        family: i32,
+        #[pyarg(any, default = -1)]
+        r#type: i32,
+        #[pyarg(any, default = -1)]
+        proto: i32,
         #[pyarg(any, optional)]
-        family: OptionalArg<i32>,
-        #[pyarg(any, optional)]
-        r#type: OptionalArg<i32>,
-        #[pyarg(any, optional)]
-        proto: OptionalArg<i32>,
-        #[pyarg(any, optional)]
-        fileno: OptionalOption<PyObjectRef>,
+        fileno: Option<PyObjectRef>,
+    }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    #[derive(FromArgs)]
+    struct SendmsgAddr {
+        #[pyarg(positional, optional)]
+        addr: Option<PyObjectRef>,
     }
 
     impl Initializer for PySocket {
         type Args = SocketInitArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             Self::_init(zelf, args, vm).map_err(|e| e.into_pyexception(vm))
         }
     }
@@ -1398,17 +1714,17 @@ mod _socket {
 
     #[pyclass(
         with(Constructor, Initializer, Representable, Destructor),
-        flags(BASETYPE)
+        flags(BASETYPE, HEAPTYPE)
     )]
     impl PySocket {
         fn _init(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             args: <Self as Initializer>::Args,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
-            let mut family = args.family.unwrap_or(-1);
-            let mut socket_kind = args.r#type.unwrap_or(-1);
-            let mut proto = args.proto.unwrap_or(-1);
+            let mut family = args.family;
+            let mut socket_kind = args.r#type;
+            let mut proto = args.proto;
 
             if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
                 audit.call(
@@ -1422,7 +1738,7 @@ mod _socket {
 
             // On Windows, fileno can be bytes from socket.share() for fromshare()
             #[cfg(windows)]
-            if let Some(fileno_obj) = fileno.flatten() {
+            if let Some(fileno_obj) = fileno {
                 use crate::vm::builtins::PyBytes;
                 if let Ok(bytes) = fileno_obj.clone().downcast::<PyBytes>() {
                     let bytes_data = bytes.as_bytes();
@@ -1445,7 +1761,7 @@ mod _socket {
                 }
 
                 // Not bytes, treat as regular fileno
-                let fileno = get_raw_sock(fileno_obj, vm)?;
+                let fileno = get_raw_sock(&fileno_obj, vm)?;
                 sock = sock_from_raw(fileno, vm)?;
                 match sock.local_addr() {
                     Ok(addr) if family == -1 => family = addr.family() as i32,
@@ -1469,10 +1785,7 @@ mod _socket {
             }
 
             #[cfg(not(windows))]
-            let fileno = fileno
-                .flatten()
-                .map(|obj| get_raw_sock(obj, vm))
-                .transpose()?;
+            let fileno = fileno.map(|obj| get_raw_sock(&obj, vm)).transpose()?;
             #[cfg(not(windows))]
             if let Some(fileno) = fileno {
                 sock = sock_from_raw(fileno, vm)?;
@@ -1527,25 +1840,21 @@ mod _socket {
         }
 
         #[pymethod]
-        fn connect(
-            &self,
-            address: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> Result<(), IoOrPyException> {
-            self.connect_inner(address, "connect", vm)
+        fn connect(&self, object: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
+            self.connect_inner(object, "connect", vm)
         }
 
         #[pymethod]
-        fn connect_ex(&self, address: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
-            match self.connect_inner(address, "connect_ex", vm) {
+        fn connect_ex(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
+            match self.connect_inner(object, "connect_ex", vm) {
                 Ok(()) => Ok(0),
                 Err(err) => err.errno(),
             }
         }
 
         #[pymethod]
-        fn bind(&self, address: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-            let sock_addr = self.extract_address(address, "bind", vm)?;
+        fn bind(&self, object: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
+            let sock_addr = self.extract_address(object, "bind", vm)?;
 
             if let Some(addr) = sock_addr.as_socket()
                 && let Ok(audit) = vm.sys_module.get_attr("audit", vm)
@@ -1579,7 +1888,7 @@ mod _socket {
                 self.sock_snapshot()?.accept_raw()
             })?;
             let fd = into_sock_fileno(sock);
-            Ok((fd, get_addr_tuple(&addr, vm)))
+            Ok((fd, get_addr_tuple(&addr, self.proto.load(), vm)))
         }
 
         #[pymethod]
@@ -1652,7 +1961,7 @@ mod _socket {
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
-            Ok((buffer, get_addr_tuple(&addr, vm)))
+            Ok((buffer, get_addr_tuple(&addr, self.proto.load(), vm)))
         }
 
         #[pymethod]
@@ -1685,7 +1994,7 @@ mod _socket {
             })?;
             unsafe { scratch.set_len(n) };
             buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
-            Ok((n, get_addr_tuple(&addr, vm)))
+            Ok((n, get_addr_tuple(&addr, self.proto.load(), vm)))
         }
 
         #[pymethod]
@@ -1731,25 +2040,26 @@ mod _socket {
         }
 
         #[pymethod]
-        fn sendto(
-            &self,
-            bytes: ArgBytesLike,
-            arg2: PyObjectRef,
-            arg3: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> Result<usize, IoOrPyException> {
-            // signature is bytes[, flags], address
-            let (flags, address) = match arg3 {
-                OptionalArg::Present(arg3) => {
-                    // should just be i32::try_from_obj but tests check for error message
-                    let int = arg2
-                        .try_index_opt(vm)
-                        .unwrap_or_else(|| Err(vm.new_type_error("an integer is required")))?;
-                    let flags = int.try_to_primitive::<i32>(vm)?;
-                    (flags, arg3)
+        fn sendto(&self, args: FuncArgs, vm: &VirtualMachine) -> Result<usize, IoOrPyException> {
+            if !args.kwargs.is_empty() {
+                return Err(vm
+                    .new_type_error("sendto() takes no keyword arguments")
+                    .into());
+            }
+            let n = args.args.len();
+            let (bytes, flags, address) = match n {
+                2 => (args.args[0].clone(), 0, args.args[1].clone()),
+                3 => {
+                    let flags = args.args[1].try_index(vm)?.try_to_primitive::<i32>(vm)?;
+                    (args.args[0].clone(), flags, args.args[2].clone())
                 }
-                OptionalArg::Missing => (0, arg2),
+                _ => {
+                    return Err(vm
+                        .new_type_error(format!("sendto() takes 2 or 3 arguments ({n} given)"))
+                        .into());
+                }
             };
+            let bytes = ArgBytesLike::try_from_object(vm, bytes)?;
             let addr = self.extract_address(address, "sendto", vm)?;
             let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
@@ -1762,23 +2072,40 @@ mod _socket {
         #[pymethod]
         fn sendmsg(
             &self,
-            buffers: Vec<ArgBytesLike>,
-            ancdata: OptionalArg,
+            buffers: PyObjectRef,
+            ancdata: OptionalArg<PyObjectRef>,
             flags: OptionalArg<i32>,
-            addr: OptionalOption,
+            addr: SendmsgAddr,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let flags = flags.unwrap_or(0);
             let mut msg = host_socket::raw::MsgHdr::new();
 
             let sockaddr;
-            if let Some(addr) = addr.flatten() {
+            if let Some(addr) = addr.addr {
                 sockaddr = self
                     .extract_address(addr, "sendmsg", vm)
                     .map_err(|e| e.into_pyexception(vm))?;
                 msg = msg.with_addr(&sockaddr);
             }
 
+            let collect_iterable =
+                |obj: &PyObject, msg: &'static str| -> PyResult<Vec<PyObjectRef>> {
+                    match vm.extract_elements_with(obj, Ok) {
+                        Ok(items) => Ok(items),
+                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                            Err(vm.new_type_error(msg))
+                        }
+                        Err(e) => Err(e),
+                    }
+                };
+
+            let buffer_items =
+                collect_iterable(&buffers, "sendmsg() argument 1 must be an iterable")?;
+            let buffers = buffer_items
+                .into_iter()
+                .map(|obj| ArgBytesLike::try_from_object(vm, obj))
+                .collect::<PyResult<Vec<_>>>()?;
             let buffers = buffers
                 .iter()
                 .map(|buf| buf.borrow_buf_unlocked(vm))
@@ -1791,20 +2118,22 @@ mod _socket {
 
             let control_buf;
             if let OptionalArg::Present(ancdata) = ancdata {
-                let cmsgs = vm.extract_elements_with(
-                    &ancdata,
-                    |obj| -> PyResult<(i32, i32, ArgBytesLike)> {
-                        let seq: Vec<PyObjectRef> = obj.try_into_value(vm)?;
+                let cmsg_fast =
+                    collect_iterable(&ancdata, "sendmsg() argument 2 must be an iterable")?;
+                let cmsgs = cmsg_fast
+                    .into_iter()
+                    .map(|item| -> PyResult<(i32, i32, ArgBytesLike)> {
+                        let seq: Vec<PyObjectRef> = item.try_into_value(vm)?;
                         let [lvl, typ, data]: [PyObjectRef; 3] = seq
                             .try_into()
-                            .map_err(|_| vm.new_type_error("expected a sequence of length 3"))?;
+                            .map_err(|_| vm.new_type_error("[sendmsg() ancillary data items]"))?;
                         Ok((
-                            lvl.try_into_value(vm)?,
-                            typ.try_into_value(vm)?,
-                            data.try_into_value(vm)?,
+                            lvl.try_index(vm)?.try_to_primitive::<i32>(vm)?,
+                            typ.try_index(vm)?.try_to_primitive::<i32>(vm)?,
+                            ArgBytesLike::try_from_object(vm, data)?,
                         ))
-                    },
-                )?;
+                    })
+                    .collect::<PyResult<Vec<_>>>()?;
                 control_buf = Self::pack_cmsgs_to_send(&cmsgs, vm)?;
                 if !control_buf.is_empty() {
                     msg = msg.with_control(&control_buf);
@@ -1895,7 +2224,7 @@ mod _socket {
                 let storage: host_socket::raw::SockAddrStorage =
                     unsafe { core::mem::transmute(address.storage) };
                 let addr = unsafe { host_socket::raw::SockAddr::new(storage, address.len as _) };
-                get_addr_tuple(&addr, vm)
+                get_addr_tuple(&addr, self.proto.load(), vm)
             } else {
                 vm.ctx.none()
             };
@@ -1979,14 +2308,14 @@ mod _socket {
         fn getsockname(&self, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
             let addr = self.sock()?.local_addr()?;
 
-            Ok(get_addr_tuple(&addr, vm))
+            Ok(get_addr_tuple(&addr, self.proto.load(), vm))
         }
 
         #[pymethod]
         fn getpeername(&self, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
             let addr = self.sock()?.peer_addr()?;
 
-            Ok(get_addr_tuple(&addr, vm))
+            Ok(get_addr_tuple(&addr, self.proto.load(), vm))
         }
 
         #[pymethod]
@@ -1996,9 +2325,9 @@ mod _socket {
         }
 
         #[pymethod]
-        fn setblocking(&self, block: bool) -> io::Result<()> {
-            self.timeout.store(if block { -1.0 } else { 0.0 });
-            self.sock()?.set_nonblocking(!block)
+        fn setblocking(&self, object: bool) -> io::Result<()> {
+            self.timeout.store(if object { -1.0 } else { 0.0 });
+            self.sock()?.set_nonblocking(!object)
         }
 
         #[pymethod]
@@ -2007,8 +2336,8 @@ mod _socket {
         }
 
         #[pymethod]
-        fn settimeout(&self, timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
-            let timeout = match timeout {
+        fn settimeout(&self, object: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+            let timeout = match object {
                 Some(t) => {
                     let f = t.into_float();
                     if f.is_nan() {
@@ -2084,8 +2413,8 @@ mod _socket {
         }
 
         #[pymethod]
-        fn shutdown(&self, how: i32, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-            let how = match how {
+        fn shutdown(&self, object: i32, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
+            let how = match object {
                 c::SHUT_RD => Shutdown::Read,
                 c::SHUT_WR => Shutdown::Write,
                 c::SHUT_RDWR => Shutdown::Both,
@@ -2256,7 +2585,11 @@ mod _socket {
         }
     }
 
-    fn get_addr_tuple(addr: &host_socket::raw::SockAddr, vm: &VirtualMachine) -> PyObjectRef {
+    fn get_addr_tuple(
+        addr: &host_socket::raw::SockAddr,
+        #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] proto: i32,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
         if let Some(addr) = addr.as_socket() {
             return get_ip_addr_tuple(&addr, vm);
         }
@@ -2277,7 +2610,6 @@ mod _socket {
         {
             let family = addr.family();
             if family == c::AF_CAN as c::sa_family_t {
-                // AF_CAN address: (interface_name,) or (interface_name, can_id)
                 let can_addr = unsafe { &*(addr.as_ptr() as *const c::sockaddr_can) };
                 let ifindex = can_addr.can_ifindex;
                 let ifname = if ifindex == 0 {
@@ -2285,7 +2617,33 @@ mod _socket {
                 } else {
                     host_socket::if_indextoname_checked(ifindex as u32).unwrap_or_default()
                 };
-                return vm.ctx.new_tuple(vec![vm.ctx.new_str(ifname).into()]).into();
+                let ifname_obj: PyObjectRef = vm.ctx.new_str(ifname).into();
+                return match proto {
+                    c::CAN_ISOTP => vm
+                        .ctx
+                        .new_tuple(vec![
+                            ifname_obj,
+                            vm.ctx.new_int(unsafe { can_addr.can_addr.tp.rx_id }).into(),
+                            vm.ctx.new_int(unsafe { can_addr.can_addr.tp.tx_id }).into(),
+                        ])
+                        .into(),
+                    c::CAN_J1939 => vm
+                        .ctx
+                        .new_tuple(vec![
+                            ifname_obj,
+                            vm.ctx
+                                .new_int(unsafe { can_addr.can_addr.j1939.name })
+                                .into(),
+                            vm.ctx
+                                .new_int(unsafe { can_addr.can_addr.j1939.pgn })
+                                .into(),
+                            vm.ctx
+                                .new_int(unsafe { can_addr.can_addr.j1939.addr })
+                                .into(),
+                        ])
+                        .into(),
+                    _ => vm.ctx.new_tuple(vec![ifname_obj]).into(),
+                };
             }
             if family == c::AF_ALG as c::sa_family_t {
                 // AF_ALG address: (type, name)
@@ -2355,8 +2713,8 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn inet_aton(ip_string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        inet::aton(ip_string.as_str().as_bytes())
+    fn inet_aton(ip_addr: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        inet::aton(ip_addr.as_str().as_bytes())
             .map(Vec::from)
             .ok_or_else(|| vm.new_os_error("illegal IP address string passed to inet_aton"))
     }
@@ -2520,18 +2878,18 @@ mod _socket {
 
     #[derive(FromArgs)]
     struct GAIOptions {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         host: Option<ArgStrOrBytesLike>,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         port: Option<Either<ArgStrOrBytesLike, i32>>,
 
-        #[pyarg(positional, default = c::AF_UNSPEC)]
+        #[pyarg(any, default = c::AF_UNSPEC)]
         family: i32,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(any, name = "type", default = 0)]
         ty: i32,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(any, default = 0)]
         proto: i32,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(any, default = 0)]
         flags: i32,
     }
 
@@ -2798,15 +3156,15 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
+    fn if_nametoindex(oname: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
         #[cfg(windows)]
         {
-            let name = name.to_cstring(vm)?;
+            let name = oname.to_cstring(vm)?;
             host_socket::if_nametoindex_checked(&name).map_err(|_| vm.new_last_errno_error())
         }
         #[cfg(not(windows))]
         {
-            let name = name.to_cstring(vm)?;
+            let name = oname.to_cstring(vm)?;
             // in case 'if_nametoindex' does not set errno
             rustpython_host_env::os::set_errno(c::ENODEV);
             let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
@@ -2820,17 +3178,17 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
+    fn if_indextoname(if_index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
         #[cfg(windows)]
         {
-            host_socket::if_indextoname_checked(index).map_err(|_| vm.new_last_errno_error())
+            host_socket::if_indextoname_checked(if_index).map_err(|_| vm.new_last_errno_error())
         }
         #[cfg(not(windows))]
         {
             let mut buf = [0; c::IF_NAMESIZE + 1];
             // in case 'if_indextoname' does not set errno
             rustpython_host_env::os::set_errno(c::ENXIO);
-            let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
+            let ret = unsafe { c::if_indextoname(if_index, buf.as_mut_ptr()) };
             if ret.is_null() {
                 Err(vm.new_last_errno_error())
             } else {
@@ -3055,8 +3413,8 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn setdefaulttimeout(timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
-        let val = match timeout {
+    fn setdefaulttimeout(object: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+        let val = match object {
             Some(t) => {
                 let f = t.into_float();
                 if f.is_nan() {
@@ -3074,8 +3432,8 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn dup(x: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
-        let sock = get_raw_sock(x, vm)?;
+    fn dup(object: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
+        let sock = get_raw_sock(&object, vm)?;
         let sock = core::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
         let newsock = sock.try_clone()?;
         let fd = into_sock_fileno(newsock);
@@ -3085,8 +3443,8 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn close(x: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-        Ok(close_inner(get_raw_sock(x, vm)?)?)
+    fn close(object: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
+        Ok(close_inner(get_raw_sock(&object, vm)?)?)
     }
 
     fn close_inner(x: RawSocket) -> io::Result<()> {

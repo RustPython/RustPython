@@ -2,13 +2,13 @@ use crate::error::Diagnostic;
 use crate::pystructseq::PyStructSequenceMeta;
 use crate::util::{
     ALL_ALLOWED_NAMES, AttrItemMeta, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
-    ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, format_doc,
-    infer_native_call_flags, iter_use_idents, pyclass_ident_and_attrs, text_signature,
+    ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, infer_native_call_flags,
+    internal_doc_tokens, iter_use_idents, pyclass_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
-use rustpython_doc::DB;
+
 use std::collections::HashSet;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
@@ -141,6 +141,9 @@ impl FromStr for AttrName {
 #[derive(Default)]
 struct ModuleContext {
     name: String,
+    /// `#[pymodule(sub)]` bodies are merged into the parent module, so the
+    /// Rust module name is not the Python module name.
+    is_sub: bool,
     function_items: FunctionNursery,
     attribute_items: ItemNursery,
     has_module_exec: bool,
@@ -160,6 +163,7 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
     // generation resources
     let mut context = ModuleContext {
         name: module_meta.simple_name()?,
+        is_sub: module_meta.sub()?,
         ..Default::default()
     };
     let items = module_item.items_mut().ok_or_else(|| {
@@ -251,7 +255,10 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
     let module_name = context.name.as_str();
     let function_items = context.function_items.validate()?;
     let attribute_items = context.attribute_items.validate()?;
-    let doc = doc.or_else(|| DB.get(module_name).copied().map(str::to_owned));
+    let doc = rustpython_doc::get(module_name)
+        .filter(|doc| !doc.is_empty())
+        .map(str::to_owned)
+        .or(doc);
     let doc = if let Some(doc) = doc {
         quote!(Some(#doc))
     } else {
@@ -524,7 +531,8 @@ struct FunctionNurseryItem {
     py_names: Vec<String>,
     cfgs: Vec<Attribute>,
     ident: Ident,
-    doc: Option<String>,
+    /// One internal doc per [`py_names`](Self::py_names) entry.
+    docs: Vec<TokenStream>,
     call_flags: TokenStream,
 }
 
@@ -555,24 +563,18 @@ impl ToTokens for ValidatedFunctionNursery {
             let ident = &item.ident;
             let cfgs = &item.cfgs;
             let cfgs = quote!(#(#cfgs)*);
-            let py_names = &item.py_names;
-            let doc = match &item.doc {
-                Some(doc) => quote!(Some(#doc)),
-                None => quote!(None),
-            };
             let flags = &item.call_flags;
-
-            inner_tokens.extend(quote![
-                #(
+            for (py_name, doc) in item.py_names.iter().zip(&item.docs) {
+                inner_tokens.extend(quote![
                     #cfgs
                     rustpython_vm::function::PyMethodDef::new_const(
-                        #py_names,
+                        #py_name,
                         #ident,
                         #flags,
                         #doc,
                     ),
-                )*
-            ]);
+                ]);
+            }
         }
         let array: TokenTree = Group::new(Delimiter::Bracket, inner_tokens).into();
         tokens.extend([array]);
@@ -652,6 +654,27 @@ trait ModuleItem: ContentItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()>;
 }
 
+/// Doc for `module.func` when this body is a `#[pymodule(sub)]` and the Rust
+/// module name is not the Python module. Used only when exactly one module
+/// owns that function name.
+fn unique_submodule_func_doc(name: &str) -> Option<String> {
+    let suffix = format!(".{name}");
+    let mut found = None;
+    for (key, doc) in rustpython_doc::DB {
+        let Some(module) = key.strip_suffix(&suffix) else {
+            continue;
+        };
+        if module.is_empty() || module.contains('.') {
+            continue;
+        }
+        if found.is_some() {
+            return None;
+        }
+        found = Some((*doc).to_owned());
+    }
+    found.filter(|doc| !doc.is_empty())
+}
+
 impl ModuleItem for FunctionItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()> {
         let func = args
@@ -664,57 +687,57 @@ impl ModuleItem for FunctionItem {
         let item_meta = SimpleItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.simple_name()?;
-        let sig_doc = text_signature(func.sig(), &py_name, None);
+        let mut py_names = vec![py_name];
+        for attr_index in self.py_attrs.iter().rev() {
+            let mut loop_unit = || {
+                let attr_attr = args.attrs.remove(*attr_index);
+                let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
+
+                let py_name = item_meta.simple_name()?;
+                if py_names.iter().any(|name| name == &py_name) {
+                    return Err(self.new_syn_error(
+                        ident.span(),
+                        &format!("`{py_name}` is duplicated name for multiple py* attribute"),
+                    ));
+                }
+                py_names.push(py_name);
+                Ok(())
+            };
+            let r = loop_unit();
+            args.context.errors.ok_or_push(r);
+        }
 
         let module = args.module_name();
+        let rust_doc = args.attrs.doc();
         // TODO: doc must exist at least one of code or CPython
-        let doc = args.attrs.doc().or_else(|| {
-            DB.get(&format!("{module}.{py_name}"))
-                .copied()
-                .map(str::to_owned)
-        });
-        let doc = match (sig_doc, doc) {
-            (Some(sig_doc), Some(doc)) => Some(format_doc(&sig_doc, &doc)),
-            (Some(sig_doc), None) => Some(format_doc(&sig_doc, "")),
-            (None, doc) => doc,
-        };
-
-        let py_names = {
-            if self.py_attrs.is_empty() {
-                vec![py_name]
-            } else {
-                let mut py_names = HashSet::new();
-                py_names.insert(py_name);
-                for attr_index in self.py_attrs.iter().rev() {
-                    let mut loop_unit = || {
-                        let attr_attr = args.attrs.remove(*attr_index);
-                        let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
-
-                        let py_name = item_meta.simple_name()?;
-                        let inserted = py_names.insert(py_name.clone());
-                        if !inserted {
-                            return Err(self.new_syn_error(
-                                ident.span(),
-                                &format!(
-                                    "`{py_name}` is duplicated name for multiple py* attribute"
-                                ),
-                            ));
+        let docs = py_names
+            .iter()
+            .map(|py_name| {
+                let doc = rustpython_doc::get_qualified(module, py_name, None, false)
+                    .filter(|doc| !doc.is_empty())
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        if args.context.is_sub {
+                            unique_submodule_func_doc(py_name)
+                        } else {
+                            None
                         }
-                        Ok(())
-                    };
-                    let r = loop_unit();
-                    args.context.errors.ok_or_push(r);
-                }
-                py_names.into_iter().collect::<Vec<_>>()
-            }
-        };
+                    })
+                    .or_else(|| rust_doc.clone());
+                let doc = match doc {
+                    Some(doc) => quote!(Some(#doc)),
+                    None => quote!(None),
+                };
+                internal_doc_tokens(func.sig(), py_name, None, doc, None, Some("$module"))
+            })
+            .collect();
         let call_flags = infer_native_call_flags(func.sig(), 0);
 
         args.context.function_items.add_item(FunctionNurseryItem {
             ident: ident.to_owned(),
             py_names,
             cfgs: args.cfgs.to_vec(),
-            doc,
+            docs,
             call_flags,
         });
         Ok(())
@@ -763,7 +786,7 @@ impl ModuleItem for ClassItem {
                 // module resolution, e.g. TypeAliasType)
                 {
                     let module_key = rustpython_vm::identifier!(ctx, __module__);
-                    let has_module_getset = new_class.attributes
+                    let has_module_getset = new_class.payload().attributes
                         .get(module_key)
                         .is_some_and(|v| v.downcastable::<rustpython_vm::builtins::PyGetSet>());
                     if !has_module_getset {
@@ -857,7 +880,7 @@ impl ModuleItem for StructSequenceItem {
             let new_class = <#pytype_ident as ::rustpython_vm::class::PyClassImpl>::make_static_type();
             {
                 let module_key = rustpython_vm::identifier!(ctx, __module__);
-                let has_module_getset = new_class.attributes
+                let has_module_getset = new_class.payload().attributes
                     .get(module_key)
                     .is_some_and(|v| v.downcastable::<rustpython_vm::builtins::PyGetSet>());
                 if !has_module_getset {

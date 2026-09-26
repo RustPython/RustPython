@@ -2,10 +2,7 @@ use super::{
     core::{Py, PyObject, PyObjectRef, PyRef},
     payload::PyPayload,
 };
-use crate::common::{
-    atomic::{Ordering, PyAtomic, Radium},
-    lock::PyRwLockReadGuard,
-};
+use crate::common::atomic::{Ordering, PyAtomic, Radium};
 use crate::{
     VirtualMachine,
     builtins::{PyBaseExceptionRef, PyStrInterned, PyType},
@@ -449,6 +446,82 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
     }
 }
 
+impl PyAtomicRef<PyObject> {
+    /// Empty slot. The pointer is null and owns no reference.
+    pub(crate) fn new_empty() -> Self {
+        Self {
+            inner: Radium::new(null_mut()),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Borrowed pointer currently stored. Null when the slot is empty.
+    ///
+    /// The slot owns the reference, so this stays valid while the slot is
+    /// unchanged. Traversal calls it with other threads stopped.
+    pub(crate) fn load_ptr(&self) -> *mut PyObject {
+        self.inner.load(Ordering::Acquire).cast()
+    }
+
+    /// Strong reference to the current value.
+    ///
+    /// A concurrent store may drop the previous value. The incref is retried
+    /// until it applies to the pointer still in the slot, and a value placed
+    /// here is published so its memory outlives that race.
+    pub(crate) fn load_owned(&self) -> Option<PyObjectRef> {
+        let ptr = self.inner.load(Ordering::Acquire);
+        if ptr.is_null() {
+            return None;
+        }
+        // Without threading the slot's own reference keeps the object alive,
+        // so one incref is enough. With threading, retry when a store retires
+        // the pointer between the load and the incref.
+        #[cfg(not(feature = "threading"))]
+        {
+            unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
+        }
+        #[cfg(feature = "threading")]
+        {
+            let mut ptr = ptr;
+            loop {
+                if let Some(obj) = unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
+                    && core::ptr::eq(self.inner.load(Ordering::Acquire), ptr)
+                {
+                    return Some(obj);
+                }
+                ptr = self.inner.load(Ordering::Acquire);
+                if ptr.is_null() {
+                    return None;
+                }
+                core::hint::spin_loop();
+            }
+        }
+    }
+
+    /// Replace the stored reference. Returns the previous one, still owned.
+    ///
+    /// The value placed in the slot is not marked published, so it can still
+    /// return to the freelist. With threading, the value that leaves the slot
+    /// is marked so its free waits out a reader that already loaded it.
+    pub(crate) fn store(&self, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
+        let new_ptr = match value {
+            Some(obj) => {
+                let ptr = obj.into_raw().as_ptr();
+                ptr.expose_provenance();
+                ptr.cast()
+            }
+            None => null_mut(),
+        };
+        let old = Radium::swap(&self.inner, new_ptr, Ordering::AcqRel);
+        let old = NonNull::new(old.cast()).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
+        #[cfg(feature = "threading")]
+        if let Some(old) = old.as_ref() {
+            old.mark_cache_published();
+        }
+        old
+    }
+}
+
 impl From<PyObjectRef> for PyAtomicRef<PyObject> {
     fn from(obj: PyObjectRef) -> Self {
         let obj = obj.into_raw();
@@ -652,46 +725,6 @@ impl PyObject {
 //         unsafe { &*(&**self as *const T as *const PyObject) }
 //     }
 // }
-
-/// A borrow of a reference to a Python object. This avoids having clone the `PyRef<T>`/
-/// `PyObjectRef`, which isn't that cheap as that increments the atomic reference counter.
-// TODO: check if we still need this
-#[allow(dead_code)]
-pub struct PyLease<'a, T: PyPayload> {
-    inner: PyRwLockReadGuard<'a, PyRef<T>>,
-}
-
-impl<T: PyPayload> PyLease<'_, T> {
-    #[inline(always)]
-    #[must_use]
-    pub fn into_owned(self) -> PyRef<T> {
-        self.inner.clone()
-    }
-}
-
-impl<T: PyPayload> Borrow<PyObject> for PyLease<'_, T> {
-    #[inline(always)]
-    fn borrow(&self) -> &PyObject {
-        self.inner.as_ref()
-    }
-}
-
-impl<T: PyPayload> Deref for PyLease<'_, T> {
-    type Target = PyRef<T>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T> fmt::Display for PyLease<'_, T>
-where
-    T: PyPayload + fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&**self, f)
-    }
-}
 
 impl<T: PyPayload> ToPyObject for PyRef<T> {
     #[inline(always)]

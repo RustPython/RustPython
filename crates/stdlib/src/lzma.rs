@@ -4,7 +4,7 @@ pub(crate) use _lzma::module_def;
 
 #[pymodule]
 mod _lzma {
-    use crate::compression::DecompressArgs;
+    use crate::compression::DecompressorArgs;
     use alloc::fmt;
     use rustpython_common::{compression::lzma as backend, lock::PyMutex};
     use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytesRef, PyDict, PyType, PyTypeRef};
@@ -181,7 +181,7 @@ mod _lzma {
     }
 
     fn parse_filter_chain(
-        filter_specs: PyObjectRef,
+        filter_specs: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<backend::FilterSpec>> {
         const LZMA_FILTERS_MAX: usize = 4;
@@ -206,7 +206,7 @@ mod _lzma {
         vm: &VirtualMachine,
     ) -> PyResult<Option<Vec<backend::FilterSpec>>> {
         filters
-            .map(|filters| parse_filter_chain(filters, vm))
+            .map(|filters| parse_filter_chain(&filters, vm))
             .transpose()
     }
 
@@ -246,11 +246,8 @@ mod _lzma {
     }
 
     #[pyfunction]
-    fn _encode_filter_properties(
-        filter_spec: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
-        let spec = parse_filter_properties(&filter_spec, vm)?;
+    fn _encode_filter_properties(filter: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let spec = parse_filter_properties(&filter, vm)?;
         backend::encode_filter_properties(&spec).map_err(|error| map_backend_error(error, vm))
     }
 
@@ -293,7 +290,7 @@ mod _lzma {
 
     #[derive(FromArgs)]
     pub(super) struct LZMADecompressorConstructorArgs {
-        #[pyarg(any, default = FORMAT_AUTO)]
+        #[pyarg(any, default = ::FORMAT_AUTO)]
         format: i32,
         #[pyarg(any, optional)]
         memlimit: Option<u64>,
@@ -329,7 +326,7 @@ mod _lzma {
     #[pyclass(with(Constructor))]
     impl LZMADecompressor {
         #[pymethod]
-        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn decompress(&self, args: DecompressorArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let max_length = args.max_length();
             let data = &*args.data();
             let mut state = self.state.lock();
@@ -374,7 +371,7 @@ mod _lzma {
 
     #[derive(FromArgs)]
     pub(super) struct LZMACompressorConstructorArgs {
-        #[pyarg(any, default = FORMAT_XZ)]
+        #[pyarg(any, default = ::FORMAT_XZ)]
         format: i32,
         #[pyarg(any, default = -1)]
         check: i32,

@@ -2,7 +2,11 @@ use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use std::collections::{HashMap, HashSet};
-use syn::{Attribute, FnArg, Ident, Result, Signature, UseTree, ext::IdentExt, spanned::Spanned};
+use syn::visit::Visit;
+use syn::visit_mut::VisitMut;
+use syn::{
+    Attribute, FnArg, Ident, Result, Signature, Type, UseTree, ext::IdentExt, spanned::Spanned,
+};
 use syn_ext::{
     ext::{AttributeExt as SynAttributeExt, *},
     types::*,
@@ -736,26 +740,168 @@ where
     Ok(())
 }
 
-// Best effort attempt to generate a template from which a
-// __text_signature__ can be created.
-//
-// Unlike CPython, a `#[pyfunction]` doesn't take the module as an argument yet,
-// so there's no module to mark with `$module`.
-pub(crate) fn text_signature(
-    sig: &Signature,
-    name: &str,
-    implicit_self: Option<&str>,
-) -> Option<String> {
-    let signature = func_sig(sig, implicit_self)?;
-    // Arguments bind through `FuncArgs::take_positional`, which never consults
-    // the keyword map, so they are positional-only. `*args`/`**kwargs` cannot be
-    // followed by `/`, and an empty parameter list has nothing to mark.
-    let signature = if signature.is_empty() || signature.contains('*') {
-        format!("{name}({signature})")
-    } else {
-        format!("{name}({signature}, /)")
+enum SigPiece {
+    Marker(String),
+    Arg {
+        name: String,
+        ty: Type,
+    },
+    /// Parameters of the argument a method binds as its receiver.
+    Implicit(Type),
+}
+
+fn is_vm_or_callee(ty: &Type) -> bool {
+    let ty = quote!(#ty).to_string().replace(' ', "");
+    (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee")
+}
+
+fn arg_name(pat: &syn::Pat) -> String {
+    match pat {
+        syn::Pat::Ident(pat) => {
+            let ident = pat.ident.unraw().to_string();
+            ident.strip_prefix('_').unwrap_or(&ident).to_owned()
+        }
+        // `Fildes(fd): Fildes` contributes `fd`. One binding only: a wider
+        // pattern has no single parameter name. The name is unused when the
+        // type supplies parameters.
+        syn::Pat::TupleStruct(pat) if pat.elems.len() == 1 => arg_name(&pat.elems[0]),
+        syn::Pat::Reference(pat) => arg_name(&pat.pat),
+        syn::Pat::Paren(pat) => arg_name(&pat.pat),
+        _ => String::new(),
+    }
+}
+
+fn mentions_self(ty: &Type) -> bool {
+    struct Finder(bool);
+    impl Visit<'_> for Finder {
+        fn visit_ident(&mut self, ident: &Ident) {
+            if ident == "Self" {
+                self.0 = true;
+            }
+        }
+    }
+    let mut finder = Finder(false);
+    finder.visit_type(ty);
+    finder.0
+}
+
+fn subst_self(ty: &Type, self_ty: Option<&Type>) -> Type {
+    struct Subst<'a>(&'a Type);
+    impl VisitMut for Subst<'_> {
+        fn visit_type_mut(&mut self, ty: &mut Type) {
+            if let Type::Path(path) = ty
+                && path.qself.is_none()
+                && path.path.is_ident("Self")
+            {
+                *ty = self.0.clone();
+                return;
+            }
+            syn::visit_mut::visit_type_mut(self, ty);
+        }
+    }
+    let Some(self_ty) = self_ty else {
+        return ty.clone();
     };
-    Some(signature)
+    let mut ty = ty.clone();
+    Subst(self_ty).visit_type_mut(&mut ty);
+    ty
+}
+
+fn sig_pieces(
+    sig: &Signature,
+    implicit_self: Option<&str>,
+    self_ty: Option<&Type>,
+    leading_marker: Option<&str>,
+) -> Vec<SigPiece> {
+    let mut pieces = Vec::new();
+    if let Some(marker) = leading_marker {
+        pieces.push(SigPiece::Marker(marker.to_owned()));
+    }
+    let mut implicit_self = implicit_self.map(str::to_owned);
+    for arg in &sig.inputs {
+        match arg {
+            FnArg::Receiver(_) => pieces.push(SigPiece::Marker("$self".to_owned())),
+            FnArg::Typed(typed) => {
+                if is_vm_or_callee(&typed.ty) {
+                    continue;
+                }
+                let name = arg_name(&typed.pat);
+                let ty = subst_self(&typed.ty, self_ty);
+                // References carry a lifetime, so `FromArgs` cannot be named
+                // from a const item. They are leaf positional parameters.
+                let leaf = mentions_self(&ty) || matches!(ty, Type::Reference(_));
+                if let Some(marker) = implicit_self.take() {
+                    // A nested const cannot name `Self`. The receiver is the
+                    // marker; only a type that supplies parameters is kept.
+                    pieces.push(SigPiece::Marker(marker));
+                    if !leaf {
+                        pieces.push(SigPiece::Implicit(ty));
+                    }
+                } else if leaf {
+                    pieces.push(SigPiece::Marker(name));
+                } else {
+                    pieces.push(SigPiece::Arg { name, ty });
+                }
+            }
+        }
+    }
+    pieces
+}
+
+fn sig_arg_tokens(piece: &SigPiece) -> TokenStream {
+    match piece {
+        SigPiece::Marker(name) => quote!(::rustpython_vm::function::SigArg::marker(#name)),
+        SigPiece::Arg { name, ty } => {
+            quote!(::rustpython_vm::function::SigArg::from_arg::<#ty>(#name))
+        }
+        SigPiece::Implicit(ty) => quote!(::rustpython_vm::function::SigArg::implicit::<#ty>()),
+    }
+}
+
+fn args_const(pieces: &[SigPiece]) -> TokenStream {
+    let args = pieces.iter().map(sig_arg_tokens);
+    quote! {
+        const ARGS: &[::rustpython_vm::function::SigArg] = &[#(#args),*];
+    }
+}
+
+/// Expression of type `Option<&'static str>`: the internal doc, or the plain
+/// doc when the arguments cannot form a signature.
+/// `doc` is a const `Option<&'static str>`. A table entry wins; an empty
+/// string is no docstring. The text is composed into the internal doc so
+/// `__text_signature__` stays on the signature half.
+pub(crate) fn internal_doc_tokens(
+    sig: &Signature,
+    py_name: &str,
+    implicit_self: Option<&str>,
+    doc: TokenStream,
+    self_ty: Option<&Type>,
+    leading_marker: Option<&str>,
+) -> TokenStream {
+    let args_const = args_const(&sig_pieces(sig, implicit_self, self_ty, leading_marker));
+    quote! {
+        {
+            #args_const
+            const DOC_OPT: Option<&str> = #doc;
+            if !::rustpython_vm::function::has_signature(ARGS) {
+                if let Some(doc) = DOC_OPT {
+                    if doc.is_empty() { None } else { Some(doc) }
+                } else {
+                    None
+                }
+            } else {
+                const DOC: &str = if let Some(doc) = DOC_OPT { doc } else { "" };
+                const N: usize = ::rustpython_vm::function::internal_doc_len(#py_name, ARGS, DOC);
+                const B: [u8; N] =
+                    ::rustpython_vm::function::internal_doc_bytes::<N>(#py_name, ARGS, DOC);
+                const S: &str = match ::core::str::from_utf8(&B) {
+                    Ok(s) => s,
+                    Err(_) => panic!(),
+                };
+                Some(S)
+            }
+        }
+    }
 }
 
 pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) -> TokenStream {
@@ -828,57 +974,4 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
             _ => quote! { rustpython_vm::function::PyMethodFlags::FASTCALL },
         }
     }
-}
-
-/// Returns None when an argument has no name to report, in which case no
-/// signature can be generated for the function.
-///
-/// `implicit_self` is the marker to report for a first argument that the call
-/// binds to without a `&self` receiver.
-fn func_sig(sig: &Signature, mut implicit_self: Option<&str>) -> Option<String> {
-    let mut params = Vec::new();
-    for arg in &sig.inputs {
-        let arg = match arg {
-            FnArg::Typed(typed) => typed,
-            FnArg::Receiver(_) => {
-                params.push("$self".to_owned());
-                continue;
-            }
-        };
-        let ty = arg.ty.as_ref();
-        let ty = quote!(#ty).to_string();
-        if ty == "FuncArgs" {
-            // The bundle carries the receiver along with everything else, so
-            // report both rather than spending the marker on it.
-            params.extend(implicit_self.take().map(str::to_owned));
-            params.push("*args, **kwargs".to_owned());
-            continue;
-        }
-        if (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee") {
-            continue;
-        }
-        if let Some(marker) = implicit_self.take() {
-            params.push(marker.to_owned());
-            continue;
-        }
-        // An argument bound by a destructuring pattern, e.g.
-        // `fn round(RoundArgs { number, ndigits }: RoundArgs, ..)`, has no name
-        // to report. Stringifying the pattern would emit Rust syntax, which
-        // makes inspect.signature() raise "invalid signature".
-        let syn::Pat::Ident(pat) = arg.pat.as_ref() else {
-            return None;
-        };
-        let ident = pat.ident.unraw().to_string();
-        if ident == "vm" {
-            unreachable!("type &VirtualMachine(`{ty}`) must be filtered already");
-        }
-        // A leading `_` only marks the argument unused in Rust. A parameter whose
-        // Python name really starts with `_` has to be a FromArgs field instead.
-        params.push(ident.strip_prefix('_').unwrap_or(&ident).to_owned());
-    }
-    Some(params.join(", "))
-}
-
-pub(crate) fn format_doc(sig: &str, doc: &str) -> String {
-    format!("{sig}\n--\n\n{doc}")
 }

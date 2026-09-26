@@ -408,7 +408,7 @@ impl GcState {
     ///
     /// Like [`Self::track_object`], but for the hot allocation path only:
     /// `obj`'s `gc_bits` must still hold its freshly-initialized value of `0`
-    /// (true right after `PyInner::new` or a freelist pop, both of which zero
+    /// (true right after `Py::new` or a freelist pop, both of which zero
     /// it), so the tracked bit can go in with a plain store instead of the
     /// `fetch_or` `set_gc_tracked()` needs to be safe for the general case
     /// (e.g. re-tracking a resurrected object, whose bits are not zero — it
@@ -681,8 +681,8 @@ impl GcState {
             // Reset counts for generations whose objects were promoted away.
             // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
-            for i in 0..reset_end {
-                self.counts[i].store(0, Ordering::Relaxed);
+            for count in self.counts.iter().take(reset_end) {
+                count.store(0, Ordering::Relaxed);
             }
 
             let duration = elapsed_secs(start_time);
@@ -857,8 +857,8 @@ impl GcState {
             drop(gen_locks);
             self.promote_survivors(generation, &survivor_refs);
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
-            for i in 0..reset_end {
-                self.counts[i].store(0, Ordering::Relaxed);
+            for count in self.counts.iter().take(reset_end) {
+                count.store(0, Ordering::Relaxed);
             }
 
             let duration = elapsed_secs(start_time);
@@ -880,8 +880,8 @@ impl GcState {
         if unreachable_refs.is_empty() {
             self.promote_survivors(generation, &survivor_refs);
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
-            for i in 0..reset_end {
-                self.counts[i].store(0, Ordering::Relaxed);
+            for count in self.counts.iter().take(reset_end) {
+                count.store(0, Ordering::Relaxed);
             }
 
             let duration = elapsed_secs(start_time);
@@ -1107,8 +1107,8 @@ impl GcState {
         // Reset counts for generations whose objects were promoted away.
         // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
         let reset_end = if generation >= 2 { 2 } else { generation + 1 };
-        for i in 0..reset_end {
-            self.counts[i].store(0, Ordering::Relaxed);
+        for count in self.counts.iter().take(reset_end) {
+            count.store(0, Ordering::Relaxed);
         }
 
         let duration = elapsed_secs(start_time);

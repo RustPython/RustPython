@@ -90,7 +90,7 @@ pub use traceback::PyTraceback;
 pub(crate) mod tuple;
 pub use tuple::{PyTuple, PyTupleRef};
 pub(crate) mod weakproxy;
-pub use weakproxy::{PyWeakCallableProxy, PyWeakProxy};
+pub use weakproxy::{PyWeakCallableProxy, PyWeakProxy, WeakProxyNewArgs};
 pub(crate) mod weakref;
 pub use weakref::PyWeak;
 pub(crate) mod zip;
@@ -100,8 +100,8 @@ pub(crate) mod union_;
 pub use union_::{PyUnion, make_union};
 pub(crate) mod descriptor;
 pub use descriptor::{
-    MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyMemberDef as DescriptorMemberDef,
-    PyMemberDescriptor,
+    MemberAccess, MemberKind, PY_READONLY, PY_RELATIVE_OFFSET, PyDescriptorOwned,
+    PyMemberDef as DescriptorMemberDef, PyMemberDescriptor,
 };
 
 pub use float::float_from_string as parse_float_from_string;

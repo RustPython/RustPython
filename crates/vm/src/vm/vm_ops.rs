@@ -4,7 +4,7 @@ use crate::{
     Py, PyRef,
     builtins::{PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyUtf8Str},
     object::{AsObject, PyObject, PyObjectRef, PyResult},
-    protocol::{PyNumberBinaryOp, PyNumberTernaryOp},
+    protocol::{PyNumberBinaryOp, PyNumberSlots, PyNumberTernaryOp, PyNumberUnaryFunc},
     types::PyComparisonOp,
 };
 use num_traits::ToPrimitive;
@@ -292,7 +292,7 @@ impl VirtualMachine {
         iop_slot: PyNumberBinaryOp,
         op_slot: PyNumberBinaryOp,
     ) -> PyResult {
-        if let Some(slot) = a.class().slots.as_number.left_binary_op(iop_slot) {
+        if let Some(slot) = a.class().slots().as_number.left_binary_op(iop_slot) {
             let x = slot(a, b, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
@@ -419,7 +419,7 @@ impl VirtualMachine {
         op_slot: PyNumberTernaryOp,
         op_str: &str,
     ) -> PyResult {
-        if let Some(slot) = a.class().slots.as_number.left_ternary_op(iop_slot) {
+        if let Some(slot) = a.class().slots().as_number.left_ternary_op(iop_slot) {
             let x = slot(a, b, c, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
@@ -541,22 +541,30 @@ impl VirtualMachine {
         Err(self.new_unsupported_bin_op_error(a, b, "*="))
     }
 
+    fn unary_op(
+        &self,
+        a: &PyObject,
+        slot: impl FnOnce(&PyNumberSlots) -> Option<PyNumberUnaryFunc>,
+        op: &str,
+    ) -> PyResult {
+        let f = slot(&a.class().slots.as_number)
+            .ok_or_else(|| self.new_unsupported_unary_error(a, op))?;
+        f(a.number(), self)
+    }
+
+    // PyNumber_Absolute
     pub fn _abs(&self, a: &PyObject) -> PyResult<PyObjectRef> {
-        self.get_special_method(a, identifier!(self, __abs__))?
-            .ok_or_else(|| self.new_unsupported_unary_error(a, "abs()"))?
-            .invoke((), self)
+        self.unary_op(a, |s| s.absolute.load(), "abs()")
     }
 
+    // PyNumber_Positive
     pub fn _pos(&self, a: &PyObject) -> PyResult {
-        self.get_special_method(a, identifier!(self, __pos__))?
-            .ok_or_else(|| self.new_unsupported_unary_error(a, "unary +"))?
-            .invoke((), self)
+        self.unary_op(a, |s| s.positive.load(), "unary +")
     }
 
+    // PyNumber_Negative
     pub fn _neg(&self, a: &PyObject) -> PyResult {
-        self.get_special_method(a, identifier!(self, __neg__))?
-            .ok_or_else(|| self.new_unsupported_unary_error(a, "unary -"))?
-            .invoke((), self)
+        self.unary_op(a, |s| s.negative.load(), "unary -")
     }
 
     pub fn _invert(&self, a: &PyObject) -> PyResult {
@@ -571,9 +579,7 @@ impl VirtualMachine {
                 self,
             )?;
         }
-        self.get_special_method(a, identifier!(self, __invert__))?
-            .ok_or_else(|| self.new_unsupported_unary_error(a, "unary ~"))?
-            .invoke((), self)
+        self.unary_op(a, |s| s.invert.load(), "unary ~")
     }
 
     // PyObject_Format

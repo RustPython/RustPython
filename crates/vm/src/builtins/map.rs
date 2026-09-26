@@ -1,9 +1,9 @@
-use super::PyType;
+use super::{PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::PyTupleRef,
     class::PyClassImpl,
-    function::{ArgIntoBool, OptionalArg, PosArgs},
+    function::{ArgIntoBool, FuncArgs, PosArgs},
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
@@ -27,28 +27,56 @@ impl PyPayload for PyMap {
 
 #[derive(FromArgs)]
 pub struct PyMapNewArgs {
-    #[pyarg(named, optional)]
-    strict: OptionalArg<bool>,
+    #[pyarg(positional)]
+    function: PyObjectRef,
+    #[pyarg(positional)]
+    iterable: PyIter,
+    #[pyarg(flatten)]
+    iterables: PosArgs<PyIter, crate::function::NameIterables>,
+    #[pyarg(named, default = false)]
+    strict: bool,
+}
+
+#[derive(FromArgs)]
+struct MapCallArgs {
+    #[pyarg(positional)]
+    function: PyObjectRef,
+    #[pyarg(flatten)]
+    iterables: PosArgs<PyIter, crate::function::NameIterables>,
+    #[pyarg(named, default = false)]
+    strict: bool,
 }
 
 impl Constructor for PyMap {
-    type Args = (PyObjectRef, PosArgs<PyIter>, PyMapNewArgs);
+    type Args = PyMapNewArgs;
 
-    fn py_new(
-        _cls: &Py<PyType>,
-        (mapper, iterators, args): Self::Args,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        let iterators = iterators.into_vec();
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let MapCallArgs {
+            function: mapper,
+            iterables,
+            strict,
+        } = args.bind_for(vm, "map")?;
+        let iterators = iterables.into_vec();
         if iterators.is_empty() {
             return Err(vm.new_type_error("map() must have at least two arguments."));
         }
-        let strict = Radium::new(args.strict.unwrap_or(false));
-        Ok(Self {
+        let payload = Self {
             mapper,
             iterators,
+            strict: Radium::new(strict),
+        };
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        let PyMapNewArgs {
+            function,
+            iterable,
+            iterables,
             strict,
-        })
+        } = args;
+        let _ = (function, iterable, iterables, strict);
+        Err(vm.new_type_error("use slot_new"))
     }
 }
 
@@ -68,8 +96,8 @@ impl PyMap {
     }
 
     #[pymethod]
-    fn __setstate__(zelf: PyRef<Self>, state: PyObjectRef, vm: &VirtualMachine) {
-        if let Ok(obj) = ArgIntoBool::try_from_object(vm, state) {
+    fn __setstate__(zelf: PyRef<Self>, object: PyObjectRef, vm: &VirtualMachine) {
+        if let Ok(obj) = ArgIntoBool::try_from_object(vm, object) {
             zelf.strict.store(obj.into(), atomic::Ordering::Release);
         }
     }

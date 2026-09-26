@@ -8,9 +8,7 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     common::{float_ops, format::FormatSpec, hash, wtf8::Wtf8Buf},
     convert::{IntoPyException, ToPyObject, ToPyResult},
-    function::{
-        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue,
-    },
+    function::{ArgBytesLike, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
@@ -172,17 +170,46 @@ pub(crate) fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+#[derive(FromArgs)]
+pub struct FloatArgs {
+    // Missing is 0.0 without parsing. Subclass init builds Missing itself.
+    #[pyarg(positional, default, py_default = "0")]
+    x: OptionalArg<PyObjectRef>,
+}
+
 impl Constructor for PyFloat {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = FloatArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let float_type = vm.ctx.types.float_type;
+        let uses_float_init = {
+            let cls_init = cls.slots.init.load().map(crate::types::fn_addr);
+            let float_init = float_type.slots.init.load().map(crate::types::fn_addr);
+            cls_init == float_init
+        };
         // Bind before the fast path so FromArgs::arity decides how many arguments
-        // are acceptable, rather than a count repeated here.
-        let arg: Self::Args = args.bind_for(vm, Self::NAME)?;
+        // are acceptable, rather than a count repeated here. Extra keywords are
+        // accepted only when a subclass has replaced tp_init.
+        let arg: Self::Args = if cls.is(float_type) || uses_float_init {
+            args.bind_for(vm, Self::NAME)?
+        } else {
+            match args.args.as_slice() {
+                [] => Self::Args {
+                    x: OptionalArg::Missing,
+                },
+                [value] => Self::Args {
+                    x: OptionalArg::Present(value.clone()),
+                },
+                slice => {
+                    return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
+                }
+            }
+        };
+        let arg_value = &arg.x;
 
         // Optimization: return exact float as-is
         if cls.is(vm.ctx.types.float_type)
-            && let OptionalArg::Present(first) = &arg
+            && let OptionalArg::Present(first) = arg_value
             && first.class().is(vm.ctx.types.float_type)
         {
             return Ok(first.clone());
@@ -193,13 +220,13 @@ impl Constructor for PyFloat {
     }
 
     fn py_new(_cls: &Py<PyType>, arg: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        let float_val = match arg {
+        let float_val = match arg.x {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
                 if let Some(f) = val.try_float_opt(vm) {
                     f?.value
                 } else {
-                    float_from_string(val, vm)?
+                    float_from_string(&val, vm)?
                 }
             }
         };
@@ -207,7 +234,7 @@ impl Constructor for PyFloat {
     }
 }
 
-pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+pub fn float_from_string(val: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
     let (bytearray, buffer, buffer_lock, mapped_string);
     let b = if let Some(s) = val.downcast_ref::<PyStr>() {
         mapped_string = crate::protocol::numeric_literal_from_str(s);
@@ -217,7 +244,7 @@ pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64>
     } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {
         bytearray = buf.borrow_buf();
         &*bytearray
-    } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, &val) {
+    } else if let Ok(b) = ArgBytesLike::try_from_borrowed_object(vm, val) {
         buffer = b;
         buffer_lock = buffer.borrow_buf();
         &*buffer_lock
@@ -233,6 +260,12 @@ pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64>
             |repr| vm.new_value_error(format!("could not convert string to float: {repr}")),
         )
     })
+}
+
+#[derive(FromArgs)]
+struct RoundArgs {
+    #[pyarg(positional, optional)]
+    ndigits: Option<PyIntRef>,
 }
 
 #[expect(
@@ -268,8 +301,8 @@ impl PyFloat {
     }
 
     #[pystaticmethod]
-    fn __getformat__(spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
-        if !matches!(spec.as_str(), "double" | "float") {
+    fn __getformat__(typestr: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
+        if !matches!(typestr.as_str(), "double" | "float") {
             return Err(
                 vm.new_value_error("__getformat__() argument 1 must be 'double' or 'float'")
             );
@@ -301,8 +334,8 @@ impl PyFloat {
     }
 
     #[pymethod]
-    fn __round__(&self, ndigits: OptionalOption<PyIntRef>, vm: &VirtualMachine) -> PyResult {
-        let ndigits = ndigits.flatten();
+    fn __round__(&self, args: RoundArgs, vm: &VirtualMachine) -> PyResult {
+        let ndigits = args.ndigits;
         let value = if let Some(ndigits) = ndigits {
             let ndigits = ndigits.as_bigint();
             let ndigits = match ndigits.to_i32() {
@@ -543,5 +576,5 @@ fn vectorcall_float(
 #[rustfmt::skip] // to avoid line splitting
 pub(crate) fn init(context: &'static Context) {
     PyFloat::extend_class(context, context.types.float_type);
-    context.types.float_type.slots.vectorcall.store(Some(vectorcall_float));
+    context.types.float_type.slots().vectorcall.store(Some(vectorcall_float));
 }

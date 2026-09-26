@@ -5,7 +5,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyResult,
-    function::{Callee, Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
+    function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
     types::{Constructor, Initializer, PyComparisonOp},
 };
 use itertools::Itertools;
@@ -114,7 +114,7 @@ impl Initializer for PyBaseObject {
     type Args = FuncArgs;
 
     // object_init: excess_args validation
-    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         if args.is_empty() {
             return Ok(());
         }
@@ -152,7 +152,7 @@ impl Initializer for PyBaseObject {
         Ok(())
     }
 
-    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+    fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
         unreachable!("slot_init is defined")
     }
 }
@@ -186,7 +186,7 @@ fn type_slot_names(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Option<sup
 // object_getstate_default
 fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyResult {
     // Check itemsize
-    if required && obj.class().slots.itemsize > 0 {
+    if required && obj.class().slots().itemsize > 0 {
         return Err(vm.new_type_error(format!("cannot pickle {:.200} objects", obj.class().name())));
     }
 
@@ -205,22 +205,22 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 
     if required {
         // Start with PyBaseObject_Type's basicsize
-        let mut basicsize = vm.ctx.types.object_type.slots.basicsize;
+        let mut basicsize = vm.ctx.types.object_type.slots().basicsize;
 
         // Add __dict__ size if type has dict
-        if obj.class().slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
+        if obj.class().slots().flags.has_feature(PyTypeFlags::HAS_DICT) {
             basicsize += core::mem::size_of::<PyObjectRef>();
         }
 
         // Add __weakref__ size if type has weakref support
-        let has_weakref = if let Some(ref ext) = obj.class().heaptype_ext {
+        let has_weakref = if let Some(ext) = obj.class().heaptype_ext() {
             match &ext.slots {
                 None => true, // Heap type without __slots__ has automatic weakref
                 Some(slots) => slots.iter().any(|s| s.as_bytes() == b"__weakref__"),
             }
         } else {
             let weakref_name = vm.ctx.intern_str("__weakref__");
-            obj.class().attributes.contains(weakref_name)
+            obj.class().attributes().contains(weakref_name)
         };
         if has_weakref {
             basicsize += core::mem::size_of::<PyObjectRef>();
@@ -232,7 +232,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         }
 
         // Fail if actual type's basicsize > expected basicsize
-        if obj.class().slots.basicsize > basicsize {
+        if obj.class().slots().basicsize > basicsize {
             return Err(vm.new_type_error(format!("cannot pickle '{}' object", obj.class().name())));
         }
     }
@@ -294,9 +294,8 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 
 #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
 impl PyBaseObject {
-    #[pymethod(raw)]
-    fn __getstate__(vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
-        let (zelf,): (PyObjectRef,) = args.bind_for(vm, callee)?;
+    #[pymethod]
+    fn __getstate__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         object_getstate_default(&zelf, false, vm)
     }
 
@@ -326,7 +325,7 @@ impl PyBaseObject {
                 }
             }
             PyComparisonOp::Ne => {
-                let cmp = zelf.class().slots.richcompare.load().unwrap();
+                let cmp = zelf.class().slots().richcompare.load().unwrap();
                 let value = match cmp(zelf, other, PyComparisonOp::Eq, vm)? {
                     Either::A(obj) => PyArithmeticValue::from_object(vm, obj)
                         .map(|obj| obj.try_to_bool(vm))
@@ -389,7 +388,7 @@ impl PyBaseObject {
     }
 
     #[pyclassmethod]
-    fn __subclasshook__(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+    fn __subclasshook__(_cls: PyTypeRef, _object: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }
 
@@ -505,7 +504,7 @@ impl PyBaseObject {
     #[pymethod]
     fn __reduce_ex__(zelf: PyObjectRef, protocol: usize, vm: &VirtualMachine) -> PyResult {
         let __reduce__ = identifier!(vm, __reduce__);
-        if let Some(reduce) = vm.get_attribute_opt(zelf.clone(), __reduce__)? {
+        if let Some(reduce) = vm.get_attribute_opt(&zelf, __reduce__)? {
             let object_reduce = vm.ctx.types.object_type.get_attr(__reduce__).unwrap();
             let typ_obj: PyObjectRef = zelf.class().to_owned().into();
             let class_reduce = typ_obj.get_attr(__reduce__, vm)?;
@@ -524,7 +523,7 @@ impl PyBaseObject {
 
     #[pymethod]
     fn __sizeof__(zelf: PyObjectRef) -> usize {
-        zelf.class().slots.basicsize
+        zelf.class().slots().basicsize
     }
 }
 
@@ -580,7 +579,11 @@ pub fn object_generic_set_dict(
 pub(crate) fn init(ctx: &'static Context) {
     // Manually set alloc/init slots - derive macro doesn't generate extend_slots
     // for trait impl that overrides #[pyslot] method
-    ctx.types.object_type.slots.alloc.store(Some(generic_alloc));
+    ctx.types
+        .object_type
+        .slots()
+        .alloc
+        .store(Some(generic_alloc));
     ctx.types
         .object_type
         .slots
@@ -702,14 +705,14 @@ fn get_items_iter(obj: &PyObject, vm: &VirtualMachine) -> PyResult<(PyObjectRef,
 }
 
 /// reduce_newobj - creates reduce tuple for protocol >= 2
-fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+fn reduce_newobj(obj: &PyObject, vm: &VirtualMachine) -> PyResult {
     // Check if type has tp_new
     let cls = obj.class();
     if cls.slots.new.load().is_none() {
         return Err(vm.new_type_error(format!("cannot pickle '{}' object", cls.name())));
     }
 
-    let (args, kwargs) = get_new_arguments(&obj, vm)?;
+    let (args, kwargs) = get_new_arguments(obj, vm)?;
 
     let copyreg = vm.import("copyreg", 0)?;
 
@@ -752,9 +755,9 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     let is_dict = obj.fast_isinstance(vm.ctx.types.dict_type);
     let required = !(has_args || is_list || is_dict);
 
-    let state = object_getstate(&obj, required, vm)?;
+    let state = object_getstate(obj, required, vm)?;
 
-    let (listitems, dictitems) = get_items_iter(&obj, vm)?;
+    let (listitems, dictitems) = get_items_iter(obj, vm)?;
 
     let result = vm
         .ctx
@@ -764,7 +767,7 @@ fn reduce_newobj(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 
 fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
     if proto >= 2 {
-        reduce_newobj(obj, vm)
+        reduce_newobj(&obj, vm)
     } else {
         let copyreg = vm.import("copyreg", 0)?;
         let reduce_ex = copyreg.get_attr("_reduce_ex", vm)?;

@@ -19,7 +19,7 @@ pub mod array {
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat,
                 PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType,
-                PyTypeRef, PyUtf8StrRef, builtins_iter, locked_next,
+                PyTypeRef, PyUtf8Str, PyUtf8StrRef, builtins_iter, locked_next,
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
@@ -764,6 +764,12 @@ pub mod array {
         }
     }
 
+    #[derive(FromArgs)]
+    struct PopArgs {
+        #[pyarg(positional, default = -1)]
+        i: isize,
+    }
+
     #[pyclass(
         flags(BASETYPE, HAS_WEAKREF),
         with(
@@ -968,12 +974,12 @@ pub mod array {
         #[pymethod]
         fn index(
             &self,
-            x: PyObjectRef,
+            v: PyObjectRef,
             range: OptionalRangeArgs,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let (start, stop) = range.saturate(self.__len__(), vm)?;
-            self.read().index(x, start, stop, vm)
+            self.read().index(v, start, stop, vm)
         }
 
         #[pymethod]
@@ -983,12 +989,12 @@ pub mod array {
         }
 
         #[pymethod]
-        fn pop(zelf: &Py<Self>, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
+        fn pop(zelf: &Py<Self>, args: PopArgs, vm: &VirtualMachine) -> PyResult {
             let mut w = zelf.try_resizable(vm)?;
             if w.len() == 0 {
                 Err(vm.new_index_error("pop from empty array"))
             } else {
-                w.pop(i.unwrap_or(-1), vm)
+                w.pop(args.i, vm)
             }
         }
 
@@ -1060,8 +1066,8 @@ pub mod array {
             }
         }
 
-        fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            self.getitem_inner(&needle, vm)
+        fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+            self.getitem_inner(needle, vm)
         }
 
         fn setitem_inner(
@@ -1107,11 +1113,11 @@ pub mod array {
 
         fn __setitem__(
             zelf: &Py<Self>,
-            needle: PyObjectRef,
+            needle: &PyObject,
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            Self::setitem_inner(zelf, &needle, value, vm)
+            Self::setitem_inner(zelf, needle, value, vm)
         }
 
         fn delitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -1121,11 +1127,11 @@ pub mod array {
             }
         }
 
-        fn __delitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self.delitem_inner(&needle, vm)
+        fn __delitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            self.delitem_inner(needle, vm)
         }
 
-        fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        fn __add__(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             if let Some(other) = other.downcast_ref::<Self>() {
                 self.read()
                     .add(&other.read(), vm)
@@ -1140,10 +1146,10 @@ pub mod array {
 
         fn __iadd__(
             zelf: PyRef<Self>,
-            other: PyObjectRef,
+            other: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            if zelf.is(&other) {
+            if zelf.is(other) {
                 zelf.try_resizable(vm)?.imul(2, vm)?;
             } else if let Some(other) = other.downcast_ref::<Self>() {
                 zelf.try_resizable(vm)?.iadd(&other.read(), vm)?;
@@ -1241,7 +1247,7 @@ pub mod array {
             ))
         }
 
-        fn __contains__(&self, value: PyObjectRef, vm: &VirtualMachine) -> bool {
+        fn __contains__(&self, value: &PyObject, vm: &VirtualMachine) -> bool {
             let array = self.array.read();
             for element in array
                 .iter(vm)
@@ -1260,10 +1266,10 @@ pub mod array {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 
@@ -1421,7 +1427,7 @@ pub mod array {
                 length: atomic_func!(|seq, _vm| Ok(PyArray::sequence_downcast(seq).__len__())),
                 concat: atomic_func!(|seq, other, vm| {
                     let zelf = PyArray::sequence_downcast(seq);
-                    PyArray::__add__(zelf, other.to_owned(), vm).map(|x| x.into())
+                    PyArray::__add__(zelf, other, vm).map(|x| x.into())
                 }),
                 repeat: atomic_func!(|seq, n, vm| {
                     PyArray::sequence_downcast(seq)
@@ -1445,11 +1451,11 @@ pub mod array {
                 }),
                 contains: atomic_func!(|seq, target, vm| {
                     let zelf = PyArray::sequence_downcast(seq);
-                    Ok(zelf.__contains__(target.to_owned(), vm))
+                    Ok(zelf.__contains__(target, vm))
                 }),
                 inplace_concat: atomic_func!(|seq, other, vm| {
                     let zelf = PyArray::sequence_downcast(seq).to_owned();
-                    PyArray::__iadd__(zelf, other.to_owned(), vm).map(|x| x.into())
+                    PyArray::__iadd__(zelf, other, vm).map(|x| x.into())
                 }),
                 inplace_repeat: atomic_func!(|seq, n, vm| {
                     let zelf = PyArray::sequence_downcast(seq).to_owned();
@@ -1498,7 +1504,7 @@ pub mod array {
         fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             self.internal
                 .lock()
-                .set_state(state, |obj, pos| pos.min(obj.__len__()), vm)
+                .set_state(&state, |obj, pos| pos.min(obj.__len__()), vm)
         }
 
         #[pymethod]
@@ -1682,7 +1688,7 @@ pub mod array {
         Ok(typ)
     }
 
-    fn check_type_code(spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<ArrayContentType> {
+    fn check_type_code(spec: &Py<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<ArrayContentType> {
         let spec = spec.as_str().chars().exactly_one().map_err(|_| {
             vm.new_type_error(
                 "_array_reconstructor() argument 2 must be a unicode character, not str",
@@ -1718,7 +1724,7 @@ pub mod array {
     #[pyfunction]
     fn _array_reconstructor(args: ReconstructorArgs, vm: &VirtualMachine) -> PyResult<PyArrayRef> {
         let cls = check_array_type(args.arraytype, vm)?;
-        let mut array = check_type_code(args.typecode, vm)?;
+        let mut array = check_type_code(&args.typecode, vm)?;
         let format = args.mformat_code;
         let bytes = args.items.as_bytes();
         if !bytes.len().is_multiple_of(format.item_size()) {

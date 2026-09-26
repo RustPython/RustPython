@@ -107,7 +107,7 @@ impl FrameLocalsProxy {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.frame.framelocalsproxy_setitem(key, value, vm)
+        self.frame.framelocalsproxy_setitem(&key, value, vm)
     }
 
     fn __delitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -115,7 +115,7 @@ impl FrameLocalsProxy {
     }
 
     fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.frame.framelocalsproxy_contains(key, vm)
+        self.frame.framelocalsproxy_contains(&key, vm)
     }
 
     fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -167,7 +167,7 @@ impl FrameLocalsProxy {
     #[pymethod]
     fn setdefault(&self, key: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
         self.frame
-            .framelocalsproxy_setdefault(key, default.unwrap_or_none(vm), vm)
+            .framelocalsproxy_setdefault(&key, default.unwrap_or_none(vm), vm)
     }
 
     #[pymethod]
@@ -203,7 +203,7 @@ impl FrameLocalsProxy {
             .get_iter(vm)?;
         while let PyIterReturn::Return(key) = keys.next(vm)? {
             let value = other.get_item(&*key, vm)?;
-            self.frame.framelocalsproxy_setitem(key, value, vm)?;
+            self.frame.framelocalsproxy_setitem(&key, value, vm)?;
         }
         Ok(())
     }
@@ -215,11 +215,11 @@ impl FrameLocalsProxy {
         Ok(vm.ctx.new_list(keys).into())
     }
 
-    fn __ior__(zelf: PyRef<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __ior__(zelf: PyRef<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult {
         if other.downcast_ref::<PyDict>().is_none() && other.downcast_ref::<Self>().is_none() {
             return Ok(vm.ctx.not_implemented());
         }
-        zelf.update_from(&other, vm)?;
+        zelf.update_from(other, vm)?;
         Ok(zelf.into())
     }
 
@@ -231,14 +231,14 @@ impl FrameLocalsProxy {
         if other.downcast_ref::<PyDict>().is_some() {
             // PyDict_Update reads a dict subclass's stored entries directly;
             // it does not dispatch to overridden mapping methods.
-            result.merge_dict(other.downcast().unwrap(), true, vm)?;
+            result.merge_dict(&other.downcast().unwrap(), true, vm)?;
         } else {
             result.merge_object(other, vm)?;
         }
         Ok(result.into())
     }
 
-    fn __ror__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __ror__(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
         let Some(other) = other.downcast_ref::<PyDict>() else {
             return Ok(vm.ctx.not_implemented());
         };
@@ -298,7 +298,7 @@ impl AsNumber for FrameLocalsProxy {
                 if let Some(proxy) = a.downcast_ref::<FrameLocalsProxy>() {
                     proxy.__or__(b.to_owned(), vm)
                 } else if let Some(proxy) = b.downcast_ref::<FrameLocalsProxy>() {
-                    proxy.__ror__(a.to_owned(), vm)
+                    proxy.__ror__(a, vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
@@ -308,7 +308,7 @@ impl AsNumber for FrameLocalsProxy {
                     .to_owned()
                     .downcast::<FrameLocalsProxy>()
                     .map_err(|_| vm.new_type_error("expected FrameLocalsProxy"))?;
-                FrameLocalsProxy::__ior__(proxy, b.to_owned(), vm)
+                FrameLocalsProxy::__ior__(proxy, b, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };

@@ -27,7 +27,7 @@ pub(crate) mod _elementtree {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine, atomic_func,
         builtins::{PyDict, PyDictRef, PyList, PyModule, PyStr, PyType, PyTypeRef},
-        function::{FuncArgs, OptionalArg, PySetterValue},
+        function::{FuncArgs, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
         sliceable::{SequenceIndex, SliceableSequenceOp},
         types::{
@@ -239,6 +239,10 @@ pub(crate) mod _elementtree {
             self.inner.read().children.len()
         }
 
+        fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
         fn child(&self, index: usize) -> Option<PyObjectRef> {
             self.inner.read().children.get(index).cloned()
         }
@@ -394,7 +398,7 @@ pub(crate) mod _elementtree {
         #[pyarg(any)]
         path: PyObjectRef,
         #[pyarg(any, optional)]
-        namespaces: OptionalArg<PyObjectRef>,
+        namespaces: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -402,9 +406,9 @@ pub(crate) mod _elementtree {
         #[pyarg(any)]
         path: PyObjectRef,
         #[pyarg(any, optional)]
-        default: OptionalArg<PyObjectRef>,
+        default: Option<PyObjectRef>,
         #[pyarg(any, optional)]
-        namespaces: OptionalArg<PyObjectRef>,
+        namespaces: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -412,13 +416,29 @@ pub(crate) mod _elementtree {
         #[pyarg(any)]
         key: PyObjectRef,
         #[pyarg(any, optional)]
-        default: OptionalArg<PyObjectRef>,
+        default: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct IterArgs {
         #[pyarg(any, optional)]
-        tag: OptionalArg<PyObjectRef>,
+        tag: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct PiArgs {
+        #[pyarg(positional)]
+        target: PyObjectRef,
+        #[pyarg(positional, optional)]
+        text: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct SetEventsArgs {
+        #[pyarg(positional)]
+        events_queue: PyObjectRef,
+        #[pyarg(positional, optional)]
+        events_to_report: Option<PyObjectRef>,
     }
 
     impl Constructor for PyElement {
@@ -432,7 +452,7 @@ pub(crate) mod _elementtree {
     impl Initializer for PyElement {
         type Args = FuncArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let (tag, attrib) = parse_attrib_args(args, "Element", 0, vm)?;
             let attrib = attrib.filter(|d| !d.is_empty());
             let _recycle = {
@@ -607,7 +627,7 @@ pub(crate) mod _elementtree {
 
         #[pymethod]
         fn get(&self, args: GetArgs, vm: &VirtualMachine) -> PyResult {
-            let default = args.default.unwrap_or_none(vm);
+            let default = args.default.unwrap_or_else(|| vm.ctx.none());
             let Some(attrib) = self.attrib_opt() else {
                 return Ok(default);
             };
@@ -659,7 +679,7 @@ pub(crate) mod _elementtree {
         #[pymethod]
         fn find(zelf: &Py<Self>, args: FindArgs, vm: &VirtualMachine) -> PyResult {
             let FindArgs { path, namespaces } = args;
-            let namespaces = namespaces.unwrap_or_none(vm);
+            let namespaces = namespaces.unwrap_or_else(|| vm.ctx.none());
             if check_path(&path) || !vm.is_none(&namespaces) {
                 let state = module_state(vm)?;
                 let element_path = state.element_path(vm)?;
@@ -683,8 +703,8 @@ pub(crate) mod _elementtree {
                 default,
                 namespaces,
             } = args;
-            let default = default.unwrap_or_none(vm);
-            let namespaces = namespaces.unwrap_or_none(vm);
+            let default = default.unwrap_or_else(|| vm.ctx.none());
+            let namespaces = namespaces.unwrap_or_else(|| vm.ctx.none());
             if check_path(&path) || !vm.is_none(&namespaces) {
                 let state = module_state(vm)?;
                 let element_path = state.element_path(vm)?;
@@ -713,7 +733,7 @@ pub(crate) mod _elementtree {
         #[pymethod]
         fn findall(zelf: &Py<Self>, args: FindArgs, vm: &VirtualMachine) -> PyResult {
             let FindArgs { path, namespaces } = args;
-            let namespaces = namespaces.unwrap_or_none(vm);
+            let namespaces = namespaces.unwrap_or_else(|| vm.ctx.none());
             if check_path(&path) || !vm.is_none(&namespaces) {
                 let state = module_state(vm)?;
                 let element_path = state.element_path(vm)?;
@@ -738,7 +758,7 @@ pub(crate) mod _elementtree {
         #[pymethod]
         fn iterfind(zelf: &Py<Self>, args: FindArgs, vm: &VirtualMachine) -> PyResult {
             let FindArgs { path, namespaces } = args;
-            let namespaces = namespaces.unwrap_or_none(vm);
+            let namespaces = namespaces.unwrap_or_else(|| vm.ctx.none());
             let state = module_state(vm)?;
             let element_path = state.element_path(vm)?;
             vm.call_method(
@@ -750,7 +770,7 @@ pub(crate) mod _elementtree {
 
         #[pymethod]
         fn iter(zelf: PyRef<Self>, args: IterArgs, vm: &VirtualMachine) -> PyElementIter {
-            let tag = args.tag.unwrap_or_none(vm);
+            let tag = args.tag.unwrap_or_else(|| vm.ctx.none());
             let tag = match tag.downcast_ref::<PyStr>() {
                 Some(s) if s.as_wtf8() == "*" => vm.ctx.none(),
                 _ => tag,
@@ -1209,7 +1229,7 @@ pub(crate) mod _elementtree {
                         None,
                         vm,
                     )?;
-                    Ok(zelf.len() != 0)
+                    Ok(!zelf.is_empty())
                 }),
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
@@ -1367,7 +1387,7 @@ pub(crate) mod _elementtree {
     impl Initializer for PyTreeBuilder {
         type Args = TreeBuilderArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let module = module_state(vm)?;
             let element_factory = args.element_factory.filter(|f| !vm.is_none(f));
             let comment_factory = match args.comment_factory {
@@ -1685,7 +1705,7 @@ pub(crate) mod _elementtree {
         fn set_events(
             &self,
             events_append: PyObjectRef,
-            events_to_report: PyObjectRef,
+            events_to_report: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             {
@@ -1697,7 +1717,7 @@ pub(crate) mod _elementtree {
                 st.end_ns_event = None;
                 st.comment_event = None;
                 st.pi_event = None;
-                if vm.is_none(&events_to_report) {
+                if vm.is_none(events_to_report) {
                     st.end_event = Some(vm.ctx.new_str("end").into());
                     return Ok(());
                 }
@@ -1767,13 +1787,8 @@ pub(crate) mod _elementtree {
         }
 
         #[pymethod]
-        fn pi(
-            &self,
-            target: PyObjectRef,
-            text: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            self.handle_pi(target, text.unwrap_or_none(vm), vm)
+        fn pi(&self, args: PiArgs, vm: &VirtualMachine) -> PyResult {
+            self.handle_pi(args.target, args.text.unwrap_or_else(|| vm.ctx.none()), vm)
         }
 
         #[pymethod]
@@ -1917,13 +1932,13 @@ pub(crate) mod _elementtree {
         name: &'static str,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        vm.get_attribute_opt(target.to_owned(), name)
+        vm.get_attribute_opt(target, name)
     }
 
     impl Initializer for PyXMLParser {
         type Args = XMLParserArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let encoding = match args.encoding {
                 Some(e) if !vm.is_none(&e) => {
                     if !e.downcastable::<PyStr>() {
@@ -2061,7 +2076,7 @@ pub(crate) mod _elementtree {
             Ok(value)
         }
 
-        fn raise_expat_error(&self, err: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn raise_expat_error(&self, err: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             let message = err.str(vm)?;
             let code = err
                 .get_attr("code", vm)
@@ -2099,7 +2114,7 @@ pub(crate) mod _elementtree {
                     if let Ok(error_type) = error_type.downcast::<PyType>()
                         && e.fast_isinstance(&error_type)
                     {
-                        self.raise_expat_error(e.into(), vm)?;
+                        self.raise_expat_error(e.as_object(), vm)?;
                         unreachable!()
                     }
                     Err(e)
@@ -2194,12 +2209,11 @@ pub(crate) mod _elementtree {
         }
 
         #[pymethod]
-        fn _setevents(
-            zelf: &Py<Self>,
-            events_queue: PyObjectRef,
-            events_to_report: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn _setevents(zelf: &Py<Self>, args: SetEventsArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let SetEventsArgs {
+                events_queue,
+                events_to_report,
+            } = args;
             let parser = zelf.check(vm)?;
             let Some(builder) = zelf.native_target(vm) else {
                 return Err(vm.new_type_error(
@@ -2207,7 +2221,11 @@ pub(crate) mod _elementtree {
                 ));
             };
             let append = events_queue.get_attr("append", vm)?;
-            builder.set_events(append, events_to_report.unwrap_or_none(vm), vm)?;
+            builder.set_events(
+                append,
+                &events_to_report.unwrap_or_else(|| vm.ctx.none()),
+                vm,
+            )?;
             // Comments and processing instructions are only reported once
             // asked for, so their handlers are installed lazily here.
             let this = zelf.as_object();

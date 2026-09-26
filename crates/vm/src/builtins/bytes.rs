@@ -11,13 +11,13 @@ use crate::{
     byte::bytes_from_object,
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-        ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
-        bytes_decode,
+        ByteInnerReplaceOptions, ByteInnerSplitOptions, ByteInnerStripOptions, ByteInnerSub,
+        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::{PyClassDef, PyClassImpl},
     common::{hash::PyHash, lock::PyMutex},
     convert::{ToPyObject, ToPyResult},
-    function::{ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{ArgBytesLike, ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PyNumberMethods, PySequenceMethods,
@@ -57,6 +57,12 @@ impl From<PyBytesInner> for PyBytes {
 impl ToPyObject for Vec<u8> {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_bytes(self).into()
+    }
+}
+
+impl<const N: usize> ToPyObject for &[u8; N] {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_bytes(self.as_slice().to_vec()).into()
     }
 }
 
@@ -254,8 +260,8 @@ impl PyBytes {
         PyBytesInner::maketrans(frm, to, vm)
     }
 
-    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self._getitem(&needle, vm)
+    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        self._getitem(needle, vm)
     }
 
     #[pymethod]
@@ -330,7 +336,7 @@ impl PyBytes {
 
     #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let bytes = PyBytesInner::fromhex_object(string, vm)?;
+        let bytes = PyBytesInner::fromhex_object(&string, vm)?;
         let bytes = vm.ctx.new_bytes(bytes).into();
         PyType::call(&cls, vec![bytes].into(), vm)
     }
@@ -426,8 +432,8 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn strip(&self, bytes: OptionalOption<PyBytesInner>) -> Self {
-        self.inner.strip(bytes).into()
+    fn strip(&self, options: ByteInnerStripOptions) -> Self {
+        self.inner.strip(options.bytes).into()
     }
 
     #[pymethod]
@@ -507,14 +513,8 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn replace(
-        &self,
-        old: PyBytesInner,
-        new: PyBytesInner,
-        count: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        Ok(self.inner.replace(old, new, count, vm)?.into())
+    fn replace(&self, options: ByteInnerReplaceOptions, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(self.inner.replace(options, vm)?.into())
     }
 
     #[pymethod]
@@ -550,6 +550,11 @@ impl PyBytes {
 
 #[pyclass]
 impl Py<PyBytes> {
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.payload().as_bytes()
+    }
+
     #[pymethod]
     fn __reduce_ex__(
         &self,
@@ -582,8 +587,8 @@ impl PyRef<PyBytes> {
     }
 
     #[pymethod]
-    fn lstrip(self, bytes: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
-        let stripped = self.inner.lstrip(bytes);
+    fn lstrip(self, options: ByteInnerStripOptions, vm: &VirtualMachine) -> Self {
+        let stripped = self.inner.lstrip(options.bytes);
         if stripped == self.as_bytes() {
             self
         } else {
@@ -592,8 +597,8 @@ impl PyRef<PyBytes> {
     }
 
     #[pymethod]
-    fn rstrip(self, bytes: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
-        let stripped = self.inner.rstrip(bytes);
+    fn rstrip(self, options: ByteInnerStripOptions, vm: &VirtualMachine) -> Self {
+        let stripped = self.inner.rstrip(options.bytes);
         if stripped == self.as_bytes() {
             self
         } else {
@@ -637,7 +642,7 @@ impl AsBuffer for PyBytes {
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buf = PyBuffer::new(
             zelf.to_owned().into(),
-            BufferDescriptor::simple(zelf.len(), true),
+            BufferDescriptor::simple(zelf.as_bytes().len(), true),
             &BUFFER_METHODS,
         );
         Ok(buf)
@@ -647,7 +652,9 @@ impl AsBuffer for PyBytes {
 impl AsMapping for PyBytes {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyBytes::mapping_downcast(mapping).len())),
+            length: atomic_func!(|mapping, _vm| {
+                Ok(PyBytes::mapping_downcast(mapping).as_bytes().len())
+            }),
             subscript: atomic_func!(
                 |mapping, needle, vm| PyBytes::mapping_downcast(mapping)._getitem(needle, vm)
             ),
@@ -660,7 +667,7 @@ impl AsMapping for PyBytes {
 impl AsSequence for PyBytes {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyBytes::sequence_downcast(seq).len())),
+            length: atomic_func!(|seq, _vm| Ok(PyBytes::sequence_downcast(seq).as_bytes().len())),
             concat: atomic_func!(|seq, other, vm| {
                 PyBytes::sequence_downcast(seq)
                     .inner
@@ -769,7 +776,7 @@ impl PyPayload for PyBytesIterator {
 impl PyBytesIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
-        self.internal.lock().length_hint(|obj| obj.len())
+        self.internal.lock().length_hint(|obj| obj.as_bytes().len())
     }
 
     #[pymethod]
@@ -784,10 +791,10 @@ impl PyBytesIterator {
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+            .set_state(&object, |obj, pos| pos.min(obj.as_bytes().len()), vm)
     }
 }
 

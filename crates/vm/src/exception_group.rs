@@ -98,10 +98,10 @@ pub(super) mod types {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
 
         #[pymethod]
@@ -383,7 +383,7 @@ pub(super) mod types {
     impl Initializer for PyBaseExceptionGroup {
         type Args = FuncArgs;
 
-        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             if !args.kwargs.is_empty() {
                 return Err(vm.new_type_error(format!(
                     "{} does not take keyword arguments",
@@ -393,7 +393,7 @@ pub(super) mod types {
             PyBaseException::slot_init(zelf, args, vm)
         }
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_init is overridden")
         }
     }

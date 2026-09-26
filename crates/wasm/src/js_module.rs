@@ -13,7 +13,7 @@ mod _js {
         Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyFloat, PyStrRef, PyType, PyTypeRef},
         convert::{IntoObject, ToPyObject},
-        function::{ArgCallable, OptionalArg, OptionalOption, PosArgs},
+        function::{ArgCallable, OptionalArg, PosArgs},
         protocol::PyIterReturn,
         types::{IterNext, Representable, SelfIter},
     };
@@ -402,6 +402,20 @@ mod _js {
         PyRejected(PyBaseExceptionRef),
     }
 
+    #[derive(FromArgs)]
+    struct ThenArgs {
+        #[pyarg(positional, optional)]
+        on_fulfill: Option<ArgCallable>,
+        #[pyarg(positional, optional)]
+        on_reject: Option<ArgCallable>,
+    }
+
+    #[derive(FromArgs)]
+    struct CatchArgs {
+        #[pyarg(positional, optional)]
+        on_reject: Option<ArgCallable>,
+    }
+
     #[pyclass]
     impl PyPromise {
         pub(crate) fn new(value: Promise) -> Self {
@@ -446,7 +460,7 @@ mod _js {
         }
 
         fn cast(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-            let then = vm.get_attribute_opt(obj.clone(), "then")?;
+            let then = vm.get_attribute_opt(&obj, "then")?;
             let value = if let Some(then) = then.filter(|obj| obj.is_callable()) {
                 PromiseKind::PyProm { then }
             } else {
@@ -482,13 +496,11 @@ mod _js {
         }
 
         #[pymethod]
-        fn then(
-            &self,
-            on_fulfill: OptionalOption<ArgCallable>,
-            on_reject: OptionalOption<ArgCallable>,
-            vm: &VirtualMachine,
-        ) -> PyResult<Self> {
-            let (on_fulfill, on_reject) = (on_fulfill.flatten(), on_reject.flatten());
+        fn then(&self, args: ThenArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let ThenArgs {
+                on_fulfill,
+                on_reject,
+            } = args;
             if on_fulfill.is_none() && on_reject.is_none() {
                 return Ok(self.clone());
             }
@@ -546,12 +558,14 @@ mod _js {
         }
 
         #[pymethod]
-        fn catch(
-            &self,
-            on_reject: OptionalOption<ArgCallable>,
-            vm: &VirtualMachine,
-        ) -> PyResult<Self> {
-            self.then(OptionalArg::Present(None), on_reject, vm)
+        fn catch(&self, args: CatchArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            self.then(
+                ThenArgs {
+                    on_fulfill: None,
+                    on_reject: args.on_reject,
+                },
+                vm,
+            )
         }
 
         #[pymethod(name = "__await__")]

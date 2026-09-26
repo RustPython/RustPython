@@ -6,7 +6,7 @@ use rustpython_vm::{
     identifier,
 };
 
-pub struct ShellHelper<'vm> {
+pub(super) struct ShellHelper<'vm> {
     vm: &'vm VirtualMachine,
     globals: PyDictRef,
 }
@@ -54,7 +54,7 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
 }
 
 impl<'vm> ShellHelper<'vm> {
-    pub const fn new(vm: &'vm VirtualMachine, globals: PyDictRef) -> Self {
+    pub(super) const fn new(vm: &'vm VirtualMachine, globals: PyDictRef) -> Self {
         ShellHelper { vm, globals }
     }
 
@@ -159,7 +159,7 @@ cfg_select! {
                 &self,
                 line: &str,
                 pos: usize,
-                _ctx: &Context,
+                _ctx: &Context<'_>,
             ) -> rustyline::Result<(usize, Vec<String>)> {
                 Ok(self
                     .complete_opt(&line[0..pos])

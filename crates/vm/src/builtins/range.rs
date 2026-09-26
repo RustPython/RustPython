@@ -242,8 +242,8 @@ impl PyRange {
 
     fn new_from(
         cls: PyTypeRef,
-        start: PyObjectRef,
-        stop: PyObjectRef,
+        start: &PyObject,
+        stop: &PyObject,
         step: OptionalArg<ArgIndex>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
@@ -357,8 +357,9 @@ impl PyRange {
             let stop = args.bind_for(vm, Self::NAME)?;
             Self::new(cls, stop, vm)
         } else {
-            let (start, stop, step) = args.bind_for(vm, Self::NAME)?;
-            Self::new_from(cls, start, stop, step, vm)
+            let (start, stop, step): (PyObjectRef, PyObjectRef, OptionalArg<ArgIndex>) =
+                args.bind_for(vm, Self::NAME)?;
+            Self::new_from(cls, &start, &stop, step, vm)
         }?;
 
         Ok(range.into())
@@ -389,13 +390,13 @@ impl Py<PyRange> {
         }
     }
 
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> bool {
-        self.contains_inner(&needle, vm)
+    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> bool {
+        self.contains_inner(needle, vm)
     }
 
     #[pymethod]
-    fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-        if let Ok(int) = needle.clone().downcast::<PyInt>() {
+    fn index(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+        if let Ok(int) = object.clone().downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
                 Some(idx) => Ok(idx),
                 None => Err(vm.new_value_error(format!("{int} is not in range"))),
@@ -404,19 +405,19 @@ impl Py<PyRange> {
             // Fallback to iteration.
             Ok(BigInt::from_bytes_be(
                 Sign::Plus,
-                &iter_search(self.as_object(), &needle, SearchType::Index, vm)?.to_be_bytes(),
+                &iter_search(self.as_object(), &object, SearchType::Index, vm)?.to_be_bytes(),
             ))
         }
     }
 
     #[pymethod]
-    fn count(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        if let Ok(int) = item.clone().downcast::<PyInt>() {
+    fn count(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        if let Ok(int) = object.clone().downcast::<PyInt>() {
             Ok(usize::from(self.index_of(int.as_bigint()).is_some()))
         } else {
             // Dealing with classes who might compare equal with ints in their
             // __eq__, slow search.
-            iter_search(self.as_object(), &item, SearchType::Count, vm)
+            iter_search(self.as_object(), &object, SearchType::Count, vm)
         }
     }
 }
@@ -612,7 +613,7 @@ impl PyLongRangeIterator {
 
     #[pymethod]
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.index.store(range_state(&self.length, state, vm)?);
+        self.index.store(range_state(&self.length, &state, vm)?);
         Ok(())
     }
 
@@ -672,9 +673,9 @@ impl PyRangeIterator {
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.index
-            .store(range_state(&BigInt::from(self.length), state, vm)?);
+            .store(range_state(&BigInt::from(self.length), &object, vm)?);
         Ok(())
     }
 
@@ -736,7 +737,7 @@ fn range_iter_reduce(
 }
 
 // Silently clips state (i.e index) in range [0, usize::MAX].
-fn range_state(length: &BigInt, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+fn range_state(length: &BigInt, state: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     if let Some(i) = state.downcast_ref::<PyInt>() {
         let mut index = i.as_bigint();
         let max_usize = BigInt::from(usize::MAX);

@@ -5,7 +5,7 @@ use super::{
     },
 };
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::{PyClassDef, PyClassImpl},
     common::lock::PyMutex,
     function::{FuncArgs, PySetterValue},
@@ -27,12 +27,12 @@ impl PyPayload for PyStaticMethod {
 
 impl GetDescriptor for PyStaticMethod {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, _obj) = Self::_unwrap(&zelf, obj, vm)?;
+        let (zelf, _obj) = Self::_unwrap(zelf, obj, vm)?;
         Ok(zelf.callable.lock().clone())
     }
 }
@@ -45,15 +45,21 @@ impl From<PyObjectRef> for PyStaticMethod {
     }
 }
 
+#[derive(FromArgs)]
+pub struct StaticMethodArgs {
+    #[pyarg(positional)]
+    function: PyObjectRef,
+}
+
 impl Constructor for PyStaticMethod {
-    type Args = PyObjectRef;
+    type Args = StaticMethodArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Validate the signature here, but defer storing the callable and
         // copying its attributes to `__init__` so that subclasses overriding
         // `__init__` without calling `super().__init__()` see `__func__` as
         // `None`, matching CPython.
-        let _: Self::Args = args.bind_for(vm, Self::NAME)?;
+        let _: StaticMethodArgs = args.bind_for(vm, Self::NAME)?;
         let result = Self {
             callable: PyMutex::new(vm.ctx.none()),
         }
@@ -81,9 +87,10 @@ impl PyStaticMethod {
 }
 
 impl Initializer for PyStaticMethod {
-    type Args = PyObjectRef;
+    type Args = StaticMethodArgs;
 
-    fn init(zelf: PyRef<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        let callable = args.function;
         *zelf.callable.lock() = callable.clone();
         functools_wraps(zelf.as_object(), &callable, vm)
     }
@@ -108,9 +115,9 @@ impl PyStaticMethod {
 
     #[pygetset]
     fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.lock().clone();
+        let callable = zelf.callable.lock();
         descriptor_get_wrapped_attribute(
-            callable,
+            &callable,
             zelf.as_object(),
             identifier!(vm.ctx, __annotations__),
             vm,
@@ -134,9 +141,9 @@ impl PyStaticMethod {
 
     #[pygetset]
     fn __annotate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.lock().clone();
+        let callable = zelf.callable.lock();
         descriptor_get_wrapped_attribute(
-            callable,
+            &callable,
             zelf.as_object(),
             identifier!(vm.ctx, __annotate__),
             vm,
@@ -162,7 +169,7 @@ impl PyStaticMethod {
     fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyObjectRef {
         let callable = self.callable.lock().clone();
 
-        if let Ok(Some(is_abstract)) = vm.get_attribute_opt(callable, "__isabstractmethod__") {
+        if let Ok(Some(is_abstract)) = vm.get_attribute_opt(&callable, "__isabstractmethod__") {
             is_abstract
         } else {
             vm.ctx.new_bool(false).into()
@@ -180,10 +187,10 @@ impl PyStaticMethod {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 

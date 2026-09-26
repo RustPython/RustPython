@@ -1253,8 +1253,7 @@ fn assemble_location_info(
     let mut prev_line = first_line;
     let mut loc = no_linetable_location();
     let mut size = 0;
-    for i in 0..instr_sequence.instr_used {
-        let entry = &instr_sequence.instrs[i];
+    for entry in instr_sequence.instrs.iter().take(instr_sequence.instr_used) {
         let instr_loc = entry.info.instruction_linetable_location();
         if !same_location(loc, instr_loc) {
             assemble_emit_location(&mut linetable, loc, size, &mut prev_line, debug_ranges)?;
@@ -2772,8 +2771,7 @@ impl Blocks {
         let mut block_idx = BlockIdx(0);
         while block_idx != BlockIdx::NULL {
             let block = &self[block_idx];
-            for i in 0..block.instruction_used {
-                let instr = &block.instructions[i];
+            for instr in block.instructions.iter().take(block.instruction_used) {
                 if instr.instr.has_const() {
                     let index = u32::from(instr.arg) as usize;
                     debug_assert!(index < nconsts);
@@ -6596,8 +6594,11 @@ fn cfg_from_instruction_sequence(
             if let Some(annotations_code) = &annotations_code {
                 debug_assert!(annotations_code.label_map.is_none());
                 debug_assert_eq!(annotations_code.label_map_allocation, 0);
-                for j in 0..annotations_code.instr_used {
-                    let ann_entry = annotations_code.instrs[j];
+                for ann_entry in annotations_code
+                    .instrs
+                    .iter()
+                    .take(annotations_code.instr_used)
+                {
                     debug_assert!(!ann_entry.info.instr.has_target());
                     let mut info = ann_entry.info;
                     info.target = BlockIdx::NULL;

@@ -7,7 +7,10 @@ mod math {
     use crate::vm::{
         AsObject, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
         builtins::{PyFloat, PyInt, PyIntRef, PyStrInterned, try_bigint_to_f64, try_f64_to_bigint},
-        function::{ArgIndex, ArgIntoFloat, ArgIterable, Either, OptionalArg, PosArgs},
+        function::{
+            ArgIndex, ArgIntoFloat, ArgIterable, Either, NameCoordinates, NameIntegers,
+            OptionalArg, PosArgs,
+        },
         identifier,
     };
     use malachite_bigint::BigInt;
@@ -47,22 +50,22 @@ mod math {
 
     #[derive(FromArgs)]
     struct IsCloseArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         a: ArgIntoFloat,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         b: ArgIntoFloat,
-        #[pyarg(named, optional)]
-        rel_tol: OptionalArg<ArgIntoFloat>,
-        #[pyarg(named, optional)]
-        abs_tol: OptionalArg<ArgIntoFloat>,
+        #[pyarg(named, default = 1e-09)]
+        rel_tol: ArgIntoFloat,
+        #[pyarg(named, default = 0.0)]
+        abs_tol: ArgIntoFloat,
     }
 
     #[pyfunction]
     fn isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let a = args.a.into_float();
         let b = args.b.into_float();
-        let rel_tol = args.rel_tol.into_option().map(|v| v.into_float());
-        let abs_tol = args.abs_tol.into_option().map(|v| v.into_float());
+        let rel_tol = Some(args.rel_tol.into_float());
+        let abs_tol = Some(args.abs_tol.into_float());
 
         pymath::math::isclose(a, b, rel_tol, abs_tol)
             .map_err(|_| vm.new_value_error("tolerances must be non-negative"))
@@ -229,7 +232,7 @@ mod math {
     }
 
     #[pyfunction]
-    fn hypot(coordinates: PosArgs<ArgIntoFloat>) -> f64 {
+    fn hypot(coordinates: PosArgs<ArgIntoFloat, NameCoordinates>) -> f64 {
         let coords = ArgIntoFloat::vec_into_f64(coordinates.into_vec());
         pymath::math::hypot(&coords)
     }
@@ -440,8 +443,9 @@ mod math {
         x: ArgIntoFloat,
         #[pyarg(positional)]
         y: ArgIntoFloat,
+        // None means one step.
         #[pyarg(named, optional)]
-        steps: OptionalArg<ArgIndex>,
+        steps: Option<ArgIndex>,
     }
 
     #[pyfunction]
@@ -449,7 +453,7 @@ mod math {
         let x = arg.x.into_float();
         let y = arg.y.into_float();
 
-        let steps = match arg.steps.into_option() {
+        let steps = match arg.steps {
             Some(steps) => {
                 let steps: i64 = steps.into_int_ref().try_to_primitive(vm)?;
                 if steps < 0 {
@@ -482,7 +486,8 @@ mod math {
     struct ProdArgs {
         #[pyarg(positional)]
         iterable: ArgIterable<PyObjectRef>,
-        #[pyarg(named, optional)]
+        // Missing means the integer 1.
+        #[pyarg(named, optional, py_default = "1")]
         start: OptionalArg<PyObjectRef>,
     }
 
@@ -769,7 +774,7 @@ mod math {
     }
 
     #[pyfunction]
-    fn gcd(args: PosArgs<ArgIndex>) -> BigInt {
+    fn gcd(args: PosArgs<ArgIndex, NameIntegers>) -> BigInt {
         let ints: Vec<_> = args
             .into_vec()
             .into_iter()
@@ -780,7 +785,7 @@ mod math {
     }
 
     #[pyfunction]
-    fn lcm(args: PosArgs<ArgIndex>) -> BigInt {
+    fn lcm(args: PosArgs<ArgIndex, NameIntegers>) -> BigInt {
         let ints: Vec<_> = args
             .into_vec()
             .into_iter()
@@ -804,13 +809,17 @@ mod math {
             .map_err(|_| vm.new_value_error("factorial() not defined for negative values"))
     }
 
-    #[pyfunction]
-    fn perm(
+    #[derive(FromArgs)]
+    struct PermArgs {
+        #[pyarg(positional)]
         n: ArgIndex,
-        k: OptionalArg<Option<ArgIndex>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<BigInt> {
-        let n_int = n.into_int_ref();
+        #[pyarg(positional, optional)]
+        k: Option<ArgIndex>,
+    }
+
+    #[pyfunction]
+    fn perm(args: PermArgs, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let n_int = args.n.into_int_ref();
         let n_big = n_int.as_bigint();
 
         if n_big.is_negative() {
@@ -818,7 +827,7 @@ mod math {
         }
 
         // k = None means k = n (factorial)
-        let k_int = k.flatten().map(|k| k.into_int_ref());
+        let k_int = args.k.map(|k| k.into_int_ref());
         let k_big: Option<&BigInt> = k_int.as_ref().map(|k| k.as_bigint());
 
         if let Some(k_val) = k_big {

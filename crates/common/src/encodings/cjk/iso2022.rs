@@ -36,12 +36,29 @@ const CHARSET_JISX0213_2: u8 = b'P' | CHARSET_DBCS;
 const CHARSET_JISX0213_2004_1: u8 = b'Q' | CHARSET_DBCS;
 const CHARSET_JISX0208_O: u8 = b'@' | CHARSET_DBCS;
 
-const F_SHIFTED: u8 = 0x01;
-const F_ESCTHROUGHOUT: u8 = 0x02;
+bitflags::bitflags! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    struct Iso2022StateFlags: u8 {
+        const SHIFTED = 0x01;
+        const ESCTHROUGHOUT = 0x02;
+    }
+}
 
-const NO_SHIFT: u8 = 0x01;
-const USE_G2: u8 = 0x02;
-const USE_JISX0208_EXT: u8 = 0x04;
+bitflags::bitflags! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    struct Iso2022ConfigFlags: u8 {
+        const NO_SHIFT = 0x01;
+        const USE_G2 = 0x02;
+        const USE_JISX0208_EXT = 0x04;
+    }
+}
+
+const F_SHIFTED: u8 = Iso2022StateFlags::SHIFTED.bits();
+const F_ESCTHROUGHOUT: u8 = Iso2022StateFlags::ESCTHROUGHOUT.bits();
+
+const NO_SHIFT: u8 = Iso2022ConfigFlags::NO_SHIFT.bits();
+const USE_G2: u8 = Iso2022ConfigFlags::USE_G2.bits();
+const USE_JISX0208_EXT: u8 = Iso2022ConfigFlags::USE_JISX0208_EXT.bits();
 
 #[derive(Clone, Copy)]
 struct Designation {

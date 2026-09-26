@@ -28,39 +28,38 @@ mod _warnings {
 
     #[pyattr]
     fn filters(vm: &VirtualMachine) -> PyListRef {
-        vm.state.warnings.filters.clone()
+        vm.state.warnings.filters.to_owned()
     }
 
     #[pyattr]
     fn _defaultaction(vm: &VirtualMachine) -> PyStrRef {
-        vm.state.warnings.default_action.clone()
+        vm.state.warnings.default_action.to_owned()
     }
 
     #[pyattr]
     fn _onceregistry(vm: &VirtualMachine) -> PyDictRef {
-        vm.state.warnings.once_registry.clone()
+        vm.state.warnings.once_registry.to_owned()
     }
 
     #[pyattr]
     fn _warnings_context(vm: &VirtualMachine) -> PyObjectRef {
-        vm.state
-            .warnings
-            .context_var
-            .get_or_init(|| {
-                // Try to create a real ContextVar if _contextvars is available.
-                // During early startup it may not be importable yet, in which
-                // case we fall back to None.  This is safe because
-                // context_aware_warnings defaults to False.
-                if let Ok(contextvars) = vm.import("_contextvars", 0)
-                    && let Ok(cv_cls) = contextvars.get_attr("ContextVar", vm)
-                    && let Ok(cv) = cv_cls.call(("_warnings_context",), vm)
-                {
-                    cv
-                } else {
-                    vm.ctx.none()
-                }
-            })
-            .clone()
+        if let Some(ctx) = vm.state.warnings.context_var.get() {
+            return ctx.clone();
+        }
+        // _warnings is initialized before _contextvars may be importable.
+        // Retry until ContextVar can be created; do not cache a None fallback.
+        let created = vm
+            .import("_contextvars", 0)
+            .ok()
+            .and_then(|m| m.get_attr("ContextVar", vm).ok())
+            .and_then(|cv_cls| cv_cls.call(("_warnings_context",), vm).ok());
+        match created {
+            Some(cv) => match vm.state.warnings.context_var.set(cv.clone()) {
+                Ok(()) => cv,
+                Err(_) => vm.state.warnings.context_var.get().cloned().unwrap_or(cv),
+            },
+            None => vm.ctx.none(),
+        }
     }
 
     #[pyfunction]
@@ -83,13 +82,13 @@ mod _warnings {
 
     #[derive(FromArgs)]
     struct WarnArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         message: PyObjectRef,
         #[pyarg(any, optional)]
         category: OptionalArg<PyObjectRef>,
+        #[pyarg(any, default = 1)]
+        stacklevel: i32,
         #[pyarg(any, optional)]
-        stacklevel: OptionalArg<i32>,
-        #[pyarg(named, optional)]
         source: OptionalArg<PyObjectRef>,
         #[pyarg(named, optional)]
         skip_file_prefixes: OptionalArg<PyTupleRef>,
@@ -131,7 +130,7 @@ mod _warnings {
 
     #[pyfunction]
     fn warn(args: WarnArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let level = args.stacklevel.unwrap_or(1) as isize;
+        let level = args.stacklevel as isize;
 
         let category = get_category(&args.message, args.category.into_option(), vm)?;
 
@@ -150,20 +149,20 @@ mod _warnings {
             category,
             level,
             args.source.into_option(),
-            skip_prefixes,
+            skip_prefixes.as_deref(),
             vm,
         )
     }
 
     #[derive(FromArgs)]
     struct WarnExplicitArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         message: PyObjectRef,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         category: PyObjectRef,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         filename: PyStrRef,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         lineno: usize,
         #[pyarg(any, optional)]
         module: OptionalArg<PyObjectRef>,
@@ -171,7 +170,7 @@ mod _warnings {
         registry: OptionalArg<PyObjectRef>,
         #[pyarg(any, optional)]
         module_globals: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(any, optional)]
         source: OptionalArg<PyObjectRef>,
     }
 
@@ -181,13 +180,20 @@ mod _warnings {
 
         let module = args.module.into_option();
 
-        // Validate module_globals: must be None or a dict
-        if let Some(ref mg) = args.module_globals.into_option()
-            && !vm.is_none(mg)
-            && !mg.class().is(vm.ctx.types.dict_type)
-        {
-            return Err(vm.new_type_error("module_globals must be a dict"));
-        }
+        let source_line = if let Some(mg) = args.module_globals.into_option() {
+            if vm.is_none(&mg) {
+                None
+            } else if !mg.class().is(vm.ctx.types.dict_type) {
+                return Err(vm.new_type_error(format!(
+                    "module_globals must be a dict, not '{}'",
+                    mg.class().name()
+                )));
+            } else {
+                crate::warn::get_source_line(&mg, args.lineno, vm)?
+            }
+        } else {
+            None
+        };
 
         let category = if vm.is_none(&args.category) {
             None
@@ -205,7 +211,7 @@ mod _warnings {
             args.lineno,
             module,
             registry,
-            None, // source_line
+            source_line,
             args.source.into_option(),
             vm,
         )

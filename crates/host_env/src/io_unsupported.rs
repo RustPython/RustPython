@@ -5,14 +5,27 @@ use crate::crt_fd;
 use crate::errno::errors::{EAGAIN, EBADF, EINTR, EISDIR};
 use crate::os::{O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
 
-bitflags::bitflags! {
+bitflagset::bitflag! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub struct FileMode: u8 {
-        const CREATED   = 0b0001;
-        const READABLE  = 0b0010;
-        const WRITABLE  = 0b0100;
-        const APPENDING = 0b1000;
+    #[repr(u8)]
+    pub enum FileModeFlag {
+        Created = 0,
+        Readable = 1,
+        Writable = 2,
+        Appending = 3,
     }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct FileMode(u8): FileModeFlag
+}
+
+impl FileMode {
+    pub const CREATED: Self = Self::from_element(FileModeFlag::Created);
+    pub const READABLE: Self = Self::from_element(FileModeFlag::Readable);
+    pub const WRITABLE: Self = Self::from_element(FileModeFlag::Writable);
+    pub const APPENDING: Self = Self::from_element(FileModeFlag::Appending);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,20 +54,20 @@ pub struct ParsedFileMode {
 
 impl FileMode {
     pub const fn raw_mode(self) -> &'static str {
-        if self.contains(Self::CREATED) {
-            if self.contains(Self::READABLE) {
+        if self.contains(&FileModeFlag::Created) {
+            if self.contains(&FileModeFlag::Readable) {
                 "xb+"
             } else {
                 "xb"
             }
-        } else if self.contains(Self::APPENDING) {
-            if self.contains(Self::READABLE) {
+        } else if self.contains(&FileModeFlag::Appending) {
+            if self.contains(&FileModeFlag::Readable) {
                 "ab+"
             } else {
                 "ab"
             }
-        } else if self.contains(Self::READABLE) {
-            if self.contains(Self::WRITABLE) {
+        } else if self.contains(&FileModeFlag::Readable) {
+            if self.contains(&FileModeFlag::Writable) {
                 "rb+"
             } else {
                 "rb"
@@ -78,7 +91,7 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::WRITABLE | FileMode::CREATED);
+                mode |= FileMode::WRITABLE | FileMode::CREATED;
                 flags |= O_EXCL | O_CREAT;
             }
             b'r' => {
@@ -86,14 +99,14 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::READABLE);
+                mode |= FileMode::READABLE;
             }
             b'w' => {
                 if rwa {
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::WRITABLE);
+                mode |= FileMode::WRITABLE;
                 flags |= O_CREAT | O_TRUNC;
             }
             b'a' => {
@@ -101,7 +114,7 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::WRITABLE | FileMode::APPENDING);
+                mode |= FileMode::WRITABLE | FileMode::APPENDING;
                 flags |= O_APPEND | O_CREAT;
             }
             b'+' => {
@@ -109,7 +122,7 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
                     return Err(FileModeError::BadRwa);
                 }
                 plus = true;
-                mode.insert(FileMode::READABLE | FileMode::WRITABLE);
+                mode |= FileMode::READABLE | FileMode::WRITABLE;
             }
             b'b' => {
                 if binary {
@@ -125,9 +138,9 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
         return Err(FileModeError::BadRwa);
     }
 
-    if mode.contains(FileMode::READABLE | FileMode::WRITABLE) {
+    if mode.is_superset(&(FileMode::READABLE | FileMode::WRITABLE)) {
         flags |= O_RDWR;
-    } else if mode.contains(FileMode::READABLE) {
+    } else if mode.contains(&FileModeFlag::Readable) {
         flags |= O_RDONLY;
     } else {
         flags |= O_WRONLY;

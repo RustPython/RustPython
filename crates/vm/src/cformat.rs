@@ -138,7 +138,7 @@ fn spec_format_bytes(
             // CPython parity: bytes `%c` accepts a single byte or any object
             // with `__index__` in range(256).
             if let Some(b) = obj.downcast_ref::<PyBytes>() {
-                if b.len() == 1 {
+                if b.as_bytes().len() == 1 {
                     return Ok(spec.format_char(b.as_bytes()[0]));
                 }
             } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
@@ -155,7 +155,7 @@ fn spec_format_bytes(
                 // A bytes-like argument that is not one byte long is named by
                 // its length rather than by its type.
                 let what = if let Some(b) = obj.downcast_ref::<PyBytes>() {
-                    format!("a bytes object of length {}", b.len())
+                    format!("a bytes object of length {}", b.as_bytes().len())
                 } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
                     format!("a bytearray object of length {}", ba.borrow_buf().len())
                 } else {
@@ -362,7 +362,7 @@ fn specifier_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
 pub(crate) fn cformat_bytes(
     vm: &VirtualMachine,
     format_string: &[u8],
-    values_obj: PyObjectRef,
+    values_obj: &PyObject,
 ) -> PyResult<Vec<u8>> {
     let mut format = CFormatBytes::parse_from_bytes(format_string)
         .map_err(|err| vm.new_value_error(err.to_string()))?;
@@ -420,12 +420,16 @@ pub(crate) fn cformat_bytes(
     }
 
     // tuple
-    let values = if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
-        tup.as_slice()
-    } else {
-        core::slice::from_ref(&values_obj)
-    };
-    let mut value_iter = values.iter().map(|v| &**v);
+    let mut slice_iter;
+    let mut once_iter;
+    let mut value_iter: &mut dyn Iterator<Item = &PyObject> =
+        if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
+            slice_iter = tup.as_slice().iter().map(|v| &**v);
+            &mut slice_iter
+        } else {
+            once_iter = core::iter::once(values_obj);
+            &mut once_iter
+        };
 
     for (_, part) in format {
         match part {
@@ -460,7 +464,7 @@ pub(crate) fn cformat_bytes(
 pub(crate) fn cformat_string(
     vm: &VirtualMachine,
     format_string: &Wtf8,
-    values_obj: PyObjectRef,
+    values_obj: &PyObject,
 ) -> PyResult<Wtf8Buf> {
     let format = CFormatWtf8::parse_from_wtf8(format_string)
         .map_err(|err| vm.new_value_error(err.to_string()))?;
@@ -516,13 +520,16 @@ pub(crate) fn cformat_string(
     }
 
     // tuple
-    let values = if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
-        tup.as_slice()
-    } else {
-        core::slice::from_ref(&values_obj)
-    };
-
-    let mut value_iter = values.iter().map(|v| &**v);
+    let mut slice_iter;
+    let mut once_iter;
+    let mut value_iter: &mut dyn Iterator<Item = &PyObject> =
+        if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
+            slice_iter = tup.as_slice().iter().map(|v| &**v);
+            &mut slice_iter
+        } else {
+            once_iter = core::iter::once(values_obj);
+            &mut once_iter
+        };
 
     for (_, part) in format {
         match part {

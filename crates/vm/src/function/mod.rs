@@ -9,11 +9,14 @@ mod getset;
 pub(crate) mod method;
 mod number;
 mod protocol;
+mod signature;
 mod time;
 
 pub use argument::{
     ArgumentError, Callee, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
-    OptionalArg, OptionalOption, PosArgs,
+    NameArgs, NameChanges, NameCoordinates, NameExcInfo, NameFields, NameIntegers, NameIterables,
+    NameKeywords, NameKwargs, NameKwds, NameKws, NameObjs, NameOthers, OptionalArg,
+    OptionalArgDefault, OptionalOption, PosArgs, PositionalIterable,
 };
 pub(crate) use argument::{arity_message, unexpected_keyword_message};
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
@@ -29,6 +32,10 @@ pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySett
 pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
 pub use number::{ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgPrimitiveIndex, ArgSize};
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
+pub use signature::{
+    DefaultRepr, Param, ParamKind, SigArg, choose_class_params, has_signature, internal_doc_bytes,
+    internal_doc_len, real_signature,
+};
 pub use time::TimeoutSeconds;
 
 use crate::{
@@ -40,6 +47,16 @@ use builtin::{BorrowedParam, OwnedParam, RefParam};
 pub enum ArgByteOrder {
     Big,
     Little,
+}
+
+impl ArgByteOrder {
+    #[must_use]
+    pub const fn py_default(&self) -> DefaultRepr {
+        match self {
+            Self::Big => DefaultRepr::Str("big"),
+            Self::Little => DefaultRepr::Str("little"),
+        }
+    }
 }
 
 impl<'a> TryFromBorrowedObject<'a> for ArgByteOrder {

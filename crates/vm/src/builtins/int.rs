@@ -13,8 +13,7 @@ use crate::{
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
-        PyComparisonValue,
+        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err, numeric_literal_from_str},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -379,7 +378,7 @@ impl PyInt {
     }
 
     #[inline]
-    fn int_op<F>(&self, other: PyObjectRef, op: F) -> PyArithmeticValue<BigInt>
+    fn int_op<F>(&self, other: &PyObject, op: F) -> PyArithmeticValue<BigInt>
     where
         F: Fn(&BigInt, &BigInt) -> BigInt,
     {
@@ -390,7 +389,7 @@ impl PyInt {
     }
 
     #[inline]
-    fn general_op<F>(&self, other: PyObjectRef, op: F, vm: &VirtualMachine) -> PyResult
+    fn general_op<F>(&self, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: Fn(&BigInt, &BigInt) -> PyResult,
     {
@@ -402,6 +401,12 @@ impl PyInt {
     }
 }
 
+#[derive(FromArgs)]
+struct RoundArgs {
+    #[pyarg(positional, optional)]
+    ndigits: Option<PyIntRef>,
+}
+
 #[pyclass(
     itemsize = 4,
     flags(BASETYPE, _MATCH_SELF),
@@ -409,18 +414,18 @@ impl PyInt {
 )]
 impl PyInt {
     pub(crate) fn __xor__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a ^ b)
+        self.int_op(&other, |a, b| a ^ b)
     }
 
     pub(crate) fn __or__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a | b)
+        self.int_op(&other, |a, b| a | b)
     }
 
     pub(crate) fn __and__(&self, other: PyObjectRef) -> PyArithmeticValue<BigInt> {
-        self.int_op(other, |a, b| a & b)
+        self.int_op(&other, |a, b| a & b)
     }
 
-    fn modpow(&self, other: PyObjectRef, modulus: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn modpow(&self, other: &PyObject, modulus: &PyObject, vm: &VirtualMachine) -> PyResult {
         if other.downcast_ref::<Self>().is_none() {
             return Ok(vm.ctx.not_implemented());
         }
@@ -465,12 +470,8 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn __round__(
-        zelf: PyRef<Self>,
-        ndigits: OptionalOption<PyIntRef>,
-        vm: &VirtualMachine,
-    ) -> PyRef<Self> {
-        if let Some(ndigits) = ndigits.flatten() {
+    fn __round__(zelf: PyRef<Self>, args: RoundArgs, vm: &VirtualMachine) -> PyRef<Self> {
+        if let Some(ndigits) = args.ndigits {
             let ndigits = ndigits.as_bigint();
             // round(12345, -2) == 12300
             // If precision >= 0, then any integer is already rounded correctly
@@ -575,7 +576,7 @@ impl PyInt {
         args: IntFromByteArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let signed = args.signed.map_or(false, Into::into);
+        let signed = args.signed.into();
         // PyObject_Bytes, so an iterable of ints is as good as a buffer
         let bytes = bytes_from_object(vm, &args.bytes)?;
         let value = match (args.byteorder, signed) {
@@ -589,7 +590,7 @@ impl PyInt {
 
     #[pymethod]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        let signed = args.signed.map_or(false, Into::into);
+        let signed: bool = args.signed.into();
         let byte_len = args.length;
 
         let value = self.as_bigint();
@@ -757,9 +758,9 @@ impl PyInt {
         power: Some(|a, b, c, vm| {
             if let Some(a) = a.downcast_ref::<Self>() {
                 if vm.is_none(c) {
-                    a.general_op(b.to_owned(), |a, b| inner_pow(a, b, vm), vm)
+                    a.general_op(b, |a, b| inner_pow(a, b, vm), vm)
                 } else {
-                    a.modpow(b.to_owned(), c.to_owned(), vm)
+                    a.modpow(b, c, vm)
                 }
             } else {
                 Ok(vm.ctx.not_implemented())
@@ -801,9 +802,11 @@ impl PyInt {
 
 #[derive(FromArgs)]
 pub(crate) struct IntOptions {
-    #[pyarg(positional, optional)]
+    // Missing means 0. None is not an int.
+    #[pyarg(positional, optional, py_default = "0")]
     val_options: OptionalArg<PyObjectRef>,
-    #[pyarg(any, optional)]
+    // Missing means no base was passed. The shown default is 10.
+    #[pyarg(any, optional, py_default = "10")]
     base: OptionalArg<PyObjectRef>,
 }
 
@@ -812,8 +815,8 @@ struct IntFromByteArgs {
     bytes: PyObjectRef,
     #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
-    #[pyarg(named, optional)]
-    signed: OptionalArg<ArgIntoBool>,
+    #[pyarg(named, default = ArgIntoBool::FALSE)]
+    signed: ArgIntoBool,
 }
 
 #[derive(FromArgs)]
@@ -822,8 +825,8 @@ struct IntToByteArgs {
     length: usize,
     #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
-    #[pyarg(named, optional)]
-    signed: OptionalArg<ArgIntoBool>,
+    #[pyarg(named, default = ArgIntoBool::FALSE)]
+    signed: ArgIntoBool,
 }
 
 fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {

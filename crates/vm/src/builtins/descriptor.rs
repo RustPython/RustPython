@@ -1,4 +1,4 @@
-use super::{PyStr, PyStrInterned, PyType};
+use super::{PyStr, PyStrInterned, PyTuple, PyType};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyTypeRef, builtin_func::PyNativeMethod, type_},
@@ -70,12 +70,12 @@ impl core::fmt::Debug for PyMethodDescriptor {
 
 impl GetDescriptor for PyMethodDescriptor {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let descr = Self::_as_pyref(&zelf, vm).unwrap();
+        let descr = Self::_as_pyref(zelf, vm).unwrap();
         let bound = match obj {
             Some(obj) => {
                 if descr.method.flags.contains(PyMethodFlags::METHOD) {
@@ -83,7 +83,7 @@ impl GetDescriptor for PyMethodDescriptor {
                         .as_ref()
                         .is_none_or(|c| c.fast_isinstance(vm.ctx.types.type_type))
                     {
-                        obj
+                        obj.to_owned()
                     } else {
                         return Err(vm.new_type_error(format!(
                             "descriptor '{}' needs a type, not '{}', as arg 2",
@@ -94,11 +94,11 @@ impl GetDescriptor for PyMethodDescriptor {
                 } else if descr.method.flags.contains(PyMethodFlags::CLASS) {
                     obj.class().to_owned().into()
                 } else {
-                    obj
+                    obj.to_owned()
                 }
             }
-            None if descr.method.flags.contains(PyMethodFlags::CLASS) => cls.unwrap(),
-            None => return Ok(zelf),
+            None if descr.method.flags.contains(PyMethodFlags::CLASS) => cls.unwrap().to_owned(),
+            None => return Ok(zelf.to_owned()),
         };
         Ok(descr.bind(bound, &vm.ctx).into())
     }
@@ -144,11 +144,9 @@ impl PyMethodDescriptor {
     }
 
     #[pygetset]
-    fn __text_signature__(&self) -> Option<String> {
-        self.method.doc.and_then(|doc| {
-            type_::get_text_signature_from_internal_doc(self.method.name, doc)
-                .map(|signature| signature.to_string())
-        })
+    fn __text_signature__(&self) -> Option<&'static str> {
+        let doc = self.method.doc?;
+        type_::get_text_signature_from_internal_doc(self.method.name, doc)
     }
 
     #[pygetset]
@@ -178,55 +176,220 @@ impl Representable for PyMethodDescriptor {
     }
 }
 
-#[derive(Debug)]
+/// METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
+#[pyclass(name = "classmethod_descriptor", module = false)]
+pub struct PyClassMethodDescriptor {
+    pub common: PyDescriptor,
+    pub method: &'static PyMethodDef,
+    pub objclass: &'static Py<PyType>,
+    pub(crate) _method_def_owner: Option<PyObjectRef>,
+}
+
+impl PyClassMethodDescriptor {
+    pub fn new(method: &'static PyMethodDef, typ: &'static Py<PyType>, ctx: &Context) -> Self {
+        Self {
+            common: PyDescriptor {
+                typ,
+                name: ctx.intern_str(method.name),
+                qualname: PyRwLock::new(None),
+            },
+            method,
+            objclass: typ,
+            _method_def_owner: None,
+        }
+    }
+
+    pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeMethod> {
+        self.method.build_bound_method(ctx, obj, self.common.typ)
+    }
+}
+
+impl PyPayload for PyClassMethodDescriptor {
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.classmethod_descriptor_type
+    }
+}
+
+impl core::fmt::Debug for PyClassMethodDescriptor {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "classmethod descriptor for '{}'", self.common.name)
+    }
+}
+
+impl GetDescriptor for PyClassMethodDescriptor {
+    fn descr_get(
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let descr = Self::_as_pyref(zelf, vm).unwrap();
+        let type_obj = match cls {
+            Some(typ) => typ.to_owned(),
+            None => match obj {
+                Some(o) => o.class().to_owned().into(),
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "descriptor '{}' for type '{}' needs either an object or a type",
+                        descr.common.name,
+                        descr.common.typ.name()
+                    )));
+                }
+            },
+        };
+        if !type_obj.fast_isinstance(vm.ctx.types.type_type) {
+            return Err(vm.new_type_error(format!(
+                "descriptor '{}' for type '{}' needs a type, not '{}' as arg 2",
+                descr.common.name,
+                descr.common.typ.name(),
+                type_obj.class().name()
+            )));
+        }
+        let typ = type_obj.downcast::<PyType>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "descriptor '{}' for type '{}' needs a type, not '{}' as arg 2",
+                descr.common.name,
+                descr.common.typ.name(),
+                obj.class().name()
+            ))
+        })?;
+        if !typ.fast_issubclass(descr.common.typ) {
+            return Err(vm.new_type_error(format!(
+                "descriptor '{}' requires a subtype of '{}' but received '{}'",
+                descr.common.name,
+                descr.common.typ.name(),
+                typ.name()
+            )));
+        }
+        Ok(descr.bind(typ.into(), &vm.ctx).into())
+    }
+}
+
+impl Callable for PyClassMethodDescriptor {
+    type Args = FuncArgs;
+    fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let Some(owner) = args.args.first().cloned() else {
+            return Err(vm.new_type_error(format!(
+                "descriptor '{}' of '{}' object needs an argument",
+                zelf.method.name,
+                zelf.common.typ.name()
+            )));
+        };
+        let bound = Self::descr_get(zelf.as_object(), None, Some(&owner), vm)?;
+        args.args.remove(0);
+        bound.call(args, vm)
+    }
+}
+
+#[pyclass(
+    with(GetDescriptor, Callable, Representable),
+    flags(DISALLOW_INSTANTIATION)
+)]
+impl PyClassMethodDescriptor {
+    #[pygetset]
+    const fn __name__(&self) -> &'static PyStrInterned {
+        self.common.name
+    }
+
+    #[pygetset]
+    fn __qualname__(&self) -> String {
+        format!("{}.{}", self.common.typ.name(), self.common.name)
+    }
+
+    #[pygetset]
+    fn __doc__(&self) -> Option<&'static str> {
+        let doc = self.method.doc?;
+        type_::get_doc_from_internal_doc(self.method.name, doc)
+    }
+
+    #[pygetset]
+    fn __text_signature__(&self) -> Option<&'static str> {
+        let doc = self.method.doc?;
+        type_::get_text_signature_from_internal_doc(self.method.name, doc)
+    }
+
+    #[pygetset]
+    fn __objclass__(&self) -> PyTypeRef {
+        self.objclass.to_owned()
+    }
+}
+
+impl Representable for PyClassMethodDescriptor {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
+            "<method '{}' of '{}' objects>",
+            zelf.method.name,
+            zelf.common.typ.name()
+        ))
+    }
+}
+
+/// Member type. Discriminants match `PyMemberDef.type`.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(i32)]
 pub enum MemberKind {
     Object = 6,
     Bool = 14,
     ObjectEx = 16,
 }
 
+impl MemberKind {
+    #[must_use]
+    pub fn from_i32(value: i32) -> Option<Self> {
+        match value {
+            6 => Some(Self::Object),
+            14 => Some(Self::Bool),
+            16 => Some(Self::ObjectEx),
+            _ => None,
+        }
+    }
+}
+
+pub const PY_READONLY: i32 = 1;
+pub(crate) const PY_AUDIT_READ: i32 = 2;
+pub const PY_RELATIVE_OFFSET: i32 = 8;
+
 pub(crate) type MemberSetterFunc =
     Option<fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>>;
 
-pub enum MemberGetter {
-    Getter(fn(&VirtualMachine, PyObjectRef) -> PyResult),
-    Offset(usize),
+/// Where `PyMemberDef.offset` points.
+///
+/// Slot members use a byte offset from the object to an inline pointer cell.
+/// Builtin payloads keep fields behind locks, so those members use a function
+/// and ignore `offset`.
+#[derive(Clone, Copy)]
+pub enum MemberAccess {
+    Func {
+        get: fn(&VirtualMachine, PyObjectRef) -> PyResult,
+        set: MemberSetterFunc,
+    },
+    Slot,
+    TupleItem,
 }
 
-pub enum MemberSetter {
-    Setter(MemberSetterFunc),
-    Offset(usize),
+impl core::fmt::Debug for MemberAccess {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Func { set, .. } => f.debug_struct("Func").field("set", &set.is_some()).finish(),
+            Self::Slot => write!(f, "Slot"),
+            Self::TupleItem => write!(f, "TupleItem"),
+        }
+    }
 }
 
+/// Same fields as `PyMemberDef`: name, type, offset, flags, doc.
 pub struct PyMemberDef {
     pub name: String,
     pub kind: MemberKind,
-    pub getter: MemberGetter,
-    pub setter: MemberSetter,
+    pub offset: isize,
+    pub flags: i32,
     pub doc: Option<String>,
 }
 
 impl PyMemberDef {
-    fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match self.getter {
-            MemberGetter::Getter(getter) => (getter)(vm, obj),
-            MemberGetter::Offset(offset) => get_slot_from_object(obj, offset, self, vm),
-        }
-    }
-
-    fn set(
-        &self,
-        obj: PyObjectRef,
-        value: PySetterValue<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        match self.setter {
-            MemberSetter::Setter(setter) => match setter {
-                Some(setter) => (setter)(vm, obj, value),
-                None => Err(vm.new_attribute_error("readonly attribute")),
-            },
-            MemberSetter::Offset(offset) => set_slot_at_object(obj, offset, self, value, vm),
-        }
+    pub(crate) fn readonly(&self) -> bool {
+        self.flags & PY_READONLY != 0
     }
 }
 
@@ -235,6 +398,8 @@ impl core::fmt::Debug for PyMemberDef {
         f.debug_struct("PyMemberDef")
             .field("name", &self.name)
             .field("kind", &self.kind)
+            .field("offset", &self.offset)
+            .field("flags", &self.flags)
             .field("doc", &self.doc)
             .finish()
     }
@@ -246,6 +411,66 @@ impl core::fmt::Debug for PyMemberDef {
 pub struct PyMemberDescriptor {
     pub common: PyDescriptorOwned,
     pub member: PyMemberDef,
+    pub access: MemberAccess,
+}
+
+impl PyMemberDescriptor {
+    /// Byte offset of an instance-slot member. `None` when this is not a slot.
+    pub(crate) fn slot_offset(&self) -> Option<isize> {
+        match self.access {
+            MemberAccess::Slot => Some(self.member.offset),
+            _ => None,
+        }
+    }
+
+    fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if self.member.flags & PY_AUDIT_READ != 0 {
+            vm.sys_module.get_attr("audit", vm)?.call(
+                (
+                    vm.ctx.new_str("object.__getattr__"),
+                    obj.clone(),
+                    vm.ctx.new_str(self.member.name.as_str()),
+                ),
+                vm,
+            )?;
+        }
+        match self.access {
+            MemberAccess::Func { get, .. } => get(vm, obj),
+            MemberAccess::Slot => get_slot_from_object(&obj, self.member.offset, &self.member, vm),
+            MemberAccess::TupleItem => {
+                let index = self.member.offset as usize;
+                let tuple = obj.downcast_ref::<PyTuple>().ok_or_else(|| {
+                    vm.new_type_error("unexpected payload for struct sequence member")
+                })?;
+                tuple
+                    .as_slice()
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| vm.new_index_error(format!("tuple index {index} out of range")))
+            }
+        }
+    }
+
+    fn set(
+        &self,
+        obj: PyObjectRef,
+        value: PySetterValue<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if self.member.readonly() {
+            return Err(vm.new_attribute_error("readonly attribute"));
+        }
+        match self.access {
+            MemberAccess::Func { set, .. } => match set {
+                Some(set) => set(vm, obj, value),
+                None => Err(vm.new_attribute_error("readonly attribute")),
+            },
+            MemberAccess::Slot => {
+                set_slot_at_object(&obj, self.member.offset, &self.member, value, vm)
+            }
+            MemberAccess::TupleItem => Err(vm.new_attribute_error("readonly attribute")),
+        }
+    }
 }
 
 impl PyPayload for PyMemberDescriptor {
@@ -255,7 +480,7 @@ impl PyPayload for PyMemberDescriptor {
 }
 
 fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResult<Option<String>> {
-    if let Some(qualname) = vm.get_attribute_opt(descr.typ.clone().into(), "__qualname__")? {
+    if let Some(qualname) = vm.get_attribute_opt(descr.typ.as_object(), "__qualname__")? {
         let str = qualname.downcast::<PyStr>().map_err(|_| {
             vm.new_type_error("<descriptor>.__objclass__.__qualname__ is not a unicode object")
         })?;
@@ -332,14 +557,14 @@ impl PyMemberDescriptor {
             )));
         }
 
-        zelf.member.set(obj, value, vm)
+        zelf.set(obj, value, vm)
     }
 }
 
-// PyMember_GetOne
+// PyMember_GetOne for a value stored in the instance slot array.
 fn get_slot_from_object(
-    obj: PyObjectRef,
-    offset: usize,
+    obj: &PyObject,
+    offset: isize,
     member: &PyMemberDef,
     vm: &VirtualMachine,
 ) -> PyResult {
@@ -349,7 +574,6 @@ fn get_slot_from_object(
             .get_slot(offset)
             .unwrap_or_else(|| vm.ctx.new_bool(false).into()),
         MemberKind::ObjectEx => obj.get_slot(offset).ok_or_else(|| {
-            // '%T' : module.qualname
             vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
                 obj.class().fully_qualified_name(vm),
@@ -360,14 +584,20 @@ fn get_slot_from_object(
     Ok(slot)
 }
 
-// PyMember_SetOne
+// PyMember_SetOne for a value stored in the instance slot array.
 fn set_slot_at_object(
-    obj: PyObjectRef,
-    offset: usize,
+    obj: &PyObject,
+    offset: isize,
     member: &PyMemberDef,
     value: PySetterValue,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
+    if matches!(value, PySetterValue::Delete)
+        && member.kind != MemberKind::ObjectEx
+        && member.kind != MemberKind::Object
+    {
+        return Err(vm.new_type_error("can't delete numeric/char attribute"));
+    }
     match member.kind {
         MemberKind::Object => match value {
             PySetterValue::Assign(v) => {
@@ -377,19 +607,17 @@ fn set_slot_at_object(
                 obj.set_slot(offset, None);
             }
         },
-        MemberKind::Bool => {
-            match value {
-                PySetterValue::Assign(v) => {
-                    if !v.class().is(vm.ctx.types.bool_type) {
-                        return Err(vm.new_type_error("attribute value type must be bool"));
-                    }
-                    obj.set_slot(offset, Some(v))
+        MemberKind::Bool => match value {
+            PySetterValue::Assign(v) => {
+                if !v.class().is(vm.ctx.types.bool_type) {
+                    return Err(vm.new_type_error("attribute value type must be bool"));
                 }
-                PySetterValue::Delete => {
-                    return Err(vm.new_type_error("can't delete numeric/char attribute"));
-                }
-            };
-        }
+                obj.set_slot(offset, Some(v))
+            }
+            PySetterValue::Delete => {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            }
+        },
         MemberKind::ObjectEx => match value {
             PySetterValue::Assign(v) => {
                 obj.set_slot(offset, Some(v));
@@ -419,12 +647,12 @@ impl Representable for PyMemberDescriptor {
 
 impl GetDescriptor for PyMemberDescriptor {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let descr = Self::_as_pyref(&zelf, vm)?;
+        let descr = Self::_as_pyref(zelf, vm)?;
         match obj {
             Some(x) => {
                 if !x.class().fast_issubclass(&descr.common.typ) {
@@ -435,9 +663,9 @@ impl GetDescriptor for PyMemberDescriptor {
                         x.class().name()
                     )));
                 }
-                descr.member.get(x, vm)
+                descr.get(x.to_owned(), vm)
             }
-            None => Ok(zelf),
+            None => Ok(zelf.to_owned()),
         }
     }
 }
@@ -497,6 +725,7 @@ pub(crate) fn init(ctx: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_method_descriptor));
+    PyClassMethodDescriptor::extend_class(ctx, ctx.types.classmethod_descriptor_type);
     PyWrapper::extend_class(ctx, ctx.types.wrapper_descriptor_type);
     ctx.types
         .wrapper_descriptor_type
@@ -611,7 +840,7 @@ impl SlotFunc {
     pub fn call(&self, obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         match self {
             Self::Init(func) => {
-                func(obj, args, vm)?;
+                func(&obj, args, vm)?;
                 Ok(vm.ctx.none())
             }
             Self::Hash(func) => {
@@ -685,7 +914,7 @@ impl SlotFunc {
                 } else {
                     Some(instance)
                 };
-                func(obj, instance_opt, owner, vm)
+                func(&obj, instance_opt.as_deref(), owner.as_deref(), vm)
             }
             Self::DescrSet(func) => {
                 let (instance, value): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
@@ -779,7 +1008,7 @@ impl SlotFunc {
             // Buffer protocol
             Self::GetBuffer(func) => {
                 let (flags_obj,): (PyObjectRef,) = args.bind(vm)?;
-                let buffer = func(&obj, parse_buffer_flags(flags_obj, vm)?, vm)?;
+                let buffer = func(&obj, parse_buffer_flags(&flags_obj, vm)?, vm)?;
                 crate::builtins::PyMemoryView::from_buffer(buffer, vm)
                     .map(|mv| mv.into_pyobject(vm))
             }
@@ -788,7 +1017,7 @@ impl SlotFunc {
                 let mv = mv_obj
                     .downcast::<crate::builtins::PyMemoryView>()
                     .map_err(|_| vm.new_type_error("expected a memoryview object"))?;
-                crate::builtins::memory::release_buffer_from_python(&obj, mv, vm)?;
+                crate::builtins::memory::release_buffer_from_python(&obj, &mv, vm)?;
                 Ok(vm.ctx.none())
             }
         }
@@ -815,7 +1044,7 @@ fn pow_args(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObj
 
 /// Parse the `flags` argument of `__buffer__`. wrap_buffer
 fn parse_buffer_flags(
-    arg: PyObjectRef,
+    arg: &PyObject,
     vm: &VirtualMachine,
 ) -> PyResult<crate::protocol::BufferFlags> {
     use num_traits::ToPrimitive;
@@ -837,7 +1066,10 @@ pub(crate) struct PyWrapper {
     pub typ: &'static Py<PyType>,
     pub name: &'static PyStrInterned,
     pub wrapped: SlotFunc,
+    /// Slot text, including the text signature.
     pub doc: Option<&'static str>,
+    /// Plain docstring for this slot when the table has one.
+    pub plain_doc: Option<&'static str>,
 }
 
 impl PyPayload for PyWrapper {
@@ -848,16 +1080,20 @@ impl PyPayload for PyWrapper {
 
 impl GetDescriptor for PyWrapper {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
         match obj {
-            None => Ok(zelf),
+            None => Ok(zelf.to_owned()),
             Some(obj) => {
-                let zelf = zelf.downcast::<Self>().unwrap();
-                Ok(PyMethodWrapper { wrapper: zelf, obj }.into_pyobject(vm))
+                let zelf = zelf.to_owned().downcast::<Self>().unwrap();
+                Ok(PyMethodWrapper {
+                    wrapper: zelf,
+                    obj: obj.to_owned(),
+                }
+                .into_pyobject(vm))
             }
         }
     }
@@ -905,6 +1141,9 @@ impl PyWrapper {
 
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
+        if let Some(doc) = self.plain_doc {
+            return Some(doc);
+        }
         let doc = self.doc?;
         type_::get_doc_from_internal_doc(self.name.as_str(), doc)
     }
@@ -991,6 +1230,9 @@ impl PyMethodWrapper {
 
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
+        if let Some(doc) = self.wrapper.plain_doc {
+            return Some(doc);
+        }
         let doc = self.wrapper.doc?;
         type_::get_doc_from_internal_doc(self.wrapper.name.as_str(), doc)
     }

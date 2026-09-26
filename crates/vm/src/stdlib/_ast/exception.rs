@@ -30,11 +30,11 @@ impl Node for ast::ExceptHandler {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         ensure_excepthandler_node(vm, &object)?;
-        let range = excepthandler_range_from_object(vm, source_file, object.clone())?;
+        let range = excepthandler_range_from_object(vm, source_file, &object)?;
         Ok(Self::ExceptHandler(except_handler_from_object_with_range(
             vm,
             source_file,
-            object,
+            &object,
             range,
         )?))
     }
@@ -44,18 +44,18 @@ impl Node for ast::ExceptHandler {
 fn except_handler_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExceptHandlerExceptHandler> {
     let body: Vec<Option<ast::Stmt>> =
-        get_node_list_field(vm, source_file, &object, "body", "ExceptHandler")?;
+        get_node_list_field(vm, source_file, object, "body", "ExceptHandler")?;
     let (runtime_body, body) = runtime_stmt_list_from_values(body);
     Ok(ast::ExceptHandlerExceptHandler {
         node_index: Default::default(),
-        type_: get_node_field_opt(vm, &object, "type")?
+        type_: get_node_field_opt(vm, object, "type")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
-        name: get_node_field_opt(vm, &object, "name")?
+        name: get_node_field_opt(vm, object, "name")?
             .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         body,
@@ -67,10 +67,10 @@ fn except_handler_from_object_with_range(
 pub(super) fn except_handler_from_object_unvalidated_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> PyResult<ast::ExceptHandler> {
-    ensure_excepthandler_node(vm, &object)?;
-    let range = excepthandler_range_from_object_unvalidated(vm, source_file, object.clone())?;
+    ensure_excepthandler_node(vm, object)?;
+    let range = excepthandler_range_from_object_unvalidated(vm, source_file, object)?;
     Ok(ast::ExceptHandler::ExceptHandler(
         except_handler_from_object_with_range(vm, source_file, object, range)?,
     ))
@@ -111,7 +111,7 @@ impl Node for ast::ExceptHandlerExceptHandler {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "ExceptHandler")?;
-        except_handler_from_object_with_range(vm, source_file, object, range)
+        let range = range_from_object(vm, source_file, &object, "ExceptHandler")?;
+        except_handler_from_object_with_range(vm, source_file, &object, range)
     }
 }

@@ -93,10 +93,10 @@ impl PyMappingProxy {
         )))
     }
 
-    fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+    fn get_inner(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         match &self.mapping {
-            MappingProxyInner::Class(class) => Self::class_get(class, &key, vm),
-            MappingProxyInner::Mapping(mapping) => mapping.mapping().subscript(&*key, vm).map(Some),
+            MappingProxyInner::Class(class) => Self::class_get(class, key, vm),
+            MappingProxyInner::Mapping(mapping) => mapping.mapping().subscript(key, vm).map(Some),
         }
     }
 
@@ -129,7 +129,7 @@ impl PyMappingProxy {
     }
 
     pub fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.get_inner(key.clone(), vm)?
+        self.get_inner(&key, vm)?
             .ok_or_else(|| vm.new_key_error(key))
     }
 
@@ -151,8 +151,8 @@ impl PyMappingProxy {
         }
     }
 
-    pub fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self._contains(&key, vm)
+    pub fn __contains__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self._contains(key, vm)
     }
 
     fn to_object(&self, vm: &VirtualMachine) -> PyResult {
@@ -227,8 +227,8 @@ impl PyMappingProxy {
         )))
     }
 
-    fn __or__(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._or(self.copy(vm)?.as_ref(), args.as_ref())
+    fn __or__(&self, args: &PyObject, vm: &VirtualMachine) -> PyResult {
+        vm._or(self.copy(vm)?.as_ref(), args)
     }
 }
 

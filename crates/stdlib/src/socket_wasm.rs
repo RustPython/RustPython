@@ -199,7 +199,7 @@ mod _socket {
         #[pyarg(any, optional)]
         proto: OptionalArg<i32>,
         #[pyarg(any, optional)]
-        fileno: OptionalArg<Option<PyObjectRef>>,
+        fileno: Option<PyObjectRef>,
     }
 
     #[pyattr(name = "socket")]
@@ -389,7 +389,7 @@ mod _socket {
     impl Initializer for PySocket {
         type Args = SocketInitArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             let family = args.family.unwrap_or(AF_INET);
             let kind = args.r#type.unwrap_or(SOCK_STREAM);
             let proto = args.proto.unwrap_or(0);

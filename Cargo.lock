@@ -3858,15 +3858,13 @@ dependencies = [
 [[package]]
 name = "rustpython-doc"
 version = "0.6.0"
-dependencies = [
- "phf 0.14.0",
-]
 
 [[package]]
 name = "rustpython-host_env"
 version = "0.6.0"
 dependencies = [
  "bitflags 2.13.1",
+ "bitflagset",
  "cc",
  "der 0.8.2",
  "dns-lookup",
@@ -4096,6 +4094,7 @@ dependencies = [
  "rustpython-wtf8",
  "unicode_names2 3.1.0",
  "writeable",
+ "zlib-rs",
 ]
 
 [[package]]
@@ -4108,6 +4107,7 @@ version = "0.6.0"
 dependencies = [
  "ascii",
  "bitflags 2.13.1",
+ "bitflagset",
  "bstr",
  "constant_time_eq 0.6.0",
  "crossbeam-utils",
@@ -4140,6 +4140,7 @@ dependencies = [
  "rustpython-compiler",
  "rustpython-compiler-core",
  "rustpython-derive",
+ "rustpython-doc",
  "rustpython-host_env",
  "rustpython-jit",
  "rustpython-literal",

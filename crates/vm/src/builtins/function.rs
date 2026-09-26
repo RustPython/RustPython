@@ -1292,16 +1292,18 @@ impl PyFunction {
 
 impl GetDescriptor for PyFunction {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (_zelf, obj) = Self::_unwrap(&zelf, obj, vm)?;
-        Ok(if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
-            zelf
+        let (_zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
+        Ok(if vm.is_none(obj) && !Self::_cls_is(&cls, obj.class()) {
+            zelf.to_owned()
         } else {
-            PyBoundMethod::new(obj, zelf).into_ref(&vm.ctx).into()
+            PyBoundMethod::new(obj.to_owned(), zelf.to_owned())
+                .into_ref(&vm.ctx)
+                .into()
         })
     }
 }
@@ -1443,12 +1445,12 @@ impl GetAttr for PyBoundMethod {
 
 impl GetDescriptor for PyBoundMethod {
     fn descr_get(
-        zelf: PyObjectRef,
-        _obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        _obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         _vm: &VirtualMachine,
     ) -> PyResult {
-        Ok(zelf)
+        Ok(zelf.to_owned())
     }
 }
 
@@ -1589,11 +1591,11 @@ impl Representable for PyBoundMethod {
     #[inline]
     fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let func_name = if let Some(qname) =
-            vm.get_attribute_opt(zelf.function.clone(), identifier!(vm, __qualname__))?
+            vm.get_attribute_opt(&zelf.function, identifier!(vm, __qualname__))?
         {
             Some(qname)
         } else {
-            vm.get_attribute_opt(zelf.function.clone(), identifier!(vm, __name__))?
+            vm.get_attribute_opt(&zelf.function, identifier!(vm, __name__))?
         };
         let func_name: Option<PyStrRef> = func_name.and_then(|o| o.downcast().ok());
         let object_repr = zelf.object.repr(vm)?;

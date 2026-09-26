@@ -10,7 +10,8 @@ pub(crate) mod _hashlib {
     use crate::vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyBytes, PyFrozenSet, PyStr, PyTypeRef, PyUtf8StrRef, PyValueError,
+            PyBaseExceptionRef, PyBytes, PyFrozenSet, PyStr, PyType, PyTypeRef, PyUtf8StrRef,
+            PyValueError,
         },
         class::StaticType,
         function::{ArgBytesLike, ArgPrimitiveIndex, ArgStrOrBytesLike, FuncArgs, OptionalArg},
@@ -69,14 +70,16 @@ pub(crate) mod _hashlib {
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
     struct NewHashArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         name: PyUtf8StrRef,
-        #[pyarg(any, optional)]
+        // Missing still allows the string keyword; b'' does not.
+        #[pyarg(any, optional, py_default = "b''")]
         data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = true)]
         usedforsecurity: bool,
+        // None means no string data.
         #[pyarg(named, optional)]
-        string: OptionalArg<ArgBytesLike>,
+        string: Option<ArgBytesLike>,
     }
 
     #[derive(FromArgs)]
@@ -109,18 +112,20 @@ pub(crate) mod _hashlib {
         #[pyarg(named, default = true)]
         usedforsecurity: bool,
         #[pyarg(named, optional)]
-        pub string: OptionalArg<ArgBytesLike>,
+        pub string: Option<ArgBytesLike>,
     }
 
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
     pub(crate) struct HashArgs {
-        #[pyarg(any, optional)]
+        // Missing still allows the string keyword; b'' does not.
+        #[pyarg(any, optional, py_default = "b''")]
         pub data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = true)]
         usedforsecurity: bool,
+        // Missing string is None.
         #[pyarg(named, optional)]
-        pub string: OptionalArg<ArgBytesLike>,
+        pub string: Option<ArgBytesLike>,
     }
 
     impl From<NewHashArgs> for HashArgs {
@@ -158,7 +163,7 @@ pub(crate) mod _hashlib {
     #[derive(FromArgs)]
     #[allow(unused)]
     struct XofDigestArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         length: isize,
     }
 
@@ -177,13 +182,19 @@ pub(crate) mod _hashlib {
     }
 
     #[derive(FromArgs)]
+    struct HmacUpdateArgs {
+        #[pyarg(any)]
+        msg: ArgBytesLike,
+    }
+
+    #[derive(FromArgs)]
     #[allow(unused)]
     struct HmacDigestArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         key: ArgBytesLike,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         msg: ArgBytesLike,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         digest: PyObjectRef,
     }
 
@@ -199,15 +210,15 @@ pub(crate) mod _hashlib {
         #[pyarg(any)]
         iterations: i64,
         #[pyarg(any, optional)]
-        dklen: OptionalArg<PyObjectRef>,
+        dklen: Option<PyObjectRef>,
     }
 
     fn resolve_data(
         data: OptionalArg<ArgBytesLike>,
-        string: OptionalArg<ArgBytesLike>,
+        string: Option<ArgBytesLike>,
         vm: &VirtualMachine,
     ) -> PyResult<OptionalArg<ArgBytesLike>> {
-        match (data.into_option(), string.into_option()) {
+        match (data.into_option(), string) {
             (Some(d), None) => Ok(OptionalArg::Present(d)),
             (None, Some(s)) => Ok(OptionalArg::Present(s)),
             (None, None) => Ok(OptionalArg::Missing),
@@ -262,7 +273,6 @@ pub(crate) mod _hashlib {
     }
 
     #[repr(C, align(16))]
-    #[repr(align(16))]
     struct RawHashState {
         words: [MaybeUninit<usize>; backend::HASH_STATE_STORAGE_WORDS],
     }
@@ -369,7 +379,6 @@ pub(crate) mod _hashlib {
     }
 
     #[repr(C, align(16))]
-    #[repr(align(16))]
     struct RawHmacState {
         words: [MaybeUninit<usize>; backend::HMAC_STATE_STORAGE_WORDS],
     }
@@ -461,7 +470,7 @@ pub(crate) mod _hashlib {
         }
     }
 
-    #[pyclass(with(Representable), flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
     impl PyHmac {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -484,8 +493,8 @@ pub(crate) mod _hashlib {
         }
 
         #[pymethod]
-        fn update(&self, msg: ArgBytesLike) {
-            msg.with_ref(|bytes| self.ctx.update(bytes));
+        fn update(&self, args: HmacUpdateArgs) {
+            args.msg.with_ref(|bytes| self.ctx.update(bytes));
         }
 
         #[pymethod]
@@ -533,7 +542,43 @@ pub(crate) mod _hashlib {
         }
     }
 
-    #[pyclass(with(Representable), flags(IMMUTABLETYPE))]
+    #[derive(FromArgs)]
+    pub(crate) struct HashTypeArgs {
+        #[pyarg(any)]
+        name: PyObjectRef,
+        #[pyarg(any, default = b"")]
+        string: PyObjectRef,
+    }
+
+    impl Constructor for PyHmac {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            Err(vm.new_type_error("cannot create '_hashlib.HMAC' instances"))
+        }
+    }
+
+    impl Constructor for PyHasher {
+        type Args = HashTypeArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let HashTypeArgs { name, string } = args;
+            let _ = (name, string);
+            Err(vm.new_type_error("cannot create '_hashlib.HASH' instances"))
+        }
+    }
+
+    impl Constructor for PyHasherXof {
+        type Args = HashTypeArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let HashTypeArgs { name, string } = args;
+            let _ = (name, string);
+            Err(vm.new_type_error("cannot create '_hashlib.HASHXOF' instances"))
+        }
+    }
+
+    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
     impl PyHasher {
         fn new(name: &str, ctx: HashCtx, digest_size: usize) -> Self {
             Self {
@@ -590,8 +635,8 @@ pub(crate) mod _hashlib {
         }
 
         #[pymethod]
-        fn update(&self, data: ArgBytesLike) {
-            data.with_ref(|bytes| self.ctx.update(bytes));
+        fn update(&self, obj: ArgBytesLike) {
+            obj.with_ref(|bytes| self.ctx.update(bytes));
         }
 
         #[pymethod]
@@ -633,7 +678,7 @@ pub(crate) mod _hashlib {
         }
     }
 
-    #[pyclass(with(Representable), flags(IMMUTABLETYPE))]
+    #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
     impl PyHasherXof {
         fn new(name: &str, ctx: HashCtx) -> Self {
             Self {
@@ -827,7 +872,7 @@ pub(crate) mod _hashlib {
         Ok(new_xof_hasher("shake_256", data))
     }
 
-    fn parse_unsigned_int(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<u64> {
+    fn parse_unsigned_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<u64> {
         let value = obj.try_index(vm)?;
         if value.as_bigint().sign() == malachite_bigint::Sign::Minus {
             return Err(vm.new_value_error("Cannot convert negative int"));
@@ -960,14 +1005,14 @@ pub(crate) mod _hashlib {
 
         let leaf_size = match args.leaf_size.into_option() {
             Some(obj) => {
-                let value = parse_unsigned_int(obj, vm)?;
+                let value = parse_unsigned_int(&obj, vm)?;
                 u32::try_from(value).map_err(|_| vm.new_overflow_error("leaf_size is too large"))?
             }
             None => 0,
         };
         let node_offset = match args.node_offset.into_option() {
             Some(obj) => {
-                let value = parse_unsigned_int(obj, vm)?;
+                let value = parse_unsigned_int(&obj, vm)?;
                 if value > max_node_offset {
                     return Err(vm.new_overflow_error("node_offset is too large"));
                 }
@@ -1094,11 +1139,13 @@ pub(crate) mod _hashlib {
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
     pub(crate) struct NewHMACHashArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         key: ArgBytesLike,
-        #[pyarg(any, optional)]
-        msg: OptionalArg<Option<ArgBytesLike>>,
-        #[pyarg(named, optional)]
+        // Missing message is empty bytes.
+        #[pyarg(any, optional, py_default = "b''")]
+        msg: Option<ArgBytesLike>,
+        // Missing is an error. The signature shows None.
+        #[pyarg(any, optional, py_default = "None")]
         digestmod: OptionalArg<PyObjectRef>,
     }
 
@@ -1132,7 +1179,7 @@ pub(crate) mod _hashlib {
             .ok_or_else(|| vm.new_type_error("Missing required parameter 'digestmod'."))?;
         let name = resolve_digestmod(&digestmod, vm)?;
         let key_buf = args.key.borrow_buf();
-        let msg_data = args.msg.flatten();
+        let msg_data = args.msg;
         new_hmac(name, &key_buf, msg_data.as_ref(), vm)
     }
 
@@ -1156,7 +1203,7 @@ pub(crate) mod _hashlib {
         let rounds = usize::try_from(args.iterations)
             .map_err(|_| vm.new_overflow_error("iteration value is too great."))?;
 
-        let dklen: usize = match args.dklen.into_option() {
+        let dklen: usize = match args.dklen {
             Some(obj) if vm.is_none(&obj) => {
                 backend::digest_output_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?
             }
@@ -1182,7 +1229,7 @@ pub(crate) mod _hashlib {
 
     #[derive(FromArgs)]
     struct ScryptArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         password: ArgBytesLike,
         #[pyarg(named)]
         salt: ArgBytesLike,

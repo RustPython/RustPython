@@ -230,8 +230,8 @@ impl PySlice {
     }
 
     #[pymethod]
-    fn indices(&self, length: ArgIndex, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        let length = length.into_int_ref();
+    fn indices(&self, object: ArgIndex, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let length = object.into_int_ref();
         let length = length.as_bigint();
         if length.is_negative() {
             return Err(vm.new_value_error("length should not be negative."));
@@ -400,7 +400,7 @@ impl Constructor for PyEllipsis {
 }
 
 #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
-impl PyEllipsis {
+impl Py<PyEllipsis> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyStrRef {
         vm.ctx.names.Ellipsis.to_owned()

@@ -873,7 +873,6 @@ class StructTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             results = executor.map(exec, [code] * 5)
             self.assertListEqual(list(results), [None] * 5)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: expected at least 1 arguments, got 0
     def test_operations_on_half_initialized_Struct(self):
         S = struct.Struct.__new__(struct.Struct)
 

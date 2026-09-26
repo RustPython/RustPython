@@ -180,7 +180,7 @@ mod _abc {
                 while let PyIterReturn::Return(key) = iter.next(vm)? {
                     // Try to get the attribute from cls - key should be a string
                     if let Some(key_str) = key.downcast_ref::<PyStr>()
-                        && let Some(value) = vm.get_attribute_opt(cls.to_owned(), key_str)?
+                        && let Some(value) = vm.get_attribute_opt(cls, key_str)?
                         && let Ok(is_abstract) = value.get_attr("__isabstractmethod__", vm)
                         && is_abstract.try_to_bool(vm)?
                     {
@@ -197,14 +197,25 @@ mod _abc {
         Ok(())
     }
 
+    #[derive(FromArgs)]
+    struct AbcSelf {
+        #[pyarg(positional, name = "self")]
+        cls: PyObjectRef,
+    }
+
     /// Internal ABC helper for class set-up. Should be never used outside abc module.
     #[pyfunction]
-    fn _abc_init(cls: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn _abc_init(AbcSelf { cls }: AbcSelf, vm: &VirtualMachine) -> PyResult<()> {
         compute_abstract_methods(&cls, vm)?;
 
         // Set up inheritance registry
         let data = AbcData::new();
         cls.set_attr("_abc_impl", data.to_pyobject(vm), vm)?;
+
+        if let Some(cls_type) = cls.downcast_ref::<PyType>() {
+            let abstracts = cls.get_attr("__abstractmethods__", vm)?;
+            cls_type.set_is_abstract(abstracts.try_to_bool(vm)?);
+        }
 
         Ok(())
     }
@@ -212,7 +223,7 @@ mod _abc {
     /// Internal ABC helper for subclass registration. Should be never used outside abc module.
     #[pyfunction]
     fn _abc_register(
-        cls: PyObjectRef,
+        AbcSelf { cls }: AbcSelf,
         subclass: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
@@ -261,7 +272,7 @@ mod _abc {
     /// Internal ABC helper for instance checks. Should be never used outside abc module.
     #[pyfunction]
     fn _abc_instancecheck(
-        cls: PyObjectRef,
+        AbcSelf { cls }: AbcSelf,
         instance: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
@@ -337,7 +348,7 @@ mod _abc {
     /// Internal ABC helper for subclass checks. Should be never used outside abc module.
     #[pyfunction]
     fn _abc_subclasscheck(
-        cls: PyObjectRef,
+        AbcSelf { cls }: AbcSelf,
         subclass: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
@@ -422,7 +433,7 @@ mod _abc {
 
     /// Internal ABC helper for cache and registry debugging.
     #[pyfunction]
-    fn _get_dump(cls: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn _get_dump(AbcSelf { cls }: AbcSelf, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let impl_data = get_impl(&cls, vm)?;
 
         let registry = {
@@ -464,7 +475,7 @@ mod _abc {
 
     /// Internal ABC helper to reset registry of a given class.
     #[pyfunction]
-    fn _reset_registry(cls: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn _reset_registry(AbcSelf { cls }: AbcSelf, vm: &VirtualMachine) -> PyResult<()> {
         let impl_data = get_impl(&cls, vm)?;
         // Clone set ref and drop lock before calling into VM to avoid reentrancy
         let set = impl_data.registry.read().clone();
@@ -476,7 +487,7 @@ mod _abc {
 
     /// Internal ABC helper to reset both caches of a given class.
     #[pyfunction]
-    fn _reset_caches(cls: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn _reset_caches(AbcSelf { cls }: AbcSelf, vm: &VirtualMachine) -> PyResult<()> {
         let impl_data = get_impl(&cls, vm)?;
 
         // Clone set refs and drop locks before calling into VM to avoid reentrancy

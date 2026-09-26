@@ -52,27 +52,36 @@ impl PyPayload for PyClassMethod {
 
 impl GetDescriptor for PyClassMethod {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, _obj) = Self::_unwrap(&zelf, obj, vm)?;
-        let cls = cls.unwrap_or_else(|| _obj.class().to_owned().into());
+        let (zelf, _obj) = Self::_unwrap(zelf, obj, vm)?;
+        let cls = match cls {
+            Some(cls) => cls.to_owned(),
+            None => _obj.class().to_owned().into(),
+        };
         let callable = zelf.callable.lock().clone();
         Ok(PyBoundMethod::new(cls, callable).into_ref(&vm.ctx).into())
     }
 }
 
+#[derive(FromArgs)]
+pub struct ClassMethodArgs {
+    #[pyarg(positional)]
+    function: PyObjectRef,
+}
+
 impl Constructor for PyClassMethod {
-    type Args = PyObjectRef;
+    type Args = ClassMethodArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Validate the signature here, but defer storing the callable and
         // copying its attributes to `__init__` so that subclasses overriding
         // `__init__` without calling `super().__init__()` see `__func__` as
         // `None`, matching CPython.
-        let _: Self::Args = args.bind_for(vm, Self::NAME)?;
+        let _: ClassMethodArgs = args.bind_for(vm, Self::NAME)?;
         let classmethod = Self {
             callable: PyMutex::new(vm.ctx.none()),
         };
@@ -86,9 +95,10 @@ impl Constructor for PyClassMethod {
 }
 
 impl Initializer for PyClassMethod {
-    type Args = PyObjectRef;
+    type Args = ClassMethodArgs;
 
-    fn init(zelf: PyRef<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        let callable = args.function;
         *zelf.callable.lock() = callable.clone();
         functools_wraps(zelf.as_object(), &callable, vm)
     }
@@ -120,9 +130,9 @@ impl PyClassMethod {
 
     #[pygetset]
     fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.lock().clone();
+        let callable = zelf.callable.lock();
         descriptor_get_wrapped_attribute(
-            callable,
+            &callable,
             zelf.as_object(),
             identifier!(vm.ctx, __annotations__),
             vm,
@@ -146,9 +156,9 @@ impl PyClassMethod {
 
     #[pygetset]
     fn __annotate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        let callable = zelf.callable.lock().clone();
+        let callable = zelf.callable.lock();
         descriptor_get_wrapped_attribute(
-            callable,
+            &callable,
             zelf.as_object(),
             identifier!(vm.ctx, __annotate__),
             vm,
@@ -173,7 +183,7 @@ impl PyClassMethod {
     #[pygetset]
     fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyObjectRef {
         let callable = self.callable.lock().clone();
-        if let Ok(Some(is_abstract)) = vm.get_attribute_opt(callable, "__isabstractmethod__") {
+        if let Ok(Some(is_abstract)) = vm.get_attribute_opt(&callable, "__isabstractmethod__") {
             is_abstract
         } else {
             vm.ctx.new_bool(false).into()
@@ -191,10 +201,10 @@ impl PyClassMethod {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
@@ -239,7 +249,7 @@ pub(crate) fn functools_wraps(
         identifier!(vm.ctx, __qualname__),
         identifier!(vm.ctx, __doc__),
     ] {
-        if let Some(value) = vm.get_attribute_opt(wrapped.to_owned(), attr)? {
+        if let Some(value) = vm.get_attribute_opt(wrapped, attr)? {
             wrapper.set_attr(attr, value, vm)?;
         }
     }
@@ -247,7 +257,7 @@ pub(crate) fn functools_wraps(
 }
 
 pub(crate) fn descriptor_get_wrapped_attribute(
-    wrapped: PyObjectRef,
+    wrapped: &PyObject,
     obj: &PyObject,
     name: &'static PyStrInterned,
     vm: &VirtualMachine,

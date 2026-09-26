@@ -19,14 +19,17 @@ pub(crate) mod _thread {
     };
 
     use crate::{
-        AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
         },
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         convert::ToPyException,
         frame::FrameObjectRef,
-        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
+        function::{
+            ArgCallable, ArgumentError, DefaultRepr, FromArgs, FuncArgs, KwArgs, NameExcInfo,
+            OptionalArg, Param, ParamKind, PosArgs, PySetterValue, TimeoutSeconds,
+        },
         object::{Traverse, TraverseFn},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
@@ -89,8 +92,16 @@ pub(crate) mod _thread {
     struct AcquireArgs {
         #[pyarg(any, default = true)]
         blocking: bool,
-        #[pyarg(any, default = TimeoutSeconds::new(-1.0))]
+        // No timeout; blocks until the lock is acquired.
+        #[pyarg(any, default = TimeoutSeconds::new(-1.0), py_default = "-1")]
         timeout: TimeoutSeconds,
+    }
+
+    fn default_acquire_args() -> AcquireArgs {
+        AcquireArgs {
+            blocking: true,
+            timeout: TimeoutSeconds::new(-1.0),
+        }
     }
 
     macro_rules! acquire_lock_impl {
@@ -154,9 +165,13 @@ pub(crate) mod _thread {
     impl Lock {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
-        #[pymethod(name = "__enter__")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
             acquire_lock_impl!(&self.mu, args, vm)
+        }
+
+        #[pymethod]
+        fn __enter__(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.acquire(default_acquire_args(), vm)
         }
 
         #[pymethod]
@@ -178,7 +193,11 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(
+            &self,
+            _args: PosArgs<crate::PyObjectRef, NameExcInfo>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             self.release(vm)
         }
 
@@ -232,7 +251,6 @@ pub(crate) mod _thread {
 
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
-        #[pymethod(name = "__enter__")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
             if self.mu.is_owned_by_current_thread() {
                 // Re-entrant acquisition: just increment our count.
@@ -246,6 +264,11 @@ pub(crate) mod _thread {
                 self.count.store(1, core::sync::atomic::Ordering::Relaxed);
             }
             Ok(result)
+        }
+
+        #[pymethod]
+        fn __enter__(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self.acquire(default_acquire_args(), vm)
         }
 
         #[pymethod]
@@ -322,7 +345,11 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(
+            &self,
+            _args: PosArgs<crate::PyObjectRef, NameExcInfo>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             self.release(vm)
         }
     }
@@ -463,8 +490,15 @@ pub(crate) mod _thread {
     }
 
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    #[derive(FromArgs)]
+    struct SetNameArgs {
+        #[pyarg(any)]
+        name: PyStrRef,
+    }
+
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     #[pyfunction]
-    fn set_name(name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_name(SetNameArgs { name }: SetNameArgs, vm: &VirtualMachine) -> PyResult<()> {
         #[cfg(windows)]
         {
             let units = truncate_thread_name_wide(name.as_wtf8());
@@ -560,39 +594,83 @@ pub(crate) mod _thread {
         Lock { mu: RawMutex::INIT }
     }
 
+    struct StartNewThreadArgs {
+        func_obj: PyObjectRef,
+        args_obj: PyObjectRef,
+        func: ArgCallable,
+        args: PyTupleRef,
+        kwargs: Option<PyDictRef>,
+    }
+
+    impl FromArgs for StartNewThreadArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param::positional_only("function"),
+            Param::positional_only("args"),
+            Param {
+                name: "kwargs",
+                kind: ParamKind::PositionalOnly,
+                default: Some(DefaultRepr::Raw("{}")),
+            },
+        ]);
+
+        fn from_args(vm: &VirtualMachine, f_args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            if !f_args.kwargs.is_empty() {
+                return Err(vm
+                    .new_type_error("start_new_thread() takes no keyword arguments")
+                    .into());
+            }
+
+            let given = f_args.args.len();
+            if !(2..=3).contains(&given) {
+                return Err(vm
+                    .new_arity_type_error("start_new_thread", 2..=3, given)
+                    .into());
+            }
+
+            let func_obj = f_args.take_positional().unwrap();
+            let args_obj = f_args.take_positional().unwrap();
+            let kwargs_obj = f_args.take_positional();
+
+            if func_obj.to_callable().is_none() {
+                return Err(vm.new_type_error("first arg must be callable").into());
+            }
+
+            if !args_obj.fast_isinstance(vm.ctx.types.tuple_type) {
+                return Err(vm.new_type_error("2nd arg must be a tuple").into());
+            }
+
+            if kwargs_obj
+                .as_ref()
+                .is_some_and(|obj| !obj.fast_isinstance(vm.ctx.types.dict_type))
+            {
+                return Err(vm
+                    .new_type_error("optional 3rd arg must be a dictionary")
+                    .into());
+            }
+
+            let func: ArgCallable = func_obj.clone().try_into_value(vm)?;
+            let args: PyTupleRef = args_obj.clone().try_into_value(vm)?;
+            let kwargs: Option<PyDictRef> =
+                kwargs_obj.map(|obj| obj.try_into_value(vm)).transpose()?;
+            Ok(Self {
+                func_obj,
+                args_obj,
+                func,
+                args,
+                kwargs,
+            })
+        }
+    }
+
     #[pyfunction]
-    fn start_new_thread(mut f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<u64> {
-        if !f_args.kwargs.is_empty() {
-            return Err(vm.new_type_error("start_new_thread() takes no keyword arguments"));
-        }
-
-        let given = f_args.args.len();
-        if !(2..=3).contains(&given) {
-            return Err(vm.new_arity_type_error("start_new_thread", 2..=3, given));
-        }
-
-        let func_obj = f_args.take_positional().unwrap();
-        let args_obj = f_args.take_positional().unwrap();
-        let kwargs_obj = f_args.take_positional();
-
-        if func_obj.to_callable().is_none() {
-            return Err(vm.new_type_error("first arg must be callable"));
-        }
-
-        if !args_obj.fast_isinstance(vm.ctx.types.tuple_type) {
-            return Err(vm.new_type_error("2nd arg must be a tuple"));
-        }
-
-        if kwargs_obj
-            .as_ref()
-            .is_some_and(|obj| !obj.fast_isinstance(vm.ctx.types.dict_type))
-        {
-            return Err(vm.new_type_error("optional 3rd arg must be a dictionary"));
-        }
-
-        let func: ArgCallable = func_obj.clone().try_into_value(vm)?;
-        let args: PyTupleRef = args_obj.clone().try_into_value(vm)?;
-        let kwargs: Option<PyDictRef> = kwargs_obj.map(|obj| obj.try_into_value(vm)).transpose()?;
+    fn start_new_thread(parsed: StartNewThreadArgs, vm: &VirtualMachine) -> PyResult<u64> {
+        let StartNewThreadArgs {
+            func_obj,
+            args_obj,
+            func,
+            args,
+            kwargs,
+        } = parsed;
 
         vm.sys_module.get_attr("audit", vm)?.call(
             (
@@ -740,9 +818,17 @@ pub(crate) mod _thread {
     }
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
+    #[derive(FromArgs)]
+    struct InterruptMainArgs {
+        // The signal enum's repr is not valid syntax in a text signature.
+        #[pyarg(positional, optional, py_default = "signal.SIGINT")]
+        signum: OptionalArg<SignalNum>,
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
     #[pyfunction]
-    fn interrupt_main(signum: OptionalArg<SignalNum>) -> PyResult<()> {
-        let sig = signum.unwrap_or(SignalNum::SIGINT);
+    fn interrupt_main(args: InterruptMainArgs) -> PyResult<()> {
+        let sig = args.signum.unwrap_or(SignalNum::SIGINT);
         crate::signal::set_interrupt_ex(sig)
     }
 
@@ -760,11 +846,18 @@ pub(crate) mod _thread {
         lock
     }
 
-    #[pyfunction]
-    fn stack_size(size: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult<usize> {
-        const MIN_SIZE: usize = PY_OS_MIN_STACK_SIZE + SYSTEM_PAGE_SIZE;
+    #[derive(FromArgs)]
+    struct StackSizeArgs {
+        #[pyarg(positional, default = 0)]
+        size: PyIntRef,
+    }
 
-        let Ok(size) = size.map_or(Ok(0), |v| v.try_to_primitive(vm)) else {
+    #[pyfunction]
+    fn stack_size(args: StackSizeArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        const MIN_SIZE: usize = PY_OS_MIN_STACK_SIZE + SYSTEM_PAGE_SIZE;
+        let StackSizeArgs { size } = args;
+
+        let Ok(size) = size.try_to_primitive(vm) else {
             return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
         };
 
@@ -932,13 +1025,22 @@ pub(crate) mod _thread {
         }
     }
 
+    #[derive(FromArgs)]
+    struct ExceptHookNewArgs {
+        #[pyarg(positional, default, py_default = "()")]
+        iterable: crate::function::OptionalArg<crate::PyObjectRef>,
+    }
+
     impl Constructor for ExceptHookArgs {
         // Takes a single iterable argument like namedtuple
-        type Args = (crate::PyObjectRef,);
+        type Args = ExceptHookNewArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             // Convert the argument to a list/tuple and extract elements
-            let seq: Vec<crate::PyObjectRef> = args.0.try_to_value(vm)?;
+            let seq: Vec<crate::PyObjectRef> = match args.iterable {
+                crate::function::OptionalArg::Present(iterable) => iterable.try_to_value(vm)?,
+                crate::function::OptionalArg::Missing => Vec::new(),
+            };
             if seq.len() != 4 {
                 return Err(vm.new_type_error(format!(
                     "_ExceptHookArgs expected 4 arguments, got {}",
@@ -1097,7 +1199,15 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(GetAttr, SetAttr), flags(BASETYPE))]
+    impl Constructor for Local {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            Err(vm.new_type_error("use slot_new"))
+        }
+    }
+
+    #[pyclass(with(Constructor, GetAttr, SetAttr), flags(BASETYPE))]
     impl Local {
         fn custom_init(cls: &Py<PyType>, vm: &VirtualMachine) -> Option<crate::types::InitFunc> {
             let cls_init = cls.slots.init.load()?;
@@ -1181,7 +1291,7 @@ pub(crate) mod _thread {
                 return Ok(dict);
             };
             let init_args = zelf.inner.state.lock().init_args.clone();
-            if let Err(err) = init(zelf.as_object().to_owned(), init_args, vm) {
+            if let Err(err) = init(zelf.as_object(), init_args, vm) {
                 zelf.remove_current_dict();
                 return Err(err);
             }
@@ -1732,17 +1842,7 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn is_done(&self, f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            if !f_args.kwargs.is_empty() {
-                return Err(vm.new_type_error("_ThreadHandle.is_done() takes no keyword arguments"));
-            }
-            let given = f_args.args.len();
-            if given != 0 {
-                return Err(vm.new_type_error(format!(
-                    "_ThreadHandle.is_done() takes no arguments ({given} given)"
-                )));
-            }
-
+        fn is_done(&self, vm: &VirtualMachine) -> PyResult<bool> {
             // If completion was observed, perform one-time join cleanup
             // before returning True.
             let done = {
@@ -1757,19 +1857,7 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn _set_done(&self, f_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            if !f_args.kwargs.is_empty() {
-                return Err(
-                    vm.new_type_error("_ThreadHandle._set_done() takes no keyword arguments")
-                );
-            }
-            let given = f_args.args.len();
-            if given != 0 {
-                return Err(vm.new_type_error(format!(
-                    "_ThreadHandle._set_done() takes no arguments ({given} given)"
-                )));
-            }
-
+        fn _set_done(&self, vm: &VirtualMachine) -> PyResult<()> {
             Self::set_done_internal(&self.inner, &self.done_event, vm)
         }
 
@@ -1805,98 +1893,145 @@ pub(crate) mod _thread {
         }
     }
 
+    struct StartJoinableThreadArgs {
+        function_obj: PyObjectRef,
+        function: ArgCallable,
+        handle: Option<PyRef<ThreadHandle>>,
+        daemon: bool,
+    }
+
+    impl FromArgs for StartJoinableThreadArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param::positional_or_keyword("function"),
+            Param {
+                name: "handle",
+                kind: ParamKind::PositionalOrKeyword,
+                default: Some(DefaultRepr::None),
+            },
+            Param {
+                name: "daemon",
+                kind: ParamKind::PositionalOrKeyword,
+                default: Some(DefaultRepr::Bool(true)),
+            },
+        ]);
+
+        fn from_args(vm: &VirtualMachine, f_args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            let given = f_args.args.len() + f_args.kwargs.len();
+            if given > 3 {
+                return Err(vm
+                    .new_type_error(format!(
+                        "start_joinable_thread() takes at most 3 arguments ({given} given)"
+                    ))
+                    .into());
+            }
+
+            let function_pos = f_args.take_positional();
+            let function_kw = f_args.take_keyword("function");
+            if function_pos.is_some() && function_kw.is_some() {
+                return Err(vm
+                    .new_type_error(
+                        "argument for start_joinable_thread() given by name ('function') and position (1)",
+                    )
+                    .into());
+            }
+            let Some(function_obj) = function_pos.or(function_kw) else {
+                return Err(vm
+                    .new_type_error(
+                        "start_joinable_thread() missing required argument 'function' (pos 1)",
+                    )
+                    .into());
+            };
+
+            let handle_pos = f_args.take_positional();
+            let handle_kw = f_args.take_keyword("handle");
+            if handle_pos.is_some() && handle_kw.is_some() {
+                return Err(vm
+                    .new_type_error(
+                        "argument for start_joinable_thread() given by name ('handle') and position (2)",
+                    )
+                    .into());
+            }
+            let handle_obj = handle_pos.or(handle_kw);
+
+            let daemon_pos = f_args.take_positional();
+            let daemon_kw = f_args.take_keyword("daemon");
+            if daemon_pos.is_some() && daemon_kw.is_some() {
+                return Err(vm
+                    .new_type_error(
+                        "argument for start_joinable_thread() given by name ('daemon') and position (3)",
+                    )
+                    .into());
+            }
+            let daemon = daemon_pos
+                .or(daemon_kw)
+                .map_or(Ok(true), |obj| obj.try_to_bool(vm))?;
+
+            // Required argument errors are raised before unknown keyword errors
+            // when `function` is missing.
+            if let Some(unexpected) = f_args.kwargs.keys().next() {
+                let suggestion = ["function", "handle", "daemon"]
+                    .iter()
+                    .filter_map(|candidate| {
+                        let max_distance = (unexpected.len() + candidate.len() + 3) * MOVE_COST / 6;
+                        let distance = levenshtein_distance(
+                            unexpected.as_bytes(),
+                            candidate.as_bytes(),
+                            max_distance,
+                        );
+                        (distance <= max_distance).then_some((distance, *candidate))
+                    })
+                    .min_by_key(|(distance, _)| *distance)
+                    .map(|(_, candidate)| candidate);
+
+                let msg_suffix =
+                    suggestion.map_or_else(String::new, |s| format!(". Did you mean '{s}'?"));
+                let msg = format!(
+                    "start_joinable_thread() got an unexpected keyword argument '{unexpected}'{msg_suffix}"
+                );
+                return Err(vm.new_type_error(msg).into());
+            }
+
+            if function_obj.to_callable().is_none() {
+                return Err(vm.new_type_error("thread function must be callable").into());
+            }
+            let function: ArgCallable = function_obj.clone().try_into_value(vm)?;
+
+            let thread_handle_type = ThreadHandle::class(&vm.ctx);
+            let handle = if let Some(handle_obj) = handle_obj {
+                if vm.is_none(&handle_obj) {
+                    None
+                } else if !handle_obj.class().is(thread_handle_type) {
+                    return Err(vm.new_type_error("'handle' must be a _ThreadHandle").into());
+                } else {
+                    Some(
+                        handle_obj
+                            .downcast::<ThreadHandle>()
+                            .map_err(|_| vm.new_type_error("'handle' must be a _ThreadHandle"))?,
+                    )
+                }
+            } else {
+                None
+            };
+            Ok(Self {
+                function_obj,
+                function,
+                handle,
+                daemon,
+            })
+        }
+    }
+
     #[pyfunction]
     fn start_joinable_thread(
-        mut f_args: FuncArgs,
+        parsed: StartJoinableThreadArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<ThreadHandle>> {
-        let given = f_args.args.len() + f_args.kwargs.len();
-        if given > 3 {
-            return Err(vm.new_type_error(format!(
-                "start_joinable_thread() takes at most 3 arguments ({given} given)"
-            )));
-        }
-
-        let function_pos = f_args.take_positional();
-        let function_kw = f_args.take_keyword("function");
-        if function_pos.is_some() && function_kw.is_some() {
-            return Err(vm.new_type_error(
-                "argument for start_joinable_thread() given by name ('function') and position (1)",
-            ));
-        }
-        let Some(function_obj) = function_pos.or(function_kw) else {
-            return Err(vm.new_type_error(
-                "start_joinable_thread() missing required argument 'function' (pos 1)",
-            ));
-        };
-
-        let handle_pos = f_args.take_positional();
-        let handle_kw = f_args.take_keyword("handle");
-        if handle_pos.is_some() && handle_kw.is_some() {
-            return Err(vm.new_type_error(
-                "argument for start_joinable_thread() given by name ('handle') and position (2)",
-            ));
-        }
-        let handle_obj = handle_pos.or(handle_kw);
-
-        let daemon_pos = f_args.take_positional();
-        let daemon_kw = f_args.take_keyword("daemon");
-        if daemon_pos.is_some() && daemon_kw.is_some() {
-            return Err(vm.new_type_error(
-                "argument for start_joinable_thread() given by name ('daemon') and position (3)",
-            ));
-        }
-        let daemon = daemon_pos
-            .or(daemon_kw)
-            .map_or(Ok(true), |obj| obj.try_to_bool(vm))?;
-
-        // Match CPython parser precedence:
-        // - required positional/keyword argument errors are raised before
-        //   unknown keyword errors when `function` is missing.
-        if let Some(unexpected) = f_args.kwargs.keys().next() {
-            let suggestion = ["function", "handle", "daemon"]
-                .iter()
-                .filter_map(|candidate| {
-                    let max_distance = (unexpected.len() + candidate.len() + 3) * MOVE_COST / 6;
-                    let distance = levenshtein_distance(
-                        unexpected.as_bytes(),
-                        candidate.as_bytes(),
-                        max_distance,
-                    );
-                    (distance <= max_distance).then_some((distance, *candidate))
-                })
-                .min_by_key(|(distance, _)| *distance)
-                .map(|(_, candidate)| candidate);
-
-            let msg_suffix =
-                suggestion.map_or_else(String::new, |s| format!(". Did you mean '{s}'?"));
-            let msg = format!(
-                "start_joinable_thread() got an unexpected keyword argument '{unexpected}'{msg_suffix}"
-            );
-            return Err(vm.new_type_error(msg));
-        }
-
-        if function_obj.to_callable().is_none() {
-            return Err(vm.new_type_error("thread function must be callable"));
-        }
-        let function: ArgCallable = function_obj.clone().try_into_value(vm)?;
-
-        let thread_handle_type = ThreadHandle::class(&vm.ctx);
-        let handle = if let Some(handle_obj) = handle_obj {
-            if vm.is_none(&handle_obj) {
-                None
-            } else if !handle_obj.class().is(thread_handle_type) {
-                return Err(vm.new_type_error("'handle' must be a _ThreadHandle"));
-            } else {
-                Some(
-                    handle_obj
-                        .downcast::<ThreadHandle>()
-                        .map_err(|_| vm.new_type_error("'handle' must be a _ThreadHandle"))?,
-                )
-            }
-        } else {
-            None
-        };
+        let StartJoinableThreadArgs {
+            function_obj,
+            function,
+            handle,
+            daemon,
+        } = parsed;
 
         vm.sys_module.get_attr("audit", vm)?.call(
             (

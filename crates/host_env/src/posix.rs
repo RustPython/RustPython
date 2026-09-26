@@ -494,21 +494,19 @@ pub fn fcopyfile(in_fd: i32, out_fd: i32, flags: u32) -> std::io::Result<()> {
 }
 
 #[cfg(unix)]
-pub fn link_paths(src: &CStr, dst: &CStr, follow_symlinks: bool) -> std::io::Result<()> {
+pub fn link_paths(
+    src_dir_fd: i32,
+    src: &CStr,
+    dst_dir_fd: i32,
+    dst: &CStr,
+    follow_symlinks: bool,
+) -> std::io::Result<()> {
     let flags = if follow_symlinks {
         libc::AT_SYMLINK_FOLLOW
     } else {
         0
     };
-    let ret = unsafe {
-        libc::linkat(
-            libc::AT_FDCWD,
-            src.as_ptr(),
-            libc::AT_FDCWD,
-            dst.as_ptr(),
-            flags,
-        )
-    };
+    let ret = unsafe { libc::linkat(src_dir_fd, src.as_ptr(), dst_dir_fd, dst.as_ptr(), flags) };
     if ret != 0 {
         Err(std::io::Error::last_os_error())
     } else {
@@ -903,7 +901,7 @@ impl From<std::io::Error> for AccessError {
     }
 }
 
-pub use crate::os::{F_OK, R_OK, W_OK, X_OK};
+pub use crate::os::{AccessMode, F_OK, R_OK, W_OK, X_OK};
 
 fn get_permissions(mode: u32) -> Permissions {
     Permissions {
@@ -971,24 +969,24 @@ pub fn getgroups() -> std::io::Result<Vec<u32>> {
 pub fn check_access(path: &Path, mode: u8) -> Result<bool, AccessError> {
     use std::os::unix::fs::MetadataExt;
 
-    if mode & !(R_OK | W_OK | X_OK) != 0 {
+    let Some(mode) = AccessMode::from_bits(mode) else {
         return Err(AccessError::InvalidMode);
-    }
+    };
 
     let metadata = match crate::fs::metadata(path) {
         Ok(m) => m,
         Err(_) => return Ok(false),
     };
 
-    if mode == F_OK {
+    if mode.is_empty() {
         return Ok(true);
     }
 
     let perm = get_right_permission(metadata.mode(), metadata.uid(), metadata.gid())?;
 
-    let r_ok = (mode & R_OK == 0) || perm.is_readable;
-    let w_ok = (mode & W_OK == 0) || perm.is_writable;
-    let x_ok = (mode & X_OK == 0) || perm.is_executable;
+    let r_ok = !mode.contains(&crate::os::AccessFlag::R) || perm.is_readable;
+    let w_ok = !mode.contains(&crate::os::AccessFlag::W) || perm.is_writable;
+    let x_ok = !mode.contains(&crate::os::AccessFlag::X) || perm.is_executable;
 
     Ok(r_ok && w_ok && x_ok)
 }

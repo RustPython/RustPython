@@ -1,9 +1,30 @@
 use crate::bytecode;
 
-pub(crate) const PY_SINGLE_INPUT: i32 = 256;
-pub(crate) const PY_FILE_INPUT: i32 = 257;
-pub(crate) const PY_EVAL_INPUT: i32 = 258;
-pub(crate) const PY_FUNC_TYPE_INPUT: i32 = 345;
+/// `Py_single_input` / `Py_file_input` / `Py_eval_input` / `Py_func_type_input`.
+#[repr(i32)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CompileStart {
+    Single = 256,
+    File = 257,
+    Eval = 258,
+    FuncType = 345,
+}
+
+impl CompileStart {
+    pub(crate) const fn from_i32(v: i32) -> Option<Self> {
+        match v {
+            256 => Some(Self::Single),
+            257 => Some(Self::File),
+            258 => Some(Self::Eval),
+            345 => Some(Self::FuncType),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn as_i32(self) -> i32 {
+        self as i32
+    }
+}
 
 bitflags::bitflags! {
     /// `PyCF_*` compiler flags together with the `__future__` `CO_FUTURE_*`

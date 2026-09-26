@@ -21,12 +21,24 @@ impl PyPayload for PyFilter {
     }
 }
 
+#[derive(FromArgs)]
+pub struct FilterArgs {
+    #[pyarg(positional)]
+    function: PyObjectRef,
+    #[pyarg(positional)]
+    iterable: PyIter,
+}
+
 impl Constructor for PyFilter {
-    type Args = (PyObjectRef, PyIter);
+    type Args = FilterArgs;
+    const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
 
     fn py_new(
         _cls: &Py<PyType>,
-        (function, iterator): Self::Args,
+        Self::Args {
+            function,
+            iterable: iterator,
+        }: Self::Args,
         _vm: &VirtualMachine,
     ) -> PyResult<Self> {
         Ok(Self {
@@ -37,7 +49,7 @@ impl Constructor for PyFilter {
 }
 
 #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
-impl PyFilter {
+impl Py<PyFilter> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, (PyObjectRef, PyIter)) {
         (

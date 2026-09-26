@@ -4,7 +4,7 @@ use crate::common::{
     hash::{self, PyHash},
 };
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     types::{
@@ -67,7 +67,7 @@ impl Initializer for PyWeak {
     type Args = WeakNewArgs;
 
     // weakref_tp_init: accepts args but does nothing (all init done in slot_new)
-    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+    fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
         Ok(())
     }
 }
@@ -92,10 +92,10 @@ impl PyWeak {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 

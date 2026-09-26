@@ -425,15 +425,40 @@ impl<T> IndexMut<oparg::VarNum> for [T] {
     }
 }
 
-/// Per-slot kind flags for localsplus (co_localspluskinds).
-pub const CO_FAST_ARG_POS: u8 = 0x02;
-pub const CO_FAST_ARG_KW: u8 = 0x04;
-pub const CO_FAST_ARG_VAR: u8 = 0x08;
-pub const CO_FAST_ARG: u8 = CO_FAST_ARG_POS | CO_FAST_ARG_KW | CO_FAST_ARG_VAR;
-pub const CO_FAST_HIDDEN: u8 = 0x10;
-pub const CO_FAST_LOCAL: u8 = 0x20;
-pub const CO_FAST_CELL: u8 = 0x40;
-pub const CO_FAST_FREE: u8 = 0x80;
+bitflagset::bitflag! {
+    /// Per-slot kind flags for localsplus (`co_localspluskinds`).
+    /// Values are bit *positions* (`Local` is bit 5 → mask `0x20`).
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    #[repr(u8)]
+    pub enum CoFastFlag {
+        ArgPos = 1,
+        ArgKw = 2,
+        ArgVar = 3,
+        Hidden = 4,
+        Local = 5,
+        Cell = 6,
+        Free = 7,
+    }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct CoFastFlags(u8): CoFastFlag
+}
+
+impl CoFastFlags {
+    pub const ARG: Self =
+        Self::from_slice(&[CoFastFlag::ArgPos, CoFastFlag::ArgKw, CoFastFlag::ArgVar]);
+}
+
+pub const CO_FAST_ARG_POS: u8 = CoFastFlags::from_element(CoFastFlag::ArgPos).bits();
+pub const CO_FAST_ARG_KW: u8 = CoFastFlags::from_element(CoFastFlag::ArgKw).bits();
+pub const CO_FAST_ARG_VAR: u8 = CoFastFlags::from_element(CoFastFlag::ArgVar).bits();
+pub const CO_FAST_ARG: u8 = CoFastFlags::ARG.bits();
+pub const CO_FAST_HIDDEN: u8 = CoFastFlags::from_element(CoFastFlag::Hidden).bits();
+pub const CO_FAST_LOCAL: u8 = CoFastFlags::from_element(CoFastFlag::Local).bits();
+pub const CO_FAST_CELL: u8 = CoFastFlags::from_element(CoFastFlag::Cell).bits();
+pub const CO_FAST_FREE: u8 = CoFastFlags::from_element(CoFastFlag::Free).bits();
 
 /// Primary container of a single code object. Each python function has
 /// a code object. Also a module has a code object.

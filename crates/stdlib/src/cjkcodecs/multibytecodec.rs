@@ -12,7 +12,7 @@ mod _multibytecodec {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyStr, PyStrRef, PyTuple, PyType},
         class::PyClassImpl,
-        function::{ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PySetterValue},
+        function::{ArgBytesLike, FuncArgs, OptionalArg, PySetterValue},
         protocol::PySequence,
         types::{Constructor, Initializer},
     };
@@ -561,7 +561,7 @@ mod _multibytecodec {
             let CodecEncodeArgs { input, errors } = args;
             let input = to_text(input, vm)?;
             let chars = input.char_len();
-            let errors = ErrorHandler::new(errors.flatten());
+            let errors = ErrorHandler::new(errors);
             let mut state = cjk::initial_state(self.codec.codec, false);
             let (out, _) = encode(self.codec, &mut state, input, &errors, true, true, vm)?;
             Ok(vm.new_tuple((vm.ctx.new_bytes(out), chars)).into())
@@ -575,7 +575,7 @@ mod _multibytecodec {
             if len == 0 {
                 return Ok(vm.new_tuple((vm.ctx.new_str(""), 0)).into());
             }
-            let errors = ErrorHandler::new(errors.flatten());
+            let errors = ErrorHandler::new(errors);
             let mut state = cjk::initial_state(self.codec.codec, true);
             let mut buf = DecodeBuffer {
                 data,
@@ -663,7 +663,7 @@ mod _multibytecodec {
         #[pyarg(any)]
         input: PyObjectRef,
         #[pyarg(any, optional)]
-        errors: OptionalOption<PyStrRef>,
+        errors: Option<PyStrRef>,
     }
 
     #[derive(FromArgs)]
@@ -671,32 +671,31 @@ mod _multibytecodec {
         #[pyarg(any)]
         input: ArgBytesLike,
         #[pyarg(any, optional)]
-        errors: OptionalOption<PyStrRef>,
+        errors: Option<PyStrRef>,
     }
 
     #[derive(FromArgs)]
     struct IncrementalEncodeArgs {
         #[pyarg(any)]
         input: PyObjectRef,
-        #[pyarg(any, optional, name = "final")]
-        final_input: OptionalArg<PyObjectRef>,
+        // Any object is accepted by truthiness.
+        #[pyarg(any, name = "final", default = false)]
+        final_input: PyObjectRef,
     }
 
     #[derive(FromArgs)]
     struct IncrementalDecodeArgs {
         #[pyarg(any)]
         input: ArgBytesLike,
-        #[pyarg(any, optional, name = "final")]
-        final_input: OptionalArg<PyObjectRef>,
+        // Any object is accepted by truthiness.
+        #[pyarg(any, name = "final", default = false)]
+        final_input: PyObjectRef,
     }
 
     /// The `bool(accept={int})` conversion the `final` arguments share, which
     /// takes any object and can run `__bool__`.
-    fn final_arg(final_input: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<bool> {
-        match final_input {
-            OptionalArg::Present(obj) => obj.try_to_bool(vm),
-            OptionalArg::Missing => Ok(false),
-        }
+    fn final_arg(final_input: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        final_input.try_to_bool(vm)
     }
 
     #[pyattr]
@@ -726,7 +725,7 @@ mod _multibytecodec {
     impl Initializer for MultibyteIncrementalEncoder {
         type Args = FuncArgs;
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
     }
@@ -857,7 +856,7 @@ mod _multibytecodec {
     impl Initializer for MultibyteIncrementalDecoder {
         type Args = FuncArgs;
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
     }
@@ -1000,7 +999,7 @@ mod _multibytecodec {
     impl Initializer for MultibyteStreamReader {
         type Args = FuncArgs;
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
     }
@@ -1103,24 +1102,20 @@ mod _multibytecodec {
         }
 
         #[pymethod]
-        fn read(&self, size: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let size = size_hint(size, vm)?;
+        fn read(&self, args: StreamReadArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let size = size_hint(args.sizeobj, vm)?;
             Ok(vm.ctx.new_str(self.iread("read", size, vm)?))
         }
 
         #[pymethod]
-        fn readline(
-            &self,
-            size: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyStrRef> {
-            let size = size_hint(size, vm)?;
+        fn readline(&self, args: StreamReadArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let size = size_hint(args.sizeobj, vm)?;
             Ok(vm.ctx.new_str(self.iread("readline", size, vm)?))
         }
 
         #[pymethod]
-        fn readlines(&self, size: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-            let size = size_hint(size, vm)?;
+        fn readlines(&self, args: StreamReadLinesArgs, vm: &VirtualMachine) -> PyResult {
+            let size = size_hint(args.sizehintobj, vm)?;
             let text = vm.ctx.new_str(self.iread("read", size, vm)?);
             vm.call_method(text.as_object(), "splitlines", (true,))
         }
@@ -1164,7 +1159,7 @@ mod _multibytecodec {
     impl Initializer for MultibyteStreamWriter {
         type Args = FuncArgs;
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
     }
@@ -1209,8 +1204,8 @@ mod _multibytecodec {
         }
 
         #[pymethod]
-        fn write(&self, text: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self.iwrite(text, vm)
+        fn write(&self, strobj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            self.iwrite(strobj, vm)
         }
 
         #[pymethod]
@@ -1269,8 +1264,20 @@ mod _multibytecodec {
     }
 
     /// The `sizeobj` conversion the stream reader's methods share.
-    fn size_hint(size: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<isize> {
-        let Some(size) = size.into_option() else {
+    #[derive(FromArgs)]
+    struct StreamReadArgs {
+        #[pyarg(positional, optional)]
+        sizeobj: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct StreamReadLinesArgs {
+        #[pyarg(positional, optional)]
+        sizehintobj: Option<PyObjectRef>,
+    }
+
+    fn size_hint(size: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<isize> {
+        let Some(size) = size else {
             return Ok(-1);
         };
         if vm.is_none(&size) {

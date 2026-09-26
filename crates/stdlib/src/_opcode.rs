@@ -89,43 +89,49 @@ mod _opcode {
         Ok(effect)
     }
 
+    #[derive(FromArgs)]
+    struct OpcodeArg {
+        #[pyarg(any)]
+        opcode: i32,
+    }
+
     #[pyfunction]
-    fn is_valid(opcode: i32) -> bool {
+    fn is_valid(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok()
     }
 
     #[pyfunction]
-    fn has_arg(opcode: i32) -> bool {
+    fn has_arg(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_arg())
     }
 
     #[pyfunction]
-    fn has_const(opcode: i32) -> bool {
+    fn has_const(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_const())
     }
 
     #[pyfunction]
-    fn has_name(opcode: i32) -> bool {
+    fn has_name(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_name())
     }
 
     #[pyfunction]
-    fn has_jump(opcode: i32) -> bool {
+    fn has_jump(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_jump())
     }
 
     #[pyfunction]
-    fn has_free(opcode: i32) -> bool {
+    fn has_free(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_free())
     }
 
     #[pyfunction]
-    fn has_local(opcode: i32) -> bool {
+    fn has_local(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_local())
     }
 
     #[pyfunction]
-    fn has_exc(opcode: i32) -> bool {
+    fn has_exc(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.is_block_push())
     }
 
@@ -164,8 +170,17 @@ mod _opcode {
             .collect()
     }
 
+    #[derive(FromArgs)]
+    #[allow(dead_code)]
+    struct ExecutorArgs {
+        #[pyarg(any)]
+        code: PyObjectRef,
+        #[pyarg(any)]
+        offset: i32,
+    }
+
     #[pyfunction]
-    fn get_executor(_code: PyObjectRef, _offset: i32, vm: &VirtualMachine) -> PyObjectRef {
+    fn get_executor(_args: ExecutorArgs, vm: &VirtualMachine) -> PyObjectRef {
         // TODO
         vm.ctx.none()
     }

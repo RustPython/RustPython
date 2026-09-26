@@ -41,12 +41,14 @@ ruff_python_ast = { workspace = true, optional = true }
 ruff_python_parser = { workspace = true }
 ruff_text_size = { workspace = true, optional = true }
 rustpython-compiler-core = { workspace = true }
+rustpython-doc = { workspace = true }
 rustpython-literal = { workspace = true }
 rustpython-sre_engine = { workspace = true }
 rustpython-unicode = { workspace = true }
 
 ascii = { workspace = true }
 bitflags = { workspace = true }
+bitflagset = { workspace = true }
 bstr = { workspace = true }
 crossbeam-utils = { workspace = true }
 constant_time_eq = { workspace = true }
@@ -90,7 +92,6 @@ wasm-bindgen = { workspace = true, optional = true }
 
 [build-dependencies]
 glob = { workspace = true }
-itertools = { workspace = true }
 jiff = { workspace = true }
 
 [lints]

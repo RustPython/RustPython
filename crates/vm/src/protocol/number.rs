@@ -661,12 +661,12 @@ impl PyNumber<'_> {
     // PyIndex_Check
     #[must_use]
     pub fn is_index(self) -> bool {
-        self.class().slots.as_number.index.load().is_some()
+        self.class().slots().as_number.index.load().is_some()
     }
 
     #[inline]
     pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.class().slots.as_number.int.load().map(|f| {
+        self.class().slots().as_number.int.load().map(|f| {
             let ret = f(self, vm)?;
 
             if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
@@ -695,7 +695,7 @@ and may be removed in a future version of Python.",
 
     #[inline]
     pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.class().slots.as_number.index.load().map(|f| {
+        self.class().slots().as_number.index.load().map(|f| {
             let ret = f(self, vm)?;
 
             if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
@@ -724,7 +724,7 @@ and may be removed in a future version of Python.",
 
     #[inline]
     pub fn float(self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
-        self.class().slots.as_number.float.load().map(|f| {
+        self.class().slots().as_number.float.load().map(|f| {
             let ret = f(self, vm)?;
 
             if let Some(ret) = ret.downcast_ref_if_exact::<PyFloat>(vm) {
@@ -756,7 +756,7 @@ and may be removed in a future version of Python.",
     // PyNumber_Check - slots are now inherited
     #[must_use]
     pub fn check(obj: &PyObject) -> bool {
-        let methods = &obj.class().slots.as_number;
+        let methods = &obj.class().slots().as_number;
         let has_number = methods.int.load().is_some()
             || methods.index.load().is_some()
             || methods.float.load().is_some();

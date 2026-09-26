@@ -137,7 +137,7 @@ pub(super) fn invalid_constant_type(expr: &ast::Expr) -> Option<Box<str>> {
 
 pub(super) fn runtime_string_from_pyobject(
     vm: &VirtualMachine,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> (Option<Box<str>>, Option<Vec<u8>>) {
     runtime_string_from_object(vm, object)
 }
@@ -315,7 +315,7 @@ pub(super) fn constant_object_to_constant_data(
 
 fn runtime_string_from_object(
     vm: &VirtualMachine,
-    object: PyObjectRef,
+    object: &PyObject,
 ) -> (Option<Box<str>>, Option<Vec<u8>>) {
     if object.class().is(vm.ctx.types.str_type) {
         (
@@ -351,20 +351,23 @@ fn runtime_string_to_object(
     }
 }
 
-fn first_invalid_constant_type(vm: &VirtualMachine, value_object: PyObjectRef) -> PyResult<String> {
+fn first_invalid_constant_type(vm: &VirtualMachine, value_object: &PyObject) -> PyResult<String> {
     let cls = value_object.class();
     let class_name = cls.name().to_owned();
     if cls.is(vm.ctx.types.tuple_type) {
         vm.with_recursion(" during compilation", || {
-            let tuple = value_object.clone().downcast::<PyTuple>().map_err(|obj| {
-                vm.new_type_error(format!(
-                    "Expected type {}, not {}",
-                    PyTuple::static_type().name(),
-                    obj.class().name()
-                ))
-            })?;
+            let tuple = value_object
+                .to_owned()
+                .downcast::<PyTuple>()
+                .map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "Expected type {}, not {}",
+                        PyTuple::static_type().name(),
+                        obj.class().name()
+                    ))
+                })?;
             for item in tuple.iter() {
-                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item.clone())? {
+                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item)? {
                     return Ok(invalid_type);
                 }
             }
@@ -372,9 +375,9 @@ fn first_invalid_constant_type(vm: &VirtualMachine, value_object: PyObjectRef) -
         })
     } else if cls.is(vm.ctx.types.frozenset_type) {
         vm.with_recursion(" during compilation", || {
-            let set = value_object.clone().downcast::<PyFrozenSet>().unwrap();
+            let set = value_object.to_owned().downcast::<PyFrozenSet>().unwrap();
             for item in set.elements() {
-                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item)? {
+                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, &item)? {
                     return Ok(invalid_type);
                 }
             }
@@ -387,7 +390,7 @@ fn first_invalid_constant_type(vm: &VirtualMachine, value_object: PyObjectRef) -
 
 fn first_invalid_constant_type_opt(
     vm: &VirtualMachine,
-    value_object: PyObjectRef,
+    value_object: &PyObject,
 ) -> PyResult<Option<String>> {
     let cls = value_object.class();
     if cls.is(vm.ctx.types.none_type)
@@ -440,19 +443,19 @@ fn constant_data_to_object(vm: &VirtualMachine, constant: ConstantData) -> PyObj
 pub(super) fn constant_from_object_with_range(
     vm: &VirtualMachine,
     source_file: &SourceFile,
-    object: PyObjectRef,
+    object: &PyObject,
     range: TextRange,
 ) -> PyResult<Constant> {
-    let value_object = get_node_field(vm, &object, "value", "Constant")?;
+    let value_object = get_node_field(vm, object, "value", "Constant")?;
     let (value, invalid_type) =
         match ConstantLiteral::ast_from_object(vm, source_file, value_object.clone()) {
             Ok(value) => (value, None),
             Err(_) => (
                 ConstantLiteral::None,
-                Some(first_invalid_constant_type(vm, value_object)?),
+                Some(first_invalid_constant_type(vm, &value_object)?),
             ),
         };
-    let kind = get_node_field_opt(vm, &object, "kind")?
+    let kind = get_node_field_opt(vm, object, "kind")?
         .map(|object| {
             if !object.class().is(vm.ctx.types.str_type) {
                 return Err(vm.new_type_error("AST string must be of type str"));
@@ -496,8 +499,8 @@ impl Node for Constant {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Constant")?;
-        constant_from_object_with_range(vm, source_file, object, range)
+        let range = range_from_object(vm, source_file, &object, "Constant")?;
+        constant_from_object_with_range(vm, source_file, &object, range)
     }
 }
 

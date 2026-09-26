@@ -1,13 +1,12 @@
 use super::Diagnostic;
 use crate::util::{
     ALL_ALLOWED_NAMES, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta,
-    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, infer_native_call_flags,
-    pyclass_ident_and_attrs, pyexception_ident_and_attrs, text_signature,
+    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, infer_native_call_flags,
+    internal_doc_tokens, pyclass_ident_and_attrs, pyexception_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
-use rustpython_doc::DB;
 use std::collections::{HashMap, HashSet};
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
@@ -71,6 +70,9 @@ struct ImplContext {
     extend_slots_items: ItemNursery,
     class_extensions: Vec<TokenStream>,
     errors: Vec<syn::Error>,
+    /// Set when the impl has no generic parameters, so `Self` in argument
+    /// types can be replaced before it appears in a nested const.
+    self_ty_subst: Option<syn::Type>,
 }
 
 fn extract_items_into_context<'a, Item>(
@@ -104,9 +106,15 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
     let mut context = ImplContext::default();
     let mut tokens = match item {
         Item::Impl(mut imp) => {
+            if imp.generics.params.is_empty() {
+                context.self_ty_subst = Some((*imp.self_ty).clone());
+                context.getset_items.class_ty = context.self_ty_subst.clone();
+                context.member_items.class_ty = context.self_ty_subst.clone();
+            }
             extract_items_into_context(&mut context, imp.items.iter_mut());
 
-            let (impl_ty, payload_guess) = match imp.self_ty.as_ref() {
+            let attr_nonempty = !attr.is_empty();
+            let (impl_ty, payload_guess, wrapped) = match imp.self_ty.as_ref() {
                 syn::Type::Path(syn::TypePath {
                     path: syn::Path { segments, .. },
                     ..
@@ -149,7 +157,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         }
                         segment.ident.clone()
                     };
-                    (segment.ident.clone(), payload_ty)
+                    let wrapped = segment.ident == "Py" || segment.ident == "PyRef";
+                    (segment.ident.clone(), payload_ty, wrapped)
                 }
                 _ => {
                     return Err(syn::Error::new_spanned(
@@ -166,10 +175,11 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 with_method_defs,
                 with_slots,
                 itemsize,
+                sig_initializer,
+                sig_constructor,
+                sig_structseq,
             } = extract_impl_attrs(attr, &impl_ty)?;
             let payload_ty = attr_payload.unwrap_or(payload_guess);
-            context.getset_items.type_name = Some(payload_ty.to_string());
-            context.member_items.type_name = Some(payload_ty.to_string());
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
             let member_impl = &context.member_items;
@@ -207,27 +217,43 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 },
             ];
             imp.items.extend(extra_methods);
-            let is_main_impl = impl_ty == payload_ty;
+            // `#[pyclass(...)] impl Py<T>` with attributes is the class impl.
+            // A bare `#[pyclass] impl Py<T>` stays a method extension pulled in
+            // by `with(Py)` on the payload impl.
+            let is_main_impl = !wrapped || attr_nonempty;
+            let holder = if wrapped {
+                quote!(#impl_ty::<#payload_ty>)
+            } else {
+                quote!(#impl_ty)
+            };
             if is_main_impl {
                 let method_defs = if with_method_defs.is_empty() {
-                    quote!(#impl_ty::__OWN_METHOD_DEFS)
+                    quote!(#holder::__OWN_METHOD_DEFS)
                 } else {
                     quote!(
                         rustpython_vm::function::PyMethodDef::__const_concat_arrays::<
-                            { #impl_ty::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
-                        >(&[#impl_ty::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
+                            { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
+                        >(&[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
                     )
                 };
+                let internal_doc = class_internal_doc(
+                    &payload_ty,
+                    sig_initializer,
+                    sig_constructor,
+                    sig_structseq,
+                );
                 quote! {
                     #imp
                     impl ::rustpython_vm::class::PyClassImpl for #payload_ty {
                         const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = #flags;
 
+                        const INTERNAL_DOC: Option<&'static str> = #internal_doc;
+
                         fn impl_extend_class(
                             ctx: &'static ::rustpython_vm::Context,
                             class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                         ) {
-                            #impl_ty::__extend_py_class(ctx, class);
+                            #holder::__extend_py_class(ctx, class);
                             #with_impl
                         }
 
@@ -235,7 +261,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
 
                         fn extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
                             #with_slots
-                            #impl_ty::__extend_slots(slots);
+                            #holder::__extend_slots(slots);
                         }
                     }
                 }
@@ -267,8 +293,6 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 ..
             } = extract_impl_attrs(attr, &trai.ident)?;
 
-            context.getset_items.type_name = Some(trai.ident.to_string());
-            context.member_items.type_name = Some(trai.ident.to_string());
             let method_def = &context.method_items;
             let getset_impl = &context.getset_items;
             let member_impl = &context.member_items;
@@ -396,6 +420,54 @@ fn ensure_repr_c(mut item: Item) -> Item {
 }
 
 /// Check if a type matches a given path (handles simple cases like `Foo` or `path::to::Foo`)
+fn class_def_ty(self_ty: Option<&syn::Type>) -> Option<TokenStream> {
+    let ty = self_ty?;
+    if let syn::Type::Path(type_path) = ty
+        && let Some(segment) = type_path.path.segments.last()
+        && (segment.ident == "Py" || segment.ident == "PyRef")
+        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+        && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+    {
+        return Some(quote!(#inner));
+    }
+    Some(quote!(#ty))
+}
+
+/// Const `Option<&'static str>`: table entry, else the Rust doc.
+/// Generic impls cannot name `Self` from a nested const, so they keep the Rust doc.
+fn attr_doc_expr(self_ty: Option<&syn::Type>, attr: &str, rust_doc: Option<String>) -> TokenStream {
+    let fallback = match rust_doc {
+        Some(doc) => quote!(Some(#doc)),
+        None => quote!(None),
+    };
+    let Some(ty) = class_def_ty(self_ty) else {
+        return fallback;
+    };
+    quote! {
+        {
+            const MODULE: &str = match <#ty as ::rustpython_vm::class::PyClassDef>::MODULE_NAME {
+                Some(module) => module,
+                None => "builtins",
+            };
+            const CLASS: &str = <#ty as ::rustpython_vm::class::PyClassDef>::NAME;
+            const EXACT: Option<&str> = ::rustpython_vm::__exports::rustpython_doc::get_attr(MODULE, CLASS, #attr);
+            const QUALIFIED: Option<&str> = ::rustpython_vm::__exports::rustpython_doc::class_attr_doc(
+                <#ty as ::rustpython_vm::class::PyClassDef>::MODULE_NAME,
+                CLASS,
+                #attr,
+            );
+            const RUST_DOC: Option<&str> = #fallback;
+            if let Some(doc) = EXACT {
+                if doc.is_empty() { QUALIFIED } else { Some(doc) }
+            } else if QUALIFIED.is_some() {
+                QUALIFIED
+            } else {
+                RUST_DOC
+            }
+        }
+    }
+}
+
 fn type_matches_path(ty: &syn::Type, path: &syn::Path) -> bool {
     // Compare by converting both to string representation for macro hygiene
     let ty_str = quote!(#ty).to_string().replace(' ', "");
@@ -419,21 +491,6 @@ fn type_matches_path(ty: &syn::Type, path: &syn::Path) -> bool {
     type_last.ident == path_last.ident
 }
 
-fn cpython_attr_doc(rust_type: &str, attr: &str) -> Option<String> {
-    let stripped = rust_type.strip_prefix("Py").unwrap_or(rust_type);
-    let lower = stripped.to_ascii_lowercase();
-    let underscored = format!("_{stripped}");
-    let class_names = [rust_type, stripped, lower.as_str(), underscored.as_str()];
-    for (key, doc) in &DB {
-        if class_names.iter().any(|class| {
-            *key == format!("{class}.{attr}") || key.ends_with(&format!(".{class}.{attr}"))
-        }) {
-            return Some((*doc).to_owned());
-        }
-    }
-    None
-}
-
 fn generate_class_def(
     ident: &Ident,
     name: &str,
@@ -443,12 +500,11 @@ fn generate_class_def(
     unhashable: bool,
     attrs: &[Attribute],
 ) -> Result<TokenStream> {
-    let doc = attrs.doc().or_else(|| {
-        let module_name = module_name.unwrap_or("builtins");
-        DB.get(&format!("{module_name}.{name}"))
-            .copied()
-            .map(str::to_owned)
-    });
+    let module_key = module_name.unwrap_or("builtins");
+    let doc = rustpython_doc::get_qualified(module_key, name, None, true)
+        .filter(|doc| !doc.is_empty())
+        .map(str::to_owned)
+        .or_else(|| attrs.doc());
     let doc = if let Some(doc) = doc {
         quote!(Some(#doc))
     } else {
@@ -748,7 +804,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
 
                 #[inline]
                 unsafe fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
-                    <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots.basicsize && obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
+                    <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().payload().slots.basicsize && obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
                 }
 
                 fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
@@ -1123,7 +1179,6 @@ where
             }
         };
         let drop_first_typed = usize::from(implicit_self.is_some());
-        let sig_doc = text_signature(func.sig(), &py_name, implicit_self);
         let call_flags = infer_native_call_flags(func.sig(), drop_first_typed);
 
         // Add #[allow(non_snake_case)] for setter methods like set___name__
@@ -1133,11 +1188,18 @@ where
             args.attrs.push(allow_attr);
         }
 
-        let doc = match (sig_doc, args.attrs.doc()) {
-            (Some(sig_doc), Some(doc)) => Some(format_doc(&sig_doc, &doc)),
-            (Some(sig_doc), None) => Some(format_doc(&sig_doc, "")),
-            (None, doc) => doc,
-        };
+        let doc = internal_doc_tokens(
+            func.sig(),
+            &py_name,
+            implicit_self,
+            attr_doc_expr(
+                args.context.self_ty_subst.as_ref(),
+                &py_name,
+                args.attrs.doc(),
+            ),
+            args.context.self_ty_subst.as_ref(),
+            None,
+        );
         args.context.method_items.add_item(MethodNurseryItem {
             py_name,
             cfgs: args.cfgs.to_vec(),
@@ -1373,7 +1435,7 @@ struct MethodNurseryItem {
     ident: Ident,
     raw: bool,
     coexist: bool,
-    doc: Option<String>,
+    doc: TokenStream,
     attr_name: AttrName,
     call_flags: TokenStream,
 }
@@ -1401,11 +1463,7 @@ impl ToTokens for MethodNursery {
             let py_name = &item.py_name;
             let ident = &item.ident;
             let cfgs = &item.cfgs;
-            let doc = if let Some(doc) = item.doc.as_ref() {
-                quote! { Some(#doc) }
-            } else {
-                quote! { None }
-            };
+            let doc = &item.doc;
             let binding_flags = match &item.attr_name {
                 AttrName::Method => {
                     quote! { rustpython_vm::function::PyMethodFlags::METHOD }
@@ -1467,7 +1525,7 @@ struct GetSetEntry {
 struct GetSetNursery {
     map: HashMap<(String, Vec<Attribute>), GetSetEntry>,
     validated: bool,
-    type_name: Option<String>,
+    class_ty: Option<syn::Type>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1541,42 +1599,42 @@ impl ToTokens for GetSetNursery {
                 Some(setter) => quote_spanned! { setter.span() => .with_set(Self::#setter)},
                 None => quote! {},
             };
-            let doc = entry.doc.clone().or_else(|| {
-                self.type_name
-                    .as_deref()
-                    .and_then(|ty| cpython_attr_doc(ty, name))
-            });
-            let doc = match &doc {
-                Some(doc) => quote! { .with_doc(#doc) },
-                None => quote! {},
-            };
+            let doc = attr_doc_expr(self.class_ty.as_ref(), name, entry.doc.clone());
             quote_spanned! { getter.span() =>
                 #( #cfgs )*
-                class.set_str_attr(
-                    #name,
-                    ::rustpython_vm::PyRef::new_ref(
-                        ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class)
-                            .with_get(Self::#getter)
-                            #setter
-                            #doc,
-                            ctx.types.getset_type.to_owned(), None),
-                    ctx
-                );
+                {
+                    const DOC: Option<&str> = #doc;
+                    let mut getset = ::rustpython_vm::builtins::PyGetSet::new(#name.into(), class)
+                        .with_get(Self::#getter)
+                        #setter;
+                    if let Some(doc) = DOC {
+                        getset = getset.with_doc(doc);
+                    }
+                    class.set_str_attr(
+                        #name,
+                        ::rustpython_vm::PyRef::new_ref(
+                            getset,
+                            ctx.types.getset_type.to_owned(),
+                            None,
+                        ),
+                        ctx,
+                    );
+                }
             }
         });
         tokens.extend(properties);
     }
 }
 
-/// Member kind as string, matching `rustpython_vm::builtins::descriptor::MemberKind` variants.
-/// None means ObjectEx (default). Valid values: "bool", "object".
+/// Member type as string, matching `Py_T_*` codes.
+/// None means `MemberKind::ObjectEx`. Valid values: "bool", "object".
 type MemberKindStr = Option<String>;
 
 #[derive(Default)]
 struct MemberNursery {
     map: HashMap<String, MemberNurseryEntry>,
     validated: bool,
-    type_name: Option<String>,
+    class_ty: Option<syn::Type>,
 }
 
 struct MemberNurseryEntry {
@@ -1670,21 +1728,16 @@ impl ToTokens for MemberNursery {
                 }
             };
             let getter = entry.getter.as_ref().unwrap();
-            let doc = entry.doc.clone().or_else(|| {
-                self.type_name
-                    .as_deref()
-                    .and_then(|ty| cpython_attr_doc(ty, name))
-            });
-            let doc = match &doc {
-                Some(doc) => quote! { Some(#doc) },
-                None => quote! { None },
-            };
+            let doc = attr_doc_expr(self.class_ty.as_ref(), name, entry.doc.clone());
             quote_spanned! { getter.span() =>
-                class.set_str_attr(
-                    #name,
-                    ctx.new_member(#name, #member_kind, Self::#getter, #setter, class, #doc),
-                    ctx,
-                );
+                {
+                    const DOC: Option<&str> = #doc;
+                    class.set_str_attr(
+                        #name,
+                        ctx.new_member(#name, #member_kind, Self::#getter, #setter, class, DOC),
+                        ctx,
+                    );
+                }
             }
         });
         tokens.extend(properties);
@@ -1935,6 +1988,9 @@ struct ExtractedImplAttrs {
     with_method_defs: Vec<TokenStream>,
     with_slots: TokenStream,
     itemsize: Option<syn::Expr>,
+    sig_initializer: bool,
+    sig_constructor: bool,
+    sig_structseq: bool,
 }
 
 fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<ExtractedImplAttrs> {
@@ -1954,6 +2010,9 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
     }];
     let mut payload = None;
     let mut itemsize = None;
+    let mut has_initializer = false;
+    let mut has_constructor = false;
+    let mut has_structseq = false;
 
     for attr in attr {
         match attr {
@@ -1985,6 +2044,13 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                                 quote!(<Self as #path>::__extend_slots),
                             )
                         };
+                        if path.is_ident("Initializer") {
+                            has_initializer = true;
+                        } else if path.is_ident("Constructor") {
+                            has_constructor = true;
+                        } else if path.is_ident("PyStructSequence") {
+                            has_structseq = true;
+                        }
                         let item_span = item.span().resolved_at(Span::call_site());
                         withs.push(quote_spanned! { path.span() =>
                             #extend_class(ctx, class);
@@ -2062,7 +2128,71 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
             #(#with_slots)*
         },
         itemsize,
+        sig_initializer: has_initializer,
+        sig_constructor: has_constructor,
+        sig_structseq: has_structseq,
     })
+}
+
+fn class_internal_doc(
+    payload: &Ident,
+    has_initializer: bool,
+    has_constructor: bool,
+    has_structseq: bool,
+) -> TokenStream {
+    let init_params = quote!(<<#payload as ::rustpython_vm::types::Initializer>::Args as ::rustpython_vm::function::FromArgs>::PARAMS);
+    let ctor_params = quote!(<<#payload as ::rustpython_vm::types::Constructor>::Args as ::rustpython_vm::function::FromArgs>::PARAMS);
+    let chosen = match (has_initializer, has_constructor) {
+        (true, true) => quote! {
+            ::rustpython_vm::function::choose_class_params(#init_params, #ctor_params)
+        },
+        (true, false) => quote! {
+            ::rustpython_vm::function::real_signature(#init_params)
+        },
+        (false, true) => quote! {
+            ::rustpython_vm::function::real_signature(#ctor_params)
+        },
+        (false, false) => quote!(None),
+    };
+    let chosen = if has_structseq {
+        quote! {
+            match #chosen {
+                Some(params) => Some(params),
+                None => ::rustpython_vm::types::STRUCT_SEQUENCE_PARAMS,
+            }
+        }
+    } else {
+        chosen
+    };
+    quote! {
+        {
+            const CHOSEN: Option<&'static [::rustpython_vm::function::Param]> = #chosen;
+            if CHOSEN.is_none() {
+                None
+            } else {
+                const ARGS: &[::rustpython_vm::function::SigArg] = &[
+                    ::rustpython_vm::function::SigArg {
+                        name: "",
+                        params: CHOSEN,
+                    },
+                ];
+                const DOC: &str = match <#payload as ::rustpython_vm::class::PyClassDef>::DOC {
+                    Some(doc) => doc,
+                    None => "",
+                };
+                const NAME: &str = <#payload as ::rustpython_vm::class::PyClassDef>::NAME;
+                const N: usize =
+                    ::rustpython_vm::function::internal_doc_len(NAME, ARGS, DOC);
+                const B: [u8; N] =
+                    ::rustpython_vm::function::internal_doc_bytes::<N>(NAME, ARGS, DOC);
+                const S: &str = match ::core::str::from_utf8(&B) {
+                    Ok(s) => s,
+                    Err(_) => panic!(),
+                };
+                Some(S)
+            }
+        }
+    }
 }
 
 fn impl_item_new<Item>(

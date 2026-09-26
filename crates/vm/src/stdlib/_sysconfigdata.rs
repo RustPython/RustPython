@@ -69,7 +69,6 @@ mod _sysconfigdata {
             "BASECFLAGS" => "",
             "BLDSHARED" => "cc -shared",
         }
-        include!(concat!(env!("OUT_DIR"), "/env_vars.rs"));
         vars
     }
 }

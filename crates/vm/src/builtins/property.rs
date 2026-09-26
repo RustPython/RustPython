@@ -3,14 +3,41 @@
 */
 use super::PyType;
 use crate::common::lock::PyRwLock;
-use crate::function::{IntoFuncArgs, PosArgs};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::{FuncArgs, PySetterValue},
+    function::{ArgumentError, FromArgs, FuncArgs, Param, PySetterValue},
     types::{Constructor, GetDescriptor, Initializer},
 };
 use core::sync::atomic::{AtomicBool, Ordering};
+
+struct SetNameArgs {
+    _owner: PyObjectRef,
+    name: PyObjectRef,
+}
+
+impl FromArgs for SetNameArgs {
+    const PARAMS: Option<&'static [Param]> = Some(&[
+        Param::positional_only("owner"),
+        Param::positional_only("name"),
+    ]);
+
+    fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        let [owner, name]: [PyObjectRef; 2] =
+            core::mem::take(&mut args.args)
+                .try_into()
+                .map_err(|args: Vec<PyObjectRef>| {
+                    ArgumentError::Exception(vm.new_type_error(format!(
+                        "__set_name__() takes 2 positional arguments but {} were given",
+                        args.len()
+                    )))
+                })?;
+        Ok(Self {
+            _owner: owner,
+            name,
+        })
+    }
+}
 
 #[pyclass(module = false, name = "property", traverse)]
 #[derive(Debug)]
@@ -33,34 +60,34 @@ impl PyPayload for PyProperty {
 
 #[derive(FromArgs)]
 pub struct PropertyArgs {
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     fget: Option<PyObjectRef>,
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     fset: Option<PyObjectRef>,
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     fdel: Option<PyObjectRef>,
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     doc: Option<PyObjectRef>,
 }
 
 impl GetDescriptor for PyProperty {
     fn descr_get(
-        zelf_obj: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf_obj: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(&zelf_obj, obj, vm)?;
-        if vm.is_none(&obj) {
-            return Ok(zelf_obj);
+        let (zelf, obj) = Self::_unwrap(zelf_obj, obj, vm)?;
+        if vm.is_none(obj) {
+            return Ok(zelf_obj.to_owned());
         }
 
         // Clone and release lock before calling Python code to prevent deadlock
         let value = zelf.getter.read().clone();
         if let Some(getter) = value {
-            getter.call((obj,), vm)
+            getter.call((obj.to_owned(),), vm)
         } else {
-            let error_msg = zelf.format_property_error(&obj, "getter", vm)?;
+            let error_msg = zelf.format_property_error(obj, "getter", vm)?;
             Err(vm.new_attribute_error(error_msg))
         }
     }
@@ -186,25 +213,15 @@ impl PyProperty {
     }
 
     #[pymethod]
-    fn __set_name__(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let func_args = args.into_args(vm);
-        let func_args_len = func_args.args.len();
-        let (_owner, name): (PyObjectRef, PyObjectRef) = func_args.bind(vm).map_err(|_e| {
-            vm.new_type_error(format!(
-                "__set_name__() takes 2 positional arguments but {func_args_len} were given"
-            ))
-        })?;
-
+    fn __set_name__(&self, SetNameArgs { name, .. }: SetNameArgs) {
         *self.name.write() = Some(name);
-
-        Ok(())
     }
 
     // Python builder functions
 
     // Helper method to create a new property with updated attributes
     fn clone_property_with(
-        zelf: PyRef<Self>,
+        zelf: &Py<Self>,
         new_getter: Option<PyObjectRef>,
         new_setter: Option<PyObjectRef>,
         new_deleter: Option<PyObjectRef>,
@@ -235,7 +252,7 @@ impl PyProperty {
         // Create new property using py_new and init
         let new_prop = Self::slot_new(zelf.class().to_owned(), FuncArgs::default(), vm)?;
         let new_prop_ref = new_prop.downcast::<Self>().unwrap();
-        Self::init(new_prop_ref.clone(), args, vm)?;
+        Self::init(&new_prop_ref, args, vm)?;
 
         // Copy the name if it exists
         let value = zelf.name.read().clone();
@@ -249,28 +266,28 @@ impl PyProperty {
     #[pymethod]
     fn getter(
         zelf: PyRef<Self>,
-        getter: Option<PyObjectRef>,
+        object: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(zelf, getter, None, None, vm)
+        Self::clone_property_with(&zelf, object, None, None, vm)
     }
 
     #[pymethod]
     fn setter(
         zelf: PyRef<Self>,
-        setter: Option<PyObjectRef>,
+        object: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(zelf, None, setter, None, vm)
+        Self::clone_property_with(&zelf, None, object, None, vm)
     }
 
     #[pymethod]
     fn deleter(
         zelf: PyRef<Self>,
-        deleter: Option<PyObjectRef>,
+        object: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(zelf, None, None, deleter, vm)
+        Self::clone_property_with(&zelf, None, None, object, vm)
     }
 
     #[pygetset]
@@ -364,7 +381,7 @@ impl Constructor for PyProperty {
 impl Initializer for PyProperty {
     type Args = PropertyArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Set doc and getter_doc flag
         let mut getter_doc = false;
 

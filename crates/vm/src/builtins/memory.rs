@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
-    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
+    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str, PyUtf8StrRef, iter::builtins_iter,
     locked_next,
 };
 use crate::common::lock::LazyLock;
@@ -17,7 +17,7 @@ use crate::{
     },
     convert::ToPyObject,
     function::Either,
-    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, NameExcInfo, OptionalArg, PosArgs, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PySequenceMethods, VecBuffer,
@@ -692,10 +692,10 @@ impl PyMemoryView {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 
     #[pyclassmethod]
@@ -847,7 +847,11 @@ impl PyMemoryView {
 
     // memory_exit
     #[pymethod]
-    fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn __exit__(
+        &self,
+        _exc_info: PosArgs<PyObjectRef, NameExcInfo>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.py_release(vm)
     }
 
@@ -980,13 +984,7 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn index(
-        &self,
-        value: PyObjectRef,
-        start: OptionalArg<isize>,
-        stop: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
+    fn index(&self, args: MemoryIndexArgs, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm)?;
         if self.desc.ndim() != 1 {
             return Err(
@@ -994,8 +992,7 @@ impl PyMemoryView {
             );
         }
         let len = self.desc.dim_desc[0].0;
-        let start = start.unwrap_or(0);
-        let stop = stop.unwrap_or(len as isize);
+        let MemoryIndexArgs { value, start, stop } = args;
 
         let start = if start < 0 {
             (start + len as isize).max(0) as usize
@@ -1017,7 +1014,7 @@ impl PyMemoryView {
         Err(vm.new_value_error("memoryview.index(x): x not in memoryview"))
     }
 
-    fn cast_to_1d(&self, format: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Self> {
+    fn cast_to_1d(&self, format: &Py<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<Self> {
         let format_str = format.as_str();
         let Some(dest_char) = Self::native_fmtchar(format_str) else {
             return Err(vm.new_value_error(
@@ -1097,7 +1094,7 @@ impl PyMemoryView {
                 return Err(vm.new_type_error("memoryview: cast must be 1D -> ND or ND -> 1D"));
             }
 
-            let mut other = self.cast_to_1d(format, vm)?;
+            let mut other = self.cast_to_1d(&format, vm)?;
             let itemsize = other.desc.itemsize;
 
             // 0 ndim is single item, so the buffer has to be that one item
@@ -1151,7 +1148,7 @@ impl PyMemoryView {
 
             Ok(other.into_ref(&vm.ctx))
         } else {
-            Ok(self.cast_to_1d(format, vm)?.into_ref(&vm.ctx))
+            Ok(self.cast_to_1d(&format, vm)?.into_ref(&vm.ctx))
         }
     }
 }
@@ -1198,8 +1195,20 @@ impl Py<PyMemoryView> {
 }
 
 #[derive(FromArgs)]
+struct MemoryIndexArgs {
+    #[pyarg(positional)]
+    value: PyObjectRef,
+    #[pyarg(positional, default = 0)]
+    start: isize,
+    // Omission is clamped to the view length.
+    #[pyarg(positional, default = isize::MAX)]
+    stop: isize,
+}
+
+#[derive(FromArgs)]
 struct ToBytesArgs {
-    #[pyarg(any, default)]
+    // Missing means C order.
+    #[pyarg(any, default, py_default = "'C'")]
     order: Option<PyStrRef>,
 }
 
@@ -1474,7 +1483,12 @@ static BUFFER_WRAPPER_METHODS: BufferMethods = BufferMethods {
         // A native release runs when the memoryview itself is torn down; only a
         // Python-level hook on a foreign exporter has to be called here.
         if !mv.buffer.obj.is(&wrapper.exporter)
-            && wrapper.exporter.class().slots.python_release_buffer.load()
+            && wrapper
+                .exporter
+                .class()
+                .slots()
+                .python_release_buffer
+                .load()
         {
             call_python_release_buffer(&wrapper.exporter, mv.clone());
         }
@@ -1562,7 +1576,7 @@ pub(crate) fn buffer_from_python_getbuffer(
 // wrap_releasebuffer
 pub(crate) fn release_buffer_from_python(
     obj: &PyObject,
-    mv: PyRef<PyMemoryView>,
+    mv: &Py<PyMemoryView>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let view_obj = &mv.buffer.obj;

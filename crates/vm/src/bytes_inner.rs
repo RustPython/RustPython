@@ -1,6 +1,6 @@
 // spell-checker:ignore unchunked
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
@@ -10,7 +10,7 @@ use crate::{
     cformat::cformat_bytes,
     common::hash,
     common::wtf8::is_py_ascii_whitespace,
-    function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{ArgIterable, Either, OptionalArg, PyComparisonValue},
     literal::escape::Escape,
     protocol::{BufferFlags, PyBuffer},
     sequence::{SequenceExt, SequenceMutExt},
@@ -64,19 +64,19 @@ impl ByteInnerNewOptions {
         errors: OptionalArg<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
-        let bytes = pystr::encode_string(s, Some(encoding), errors.into_option(), vm)?;
+        let bytes = pystr::encode_string(s, Some(&encoding), errors.into_option(), vm)?;
         Ok(bytes.as_bytes().to_vec().into())
     }
 
     fn get_value_from_source(
-        source: PyObjectRef,
+        source: &PyObject,
         from_object: FromObject,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
-        from_object(vm, &source).map(|x| x.into())
+        from_object(vm, source).map(|x| x.into())
     }
 
-    fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    fn get_value_from_size(size: &Py<PyInt>, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         let size = size
             .as_bigint()
             .to_isize()
@@ -96,11 +96,11 @@ impl ByteInnerNewOptions {
     ) -> PyResult<PyBytesInner> {
         match_class!(match obj {
             i @ PyInt => {
-                Self::get_value_from_size(i, vm)
+                Self::get_value_from_size(&i, vm)
             }
             _s @ PyStr => Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned())),
             obj => {
-                Self::get_value_from_source(obj, from_object, vm)
+                Self::get_value_from_source(&obj, from_object, vm)
             }
         })
     }
@@ -114,7 +114,7 @@ impl ByteInnerNewOptions {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
                 if let Some(index_result) = obj.try_index_opt(vm) {
                     match index_result {
-                        Ok(index) => Self::get_value_from_size(index, vm),
+                        Ok(index) => Self::get_value_from_size(&index, vm),
                         Err(e) => {
                             // Only propagate non-TypeError exceptions
                             // TypeError means the object doesn't support __index__, so fall back
@@ -211,7 +211,7 @@ impl ByteInnerFindOptions {
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, core::ops::Range<usize>)> {
         let sub = self.sub.into_vec(vm)?;
-        let range = anystr::adjust_indices(self.start, self.end, len);
+        let range = anystr::adjust_indices(self.start.as_deref(), self.end.as_deref(), len);
         Ok((sub, range))
     }
 }
@@ -220,13 +220,14 @@ impl ByteInnerFindOptions {
 pub struct ByteInnerPaddingOptions {
     #[pyarg(positional)]
     width: isize,
-    #[pyarg(positional, optional)]
-    fillchar: OptionalArg<PyObjectRef>,
+    #[pyarg(positional, default = b" ")]
+    fillchar: PyObjectRef,
 }
 
 impl ByteInnerPaddingOptions {
     fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
-        let fillchar = if let OptionalArg::Present(v) = self.fillchar {
+        let fillchar = {
+            let v = self.fillchar;
             try_as_bytes(v.clone(), |bytes| bytes.iter().copied().exactly_one().ok())
                 .flatten()
                 .ok_or_else(|| {
@@ -236,8 +237,6 @@ impl ByteInnerPaddingOptions {
                         v.class().name()
                     ))
                 })?
-        } else {
-            b' ' // default is space
         };
 
         Ok((self.width, fillchar))
@@ -248,8 +247,8 @@ impl ByteInnerPaddingOptions {
 pub struct ByteInnerTranslateOptions {
     #[pyarg(positional)]
     table: Option<PyObjectRef>,
-    #[pyarg(any, optional)]
-    delete: OptionalArg<PyObjectRef>,
+    #[pyarg(any, default = b"")]
+    delete: PyObjectRef,
 }
 
 impl ByteInnerTranslateOptions {
@@ -265,12 +264,9 @@ impl ByteInnerTranslateOptions {
             },
         )?;
 
-        let delete = match self.delete {
-            OptionalArg::Present(byte) => {
-                let byte: PyBytesInner = byte.try_into_value(vm)?;
-                byte.elements
-            }
-            _ => vec![],
+        let delete = {
+            let byte: PyBytesInner = self.delete.try_into_value(vm)?;
+            byte.elements
         };
 
         Ok((table, delete))
@@ -512,7 +508,7 @@ impl PyBytesInner {
         swapcase_ascii(self.as_bytes())
     }
 
-    pub fn hex(&self, sep: Option<u8>, bytes_per_sep: OptionalArg<isize>) -> String {
+    pub fn hex(&self, sep: Option<u8>, bytes_per_sep: isize) -> String {
         bytes_to_hex(self.elements.as_slice(), sep, bytes_per_sep)
     }
 
@@ -565,11 +561,11 @@ impl PyBytesInner {
     }
 
     /// Parse hex string from str or bytes-like object
-    pub fn fromhex_object(string: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub fn fromhex_object(string: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if let Some(s) = string.downcast_ref::<PyStr>() {
             Self::fromhex(s.as_bytes(), vm)
         } else if string.check_buffer() {
-            let buffer = PyBuffer::from_object(vm, &string, BufferFlags::SIMPLE)?;
+            let buffer = PyBuffer::from_object(vm, string, BufferFlags::SIMPLE)?;
             let borrowed = buffer
                 .as_contiguous()
                 .ok_or_else(|| vm.new_buffer_error("fromhex() requires a contiguous buffer"))?;
@@ -700,7 +696,7 @@ impl PyBytesInner {
         Ok(res)
     }
 
-    pub fn strip(&self, chars: OptionalOption<Self>) -> Vec<u8> {
+    pub fn strip(&self, chars: Option<Self>) -> Vec<u8> {
         self.elements
             .py_strip(
                 chars,
@@ -710,7 +706,7 @@ impl PyBytesInner {
             .to_vec()
     }
 
-    pub fn lstrip(&self, chars: OptionalOption<Self>) -> &[u8] {
+    pub fn lstrip(&self, chars: Option<Self>) -> &[u8] {
         self.elements.py_strip(
             chars,
             |s, chars| s.trim_start_with(|c| chars.contains(&(c as u8))),
@@ -718,7 +714,7 @@ impl PyBytesInner {
         )
     }
 
-    pub fn rstrip(&self, chars: OptionalOption<Self>) -> &[u8] {
+    pub fn rstrip(&self, chars: Option<Self>) -> &[u8] {
         self.elements.py_strip(
             chars,
             |s, chars| s.trim_end_with(|c| chars.contains(&(c as u8))),
@@ -966,25 +962,23 @@ impl PyBytesInner {
         Ok(result)
     }
 
-    pub fn replace(
-        &self,
-        from: Self,
-        to: Self,
-        max_count: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
-        // stringlib_replace in CPython
-        let max_count = match max_count {
-            OptionalArg::Present(max_count) if max_count >= 0 => {
-                if max_count == 0 || (self.elements.is_empty() && !from.is_empty()) {
-                    // nothing to do; return the original bytes
-                    return Ok(self.elements.clone());
-                } else if self.elements.is_empty() && from.is_empty() {
-                    return Ok(to.elements);
-                }
-                Some(max_count as usize)
+    pub fn replace(&self, args: ByteInnerReplaceOptions, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let ByteInnerReplaceOptions {
+            old: from,
+            new: to,
+            count: max_count,
+        } = args;
+        // stringlib_replace
+        let max_count = if max_count >= 0 {
+            if max_count == 0 || (self.elements.is_empty() && !from.is_empty()) {
+                // nothing to do; return the original bytes
+                return Ok(self.elements.clone());
+            } else if self.elements.is_empty() && from.is_empty() {
+                return Ok(to.elements);
             }
-            _ => None,
+            Some(max_count as usize)
+        } else {
+            None
         };
 
         // Handle zero-length special cases
@@ -1024,7 +1018,7 @@ impl PyBytesInner {
     }
 
     pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        cformat_bytes(vm, self.elements.as_slice(), values)
+        cformat_bytes(vm, self.elements.as_slice(), &values)
     }
 
     pub fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -1205,10 +1199,28 @@ impl AnyStr for [u8] {
 }
 
 #[derive(FromArgs)]
+pub(crate) struct ByteInnerStripOptions {
+    #[pyarg(positional, optional)]
+    pub bytes: Option<PyBytesInner>,
+}
+
+#[derive(FromArgs)]
+pub struct ByteInnerReplaceOptions {
+    #[pyarg(positional)]
+    old: PyBytesInner,
+    #[pyarg(positional)]
+    new: PyBytesInner,
+    #[pyarg(positional, default = -1)]
+    count: isize,
+}
+
+#[derive(FromArgs)]
 pub(crate) struct DecodeArgs {
-    #[pyarg(any, default)]
+    // None is filled in as utf-8 when decoding.
+    #[pyarg(any, optional, py_default = "'utf-8'")]
     encoding: Option<PyUtf8StrRef>,
-    #[pyarg(any, default)]
+    // None is filled in as strict when decoding.
+    #[pyarg(any, optional, py_default = "'strict'")]
     errors: Option<PyUtf8StrRef>,
 }
 
@@ -1231,8 +1243,8 @@ pub(crate) fn bytes_decode(
 pub(crate) struct ByteInnerHexOptions {
     #[pyarg(any, optional)]
     pub sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
-    #[pyarg(any, optional)]
-    pub bytes_per_sep: OptionalArg<isize>,
+    #[pyarg(any, default = 1)]
+    pub bytes_per_sep: isize,
 }
 
 impl ByteInnerHexOptions {
@@ -1240,7 +1252,7 @@ impl ByteInnerHexOptions {
     ///
     /// Measuring the separator runs Python, so it happens here, before the
     /// bytes to be written out are borrowed. _Py_strhex_impl
-    pub(crate) fn resolve(self, vm: &VirtualMachine) -> PyResult<(Option<u8>, OptionalArg<isize>)> {
+    pub(crate) fn resolve(self, vm: &VirtualMachine) -> PyResult<(Option<u8>, isize)> {
         let Self { sep, bytes_per_sep } = self;
         let OptionalArg::Present(sep) = sep else {
             return Ok((None, bytes_per_sep));
@@ -1323,12 +1335,7 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
     unsafe { String::from_utf8_unchecked(buf) }
 }
 
-pub(crate) fn bytes_to_hex(
-    bytes: &[u8],
-    sep: Option<u8>,
-    bytes_per_sep: OptionalArg<isize>,
-) -> String {
-    let bytes_per_sep = bytes_per_sep.unwrap_or(1);
+pub(crate) fn bytes_to_hex(bytes: &[u8], sep: Option<u8>, bytes_per_sep: isize) -> String {
     match sep {
         Some(sep) if bytes_per_sep != 0 && !bytes.is_empty() => hex_impl(bytes, sep, bytes_per_sep),
         _ => hex_impl_no_sep(bytes),

@@ -34,7 +34,7 @@ mod unicodedata {
     use super::{NormalizeFormArg, unicode_core};
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyModule, PyStrRef},
+        builtins::{PyModule, PyStr, PyStrRef},
         function::OptionalArg,
     };
     use itertools::Itertools;
@@ -81,7 +81,7 @@ mod unicodedata {
             }
         }
 
-        fn extract_char(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<CodePoint> {
+        fn extract_char(&self, character: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<CodePoint> {
             character
                 .as_wtf8()
                 .code_points()
@@ -94,7 +94,7 @@ mod unicodedata {
     impl Ucd {
         #[pymethod]
         fn category(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<&'static str> {
-            self.extract_char(chr, vm).map(|c| self.inner.category(c))
+            self.extract_char(&chr, vm).map(|c| self.inner.category(c))
         }
 
         #[pymethod]
@@ -121,7 +121,7 @@ mod unicodedata {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult {
-            if let Some(name) = self.extract_char(chr, vm)?.to_char().and_then(|ch| {
+            if let Some(name) = self.extract_char(&chr, vm)?.to_char().and_then(|ch| {
                 self.inner
                     .membership(ch)
                     .then(|| unicode_core::character_name(ch))
@@ -134,13 +134,13 @@ mod unicodedata {
 
         #[pymethod]
         fn bidirectional(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<&'static str> {
-            self.extract_char(chr, vm)
+            self.extract_char(&chr, vm)
                 .map(|c| self.inner.bidirectional(c))
         }
 
         #[pymethod]
         fn east_asian_width(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<&'static str> {
-            self.extract_char(chr, vm)
+            self.extract_char(&chr, vm)
                 .map(|c| self.inner.east_asian_width(c))
         }
 
@@ -156,17 +156,17 @@ mod unicodedata {
 
         #[pymethod]
         fn mirrored(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
-            self.extract_char(chr, vm).map(|c| self.inner.mirrored(c))
+            self.extract_char(&chr, vm).map(|c| self.inner.mirrored(c))
         }
 
         #[pymethod]
         fn combining(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<u8> {
-            self.extract_char(chr, vm).map(|c| self.inner.combining(c))
+            self.extract_char(&chr, vm).map(|c| self.inner.combining(c))
         }
 
         #[pymethod]
         fn decomposition(&self, chr: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-            self.extract_char(chr, vm)
+            self.extract_char(&chr, vm)
                 .map(|c| self.inner.decomposition(c))
         }
 
@@ -177,7 +177,7 @@ mod unicodedata {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let ch = self.extract_char(chr, vm)?;
+            let ch = self.extract_char(&chr, vm)?;
             self.inner
                 .digit(ch)
                 .map(|value| vm.ctx.new_int(value).into())
@@ -193,7 +193,7 @@ mod unicodedata {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let ch = self.extract_char(chr, vm)?;
+            let ch = self.extract_char(&chr, vm)?;
             self.inner
                 .decimal(ch)
                 .map(|value| vm.ctx.new_int(value).into())
@@ -209,7 +209,7 @@ mod unicodedata {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let ch = self.extract_char(chr, vm)?;
+            let ch = self.extract_char(&chr, vm)?;
             self.inner
                 .numeric(ch)
                 .map(|value| vm.ctx.new_float(value).into())

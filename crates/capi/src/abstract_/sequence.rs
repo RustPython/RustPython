@@ -1,10 +1,11 @@
+use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::c_int;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_Check(obj: *mut PyObject) -> c_int {
     with_vm(|_vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         Ok(obj.sequence_unchecked().check())
     })
 }
@@ -15,8 +16,8 @@ pub unsafe extern "C" fn PySequence_Concat(
     obj2: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj1 = unsafe { &*obj1 };
-        let obj2 = unsafe { &*obj2 };
+        let obj1 = unsafe { obj1.assume_borrowed() };
+        let obj2 = unsafe { obj2.assume_borrowed() };
         obj1.try_sequence(vm)?.concat(obj2, vm)
     })
 }
@@ -24,8 +25,8 @@ pub unsafe extern "C" fn PySequence_Concat(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_Count(obj: *mut PyObject, value: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let value = unsafe { &*value };
+        let obj = unsafe { obj.assume_borrowed() };
+        let value = unsafe { value.assume_borrowed() };
         obj.try_sequence(vm)?.count(value, vm)
     })
 }
@@ -33,7 +34,7 @@ pub unsafe extern "C" fn PySequence_Count(obj: *mut PyObject, value: *mut PyObje
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_DelItem(obj: *mut PyObject, index: isize) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.try_sequence(vm)?.del_item(index, vm)
     })
 }
@@ -41,7 +42,7 @@ pub unsafe extern "C" fn PySequence_DelItem(obj: *mut PyObject, index: isize) ->
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_DelSlice(obj: *mut PyObject, low: isize, high: isize) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.try_sequence(vm)?.del_slice(low, high, vm)
     })
 }
@@ -49,7 +50,7 @@ pub unsafe extern "C" fn PySequence_DelSlice(obj: *mut PyObject, low: isize, hig
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_GetItem(obj: *mut PyObject, index: isize) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.try_sequence(vm)?.get_item(index, vm)
     })
 }
@@ -61,7 +62,7 @@ pub unsafe extern "C" fn PySequence_GetSlice(
     high: isize,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.try_sequence(vm)?.get_slice(low, high, vm)
     })
 }
@@ -72,8 +73,8 @@ pub unsafe extern "C" fn PySequence_InPlaceConcat(
     obj2: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj1 = unsafe { &*obj1 };
-        let obj2 = unsafe { &*obj2 };
+        let obj1 = unsafe { obj1.assume_borrowed() };
+        let obj2 = unsafe { obj2.assume_borrowed() };
         obj1.try_sequence(vm)?.inplace_concat(obj2, vm)
     })
 }
@@ -84,7 +85,7 @@ pub unsafe extern "C" fn PySequence_InPlaceRepeat(
     count: isize,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.try_sequence(vm)?.inplace_repeat(count, vm)
     })
 }
@@ -92,8 +93,8 @@ pub unsafe extern "C" fn PySequence_InPlaceRepeat(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_Index(obj: *mut PyObject, value: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let value = unsafe { &*value };
+        let obj = unsafe { obj.assume_borrowed() };
+        let value = unsafe { value.assume_borrowed() };
         obj.try_sequence(vm)?.index(value, vm)
     })
 }
@@ -101,7 +102,7 @@ pub unsafe extern "C" fn PySequence_Index(obj: *mut PyObject, value: *mut PyObje
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_List(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         Ok(obj.try_sequence(vm)?.list(vm))
     })
 }
@@ -109,7 +110,7 @@ pub unsafe extern "C" fn PySequence_List(obj: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_Repeat(obj: *mut PyObject, count: isize) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.try_sequence(vm)?.repeat(count, vm)
     })
 }
@@ -121,8 +122,8 @@ pub unsafe extern "C" fn PySequence_SetItem(
     value: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let value = unsafe { &*value };
+        let obj = unsafe { obj.assume_borrowed() };
+        let value = unsafe { value.assume_borrowed() };
         obj.try_sequence(vm)?.set_item(index, value.to_owned(), vm)
     })
 }
@@ -135,8 +136,8 @@ pub unsafe extern "C" fn PySequence_SetSlice(
     value: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let value = unsafe { &*value };
+        let obj = unsafe { obj.assume_borrowed() };
+        let value = unsafe { value.assume_borrowed() };
         obj.try_sequence(vm)?
             .set_slice(low, high, value.to_owned(), vm)
     })
@@ -145,7 +146,7 @@ pub unsafe extern "C" fn PySequence_SetSlice(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_Size(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.try_sequence(vm)?.length(vm)
     })
 }
@@ -158,7 +159,7 @@ pub unsafe extern "C" fn PySequence_Length(obj: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_Tuple(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         Ok(obj.try_sequence(vm)?.tuple(vm))
     })
 }
@@ -166,8 +167,8 @@ pub unsafe extern "C" fn PySequence_Tuple(obj: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let value = unsafe { &*value };
+        let obj = unsafe { obj.assume_borrowed() };
+        let value = unsafe { value.assume_borrowed() };
         obj.sequence_unchecked().contains(value, vm)
     })
 }

@@ -14,7 +14,7 @@ mod mmap {
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
-        function::{ArgBytesLike, FuncArgs, OptionalArg},
+        function::ArgBytesLike,
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
@@ -37,12 +37,19 @@ mod mmap {
     use rustpython_host_env::nt as host_nt;
 
     #[repr(C)]
-    #[derive(PartialEq, Eq, Debug)]
+    #[derive(Copy, Clone, PartialEq, Eq, Debug)]
     enum AccessMode {
         Default = 0,
         Read = 1,
         Write = 2,
         Copy = 3,
+    }
+
+    impl AccessMode {
+        #[must_use]
+        pub(crate) const fn py_default(self) -> crate::vm::function::DefaultRepr {
+            crate::vm::function::DefaultRepr::Int(self as i128)
+        }
     }
 
     impl<'a> TryFromBorrowedObject<'a> for AccessMode {
@@ -264,20 +271,33 @@ mod mmap {
     }
 
     #[derive(FromArgs)]
+    struct ReadArgs {
+        #[pyarg(positional, optional)]
+        n: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct SeekArgs {
+        #[pyarg(positional)]
+        pos: isize,
+        #[pyarg(positional, default = 0)]
+        whence: core::ffi::c_int,
+    }
+
+    #[derive(FromArgs)]
     pub(super) struct FlushOptions {
-        #[pyarg(positional, default)]
-        offset: Option<isize>,
-        #[pyarg(positional, default)]
+        #[pyarg(positional, default = 0)]
+        offset: isize,
+        #[pyarg(positional, optional)]
         size: Option<isize>,
     }
 
     impl FlushOptions {
         fn values(self, len: usize) -> Option<(usize, usize)> {
-            let offset = match self.offset {
-                Some(o) if o < 0 => return None,
-                Some(o) => o as usize,
-                None => 0,
-            };
+            if self.offset < 0 {
+                return None;
+            }
+            let offset = self.offset as usize;
 
             let size = match self.size {
                 Some(s) if s < 0 => return None,
@@ -296,10 +316,10 @@ mod mmap {
     #[derive(FromArgs, Clone)]
     pub(super) struct FindOptions {
         #[pyarg(positional)]
-        sub: Vec<u8>,
-        #[pyarg(positional, default)]
+        view: Vec<u8>,
+        #[pyarg(positional, optional)]
         start: Option<isize>,
-        #[pyarg(positional, default)]
+        #[pyarg(positional, optional)]
         end: Option<isize>,
     }
 
@@ -308,9 +328,10 @@ mod mmap {
     pub(super) struct AdviseOptions {
         #[pyarg(positional)]
         option: core::ffi::c_int,
-        #[pyarg(positional, default)]
+        // None means 0.
+        #[pyarg(positional, default, py_default = "0")]
         start: Option<PyIntRef>,
-        #[pyarg(positional, default)]
+        #[pyarg(positional, optional)]
         length: Option<PyIntRef>,
     }
 
@@ -656,7 +677,7 @@ mod mmap {
                 ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                     let zelf = PyMmap::mapping_downcast(mapping);
                     if let Some(value) = value {
-                        PyMmap::setitem_inner(zelf, needle, value, vm)
+                        PyMmap::setitem_inner(zelf, needle, &value, vm)
                     } else {
                         Err(vm
                             .new_type_error("mmap object doesn't support item deletion".to_owned()))
@@ -679,7 +700,7 @@ mod mmap {
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyMmap::sequence_downcast(seq);
                     if let Some(value) = value {
-                        PyMmap::setitem_by_index(zelf, i, value, vm)
+                        PyMmap::setitem_by_index(zelf, i, &value, vm)
                     } else {
                         Err(vm
                             .new_type_error("mmap object doesn't support item deletion".to_owned()))
@@ -821,7 +842,7 @@ mod mmap {
                 return Ok(PyInt::from(-1isize));
             }
 
-            let sub = &options.sub;
+            let sub = &options.view;
             // The empty subsequence matches at the edge the scan begins from:
             // the start of the range going forward, the end going backward.
             if sub.is_empty() {
@@ -901,25 +922,25 @@ mod mmap {
             &self,
             dest: PyIntRef,
             src: PyIntRef,
-            cnt: PyIntRef,
+            count: PyIntRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             fn args(
-                dest: PyIntRef,
-                src: PyIntRef,
-                cnt: PyIntRef,
+                dest: &Py<PyInt>,
+                src: &Py<PyInt>,
+                count: &Py<PyInt>,
                 size: usize,
                 vm: &VirtualMachine,
             ) -> Option<(usize, usize, usize)> {
                 if dest.as_bigint().is_negative()
                     || src.as_bigint().is_negative()
-                    || cnt.as_bigint().is_negative()
+                    || count.as_bigint().is_negative()
                 {
                     return None;
                 }
                 let dest = dest.try_to_primitive(vm).ok()?;
                 let src = src.try_to_primitive(vm).ok()?;
-                let cnt = cnt.try_to_primitive(vm).ok()?;
+                let cnt = count.try_to_primitive(vm).ok()?;
                 if dest > size || src > size || size - dest < cnt || size - src < cnt {
                     return None;
                 }
@@ -927,7 +948,7 @@ mod mmap {
             }
 
             let size = self.__len__();
-            let (dest, src, cnt) = args(dest, src, cnt, size, vm)
+            let (dest, src, cnt) = args(&dest, &src, &count, size, vm)
                 .ok_or_else(|| vm.new_value_error("source, destination, or count out of range"))?;
 
             let dest_end = dest + cnt;
@@ -943,8 +964,9 @@ mod mmap {
         }
 
         #[pymethod]
-        fn read(&self, n: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            let num_bytes = n
+        fn read(&self, args: ReadArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+            let num_bytes = args
+                .n
                 .map(|obj| {
                     let class = obj.class().to_owned();
                     obj.try_into_value::<Option<isize>>(vm).map_err(|_| {
@@ -1110,13 +1132,9 @@ mod mmap {
         }
 
         #[pymethod]
-        fn seek(
-            &self,
-            dist: isize,
-            whence: OptionalArg<core::ffi::c_int>,
-            vm: &VirtualMachine,
-        ) -> PyResult<usize> {
-            let how = whence.unwrap_or(0);
+        fn seek(&self, args: SeekArgs, vm: &VirtualMachine) -> PyResult<usize> {
+            let dist = args.pos;
+            let how = args.whence;
             let size = self.__len__();
 
             let new_pos = match how {
@@ -1234,17 +1252,17 @@ mod mmap {
             Ok(())
         }
 
-        fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            self.getitem_inner(&needle, vm)
+        fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            self.getitem_inner(needle, vm)
         }
 
         fn __setitem__(
             zelf: &Py<Self>,
-            needle: PyObjectRef,
+            needle: &PyObject,
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            Self::setitem_inner(zelf, &needle, value, vm)
+            Self::setitem_inner(zelf, needle, &value, vm)
         }
 
         #[pymethod]
@@ -1254,7 +1272,13 @@ mod mmap {
         }
 
         #[pymethod]
-        fn __exit__(zelf: &Py<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(
+            zelf: &Py<Self>,
+            _exc_type: PyObjectRef,
+            _exc_value: PyObjectRef,
+            _traceback: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             zelf.close(vm)
         }
 
@@ -1354,7 +1378,7 @@ mod mmap {
         fn setitem_inner(
             zelf: &Py<Self>,
             needle: &PyObject,
-            value: PyObjectRef,
+            value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
@@ -1366,14 +1390,14 @@ mod mmap {
         fn setitem_by_index(
             &self,
             i: isize,
-            value: PyObjectRef,
+            value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let i: usize = i
                 .wrapped_at(self.__len__())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
 
-            let b = value_from_object(vm, &value)?;
+            let b = value_from_object(vm, value)?;
 
             self.try_writable(vm, |mmap| {
                 mmap[i] = b;
@@ -1385,12 +1409,12 @@ mod mmap {
         fn setitem_by_slice(
             &self,
             slice: &SaturatedSlice,
-            value: PyObjectRef,
+            value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let (range, step, slice_len) = slice.adjust_indices(self.__len__());
 
-            let bytes = bytes_from_object(vm, &value)?;
+            let bytes = bytes_from_object(vm, value)?;
 
             if bytes.len() != slice_len {
                 return Err(vm.new_index_error("mmap slice assignment is wrong size"));

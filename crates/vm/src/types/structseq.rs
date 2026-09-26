@@ -1,12 +1,14 @@
 use crate::common::lock::LazyLock;
-use crate::common::wtf8::Wtf8;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     builtins::{
         PyBaseExceptionRef, PyDict, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
-    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags},
+    function::{
+        Either, FuncArgs, KwArgs, NameChanges, OptionalArg, PyComparisonValue, PyMethodDef,
+        PyMethodFlags,
+    },
     iter::PyExactSizeIterator,
     protocol::{PyMappingMethods, PySequenceMethods},
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -20,15 +22,23 @@ const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
         vm.new_tuple((zelf.class().to_owned(), (vm.ctx.new_tuple(zelf.to_vec()),)))
     },
     PyMethodFlags::METHOD,
-    None,
+    Some("__reduce__($self, /)\n--\n\n"),
 );
+
+/// Text signature `(iterable=(), /)` shared by every struct sequence.
+pub const STRUCT_SEQUENCE_PARAMS: Option<&'static [crate::function::Param]> =
+    Some(&[crate::function::Param {
+        name: "iterable",
+        kind: crate::function::ParamKind::PositionalOnly,
+        default: Some(crate::function::DefaultRepr::Raw("()")),
+    }]);
 
 /// The arguments every struct sequence constructor takes.
 #[derive(FromArgs)]
 pub struct StructSequenceNewArgs {
     #[pyarg(any)]
     pub sequence: PyObjectRef,
-    #[pyarg(any, optional)]
+    #[pyarg(any, optional, py_default = "{}")]
     pub dict: OptionalArg<PyObjectRef>,
 }
 
@@ -309,12 +319,13 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         Ok(vm.ctx.new_str(repr_str))
     }
 
+    /// Return a copy of the structure with new values for the specified fields.
     #[pymethod]
-    fn __replace__(zelf: PyRef<PyTuple>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if !args.args.is_empty() {
-            return Err(vm.new_type_error("__replace__() takes no positional arguments"));
-        }
-
+    fn __replace__(
+        zelf: PyRef<PyTuple>,
+        changes: KwArgs<PyObjectRef, NameChanges>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         if Self::Data::UNNAMED_FIELDS_LEN > 0 {
             return Err(vm.new_type_error(format!(
                 "__replace__() is not supported for {} because it has unnamed field(s)",
@@ -326,7 +337,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             Self::Data::REQUIRED_FIELD_NAMES.len() + Self::Data::OPTIONAL_FIELD_NAMES.len();
         let mut items: Vec<PyObjectRef> = zelf.as_slice()[..n_fields].to_vec();
 
-        let mut kwargs = args.kwargs;
+        let mut kwargs = changes;
 
         // Replace fields from kwargs
         let all_field_names: Vec<&str> = Self::Data::REQUIRED_FIELD_NAMES
@@ -340,10 +351,15 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             }
         }
 
-        // Check for unexpected keyword arguments
         if !kwargs.is_empty() {
-            let names: Vec<&Wtf8> = kwargs.keys().map(|k| k.as_ref()).collect();
-            return Err(vm.new_type_error(format!("Got unexpected field name(s): {names:?}")));
+            let names = vm.ctx.new_list(
+                kwargs
+                    .keys()
+                    .map(|k| vm.ctx.new_str(k.to_owned()).into())
+                    .collect(),
+            );
+            let names_repr = names.as_object().repr(vm)?;
+            return Err(vm.new_type_error(format!("Got unexpected field name(s): {names_repr}")));
         }
 
         PyTuple::new_unchecked(items.into_boxed_slice())
@@ -368,28 +384,19 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     fn extend_pyclass(ctx: &Context, class: &'static Py<PyType>) {
         // Getters for named visible fields (indices 0 to REQUIRED_FIELD_NAMES.len() - 1)
         for (i, &name) in Self::Data::REQUIRED_FIELD_NAMES.iter().enumerate() {
-            // cast i to a u8 so there's less to store in the getter closure.
-            // Hopefully there's not struct sequences with >=256 elements :P
-            let i = i as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &Py<PyTuple>| {
-                    zelf[i as usize].to_owned()
-                })
-                .into(),
+                ctx.new_readonly_tuple_member(name, class, i).into(),
             );
         }
 
         // Getters for hidden/skipped fields (indices after visible fields)
         let visible_count = Self::Data::REQUIRED_FIELD_NAMES.len() + Self::Data::UNNAMED_FIELDS_LEN;
         for (i, &name) in Self::Data::OPTIONAL_FIELD_NAMES.iter().enumerate() {
-            let idx = (visible_count + i) as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &Py<PyTuple>| {
-                    zelf[idx as usize].to_owned()
-                })
-                .into(),
+                ctx.new_readonly_tuple_member(name, class, visible_count + i)
+                    .into(),
             );
         }
 

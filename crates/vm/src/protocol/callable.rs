@@ -66,7 +66,7 @@ pub struct PyCallable<'a> {
 
 impl<'a> PyCallable<'a> {
     pub fn new(obj: &'a PyObject) -> Option<Self> {
-        let slots = &obj.class().slots;
+        let slots = obj.class().slots();
         let call = slots.call.load()?;
         let vectorcall = slots.vectorcall.load();
         Some(PyCallable {
@@ -179,17 +179,17 @@ impl TraceEvent {
 
     /// Default `what_event` for this legacy event.
     #[must_use]
-    const fn default_what(self) -> i32 {
-        use crate::stdlib::sys::monitoring as mon;
+    const fn default_what(self) -> crate::stdlib::sys::monitoring::MonitoringEvent {
+        use crate::stdlib::sys::monitoring::MonitoringEvent as Ev;
         match self {
-            Self::Call => mon::WHAT_PY_START,
-            Self::Return => mon::WHAT_PY_RETURN,
-            Self::Exception => mon::WHAT_RAISE,
-            Self::Line => mon::WHAT_LINE,
-            Self::Opcode => mon::WHAT_INSTRUCTION,
-            Self::CCall => mon::WHAT_CALL,
-            Self::CReturn => mon::WHAT_C_RETURN,
-            Self::CException => mon::WHAT_C_RAISE,
+            Self::Call => Ev::PyStart,
+            Self::Return => Ev::PyReturn,
+            Self::Exception => Ev::Raise,
+            Self::Line => Ev::Line,
+            Self::Opcode => Ev::Instruction,
+            Self::CCall => Ev::Call,
+            Self::CReturn => Ev::CReturn,
+            Self::CException => Ev::CRaise,
         }
     }
 }
@@ -235,11 +235,11 @@ impl VirtualMachine {
     pub(crate) fn trace_event_what(
         &self,
         event: TraceEvent,
-        what: i32,
+        what: crate::stdlib::sys::monitoring::MonitoringEvent,
         arg: Option<PyObjectRef>,
     ) -> PyResult<Option<PyObjectRef>> {
         if self.use_tracing.get() && !self.tracing_is_suppressed() {
-            let old = self.what_event.replace(what);
+            let old = self.what_event.replace(Some(what));
             let result = self._trace_event_inner(event, arg);
             self.what_event.set(old);
             result

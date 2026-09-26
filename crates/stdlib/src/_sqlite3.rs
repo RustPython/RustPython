@@ -361,11 +361,11 @@ mod _sqlite3 {
         timeout: TimeoutSeconds,
         #[pyarg(any, default = 0)]
         detect_types: c_int,
-        #[pyarg(any, default = IsolationLevelArg(Some(vm.ctx.empty_str.to_owned())))]
+        #[pyarg(any, default = "")]
         isolation_level: IsolationLevelArg,
         #[pyarg(any, default = true)]
         check_same_thread: bool,
-        #[pyarg(any, default = Connection::class(&vm.ctx).to_owned())]
+        #[pyarg(any, default = Connection::class(&vm.ctx).to_owned(), py_default = "ConnectionType")]
         factory: PyTypeRef,
         // TODO: cache statements
         #[allow(dead_code)]
@@ -440,10 +440,10 @@ mod _sqlite3 {
         #[pyarg(positional)]
         column: PyStrRef,
         #[pyarg(positional)]
-        row: i64,
+        rowid: i64,
         #[pyarg(named, default)]
         readonly: bool,
-        #[pyarg(named, default = vm.ctx.new_str("main"))]
+        #[pyarg(named, default = "main")]
         name: PyStrRef,
     }
 
@@ -972,7 +972,7 @@ mod _sqlite3 {
     impl Initializer for Connection {
         type Args = ConnectArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let was_initialized = Radium::swap(&zelf.initialized, false, Ordering::AcqRel);
 
             // Reset factories to their defaults, matching CPython's behavior.
@@ -1120,7 +1120,7 @@ mod _sqlite3 {
                     name.as_ptr(),
                     table.as_ptr(),
                     column.as_ptr(),
-                    args.row,
+                    args.rowid,
                     (!args.readonly) as c_int,
                     &mut blob,
                 )
@@ -2179,7 +2179,7 @@ mod _sqlite3 {
                         .flat_map(|x| x.to_uppercase())
                         .collect::<String>();
                     if let Some(converter) = converters().get_item_opt(&col_name, vm)? {
-                        cast_map.push(Some(converter.clone()));
+                        cast_map.push(Some(converter));
                         continue;
                     }
                 }
@@ -2189,7 +2189,7 @@ mod _sqlite3 {
                     if let Some(decltype) = decltype.split_terminator(&[' ', '(']).next() {
                         let decltype = decltype.to_uppercase();
                         if let Some(converter) = converters().get_item_opt(&decltype, vm)? {
-                            cast_map.push(Some(converter.clone()));
+                            cast_map.push(Some(converter));
                             continue;
                         }
                     }
@@ -2216,7 +2216,7 @@ mod _sqlite3 {
     impl Initializer for Cursor {
         type Args = PyRef<Connection>;
 
-        fn init(zelf: PyRef<Self>, _connection: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, _connection: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             let mut guard = zelf.inner.lock();
             if guard.is_some() {
                 // Already initialized (e.g., from a call to super().__init__)
@@ -3526,7 +3526,7 @@ mod _sqlite3 {
                 unsafe { sqlite3_result_error(self.ctx, msg.as_ptr().cast(), -1) }
             }
             if enable_traceback().load(Ordering::Relaxed) {
-                vm.print_exception(exc);
+                vm.print_exception(&exc);
             }
         }
 

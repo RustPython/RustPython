@@ -8,8 +8,7 @@ use crate::{
     builtins::{
         PyBaseExceptionRef,
         descriptor::{
-            MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyMemberDef,
-            PyMemberDescriptor,
+            MemberAccess, MemberKind, PyDescriptorOwned, PyMemberDef, PyMemberDescriptor,
         },
         function::{PyCellRef, PyFunction},
         tuple::{IntoPyTuple, PyTuple},
@@ -20,12 +19,13 @@ use crate::{
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
-    function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
+    function::{ArgumentError, FromArgs, FuncArgs, KwArgs, Param, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
-        AsNumber, Callable, Constructor, GetAttr, Initializer, PyTypeFlags, PyTypeSlots,
-        Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
+        AsNumber, Callable, Constructor, GetAttr, Initializer, NewFunc, PyTypeFlags, PyTypeSlots,
+        Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot, fn_addr,
+        new_wrapper,
     },
 };
 use core::{
@@ -244,7 +244,10 @@ unsafe impl crate::object::Traverse for PyType {
         if let Some(base) = self.base.deref() {
             tracer_fn(base.as_object());
         }
-        tracer_fn(self.bases.read_recursive().as_untyped().as_object());
+        // Skip when a writer holds `bases` (same rule as `Traverse for PyRwLock`).
+        if let Some(bases) = self.bases.try_read_recursive() {
+            tracer_fn(bases.as_untyped().as_object());
+        }
         self.mro.traverse(tracer_fn);
         self.subclasses.traverse(tracer_fn);
         self.attributes.traverse(tracer_fn);
@@ -259,8 +262,11 @@ unsafe impl crate::object::Traverse for PyType {
         if let Some(base) = unsafe { self.base.swap(None) } {
             out.push(base.into());
         }
+        // Clone the empty tuple before taking the write lock: `object`'s
+        // `bases` is this same lock, and `.read()` while exclusive panics
+        // on CellRwLock (and hangs on parking_lot).
+        let empty = object::PyBaseObject::static_type().bases.read().clone();
         if let Some(mut bases) = self.bases.try_write() {
-            let empty = object::PyBaseObject::static_type().bases.read().clone();
             let old_bases = core::mem::replace(&mut *bases, empty);
             out.push(old_bases.into_untyped().into());
         }
@@ -410,7 +416,11 @@ pub enum TypeNamespace {
 unsafe impl Traverse for TypeNamespace {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         match self {
-            Self::Attributes(attrs) => attrs.read_recursive().traverse(tracer_fn),
+            Self::Attributes(attrs) => {
+                if let Some(attrs) = attrs.try_read_recursive() {
+                    attrs.traverse(tracer_fn);
+                }
+            }
             Self::Dict(dict) => tracer_fn(dict.as_object()),
         }
     }
@@ -474,18 +484,7 @@ impl TypeNamespace {
 
     /// Bind `name` to `value`, dropping whatever it displaced.
     pub fn set(&self, name: &'static PyStrInterned, value: PyObjectRef) {
-        match self {
-            Self::Attributes(attrs) => {
-                attrs.write().insert(name, value);
-            }
-            Self::Dict(dict) => {
-                if let Some(Err(_)) | None =
-                    crate::vm::thread::try_with_current_vm(|vm| dict.set_item(name, value, vm))
-                {
-                    debug_assert!(false, "type namespace write without a running VM");
-                }
-            }
-        }
+        drop(self.insert(name, value));
     }
 
     /// Bind `name` to `value` and hand back what it displaced, so the caller
@@ -495,7 +494,11 @@ impl TypeNamespace {
             Self::Attributes(attrs) => attrs.write().insert(name, value),
             Self::Dict(dict) => {
                 let previous = dict_get(dict, name);
-                self.set(name, value);
+                if let Some(Err(_)) | None =
+                    crate::vm::thread::try_with_current_vm(|vm| dict.set_item(name, value, vm))
+                {
+                    debug_assert!(false, "type namespace write without a running VM");
+                }
                 previous
             }
         }
@@ -794,7 +797,7 @@ impl PyType {
             interpreter_id: HeapTypeExt::creating_interpreter_id(),
         };
         let bases = PyTuple::new_ref_typed(bases, ctx);
-        let base = bases[0].clone();
+        let base = bases.as_slice()[0].clone();
 
         Self::new_heap_inner(
             base,
@@ -879,6 +882,16 @@ impl PyType {
             return slot_flags.contains(flag);
         }
         PyTypeFlags::from_bits_truncate(self.abc_tpflags.load(Ordering::Acquire)).contains(flag)
+    }
+
+    pub fn set_is_abstract(&self, is_abstract: bool) {
+        const MASK: u64 = PyTypeFlags::IS_ABSTRACT.bits();
+        let _ = self
+            .abc_tpflags
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+                Some(if is_abstract { old | MASK } else { old & !MASK })
+            });
+        self.modified();
     }
 
     pub fn set_abc_collection_flags_recursive(&self, flags: PyTypeFlags) {
@@ -1115,11 +1128,14 @@ impl PyType {
 
         // Static types are not tracked by GC.
         // They are immortal and never participate in collectable cycles.
-        unsafe {
-            crate::gc_state::gc_state()
-                .untrack_object(core::ptr::NonNull::from(new_type.as_object()));
+        // Heap types from PyType_FromSpec stay tracked.
+        if !new_type.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            unsafe {
+                crate::gc_state::gc_state()
+                    .untrack_object(core::ptr::NonNull::from(new_type.as_object()));
+            }
+            new_type.as_object().clear_gc_tracked();
         }
-        new_type.as_object().clear_gc_tracked();
 
         new_type.mro.write().insert(0, new_type.clone());
 
@@ -1545,7 +1561,7 @@ impl PyType {
                 subtype = subtype.name(),
             )));
         }
-        call_slot_new(zelf, subtype, args, vm)
+        call_slot_new(&zelf, subtype, args, vm)
     }
 
     fn name_inner<'a, R: 'a>(
@@ -1635,6 +1651,26 @@ impl PyType {
 }
 
 impl Py<PyType> {
+    #[inline]
+    pub fn slots(&self) -> &PyTypeSlots {
+        &self.payload().slots
+    }
+
+    #[inline]
+    pub fn attributes(&self) -> &TypeNamespace {
+        &self.payload().attributes
+    }
+
+    #[inline]
+    pub fn tp_version_tag(&self) -> &AtomicU32 {
+        &self.payload().tp_version_tag
+    }
+
+    #[inline]
+    pub fn heaptype_ext(&self) -> Option<&HeapTypeExt> {
+        self.payload().heaptype_ext.as_deref()
+    }
+
     pub fn is_subtype(&self, other: &Self) -> bool {
         is_subtype_with_mro(&self.mro.read(), self, other)
     }
@@ -1706,7 +1742,7 @@ impl PyType {
     fn set_bases(zelf: &Py<Self>, bases_tuple: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
         // Rather than correctly re-initializing the class, we are skipping a few steps for now
-        if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+        if zelf.slots().flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error(format!(
                 "cannot set '__bases__' attribute of immutable type '{}'",
                 zelf.name()
@@ -1889,8 +1925,50 @@ impl PyType {
     }
 
     #[pygetset]
-    const fn __flags__(&self) -> u64 {
+    fn __flags__(&self) -> u64 {
         self.slots.flags.bits()
+            | (self.abc_tpflags.load(Ordering::Acquire) & PyTypeFlags::IS_ABSTRACT.bits())
+    }
+
+    #[pygetset]
+    fn __abstractmethods__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        if zelf.is(vm.ctx.types.type_type) {
+            return Err(vm.new_attribute_error("__abstractmethods__"));
+        }
+        zelf.get_direct_attr(identifier!(vm, __abstractmethods__))
+            .ok_or_else(|| vm.new_attribute_error("__abstractmethods__"))
+    }
+
+    #[pygetset(setter)]
+    fn set___abstractmethods__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let key = identifier!(vm, __abstractmethods__);
+        let is_abstract = match &value {
+            PySetterValue::Assign(val) => val.try_to_bool(vm)?,
+            PySetterValue::Delete => false,
+        };
+        match value {
+            PySetterValue::Assign(val) => {
+                Self::with_type_lock(vm, || {
+                    self.modified_inner();
+                    let _prev = self.attributes.insert(key, val);
+                    self.set_is_abstract(is_abstract);
+                });
+            }
+            PySetterValue::Delete => {
+                let removed = Self::with_type_lock(vm, || {
+                    self.modified_inner();
+                    let removed = self.attributes.remove(key);
+                    if removed.is_some() {
+                        self.set_is_abstract(false);
+                    }
+                    removed
+                });
+                if removed.is_none() {
+                    return Err(vm.new_attribute_error("__abstractmethods__"));
+                }
+            }
+        }
+        Ok(())
     }
 
     #[pygetset]
@@ -2195,13 +2273,7 @@ impl PyType {
     }
 
     #[pyclassmethod]
-    fn __prepare__(
-        _cls: PyTypeRef,
-        _name: OptionalArg<PyObjectRef>,
-        _bases: OptionalArg<PyObjectRef>,
-        _kwargs: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyDictRef {
+    fn __prepare__(_cls: PyTypeRef, _args: PrepareArgs, vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
     }
 
@@ -2292,11 +2364,22 @@ impl PyType {
     }
 
     #[pygetset]
-    fn __text_signature__(&self) -> Option<String> {
-        self.slots
-            .doc
-            .and_then(|doc| get_text_signature_from_internal_doc(&self.name(), doc))
-            .map(|signature| signature.to_string())
+    fn __text_signature__(&self, vm: &VirtualMachine) -> Option<String> {
+        let name = self.name();
+        if let Some(doc) = self.slots.doc
+            && let Some(signature) = get_text_signature_from_internal_doc(&name, doc)
+        {
+            return Some(signature.to_string());
+        }
+        if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+            && let Some(doc_attr) = self.get_direct_attr(identifier!(vm, __doc__))
+            && let Some(doc) = doc_attr.downcast_ref::<PyStr>()
+            && let Some(doc) = doc.to_str()
+            && let Some(signature) = get_text_signature_from_internal_doc(&name, doc)
+        {
+            return Some(signature.to_string());
+        }
+        None
     }
 
     #[pygetset]
@@ -2331,6 +2414,22 @@ impl PyType {
     }
 }
 
+/// Accepts and ignores any arguments.
+struct PrepareArgs;
+
+impl FromArgs for PrepareArgs {
+    const PARAMS: Option<&'static [Param]> = Some(&[
+        Param::positional_only("name"),
+        Param::positional_only("bases"),
+        Param::var_keyword("kwds"),
+    ]);
+
+    fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        core::mem::take(args);
+        Ok(Self)
+    }
+}
+
 impl Constructor for PyType {
     type Args = FuncArgs;
 
@@ -2356,6 +2455,17 @@ impl Constructor for PyType {
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
             args.clone().bind_for(vm, Self::NAME)?;
 
+        // A mapping that is not an exact dict (e.g. OrderedDict) keeps its
+        // own iteration order; copy via the mapping protocol so that order
+        // lands in the type dict.
+        let dict = if args.args[2].class().is(vm.ctx.types.dict_type) {
+            dict
+        } else {
+            let copied = vm.ctx.new_dict();
+            copied.merge_object(args.args[2].clone(), vm)?;
+            copied
+        };
+
         if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters"));
         }
@@ -2369,7 +2479,7 @@ impl Constructor for PyType {
             for obj in bases.iter() {
                 if obj.downcast_ref::<Self>().is_none() {
                     if vm
-                        .get_attribute_opt(obj.clone(), identifier!(vm, __mro_entries__))?
+                        .get_attribute_opt(obj, identifier!(vm, __mro_entries__))?
                         .is_some()
                     {
                         return Err(vm.new_type_error(
@@ -2702,8 +2812,8 @@ impl Constructor for PyType {
                 let member_def = PyMemberDef {
                     name: mangled_name.clone(),
                     kind: MemberKind::ObjectEx,
-                    getter: MemberGetter::Offset(offset),
-                    setter: MemberSetter::Offset(offset),
+                    offset: crate::object::slot_member_offset(offset),
+                    flags: 0,
                     doc: None,
                 };
                 let attr_name = vm.ctx.intern_str(mangled_name.as_str());
@@ -2715,6 +2825,7 @@ impl Constructor for PyType {
                             qualname: PyRwLock::new(None),
                         },
                         member: member_def,
+                        access: MemberAccess::Slot,
                     });
                 // __slots__ attributes always get a member descriptor
                 // (this overrides any inherited attribute from MRO)
@@ -2877,7 +2988,7 @@ impl Initializer for PyType {
     type Args = FuncArgs;
 
     // type_init
-    fn slot_init(_zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_init(_zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         // type.__init__() takes 1 or 3 arguments
         if args.args.len() == 1 && !args.kwargs.is_empty() {
             return Err(vm.new_type_error("type.__init__() takes no keyword arguments"));
@@ -2888,7 +2999,7 @@ impl Initializer for PyType {
         Ok(())
     }
 
-    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+    fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
         unreachable!("slot_init is defined")
     }
 }
@@ -2921,8 +3032,12 @@ impl GetAttr for PyType {
             if has_descr_set {
                 let descr_get = attr_class.slots.descr_get.load();
                 if let Some(descr_get) = descr_get {
-                    let mcl = mcl.to_owned().into();
-                    return descr_get(attr.clone(), Some(zelf.to_owned().into()), Some(mcl), vm);
+                    return descr_get(
+                        attr.as_object(),
+                        Some(zelf.as_object()),
+                        Some(mcl.as_object()),
+                        vm,
+                    );
                 }
             }
         }
@@ -2930,9 +3045,9 @@ impl GetAttr for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(attr) = zelf_attr {
-            let descr_get = attr.class().slots.descr_get.load();
+            let descr_get = attr.class().slots().descr_get.load();
             if let Some(descr_get) = descr_get {
-                descr_get(attr, None, Some(zelf.to_owned().into()), vm)
+                descr_get(attr.as_object(), None, Some(zelf.as_object()), vm)
             } else {
                 Ok(attr)
             }
@@ -2973,9 +3088,9 @@ impl Py<PyType> {
         // CPython returns None if __doc__ is not in the type's own dict
         if let Some(doc_attr) = self.get_direct_attr(vm.ctx.intern_str("__doc__")) {
             // If it's a descriptor, call its __get__ method
-            let descr_get = doc_attr.class().slots.descr_get.load();
+            let descr_get = doc_attr.class().slots().descr_get.load();
             if let Some(descr_get) = descr_get {
-                descr_get(doc_attr, None, Some(self.to_owned().into()), vm)
+                descr_get(doc_attr.as_object(), None, Some(self.as_object()), vm)
             } else {
                 Ok(doc_attr)
             }
@@ -3050,7 +3165,7 @@ impl SetAttr for PyType {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let attr_name = vm.ctx.intern_str(attr_name.as_wtf8());
-        if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+        if zelf.slots().flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error(format!(
                 "cannot set '{}' attribute of immutable type '{}'",
                 attr_name,
@@ -3058,7 +3173,7 @@ impl SetAttr for PyType {
             )));
         }
         if let Some(attr) = zelf.get_class_attr(attr_name) {
-            let descr_set = attr.class().slots.descr_set.load();
+            let descr_set = attr.class().slots().descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(&attr, zelf.to_owned().into(), value, vm);
             }
@@ -3075,9 +3190,9 @@ impl SetAttr for PyType {
             zelf.modified_inner();
 
             let prev_value = if let PySetterValue::Assign(value) = value {
-                zelf.attributes.insert(attr_name, value)
+                zelf.attributes().insert(attr_name, value)
             } else {
-                let prev_value = zelf.attributes.remove(attr_name);
+                let prev_value = zelf.attributes().remove(attr_name);
                 if prev_value.is_none() {
                     return Err(vm.new_attribute_error(format!(
                         "type object '{}' has no attribute '{}'",
@@ -3118,8 +3233,10 @@ impl Callable for PyType {
             }
         }
 
-        let Some(slot_new) = zelf.slots.new.load() else {
-            return Err(vm.new_type_error(format!("cannot create '{}' instances", zelf.slots.name)));
+        let Some(slot_new) = zelf.slots().new.load() else {
+            return Err(
+                vm.new_type_error(format!("cannot create '{}' instances", zelf.slots().name))
+            );
         };
 
         // Both the new and init slots consume args, so the init call gets a
@@ -3138,7 +3255,7 @@ impl Callable for PyType {
             // so a mismatch is conservative: if it ever compared unequal for the
             // wrapper it would only take the slower cloning path, never the fast
             // path incorrectly.
-            if zelf.slots.init.load().is_none()
+            if zelf.slots().init.load().is_none()
                 && !zelf.is(vm.ctx.types.type_type)
                 && crate::types::fn_addr(slot_new)
                     != crate::types::fn_addr(crate::types::new_wrapper as crate::types::NewFunc)
@@ -3154,8 +3271,8 @@ impl Callable for PyType {
             return Ok(obj);
         }
 
-        if let Some(init_method) = obj.class().slots.init.load() {
-            init_method(obj.clone(), init_args, vm)?;
+        if let Some(init_method) = obj.class().slots().init.load() {
+            init_method(&obj, init_args, vm)?;
         }
         Ok(obj)
     }
@@ -3232,7 +3349,7 @@ fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     if let Some(base_type) = base {
         if let Some(descr) = get_dict_descriptor(&base_type, vm) {
             // Call the descriptor's tp_descr_get
-            vm.call_get_descriptor(&descr, obj.clone())
+            vm.call_get_descriptor(&descr, &obj)
                 .unwrap_or_else(|| Err(raise_dict_descriptor_error(&obj, vm)))
         } else {
             Err(raise_dict_descriptor_error(&obj, vm))
@@ -3321,10 +3438,10 @@ fn vectorcall_type(
         if nargs == 1 && no_kwargs {
             return Ok(args[0].obj_type());
         }
-    } else if zelf.slots.call.load().is_none() && zelf.slots.new.load().is_some() {
+    } else if zelf.slots().call.load().is_none() && zelf.slots().new.load().is_some() {
         // Per-type constructor vectorcall for non-callable types (dict, list, int, etc.)
         // Also guard on slots.new to avoid dispatching for DISALLOW_INSTANTIATION types.
-        if let Some(type_vc) = zelf.slots.vectorcall.load() {
+        if let Some(type_vc) = zelf.slots().vectorcall.load() {
             return type_vc(zelf_obj, args, nargs, kwnames, vm);
         }
     }
@@ -3344,7 +3461,7 @@ pub(crate) fn init(ctx: &'static Context) {
 }
 
 pub(crate) fn call_slot_new(
-    typ: PyTypeRef,
+    typ: &Py<PyType>,
     subtype: PyTypeRef,
     args: FuncArgs,
     vm: &VirtualMachine,
@@ -3358,24 +3475,25 @@ pub(crate) fn call_slot_new(
         return Err(vm.new_type_error(format!("cannot create '{}' instances", subtype.slot_name())));
     }
 
-    // "is not safe" check (tp_new_wrapper logic)
-    // Check that the user doesn't do something silly and unsafe like
-    // object.__new__(dict). To do this, we check that the most derived base
-    // that's not a heap type is this type.
+    // "is not safe" check (tp_new_wrapper). Walk past bases whose tp_new is
+    // new_wrapper so a Python subclass of a native heap type still reaches
+    // that type's tp_new; reject object.__new__(dict) and similar.
     let mut staticbase = subtype.clone();
-    while staticbase.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-        if let Some(base) = staticbase.base.to_owned() {
-            staticbase = base;
-        } else {
-            break;
+    while staticbase
+        .slots
+        .new
+        .load()
+        .is_some_and(|f| fn_addr(f) == fn_addr(new_wrapper as NewFunc))
+    {
+        match staticbase.base.to_owned() {
+            Some(base) => staticbase = base,
+            None => break,
         }
     }
 
-    // Check if staticbase's tp_new differs from typ's tp_new
     let typ_new = typ.slots.new.load();
     let staticbase_new = staticbase.slots.new.load();
-    if typ_new.map(|f| crate::types::fn_addr(f)) != staticbase_new.map(|f| crate::types::fn_addr(f))
-    {
+    if typ_new.map(fn_addr) != staticbase_new.map(fn_addr) {
         return Err(vm.new_type_error(format!(
             "{}.__new__({}) is not safe, use {}.__new__()",
             typ.slot_name(),

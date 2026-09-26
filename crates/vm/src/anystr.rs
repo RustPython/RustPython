@@ -4,15 +4,14 @@ use num_traits::{cast::ToPrimitive, sign::Signed};
 use rustpython_unicode::case;
 
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyIntRef, PyTuple},
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyInt, PyIntRef, PyTuple},
     convert::TryFromBorrowedObject,
-    function::OptionalOption,
 };
 
 #[derive(FromArgs)]
 pub struct SplitArgs<T: TryFromObject> {
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     sep: Option<T>,
     #[pyarg(any, default = -1)]
     maxsplit: isize,
@@ -49,7 +48,11 @@ pub(crate) struct StartsEndsWithArgs {
 impl StartsEndsWithArgs {
     pub(crate) fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
         let range = if self.start.is_some() || self.end.is_some() {
-            Some(adjust_indices(self.start, self.end, len))
+            Some(adjust_indices(
+                self.start.as_deref(),
+                self.end.as_deref(),
+                len,
+            ))
         } else {
             None
         };
@@ -75,7 +78,7 @@ impl StartsEndsWithArgs {
     }
 }
 
-fn saturate_to_isize(py_int: PyIntRef) -> isize {
+fn saturate_to_isize(py_int: &Py<PyInt>) -> isize {
     let big = py_int.as_bigint();
     big.to_isize().unwrap_or_else(|| {
         if big.is_negative() {
@@ -88,8 +91,8 @@ fn saturate_to_isize(py_int: PyIntRef) -> isize {
 
 // help get optional string indices
 pub(crate) fn adjust_indices(
-    start: Option<PyIntRef>,
-    end: Option<PyIntRef>,
+    start: Option<&Py<PyInt>>,
+    end: Option<&Py<PyInt>>,
     len: usize,
 ) -> Range<usize> {
     let mut start = start.map_or(0, saturate_to_isize);
@@ -242,7 +245,7 @@ pub(crate) trait AnyStr {
     #[inline]
     fn py_strip<'a, S, FC, FD>(
         &'a self,
-        chars: OptionalOption<S>,
+        chars: Option<S>,
         func_chars: FC,
         func_default: FD,
     ) -> &'a Self
@@ -251,7 +254,6 @@ pub(crate) trait AnyStr {
         FC: Fn(&'a Self, &Self) -> &'a Self,
         FD: Fn(&'a Self) -> &'a Self,
     {
-        let chars = chars.flatten();
         match chars {
             Some(chars) => {
                 if let Some(chars) = chars.as_ref() {

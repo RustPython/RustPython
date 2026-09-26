@@ -5,7 +5,7 @@ use crate::function::{FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
 use crate::stdlib::_warnings;
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, SetAttr};
-use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
 use core::fmt::Debug;
 use num_traits::ToPrimitive;
@@ -66,9 +66,9 @@ impl Constructor for PyCStructType {
 impl Initializer for PyCStructType {
     type Args = FuncArgs;
 
-    fn init(zelf: crate::PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &crate::Py<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Get the type as PyTypeRef by converting PyRef<Self> -> PyObjectRef -> PyRef<PyType>
-        let obj: PyObjectRef = zelf.into();
+        let obj: PyObjectRef = zelf.to_owned().into();
         let new_type: PyTypeRef = obj
             .downcast()
             .map_err(|_| vm.new_type_error("expected type"))?;
@@ -85,7 +85,7 @@ impl Initializer for PyCStructType {
 
         // Process _fields_ if defined directly on this class (not inherited)
         if let Some(fields_attr) = new_type.get_direct_attr(vm.ctx.intern_str("_fields_")) {
-            Self::process_fields(&new_type, fields_attr, vm)?;
+            Self::process_fields(&new_type, &fields_attr, vm)?;
         } else {
             // No _fields_ defined - try to copy from base class (PyCStgInfo_clone)
             let (has_base_info, base_clone) = {
@@ -221,7 +221,7 @@ impl PyCStructType {
 
         // Check if _fields_ is defined
         if let Some(fields_attr) = cls.get_direct_attr(vm.ctx.intern_str("_fields_")) {
-            Self::process_fields(&cls, fields_attr, vm)?;
+            Self::process_fields(&cls, &fields_attr, vm)?;
         }
         Ok(())
     }
@@ -229,7 +229,7 @@ impl PyCStructType {
     /// Process _fields_ and create CField descriptors
     fn process_fields(
         cls: &Py<PyType>,
-        fields_attr: PyObjectRef,
+        fields_attr: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Check if this is a swapped byte order structure
@@ -417,7 +417,6 @@ impl PyCStructType {
 
             // Create CField descriptor with padding-adjusted offset
             let field_type_ref = field_type
-                .clone()
                 .downcast::<PyType>()
                 .map_err(|_| vm.new_type_error("_fields_ type must be a ctypes type"))?;
 
@@ -622,7 +621,7 @@ impl SetAttr for PyCStructType {
                 return Err(vm.new_attribute_error("cannot delete _fields_"));
             };
             // Process fields (this will also set DICTFLAG_FINAL)
-            Self::process_fields(pytype, fields_value.clone(), vm)?;
+            Self::process_fields(pytype, &fields_value, vm)?;
             // Set the _fields_ attribute on the type
             pytype
                 .attributes
@@ -635,7 +634,7 @@ impl SetAttr for PyCStructType {
 
         // Check for data descriptor first
         if let Some(attr) = pytype.get_class_attr(attr_name_interned) {
-            let descr_set = attr.class().slots.descr_set.load();
+            let descr_set = attr.class().slots().descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(&attr, pytype.to_owned().into(), value, vm);
             }
@@ -769,13 +768,13 @@ impl PyCStructure {
 impl Initializer for PyCStructure {
     type Args = FuncArgs;
 
-    fn init(zelf: crate::PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &crate::Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Struct_init: handle positional and keyword arguments
         let cls = zelf.class().to_owned();
 
         // 1. Process positional arguments recursively through inheritance chain
         if !args.args.is_empty() {
-            let consumed = Self::init_pos_args(&zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
+            let consumed = Self::init_pos_args(zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
 
             if consumed < args.args.len() {
                 return Err(vm.new_type_error("too many initializers"));

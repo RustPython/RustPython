@@ -196,9 +196,9 @@ impl Node for ast::Parameter {
         let type_comment = get_ast_string_field_opt(vm, &_object, "type_comment")?;
         let (runtime_type_comment, runtime_type_comment_bytes) = type_comment
             .map_or((None, None), |type_comment| {
-                super::constant::runtime_string_from_pyobject(vm, type_comment)
+                super::constant::runtime_string_from_pyobject(vm, &type_comment)
             });
-        let range = range_from_object(vm, source_file, _object, "arg")?;
+        let range = range_from_object(vm, source_file, &_object, "arg")?;
         Ok(Self {
             node_index: Default::default(),
             name,
@@ -241,7 +241,7 @@ impl Node for ast::Keyword {
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
             value: get_required_node_field(vm, source_file, &_object, "value", "keyword")?,
-            range: range_from_object(vm, source_file, _object, "keyword")?,
+            range: range_from_object(vm, source_file, &_object, "keyword")?,
         })
     }
 }

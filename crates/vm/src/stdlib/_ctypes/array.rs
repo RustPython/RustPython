@@ -3,7 +3,7 @@ use super::base::{CDATA_BUFFER_METHODS, PyCData};
 use crate::common::lock::LazyLock;
 use crate::sliceable::SaturatedSliceIter;
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     atomic_func,
     builtins::{
         PyBytes, PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef, genericalias::PyGenericAlias,
@@ -175,7 +175,7 @@ pub(super) struct PyCArrayType(PyType);
 impl Initializer for PyCArrayType {
     type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // zelf is the newly created array type (e.g., T in "class T(Array)")
         let new_type: &PyType = &zelf.0;
 
@@ -436,7 +436,7 @@ impl Constructor for PyCArray {
 
         // Initialize elements using setitem_by_index (Array_init pattern)
         for (i, value) in args.args.iter().enumerate() {
-            Self::setitem_by_index(&instance, i as isize, value.clone(), vm)?;
+            Self::setitem_by_index(&instance, i as isize, value, vm)?;
         }
 
         Ok(instance.into())
@@ -450,10 +450,10 @@ impl Constructor for PyCArray {
 impl Initializer for PyCArray {
     type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Re-initialize array elements when __init__ is called
         for (i, value) in args.args.iter().enumerate() {
-            Self::setitem_by_index(&zelf, i as isize, value.clone(), vm)?;
+            Self::setitem_by_index(zelf, i as isize, value, vm)?;
         }
         Ok(())
     }
@@ -473,7 +473,7 @@ impl AsSequence for PyCArray {
             ass_item: atomic_func!(|seq, i, value, vm| {
                 let zelf = PyCArray::sequence_downcast(seq);
                 match value {
-                    Some(v) => PyCArray::setitem_by_index(zelf, i, v, vm),
+                    Some(v) => PyCArray::setitem_by_index(zelf, i, &v, vm),
                     None => Err(vm.new_type_error("cannot delete array elements")),
                 }
             }),
@@ -492,12 +492,12 @@ impl AsMapping for PyCArray {
             }),
             subscript: atomic_func!(|mapping, needle, vm| {
                 let zelf = PyCArray::mapping_downcast(mapping);
-                PyCArray::__getitem__(zelf, needle.to_owned(), vm)
+                PyCArray::__getitem__(zelf, needle, vm)
             }),
             ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                 let zelf = PyCArray::mapping_downcast(mapping);
                 match value {
-                    Some(value) => PyCArray::__setitem__(zelf, needle.to_owned(), value, vm),
+                    Some(value) => PyCArray::__setitem__(zelf, needle, value, vm),
                     None => PyCArray::__delitem__(zelf, needle.to_owned(), vm),
                 }
             }),
@@ -514,10 +514,10 @@ impl PyCArray {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 
     fn int_to_bytes(i: &malachite_bigint::BigInt, size: usize) -> Vec<u8> {
@@ -787,7 +787,7 @@ impl PyCArray {
     fn setitem_by_index(
         zelf: &Py<Self>,
         i: isize,
-        value: PyObjectRef,
+        value: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let stg = zelf.class().stg_info_opt();
@@ -827,7 +827,7 @@ impl PyCArray {
                     final_offset,
                     element_size,
                     type_code.as_deref(),
-                    &value,
+                    value,
                     zelf,
                     index,
                     vm,
@@ -838,7 +838,7 @@ impl PyCArray {
                 final_offset,
                 element_size,
                 type_code.as_deref(),
-                &value,
+                value,
                 zelf,
                 index,
                 vm,
@@ -847,7 +847,7 @@ impl PyCArray {
     }
 
     // Array_subscript
-    fn __getitem__(zelf: &Py<Self>, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __getitem__(zelf: &Py<Self>, item: &PyObject, vm: &VirtualMachine) -> PyResult {
         // PyIndex_Check
         if let Some(i) = item.downcast_ref::<PyInt>() {
             let i = i.as_bigint().to_isize().ok_or_else(|| {
@@ -953,7 +953,7 @@ impl PyCArray {
     // Array_ass_subscript
     fn __setitem__(
         zelf: &Py<Self>,
-        item: PyObjectRef,
+        item: &PyObject,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -966,11 +966,11 @@ impl PyCArray {
                 vm.new_index_error("cannot fit index into an index-sized integer")
             })?;
             // setitem_by_index handles negative index normalization
-            Self::setitem_by_index(zelf, i, value, vm)
+            Self::setitem_by_index(zelf, i, &value, vm)
         }
         // PySlice_Check
         else if let Some(slice) = item.downcast_ref::<PySlice>() {
-            Self::setitem_by_slice(zelf, slice, value, vm)
+            Self::setitem_by_slice(zelf, slice, &value, vm)
         } else {
             Err(vm.new_type_error("indices must be integer"))
         }
@@ -985,7 +985,7 @@ impl PyCArray {
     fn setitem_by_slice(
         zelf: &Py<Self>,
         slice: &Py<PySlice>,
-        value: PyObjectRef,
+        value: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let length = zelf.class().stg_info_opt().map_or(0, |i| i.length);
@@ -1006,13 +1006,13 @@ impl PyCArray {
             return Err(vm.new_value_error("Can only assign sequence of same size"));
         }
 
-        let items: Vec<PyObjectRef> = vm.extract_elements_with(&value, Ok)?;
+        let items: Vec<PyObjectRef> = vm.extract_elements_with(value, Ok)?;
 
         // Use SaturatedSliceIter for correct index iteration (handles negative step)
         let iter = SaturatedSliceIter::from_adjust_indices(range, step, slice_len);
 
         for (idx, item) in iter.zip(items) {
-            Self::setitem_by_index(zelf, idx as isize, item, vm)?;
+            Self::setitem_by_index(zelf, idx as isize, &item, vm)?;
         }
         Ok(())
     }

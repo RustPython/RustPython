@@ -117,8 +117,9 @@ impl PyObject {
         Ok(iterator)
     }
 
+    /// `hasattr()` lookup. Missing attributes are `false`; other errors propagate.
     pub fn has_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult<bool> {
-        self.get_attr(attr_name, vm).map(|o| !vm.is_none(&o))
+        Ok(vm.get_attribute_opt(self, attr_name)?.is_some())
     }
 
     /// Get an attribute by name.
@@ -133,7 +134,7 @@ impl PyObject {
     #[inline]
     pub(crate) fn get_attr_inner(&self, attr_name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__: {:?} {:?}", self, attr_name);
-        let getattro = self.class().slots.getattro.load().unwrap();
+        let getattro = self.class().slots().getattro.load().unwrap();
         getattro(self, attr_name, vm).inspect_err(|exc| {
             vm.set_attribute_error_context(exc, self.to_owned(), attr_name.to_owned());
         })
@@ -190,7 +191,7 @@ impl PyObject {
             .interned_str(attr_name)
             .and_then(|attr_name| self.get_class_attr(attr_name));
         if let Some(attr) = &descr
-            && let Some(descriptor) = attr.class().slots.descr_set.load()
+            && let Some(descriptor) = attr.class().slots().descr_set.load()
         {
             return descriptor(attr, self.to_owned(), value, vm);
         }
@@ -204,7 +205,7 @@ impl PyObject {
             }
             // Only a type that left __setattr__ alone can be told about the
             // missing __dict__, since overriding it is what hides the slot.
-            let generic_setattro = self.class().slots.setattro.load().is_some_and(|f| {
+            let generic_setattro = self.class().slots().setattro.load().is_some_and(|f| {
                 crate::types::fn_addr(f)
                     == crate::types::fn_addr(
                         PyBaseObject::slot_setattro as crate::types::SetattroFunc,
@@ -263,8 +264,8 @@ impl PyObject {
                 if let Some(descr_get) = descr_get
                     && descr_cls.slots.descr_set.load().is_some()
                 {
-                    let cls = obj_cls.to_owned().into();
-                    return descr_get(descr, Some(self.to_owned()), Some(cls), vm).map(Some);
+                    return descr_get(descr.as_object(), Some(self), Some(obj_cls.as_object()), vm)
+                        .map(Some);
                 }
                 Some((descr, descr_get))
             }
@@ -286,8 +287,7 @@ impl PyObject {
         } else if let Some((attr, descr_get)) = cls_attr {
             match descr_get {
                 Some(descr_get) => {
-                    let cls = obj_cls.to_owned().into();
-                    descr_get(attr, Some(self.to_owned()), Some(cls), vm).map(Some)
+                    descr_get(attr.as_object(), Some(self), Some(obj_cls.as_object()), vm).map(Some)
                 }
                 None => Ok(Some(attr)),
             }
@@ -338,7 +338,7 @@ impl PyObject {
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
         let call_cmp = |obj: &Self, other: &Self, op| {
-            let Some(cmp) = obj.class().slots.richcompare.load() else {
+            let Some(cmp) = obj.class().slots().richcompare.load() else {
                 return Ok(PyArithmeticValue::NotImplemented);
             };
             let r = match cmp(obj, other, op, vm)? {
@@ -420,7 +420,7 @@ impl PyObject {
 
     pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         vm.with_recursion("while getting the repr of an object", || {
-            self.class().slots.repr.load().map_or_else(
+            self.class().slots().repr.load().map_or_else(
                 || {
                     Err(vm.new_runtime_error(format!(
                     "BUG: object of type '{}' has no __repr__ method. This is a bug in RustPython.",
@@ -460,7 +460,7 @@ impl PyObject {
             Err(obj) => obj,
         };
 
-        // TODO: replace to obj.class().slots.str
+        // TODO: replace to obj.class().slots().str
         let Some(str_method) = vm.get_special_method(&obj, identifier!(vm, __str__))? else {
             return obj.repr(vm);
         };
@@ -497,7 +497,7 @@ impl PyObject {
     /// Other exceptions are propagated.
     fn abstract_get_bases(&self, vm: &VirtualMachine) -> PyResult<Option<PyTupleRef>> {
         Ok(vm
-            .get_attribute_opt(self.to_owned(), identifier!(vm, __bases__))?
+            .get_attribute_opt(self, identifier!(vm, __bases__))?
             // If we get `None` then AttributeError was masked.
             .and_then(|bases| {
                 // Check if it's a tuple
@@ -641,8 +641,7 @@ impl PyObject {
             // PyType_Check(cls) - cls is a type object
             let mut retval = self.class().is_subtype(cls);
             if !retval
-                && let Some(i_cls) =
-                    vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
+                && let Some(i_cls) = vm.get_attribute_opt(self, identifier!(vm, __class__))?
                 && let Ok(i_cls_type) = PyTypeRef::try_from_object(vm, i_cls)
                 && !i_cls_type.is(self.class())
             {
@@ -656,9 +655,7 @@ impl PyObject {
                 "isinstance() arg 2 must be a type, a tuple of types, or a union",
             )?;
 
-            if let Some(i_cls) =
-                vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class__))?
-            {
+            if let Some(i_cls) = vm.get_attribute_opt(self, identifier!(vm, __class__))? {
                 i_cls.abstract_issubclass(cls, vm)
             } else {
                 Ok(false)
@@ -723,7 +720,7 @@ impl PyObject {
     }
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        if let Some(hash) = self.class().slots.hash.load() {
+        if let Some(hash) = self.class().slots().hash.load() {
             return vm.with_recursion("while hashing", || hash(self, vm));
         }
 
@@ -776,7 +773,7 @@ impl PyObject {
                 }
 
                 if let Some(class_getitem) =
-                    vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class_getitem__))?
+                    vm.get_attribute_opt(self, identifier!(vm, __class_getitem__))?
                     && !vm.is_none(&class_getitem)
                 {
                     return class_getitem.call((needle,), vm);
@@ -840,7 +837,7 @@ impl PyObject {
         // A type carrying a sequence table turns the deletion down in
         // PySequence_DelItem's words instead; every heap type carries one.
         let name = self.class().slot_name();
-        let msg = if seq.slots().has_any() || self.class().heaptype_ext.is_some() {
+        let msg = if seq.slots().has_any() || self.class().heaptype_ext().is_some() {
             format!("'{name}' object doesn't support item deletion")
         } else {
             format!("'{name}' object does not support item deletion")
@@ -862,10 +859,9 @@ impl PyObject {
             return Ok(None);
         };
 
-        let descr_get = res.class().slots.descr_get.load();
+        let descr_get = res.class().slots().descr_get.load();
         if let Some(descr_get) = descr_get {
-            let obj_cls = obj_cls.to_owned().into();
-            descr_get(res, Some(self.to_owned()), Some(obj_cls), vm).map(Some)
+            descr_get(res.as_object(), Some(self), Some(obj_cls.as_object()), vm).map(Some)
         } else {
             Ok(Some(res))
         }

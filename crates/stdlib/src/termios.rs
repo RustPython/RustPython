@@ -281,7 +281,8 @@ mod termios {
     }
 
     #[pyfunction]
-    fn tcsetwinsize(Fildes(fd): Fildes, size: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcsetwinsize(Fildes(fd): Fildes, winsize: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let size = winsize;
         let seq = size.try_sequence(vm)?;
         if seq.length(vm)? != 2 {
             return Err(vm.new_type_error("tcsetwinsize: size must be a 2 element sequence"));

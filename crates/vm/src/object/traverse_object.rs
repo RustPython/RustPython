@@ -4,7 +4,7 @@ use core::any::TypeId;
 use crate::{
     PyObject, PyObjectRef,
     object::{
-        Erased, InstanceDict, MaybeTraverse, PyInner, PyObjectPayload, debug_obj, default_dealloc,
+        Erased, InstanceDict, MaybeTraverse, Py, PyObjectPayload, debug_obj, default_dealloc,
         try_clear_obj, try_traverse_obj,
     },
 };
@@ -52,8 +52,8 @@ unsafe impl Traverse for InstanceDict {
     }
 }
 
-unsafe impl Traverse for PyInner<Erased> {
-    /// Because PyObject hold a `PyInner<Erased>`, so we need to trace it
+unsafe impl Traverse for Py<Erased> {
+    /// Because PyObject hold a `Py<Erased>`, so we need to trace it
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         // For heap type instances, traverse the type reference.
         // PyAtomicRef holds a strong reference (via PyRef::leak), so GC must
@@ -68,7 +68,9 @@ unsafe impl Traverse for PyInner<Erased> {
         // Traverse ObjExt prefix fields (dict and slots) if present
         if let Some(ext) = self.ext_ref() {
             ext.dict.traverse(tracer_fn);
-            ext.slots.traverse(tracer_fn);
+            for slot in self.slot_cells() {
+                slot.traverse(tracer_fn);
+            }
         }
 
         if let Some(f) = self.vtable.trace {
@@ -80,7 +82,10 @@ unsafe impl Traverse for PyInner<Erased> {
     }
 }
 
-unsafe impl<T: MaybeTraverse> Traverse for PyInner<T> {
+unsafe impl<T: MaybeTraverse> Traverse for Py<T> {
+    /// DO notice that call `trace` on `Py<T>` means apply `tracer_fn` on `Py<T>`'s children,
+    /// not like call `trace` on `PyRef<T>` which apply `tracer_fn` on `PyRef<T>` itself
+    ///
     /// Type is known, so we can call `try_trace` directly instead of using erased type vtable
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         // For heap type instances, traverse the type reference (same as erased version)
@@ -92,7 +97,9 @@ unsafe impl<T: MaybeTraverse> Traverse for PyInner<T> {
         // Traverse ObjExt prefix fields (dict and slots) if present
         if let Some(ext) = self.ext_ref() {
             ext.dict.traverse(tracer_fn);
-            ext.slots.traverse(tracer_fn);
+            for slot in self.slot_cells() {
+                slot.traverse(tracer_fn);
+            }
         }
         T::try_traverse(&self.payload, tracer_fn);
     }

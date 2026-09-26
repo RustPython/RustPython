@@ -98,7 +98,7 @@ mod _json {
             pystr: PyStrRef,
             char_idx: usize,
             byte_idx: usize,
-            scan_once: PyObjectRef,
+            scan_once: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<PyIterReturn> {
             flame_guard!("JsonScanner::parse");
@@ -128,7 +128,7 @@ mod _json {
                     // Parse object in Rust
                     let mut memo = HashMap::new();
                     return self
-                        .parse_object(pystr, char_idx + 1, byte_idx + 1, &scan_once, &mut memo, vm)
+                        .parse_object(pystr, char_idx + 1, byte_idx + 1, scan_once, &mut memo, vm)
                         .map(|(obj, end_char, _end_byte)| {
                             PyIterReturn::Return(vm.new_tuple((obj, end_char)).into())
                         });
@@ -137,7 +137,7 @@ mod _json {
                     // Parse array in Rust
                     let mut memo = HashMap::new();
                     return self
-                        .parse_array(pystr, char_idx + 1, byte_idx + 1, &scan_once, &mut memo, vm)
+                        .parse_array(pystr, char_idx + 1, byte_idx + 1, scan_once, &mut memo, vm)
                         .map(|(obj, end_char, _end_byte)| {
                             PyIterReturn::Return(vm.new_tuple((obj, end_char)).into())
                         });
@@ -688,19 +688,19 @@ mod _json {
                 }
             };
 
-            zelf.parse(pystr, char_idx, byte_idx, zelf.to_owned().into(), vm)
+            zelf.parse(pystr, char_idx, byte_idx, zelf.as_object(), vm)
                 .and_then(|x| x.to_pyresult(vm))
         }
     }
 
     #[pyfunction]
-    fn encode_basestring(s: PyStrRef) -> Wtf8Buf {
-        json::encode_string(s.as_wtf8(), false)
+    fn encode_basestring(object: PyStrRef) -> Wtf8Buf {
+        json::encode_string(object.as_wtf8(), false)
     }
 
     #[pyfunction]
-    fn encode_basestring_ascii(s: PyStrRef) -> Wtf8Buf {
-        json::encode_string(s.as_wtf8(), true)
+    fn encode_basestring_ascii(object: PyStrRef) -> Wtf8Buf {
+        json::encode_string(object.as_wtf8(), true)
     }
 
     /// Which Rust-native string escaper (if any) the `encoder` callable is
@@ -881,7 +881,7 @@ mod _json {
     fn add_note(exc: PyBaseExceptionRef, note: Wtf8Buf, vm: &VirtualMachine) -> PyBaseExceptionRef {
         // `PyBaseException::add_note` is `pub`, so call it directly instead
         // of going through the generic attribute-lookup + call machinery.
-        let _ = exc.clone().add_note(vm.ctx.new_str(note), vm);
+        let _ = exc.add_note(vm.ctx.new_str(note), vm);
         exc
     }
 

@@ -182,8 +182,8 @@ impl PyTemplate {
         Ok(template.into_ref(&vm.ctx))
     }
 
-    fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        self.concat(&other, vm)
+    fn __add__(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        self.concat(other, vm)
     }
 
     #[pyclassmethod]

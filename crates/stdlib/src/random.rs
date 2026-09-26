@@ -6,9 +6,8 @@ pub(crate) use _random::module_def;
 mod _random {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyInt, PyTupleRef},
-        function::OptionalOption,
         types::{Constructor, Initializer},
     };
     use itertools::Itertools;
@@ -25,13 +24,19 @@ mod _random {
         rng: PyMutex<MT19937>,
     }
 
+    #[derive(FromArgs)]
+    struct SeedArgs {
+        #[pyarg(positional, optional)]
+        n: Option<PyObjectRef>,
+    }
+
     impl DefaultConstructor for PyRandom {}
 
     impl Initializer for PyRandom {
-        type Args = OptionalOption;
+        type Args = SeedArgs;
 
-        fn init(zelf: PyRef<Self>, x: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.seed(x, vm)
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.seed(args, vm)
         }
     }
 
@@ -44,8 +49,8 @@ mod _random {
         }
 
         #[pymethod]
-        fn seed(&self, n: OptionalOption<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
-            *self.rng.lock() = match n.flatten() {
+        fn seed(&self, args: SeedArgs, vm: &VirtualMachine) -> PyResult<()> {
+            *self.rng.lock() = match args.n {
                 Some(n) => {
                     // Fallback to using hash if object isn't Int-like.
                     let (_, mut key) = match n.downcast::<PyInt>() {
