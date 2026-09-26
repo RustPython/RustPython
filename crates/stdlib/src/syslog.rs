@@ -86,22 +86,13 @@ mod syslog {
         }
         .map(|ident| ident.into_boxed_c_str());
 
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+        vm.audit("syslog.openlog", || {
             let audit_ident: PyObjectRef = args.ident.map_or_else(
                 || get_argv(vm).map_or_else(|| vm.ctx.none(), Into::into),
                 Into::into,
             );
-
-            audit.call(
-                (
-                    vm.ctx.new_str("syslog.openlog"),
-                    audit_ident,
-                    logoption,
-                    facility,
-                ),
-                vm,
-            )?;
-        }
+            (audit_ident, logoption, facility)
+        })?;
 
         host_syslog::openlog(ident, logoption, facility);
         Ok(())
@@ -122,9 +113,7 @@ mod syslog {
             None => (LOG_INFO, args.priority.try_into_value(vm)?),
         };
 
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("syslog.syslog"), priority, msg.clone()), vm)?;
-        }
+        vm.audit("syslog.syslog", || (priority, msg.clone()))?;
 
         if !host_syslog::is_open() {
             openlog(
@@ -143,9 +132,7 @@ mod syslog {
 
     #[pyfunction]
     fn closelog(vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("syslog.closelog"),), vm)?;
-        }
+        vm.audit("syslog.closelog", || ())?;
 
         host_syslog::closelog();
         Ok(())
@@ -153,9 +140,7 @@ mod syslog {
 
     #[pyfunction]
     fn setlogmask(maskpri: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("syslog.setlogmask"), maskpri), vm)?;
-        }
+        vm.audit("syslog.setlogmask", || (maskpri,))?;
 
         Ok(host_syslog::setlogmask(maskpri))
     }

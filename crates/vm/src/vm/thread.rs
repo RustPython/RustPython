@@ -1486,7 +1486,6 @@ impl VirtualMachine {
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
             callable_cache: self.callable_cache.clone(),
-            audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(None),
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
             pending_gen_resume: core::cell::UnsafeCell::new(None),

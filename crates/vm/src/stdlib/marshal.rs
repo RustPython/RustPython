@@ -109,12 +109,7 @@ mod decl {
             version,
         } = args;
 
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call(
-                (vm.ctx.new_str("marshal.dumps"), value.clone(), version),
-                vm,
-            )?;
-        }
+        vm.audit("marshal.dumps", || (value.clone(), version))?;
 
         check_exact_type(&value, vm)?;
         let mut buf = Vec::new();

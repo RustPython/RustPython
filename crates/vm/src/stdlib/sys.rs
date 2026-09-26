@@ -1031,9 +1031,7 @@ pub mod sys {
         let depth = args.depth;
         let frame_ref = crate::frame::frame_at_offset(depth, vm)
             .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("sys._getframe"), frame_ref.to_owned()), vm)?;
-        }
+        vm.audit("sys._getframe", || (frame_ref.to_owned(),))?;
 
         Ok(frame_ref)
     }
@@ -1044,9 +1042,7 @@ pub mod sys {
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
         let depth = args.depth;
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("sys._getframemodulename"), depth), vm)?;
-        }
+        vm.audit("sys._getframemodulename", || (depth,))?;
 
         // Get the frame at the specified depth
         let func_obj = match crate::frame::frame_at_offset(depth, vm) {
@@ -1827,7 +1823,7 @@ pub mod sys {
         args: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let hooks = vm.audit_hooks.borrow().clone();
+        let hooks = vm.state.audit_hooks.lock().clone();
 
         if hooks.is_empty() {
             return Ok(());
@@ -1884,7 +1880,7 @@ pub mod sys {
 
     #[pyfunction]
     fn audit(event: PyStrRef, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.audit_hooks.borrow().is_empty() {
+        if vm.state.audit_hooks.lock().is_empty() {
             return Ok(());
         }
 
@@ -1894,31 +1890,35 @@ pub mod sys {
 
     #[pyfunction]
     fn addaudithook(AuditHookArgs { hook }: AuditHookArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let hooks = vm.audit_hooks.borrow().clone();
-
-        if hooks.is_empty() {
-            vm.audit_hooks.borrow_mut().push(hook);
-            return Ok(());
-        }
-
         let args: PyObjectRef = vm.ctx.new_tuple(vec![]).into();
         let event: PyObjectRef = vm.ctx.new_str("sys.addaudithook").into();
 
-        for existing_hook in hooks {
-            let Err(exc) = call_audit_hook(&existing_hook, event.clone(), &args, vm) else {
-                continue;
+        // Hooks are append-only: append only once every hook present has been notified,
+        // notifying any added by other threads meanwhile. Python hooks run unlocked.
+        let mut notified = 0;
+        loop {
+            let pending = {
+                let mut hooks = vm.state.audit_hooks.lock();
+                if hooks.len() == notified {
+                    hooks.push(hook);
+                    return Ok(());
+                }
+                hooks[notified..].to_vec()
             };
-            if exc
-                .class()
-                .fast_issubclass(vm.ctx.exceptions.exception_type)
-            {
-                return Ok(());
+            for existing_hook in pending {
+                if let Err(exc) = call_audit_hook(&existing_hook, event.clone(), &args, vm) {
+                    return if exc
+                        .class()
+                        .fast_issubclass(vm.ctx.exceptions.exception_type)
+                    {
+                        Ok(())
+                    } else {
+                        Err(exc)
+                    };
+                }
+                notified += 1;
             }
-            return Err(exc);
         }
-
-        vm.audit_hooks.borrow_mut().push(hook);
-        Ok(())
     }
 }
 
