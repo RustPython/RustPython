@@ -78,6 +78,7 @@ impl GetDescriptor for PyMethodDescriptor {
         let descr = Self::_as_pyref(zelf, vm).unwrap();
         let bound = match obj {
             Some(obj) => {
+                method_descr_typecheck(descr, obj, vm)?;
                 if descr.method.flags.contains(PyMethodFlags::METHOD) {
                     if cls
                         .as_ref()
@@ -108,6 +109,9 @@ impl Callable for PyMethodDescriptor {
     type Args = FuncArgs;
     #[inline]
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if let Some(obj) = args.args.first() {
+            method_descr_typecheck(zelf, obj, vm)?;
+        }
         (zelf.method.func)(
             vm,
             args,
@@ -881,6 +885,25 @@ impl GetDescriptor for PyMemberDescriptor {
     }
 }
 
+fn method_descr_typecheck(
+    descr: &PyMethodDescriptor,
+    obj: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    if descr.method.flags.contains(PyMethodFlags::STATIC)
+        || descr.method.flags.contains(PyMethodFlags::CLASS)
+        || obj.fast_isinstance(descr.common.typ)
+    {
+        return Ok(());
+    }
+    Err(vm.new_type_error(format!(
+        "descriptor '{}' for '{}' objects doesn't apply to a '{}' object",
+        descr.common.name.as_str(),
+        descr.common.typ.name(),
+        obj.class().name()
+    )))
+}
+
 /// Vectorcall for method_descriptor: calls native method directly
 fn vectorcall_method_descriptor(
     zelf_obj: &PyObject,
@@ -890,6 +913,11 @@ fn vectorcall_method_descriptor(
     vm: &VirtualMachine,
 ) -> PyResult {
     let zelf: &Py<PyMethodDescriptor> = zelf_obj.downcast_ref().unwrap();
+    if nargs > 0
+        && let Some(obj) = args.first()
+    {
+        method_descr_typecheck(zelf, obj, vm)?;
+    }
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
     (zelf.method.func)(
         vm,
