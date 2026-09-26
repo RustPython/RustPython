@@ -17,8 +17,7 @@ mod _collections {
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
         function::{
-            ArgIterable, ArgPrimitiveIndex, FuncArgs, KwArgs, OptionalArg, PyComparisonValue,
-            PySetterValue,
+            ArgIterable, FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue, PySsize,
         },
         object::{Traverse, TraverseFn},
         protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
@@ -1136,7 +1135,7 @@ mod _collections {
     }
 
     impl Constructor for PyTupleGetter {
-        type Args = (ArgPrimitiveIndex<isize>, PyObjectRef);
+        type Args = (PySsize, PyObjectRef);
 
         fn py_new(
             _cls: &Py<PyType>,
@@ -1144,7 +1143,7 @@ mod _collections {
             _vm: &VirtualMachine,
         ) -> PyResult<Self> {
             Ok(Self {
-                index: index.value,
+                index,
                 doc: PyRwLock::new(Some(doc)),
             })
         }
