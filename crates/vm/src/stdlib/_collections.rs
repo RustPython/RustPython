@@ -1078,7 +1078,6 @@ mod _collections {
         }
     }
 
-    /// `Counter`'s tally loop: `mapping[elem] = mapping.get(elem, 0) + 1` for each element.
     #[pyfunction]
     fn _count_elements(
         mapping: PyObjectRef,
