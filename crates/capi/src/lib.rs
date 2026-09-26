@@ -1,3 +1,4 @@
+#![cfg_attr(feature = "nightly", feature(c_variadic))]
 #![allow(clippy::missing_safety_doc)]
 
 use crate::pyerrors::init_exception_statics;
@@ -41,6 +42,7 @@ pub mod pystrcmp;
 pub mod refcount;
 pub mod setobject;
 pub mod sliceobject;
+pub mod slots;
 pub mod traceback;
 pub mod tupleobject;
 pub mod unicodeobject;
