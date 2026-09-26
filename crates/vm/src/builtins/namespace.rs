@@ -3,7 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyDict,
     class::PyClassImpl,
-    function::{FuncArgs, PyComparisonValue},
+    function::{KwArgs, NameChanges, OptionalArg, PyComparisonValue},
     recursion::ReprGuard,
     types::{
         Comparable, Constructor, DefaultConstructor, Initializer, PyComparisonOp, Representable,
@@ -45,11 +45,11 @@ impl PyNamespace {
     }
 
     #[pymethod]
-    fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if !args.args.is_empty() {
-            return Err(vm.new_type_error("__replace__() takes no positional arguments"));
-        }
-
+    fn __replace__(
+        zelf: PyObjectRef,
+        changes: KwArgs<PyObjectRef, NameChanges>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         // Create a new instance of the same type
         let cls: PyObjectRef = zelf.class().to_owned().into();
         let result = cls.call((), vm)?;
@@ -77,7 +77,7 @@ impl PyNamespace {
         }
 
         // Update with the provided kwargs
-        for (name, value) in args.kwargs {
+        for (name, value) in changes {
             let name = vm.ctx.new_str(name);
             result.set_attr(&name, value, vm)?;
         }
@@ -86,21 +86,20 @@ impl PyNamespace {
     }
 }
 
+#[derive(FromArgs)]
+pub struct NamespaceArgs {
+    #[pyarg(positional, default, py_default = "()")]
+    mapping_or_iterable: OptionalArg<PyObjectRef>,
+    #[pyarg(flatten)]
+    kwargs: KwArgs,
+}
+
 impl Initializer for PyNamespace {
-    type Args = FuncArgs;
+    type Args = NamespaceArgs;
 
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        // SimpleNamespace accepts 0 or 1 positional argument (a mapping)
-        if args.args.len() > 1 {
-            return Err(vm.new_type_error(format!(
-                "{} expected at most 1 positional argument, got {}",
-                zelf.class().name(),
-                args.args.len()
-            )));
-        }
-
         // If there's a positional argument, treat it as a mapping
-        if let Some(mapping) = args.args.first() {
+        if let OptionalArg::Present(mapping) = args.mapping_or_iterable {
             // Convert to dict if not already
             let dict: PyRef<PyDict> = if let Some(d) = mapping.downcast_ref::<PyDict>() {
                 d.to_owned()
@@ -108,7 +107,7 @@ impl Initializer for PyNamespace {
                 // Call dict() on the mapping
                 let dict_type: PyObjectRef = vm.ctx.types.dict_type.to_owned().into();
                 dict_type
-                    .call((mapping.clone(),), vm)?
+                    .call((mapping,), vm)?
                     .downcast()
                     .map_err(|_| vm.new_type_error("dict() did not return a dict"))?
             };

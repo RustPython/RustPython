@@ -14,7 +14,7 @@ mod decl {
             PyStopIteration, PyStr, PyTuple,
         },
         convert::ToPyObject,
-        function::{ArgBytesLike, OptionalArg},
+        function::ArgBytesLike,
         object::{AsObject, PyPayload},
     };
     use core::cell::RefCell;
@@ -93,9 +93,10 @@ mod decl {
 
     #[derive(FromArgs)]
     struct DumpsArgs {
+        #[pyarg(positional)]
         value: PyObjectRef,
-        #[pyarg(any, optional)]
-        _version: OptionalArg<i32>,
+        #[pyarg(positional, default = 5)]
+        version: i32,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }
@@ -105,9 +106,8 @@ mod decl {
         let DumpsArgs {
             value,
             allow_code,
-            _version,
+            version,
         } = args;
-        let version = _version.unwrap_or(marshal::FORMAT_VERSION as i32);
 
         vm.audit("marshal.dumps", || (value.clone(), version))?;
 
@@ -469,10 +469,12 @@ mod decl {
 
     #[derive(FromArgs)]
     struct DumpArgs {
+        #[pyarg(positional)]
         value: PyObjectRef,
-        f: PyObjectRef,
-        #[pyarg(any, optional)]
-        _version: OptionalArg<i32>,
+        #[pyarg(positional)]
+        file: PyObjectRef,
+        #[pyarg(positional, default = 5)]
+        version: i32,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }
@@ -482,12 +484,12 @@ mod decl {
         let dumped = dumps(
             DumpsArgs {
                 value: args.value,
-                _version: args._version,
+                version: args.version,
                 allow_code: args.allow_code,
             },
             vm,
         )?;
-        vm.call_method(&args.f, "write", (dumped,))?;
+        vm.call_method(&args.file, "write", (dumped,))?;
         Ok(())
     }
 
@@ -760,24 +762,25 @@ mod decl {
 
     #[derive(FromArgs)]
     struct LoadsArgs {
-        #[pyarg(any)]
+        #[pyarg(positional)]
         // marshal_loads_impl takes `bytes: Py_buffer`, a y* argument.
-        data: ArgBytesLike,
+        bytes: ArgBytesLike,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }
 
     #[pyfunction]
     fn loads(args: LoadsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let LoadsArgs { data, allow_code } = args;
-        let buf = data.borrow_buf();
+        let LoadsArgs { bytes, allow_code } = args;
+        let buf = bytes.borrow_buf();
 
         deserialize_value(&mut &buf[..], allow_code, vm)
     }
 
     #[derive(FromArgs)]
     struct LoadArgs {
-        f: PyObjectRef,
+        #[pyarg(positional)]
+        file: PyObjectRef,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }
@@ -785,7 +788,7 @@ mod decl {
     #[pyfunction]
     fn load(args: LoadArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let mut rdr = ReadableFile {
-            file: args.f,
+            file: args.file,
             vm,
             buf: Vec::new(),
             error: None,

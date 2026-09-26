@@ -930,7 +930,7 @@ mod decl {
     #[derive(FromArgs)]
     #[allow(dead_code)]
     struct SigsegvArgs {
-        #[pyarg(any, default = false)]
+        #[pyarg(positional, default = false)]
         release_gil: bool,
     }
 

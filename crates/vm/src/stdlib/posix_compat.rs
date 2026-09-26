@@ -17,17 +17,47 @@ pub(crate) mod module {
         stdlib::os::{_os, DirFd, SupportFunc, SymlinkArgs, TargetIsDirectory},
     };
 
+    #[derive(FromArgs)]
+    struct AccessArgs<'a> {
+        #[pyarg(any)]
+        path: PyStrRef,
+        #[pyarg(any)]
+        mode: u8,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, 0>,
+        #[pyarg(named, default = false)]
+        effective_ids: bool,
+        #[pyarg(named, default = true)]
+        follow_symlinks: bool,
+    }
+
     #[pyfunction]
-    pub(super) fn access(_path: PyStrRef, _mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+    pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+        let [] = args.dir_fd.0;
+        let _ = (
+            args.path,
+            args.mode,
+            args.effective_ids,
+            args.follow_symlinks,
+        );
         os_unimpl("os.access", vm)
+    }
+
+    #[cfg(not(target_os = "wasi"))]
+    #[derive(FromArgs)]
+    struct RemoveArgs<'a> {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, 0>,
     }
 
     #[cfg(not(target_os = "wasi"))]
     #[pyfunction]
     #[pyfunction(name = "unlink")]
-    fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
-        let [] = dir_fd.0;
-        fs::remove_file(&path).map_err(|err| err.into_pyexception(vm))
+    fn remove(args: RemoveArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let [] = args.dir_fd.0;
+        fs::remove_file(&args.path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]

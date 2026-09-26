@@ -463,9 +463,9 @@ mod _ssl {
             args: LoadVerifyLocationsArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let has_cafile = matches!(&args.cafile, OptionalArg::Present(Some(_)));
-            let has_capath = matches!(&args.capath, OptionalArg::Present(Some(_)));
-            let has_cadata = matches!(&args.cadata, OptionalArg::Present(Some(_)));
+            let has_cafile = args.cafile.is_some();
+            let has_capath = args.capath.is_some();
+            let has_cadata = args.cadata.is_some();
             if !has_cafile && !has_capath && !has_cadata {
                 return Err(vm.new_type_error("cafile, capath and cadata cannot be all omitted"));
             }
@@ -536,7 +536,7 @@ mod _ssl {
 
         #[pymethod]
         fn _wrap_bio(&self, args: WrapBioArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            if let Some(hostname) = args.server_hostname.into_option().flatten() {
+            if let Some(hostname) = args.server_hostname {
                 validate_hostname(hostname.as_str(), vm)?;
             }
             if args.server_side.unwrap_or(false) && self.protocol == PROTOCOL_TLS_CLIENT {
@@ -639,11 +639,11 @@ mod _ssl {
     #[derive(FromArgs)]
     struct LoadVerifyLocationsArgs {
         #[pyarg(any, optional)]
-        cafile: OptionalArg<Option<PyObjectRef>>,
+        cafile: Option<PyObjectRef>,
         #[pyarg(any, optional)]
-        capath: OptionalArg<Option<PyObjectRef>>,
+        capath: Option<PyObjectRef>,
         #[pyarg(any, optional)]
-        cadata: OptionalArg<Option<PyObjectRef>>,
+        cadata: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
@@ -655,7 +655,7 @@ mod _ssl {
         #[pyarg(named, optional)]
         server_side: OptionalArg<bool>,
         #[pyarg(named, optional)]
-        server_hostname: OptionalArg<Option<PyUtf8StrRef>>,
+        server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
         #[allow(dead_code)]
         owner: OptionalArg<PyObjectRef>,

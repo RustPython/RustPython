@@ -161,11 +161,11 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn unpack_from(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         args: UpdateFromArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = format.format_spec(vm)?;
         let offset =
             get_buffer_offset(args.buffer.len(), args.offset, format_spec.size, false, vm)?;
         args.buffer

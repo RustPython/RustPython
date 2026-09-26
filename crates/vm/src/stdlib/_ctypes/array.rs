@@ -514,10 +514,10 @@ impl PyCArray {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 
     fn int_to_bytes(i: &malachite_bigint::BigInt, size: usize) -> Vec<u8> {

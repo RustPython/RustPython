@@ -17,7 +17,7 @@ use crate::{
     },
     convert::ToPyObject,
     function::Either,
-    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, NameExcInfo, OptionalArg, PosArgs, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PySequenceMethods, VecBuffer,
@@ -692,10 +692,10 @@ impl PyMemoryView {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 
     #[pyclassmethod]
@@ -847,7 +847,11 @@ impl PyMemoryView {
 
     // memory_exit
     #[pymethod]
-    fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn __exit__(
+        &self,
+        _exc_info: PosArgs<PyObjectRef, NameExcInfo>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.py_release(vm)
     }
 
@@ -980,13 +984,7 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn index(
-        &self,
-        value: PyObjectRef,
-        start: OptionalArg<isize>,
-        stop: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
+    fn index(&self, args: MemoryIndexArgs, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm)?;
         if self.desc.ndim() != 1 {
             return Err(
@@ -994,8 +992,7 @@ impl PyMemoryView {
             );
         }
         let len = self.desc.dim_desc[0].0;
-        let start = start.unwrap_or(0);
-        let stop = stop.unwrap_or(len as isize);
+        let MemoryIndexArgs { value, start, stop } = args;
 
         let start = if start < 0 {
             (start + len as isize).max(0) as usize
@@ -1198,8 +1195,20 @@ impl Py<PyMemoryView> {
 }
 
 #[derive(FromArgs)]
+struct MemoryIndexArgs {
+    #[pyarg(positional)]
+    value: PyObjectRef,
+    #[pyarg(positional, default = 0)]
+    start: isize,
+    // Omission is clamped to the view length.
+    #[pyarg(positional, default = isize::MAX)]
+    stop: isize,
+}
+
+#[derive(FromArgs)]
 struct ToBytesArgs {
-    #[pyarg(any, default)]
+    // Missing means C order.
+    #[pyarg(any, default, py_default = "'C'")]
     order: Option<PyStrRef>,
 }
 

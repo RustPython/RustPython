@@ -475,13 +475,16 @@ mod _pickle {
     pub(super) struct UnpicklerNewArgs {
         #[pyarg(any)]
         file: PyObjectRef,
-        #[pyarg(named, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
-        encoding: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
-        errors: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, default = true)]
+        fix_imports: bool,
+        // None means ASCII.
+        #[pyarg(named, default = "ASCII")]
+        encoding: PyObjectRef,
+        // None means strict.
+        #[pyarg(named, default = "strict")]
+        errors: PyObjectRef,
+        // Missing or None means no buffers.
+        #[pyarg(named, optional, py_default = "()")]
         buffers: OptionalArg<PyObjectRef>,
     }
 
@@ -504,21 +507,23 @@ mod _pickle {
             let Some(mut state) = zelf.read_state.try_lock() else {
                 return Err(vm.new_runtime_error("Unpickler.__init__() called recursively"));
             };
-            let encoding = match args.encoding {
-                OptionalArg::Present(o) if !vm.is_none(&o) => o
+            let encoding = if vm.is_none(&args.encoding) {
+                "ASCII".to_owned()
+            } else {
+                args.encoding
                     .downcast_ref::<PyStr>()
                     .and_then(|s| s.to_str())
                     .ok_or_else(|| vm.new_type_error("encoding must be a string"))?
-                    .to_owned(),
-                _ => "ASCII".to_owned(),
+                    .to_owned()
             };
-            let errors = match args.errors {
-                OptionalArg::Present(o) if !vm.is_none(&o) => o
+            let errors = if vm.is_none(&args.errors) {
+                "strict".to_owned()
+            } else {
+                args.errors
                     .downcast_ref::<PyStr>()
                     .and_then(|s| s.to_str())
                     .ok_or_else(|| vm.new_type_error("errors must be a string"))?
-                    .to_owned(),
-                _ => "strict".to_owned(),
+                    .to_owned()
             };
             let buffers = match args.buffers {
                 OptionalArg::Present(o) if !vm.is_none(&o) => {
@@ -546,7 +551,7 @@ mod _pickle {
             *zelf.config.write() = UnpicklerConfig {
                 initialized: true,
                 proto: 0,
-                fix_imports: args.fix_imports.unwrap_or(true),
+                fix_imports: args.fix_imports,
                 encoding,
                 errors,
                 buffers,
@@ -574,11 +579,11 @@ mod _pickle {
         #[pymethod]
         fn find_class(
             zelf: &Py<Self>,
-            module: PyObjectRef,
-            name: PyObjectRef,
+            module_name: PyObjectRef,
+            global_name: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            find_class_impl(zelf, module, name, vm)
+            find_class_impl(zelf, module_name, global_name, vm)
         }
 
         #[pygetset]
@@ -1607,38 +1612,43 @@ mod _pickle {
     pub(super) struct LoadsArgs {
         #[pyarg(positional)]
         data: PyObjectRef,
-        #[pyarg(named, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
-        encoding: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
-        errors: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, default = true)]
+        fix_imports: bool,
+        // None means ASCII.
+        #[pyarg(named, default = "ASCII")]
+        encoding: PyObjectRef,
+        // None means strict.
+        #[pyarg(named, default = "strict")]
+        errors: PyObjectRef,
+        // Missing or None means no buffers.
+        #[pyarg(named, optional, py_default = "()")]
         buffers: OptionalArg<PyObjectRef>,
     }
 
     fn unpickler_config(
-        fix_imports: OptionalArg<bool>,
-        encoding: OptionalArg<PyObjectRef>,
-        errors: OptionalArg<PyObjectRef>,
+        fix_imports: bool,
+        encoding: PyObjectRef,
+        errors: PyObjectRef,
         buffers: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<UnpicklerConfig> {
-        let encoding = match encoding {
-            OptionalArg::Present(o) if !vm.is_none(&o) => o
+        let encoding = if vm.is_none(&encoding) {
+            "ASCII".to_owned()
+        } else {
+            encoding
                 .downcast_ref::<PyStr>()
                 .and_then(|s| s.to_str())
                 .ok_or_else(|| vm.new_type_error("encoding must be a string"))?
-                .to_owned(),
-            _ => "ASCII".to_owned(),
+                .to_owned()
         };
-        let errors = match errors {
-            OptionalArg::Present(o) if !vm.is_none(&o) => o
+        let errors = if vm.is_none(&errors) {
+            "strict".to_owned()
+        } else {
+            errors
                 .downcast_ref::<PyStr>()
                 .and_then(|s| s.to_str())
                 .ok_or_else(|| vm.new_type_error("errors must be a string"))?
-                .to_owned(),
-            _ => "strict".to_owned(),
+                .to_owned()
         };
         let buffers = match buffers {
             OptionalArg::Present(o) if !vm.is_none(&o) => {
@@ -1649,7 +1659,7 @@ mod _pickle {
         Ok(UnpicklerConfig {
             initialized: true,
             proto: 0,
-            fix_imports: fix_imports.unwrap_or(true),
+            fix_imports,
             encoding,
             errors,
             buffers,
@@ -1693,13 +1703,16 @@ mod _pickle {
     pub(super) struct LoadArgs {
         #[pyarg(any)]
         file: PyObjectRef,
-        #[pyarg(named, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
-        encoding: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
-        errors: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, default = true)]
+        fix_imports: bool,
+        // None means ASCII.
+        #[pyarg(named, default = "ASCII")]
+        encoding: PyObjectRef,
+        // None means strict.
+        #[pyarg(named, default = "strict")]
+        errors: PyObjectRef,
+        // Missing or None means no buffers.
+        #[pyarg(named, optional, py_default = "()")]
         buffers: OptionalArg<PyObjectRef>,
     }
 
@@ -1938,21 +1951,21 @@ mod _pickle {
         #[pyarg(any)]
         file: PyObjectRef,
         #[pyarg(any, optional)]
-        protocol: OptionalArg<PyObjectRef>,
+        protocol: Option<PyObjectRef>,
+        #[pyarg(any, default = true)]
+        fix_imports: bool,
         #[pyarg(any, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(any, optional)]
-        buffer_callback: OptionalArg<PyObjectRef>,
+        buffer_callback: Option<PyObjectRef>,
     }
 
-    fn resolve_protocol(protocol: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<u8> {
+    fn resolve_protocol(protocol: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<u8> {
         let value = match protocol {
-            OptionalArg::Present(o) if !vm.is_none(&o) => o
+            Some(o) => o
                 .try_index(vm)?
                 .as_bigint()
                 .to_i64()
                 .unwrap_or_else(|| i64::from(i32::MAX)),
-            _ => i64::from(DEFAULT_PROTOCOL),
+            None => i64::from(DEFAULT_PROTOCOL),
         };
         if value < 0 {
             return Ok(HIGHEST_PROTOCOL);
@@ -1968,7 +1981,7 @@ mod _pickle {
     fn pickler_config(args: &PicklerNewArgs, vm: &VirtualMachine) -> PyResult<PicklerConfig> {
         let proto = resolve_protocol(args.protocol.clone(), vm)?;
         let buffer_callback = match &args.buffer_callback {
-            OptionalArg::Present(o) if !vm.is_none(o) => Some(o.clone()),
+            Some(o) if !vm.is_none(o) => Some(o.clone()),
             _ => None,
         };
         if buffer_callback.is_some() && proto < 5 {
@@ -1979,7 +1992,7 @@ mod _pickle {
             proto,
             bin: proto >= 1,
             fast: false,
-            fix_imports: args.fix_imports.unwrap_or(true) && proto < 3,
+            fix_imports: args.fix_imports && proto < 3,
             buffer_callback,
         })
     }
@@ -3762,11 +3775,11 @@ mod _pickle {
         #[pyarg(any)]
         file: PyObjectRef,
         #[pyarg(any, optional)]
-        protocol: OptionalArg<PyObjectRef>,
+        protocol: Option<PyObjectRef>,
+        #[pyarg(named, default = true)]
+        fix_imports: bool,
         #[pyarg(named, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
-        buffer_callback: OptionalArg<PyObjectRef>,
+        buffer_callback: Option<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -3802,11 +3815,11 @@ mod _pickle {
         #[pyarg(any)]
         obj: PyObjectRef,
         #[pyarg(any, optional)]
-        protocol: OptionalArg<PyObjectRef>,
+        protocol: Option<PyObjectRef>,
+        #[pyarg(named, default = true)]
+        fix_imports: bool,
         #[pyarg(named, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
-        buffer_callback: OptionalArg<PyObjectRef>,
+        buffer_callback: Option<PyObjectRef>,
     }
 
     #[pyfunction]

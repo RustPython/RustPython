@@ -415,36 +415,35 @@ mod _ssl {
     struct WrapSocketArgs {
         sock: PyObjectRef,
         server_side: bool,
-        #[pyarg(positional, optional)]
-        server_hostname: OptionalArg<Option<PyUtf8StrRef>>,
+        #[pyarg(any, optional)]
+        server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
-        owner: OptionalArg<PyObjectRef>,
+        owner: Option<PyObjectRef>,
         #[pyarg(named, optional)]
-        session: OptionalArg<PyObjectRef>,
+        session: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct WrapBioArgs {
         incoming: PyRef<PyMemoryBIO>,
         outgoing: PyRef<PyMemoryBIO>,
+        server_side: bool,
+        #[pyarg(any, optional)]
+        server_hostname: Option<PyUtf8StrRef>,
         #[pyarg(named, optional)]
-        server_side: OptionalArg<bool>,
+        owner: Option<PyObjectRef>,
         #[pyarg(named, optional)]
-        server_hostname: OptionalArg<Option<PyUtf8StrRef>>,
-        #[pyarg(named, optional)]
-        owner: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
-        session: OptionalArg<PyObjectRef>,
+        session: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct LoadVerifyLocationsArgs {
         #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
-        cafile: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
+        cafile: Option<Either<PyStrRef, ArgBytesLike>>,
         #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
-        capath: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
+        capath: Option<Either<PyStrRef, ArgBytesLike>>,
         #[pyarg(any, optional, error_msg = "cadata should be a str or bytes")]
-        cadata: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
+        cadata: Option<Either<PyStrRef, ArgBytesLike>>,
     }
 
     #[derive(FromArgs)]
@@ -452,15 +451,21 @@ mod _ssl {
         #[pyarg(any, error_msg = "path should be a str or bytes")]
         certfile: Either<PyStrRef, ArgBytesLike>,
         #[pyarg(any, optional, error_msg = "path should be a str or bytes")]
-        keyfile: OptionalArg<Option<Either<PyStrRef, ArgBytesLike>>>,
+        keyfile: Option<Either<PyStrRef, ArgBytesLike>>,
         #[pyarg(any, optional)]
-        password: OptionalArg<PyObjectRef>,
+        password: Option<PyObjectRef>,
     }
 
     #[derive(FromArgs)]
     struct GetCertArgs {
-        #[pyarg(any, optional)]
-        binary_form: OptionalArg<bool>,
+        #[pyarg(positional, default = false)]
+        der: bool,
+    }
+
+    #[derive(FromArgs)]
+    struct GetCaCertsArgs {
+        #[pyarg(any, default = false)]
+        binary_form: bool,
     }
 
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
@@ -755,14 +760,14 @@ mod _ssl {
 
             // Parse keyfile argument (default to certfile if not provided)
             let key_path = match args.keyfile {
-                OptionalArg::Present(Some(ref k)) => Self::parse_path_arg(k, vm)?,
-                _ => cert_path.clone(),
+                Some(ref k) => Self::parse_path_arg(k, vm)?,
+                None => cert_path.clone(),
             };
 
             // Parse password argument (str, bytes-like, or callable)
             // Callable passwords are NOT invoked immediately (lazy evaluation)
             let (password_str, password_callable) =
-                Self::parse_password_argument(&args.password, vm)?;
+                Self::parse_password_argument(args.password.as_ref(), vm)?;
 
             // Validate immediate password length (limit: PEM_BUFSIZE = 1024 bytes)
             if let Some(ref pwd) = password_str
@@ -934,28 +939,28 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             // Check that at least one argument is provided
-            let has_cafile = matches!(&args.cafile, OptionalArg::Present(Some(_)));
-            let has_capath = matches!(&args.capath, OptionalArg::Present(Some(_)));
-            let has_cadata = matches!(&args.cadata, OptionalArg::Present(Some(_)));
+            let has_cafile = args.cafile.is_some();
+            let has_capath = args.capath.is_some();
+            let has_cadata = args.cadata.is_some();
 
             if !has_cafile && !has_capath && !has_cadata {
                 return Err(vm.new_type_error("cafile, capath and cadata cannot be all omitted"));
             }
 
             // Parse arguments BEFORE acquiring locks to reduce lock scope
-            let cafile_path = if let OptionalArg::Present(Some(ref cafile_obj)) = args.cafile {
+            let cafile_path = if let Some(ref cafile_obj) = args.cafile {
                 Some(Self::parse_path_arg(cafile_obj, vm)?)
             } else {
                 None
             };
 
-            let capath_dir = if let OptionalArg::Present(Some(ref capath_obj)) = args.capath {
+            let capath_dir = if let Some(ref capath_obj) = args.capath {
                 Some(Self::parse_path_arg(capath_obj, vm)?)
             } else {
                 None
             };
 
-            let cadata_parsed = if let OptionalArg::Present(Some(ref cadata_obj)) = args.cadata {
+            let cadata_parsed = if let Some(ref cadata_obj) = args.cadata {
                 let is_string = matches!(cadata_obj, Either::A(_));
                 let data_vec = self.parse_cadata_arg(cadata_obj, vm)?;
                 Some((data_vec, is_string))
@@ -1194,14 +1199,14 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn set_ciphers(&self, ciphers: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_ciphers(&self, cipherlist: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
             // `SSL_CTX_set_cipher_list` reports one failure for a string it
             // cannot read and for a readable one that selects nothing, and the
             // TLS 1.3 suites are not among what it can select -- they have
             // their own setter -- so a string naming only those selects
             // nothing either.
             let (mut selected_ciphers, suite_b_kx_groups) =
-                cipher::CipherList::parse_to_rustls(ciphers.as_str())
+                cipher::CipherList::parse_to_rustls(cipherlist.as_str())
                     .ok()
                     .filter(|(suites, _)| suites.iter().any(|s| s.tls13().is_none()))
                     .ok_or_else(|| {
@@ -1409,8 +1414,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_ca_certs(&self, args: GetCertArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
-            let binary_form = args.binary_form.unwrap_or(false);
+        fn get_ca_certs(&self, args: GetCaCertsArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
+            let binary_form = args.binary_form;
             let ca_certs_der = self.ca_certs_der.read();
 
             let mut certs = Vec::new();
@@ -1450,17 +1455,17 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn load_dh_params(&self, filepath: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn load_dh_params(&self, path: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // Validate filepath is not None
-            if vm.is_none(&filepath) {
+            if vm.is_none(&path) {
                 return Err(vm.new_type_error("DH params filepath cannot be None"));
             }
 
             // Validate filepath is str or bytes
-            let path_str = if let Ok(s) = PyUtf8StrRef::try_from_object(vm, filepath.clone()) {
+            let path_str = if let Ok(s) = PyUtf8StrRef::try_from_object(vm, path.clone()) {
                 s.as_str().to_owned()
-            } else if filepath.check_buffer() {
-                let b = ArgBytesLike::try_from_object(vm, filepath)?;
+            } else if path.check_buffer() {
+                let b = ArgBytesLike::try_from_object(vm, path)?;
                 String::from_utf8(b.borrow_buf().to_vec())
                     .map_err(|_| vm.new_value_error("Invalid path encoding"))?
             } else {
@@ -1542,7 +1547,7 @@ mod _ssl {
 
             // Convert server_hostname to Option<String>
             // Handle both missing argument and None value
-            let hostname = match args.server_hostname.into_option().flatten() {
+            let hostname = match args.server_hostname {
                 Some(hostname_str) => {
                     let hostname = hostname_str.as_str();
                     validate_hostname(hostname, vm)?;
@@ -1586,12 +1591,7 @@ mod _ssl {
                 connection: PyMutex::new(None),
                 state: PyMutex::new(TlsState::new(args.server_side)),
                 session_was_reused: PyMutex::new(false),
-                owner: PyRwLock::new(
-                    args.owner
-                        .into_option()
-                        .map(|o| o.downgrade(None, vm))
-                        .transpose()?,
-                ),
+                owner: PyRwLock::new(args.owner.map(|o| o.downgrade(None, vm)).transpose()?),
                 session: PyRwLock::new(None),
                 client_config: PyRwLock::new(None),
                 chain_builder: PyRwLock::new(None),
@@ -1608,7 +1608,7 @@ mod _ssl {
                 .into_ref_with_type(vm, vm.class("_ssl", "_SSLSocket"))
                 .map_err(|_| vm.new_type_error("Failed to create SSLSocket"))?;
 
-            if let Some(session) = args.session.into_option()
+            if let Some(session) = args.session
                 && !vm.is_none(&session)
             {
                 ssl_socket_ref.set_session(session, vm)?;
@@ -1625,7 +1625,7 @@ mod _ssl {
         ) -> PyResult<PyRef<PySSLSocket>> {
             // Convert server_hostname to Option<String>
             // Handle both missing argument and None value
-            let hostname = match args.server_hostname.into_option().flatten() {
+            let hostname = match args.server_hostname {
                 Some(hostname_str) => {
                     let hostname = hostname_str.as_str();
                     validate_hostname(hostname, vm)?;
@@ -1634,8 +1634,7 @@ mod _ssl {
                 None => None,
             };
 
-            // Extract server_side value
-            let server_side = args.server_side.unwrap_or(false);
+            let server_side = args.server_side;
 
             // Validate socket type and context protocol
             if server_side && zelf.protocol == PROTOCOL_TLS_CLIENT {
@@ -1672,12 +1671,7 @@ mod _ssl {
                 connection: PyMutex::new(None),
                 state: PyMutex::new(TlsState::new(server_side)),
                 session_was_reused: PyMutex::new(false),
-                owner: PyRwLock::new(
-                    args.owner
-                        .into_option()
-                        .map(|o| o.downgrade(None, vm))
-                        .transpose()?,
-                ),
+                owner: PyRwLock::new(args.owner.map(|o| o.downgrade(None, vm)).transpose()?),
                 session: PyRwLock::new(None),
                 client_config: PyRwLock::new(None),
                 chain_builder: PyRwLock::new(None),
@@ -1693,7 +1687,7 @@ mod _ssl {
                 .into_ref_with_type(vm, vm.class("_ssl", "_SSLSocket"))
                 .map_err(|_| vm.new_type_error("Failed to create SSLSocket"))?;
 
-            if let Some(session) = args.session.into_option()
+            if let Some(session) = args.session
                 && !vm.is_none(&session)
             {
                 ssl_socket_ref.set_session(session, vm)?;
@@ -1722,11 +1716,11 @@ mod _ssl {
         /// - immediate_password: Some(string) if password is str/bytes, None if callable
         /// - callable: Some(PyObjectRef) if password is callable, None otherwise
         fn parse_password_argument(
-            password: &OptionalArg<PyObjectRef>,
+            password: Option<&PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<(Option<String>, Option<PyObjectRef>)> {
             match password {
-                OptionalArg::Present(p) => {
+                Some(p) => {
                     if vm.is_none(p) {
                         return Ok((None, None));
                     }
@@ -3298,8 +3292,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn write(zelf: &Py<Self>, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-            let data_bytes = data.borrow_buf();
+        fn write(zelf: &Py<Self>, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            let data_bytes = b.borrow_buf();
             let data_len = data_bytes.len();
 
             if data_len == 0 {
@@ -3355,7 +3349,7 @@ mod _ssl {
             args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let binary = args.binary_form.unwrap_or(false);
+            let binary = args.der;
 
             // Check if handshake is complete
             if !self.handshake_completed() {
@@ -3831,10 +3825,10 @@ mod _ssl {
         #[pymethod]
         fn get_channel_binding(
             &self,
-            cb_type: OptionalArg<PyUtf8StrRef>,
+            args: ChannelBindingArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyBytesRef>> {
-            let cb_type_str = cb_type.as_ref().map_or("tls-unique", |s| s.as_str());
+            let cb_type_str = args.cb_type.as_str();
             if cb_type_str != "tls-unique" {
                 return Err(super::msg::unknown_binding_type_error(cb_type_str, vm));
             }
@@ -3913,21 +3907,22 @@ mod _ssl {
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PyMemoryBIO {
         #[pymethod]
-        fn read(&self, len: OptionalArg<i32>, vm: &VirtualMachine) -> PyBytesRef {
+        fn read(&self, args: MemoryBioReadArgs, vm: &VirtualMachine) -> PyBytesRef {
             let mut bio = self.inner.lock();
 
-            let read_len = match len {
-                OptionalArg::Present(n) if n >= 0 => n as usize,
-                OptionalArg::Present(_) | OptionalArg::Missing => bio.pending(),
+            let read_len = if args.size >= 0 {
+                args.size as usize
+            } else {
+                bio.pending()
             };
 
             vm.ctx.new_bytes(bio.read(read_len))
         }
 
         #[pymethod]
-        fn write(&self, buf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(&self, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
             // Check if it's a memoryview and if it's contiguous
-            if let Ok(mem_view) = buf.get_attr("c_contiguous", vm) {
+            if let Ok(mem_view) = b.get_attr("c_contiguous", vm) {
                 // It's a memoryview, check if contiguous
                 let is_contiguous: bool = mem_view.try_to_bool(vm)?;
                 if !is_contiguous {
@@ -3936,7 +3931,7 @@ mod _ssl {
             }
 
             // Convert to bytes-like object
-            let bytes_like = ArgBytesLike::try_from_object(vm, buf)?;
+            let bytes_like = ArgBytesLike::try_from_object(vm, b)?;
             let data = bytes_like.borrow_buf();
             self.inner.lock().write(&data).map_err(|err| {
                 vm.new_os_subtype_error(
@@ -4065,16 +4060,28 @@ mod _ssl {
     // OID module already imported at top of _ssl module
 
     #[derive(FromArgs)]
+    struct ChannelBindingArgs {
+        #[pyarg(any, default = "tls-unique")]
+        cb_type: PyUtf8StrRef,
+    }
+
+    #[derive(FromArgs)]
+    struct MemoryBioReadArgs {
+        #[pyarg(positional, default = -1)]
+        size: i32,
+    }
+
+    #[derive(FromArgs)]
     struct Txt2ObjArgs {
         txt: PyUtf8StrRef,
-        #[pyarg(named, optional)]
-        name: OptionalArg<bool>,
+        #[pyarg(any, default = false)]
+        name: bool,
     }
 
     #[pyfunction]
     fn txt2obj(args: Txt2ObjArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let txt = args.txt.as_str();
-        let name = args.name.unwrap_or(false);
+        let name = args.name;
 
         // If name=False (default), only accept OID strings
         // If name=True, accept both names and OID strings

@@ -23,8 +23,7 @@ mod builtins {
         common::hash::PyHash,
         function::{
             ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgPrimitiveIndex,
-            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
-            PosArgs,
+            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, NameKws, OptionalArg, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -108,17 +107,18 @@ mod builtins {
         // CPython parity: flags / optimize accept any object with __index__,
         // not just exact int. Matches the argument conversion used by
         // builtin_compile_impl.
-        #[pyarg(any, optional)]
-        flags: OptionalArg<ArgPrimitiveIndex<i32>>,
-        // CPython parity: dont_inherit goes through PyObject_IsTrue, so
-        // arbitrary objects with `__bool__` are accepted (and any exception
-        // raised inside `__bool__` propagates) — not the strict bool type.
-        #[pyarg(any, optional)]
-        dont_inherit: OptionalArg<ArgIntoBool>,
-        #[pyarg(any, optional)]
-        optimize: OptionalArg<ArgPrimitiveIndex<i32>>,
-        #[pyarg(named, optional)]
-        _feature_version: OptionalArg<i32>,
+        // Any object with __index__ is accepted.
+        #[pyarg(any, default = 0)]
+        flags: ArgPrimitiveIndex<i32>,
+        // dont_inherit goes through PyObject_IsTrue, so arbitrary objects
+        // with `__bool__` are accepted (and any exception raised inside
+        // `__bool__` propagates) — not the strict bool type.
+        #[pyarg(any, default = false)]
+        dont_inherit: ArgIntoBool,
+        #[pyarg(any, default = -1)]
+        optimize: ArgPrimitiveIndex<i32>,
+        #[pyarg(named, default = -1)]
+        _feature_version: i32,
     }
 
     fn merge_compile_future_features(
@@ -191,23 +191,23 @@ mod builtins {
 
             use crate::{class::PyClassImpl, stdlib::_ast};
 
-            let feature_version = args._feature_version.into_option().unwrap_or(-1);
+            let feature_version = args._feature_version;
 
             let mode_str = args.mode.as_str();
-            let flags: i32 = args.flags.map_or(0, |v| v.value);
+            let flags: i32 = args.flags.value;
             let cf = CompilerFlags::from_bits_retain(flags);
 
             if (flags & !CompilerFlags::ALLOWED_FLAGS.bits()) != 0 {
                 return Err(vm.new_value_error("compile(): unrecognised flags"));
             }
 
-            let optimize: i32 = args.optimize.map_or(-1, |v| v.value);
+            let optimize: i32 = args.optimize.value;
             let optimize: u8 = match optimize {
                 -1 => vm.state.config.settings.optimize.min(2),
                 0..=2 => optimize as u8,
                 _ => return Err(vm.new_value_error("compile(): invalid optimize value")),
             };
-            let dont_inherit = args.dont_inherit.map_or(false, ArgIntoBool::into_bool);
+            let dont_inherit = args.dont_inherit.into_bool();
             let is_ast_only = cf.contains(CompilerFlags::ONLY_AST);
             let future_features = merge_compile_future_features(flags, dont_inherit, vm);
 
@@ -397,9 +397,9 @@ mod builtins {
 
     #[derive(FromArgs)]
     struct ScopeArgs {
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         locals: Option<ArgMapping>,
     }
 
@@ -468,12 +468,12 @@ mod builtins {
     struct ExecArgs {
         #[pyarg(positional)]
         source: Either<PyRef<crate::builtins::PyCode>, ArgStrOrBytesLike>,
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         locals: Option<ArgMapping>,
         #[pyarg(named, optional)]
-        closure: OptionalOption<PyObjectRef>,
+        closure: Option<PyObjectRef>,
     }
 
     fn exec_closure(
@@ -572,7 +572,6 @@ mod builtins {
             closure,
         } = args;
         let scope = ScopeArgs { globals, locals }.make_scope(vm, "exec")?;
-        let closure = closure.flatten();
         let (source, closure) = match source {
             Either::B(either) => {
                 if closure.is_some() {
@@ -658,13 +657,24 @@ mod builtins {
         vm.run_code_obj_with_closure(code_obj, scope, closure)
     }
 
-    #[pyfunction]
-    fn format(
+    #[derive(FromArgs)]
+    struct FormatArgs {
+        #[pyarg(positional)]
         value: PyObjectRef,
-        format_spec: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
-        vm.format(&value, format_spec.unwrap_or(vm.ctx.new_str("")))
+        #[pyarg(positional, default = "")]
+        format_spec: PyStrRef,
+    }
+
+    #[derive(FromArgs)]
+    struct InputArgs {
+        // Missing means an empty prompt.
+        #[pyarg(positional, optional, py_default = "''")]
+        prompt: OptionalArg<PyStrRef>,
+    }
+
+    #[pyfunction]
+    fn format(args: FormatArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        vm.format(&args.value, args.format_spec)
     }
 
     #[pyfunction]
@@ -710,7 +720,15 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn breakpoint(
+        args: PosArgs,
+        kws: KwArgs<PyObjectRef, NameKws>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let args = FuncArgs {
+            args: args.into_vec(),
+            kwargs: kws.into_default(),
+        };
         match vm
             .sys_module
             .get_attr(vm.ctx.intern_str("breakpointhook"), vm)
@@ -733,7 +751,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn input(prompt: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
+    fn input(args: InputArgs, vm: &VirtualMachine) -> PyResult {
+        let prompt = args.prompt;
         use std::io::IsTerminal;
 
         let stdin = sys::get_stdin(vm)?;
@@ -1067,10 +1086,9 @@ mod builtins {
         // None means a newline; the string is filled in when printing.
         #[pyarg(named, default, py_default = "'\\n'")]
         end: Option<PyStrRef>,
-        #[pyarg(named, default = None)]
+        #[pyarg(named, optional)]
         file: Option<PyObjectRef>,
-        // ArgIntoBool::FALSE is not the literal false.
-        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        #[pyarg(named, default = ArgIntoBool::FALSE)]
         flush: ArgIntoBool,
     }
 
@@ -1111,15 +1129,17 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(reversed_method) = vm.get_method(obj.clone(), identifier!(vm, __reversed__)) {
+    pub fn reversed(sequence: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(reversed_method) =
+            vm.get_method(sequence.clone(), identifier!(vm, __reversed__))
+        {
             reversed_method?.call((), vm)
         } else {
-            vm.get_method_or_type_error(obj.clone(), identifier!(vm, __getitem__), || {
+            vm.get_method_or_type_error(sequence.clone(), identifier!(vm, __getitem__), || {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
-            let len = obj.length(vm)?;
-            let obj_iterator = PyReverseSequenceIterator::new(obj, len);
+            let len = sequence.length(vm)?;
+            let obj_iterator = PyReverseSequenceIterator::new(sequence, len);
             Ok(obj_iterator.into_pyobject(vm))
         }
     }
@@ -1127,7 +1147,7 @@ mod builtins {
     #[derive(FromArgs)]
     pub(super) struct RoundArgs {
         number: PyObjectRef,
-        #[pyarg(any, default = None)]
+        #[pyarg(any, optional)]
         ndigits: Option<PyObjectRef>,
     }
 
@@ -1187,7 +1207,7 @@ mod builtins {
         #[pyarg(positional)]
         iterable: ArgIterable,
         // The int object needs the VM, so the default is not a literal.
-        #[pyarg(any, default = vm.ctx.new_int(0).into(), py_default = "0")]
+        #[pyarg(any, default = 0)]
         start: PyObjectRef,
     }
 
@@ -1221,14 +1241,15 @@ mod builtins {
     struct ImportArgs {
         #[pyarg(any)]
         name: PyObjectRef,
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
         #[allow(dead_code)]
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         locals: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        // Missing means an empty fromlist.
+        #[pyarg(any, default, py_default = "()")]
         fromlist: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, default = 0)]
         level: i32,
     }
 

@@ -2154,7 +2154,6 @@ broken_unicode_with_stateful = [
 
 
 class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; charmap_encode rejects a None mapping
     def test_basics(self):
         s = "abc123"  # all codecs should be able to encode these
         for encoding in all_unicode_encodings:
@@ -2307,7 +2306,6 @@ class BasicUnicodeTest(unittest.TestCase, MixInCheckStateHandling):
         table_type = type(cp1140.encoding_table)
         self.assertEqual(table_type, table_type)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; charmap_encode rejects a None mapping
     def test_decoder_state(self):
         # Check that getstate() and setstate() handle the state properly
         u = "abc123"

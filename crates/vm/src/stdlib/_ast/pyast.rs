@@ -2,7 +2,6 @@ use super::*;
 use crate::builtins::{PyGenericAlias, PyTuple, PyTupleRef, PyTypeRef, make_union};
 use crate::common::ascii;
 use crate::convert::ToPyObject;
-use crate::function::FuncArgs;
 
 macro_rules! impl_node {
     (
@@ -74,8 +73,12 @@ macro_rules! impl_base_node {
             }
 
             #[pymethod]
-            fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-                super::python::_ast::ast_replace(&zelf, args, vm)
+            fn __replace__(
+                zelf: PyObjectRef,
+                fields: crate::function::KwArgs<PyObjectRef, crate::function::NameFields>,
+                vm: &VirtualMachine,
+            ) -> PyResult {
+                super::python::_ast::ast_replace(&zelf, fields.into(), vm)
             }
 
             #[extend_class]
@@ -119,8 +122,12 @@ macro_rules! impl_base_node {
             }
 
             #[pymethod]
-            fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-                super::python::_ast::ast_replace(&zelf, args, vm)
+            fn __replace__(
+                zelf: PyObjectRef,
+                fields: crate::function::KwArgs<PyObjectRef, crate::function::NameFields>,
+                vm: &VirtualMachine,
+            ) -> PyResult {
+                super::python::_ast::ast_replace(&zelf, fields.into(), vm)
             }
 
             #[extend_class]

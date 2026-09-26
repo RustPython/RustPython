@@ -67,15 +67,21 @@ impl GetDescriptor for PyClassMethod {
     }
 }
 
+#[derive(FromArgs)]
+pub struct ClassMethodArgs {
+    #[pyarg(positional)]
+    function: PyObjectRef,
+}
+
 impl Constructor for PyClassMethod {
-    type Args = PyObjectRef;
+    type Args = ClassMethodArgs;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Validate the signature here, but defer storing the callable and
         // copying its attributes to `__init__` so that subclasses overriding
         // `__init__` without calling `super().__init__()` see `__func__` as
         // `None`, matching CPython.
-        let _: Self::Args = args.bind_for(vm, Self::NAME)?;
+        let _: ClassMethodArgs = args.bind_for(vm, Self::NAME)?;
         let classmethod = Self {
             callable: PyMutex::new(vm.ctx.none()),
         };
@@ -89,9 +95,10 @@ impl Constructor for PyClassMethod {
 }
 
 impl Initializer for PyClassMethod {
-    type Args = PyObjectRef;
+    type Args = ClassMethodArgs;
 
-    fn init(zelf: &Py<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        let callable = args.function;
         *zelf.callable.lock() = callable.clone();
         functools_wraps(zelf.as_object(), &callable, vm)
     }
@@ -194,10 +201,10 @@ impl PyClassMethod {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 

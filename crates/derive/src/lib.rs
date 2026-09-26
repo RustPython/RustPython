@@ -17,24 +17,79 @@ use syn::punctuated::Punctuated;
 /// - `flatten`: take this field from the same argument list. No other keys.
 /// - `name = "..."`: Python parameter name. The field name is used when omitted.
 /// - `default`: missing argument stores `Default::default()`. Affects parsing.
+///   The signature text is `0`, `False` or `0.0` for a primitive integer, `bool`
+///   or float field, and `<unrepresentable>` otherwise, unless `py_default` is set.
 /// - `default = <expr>`: missing argument stores that Rust value. Affects parsing.
-/// - `optional`: same as a bare `default`.
+///   A string, byte-string, integer (optionally negated), float, or bool literal
+///   on any field that is not a Rust primitive (`i8`..`i128`, `u8`..`u128`,
+///   `isize`, `usize`, `f32`, `f64`, `bool`), `&'static str`, `Option<T>`, or
+///   `OptionalArg<T>` is converted only when the argument is missing:
+///   `<FieldTy as TryFromObject>::try_from_object(vm, ToPyObject::to_pyobject(LIT, vm))?`.
+///   A byte-string literal becomes a Python `bytes` object.
+/// - `default = ::NAME`: `NAME` is one identifier. The signature copies that
+///   name, and the missing argument stores `Into::into(NAME)` (the leading
+///   `::` is not Rust syntax for a local constant). A longer `::` path is a
+///   compile error. An explicit `py_default` still wins. A path without a
+///   leading `::` stays a typed value.
+/// - `optional`: same parsing as a bare `default`. The field type must implement
+///   `OptionalArgDefault`. `Option<T>` renders `None`; `OptionalArg<T>` renders
+///   `<unrepresentable>`. Any other type is rejected.
 /// - `py_default = "<python source>"`: text copied verbatim into `__text_signature__`.
-///   Never affects parsing.
+///   Never affects parsing. Overrides every other signature default.
+///   `py_default = "<unrepresentable>"` is a compile error. Use `OptionalArg`
+///   when a missing argument is a distinct state, or give the default's type a
+///   real `py_default()`.
 /// - `error_msg = "..."`: type-error text when conversion fails.
 /// # Signature default
-/// An explicit `py_default` is used as written. Otherwise a Rust literal is
-/// converted to its Python repr (`True`/`False`, an int, a float, a quoted
-/// str, and the path `None`). Anything else renders `<unrepresentable>`, and
-/// `inspect.signature` raises `ValueError`.
+/// An explicit `py_default` is used as written. Otherwise:
+/// - a literal, a negative literal, or the path `None` becomes a typed default
+///   (`None`, `True`/`False`, an int, a quoted str, a bytes literal, a char;
+///   a float literal keeps its source text);
+/// - a non-literal on a primitive integer field becomes that value as a decimal int;
+/// - a path on a `bool` field becomes `True` or `False`;
+/// - `::NAME` is the name, verbatim;
+/// - any other expression uses `const V: FieldTy = <expr>; V.py_default()`.
 ///
-/// Prefer `default = <literal>` when that literal is the Python default.
-/// Use `py_default` only when the Rust value must differ.
+/// A function argument whose pattern is a one-field tuple struct takes the
+/// parameter name from that field. `Fildes(fd): Fildes` is `fd`. A reference
+/// or parentheses around the inner pattern are skipped. When the argument
+/// type supplies parameters, this name is ignored.
+///
+/// `py_default` is an inherent `pub const fn py_default(&self) -> DefaultRepr`.
+/// A type defines it once, and every `default = <expr>` of that type reuses it:
+///
+/// ```rust, ignore
+/// impl ArgByteOrder {
+///     pub const fn py_default(&self) -> DefaultRepr {
+///         match self {
+///             Self::Big => DefaultRepr::Str("big"),
+///             Self::Little => DefaultRepr::Str("little"),
+///         }
+///     }
+/// }
+///
+/// #[pyarg(any, default = ArgByteOrder::Big)]
+/// byteorder: ArgByteOrder, // signature shows 'big'
+/// ```
+///
+/// A bare `optional` renders the field type's default:
+///
+/// | Rust type | Meaning | Clinic equivalent | Signature default |
+/// | --- | --- | --- | --- |
+/// | `OptionalArg<T>` | the argument may be omitted (`Missing`). That is distinct from every Python value, including `None` | `= NULL` | `<unrepresentable>` |
+/// | `Option<T>` | `None` or a value. A missing argument and an explicit `None` are the same | `= None` | `None` |
+/// | `OptionalOption<T>` (`OptionalArg<Option<T>>`) | missing, `None`, and a value are all distinct | `= NULL`, and `None` is accepted | `<unrepresentable>` |
+///
+/// Keep `py_default` when the expression needs `vm` (so it is not const), or
+/// when an `OptionalArg` is missing in the body and the shown default is a
+/// concrete value the Rust type cannot store.
 /// ```rust, ignore
 /// #[derive(FromArgs)]
 /// struct OpenArgs {
 ///     #[pyarg(any, default = 0o777)]
 ///     mode: i32, // signature shows 511
+///     #[pyarg(named, default = "main")]
+///     name: PyStrRef, // signature shows 'main'
 /// }
 ///
 /// #[derive(FromArgs)]

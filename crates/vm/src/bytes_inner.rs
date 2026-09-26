@@ -10,7 +10,7 @@ use crate::{
     cformat::cformat_bytes,
     common::hash,
     common::wtf8::is_py_ascii_whitespace,
-    function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{ArgIterable, Either, OptionalArg, PyComparisonValue},
     literal::escape::Escape,
     protocol::{BufferFlags, PyBuffer},
     sequence::{SequenceExt, SequenceMutExt},
@@ -220,13 +220,14 @@ impl ByteInnerFindOptions {
 pub struct ByteInnerPaddingOptions {
     #[pyarg(positional)]
     width: isize,
-    #[pyarg(positional, optional)]
-    fillchar: OptionalArg<PyObjectRef>,
+    #[pyarg(positional, default = b" ")]
+    fillchar: PyObjectRef,
 }
 
 impl ByteInnerPaddingOptions {
     fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
-        let fillchar = if let OptionalArg::Present(v) = self.fillchar {
+        let fillchar = {
+            let v = self.fillchar;
             try_as_bytes(v.clone(), |bytes| bytes.iter().copied().exactly_one().ok())
                 .flatten()
                 .ok_or_else(|| {
@@ -236,8 +237,6 @@ impl ByteInnerPaddingOptions {
                         v.class().name()
                     ))
                 })?
-        } else {
-            b' ' // default is space
         };
 
         Ok((self.width, fillchar))
@@ -248,8 +247,8 @@ impl ByteInnerPaddingOptions {
 pub struct ByteInnerTranslateOptions {
     #[pyarg(positional)]
     table: Option<PyObjectRef>,
-    #[pyarg(any, optional)]
-    delete: OptionalArg<PyObjectRef>,
+    #[pyarg(any, default = b"")]
+    delete: PyObjectRef,
 }
 
 impl ByteInnerTranslateOptions {
@@ -265,12 +264,9 @@ impl ByteInnerTranslateOptions {
             },
         )?;
 
-        let delete = match self.delete {
-            OptionalArg::Present(byte) => {
-                let byte: PyBytesInner = byte.try_into_value(vm)?;
-                byte.elements
-            }
-            _ => vec![],
+        let delete = {
+            let byte: PyBytesInner = self.delete.try_into_value(vm)?;
+            byte.elements
         };
 
         Ok((table, delete))
@@ -700,7 +696,7 @@ impl PyBytesInner {
         Ok(res)
     }
 
-    pub fn strip(&self, chars: OptionalOption<Self>) -> Vec<u8> {
+    pub fn strip(&self, chars: Option<Self>) -> Vec<u8> {
         self.elements
             .py_strip(
                 chars,
@@ -710,7 +706,7 @@ impl PyBytesInner {
             .to_vec()
     }
 
-    pub fn lstrip(&self, chars: OptionalOption<Self>) -> &[u8] {
+    pub fn lstrip(&self, chars: Option<Self>) -> &[u8] {
         self.elements.py_strip(
             chars,
             |s, chars| s.trim_start_with(|c| chars.contains(&(c as u8))),
@@ -718,7 +714,7 @@ impl PyBytesInner {
         )
     }
 
-    pub fn rstrip(&self, chars: OptionalOption<Self>) -> &[u8] {
+    pub fn rstrip(&self, chars: Option<Self>) -> &[u8] {
         self.elements.py_strip(
             chars,
             |s, chars| s.trim_end_with(|c| chars.contains(&(c as u8))),
@@ -966,25 +962,23 @@ impl PyBytesInner {
         Ok(result)
     }
 
-    pub fn replace(
-        &self,
-        from: Self,
-        to: Self,
-        max_count: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
-        // stringlib_replace in CPython
-        let max_count = match max_count {
-            OptionalArg::Present(max_count) if max_count >= 0 => {
-                if max_count == 0 || (self.elements.is_empty() && !from.is_empty()) {
-                    // nothing to do; return the original bytes
-                    return Ok(self.elements.clone());
-                } else if self.elements.is_empty() && from.is_empty() {
-                    return Ok(to.elements);
-                }
-                Some(max_count as usize)
+    pub fn replace(&self, args: ByteInnerReplaceOptions, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let ByteInnerReplaceOptions {
+            old: from,
+            new: to,
+            count: max_count,
+        } = args;
+        // stringlib_replace
+        let max_count = if max_count >= 0 {
+            if max_count == 0 || (self.elements.is_empty() && !from.is_empty()) {
+                // nothing to do; return the original bytes
+                return Ok(self.elements.clone());
+            } else if self.elements.is_empty() && from.is_empty() {
+                return Ok(to.elements);
             }
-            _ => None,
+            Some(max_count as usize)
+        } else {
+            None
         };
 
         // Handle zero-length special cases
@@ -1205,10 +1199,28 @@ impl AnyStr for [u8] {
 }
 
 #[derive(FromArgs)]
+pub(crate) struct ByteInnerStripOptions {
+    #[pyarg(positional, optional)]
+    pub bytes: Option<PyBytesInner>,
+}
+
+#[derive(FromArgs)]
+pub struct ByteInnerReplaceOptions {
+    #[pyarg(positional)]
+    old: PyBytesInner,
+    #[pyarg(positional)]
+    new: PyBytesInner,
+    #[pyarg(positional, default = -1)]
+    count: isize,
+}
+
+#[derive(FromArgs)]
 pub(crate) struct DecodeArgs {
-    #[pyarg(any, default)]
+    // None is filled in as utf-8 when decoding.
+    #[pyarg(any, optional, py_default = "'utf-8'")]
     encoding: Option<PyUtf8StrRef>,
-    #[pyarg(any, default)]
+    // None is filled in as strict when decoding.
+    #[pyarg(any, optional, py_default = "'strict'")]
     errors: Option<PyUtf8StrRef>,
 }
 

@@ -760,8 +760,10 @@ impl Representable for PyComplex {
 
 #[derive(FromArgs)]
 pub struct ComplexArgs {
-    #[pyarg(any, optional)]
+    // Missing real is 0. A string real uses the imag-missing path.
+    #[pyarg(any, default, py_default = "0")]
     real: OptionalArg<PyObjectRef>,
-    #[pyarg(any, optional)]
+    // Missing imag is 0 and is distinct from imag=0 when real is a string.
+    #[pyarg(any, default, py_default = "0")]
     imag: OptionalArg<PyObjectRef>,
 }

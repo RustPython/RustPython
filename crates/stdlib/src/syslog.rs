@@ -8,7 +8,6 @@ mod syslog {
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyStr, PyStrRef},
         convert::ToPyException,
-        function::{OptionalArg, OptionalOption},
         utils::ToCString,
     };
     use rustpython_host_env::syslog as host_syslog;
@@ -68,18 +67,18 @@ mod syslog {
     #[derive(Default, FromArgs)]
     struct OpenLogArgs {
         #[pyarg(any, optional)]
-        ident: OptionalOption<PyStrRef>,
-        #[pyarg(any, optional)]
-        logoption: OptionalArg<i32>,
-        #[pyarg(any, optional)]
-        facility: OptionalArg<i32>,
+        ident: Option<PyStrRef>,
+        #[pyarg(any, default = 0)]
+        logoption: i32,
+        #[pyarg(any, default = ::LOG_USER)]
+        facility: i32,
     }
 
     #[pyfunction]
     fn openlog(args: OpenLogArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let logoption = args.logoption.unwrap_or(0);
-        let facility = args.facility.unwrap_or(LOG_USER);
-        let ident = match args.ident.clone().flatten() {
+        let logoption = args.logoption;
+        let facility = args.facility;
+        let ident = match args.ident.clone() {
             Some(ident) => Some(ident_to_utf8_cstring(&ident, vm)?),
             None => get_argv(vm)
                 .map(|argv| ident_to_utf8_cstring(&argv, vm))
@@ -88,7 +87,7 @@ mod syslog {
         .map(|ident| ident.into_boxed_c_str());
 
         vm.audit("syslog.openlog", || {
-            let audit_ident: PyObjectRef = args.ident.flatten().map_or_else(
+            let audit_ident: PyObjectRef = args.ident.map_or_else(
                 || get_argv(vm).map_or_else(|| vm.ctx.none(), Into::into),
                 Into::into,
             );
@@ -104,12 +103,12 @@ mod syslog {
         #[pyarg(positional)]
         priority: PyObjectRef,
         #[pyarg(positional, optional)]
-        message_object: OptionalOption<PyStrRef>,
+        message: Option<PyStrRef>,
     }
 
     #[pyfunction]
     fn syslog(args: SysLogArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let (priority, msg) = match args.message_object.flatten() {
+        let (priority, msg) = match args.message {
             Some(s) => (args.priority.try_into_value(vm)?, s),
             None => (LOG_INFO, args.priority.try_into_value(vm)?),
         };
@@ -117,7 +116,13 @@ mod syslog {
         vm.audit("syslog.syslog", || (priority, msg.clone()))?;
 
         if !host_syslog::is_open() {
-            openlog(OpenLogArgs::default(), vm)?;
+            openlog(
+                OpenLogArgs {
+                    facility: LOG_USER,
+                    ..OpenLogArgs::default()
+                },
+                vm,
+            )?;
         }
 
         let cmsg = msg.to_cstring(vm)?;

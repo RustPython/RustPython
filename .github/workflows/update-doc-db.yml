@@ -82,8 +82,8 @@ jobs:
           # Merge all artifacts
           jq -s "add" --sort-keys crates/doc/generated/*.json > crates/doc/generated/merged.json
 
-          # Format merged json for the phf macro
-          jq -r 'to_entries[] | "    \(.key | @json) => \(.value | @json),"' crates/doc/generated/merged.json > crates/doc/generated/raw_entries.txt
+          # Format merged json as a sorted const slice
+          jq -r 'to_entries[] | "    (\(.key | @json), \(.value | @json)),"' crates/doc/generated/merged.json > crates/doc/generated/raw_entries.txt
 
           OUTPUT_FILE='crates/doc/src/data.inc.rs'
 
@@ -93,9 +93,10 @@ jobs:
             echo "// CPython version: ${PYTHON_VERSION}"
             echo '// spell-checker: disable'
             echo ''
-            echo "pub static DB: phf::Map<&'static str, &'static str> = phf::phf_map! {"
+            echo '#[rustfmt::skip]'
+            echo 'pub const DB: &[(&str, &str)] = &['
             cat crates/doc/generated/raw_entries.txt
-            echo '};'
+            echo '];'
           } > "$OUTPUT_FILE"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

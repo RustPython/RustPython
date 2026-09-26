@@ -804,46 +804,6 @@ class OpenSSLRFCTestCase(OpenSSLAssertersMixin,
     The underlying hash functions are also OpenSSL-based.
     """
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
-    def test_md5_rfc2202(self):
-        return super().test_md5_rfc2202()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
-    def test_sha1_rfc2202(self):
-        return super().test_sha1_rfc2202()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
-    def test_sha2_224_rfc4231(self):
-        return super().test_sha2_224_rfc4231()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
-    def test_sha2_256_rfc4231(self):
-        return super().test_sha2_256_rfc4231()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
-    def test_sha2_384_rfc4231(self):
-        return super().test_sha2_384_rfc4231()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
-    def test_sha2_512_rfc4231(self):
-        return super().test_sha2_512_rfc4231()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
-    def test_sha3_224_nist(self):
-        return super().test_sha3_224_nist()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
-    def test_sha3_256_nist(self):
-        return super().test_sha3_256_nist()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
-    def test_sha3_384_nist(self):
-        return super().test_sha3_384_nist()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _hashlib.UnsupportedDigestmodError: unsupported hash type
-    def test_sha3_512_nist(self):
-        return super().test_sha3_512_nist()
-
 
 class BuiltinRFCTestCase(BuiltinAssertersMixin,
                          NamedHashFunctionsTrait,
@@ -1057,7 +1017,6 @@ class OpenSSLConstructorTestCase(ThroughOpenSSLAPIMixin,
     def exc_type(self):
         return _hashlib.UnsupportedDigestmodError
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_hmac_digest_digestmod_parameter(self):
         for value in [object, 'unknown', 1234, None]:
             with (
@@ -1065,10 +1024,6 @@ class OpenSSLConstructorTestCase(ThroughOpenSSLAPIMixin,
                 self.assert_raises_unknown_digestmod(),
             ):
                 self.hmac_digest(b'key', b'msg', value)
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module '_hashlib' has no attribute 'hmac_digest'
-    def test_digest(self):
-        return super().test_digest()
 
 
 class BuiltinConstructorTestCase(ThroughBuiltinAPIMixin,

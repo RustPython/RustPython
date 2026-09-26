@@ -7,12 +7,11 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyInt, PyIntRef, PyTuple},
     convert::TryFromBorrowedObject,
-    function::OptionalOption,
 };
 
 #[derive(FromArgs)]
 pub struct SplitArgs<T: TryFromObject> {
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     sep: Option<T>,
     #[pyarg(any, default = -1)]
     maxsplit: isize,
@@ -246,7 +245,7 @@ pub(crate) trait AnyStr {
     #[inline]
     fn py_strip<'a, S, FC, FD>(
         &'a self,
-        chars: OptionalOption<S>,
+        chars: Option<S>,
         func_chars: FC,
         func_default: FD,
     ) -> &'a Self
@@ -255,7 +254,6 @@ pub(crate) trait AnyStr {
         FC: Fn(&'a Self, &Self) -> &'a Self,
         FD: Fn(&'a Self) -> &'a Self,
     {
-        let chars = chars.flatten();
         match chars {
             Some(chars) => {
                 if let Some(chars) = chars.as_ref() {

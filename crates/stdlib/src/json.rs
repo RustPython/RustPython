@@ -694,13 +694,13 @@ mod _json {
     }
 
     #[pyfunction]
-    fn encode_basestring(s: PyStrRef) -> Wtf8Buf {
-        json::encode_string(s.as_wtf8(), false)
+    fn encode_basestring(object: PyStrRef) -> Wtf8Buf {
+        json::encode_string(object.as_wtf8(), false)
     }
 
     #[pyfunction]
-    fn encode_basestring_ascii(s: PyStrRef) -> Wtf8Buf {
-        json::encode_string(s.as_wtf8(), true)
+    fn encode_basestring_ascii(object: PyStrRef) -> Wtf8Buf {
+        json::encode_string(object.as_wtf8(), true)
     }
 
     /// Which Rust-native string escaper (if any) the `encoder` callable is

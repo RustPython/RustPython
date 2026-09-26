@@ -770,9 +770,45 @@ pub mod sys {
         false // RustPython does not support remote debugging
     }
 
+    #[derive(FromArgs)]
+    struct ExitArgs {
+        #[pyarg(positional, optional)]
+        status: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct GetFrameArgs {
+        #[pyarg(positional, default = 0)]
+        depth: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct GetFrameModuleNameArgs {
+        #[pyarg(any, default = 0)]
+        depth: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct SetMaxDigitsArgs {
+        #[pyarg(any)]
+        maxdigits: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct SetDepthArgs {
+        #[pyarg(any)]
+        depth: i32,
+    }
+
+    #[derive(FromArgs)]
+    struct AuditHookArgs {
+        #[pyarg(any)]
+        hook: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn exit(status: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let status = status.unwrap_or_none(vm);
+    fn exit(args: ExitArgs, vm: &VirtualMachine) -> PyResult {
+        let status = args.status.unwrap_or_else(|| vm.ctx.none());
         let args = if let Some(status_tuple) = status.downcast_ref::<PyTuple>() {
             status_tuple.as_slice().to_vec()
         } else {
@@ -991,8 +1027,8 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _getframe(depth: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
-        let depth = depth.into_option().unwrap_or(0);
+    fn _getframe(args: GetFrameArgs, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
+        let depth = args.depth;
         let frame_ref = crate::frame::frame_at_offset(depth, vm)
             .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;
         vm.audit("sys._getframe", || (frame_ref.to_owned(),))?;
@@ -1002,10 +1038,10 @@ pub mod sys {
 
     #[pyfunction]
     fn _getframemodulename(
-        depth: OptionalArg<usize>,
+        args: GetFrameModuleNameArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let depth = depth.into_option().unwrap_or(0);
+        let depth = args.depth;
         vm.audit("sys._getframemodulename", || (depth,))?;
 
         // Get the frame at the specified depth
@@ -1237,7 +1273,10 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn set_int_max_str_digits(maxdigits: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_int_max_str_digits(
+        SetMaxDigitsArgs { maxdigits }: SetMaxDigitsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let threshold = IntInfoData::INFO.str_digits_check_threshold;
         if maxdigits == 0 || maxdigits >= threshold {
             vm.state.int_max_str_digits.store(maxdigits);
@@ -1353,7 +1392,10 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn set_coroutine_origin_tracking_depth(depth: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_coroutine_origin_tracking_depth(
+        SetDepthArgs { depth }: SetDepthArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if depth < 0 {
             return Err(vm.new_value_error("depth must be >= 0"));
         }
@@ -1847,7 +1889,7 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn addaudithook(hook: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn addaudithook(AuditHookArgs { hook }: AuditHookArgs, vm: &VirtualMachine) -> PyResult<()> {
         let args: PyObjectRef = vm.ctx.new_tuple(vec![]).into();
         let event: PyObjectRef = vm.ctx.new_str("sys.addaudithook").into();
 
