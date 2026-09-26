@@ -12,6 +12,7 @@ use crate::{
     types::{Destructor, IterNext, Iterable, Representable, SelfIter},
 };
 
+use core::sync::atomic::{AtomicBool, Ordering};
 use crossbeam_utils::atomic::AtomicCell;
 
 fn warn_unawaited_asyncgen_method(ag: &Py<PyAsyncGen>, method: &str, vm: &VirtualMachine) {
@@ -26,7 +27,8 @@ fn warn_unawaited_asyncgen_method(ag: &Py<PyAsyncGen>, method: &str, vm: &Virtua
 #[derive(Debug)]
 pub struct PyAsyncGen {
     inner: Coro,
-    running_async: AtomicCell<bool>,
+    #[pymember(name = "ag_running", type = "bool", readonly)]
+    running_async: AtomicBool,
     // whether hooks have been initialized
     ag_hooks_inited: AtomicCell<bool>,
     // Distinct from the frame being finished: aclose() sets this
@@ -70,7 +72,7 @@ impl PyAsyncGen {
     pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
             inner: Coro::new(frame, name, qualname),
-            running_async: AtomicCell::new(false),
+            running_async: AtomicBool::new(false),
             ag_hooks_inited: AtomicCell::new(false),
             ag_closed: AtomicCell::new(false),
             ag_finalizer: PyMutex::new(None),
@@ -151,10 +153,6 @@ impl PyAsyncGen {
         } else {
             self.inner.frame_opt()
         }
-    }
-    #[pygetset]
-    fn ag_running(&self, _vm: &VirtualMachine) -> bool {
-        self.running_async.load()
     }
     #[pygetset]
     fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
@@ -289,12 +287,12 @@ impl PyAsyncGenWrappedValue {
             ag.ag_closed.store(true);
         }
         if async_done {
-            ag.running_async.store(false);
+            ag.running_async.store(false, Ordering::Relaxed);
         }
         let val = val?.into_async_pyresult(vm)?;
         match_class!(match val {
             val @ Self => {
-                ag.running_async.store(false);
+                ag.running_async.store(false, Ordering::Relaxed);
                 Err(vm.new_stop_iteration(Some(val.0.clone())))
             }
             val => Ok(val),
@@ -348,13 +346,13 @@ impl PyAsyncGenASend {
             }
             AwaitableState::Iter => val, // already running, all good
             AwaitableState::Init => {
-                if self.ag.running_async.load() {
+                if self.ag.running_async.load(Ordering::Relaxed) {
                     self.state.store(AwaitableState::Closed);
                     return Err(
                         vm.new_runtime_error("anext(): asynchronous generator is already running")
                     );
                 }
-                self.ag.running_async.store(true);
+                self.ag.running_async.store(true, Ordering::Relaxed);
                 self.state.store(AwaitableState::Iter);
                 if vm.is_none(&val) {
                     self.value.clone()
@@ -386,13 +384,13 @@ impl PyAsyncGenASend {
                 );
             }
             AwaitableState::Init => {
-                if self.ag.running_async.load() {
+                if self.ag.running_async.load(Ordering::Relaxed) {
                     self.state.store(AwaitableState::Closed);
                     return Err(
                         vm.new_runtime_error("anext(): asynchronous generator is already running")
                     );
                 }
-                self.ag.running_async.store(true);
+                self.ag.running_async.store(true, Ordering::Relaxed);
                 self.state.store(AwaitableState::Iter);
             }
             AwaitableState::Iter => {}
@@ -498,7 +496,7 @@ impl PyAsyncGenAThrow {
             return Err(vm.new_stop_iteration(None));
         }
         if matches!(self.state.load(), AwaitableState::Init) {
-            if self.ag.running_async.load() {
+            if self.ag.running_async.load(Ordering::Relaxed) {
                 self.state.store(AwaitableState::Closed);
                 let msg = if self.aclose {
                     "aclose(): asynchronous generator is already running"
@@ -519,7 +517,7 @@ impl PyAsyncGenAThrow {
                 );
             }
             self.state.store(AwaitableState::Iter);
-            self.ag.running_async.store(true);
+            self.ag.running_async.store(true, Ordering::Relaxed);
             if self.aclose {
                 self.ag.ag_closed.store(true);
             }
@@ -565,7 +563,7 @@ impl PyAsyncGenAThrow {
                 return Err(vm.new_runtime_error("cannot reuse already awaited aclose()/athrow()"));
             }
             AwaitableState::Init => {
-                if self.ag.running_async.load() {
+                if self.ag.running_async.load(Ordering::Relaxed) {
                     self.state.store(AwaitableState::Closed);
                     let msg = if self.aclose {
                         "aclose(): asynchronous generator is already running"
@@ -578,7 +576,7 @@ impl PyAsyncGenAThrow {
                     self.state.store(AwaitableState::Closed);
                     return Err(vm.new_stop_iteration(None));
                 }
-                self.ag.running_async.store(true);
+                self.ag.running_async.store(true, Ordering::Relaxed);
                 self.state.store(AwaitableState::Iter);
             }
             AwaitableState::Iter => {}
@@ -634,12 +632,12 @@ impl PyAsyncGenAThrow {
         })
     }
     fn yield_close(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        self.ag.running_async.store(false);
+        self.ag.running_async.store(false, Ordering::Relaxed);
         self.state.store(AwaitableState::Closed);
         vm.new_runtime_error("async generator ignored GeneratorExit")
     }
     fn check_error(&self, exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        self.ag.running_async.store(false);
+        self.ag.running_async.store(false, Ordering::Relaxed);
         self.state.store(AwaitableState::Closed);
         if self.aclose
             && (exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)

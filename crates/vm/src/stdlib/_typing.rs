@@ -195,6 +195,7 @@ pub(crate) mod decl {
     #[pyclass(name, module = "typing")]
     #[derive(Debug, PyPayload)]
     pub(crate) struct TypeAliasType {
+        #[pymember(name = "__name__", readonly)]
         name: PyStrRef,
         type_params: PyTupleRef,
         compute_value: PyObjectRef,
@@ -238,11 +239,6 @@ pub(crate) mod decl {
                 module,
                 is_lazy: false,
             }
-        }
-
-        #[pygetset]
-        fn __name__(&self) -> PyObjectRef {
-            self.name.clone().into()
         }
 
         #[pygetset]

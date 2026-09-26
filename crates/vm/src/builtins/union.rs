@@ -18,6 +18,7 @@ const CLS_ATTRS: &[&str] = &["__module__"];
 
 #[pyclass(module = "typing", name = "Union", traverse)]
 pub struct PyUnion {
+    #[pymember(name = "__args__", readonly)]
     args: PyTupleRef,
     /// Frozenset of hashable args, or None if all args were hashable
     hashable_args: Option<PyRef<PyFrozenSet>>,
@@ -123,11 +124,6 @@ impl PyUnion {
         self.parameters.clone().into()
     }
 
-    #[pygetset]
-    fn __args__(&self) -> PyObjectRef {
-        self.args.clone().into()
-    }
-
     #[pymethod]
     fn __instancecheck__(
         zelf: PyRef<Self>,
@@ -141,7 +137,7 @@ impl PyUnion {
         {
             Err(vm.new_type_error("isinstance() argument 2 cannot be a parameterized generic"))
         } else {
-            obj.is_instance(zelf.__args__().as_object(), vm)
+            obj.is_instance(zelf.args.as_object(), vm)
         }
     }
 
@@ -158,7 +154,7 @@ impl PyUnion {
         {
             Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
         } else {
-            obj.is_subclass(zelf.__args__().as_object(), vm)
+            obj.is_subclass(zelf.args.as_object(), vm)
         }
     }
 

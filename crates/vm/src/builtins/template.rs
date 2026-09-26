@@ -22,7 +22,9 @@ use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 #[pyclass(module = "string.templatelib", name = "Template")]
 #[derive(Debug, Clone)]
 pub struct PyTemplate {
+    #[pymember(type = "object_ex", readonly, doc = "Strings")]
     pub strings: PyTupleRef,
+    #[pymember(type = "object_ex", readonly, doc = "Interpolations")]
     pub interpolations: PyTupleRef,
 }
 
@@ -98,16 +100,6 @@ impl Constructor for PyTemplate {
 
 #[pyclass(with(Constructor, Comparable, Iterable, Representable, AsSequence))]
 impl PyTemplate {
-    #[pygetset]
-    fn strings(&self) -> PyTupleRef {
-        self.strings.clone()
-    }
-
-    #[pygetset]
-    fn interpolations(&self) -> PyTupleRef {
-        self.interpolations.clone()
-    }
-
     #[pygetset]
     fn values(&self, vm: &VirtualMachine) -> PyTupleRef {
         let values: Vec<PyObjectRef> = self

@@ -1799,6 +1799,7 @@ impl ItemMeta for MemberItemMeta {
         "name",
         "path",
         "doc",
+        "no_doc",
         "offset",
     ];
 
@@ -1820,7 +1821,7 @@ impl MemberItemMeta {
         let kind = self.inner()._optional_str("type")?;
         if let Some(value) = &kind {
             match value.as_str() {
-                "object" | "object_ex" | "bool" | "double" => {}
+                "object" | "object_ex" | "bool" | "double" | "int" | "uint" => {}
                 other => {
                     let span = self
                         .inner()
@@ -1872,6 +1873,10 @@ impl MemberItemMeta {
 
     fn doc(&self) -> Result<Option<String>> {
         self.inner()._optional_str("doc")
+    }
+
+    fn no_doc(&self) -> Result<bool> {
+        self.inner()._bool("no_doc")
     }
 }
 
@@ -1969,6 +1974,8 @@ fn member_kind_tokens(kind: Option<&str>, span: Span) -> Result<TokenStream> {
         Some("object_ex") => "ObjectEx",
         Some("bool") => "Bool",
         Some("double") => "Double",
+        Some("int") => "Int",
+        Some("uint") => "Uint",
         Some(other) => {
             return Err(syn::Error::new(
                 span,
@@ -1986,6 +1993,10 @@ fn member_layout_tokens(kind: Option<&str>, readonly: bool) -> TokenStream {
         (Some("bool"), true) => "BoolMember",
         (Some("double"), false) => "DoubleCell",
         (Some("double"), true) => "DoubleMember",
+        (Some("int"), false) => "IntCell",
+        (Some("int"), true) => "IntMember",
+        (Some("uint"), false) => "UintCell",
+        (Some("uint"), true) => "UintMember",
         (_, false) => "ObjectCell",
         (_, true) => "ObjectMember",
     };
@@ -2101,7 +2112,11 @@ fn build_member(
         };
         (offset_expr, quote!())
     };
-    let doc = attr_doc_expr(Some(class_ty), &name, meta.doc()?);
+    let doc = if meta.no_doc()? {
+        quote!(None)
+    } else {
+        attr_doc_expr(Some(class_ty), &name, meta.doc()?)
+    };
     Ok(BuiltMember {
         name,
         cfgs: cfgs.to_vec(),

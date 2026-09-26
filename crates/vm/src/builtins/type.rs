@@ -47,6 +47,7 @@ pub(crate) type PyTypeTupleRef = PyRef<PyTuple<PyTypeRef>>;
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
     /// tp_base. Written under the type lock (see `set_bases`); read lock-free.
+    #[pymember(name = "__base__", readonly, no_doc)]
     pub base: PyAtomicRef<Option<Self>>,
     pub bases: PyRwLock<PyTypeTupleRef>,
     pub mro: PyRwLock<Vec<PyTypeRef>>,
@@ -1920,11 +1921,6 @@ impl PyType {
     }
 
     #[pygetset]
-    fn __base__(&self) -> Option<PyTypeRef> {
-        self.base.to_owned()
-    }
-
-    #[pygetset]
     fn __flags__(&self) -> u64 {
         self.slots.flags.bits()
             | (self.abc_tpflags.load(Ordering::Acquire) & PyTypeFlags::IS_ABSTRACT.bits())
@@ -3323,7 +3319,7 @@ fn get_builtin_base_with_dict(typ: &Py<PyType>, vm: &VirtualMachine) -> Option<P
         {
             return Some(t);
         }
-        current = t.__base__();
+        current = t.base.to_owned();
     }
     None
 }

@@ -16,6 +16,7 @@ use crossbeam_utils::atomic::AtomicCell;
 // PyCoro_Type in CPython
 pub struct PyCoroutine {
     inner: Coro,
+    #[pymember(name = "cr_origin", readonly)]
     origin: Option<PyTupleRef>,
 }
 
@@ -111,10 +112,6 @@ impl PyCoroutine {
     #[pygetset]
     fn cr_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.code()
-    }
-    #[pygetset]
-    fn cr_origin(&self, _vm: &VirtualMachine) -> Option<PyTupleRef> {
-        self.origin.clone()
     }
     #[pygetset]
     fn cr_suspended(&self, _vm: &VirtualMachine) -> bool {

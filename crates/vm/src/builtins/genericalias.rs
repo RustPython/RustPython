@@ -36,9 +36,12 @@ static ATTR_BLOCKED: [&str; 3] = ["__bases__", "__copy__", "__deepcopy__"];
 
 #[pyclass(module = "types", name = "GenericAlias")]
 pub struct PyGenericAlias {
+    #[pymember(name = "__origin__", readonly)]
     origin: PyObjectRef,
+    #[pymember(name = "__args__", readonly)]
     args: PyTupleRef,
     parameters: PyTupleRef,
+    #[pymember(name = "__unpacked__", type = "bool", readonly)]
     starred: bool, // for __unpacked__ attribute
 }
 
@@ -221,21 +224,6 @@ impl PyGenericAlias {
     }
 
     #[pygetset]
-    fn __args__(&self) -> PyObjectRef {
-        self.args.clone().into()
-    }
-
-    #[pygetset]
-    fn __origin__(&self) -> PyObjectRef {
-        self.origin.clone()
-    }
-
-    #[pygetset]
-    const fn __unpacked__(&self) -> bool {
-        self.starred
-    }
-
-    #[pygetset]
     fn __typing_unpacked_tuple_args__(&self, vm: &VirtualMachine) -> PyObjectRef {
         if self.starred && self.origin.is(vm.ctx.types.tuple_type.as_object()) {
             self.args.clone().into()
@@ -252,7 +240,7 @@ impl PyGenericAlias {
 
     #[pymethod]
     fn __dir__(&self, vm: &VirtualMachine) -> PyResult<PyList> {
-        let dir = vm.dir(Some(self.__origin__()))?;
+        let dir = vm.dir(Some(self.origin.clone()))?;
         for exc in &ATTR_EXCEPTIONS {
             let exc_obj = (*exc).to_pyobject(vm);
             if !dir.__contains__(&exc_obj, vm)? {
@@ -290,7 +278,7 @@ impl PyGenericAlias {
 
     #[pymethod]
     fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
-        PyTuple::new_ref(vec![self.__origin__()], &vm.ctx)
+        PyTuple::new_ref(vec![self.origin.clone()], &vm.ctx)
     }
 
     #[pymethod]
@@ -642,10 +630,10 @@ impl Comparable for PyGenericAlias {
                 return Ok(PyComparisonValue::Implemented(false));
             }
             Ok(PyComparisonValue::Implemented(
-                zelf.__origin__()
-                    .rich_compare_bool(&other.__origin__(), PyComparisonOp::Eq, vm)?
-                    && zelf.__args__().rich_compare_bool(
-                        &other.__args__(),
+                zelf.origin
+                    .rich_compare_bool(&other.origin, PyComparisonOp::Eq, vm)?
+                    && zelf.args.as_object().rich_compare_bool(
+                        other.args.as_object(),
                         PyComparisonOp::Eq,
                         vm,
                     )?,
@@ -674,7 +662,7 @@ impl GetAttr for PyGenericAlias {
                 return zelf.as_object().generic_getattr(attr, vm);
             }
         }
-        zelf.__origin__().get_attr(attr, vm)
+        zelf.origin.get_attr(attr, vm)
     }
 }
 

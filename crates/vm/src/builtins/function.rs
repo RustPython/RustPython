@@ -1340,7 +1340,9 @@ impl Constructor for PyFunction {
 #[pyclass(module = false, name = "method", traverse)]
 #[derive(Debug)]
 pub struct PyBoundMethod {
+    #[pymember(name = "__self__", readonly)]
     object: PyObjectRef,
+    #[pymember(name = "__func__", readonly)]
     function: PyObjectRef,
 }
 
@@ -1476,16 +1478,6 @@ impl PyBoundMethod {
     #[pygetset]
     fn __doc__(&self, vm: &VirtualMachine) -> PyResult {
         self.function.get_attr("__doc__", vm)
-    }
-
-    #[pygetset]
-    fn __func__(&self) -> PyObjectRef {
-        self.function.clone()
-    }
-
-    #[pygetset(name = "__self__")]
-    fn get_self(&self) -> PyObjectRef {
-        self.object.clone()
     }
 
     #[pygetset]
