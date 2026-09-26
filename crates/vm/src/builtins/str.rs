@@ -1,5 +1,5 @@
 use super::{
-    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
+    PositionIterInternal, PyBytesRef, PyDict, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef,
     int::{PyInt, PyIntRef},
     iter::{IterStatus, builtins_iter},
 };
@@ -1202,6 +1202,13 @@ impl PyStr {
 
     #[pymethod]
     fn join(zelf: PyRef<Self>, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        // `PySequence_Fast()` hands a list or tuple over as-is.
+        if let Some(list) = iterable.downcast_ref_if_exact::<PyList>(vm) {
+            return Self::join_items(&zelf, &list.borrow_vec(), vm);
+        }
+        if let Some(tuple) = iterable.downcast_ref_if_exact::<PyTuple>(vm) {
+            return Self::join_items(&zelf, tuple.as_slice(), vm);
+        }
         // `PyUnicode_Join()` reaches its elements through `PySequence_Fast()`,
         // which fills a list from the iterator and so asks it how long it is,
         // and which has its own wording for what it cannot iterate.
@@ -1225,6 +1232,45 @@ impl PyStr {
             }
             Err(iter) => zelf.as_wtf8().py_join(iter)?,
         };
+        Ok(vm.ctx.new_str(joined))
+    }
+
+    /// `join` over already-materialized items: checks them and sizes the result before copying.
+    fn join_items(
+        zelf: &Py<Self>,
+        items: &[PyObjectRef],
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
+        fn item_str<'a>(
+            i: usize,
+            obj: &'a PyObject,
+            vm: &VirtualMachine,
+        ) -> PyResult<&'a Py<PyStr>> {
+            obj.downcast_ref::<PyStr>().ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "sequence item {i}: expected str instance, {} found",
+                    obj.class().slot_name()
+                ))
+            })
+        }
+        let sep = zelf.as_wtf8();
+        let mut len = sep.len().saturating_mul(items.len().saturating_sub(1));
+        for (i, obj) in items.iter().enumerate() {
+            len = len.saturating_add(item_str(i, obj, vm)?.as_wtf8().len());
+        }
+        if let [only] = items {
+            let only = item_str(0, only, vm)?;
+            if only.class().is(vm.ctx.types.str_type) {
+                return Ok(only.to_owned());
+            }
+        }
+        let mut joined = Wtf8Buf::with_capacity(len);
+        for (i, obj) in items.iter().enumerate() {
+            if i > 0 {
+                joined.push_wtf8(sep);
+            }
+            joined.push_wtf8(item_str(i, obj, vm)?.as_wtf8());
+        }
         Ok(vm.ctx.new_str(joined))
     }
 

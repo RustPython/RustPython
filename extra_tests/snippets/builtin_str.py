@@ -260,6 +260,22 @@ assert (
 )
 assert "abc\t12345\txyz".expandtabs() == "abc     12345   xyz"
 assert "-".join(["1", "2", "3"]) == "1-2-3"
+assert "-".join(("1", "2")) == "1-2"
+assert "-".join([]) == ""
+assert "-".join(x for x in "ab") == "a-b"
+with assert_raises(TypeError) as cm:
+    "-".join(["a", 1])
+assert str(cm.exception) == "sequence item 1: expected str instance, int found"
+
+
+class JoinStr(str):
+    pass
+
+
+assert type("-".join([JoinStr("a")])) is str
+assert type("-".join((JoinStr("a"), "b"))) is str
+single = "single"
+assert "-".join([single]) is single
 assert "HALLO".isupper()
 assert not "123".isupper()
 assert not "123".islower()
