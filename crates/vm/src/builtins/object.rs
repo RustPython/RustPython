@@ -218,34 +218,10 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         type_slot_names(obj.class(), vm).map_err(|_| vm.new_type_error("cannot pickle object"))?;
 
     if required {
-        // Start with PyBaseObject_Type's basicsize
-        let mut basicsize = vm.ctx.types.object_type.slots().basicsize;
-
-        // Add __dict__ size if type has dict
-        if obj.class().slots().flags.has_feature(PyTypeFlags::HAS_DICT) {
-            basicsize += core::mem::size_of::<PyObjectRef>();
-        }
-
-        // Add __weakref__ size if type has weakref support
-        let has_weakref = if let Some(ext) = obj.class().heaptype_ext() {
-            match &ext.slots {
-                None => true, // Heap type without __slots__ has automatic weakref
-                Some(slots) => slots.iter().any(|s| s.as_bytes() == b"__weakref__"),
-            }
-        } else {
-            let weakref_name = vm.ctx.intern_str("__weakref__");
-            obj.class().attributes().contains(weakref_name)
-        };
-        if has_weakref {
-            basicsize += core::mem::size_of::<PyObjectRef>();
-        }
-
-        // Add slots size
-        if let Some(ref slot_names) = slot_names {
-            basicsize += core::mem::size_of::<PyObjectRef>() * slot_names.__len__();
-        }
-
-        // Fail if actual type's basicsize > expected basicsize
+        // Dict, weakref list, and slot cells sit in the prefix in front of
+        // the payload, so they are not part of `slots.basicsize`. Only state
+        // stored inside the payload counts.
+        let basicsize = vm.ctx.types.object_type.slots().basicsize;
         if obj.class().slots().basicsize > basicsize {
             return Err(vm.new_type_error(format!("cannot pickle '{}' object", obj.class().name())));
         }

@@ -48,7 +48,7 @@ impl PyObjVTable {
 
 unsafe impl Traverse for InstanceDict {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.d.traverse(tracer_fn)
+        self.dict.traverse(tracer_fn)
     }
 }
 

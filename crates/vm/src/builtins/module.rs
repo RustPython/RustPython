@@ -83,6 +83,9 @@ impl PyModuleDef {
 }
 
 #[pyclass(module = false, name = "module")]
+// The dict lives in the object extension, not the payload. The offset is
+// the dict cell at the front of that extension.
+#[pymember(name = "__dict__", offset = ::rustpython_vm::object::dict_member_offset())]
 #[derive(Debug)]
 pub struct PyModule {
     // PyObject *md_dict;
@@ -290,13 +293,6 @@ impl PyModule {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Self::new().into_ref_with_type(vm, cls).map(Into::into)
-    }
-
-    #[pymember]
-    fn __dict__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        zelf.dict()
-            .map(Into::into)
-            .ok_or_else(|| vm.new_attribute_error("module has no __dict__"))
     }
 
     #[pymethod]

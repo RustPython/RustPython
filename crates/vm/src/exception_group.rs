@@ -53,7 +53,9 @@ pub(super) mod types {
     #[repr(C)]
     pub struct PyBaseExceptionGroup {
         base: PyBaseException,
+        #[pymember(name = "message")]
         msg: PyAtomicRef<PyObject>,
+        #[pymember(name = "exceptions")]
         excs: PyAtomicRef<PyObject>,
         excs_str: PyAtomicRef<Option<PyObject>>,
     }
@@ -85,16 +87,6 @@ pub(super) mod types {
 
     #[pyexception(with(Constructor, Initializer))]
     impl PyBaseExceptionGroup {
-        #[pygetset]
-        fn message(&self) -> PyObjectRef {
-            self.msg.to_owned()
-        }
-
-        #[pygetset]
-        fn exceptions(&self) -> PyObjectRef {
-            self.excs.to_owned()
-        }
-
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
@@ -226,14 +218,18 @@ pub(super) mod types {
             Ok(vm.ctx.new_tuple(vec![match_group, rest_group]))
         }
 
-        #[pymethod]
-        fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        #[pyslot]
+        fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let zelf: &Py<Self> = zelf
+                .downcast_ref()
+                .expect("slot wrapper checked BaseExceptionGroup");
             let message = zelf.msg.str(vm)?;
             let num_excs = zelf.excs.downcast_ref::<PyTuple>().map_or(0, |t| t.len());
 
             let suffix = if num_excs == 1 { "" } else { "s" };
             let mut result = message.as_wtf8().to_owned();
-            write!(result, " ({num_excs} sub-exception{suffix})").unwrap();
+            write!(result, " ({num_excs} sub-exception{suffix})")
+                .expect("formatting into a string buffer cannot fail");
             Ok(vm.ctx.new_str(result))
         }
 

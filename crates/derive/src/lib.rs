@@ -210,6 +210,38 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// }
 /// ```
 /// ### pymember
+/// Declares an offset member on a payload field. The struct `#[pyclass]` builds
+/// a `PyClassDef::MEMBERS` table and `extend_class` registers one
+/// `member_descriptor` per entry. The member kind is inferred from the field
+/// type: `bool` / `AtomicBool`, `i32` / `AtomicI32`, `u32` / `AtomicU32`,
+/// `isize` / `AtomicIsize`, `f64` / `AtomicF64`, or an object pointer
+/// (`PyObjectRef`, `PyRef<T>`, `Option` of those, `PyAtomicRef<PyObject>`,
+/// `PyAtomicRef<Option<PyObject>>`, `PyAtomicRef<Option<T>>`,
+/// `&'static Py<T>`, `&'static PyStrInterned`).
+///
+/// - `type`: only `"object_ex"`, on an object field or a struct-level offset
+///   member. `"object"`, `"bool"`, `"int"`, `"uint"`, `"double"`, and
+///   `"py_ssize_t"` are rejected because those kinds are inferred.
+/// - `writable`: accept stores. Members are readonly without it. A writable
+///   object member must be `PyAtomicRef<PyObject>` (never null) or
+///   `PyAtomicRef<Option<PyObject>>` (nullable), a writable bool must be
+///   `AtomicBool`, a writable int must be `AtomicI32`, a writable uint must be
+///   `AtomicU32`, a writable double must be `AtomicF64`, and a writable
+///   py_ssize_t must be `AtomicIsize`.
+/// - `audit_read`: audit `object.__getattr__` before the load.
+/// - `name`: Python attribute name. Defaults to the field name.
+/// - `path`: subfield of the annotated field (`value` with `path = "re"`).
+/// - `doc`: `doc = "text"` is that docstring and does not consult the stored
+///   attribute documentation. `doc = false` stores no docstring. When `doc` is
+///   omitted, the docstring is the stored attribute documentation.
+///
+/// A struct-level `#[pymember]` (after `#[pyclass]`) has no field. `offset` is
+/// required there and rejected on a field. One field may carry several
+/// `#[pymember]` attributes. A `#[cfg]` on the field gates that entry.
+/// ```rust, ignore
+/// #[pymember(name = "fget")]
+/// getter: PyAtomicRef<Option<PyObject>>,
+/// ```
 /// # Trait
 /// `#[pyclass]` on traits functions a lot like `#[pyclass]` on `impl` blocks.
 /// Note that associated functions that are annotated with `#[pymethod]` or similar **must**

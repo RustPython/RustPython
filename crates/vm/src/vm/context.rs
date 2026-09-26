@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, PyObject, PyResult, VirtualMachine,
+    AsObject, PyObject,
     builtins::{
         PyByteArray, PyBytes, PyCapsule, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
         PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr,
@@ -7,8 +7,8 @@ use crate::{
         bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
-            MemberAccess, MemberKind, MemberSetterFunc, PY_READONLY, PyDescriptorOwned,
-            PyMemberDef, PyMemberDescriptor,
+            MemberAccess, MemberKind, PY_READONLY, PyDescriptorOwned, PyMemberDef,
+            PyMemberDescriptor,
         },
         getset::PyGetSet,
         object, pystr,
@@ -661,12 +661,11 @@ impl Context {
         &self,
         name: &str,
         kind: MemberKind,
-        getter: fn(&VirtualMachine, PyObjectRef) -> PyResult,
-        setter: MemberSetterFunc,
+        offset: isize,
+        flags: i32,
         class: &'static Py<PyType>,
         doc: Option<&str>,
     ) -> PyRef<PyMemberDescriptor> {
-        let flags = if setter.is_none() { PY_READONLY } else { 0 };
         let member_descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
                 typ: class.to_owned(),
@@ -676,14 +675,11 @@ impl Context {
             member: PyMemberDef {
                 name: name.to_owned(),
                 kind,
-                offset: 0,
+                offset,
                 flags,
                 doc: doc.map(str::to_owned),
             },
-            access: MemberAccess::Func {
-                get: getter,
-                set: setter,
-            },
+            access: MemberAccess::Offset,
         };
         member_descriptor.into_ref(self)
     }
@@ -721,7 +717,7 @@ impl Context {
     where
         F: IntoPyGetterFunc<T>,
     {
-        let getset = PyGetSet::new(name, class).with_get(f);
+        let getset = PyGetSet::new(name, class, self).with_get(f);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
@@ -736,7 +732,7 @@ impl Context {
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        let getset = PyGetSet::new(name, class).with_get(g).with_set(s);
+        let getset = PyGetSet::new(name, class, self).with_get(g).with_set(s);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
@@ -752,7 +748,7 @@ impl Context {
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        let getset = PyGetSet::new(name, class).with_get(g).with_set(s);
+        let getset = PyGetSet::new(name, class, self).with_get(g).with_set(s);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 

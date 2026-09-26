@@ -1618,7 +1618,9 @@ impl VirtualMachine {
 
         // Create a function object for module code, similar to PyEval_EvalCode
         let mut func = PyFunction::new(code, scope.globals.clone(), self)?;
-        func.closure = closure;
+        if let Some(closure) = closure {
+            func.closure = Some(closure);
+        }
         let func = func.into_ref(&self.ctx);
         func.invoke_with_locals(FuncArgs::default(), scope.locals, self)
     }

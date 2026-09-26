@@ -64,8 +64,11 @@ fn iter_search(
 #[pyclass(module = false, name = "range")]
 #[derive(Debug, Clone)]
 pub struct PyRange {
+    #[pymember(type = "object_ex")]
     pub start: PyIntRef,
+    #[pymember(type = "object_ex")]
     pub stop: PyIntRef,
+    #[pymember(type = "object_ex")]
     pub step: PyIntRef,
 }
 
@@ -257,21 +260,6 @@ impl PyRange {
             step,
         }
         .into_ref_with_type(vm, cls)
-    }
-
-    #[pygetset]
-    fn start(&self) -> PyIntRef {
-        self.start.clone()
-    }
-
-    #[pygetset]
-    fn stop(&self) -> PyIntRef {
-        self.stop.clone()
-    }
-
-    #[pygetset]
-    fn step(&self) -> PyIntRef {
-        self.step.clone()
     }
 
     #[pymethod]
@@ -485,14 +473,14 @@ impl Hashable for PyRange {
         } else if length.is_one() {
             [
                 vm.ctx.new_int(length).into(),
-                zelf.start().into(),
+                zelf.start.clone().into(),
                 vm.ctx.none(),
             ]
         } else {
             [
                 vm.ctx.new_int(length).into(),
-                zelf.start().into(),
-                zelf.step().into(),
+                zelf.start.clone().into(),
+                zelf.step.clone().into(),
             ]
         };
         tuple_hash(&elements, vm)

@@ -471,6 +471,12 @@ pub struct CoMonitoringData {
 
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
+    #[pymember(name = "co_argcount", path = "arg_count")]
+    #[pymember(name = "co_posonlyargcount", path = "posonlyarg_count")]
+    #[pymember(name = "co_kwonlyargcount", path = "kwonlyarg_count")]
+    #[pymember(name = "co_stacksize", path = "max_stackdepth")]
+    #[pymember(name = "co_name", path = "obj_name")]
+    #[pymember(name = "co_qualname", path = "qualname")]
     pub code: CodeObject,
     /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
     /// Derived once so frame-local proxy operations do not repeatedly scan
@@ -1024,21 +1030,6 @@ impl Constructor for PyCode {
 )]
 impl PyCode {
     #[pygetset]
-    const fn co_posonlyargcount(&self) -> usize {
-        self.code.posonlyarg_count as usize
-    }
-
-    #[pygetset]
-    const fn co_argcount(&self) -> usize {
-        self.code.arg_count as usize
-    }
-
-    #[pygetset]
-    const fn co_stacksize(&self) -> u32 {
-        self.code.max_stackdepth
-    }
-
-    #[pygetset]
     pub fn co_filename(&self) -> PyStrRef {
         self.source_path().to_owned()
     }
@@ -1064,23 +1055,9 @@ impl PyCode {
     }
 
     #[pygetset]
-    const fn co_kwonlyargcount(&self) -> usize {
-        self.code.kwonlyarg_count as usize
-    }
-
-    #[pygetset]
     fn co_consts(&self, vm: &VirtualMachine) -> PyTupleRef {
         let consts = self.code.constants.iter().map(|x| x.0.clone()).collect();
         vm.ctx.new_tuple(consts)
-    }
-
-    #[pygetset]
-    fn co_name(&self) -> PyStrRef {
-        self.code.obj_name.to_owned()
-    }
-    #[pygetset]
-    fn co_qualname(&self) -> PyStrRef {
-        self.code.qualname.to_owned()
     }
 
     #[pygetset]

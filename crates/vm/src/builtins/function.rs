@@ -65,8 +65,11 @@ fn format_missing_args(
 #[derive(Debug)]
 pub struct PyFunction {
     pub(crate) code: PyAtomicRef<PyCode>,
+    #[pymember(name = "__globals__")]
     pub(crate) globals: PyDictRef,
+    #[pymember(name = "__builtins__")]
     pub(crate) builtins: PyObjectRef,
+    #[pymember(name = "__closure__")]
     pub(crate) closure: Option<PyRef<PyTuple<PyCellRef>>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
@@ -74,8 +77,10 @@ pub struct PyFunction {
     type_params: PyMutex<PyTupleRef>,
     annotations: PyMutex<Option<PyDictRef>>,
     annotate: PyMutex<Option<PyObjectRef>>,
-    module: PyMutex<PyObjectRef>,
-    doc: PyMutex<PyObjectRef>,
+    #[pymember(name = "__module__", writable)]
+    module: PyAtomicRef<Option<PyObject>>,
+    #[pymember(name = "__doc__", writable)]
+    doc: PyAtomicRef<Option<PyObject>>,
     func_version: AtomicU32,
     #[cfg(feature = "jit")]
     jitted_code: PyMutex<Option<CompiledCode>>,
@@ -106,8 +111,8 @@ unsafe impl Traverse for PyFunction {
         // Traverse additional fields that may contain references
         self.type_params.lock().traverse(tracer_fn);
         self.annotations.lock().traverse(tracer_fn);
-        self.module.lock().traverse(tracer_fn);
-        self.doc.lock().traverse(tracer_fn);
+        self.module.traverse(tracer_fn);
+        self.doc.traverse(tracer_fn);
     }
 
     fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
@@ -139,14 +144,10 @@ unsafe impl Traverse for PyFunction {
         }
 
         // Clear module, doc, and type_params (Py_CLEAR)
-        if let Some(mut guard) = self.module.try_lock() {
-            let old_module =
-                core::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+        if let Some(old_module) = self.module.store(Some(Context::genesis().none())) {
             out.push(old_module);
         }
-        if let Some(mut guard) = self.doc.try_lock() {
-            let old_doc =
-                core::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+        if let Some(old_doc) = self.doc.store(Some(Context::genesis().none())) {
             out.push(old_doc);
         }
         if let Some(mut guard) = self.type_params.try_lock() {
@@ -213,8 +214,8 @@ impl PyFunction {
             type_params: PyMutex::new(vm.ctx.empty_tuple.clone()),
             annotations: PyMutex::new(None),
             annotate: PyMutex::new(None),
-            module: PyMutex::new(module),
-            doc: PyMutex::new(doc),
+            module: PyAtomicRef::from(Some(module)),
+            doc: PyAtomicRef::from(Some(doc)),
             func_version: AtomicU32::new(next_func_version()),
             #[cfg(feature = "jit")]
             jitted_code: PyMutex::new(None),
@@ -536,7 +537,8 @@ impl PyFunction {
                     })?
                     .into_pyref();
 
-                self.closure = Some(closure_tuple.try_into_typed::<PyCell>(vm)?);
+                let typed = closure_tuple.try_into_typed::<PyCell>(vm)?;
+                self.closure = Some(typed);
             }
             bytecode::MakeFunctionFlag::TypeParams => {
                 let type_params = attr_value.clone().downcast::<PyTuple>().map_err(|_| {
@@ -1051,29 +1053,6 @@ impl PyFunction {
         crate::stdlib::_testinternalcapi::note_func_modification();
     }
 
-    // {"__closure__",   T_OBJECT,     OFF(func_closure), READONLY},
-    // {"__doc__",       T_OBJECT,     OFF(func_doc), 0},
-    // {"__globals__",   T_OBJECT,     OFF(func_globals), READONLY},
-    // {"__module__",    T_OBJECT,     OFF(func_module), 0},
-    // {"__builtins__",  T_OBJECT,     OFF(func_builtins), READONLY},
-    #[pymember]
-    fn __globals__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_as_pyref(&zelf, vm)?;
-        Ok(zelf.globals.clone().into())
-    }
-
-    #[pymember]
-    fn __closure__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_as_pyref(&zelf, vm)?;
-        Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.into())))
-    }
-
-    #[pymember]
-    fn __builtins__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_as_pyref(&zelf, vm)?;
-        Ok(zelf.builtins.clone())
-    }
-
     #[pygetset]
     fn __name__(&self) -> PyStrRef {
         self.name.lock().clone()
@@ -1082,38 +1061,6 @@ impl PyFunction {
     #[pygetset(setter)]
     fn set___name__(&self, name: PyStrRef) {
         *self.name.lock() = name;
-    }
-
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember]
-    fn __doc__(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult {
-        // When accessed from instance, obj is the PyFunction instance
-        if let Ok(func) = obj.downcast::<Self>() {
-            let doc = func.doc.lock();
-            Ok(doc.clone())
-        } else {
-            // When accessed from class, return None as there's no instance
-            Ok(vm.ctx.none())
-        }
-    }
-
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember(setter)]
-    fn set___doc__(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
-        let zelf: PyRef<Self> = zelf.downcast().unwrap_or_else(|_| unreachable!());
-        let value = value.unwrap_or_none(vm);
-        *zelf.doc.lock() = value;
-        Ok(())
-    }
-
-    #[pygetset]
-    fn __module__(&self) -> PyObjectRef {
-        self.module.lock().clone()
-    }
-
-    #[pygetset(setter)]
-    fn set___module__(&self, module: PySetterValue<PyObjectRef>, vm: &VirtualMachine) {
-        *self.module.lock() = module.unwrap_or_none(vm);
     }
 
     #[pygetset]
@@ -1393,7 +1340,9 @@ impl Constructor for PyFunction {
 #[pyclass(module = false, name = "method", traverse)]
 #[derive(Debug)]
 pub struct PyBoundMethod {
+    #[pymember(name = "__self__")]
     object: PyObjectRef,
+    #[pymember(name = "__func__")]
     function: PyObjectRef,
 }
 
@@ -1529,16 +1478,6 @@ impl PyBoundMethod {
     #[pygetset]
     fn __doc__(&self, vm: &VirtualMachine) -> PyResult {
         self.function.get_attr("__doc__", vm)
-    }
-
-    #[pygetset]
-    fn __func__(&self) -> PyObjectRef {
-        self.function.clone()
-    }
-
-    #[pygetset(name = "__self__")]
-    fn get_self(&self) -> PyObjectRef {
-        self.object.clone()
     }
 
     #[pygetset]
