@@ -393,21 +393,33 @@ impl Py<PyInt> {
         }
     }
 
-    pub fn try_to_primitive<'a, I>(&'a self, vm: &VirtualMachine) -> PyResult<I>
+    // PyLong_AsUInt32, PyLong_AsUInt64 and the unsigned argument converters:
+    // a negative value for an unsigned type raises ValueError.
+    pub fn try_to_primitive<I>(&self, vm: &VirtualMachine) -> PyResult<I>
     where
-        I: PrimInt + TryFrom<&'a BigInt>,
+        I: PrimInt + for<'a> TryFrom<&'a BigInt>,
     {
-        if I::min_value() == I::zero() && self.as_bigint().sign() == Sign::Minus {
-            return Err(vm.new_value_error("can't convert negative number to unsigned"));
-        }
-
-        self.try_to_primitive_raw(vm)
+        self.to_primitive(true, vm)
     }
 
-    pub fn try_to_primitive_raw<'a, I>(&'a self, vm: &VirtualMachine) -> PyResult<I>
+    // PyLong_AsUnsignedLong, PyLong_AsSize_t: a negative value for an unsigned
+    // type is out of range like any other and raises OverflowError.
+    pub fn try_to_primitive_in_range<I>(&self, vm: &VirtualMachine) -> PyResult<I>
     where
-        I: PrimInt + TryFrom<&'a BigInt>,
+        I: PrimInt + for<'a> TryFrom<&'a BigInt>,
     {
+        self.to_primitive(false, vm)
+    }
+
+    // PyLong_AsNativeBytes with or without Py_ASNATIVEBYTES_REJECT_NEGATIVE
+    fn to_primitive<I>(&self, reject_negative: bool, vm: &VirtualMachine) -> PyResult<I>
+    where
+        I: PrimInt + for<'a> TryFrom<&'a BigInt>,
+    {
+        if reject_negative && I::min_value() == I::zero() && self.as_bigint().sign() == Sign::Minus
+        {
+            return Err(vm.new_value_error("can't convert negative number to unsigned"));
+        }
         I::try_from(self.as_bigint()).map_err(|_| {
             vm.new_overflow_error(format!(
                 "Python int too large to convert to Rust {}",
