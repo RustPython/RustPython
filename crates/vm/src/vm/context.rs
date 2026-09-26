@@ -521,7 +521,9 @@ impl Context {
     #[inline]
     pub fn new_str(&self, s: impl Into<pystr::PyStr>) -> PyRef<PyStr> {
         let s = s.into();
-        if let Some(ch) = Self::latin1_singleton_index(&s) {
+        if s.is_empty() {
+            self.empty_str.to_owned()
+        } else if let Some(ch) = Self::latin1_singleton_index(&s) {
             self.latin1_char(ch)
         } else {
             s.into_ref(self)
