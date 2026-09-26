@@ -183,21 +183,27 @@ mod _collections {
             let max_len = self.maxlen;
             let mut elements: Vec<PyObjectRef> = iterable.try_to_value(vm)?;
             elements.reverse();
-
             if let Some(max_len) = max_len {
-                if max_len > elements.len() {
-                    let mut deque = self.borrow_deque_mut();
-                    let truncate_until = max_len - elements.len();
-                    deque.truncate(truncate_until);
-                } else {
-                    self.borrow_deque_mut().clear();
-                    elements.truncate(max_len);
-                }
+                elements.truncate(max_len);
+            }
+            if elements.is_empty() {
+                return Ok(());
             }
             let mut created = VecDeque::from(elements);
-            let mut borrowed = self.borrow_deque_mut();
-            created.append(&mut borrowed);
-            core::mem::swap(&mut created, &mut borrowed);
+            let discarded = {
+                let mut deque = self.borrow_deque_mut();
+                let discarded = if let Some(max_len) = max_len {
+                    let retained = (max_len - created.len()).min(deque.len());
+                    deque.split_off(retained)
+                } else {
+                    VecDeque::new()
+                };
+                created.append(&mut deque);
+                core::mem::swap(&mut created, &mut deque);
+                self.state.fetch_add(1);
+                discarded
+            };
+            drop(discarded);
             Ok(())
         }
 
@@ -268,19 +274,37 @@ mod _collections {
         }
 
         #[pymethod]
-        fn remove(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn remove(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let start_state = self.state.load();
-            let index = self.mut_index(vm, &value)?;
-
-            if start_state != self.state.load() {
-                Err(vm.new_index_error("deque mutated during remove()."))
-            } else if let Some(index) = index.into() {
-                let mut deque = self.borrow_deque_mut();
-                self.state.fetch_add(1);
-                Ok(deque.remove(index).unwrap())
-            } else {
-                Err(vm.new_value_error("deque.remove(x): x not in deque"))
+            let len = self.borrow_deque().len();
+            let mutated = || vm.new_index_error("deque mutated during iteration");
+            for index in 0..len {
+                let item = self
+                    .borrow_deque()
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(mutated)?;
+                let equal = item.rich_compare_bool(&value, PyComparisonOp::Eq, vm)?;
+                // Releasing the comparison reference can also run a finalizer.
+                drop(item);
+                if start_state != self.state.load() {
+                    return Err(mutated());
+                }
+                if equal {
+                    let removed = {
+                        let mut deque = self.borrow_deque_mut();
+                        if start_state != self.state.load() {
+                            return Err(mutated());
+                        }
+                        let removed = deque.remove(index).ok_or_else(mutated)?;
+                        self.state.fetch_add(1);
+                        removed
+                    };
+                    drop(removed);
+                    return Ok(());
+                }
             }
+            Err(vm.new_value_error("deque.remove(x): x not in deque"))
         }
 
         #[pymethod]
@@ -333,10 +357,18 @@ mod _collections {
         }
 
         fn __delitem__(&self, idx: isize, vm: &VirtualMachine) -> PyResult<()> {
-            let mut deque = self.borrow_deque_mut();
-            idx.wrapped_at(deque.len())
-                .and_then(|i| deque.remove(i).map(drop))
-                .ok_or_else(|| vm.new_index_error("deque index out of range"))
+            let removed = {
+                let mut deque = self.borrow_deque_mut();
+                let removed = idx
+                    .wrapped_at(deque.len())
+                    .and_then(|i| deque.remove(i))
+                    .ok_or_else(|| vm.new_index_error("deque index out of range"))?;
+                self.state.fetch_add(1);
+                removed
+            };
+            // Finalizers can mutate the deque, so release the lock first.
+            drop(removed);
+            Ok(())
         }
 
         fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -381,8 +413,16 @@ mod _collections {
         }
 
         fn __imul__(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            let mul_deque = zelf._mul(n, vm)?;
-            *zelf.borrow_deque_mut() = mul_deque;
+            if n == 1 || zelf.borrow_deque().is_empty() {
+                return Ok(zelf);
+            }
+            let mut mul_deque = zelf._mul(n, vm)?;
+            {
+                let mut deque = zelf.borrow_deque_mut();
+                core::mem::swap(&mut *deque, &mut mul_deque);
+                zelf.state.fetch_add(1);
+            }
+            drop(mul_deque);
             Ok(zelf)
         }
 
@@ -490,25 +530,11 @@ mod _collections {
                 None
             };
 
-            // retrieve elements first to not to make too huge lock
-            let elements = iterable
-                .into_option()
-                .map(|iter| {
-                    let mut elements: Vec<PyObjectRef> = iter.try_to_value(vm)?;
-                    if let Some(maxlen) = maxlen {
-                        elements.drain(..elements.len().saturating_sub(maxlen));
-                    }
-                    Ok(elements)
-                })
-                .transpose()?;
-
             // SAFETY: This is hacky part for read-only field
             // Because `maxlen` is only mutated from __init__. We can abuse the lock of deque to ensure this is locked enough.
             // If we make a single lock of deque not only for extend but also for setting maxlen, it will be safe.
-            {
+            let removed = {
                 let mut deque = zelf.borrow_deque_mut();
-                // Clear any previous data present.
-                deque.clear();
                 unsafe {
                     // `maxlen` is better to be defined as UnsafeCell in common practice,
                     // but then more type works without any safety benefits
@@ -516,10 +542,37 @@ mod _collections {
                         &zelf.maxlen as *const _ as *const core::cell::UnsafeCell<Option<usize>>;
                     *(*unsafe_maxlen).get() = maxlen;
                 }
-                if let Some(elements) = elements {
-                    deque.extend(elements);
+                let removed = core::mem::take(&mut *deque);
+                if !removed.is_empty() {
+                    zelf.state.fetch_add(1);
                 }
+                removed
+            };
+            // Release old elements before iterating; their finalizers can add new ones.
+            drop(removed);
+
+            let Some(iterable) = iterable.into_option() else {
+                return Ok(());
+            };
+            let maxlen = zelf.maxlen;
+            let mut elements: Vec<PyObjectRef> = iterable.try_to_value(vm)?;
+            if let Some(maxlen) = maxlen {
+                elements.drain(..elements.len().saturating_sub(maxlen));
             }
+            if elements.is_empty() {
+                return Ok(());
+            }
+            let discarded = {
+                let mut deque = zelf.borrow_deque_mut();
+                let discard_until = maxlen.map_or(0, |maxlen| {
+                    deque.len().saturating_sub(maxlen - elements.len())
+                });
+                let discarded: Vec<_> = deque.drain(..discard_until).collect();
+                deque.extend(elements);
+                zelf.state.fetch_add(1);
+                discarded
+            };
+            drop(discarded);
 
             Ok(())
         }
