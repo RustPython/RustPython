@@ -346,7 +346,7 @@ mod _imp {
     struct FindFrozenArgs {
         #[pyarg(positional)]
         name: PyUtf8StrRef,
-        #[pyarg(named, default = false)]
+        #[pyarg(named, default)]
         withdata: bool,
     }
 

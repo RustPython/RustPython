@@ -25,7 +25,7 @@ pub(crate) mod module {
         mode: u8,
         #[pyarg(flatten)]
         dir_fd: DirFd<'a, 0>,
-        #[pyarg(named, default = false)]
+        #[pyarg(named, default)]
         effective_ids: bool,
         #[pyarg(named, default = true)]
         follow_symlinks: bool,

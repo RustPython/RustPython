@@ -236,7 +236,7 @@ mod mmap {
         prot: core::ffi::c_int,
         #[pyarg(any, default = AccessMode::Default)]
         access: AccessMode,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         offset: i64,
         #[pyarg(named, default = true)]
         trackfd: bool,
@@ -253,7 +253,7 @@ mod mmap {
         tagname: Option<PyObjectRef>,
         #[pyarg(any, default = AccessMode::Default)]
         access: AccessMode,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         offset: i64,
     }
 
@@ -280,13 +280,13 @@ mod mmap {
     struct SeekArgs {
         #[pyarg(positional)]
         pos: isize,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         whence: core::ffi::c_int,
     }
 
     #[derive(FromArgs)]
     pub(super) struct FlushOptions {
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         offset: isize,
         #[pyarg(positional, optional)]
         size: Option<isize>,

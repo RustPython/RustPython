@@ -458,13 +458,13 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct GetCertArgs {
-        #[pyarg(positional, default = false)]
+        #[pyarg(positional, default)]
         der: bool,
     }
 
     #[derive(FromArgs)]
     struct GetCaCertsArgs {
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         binary_form: bool,
     }
 
@@ -4074,7 +4074,7 @@ mod _ssl {
     #[derive(FromArgs)]
     struct Txt2ObjArgs {
         txt: PyUtf8StrRef,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         name: bool,
     }
 

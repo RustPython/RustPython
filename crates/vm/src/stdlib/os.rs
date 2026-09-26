@@ -26,7 +26,7 @@ pub(crate) fn fs_metadata<P: AsRef<Path>>(
 #[allow(dead_code)]
 #[derive(FromArgs, Default)]
 pub struct TargetIsDirectory {
-    #[pyarg(any, default = false)]
+    #[pyarg(any, default)]
     pub(crate) target_is_directory: bool,
 }
 

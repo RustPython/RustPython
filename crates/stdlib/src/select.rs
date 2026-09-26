@@ -448,7 +448,7 @@ mod decl {
         pub(crate) struct EpollNewArgs {
             #[pyarg(any, default = -1)]
             sizehint: i32,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             flags: i32,
         }
 
@@ -718,11 +718,11 @@ mod decl {
             filter: i16,
             #[pyarg(any, default = host_select::kqueue::DEFAULT_FLAGS)]
             flags: u16,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             fflags: u32,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             data: isize,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             udata: usize,
         }
 

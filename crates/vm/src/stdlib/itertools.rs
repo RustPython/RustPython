@@ -1799,7 +1799,7 @@ mod decl {
         iterable: PyObjectRef,
         #[pyarg(any)]
         n: PyIntRef,
-        #[pyarg(named, default = false)]
+        #[pyarg(named, default)]
         strict: bool,
     }
 

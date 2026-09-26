@@ -19,7 +19,7 @@ pub struct SplitArgs<T: TryFromObject> {
 
 #[derive(FromArgs)]
 pub struct SplitLinesArgs {
-    #[pyarg(any, default = false)]
+    #[pyarg(any, default)]
     pub keepends: bool,
 }
 

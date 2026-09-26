@@ -401,7 +401,7 @@ pub mod module {
         mode: u8,
         #[pyarg(flatten)]
         dir_fd: DirFd<'a, 0>,
-        #[pyarg(named, default = false)]
+        #[pyarg(named, default)]
         effective_ids: bool,
         #[pyarg(flatten)]
         follow_symlinks: FollowSymlinks,
@@ -2737,7 +2737,7 @@ pub mod module {
         trailers: OptionalArg<PyObjectRef>,
         #[cfg(target_os = "macos")]
         #[allow(dead_code)]
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         // TODO: not implemented
         flags: i32,
     }

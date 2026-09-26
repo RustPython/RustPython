@@ -2885,11 +2885,11 @@ mod _socket {
 
         #[pyarg(any, default = c::AF_UNSPEC)]
         family: i32,
-        #[pyarg(any, name = "type", default = 0)]
+        #[pyarg(any, name = "type", default)]
         ty: i32,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         proto: i32,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         flags: i32,
     }
 

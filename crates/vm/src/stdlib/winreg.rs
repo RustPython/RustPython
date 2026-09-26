@@ -291,7 +291,7 @@ mod winreg {
         key: PyRef<PyHkey>,
         #[pyarg(any)]
         sub_key: String,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         reserved: u32,
         #[pyarg(any, default = host_winreg::KEY_WRITE, py_default = "winreg.KEY_WRITE")]
         access: u32,
@@ -363,7 +363,7 @@ mod winreg {
         sub_key: String,
         #[pyarg(any, default = host_winreg::KEY_WOW64_64KEY, py_default = "winreg.KEY_WOW64_64KEY")]
         access: u32,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         reserved: u32,
     }
 
@@ -526,7 +526,7 @@ mod winreg {
         key: PyRef<PyHkey>,
         #[pyarg(any)]
         sub_key: String,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         reserved: u32,
         #[pyarg(any, default = host_winreg::KEY_READ, py_default = "winreg.KEY_READ")]
         access: u32,

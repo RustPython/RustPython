@@ -918,20 +918,20 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct CaCertsArgs {
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         binary_form: bool,
     }
 
     #[derive(FromArgs)]
     struct GetCertArgs {
-        #[pyarg(positional, default = false)]
+        #[pyarg(positional, default)]
         der: bool,
     }
 
     #[derive(FromArgs)]
     struct Txt2ObjArgs {
         txt: PyUtf8StrRef,
-        #[pyarg(named, default = false)]
+        #[pyarg(named, default)]
         name: bool,
     }
 

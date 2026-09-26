@@ -30,15 +30,15 @@ mod _blake2 {
                 fanout: i64,
                 #[pyarg(named, default = 1)]
                 depth: i64,
-                #[pyarg(named, default = 0)]
+                #[pyarg(named, default)]
                 leaf_size: i64,
-                #[pyarg(named, default = 0)]
+                #[pyarg(named, default)]
                 node_offset: i64,
-                #[pyarg(named, default = 0)]
+                #[pyarg(named, default)]
                 node_depth: i64,
-                #[pyarg(named, default = 0)]
+                #[pyarg(named, default)]
                 inner_size: i64,
-                #[pyarg(named, default = false)]
+                #[pyarg(named, default)]
                 last_node: bool,
                 #[pyarg(named, default = true)]
                 usedforsecurity: bool,

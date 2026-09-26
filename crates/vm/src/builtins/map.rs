@@ -33,7 +33,7 @@ pub struct PyMapNewArgs {
     iterable: PyIter,
     #[pyarg(flatten)]
     iterables: PosArgs<PyIter, crate::function::NameIterables>,
-    #[pyarg(named, default = false)]
+    #[pyarg(named, default)]
     strict: bool,
 }
 
@@ -43,7 +43,7 @@ struct MapCallArgs {
     function: PyObjectRef,
     #[pyarg(flatten)]
     iterables: PosArgs<PyIter, crate::function::NameIterables>,
-    #[pyarg(named, default = false)]
+    #[pyarg(named, default)]
     strict: bool,
 }
 

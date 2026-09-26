@@ -216,7 +216,7 @@ mod fcntl {
         len: PyIntRef,
         #[pyarg(positional, default = 0)]
         start: PyIntRef,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         whence: i32,
     }
 

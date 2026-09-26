@@ -778,13 +778,13 @@ pub mod sys {
 
     #[derive(FromArgs)]
     struct GetFrameArgs {
-        #[pyarg(positional, default = 0)]
+        #[pyarg(positional, default)]
         depth: usize,
     }
 
     #[derive(FromArgs)]
     struct GetFrameModuleNameArgs {
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         depth: usize,
     }
 
