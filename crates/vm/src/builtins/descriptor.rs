@@ -706,14 +706,15 @@ fn member_uint_value(
     if big.sign() == malachite_bigint::Sign::Minus {
         let long_val = core::ffi::c_long::try_from(big)
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
-        let stored = (long_val as core::ffi::c_ulong) as u32;
+        // Keeps the low 32 bits whether `c_long` is 32 or 64 bits wide.
+        let stored = long_val as u32;
         return Ok((stored, Some("Writing negative value into unsigned field")));
     }
-    let ulong_val = core::ffi::c_ulong::try_from(big)
+    core::ffi::c_ulong::try_from(big)
         .map_err(|_| vm.new_overflow_error("Python int too large to convert to C unsigned long"))?;
-    let stored = ulong_val as u32;
-    let warning = (ulong_val > u32::MAX as core::ffi::c_ulong)
-        .then_some("Truncation of value to unsigned int");
+    let wide = u64::try_from(big).expect("a value that fits c_ulong fits u64");
+    let stored = wide as u32;
+    let warning = (wide > u64::from(u32::MAX)).then_some("Truncation of value to unsigned int");
     Ok((stored, warning))
 }
 
