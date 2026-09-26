@@ -1729,7 +1729,7 @@ pub(super) mod types {
     #[repr(C)]
     pub struct PySystemExit {
         base: PyBaseException,
-        #[pymember(writable, doc = "exception code")]
+        #[pymember(writable)]
         code: PyAtomicRef<Option<PyObject>>,
     }
 
@@ -1809,7 +1809,7 @@ pub(super) mod types {
     #[repr(C)]
     pub struct PyStopIteration {
         base: PyException,
-        #[pymember(writable, doc = "generator return value")]
+        #[pymember(writable)]
         value: PyAtomicRef<Option<PyObject>>,
     }
 
@@ -1902,9 +1902,9 @@ pub(super) mod types {
     #[repr(C)]
     pub struct PyAttributeError {
         base: PyException,
-        #[pymember(writable, doc = "attribute name")]
+        #[pymember(writable)]
         name: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "object")]
+        #[pymember(writable)]
         obj: PyAtomicRef<Option<PyObject>>,
     }
 
@@ -2024,13 +2024,13 @@ pub(super) mod types {
     #[repr(C)]
     pub struct PyImportError {
         base: PyException,
-        #[pymember(writable, doc = "exception message")]
+        #[pymember(writable)]
         msg: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "module name")]
+        #[pymember(writable)]
         name: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "module path")]
+        #[pymember(writable)]
         path: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "name imported from module")]
+        #[pymember(writable)]
         name_from: PyAtomicRef<Option<PyObject>>,
     }
 
@@ -2242,7 +2242,7 @@ pub(super) mod types {
     #[repr(C)]
     pub struct PyNameError {
         base: PyException,
-        #[pymember(writable, doc = "name")]
+        #[pymember(writable)]
         name: PyAtomicRef<Option<PyObject>>,
     }
 
@@ -2324,16 +2324,16 @@ pub(super) mod types {
     #[repr(C)]
     pub struct PyOSError {
         base: PyException,
-        #[pymember(writable, doc = "POSIX exception code")]
+        #[pymember(writable)]
         errno: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "exception strerror")]
+        #[pymember(writable)]
         strerror: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "exception filename")]
+        #[pymember(writable)]
         filename: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "second exception filename")]
+        #[pymember(writable)]
         filename2: PyAtomicRef<Option<PyObject>>,
         #[cfg(windows)]
-        #[pymember(writable, doc = "Win32 exception code")]
+        #[pymember(writable)]
         winerror: PyAtomicRef<Option<PyObject>>,
         // For BlockingIOError: characters written before blocking occurred
         // -1 means not set (AttributeError when accessed)
@@ -2890,23 +2890,23 @@ pub(super) mod types {
     #[repr(C)]
     pub struct PySyntaxError {
         base: PyException,
-        #[pymember(writable, doc = "exception msg")]
+        #[pymember(writable)]
         msg: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "exception filename")]
+        #[pymember(writable)]
         filename: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "exception lineno")]
+        #[pymember(writable)]
         lineno: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "exception offset")]
+        #[pymember(writable)]
         offset: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "exception text")]
+        #[pymember(writable)]
         text: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "exception end lineno")]
+        #[pymember(writable)]
         end_lineno: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "exception end offset")]
+        #[pymember(writable)]
         end_offset: PyAtomicRef<Option<PyObject>>,
-        #[pymember(writable, doc = "exception print_file_and_line")]
+        #[pymember(writable)]
         print_file_and_line: PyAtomicRef<Option<PyObject>>,
-        #[pymember(name = "_metadata", writable, doc = "exception private metadata")]
+        #[pymember(name = "_metadata", writable)]
         metadata: PyAtomicRef<Option<PyObject>>,
     }
 
@@ -3282,28 +3282,11 @@ pub(super) mod types {
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyUnicodeDecodeError(
-        #[pymember(
-            name = "encoding",
-            path = "encoding",
-            writable,
-            doc = "exception encoding"
-        )]
-        #[pymember(name = "object", path = "object", writable, doc = "exception object")]
-        #[pymember(
-            name = "start",
-            path = "start",
-            type = "py_ssize_t",
-            writable,
-            doc = "exception start"
-        )]
-        #[pymember(
-            name = "end",
-            path = "end",
-            type = "py_ssize_t",
-            writable,
-            doc = "exception end"
-        )]
-        #[pymember(name = "reason", path = "reason", writable, doc = "exception reason")]
+        #[pymember(name = "encoding", path = "encoding", writable)]
+        #[pymember(name = "object", path = "object", writable)]
+        #[pymember(name = "start", path = "start", type = "py_ssize_t", writable)]
+        #[pymember(name = "end", path = "end", type = "py_ssize_t", writable)]
+        #[pymember(name = "reason", path = "reason", writable)]
         PyUnicodeError,
     );
 
@@ -3371,28 +3354,11 @@ pub(super) mod types {
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyUnicodeEncodeError(
-        #[pymember(
-            name = "encoding",
-            path = "encoding",
-            writable,
-            doc = "exception encoding"
-        )]
-        #[pymember(name = "object", path = "object", writable, doc = "exception object")]
-        #[pymember(
-            name = "start",
-            path = "start",
-            type = "py_ssize_t",
-            writable,
-            doc = "exception start"
-        )]
-        #[pymember(
-            name = "end",
-            path = "end",
-            type = "py_ssize_t",
-            writable,
-            doc = "exception end"
-        )]
-        #[pymember(name = "reason", path = "reason", writable, doc = "exception reason")]
+        #[pymember(name = "encoding", path = "encoding", writable)]
+        #[pymember(name = "object", path = "object", writable)]
+        #[pymember(name = "start", path = "start", type = "py_ssize_t", writable)]
+        #[pymember(name = "end", path = "end", type = "py_ssize_t", writable)]
+        #[pymember(name = "reason", path = "reason", writable)]
         PyUnicodeError,
     );
 
@@ -3460,28 +3426,11 @@ pub(super) mod types {
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyUnicodeTranslateError(
-        #[pymember(
-            name = "encoding",
-            path = "encoding",
-            writable,
-            doc = "exception encoding"
-        )]
-        #[pymember(name = "object", path = "object", writable, doc = "exception object")]
-        #[pymember(
-            name = "start",
-            path = "start",
-            type = "py_ssize_t",
-            writable,
-            doc = "exception start"
-        )]
-        #[pymember(
-            name = "end",
-            path = "end",
-            type = "py_ssize_t",
-            writable,
-            doc = "exception end"
-        )]
-        #[pymember(name = "reason", path = "reason", writable, doc = "exception reason")]
+        #[pymember(name = "encoding", path = "encoding", writable)]
+        #[pymember(name = "object", path = "object", writable)]
+        #[pymember(name = "start", path = "start", type = "py_ssize_t", writable)]
+        #[pymember(name = "end", path = "end", type = "py_ssize_t", writable)]
+        #[pymember(name = "reason", path = "reason", writable)]
         PyUnicodeError,
     );
 

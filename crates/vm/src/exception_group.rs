@@ -53,9 +53,9 @@ pub(super) mod types {
     #[repr(C)]
     pub struct PyBaseExceptionGroup {
         base: PyBaseException,
-        #[pymember(name = "message", doc = "exception message")]
+        #[pymember(name = "message")]
         msg: PyAtomicRef<PyObject>,
-        #[pymember(name = "exceptions", doc = "nested exceptions")]
+        #[pymember(name = "exceptions")]
         excs: PyAtomicRef<PyObject>,
         excs_str: PyAtomicRef<Option<PyObject>>,
     }

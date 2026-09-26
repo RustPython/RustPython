@@ -1870,8 +1870,8 @@ impl MemberItemMeta {
         Ok(Some(name_value.value.to_token_stream()))
     }
 
-    /// `doc = "..."` sets the docstring and `doc = false` stores none.
-    /// `None` when `doc` is absent, so the attribute documentation applies.
+    /// `Some(Some(text))` for `doc = "text"` (used as-is), `Some(None)` for
+    /// `doc = false`, and `None` when `doc` is absent.
     fn doc(&self) -> Result<Option<Option<String>>> {
         let Some((_, meta)) = self.inner().meta_map.get("doc") else {
             return Ok(None);
@@ -2132,8 +2132,11 @@ fn build_member(
         (offset_expr, quote!())
     };
     let doc = match meta.doc()? {
+        // An explicit string is the docstring. The attribute-doc table is not
+        // consulted. `doc = false` stores none. Omitted `doc` uses the table.
+        Some(Some(text)) => quote!(Some(#text)),
         Some(None) => quote!(None),
-        doc => attr_doc_expr(Some(class_ty), &name, doc.flatten()),
+        None => attr_doc_expr(Some(class_ty), &name, None),
     };
     Ok(BuiltMember {
         name,

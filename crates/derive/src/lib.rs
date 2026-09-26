@@ -226,8 +226,9 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// - `audit_read`: audit `object.__getattr__` before the load.
 /// - `name`: Python attribute name. Defaults to the field name.
 /// - `path`: subfield of the annotated field (`value` with `path = "re"`).
-/// - `doc`: docstring, or `false` for none. Omitted docs fall back to the stored
-///   attribute documentation.
+/// - `doc`: `doc = "text"` is that docstring and does not consult the stored
+///   attribute documentation. `doc = false` stores no docstring. When `doc` is
+///   omitted, the docstring is the stored attribute documentation.
 ///
 /// A struct-level `#[pymember]` (after `#[pyclass]`) has no field. `offset` is
 /// required there and rejected on a field. One field may carry several

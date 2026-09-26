@@ -22,9 +22,9 @@ use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 #[pyclass(module = "string.templatelib", name = "Template")]
 #[derive(Debug, Clone)]
 pub struct PyTemplate {
-    #[pymember(type = "object_ex", doc = "Strings")]
+    #[pymember(type = "object_ex")]
     pub strings: PyTupleRef,
-    #[pymember(type = "object_ex", doc = "Interpolations")]
+    #[pymember(type = "object_ex")]
     pub interpolations: PyTupleRef,
 }
 

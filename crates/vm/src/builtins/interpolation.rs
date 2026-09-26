@@ -19,13 +19,13 @@ use rustpython_common::wtf8::Wtf8Buf;
 #[pyclass(module = "string.templatelib", name = "Interpolation")]
 #[derive(Debug, Clone)]
 pub struct PyInterpolation {
-    #[pymember(type = "object_ex", doc = "Value")]
+    #[pymember(type = "object_ex")]
     pub value: PyObjectRef,
-    #[pymember(type = "object_ex", doc = "Expression")]
+    #[pymember(type = "object_ex")]
     pub expression: PyStrRef,
-    #[pymember(type = "object_ex", doc = "Conversion")]
+    #[pymember(type = "object_ex")]
     pub conversion: PyObjectRef, // None or 's', 'r', 'a'
-    #[pymember(type = "object_ex", doc = "Format specifier")]
+    #[pymember(type = "object_ex")]
     pub format_spec: PyStrRef,
 }
 
