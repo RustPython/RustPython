@@ -5,7 +5,7 @@ use crate::builtins::{
 };
 use crate::class::StaticType;
 use crate::convert::ToPyObject;
-use crate::function::{ArgBytesLike, OptionalArg, PySetterValue};
+use crate::function::{ArgBytesLike, ArgStrictInt, OptionalArg, PySetterValue};
 use crate::protocol::{BufferMethods, PyBuffer};
 use crate::types::{Constructor, GetDescriptor, Representable};
 use crate::{
@@ -1163,7 +1163,12 @@ impl PyCData {
     }
 
     #[pyclassmethod]
-    pub(super) fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+    pub(super) fn from_address(
+        cls: PyTypeRef,
+        address: ArgStrictInt<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let address = address.value;
         let size = {
             let stg_info = cls.stg_info(vm)?;
             stg_info.size

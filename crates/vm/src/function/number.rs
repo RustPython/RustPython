@@ -227,3 +227,45 @@ impl From<ArgSize> for isize {
         arg.value
     }
 }
+
+/// An `int` (or subclass, including `bool`) converted to a Rust primitive.
+///
+/// Unlike the primitive `TryFromObject` impls, this never calls `__index__`.
+#[derive(Debug, Copy, Clone)]
+#[repr(transparent)]
+pub struct ArgStrictInt<T> {
+    pub value: T,
+}
+
+impl<T> ArgStrictInt<T> {
+    #[inline]
+    #[must_use]
+    pub fn into_primitive(self) -> T {
+        self.value
+    }
+}
+
+impl<T> OptionalArg<ArgStrictInt<T>> {
+    pub fn into_primitive(self) -> OptionalArg<T> {
+        self.map(|x| x.value)
+    }
+}
+
+impl<T> Deref for ArgStrictInt<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T> TryFromObject for ArgStrictInt<T>
+where
+    T: PrimInt + for<'a> TryFrom<&'a BigInt>,
+{
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // Same check the primitive conversions used before they grew `__index__`.
+        let value = obj.try_value_with(|int: &Py<PyInt>| int.try_to_primitive(vm), vm)?;
+        Ok(Self { value })
+    }
+}

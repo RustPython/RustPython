@@ -115,9 +115,16 @@ macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl<'a> TryFromBorrowedObject<'a> for $t {
             fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-                obj.try_value_with(|int: &Py<PyInt>| {
-                    int.try_to_primitive(vm)
-                }, vm)
+                // `int` (and subclasses, including `bool`) is taken as-is.
+                // Anything else must supply `__index__`, which `try_index` calls.
+                let owned;
+                let int = if let Some(int) = obj.downcast_ref::<PyInt>() {
+                    int
+                } else {
+                    owned = obj.try_index(vm)?;
+                    &owned
+                };
+                int.try_to_primitive(vm)
             }
         }
     )*};

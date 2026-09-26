@@ -2,7 +2,7 @@ use super::base::{CDATA_BUFFER_METHODS, StgInfoFlags};
 use super::{PyCData, PyCField, StgInfo};
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
 use crate::convert::ToPyObject;
-use crate::function::{ArgBytesLike, FuncArgs, OptionalArg, PySetterValue};
+use crate::function::{ArgBytesLike, ArgStrictInt, FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer};
 use crate::stdlib::_warnings;
 use crate::types::{AsBuffer, Constructor, Initializer, SetAttr};
@@ -415,7 +415,11 @@ impl PyCUnionType {
     // CDataType methods - delegated to PyCData implementations
 
     #[pymethod]
-    fn from_address(zelf: PyObjectRef, address: isize, vm: &VirtualMachine) -> PyResult {
+    fn from_address(
+        zelf: PyObjectRef,
+        address: ArgStrictInt<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         let cls: PyTypeRef = zelf
             .downcast()
             .map_err(|_| vm.new_type_error("expected a type"))?;

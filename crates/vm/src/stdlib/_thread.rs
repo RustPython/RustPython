@@ -961,15 +961,26 @@ pub(crate) mod _thread {
         });
     }
 
+    #[derive(FromArgs)]
+    struct MakeThreadHandleArgs {
+        // An `int` only; the range is checked separately so it stays an OverflowError.
+        #[pyarg(positional, error_msg = "ident must be an integer")]
+        ident: PyIntRef,
+    }
+
     #[pyfunction]
-    fn _make_thread_handle(ident: u64, vm: &VirtualMachine) -> PyRef<ThreadHandle> {
+    fn _make_thread_handle(
+        args: MakeThreadHandleArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<ThreadHandle>> {
+        let ident = args.ident.try_to_primitive::<u64>(vm)?;
         let handle = ThreadHandle::new(vm);
         {
             let mut inner = handle.inner.lock();
             inner.ident = ident;
             inner.state = ThreadHandleState::Running;
         }
-        handle.into_ref(&vm.ctx)
+        Ok(handle.into_ref(&vm.ctx))
     }
 
     #[pyfunction]
