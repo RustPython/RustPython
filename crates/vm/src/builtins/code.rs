@@ -471,27 +471,12 @@ pub struct CoMonitoringData {
 
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
-    #[pymember(name = "co_argcount", type = "uint", readonly, path = "arg_count")]
-    #[pymember(
-        name = "co_posonlyargcount",
-        type = "uint",
-        readonly,
-        path = "posonlyarg_count"
-    )]
-    #[pymember(
-        name = "co_kwonlyargcount",
-        type = "uint",
-        readonly,
-        path = "kwonlyarg_count"
-    )]
-    #[pymember(
-        name = "co_stacksize",
-        type = "uint",
-        readonly,
-        path = "max_stackdepth"
-    )]
-    #[pymember(name = "co_name", readonly, path = "obj_name")]
-    #[pymember(name = "co_qualname", readonly, path = "qualname")]
+    #[pymember(name = "co_argcount", type = "uint", path = "arg_count")]
+    #[pymember(name = "co_posonlyargcount", type = "uint", path = "posonlyarg_count")]
+    #[pymember(name = "co_kwonlyargcount", type = "uint", path = "kwonlyarg_count")]
+    #[pymember(name = "co_stacksize", type = "uint", path = "max_stackdepth")]
+    #[pymember(name = "co_name", path = "obj_name")]
+    #[pymember(name = "co_qualname", path = "qualname")]
     pub code: CodeObject,
     /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
     /// Derived once so frame-local proxy operations do not repeatedly scan

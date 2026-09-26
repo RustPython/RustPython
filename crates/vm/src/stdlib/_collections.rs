@@ -872,7 +872,7 @@ mod _collections {
     #[derive(Debug)]
     struct PyDefaultDict {
         dict: PyDict,
-        #[pymember]
+        #[pymember(writable)]
         default_factory: PyAtomicRef<Option<PyObject>>,
     }
 

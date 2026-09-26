@@ -195,7 +195,7 @@ pub(crate) mod decl {
     #[pyclass(name, module = "typing")]
     #[derive(Debug, PyPayload)]
     pub(crate) struct TypeAliasType {
-        #[pymember(name = "__name__", readonly)]
+        #[pymember(name = "__name__")]
         name: PyStrRef,
         type_params: PyTupleRef,
         compute_value: PyObjectRef,

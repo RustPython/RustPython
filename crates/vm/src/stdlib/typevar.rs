@@ -79,7 +79,7 @@ pub(crate) mod typevar {
     #[pyclass(name = "TypeVar", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct TypeVar {
-        #[pymember(name = "__name__", readonly)]
+        #[pymember(name = "__name__")]
         name: PyObjectRef, // TODO PyStrRef?
         bound: PyMutex<PyObjectRef>,
         evaluate_bound: PyObjectRef,
@@ -87,11 +87,11 @@ pub(crate) mod typevar {
         evaluate_constraints: PyObjectRef,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
-        #[pymember(name = "__covariant__", type = "bool", readonly)]
+        #[pymember(name = "__covariant__", type = "bool")]
         covariant: bool,
-        #[pymember(name = "__contravariant__", type = "bool", readonly)]
+        #[pymember(name = "__contravariant__", type = "bool")]
         contravariant: bool,
-        #[pymember(name = "__infer_variance__", type = "bool", readonly)]
+        #[pymember(name = "__infer_variance__", type = "bool")]
         infer_variance: bool,
     }
 
@@ -439,17 +439,17 @@ pub(crate) mod typevar {
     #[pyclass(name = "ParamSpec", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct ParamSpec {
-        #[pymember(name = "__name__", readonly)]
+        #[pymember(name = "__name__")]
         name: PyObjectRef,
-        #[pymember(name = "__bound__", readonly)]
+        #[pymember(name = "__bound__")]
         bound: Option<PyObjectRef>,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
-        #[pymember(name = "__covariant__", type = "bool", readonly)]
+        #[pymember(name = "__covariant__", type = "bool")]
         covariant: bool,
-        #[pymember(name = "__contravariant__", type = "bool", readonly)]
+        #[pymember(name = "__contravariant__", type = "bool")]
         contravariant: bool,
-        #[pymember(name = "__infer_variance__", type = "bool", readonly)]
+        #[pymember(name = "__infer_variance__", type = "bool")]
         infer_variance: bool,
     }
 
@@ -676,7 +676,7 @@ pub(crate) mod typevar {
     #[pyclass(name = "TypeVarTuple", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct TypeVarTuple {
-        #[pymember(name = "__name__", readonly)]
+        #[pymember(name = "__name__")]
         name: PyObjectRef,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
@@ -848,7 +848,7 @@ pub(crate) mod typevar {
     #[pyclass(name = "ParamSpecArgs", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct ParamSpecArgs {
-        #[pymember(readonly)]
+        #[pymember]
         __origin__: PyObjectRef,
     }
 
@@ -908,7 +908,7 @@ pub(crate) mod typevar {
     #[pyclass(name = "ParamSpecKwargs", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct ParamSpecKwargs {
-        #[pymember(readonly)]
+        #[pymember]
         __origin__: PyObjectRef,
     }
 

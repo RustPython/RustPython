@@ -18,7 +18,7 @@ const CLS_ATTRS: &[&str] = &["__module__"];
 
 #[pyclass(module = "typing", name = "Union", traverse)]
 pub struct PyUnion {
-    #[pymember(name = "__args__", readonly)]
+    #[pymember(name = "__args__")]
     args: PyTupleRef,
     /// Frozenset of hashable args, or None if all args were hashable
     hashable_args: Option<PyRef<PyFrozenSet>>,

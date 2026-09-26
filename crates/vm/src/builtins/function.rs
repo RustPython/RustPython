@@ -65,11 +65,11 @@ fn format_missing_args(
 #[derive(Debug)]
 pub struct PyFunction {
     pub(crate) code: PyAtomicRef<PyCode>,
-    #[pymember(readonly, name = "__globals__")]
+    #[pymember(name = "__globals__")]
     pub(crate) globals: PyDictRef,
-    #[pymember(readonly, name = "__builtins__")]
+    #[pymember(name = "__builtins__")]
     pub(crate) builtins: PyObjectRef,
-    #[pymember(readonly, name = "__closure__")]
+    #[pymember(name = "__closure__")]
     pub(crate) closure: Option<PyRef<PyTuple<PyCellRef>>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
@@ -77,9 +77,9 @@ pub struct PyFunction {
     type_params: PyMutex<PyTupleRef>,
     annotations: PyMutex<Option<PyDictRef>>,
     annotate: PyMutex<Option<PyObjectRef>>,
-    #[pymember(name = "__module__")]
+    #[pymember(name = "__module__", writable)]
     module: PyAtomicRef<Option<PyObject>>,
-    #[pymember(name = "__doc__")]
+    #[pymember(name = "__doc__", writable)]
     doc: PyAtomicRef<Option<PyObject>>,
     func_version: AtomicU32,
     #[cfg(feature = "jit")]
@@ -1340,9 +1340,9 @@ impl Constructor for PyFunction {
 #[pyclass(module = false, name = "method", traverse)]
 #[derive(Debug)]
 pub struct PyBoundMethod {
-    #[pymember(name = "__self__", readonly)]
+    #[pymember(name = "__self__")]
     object: PyObjectRef,
-    #[pymember(name = "__func__", readonly)]
+    #[pymember(name = "__func__")]
     function: PyObjectRef,
 }
 
