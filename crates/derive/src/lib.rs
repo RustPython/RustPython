@@ -221,11 +221,11 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///   (nullable), a writable bool must be `AtomicBool`, a writable int must be
 ///   `AtomicI32`, a writable uint must be `AtomicU32`, and a writable double
 ///   must be an atomic 64-bit cell (`AtomicU64`) holding the `f64` bits.
-/// - `no_doc`: store no docstring, even when attribute documentation exists.
 /// - `audit_read`: audit `object.__getattr__` before the load.
 /// - `name`: Python attribute name. Defaults to the field name.
 /// - `path`: subfield of the annotated field (`value` with `path = "re"`).
-/// - `doc`: docstring. Omitted docs fall back to the stored attribute documentation.
+/// - `doc`: docstring, or `false` for none. Omitted docs fall back to the stored
+///   attribute documentation.
 ///
 /// A struct-level `#[pymember]` (after `#[pyclass]`) has no field. `offset` is
 /// required there and rejected on a field. One field may carry several

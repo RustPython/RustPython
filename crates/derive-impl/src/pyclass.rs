@@ -1799,7 +1799,6 @@ impl ItemMeta for MemberItemMeta {
         "name",
         "path",
         "doc",
-        "no_doc",
         "offset",
     ];
 
@@ -1871,12 +1870,29 @@ impl MemberItemMeta {
         Ok(Some(name_value.value.to_token_stream()))
     }
 
-    fn doc(&self) -> Result<Option<String>> {
-        self.inner()._optional_str("doc")
-    }
-
-    fn no_doc(&self) -> Result<bool> {
-        self.inner()._bool("no_doc")
+    /// `doc = "..."` sets the docstring and `doc = false` stores none.
+    /// `None` when `doc` is absent, so the attribute documentation applies.
+    fn doc(&self) -> Result<Option<Option<String>>> {
+        let Some((_, meta)) = self.inner().meta_map.get("doc") else {
+            return Ok(None);
+        };
+        match meta {
+            Meta::NameValue(syn::MetaNameValue {
+                value: syn::Expr::Lit(syn::ExprLit { lit, .. }),
+                ..
+            }) => match lit {
+                syn::Lit::Str(lit) => Ok(Some(Some(lit.value()))),
+                syn::Lit::Bool(lit) if !lit.value => Ok(Some(None)),
+                _ => Err(syn::Error::new(
+                    lit.span(),
+                    "#[pymember(doc = ...)] must be a string or `false`",
+                )),
+            },
+            _ => Err(syn::Error::new(
+                meta.span(),
+                "#[pymember(doc = ...)] must be a string or `false`",
+            )),
+        }
     }
 }
 
@@ -2112,10 +2128,9 @@ fn build_member(
         };
         (offset_expr, quote!())
     };
-    let doc = if meta.no_doc()? {
-        quote!(None)
-    } else {
-        attr_doc_expr(Some(class_ty), &name, meta.doc()?)
+    let doc = match meta.doc()? {
+        Some(None) => quote!(None),
+        doc => attr_doc_expr(Some(class_ty), &name, doc.flatten()),
     };
     Ok(BuiltMember {
         name,
