@@ -19,7 +19,10 @@ use crate::{
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
-    function::{ArgumentError, FromArgs, FuncArgs, KwArgs, Param, PyMethodDef, PySetterValue},
+    function::{
+        ArgumentError, FromArgs, FuncArgs, ItemDoc, KwArgs, Param, PyMethodDef, PySetterValue,
+        db_doc,
+    },
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
@@ -2366,8 +2369,8 @@ impl PyType {
     #[pygetset]
     fn __text_signature__(&self, vm: &VirtualMachine) -> Option<String> {
         let name = self.name();
-        if let Some(doc) = self.slots.doc
-            && let Some(signature) = get_text_signature_from_internal_doc(&name, doc)
+        if let Some(text) = self.slots.doc.text
+            && let Some(signature) = get_text_signature_from_internal_doc(&name, text)
         {
             return Some(signature.to_string());
         }
@@ -2814,7 +2817,7 @@ impl Constructor for PyType {
                     kind: MemberKind::ObjectEx,
                     offset: crate::object::slot_member_offset(offset),
                     flags: 0,
-                    doc: None,
+                    doc: ItemDoc::NONE,
                 };
                 let attr_name = vm.ctx.intern_str(mangled_name.as_str());
                 let member_descriptor: PyRef<PyMemberDescriptor> =
@@ -2984,6 +2987,14 @@ pub(crate) fn get_doc_from_internal_doc<'a>(name: &str, internal_doc: &'a str) -
     (!doc.is_empty()).then_some(doc)
 }
 
+pub(crate) fn rendered_item_doc(name: &str, doc: ItemDoc) -> Option<&'static str> {
+    if doc.len != 0 {
+        return db_doc(doc.offset, doc.len);
+    }
+    doc.text
+        .and_then(|text| get_doc_from_internal_doc(name, text))
+}
+
 impl Initializer for PyType {
     type Args = FuncArgs;
 
@@ -3076,11 +3087,11 @@ impl Py<PyType> {
     fn __doc__(&self, vm: &VirtualMachine) -> PyResult {
         // Similar to CPython's type_get_doc
         // For non-heap types (static types), check if there's an internal doc
+        let internal_doc = self.slots.doc;
         if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
-            && let Some(internal_doc) = self.slots.doc
+            && (internal_doc.text.is_some() || internal_doc.len != 0)
         {
-            // Process internal doc, removing signature if present
-            let doc_str = get_doc_from_internal_doc(&self.name(), internal_doc);
+            let doc_str = rendered_item_doc(&self.name(), internal_doc);
             return Ok(doc_str.map_or_else(|| vm.ctx.none(), |doc| vm.ctx.new_str(doc).into()));
         }
 

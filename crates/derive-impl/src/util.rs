@@ -865,11 +865,9 @@ fn args_const(pieces: &[SigPiece]) -> TokenStream {
     }
 }
 
-/// Expression of type `Option<&'static str>`: the internal doc, or the plain
-/// doc when the arguments cannot form a signature.
-/// `doc` is a const `Option<&'static str>`. A table entry wins; an empty
-/// string is no docstring. The text is composed into the internal doc so
-/// `__text_signature__` stays on the signature half.
+/// Expression of type `ItemDoc`.
+/// `doc` is a const `ItemDoc`. A database id keeps only the signature prefix
+/// as static text. A Rust docstring is composed into one literal.
 pub(crate) fn internal_doc_tokens(
     sig: &Signature,
     py_name: &str,
@@ -882,23 +880,51 @@ pub(crate) fn internal_doc_tokens(
     quote! {
         {
             #args_const
-            const DOC_OPT: Option<&str> = #doc;
+            const BASE: ::rustpython_vm::function::ItemDoc = #doc;
             if !::rustpython_vm::function::has_signature(ARGS) {
-                if let Some(doc) = DOC_OPT {
-                    if doc.is_empty() { None } else { Some(doc) }
+                if BASE.len == 0 {
+                    match BASE.text {
+                        Some(text) if !text.is_empty() => {
+                            ::rustpython_vm::function::ItemDoc::static_text(text)
+                        }
+                        _ => ::rustpython_vm::function::ItemDoc::NONE,
+                    }
                 } else {
-                    None
+                    BASE
                 }
-            } else {
-                const DOC: &str = if let Some(doc) = DOC_OPT { doc } else { "" };
-                const N: usize = ::rustpython_vm::function::internal_doc_len(#py_name, ARGS, DOC);
+            } else if BASE.len != 0 {
+                const N: usize = ::rustpython_vm::function::signature_prefix_len(#py_name, ARGS);
                 const B: [u8; N] =
-                    ::rustpython_vm::function::internal_doc_bytes::<N>(#py_name, ARGS, DOC);
-                const S: &str = match ::core::str::from_utf8(&B) {
+                    ::rustpython_vm::function::signature_prefix_bytes::<N>(#py_name, ARGS);
+                const PREFIX: &str = match ::core::str::from_utf8(&B) {
                     Ok(s) => s,
                     Err(_) => panic!(),
                 };
-                Some(S)
+                #[cfg(feature = "doc")]
+                {
+                    ::rustpython_vm::function::ItemDoc {
+                        text: Some(PREFIX),
+                        offset: BASE.offset,
+                        len: BASE.len,
+                    }
+                }
+                #[cfg(not(feature = "doc"))]
+                {
+                    ::rustpython_vm::function::ItemDoc::static_text(PREFIX)
+                }
+            } else {
+                const BODY: &str = match BASE.text {
+                    Some(text) => text,
+                    None => "",
+                };
+                const N: usize = ::rustpython_vm::function::internal_doc_len(#py_name, ARGS, BODY);
+                const B: [u8; N] =
+                    ::rustpython_vm::function::internal_doc_bytes::<N>(#py_name, ARGS, BODY);
+                const FULL: &str = match ::core::str::from_utf8(&B) {
+                    Ok(s) => s,
+                    Err(_) => panic!(),
+                };
+                ::rustpython_vm::function::ItemDoc::static_text(FULL)
             }
         }
     }

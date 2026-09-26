@@ -2904,7 +2904,7 @@ mod posix_sched {
                         vm.new_tuple((zelf.class().to_owned(), (zelf[0].clone(),)))
                     },
                     crate::function::PyMethodFlags::METHOD,
-                    None,
+                    crate::function::ItemDoc::NONE,
                 );
             class.set_attr(
                 ctx.intern_str("__reduce__"),

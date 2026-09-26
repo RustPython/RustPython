@@ -255,15 +255,7 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
     let module_name = context.name.as_str();
     let function_items = context.function_items.validate()?;
     let attribute_items = context.attribute_items.validate()?;
-    let doc = rustpython_doc::get(module_name)
-        .filter(|doc| !doc.is_empty())
-        .map(str::to_owned)
-        .or(doc);
-    let doc = if let Some(doc) = doc {
-        quote!(Some(#doc))
-    } else {
-        quote!(None)
-    };
+    let doc = crate::class_docs::item_doc_tokens(rustpython_doc::get(module_name), doc);
     let is_submodule = module_meta.sub()?;
     if !is_submodule {
         items.extend([
@@ -271,7 +263,7 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
                 pub(crate) const MODULE_NAME: &'static str = #module_name;
             },
             parse_quote! {
-                pub(crate) const DOC: Option<&'static str> = #doc;
+                pub(crate) const DOC: ::rustpython_vm::function::ItemDoc = #doc;
             },
             parse_quote! {
                 pub(crate) fn module_def(
@@ -280,7 +272,7 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
                     DEF.get_or_init(|| {
                         let mut def = ::rustpython_vm::builtins::PyModuleDef {
                             name: ctx.intern_str(MODULE_NAME),
-                            doc: DOC.map(|doc| ctx.intern_str(doc)),
+                            doc: ::rustpython_vm::function::plain_doc(DOC).map(|doc| ctx.intern_str(doc)),
                             methods: METHOD_DEFS,
                             slots: Default::default(),
                         };
@@ -657,7 +649,7 @@ trait ModuleItem: ContentItem {
 /// Doc for `module.func` when this body is a `#[pymodule(sub)]` and the Rust
 /// module name is not the Python module. Used only when exactly one module
 /// owns that function name.
-fn unique_submodule_func_doc(name: &str) -> Option<String> {
+fn unique_submodule_func_doc(name: &str) -> Option<rustpython_doc::DocRef> {
     let suffix = format!(".{name}");
     let mut found = None;
     for (key, doc) in rustpython_doc::DB {
@@ -670,9 +662,9 @@ fn unique_submodule_func_doc(name: &str) -> Option<String> {
         if found.is_some() {
             return None;
         }
-        found = Some((*doc).to_owned());
+        found = Some(*doc);
     }
-    found.filter(|doc| !doc.is_empty())
+    found.filter(|doc| doc.len != 0 || !doc.listed)
 }
 
 impl ModuleItem for FunctionItem {
@@ -713,21 +705,15 @@ impl ModuleItem for FunctionItem {
         let docs = py_names
             .iter()
             .map(|py_name| {
-                let doc = rustpython_doc::get_qualified(module, py_name, None, false)
-                    .filter(|doc| !doc.is_empty())
-                    .map(str::to_owned)
-                    .or_else(|| {
+                let doc =
+                    rustpython_doc::get_qualified(module, py_name, None, false).or_else(|| {
                         if args.context.is_sub {
                             unique_submodule_func_doc(py_name)
                         } else {
                             None
                         }
-                    })
-                    .or_else(|| rust_doc.clone());
-                let doc = match doc {
-                    Some(doc) => quote!(Some(#doc)),
-                    None => quote!(None),
-                };
+                    });
+                let doc = crate::class_docs::item_doc_tokens(doc, rust_doc.clone());
                 internal_doc_tokens(func.sig(), py_name, None, doc, None, Some("$module"))
             })
             .collect();

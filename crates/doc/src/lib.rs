@@ -1,6 +1,8 @@
 #![no_std]
 
-include!("./data.inc.rs");
+include!(concat!(env!("OUT_DIR"), "/index.rs"));
+
+pub static BLOB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/docs.xz"));
 
 const fn cmp_bytes(left: &[u8], right: &[u8]) -> i8 {
     let n = if left.len() < right.len() {
@@ -105,7 +107,7 @@ const fn find_composed(
     class: &[u8],
     attr: &[u8],
     has_attr: bool,
-) -> Option<&'static str> {
+) -> Option<DocRef> {
     let mut lo = 0;
     let mut hi = DB.len();
     while lo < hi {
@@ -142,9 +144,9 @@ const fn strip_underscore(module: &str) -> Option<&str> {
     }
 }
 
-const fn nonempty(doc: Option<&str>) -> Option<&str> {
+const fn nonempty(doc: Option<DocRef>) -> Option<DocRef> {
     match doc {
-        Some(doc) if !doc.is_empty() => Some(doc),
+        Some(doc) if doc.len != 0 || !doc.listed => Some(doc),
         _ => None,
     }
 }
@@ -154,7 +156,7 @@ const fn find_named(
     module: &str,
     class: &str,
     attr: Option<&str>,
-) -> Option<&'static str> {
+) -> Option<DocRef> {
     match attr {
         Some(attr) => find_composed(
             prefix,
@@ -167,10 +169,10 @@ const fn find_named(
     }
 }
 
-/// Docstring for an exact `module.class.attr` or `module.name` key.
+/// Location of an exact `module.class.attr` or `module.name` key in the blob.
 /// `attr == None` looks up `module.class`.
 #[must_use]
-pub const fn get(key: &str) -> Option<&'static str> {
+pub const fn get(key: &str) -> Option<DocRef> {
     let key = key.as_bytes();
     let mut lo = 0;
     let mut hi = DB.len();
@@ -188,9 +190,9 @@ pub const fn get(key: &str) -> Option<&'static str> {
     None
 }
 
-/// Docstring for `module.class.attr` without building the key string.
+/// Location of `module.class.attr` without building the key string.
 #[must_use]
-pub const fn get_attr(module: &str, class: &str, attr: &str) -> Option<&'static str> {
+pub const fn get_attr(module: &str, class: &str, attr: &str) -> Option<DocRef> {
     find_composed(
         b"",
         module.as_bytes(),
@@ -201,14 +203,14 @@ pub const fn get_attr(module: &str, class: &str, attr: &str) -> Option<&'static 
 }
 
 /// `module.class` or `module.class.attr`, with the same module aliases the
-/// builtin types are stored under.
+/// builtin types are stored under. Empty entries are skipped.
 #[must_use]
 pub const fn get_qualified(
     module: &str,
     class: &str,
     attr: Option<&str>,
     allow_builtins: bool,
-) -> Option<&'static str> {
+) -> Option<DocRef> {
     if let Some(doc) = nonempty(find_named(b"", module, class, attr)) {
         return Some(doc);
     }
@@ -237,9 +239,9 @@ pub const fn get_qualified(
     None
 }
 
-/// Docstring for a class attribute. `module == None` means `builtins`.
+/// Location of a class attribute doc. `module == None` means `builtins`.
 #[must_use]
-pub const fn class_attr_doc(module: Option<&str>, class: &str, attr: &str) -> Option<&'static str> {
+pub const fn class_attr_doc(module: Option<&str>, class: &str, attr: &str) -> Option<DocRef> {
     let module = match module {
         Some(module) => module,
         None => "builtins",
@@ -248,38 +250,69 @@ pub const fn class_attr_doc(module: Option<&str>, class: &str, attr: &str) -> Op
 }
 
 #[cfg(test)]
+extern crate alloc;
+
+#[cfg(test)]
+pub mod plain {
+    include!("data.inc.rs");
+}
+
+#[cfg(test)]
 mod test {
-    use super::{DB, class_attr_doc, get, get_attr};
+    use super::{BLOB, DB, class_attr_doc, get, get_attr};
+    use crate::plain;
+
+    fn text() -> alloc::string::String {
+        let bytes = xz::decode_all(BLOB).unwrap();
+        alloc::string::String::from_utf8(bytes).unwrap()
+    }
 
     #[test]
-    fn db_sorted_unique() {
+    fn db_sorted_unique_and_roundtrip() {
         assert!(!DB.is_empty());
-        let mut i = 1;
+        assert_eq!(DB.len(), plain::DB.len());
+        let text = text();
+        let mut i = 0;
         while i < DB.len() {
-            assert!(DB[i - 1].0 < DB[i].0, "{}", DB[i].0);
+            if i > 0 {
+                assert!(DB[i - 1].0 < DB[i].0, "{}", DB[i].0);
+            }
+            assert_eq!(DB[i].0, plain::DB[i].0);
+            let doc = &DB[i].1;
+            assert_eq!(doc.key, DB[i].0);
+            if doc.listed {
+                let start = doc.offset as usize;
+                let end = start + doc.len as usize;
+                assert_eq!(&text[start..end], plain::DB[i].1);
+            }
             i += 1;
         }
     }
 
     #[test]
     fn get_hits_ends_and_middle() {
-        assert_eq!(get(DB[0].0), Some(DB[0].1));
-        assert_eq!(get(DB[DB.len() / 2].0), Some(DB[DB.len() / 2].1));
-        assert_eq!(get(DB[DB.len() - 1].0), Some(DB[DB.len() - 1].1));
-        assert_eq!(get("no.such.key"), None);
+        assert_eq!(get(DB[0].0).unwrap().offset, DB[0].1.offset);
+        assert_eq!(get(DB[DB.len() / 2].0).unwrap().len, DB[DB.len() / 2].1.len);
+        assert_eq!(
+            get(DB[DB.len() - 1].0).unwrap().offset,
+            DB[DB.len() - 1].1.offset
+        );
+        assert!(get("no.such.key").is_none());
     }
 
     #[test]
     fn get_attr_and_alias() {
         let doc = get_attr("builtins", "int", "__add__").unwrap();
-        assert_eq!(doc, get("builtins.int.__add__").unwrap());
+        assert_eq!(doc.offset, get("builtins.int.__add__").unwrap().offset);
         assert_eq!(
-            super::get_qualified("os", "stat_result", None, true),
-            get("posix.stat_result")
+            super::get_qualified("os", "stat_result", None, true)
+                .unwrap()
+                .offset,
+            get("posix.stat_result").unwrap().offset
         );
         assert_eq!(
-            class_attr_doc(None, "int", "__add__"),
-            get_attr("builtins", "int", "__add__")
+            class_attr_doc(None, "int", "__add__").unwrap().offset,
+            get_attr("builtins", "int", "__add__").unwrap().offset
         );
     }
 }

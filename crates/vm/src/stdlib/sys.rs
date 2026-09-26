@@ -1939,7 +1939,7 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
     let jit_module = jit_def.create_module(vm).unwrap();
 
     extend_module!(vm, module, {
-        "__doc__" => sys::DOC.to_owned().to_pyobject(vm),
+        "__doc__" => crate::function::plain_doc(sys::DOC).to_pyobject(vm),
         "modules" => modules,
         "_jit" => jit_module,
     });

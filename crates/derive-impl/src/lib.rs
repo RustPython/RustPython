@@ -12,6 +12,7 @@ mod util;
 
 mod class_docs;
 mod compile_bytecode;
+mod doc_use;
 mod from_args;
 mod pyclass;
 mod pymodule;

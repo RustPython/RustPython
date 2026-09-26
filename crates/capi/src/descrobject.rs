@@ -9,7 +9,7 @@ use rustpython_vm::builtins::{
     PyMappingProxy, PyMemberDescriptor, PyType,
 };
 use rustpython_vm::common::lock::PyRwLock;
-use rustpython_vm::function::PySetterValue;
+use rustpython_vm::function::{ItemDoc, PySetterValue};
 use rustpython_vm::{Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
 #[repr(C)]
@@ -134,7 +134,10 @@ impl PyMemberDef {
             flags &= !PY_RELATIVE_OFFSET;
         }
 
-        let doc = unsafe { self.doc.try_as_str_opt(vm) }?.map(str::to_owned);
+        let doc = unsafe { self.doc.try_as_str_opt(vm) }?.map_or(ItemDoc::NONE, |doc| {
+            let text: &'static str = Box::leak(doc.to_owned().into_boxed_str());
+            ItemDoc::static_text(text)
+        });
 
         let descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {

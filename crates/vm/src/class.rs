@@ -3,9 +3,9 @@
 use crate::{
     AsObject, PyPayload,
     builtins::{PyBaseObject, PyType, PyTypeRef, descriptor::PyWrapper},
-    function::PyMethodDef,
+    function::{ItemDoc, PyMethodDef, plain_doc},
     object::Py,
-    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, SLOT_DEFS_COUNT, fn_addr, hash_not_implemented},
+    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, fn_addr, hash_not_implemented},
     vm::Context,
 };
 use rustpython_common::static_cell;
@@ -15,9 +15,33 @@ use rustpython_common::static_cell;
 /// Iterates SLOT_DEFS and creates a PyWrapper for each slot that:
 /// 1. Has a function set in the type's slots
 /// 2. Doesn't already have an attribute in the type's dict
-pub fn add_operators<T: PyClassImpl>(class: &'static Py<PyType>, ctx: &Context) {
-    for (index, def) in SLOT_DEFS.iter().enumerate() {
-        let plain_doc = T::SLOT_DOCS[index];
+#[cfg(feature = "doc")]
+pub fn add_operators(class: &'static Py<PyType>, ctx: &Context, attr_docs: &[(&str, u32, u32)]) {
+    add_operators_inner(class, ctx, |name| match attr_doc(attr_docs, name) {
+        Some((offset, len)) if len != 0 => (offset, len),
+        _ => (0, 0),
+    })
+}
+
+#[cfg(not(feature = "doc"))]
+pub fn add_operators(class: &'static Py<PyType>, ctx: &Context, attr_docs: &[&str]) {
+    add_operators_inner(class, ctx, |name| {
+        if attr_name_present(attr_docs, name) {
+            // Present in the database: do not fall back to the slot text.
+            (0, 1)
+        } else {
+            (0, 0)
+        }
+    })
+}
+
+fn add_operators_inner(
+    class: &'static Py<PyType>,
+    ctx: &Context,
+    mut plain_span: impl FnMut(&str) -> (u32, u32),
+) {
+    for def in SLOT_DEFS {
+        let (plain_off, plain_len) = plain_span(def.name);
         // Skip __new__ - it has special handling
         if def.name == "__new__" {
             continue;
@@ -57,7 +81,8 @@ pub fn add_operators<T: PyClassImpl>(class: &'static Py<PyType>, ctx: &Context) 
             name: attr_name,
             wrapped: slot_func,
             doc: Some(def.doc),
-            plain_doc,
+            plain_off,
+            plain_len,
         };
         class.set_attr(attr_name, wrapper.into_ref(ctx).into());
     }
@@ -134,9 +159,14 @@ pub trait PyClassDef {
     const NAME: &'static str;
     const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
-    const DOC: Option<&'static str> = None;
-    /// Attribute name → doc, sorted by name. `""` is an explicit empty doc.
-    const ATTR_DOCS: &'static [(&'static str, &'static str)] = &[];
+    const DOC: ItemDoc = ItemDoc::NONE;
+    /// Attribute name → database span, sorted by name.
+    /// `(u32::MAX, 0)` is an explicit empty doc.
+    #[cfg(feature = "doc")]
+    const ATTR_DOCS: &'static [(&'static str, u32, u32)] = &[];
+    /// Names that have a database doc, sorted. The text is not in this build.
+    #[cfg(not(feature = "doc"))]
+    const ATTR_DOCS: &'static [&'static str] = &[];
     const BASICSIZE: usize;
     const ITEMSIZE: usize = 0;
     const UNHASHABLE: bool = false;
@@ -170,16 +200,35 @@ const fn cmp_str(left: &str, right: &str) -> i8 {
     }
 }
 
+#[must_use]
+pub const fn attr_name_present(table: &[&str], name: &str) -> bool {
+    let mut lo = 0;
+    let mut hi = table.len();
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        let ord = cmp_str(table[mid], name);
+        if ord == 0 {
+            return true;
+        } else if ord < 0 {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    false
+}
+
 /// Doc for `name` in a sorted attribute-doc table.
 #[must_use]
-pub const fn attr_doc<'a>(table: &'a [(&'a str, &'a str)], name: &str) -> Option<&'a str> {
+#[inline(never)]
+pub const fn attr_doc(table: &[(&str, u32, u32)], name: &str) -> Option<(u32, u32)> {
     let mut lo = 0;
     let mut hi = table.len();
     while lo < hi {
         let mid = (lo + hi) / 2;
         let ord = cmp_str(table[mid].0, name);
         if ord == 0 {
-            return Some(table[mid].1);
+            return Some((table[mid].1, table[mid].2));
         } else if ord < 0 {
             lo = mid + 1;
         } else {
@@ -192,23 +241,8 @@ pub const fn attr_doc<'a>(table: &'a [(&'a str, &'a str)], name: &str) -> Option
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
 
-    /// Plain docstring for each [`SLOT_DEFS`] entry, resolved while this impl
-    /// is compiled. `None` keeps the slotdef text.
-    const SLOT_DOCS: [Option<&'static str>; SLOT_DEFS_COUNT] = {
-        let mut docs = [None; SLOT_DEFS_COUNT];
-        let mut i = 0;
-        while i < SLOT_DEFS_COUNT {
-            docs[i] = match attr_doc(Self::ATTR_DOCS, SLOT_DEFS[i].name) {
-                Some(doc) if !doc.is_empty() => Some(doc),
-                _ => None,
-            };
-            i += 1;
-        }
-        docs
-    };
-
-    /// `Name(sig)\n--\n\ndoc` when the constructor arguments form a signature.
-    const INTERNAL_DOC: Option<&'static str> = None;
+    /// Signature-bearing class doc. [`ItemDoc::NONE`] when the constructor has no signature.
+    const INTERNAL_DOC: ItemDoc = ItemDoc::NONE;
 
     const METHOD_DEFS: &'static [PyMethodDef];
 
@@ -242,7 +276,7 @@ pub trait PyClassImpl: PyClassDef {
 
         Self::impl_extend_class(ctx, class);
 
-        if let Some(doc) = Self::DOC {
+        if let Some(doc) = plain_doc(Self::DOC) {
             // Only set __doc__ if it doesn't already exist (e.g., as a member descriptor)
             // This matches CPython's behavior in type_dict_set_doc
             let doc_attr_name = identifier!(ctx, __doc__);
@@ -282,7 +316,7 @@ pub trait PyClassImpl: PyClassDef {
         }
 
         // Add slot wrappers using SLOT_DEFS array
-        add_operators::<Self>(class, ctx);
+        add_operators(class, ctx, Self::ATTR_DOCS);
 
         // Inherit slots from base types after slots are fully initialized
         for base in class.bases.read().iter() {
@@ -321,10 +355,13 @@ pub trait PyClassImpl: PyClassDef {
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
             itemsize: Self::ITEMSIZE,
-            doc: if let Some(doc) = Self::INTERNAL_DOC {
-                Some(doc)
-            } else {
-                Self::DOC
+            doc: {
+                let internal = Self::INTERNAL_DOC;
+                if internal.text.is_some() || internal.len != 0 {
+                    internal
+                } else {
+                    Self::DOC
+                }
             },
             methods: Self::METHOD_DEFS,
             ..Default::default()

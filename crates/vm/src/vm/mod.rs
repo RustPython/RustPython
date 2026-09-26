@@ -1273,12 +1273,14 @@ impl VirtualMachine {
 
         vm.builtins.init_dict(
             vm.ctx.intern_str("builtins"),
-            Some(vm.ctx.intern_str(stdlib::builtins::DOC.unwrap()).to_owned()),
+            crate::function::plain_doc(stdlib::builtins::DOC)
+                .map(|doc| vm.ctx.intern_str(doc).to_owned()),
             &vm,
         );
         vm.sys_module.init_dict(
             vm.ctx.intern_str("sys"),
-            Some(vm.ctx.intern_str(stdlib::sys::DOC.unwrap()).to_owned()),
+            crate::function::plain_doc(stdlib::sys::DOC)
+                .map(|doc| vm.ctx.intern_str(doc).to_owned()),
             &vm,
         );
         // let name = vm.sys_module.get_attr("__name__", &vm).unwrap();

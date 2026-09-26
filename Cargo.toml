@@ -11,7 +11,8 @@ license.workspace = true
 
 [features]
 capi = ["dep:rustpython-capi", "threading"]
-default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env", "mimalloc"]
+default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env", "mimalloc", "doc"]
+doc = ["rustpython-vm/doc", "rustpython-stdlib?/doc"]
 mimalloc = ["dep:mimalloc"]
 host_env = ["rustpython-vm/host_env", "rustpython-stdlib?/host_env"]
 importlib = ["rustpython-vm/importlib"]
@@ -39,7 +40,7 @@ winresource = "0.1"
 rustpython-capi = { workspace = true, optional = true }
 rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
-rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
+rustpython-stdlib = { workspace = true, optional = true, default-features = false, features = ["compiler"] }
 rustpython-vm = { workspace = true, features = ["compiler", "gc"] }
 
 log = { workspace = true }
