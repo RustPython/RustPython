@@ -174,7 +174,7 @@ mod _abc {
             .downcast()
             .map_err(|_| vm.new_type_error("__bases__ is not a tuple"))?;
 
-        for base in bases.iter() {
+        for base in bases.as_slice() {
             if let Ok(base_abstracts) = base.get_attr("__abstractmethods__", vm) {
                 let iter = base_abstracts.get_iter(vm)?;
                 while let PyIterReturn::Return(key) = iter.next(vm)? {

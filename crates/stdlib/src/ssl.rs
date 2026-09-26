@@ -2545,7 +2545,7 @@ mod _ssl {
                                     e
                                 }
                             })?;
-                            if bytes.is_empty() {
+                            if bytes.as_bytes().is_empty() {
                                 return Err(
                                     if self.is_bio_mode()
                                         && !self.io.incoming().as_ref().is_some_and(|bio| bio.eof())

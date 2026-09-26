@@ -2372,6 +2372,7 @@ mod _sqlite3 {
         #[pymethod]
         fn keys(&self, _vm: &VirtualMachine) -> Vec<PyObjectRef> {
             self.description
+                .as_slice()
                 .iter()
                 .map(|x| x.downcast_ref::<PyTuple>().unwrap().as_slice()[0].clone())
                 .collect()
@@ -2380,9 +2381,9 @@ mod _sqlite3 {
         fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
             if let Some(i) = needle.downcast_ref::<PyInt>() {
                 let i = i.try_to_primitive::<isize>(vm)?;
-                self.data.getitem_by_index(vm, i)
+                self.data.as_slice().getitem_by_index(vm, i)
             } else if let Some(name) = needle.downcast_ref::<PyStr>() {
-                for (obj, i) in self.description.iter().zip(0..) {
+                for (obj, i) in self.description.as_slice().iter().zip(0..) {
                     let obj = &obj.downcast_ref::<PyTuple>().unwrap().as_slice()[0];
                     let Some(obj) = obj.downcast_ref::<PyStr>() else {
                         break;
@@ -2391,12 +2392,15 @@ mod _sqlite3 {
                     let b_iter = obj.expect_str().chars().flat_map(|x| x.to_uppercase());
 
                     if a_iter.eq(b_iter) {
-                        return self.data.getitem_by_index(vm, i);
+                        return self.data.as_slice().getitem_by_index(vm, i);
                     }
                 }
                 Err(vm.new_index_error(format!("No item with key '{}'", name.to_string_lossy())))
             } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
-                let list = self.data.getitem_by_slice(vm, slice.to_saturated(vm)?)?;
+                let list = self
+                    .data
+                    .as_slice()
+                    .getitem_by_slice(vm, slice.to_saturated(vm)?)?;
                 Ok(vm.ctx.new_tuple(list).into())
             } else {
                 Err(vm.new_index_error("Index must be int or string"))
@@ -2460,6 +2464,7 @@ mod _sqlite3 {
                 std::sync::LazyLock::new(|| PyMappingMethods {
                     length: atomic_func!(|mapping, _vm| Ok(Row::mapping_downcast(mapping)
                         .data
+                        .as_slice()
                         .len())),
                     subscript: atomic_func!(|mapping, needle, vm| {
                         Row::mapping_downcast(mapping).subscript(needle, vm)
@@ -2474,9 +2479,13 @@ mod _sqlite3 {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: std::sync::LazyLock<PySequenceMethods> =
                 std::sync::LazyLock::new(|| PySequenceMethods {
-                    length: atomic_func!(|seq, _vm| Ok(Row::sequence_downcast(seq).data.len())),
+                    length: atomic_func!(|seq, _vm| Ok(Row::sequence_downcast(seq)
+                        .data
+                        .as_slice()
+                        .len())),
                     item: atomic_func!(|seq, i, vm| Row::sequence_downcast(seq)
                         .data
+                        .as_slice()
                         .getitem_by_index(vm, i)),
                     ..PySequenceMethods::NOT_IMPLEMENTED
                 });

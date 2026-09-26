@@ -285,7 +285,7 @@ pub trait PyClassImpl: PyClassDef {
         add_operators::<Self>(class, ctx);
 
         // Inherit slots from base types after slots are fully initialized
-        for base in class.bases.read().iter() {
+        for base in class.bases.read().as_slice() {
             class.inherit_slots(base);
         }
 

@@ -520,7 +520,7 @@ impl PyObject {
                 return Ok(false);
             };
 
-            let n = derived_bases.len();
+            let n = derived_bases.as_slice().len();
             match n {
                 0 => return Ok(false),
                 1 => {
@@ -537,7 +537,7 @@ impl PyObject {
             }
         };
 
-        let n = bases.len();
+        let n = bases.as_slice().len();
         // At this point we know n >= 2
         debug_assert!(n >= 2);
 

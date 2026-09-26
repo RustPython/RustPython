@@ -459,7 +459,7 @@ where
 {
     use crate::builtins::PyTuple;
     if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
-        tuple.iter().map(|x| f(x.clone())).collect()
+        tuple.as_slice().iter().map(|x| f(x.clone())).collect()
     } else if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
         list.borrow_vec().iter().map(|x| f(x.clone())).collect()
     } else {

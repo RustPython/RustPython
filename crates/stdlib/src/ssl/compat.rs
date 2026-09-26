@@ -427,7 +427,7 @@ pub(super) fn recv_at_most_one_tls_record(
         }
     })?;
     socket.observe_tls(false, bytes.as_bytes(), vm);
-    if bytes.is_empty() {
+    if bytes.as_bytes().is_empty() {
         Err(if socket.is_bio_mode() && !socket.transport_eof() {
             SslError::WantRead
         } else {

@@ -50,7 +50,7 @@ impl Py<PyType> {
 
     /// Mark all base classes as finalized
     fn mark_bases_final(&self) {
-        for base in self.bases.read().iter() {
+        for base in self.bases.read().as_slice() {
             if let Some(mut stg) = base.get_type_data_mut::<StgInfo>() {
                 stg.flags |= StgInfoFlags::DICTFLAG_FINAL;
             } else {
@@ -713,7 +713,7 @@ pub(crate) mod _ctypes {
             let mut max_align = 1usize;
             for field in &fields {
                 if let Some(tuple) = field.downcast_ref::<crate::builtins::PyTuple>()
-                    && let Some(field_type) = tuple.get(1)
+                    && let Some(field_type) = tuple.as_slice().get(1)
                 {
                     let align =
                         if let Ok(ft) = field_type.clone().downcast::<crate::builtins::PyType>() {
@@ -932,9 +932,9 @@ pub(crate) mod _ctypes {
             return Err(vm.new_value_error("NULL function pointer"));
         }
 
-        let mut call_args = Vec::with_capacity(args.len());
+        let mut call_args = Vec::with_capacity(args.as_slice().len());
 
-        for arg in args.iter() {
+        for arg in args.as_slice() {
             if vm.is_none(arg) {
                 call_args.push(rustpython_host_env::ctypes::CdeclArgValue::Pointer(0));
             } else if let Ok(int_val) = arg.try_int(vm) {

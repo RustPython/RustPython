@@ -4495,7 +4495,8 @@ impl ExecutingFrame<'_> {
                     let fastlocals = self.localsplus.fastlocals_mut();
                     if let Some(closure) = closure {
                         for i in 0..n {
-                            fastlocals[freevar_start + i] = Some(closure[i].clone().into());
+                            fastlocals[freevar_start + i] =
+                                Some(closure.as_slice()[i].clone().into());
                         }
                     }
                 }
@@ -5235,12 +5236,16 @@ impl ExecutingFrame<'_> {
                             };
 
                             // Check if we have enough match args
-                            if match_args.len() < nargs_val {
+                            if match_args.as_slice().len() < nargs_val {
                                 let type_name = type_name();
-                                let plural = if match_args.len() == 1 { "" } else { "s" };
+                                let plural = if match_args.as_slice().len() == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                };
                                 return Err(vm.new_type_error(format!(
                                     "{type_name}() accepts {} positional sub-pattern{} ({} given)",
-                                    match_args.len(),
+                                    match_args.as_slice().len(),
                                     plural,
                                     nargs_val
                                 )));
@@ -5248,7 +5253,7 @@ impl ExecutingFrame<'_> {
 
                             // Extract positional attributes
                             for i in 0..nargs_val {
-                                let attr_name = &match_args[i];
+                                let attr_name = &match_args.as_slice()[i];
                                 let attr_name_str = match attr_name.downcast_ref::<PyStr>() {
                                     Some(s) => s,
                                     None => {
@@ -7312,7 +7317,7 @@ impl ExecutingFrame<'_> {
                     let kwarg_names_tuple = kwarg_names_obj
                         .downcast_ref::<PyTuple>()
                         .expect("kwarg names should be tuple");
-                    let kw_count = kwarg_names_tuple.len();
+                    let kw_count = kwarg_names_tuple.as_slice().len();
                     let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
@@ -7370,7 +7375,7 @@ impl ExecutingFrame<'_> {
                         let kwarg_names_tuple = kwarg_names_obj
                             .downcast_ref::<PyTuple>()
                             .expect("kwarg names should be tuple");
-                        let kw_count = kwarg_names_tuple.len();
+                        let kw_count = kwarg_names_tuple.as_slice().len();
                         let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                         self.pop_stackref_opt(); // null (self_or_null)
                         self.pop_stackref(); // callable (bound method)
@@ -7412,7 +7417,7 @@ impl ExecutingFrame<'_> {
                 let kwarg_names_tuple = kwarg_names_obj
                     .downcast_ref::<PyTuple>()
                     .expect("kwarg names should be tuple");
-                let kw_count = kwarg_names_tuple.len();
+                let kw_count = kwarg_names_tuple.as_slice().len();
                 let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                 let self_or_null = self.pop_value_opt();
                 let callable = self.pop_value();
@@ -8931,7 +8936,7 @@ impl ExecutingFrame<'_> {
         let kwarg_names_tuple = kwarg_names_obj
             .downcast_ref::<PyTuple>()
             .expect("kwarg names should be tuple");
-        let kw_count = kwarg_names_tuple.len();
+        let kw_count = kwarg_names_tuple.as_slice().len();
         debug_assert!(kw_count <= nargs_usize, "CALL_KW kw_count exceeds nargs");
 
         let stack_len = self.localsplus.stack_len();
@@ -11928,7 +11933,7 @@ impl ExecutingFrame<'_> {
         }
         let obj = self.top_value();
         let new_op = if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
-            if tuple.len() != expected_count as usize {
+            if tuple.as_slice().len() != expected_count as usize {
                 None
             } else if expected_count == 2 {
                 Some(Instruction::UnpackSequenceTwoTuple)
@@ -12292,10 +12297,10 @@ impl ExecutingFrame<'_> {
                     .downcast()
                     .map_err(|_| vm.new_type_error("TypeAlias expects a tuple argument"))?;
 
-                if tuple.len() != 3 {
+                if tuple.as_slice().len() != 3 {
                     return Err(vm.new_type_error(format!(
                         "TypeAlias expects exactly 3 arguments, got {}",
-                        tuple.len()
+                        tuple.as_slice().len()
                     )));
                 }
 

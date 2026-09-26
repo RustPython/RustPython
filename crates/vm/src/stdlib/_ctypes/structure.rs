@@ -18,7 +18,7 @@ pub(super) fn calculate_struct_size(cls: &Py<PyType>, vm: &VirtualMachine) -> Py
 
         for field in &fields {
             if let Some(tuple) = field.downcast_ref::<PyTuple>()
-                && let Some(field_type) = tuple.get(1)
+                && let Some(field_type) = tuple.as_slice().get(1)
             {
                 total_size += super::_ctypes::sizeof(field_type.clone(), vm)?;
             }
@@ -90,7 +90,7 @@ impl Initializer for PyCStructType {
             // No _fields_ defined - try to copy from base class (PyCStgInfo_clone)
             let (has_base_info, base_clone) = {
                 let bases = new_type.bases.read();
-                if let Some(base) = bases.first() {
+                if let Some(base) = bases.as_slice().first() {
                     (base.stg_info_opt().is_some(), Some(base.clone()))
                 } else {
                     (false, None)
@@ -243,7 +243,7 @@ impl PyCStructType {
         let fields: Vec<PyObjectRef> = if let Some(list) = fields_attr.downcast_ref::<PyList>() {
             list.borrow_vec().to_vec()
         } else if let Some(tuple) = fields_attr.downcast_ref::<PyTuple>() {
-            tuple.to_vec()
+            tuple.as_slice().to_vec()
         } else {
             return Err(vm.new_type_error("_fields_ must be a list or tuple"));
         };
@@ -283,7 +283,7 @@ impl PyCStructType {
             mut field_layouts,
         ) = {
             let bases = cls.bases.read();
-            if let Some(base) = bases.first()
+            if let Some(base) = bases.as_slice().first()
                 && let Some(baseinfo) = base.stg_info_opt()
             {
                 (
@@ -313,13 +313,14 @@ impl PyCStructType {
                 .downcast_ref::<PyTuple>()
                 .ok_or_else(|| vm.new_type_error("_fields_ must contain tuples"))?;
 
-            if field_tuple.len() < 2 {
+            if field_tuple.as_slice().len() < 2 {
                 return Err(
                     vm.new_type_error("_fields_ tuple must have at least 2 elements (name, type)")
                 );
             }
 
             let name = field_tuple
+                .as_slice()
                 .first()
                 .expect("len checked")
                 .downcast_ref::<PyUtf8Str>()
@@ -327,7 +328,7 @@ impl PyCStructType {
                 .as_str()
                 .to_owned();
 
-            let field_type = field_tuple.get(1).expect("len checked").clone();
+            let field_type = field_tuple.as_slice().get(1).expect("len checked").clone();
 
             // For swapped byte order structures, validate field type supports byte swapping
             if is_swapped {
@@ -425,8 +426,8 @@ impl PyCStructType {
                 .map_err(|_| vm.new_type_error("_fields_ type must be a ctypes type"))?;
 
             // Check for bitfield size (optional 3rd element in tuple)
-            let (c_field, field_advances_offset) = if field_tuple.len() > 2 {
-                let bit_size_obj = field_tuple.get(2).expect("len checked");
+            let (c_field, field_advances_offset) = if field_tuple.as_slice().len() > 2 {
+                let bit_size_obj = field_tuple.as_slice().get(2).expect("len checked");
                 let bit_size = bit_size_obj
                     .try_int(vm)?
                     .as_bigint()
@@ -723,7 +724,7 @@ impl PyCStructure {
         // 1. First process base class fields recursively
         let base_clone = {
             let bases = type_obj.bases.read();
-            if let Some(base) = bases.first()
+            if let Some(base) = bases.as_slice().first()
                 && base.stg_info_opt().is_some()
             {
                 Some(base.clone())
@@ -745,7 +746,7 @@ impl PyCStructure {
                     break;
                 }
                 if let Some(tuple) = field.downcast_ref::<PyTuple>()
-                    && let Some(name) = tuple.first()
+                    && let Some(name) = tuple.as_slice().first()
                     && let Some(name_str) = name.downcast_ref::<PyUtf8Str>()
                 {
                     let field_name = name_str.as_wtf8().to_owned();

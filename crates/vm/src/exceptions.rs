@@ -354,7 +354,7 @@ impl VirtualMachine {
 
     fn exception_args_as_string(&self, varargs: &Py<PyTuple>, str_single: bool) -> Vec<PyStrRef> {
         let vm = self;
-        match varargs.len() {
+        match varargs.as_slice().len() {
             0 => vec![],
             1 => {
                 let args0_repr = if str_single {
@@ -369,6 +369,7 @@ impl VirtualMachine {
                 vec![args0_repr]
             }
             _ => varargs
+                .as_slice()
                 .iter()
                 .map(|vararg| {
                     vararg.repr(vm).unwrap_or_else(|_| {
@@ -520,8 +521,8 @@ impl ExceptionCtor {
             (Self::Class(cls), _) => {
                 let args = match_class!(match value {
                     PyNone => vec![],
-                    tup @ PyTuple => tup.to_vec(),
-                    exc @ PyBaseException => exc.args().to_vec(),
+                    tup @ PyTuple => tup.as_slice().to_vec(),
+                    exc @ PyBaseException => exc.args().as_slice().to_vec(),
                     obj => vec![obj],
                 });
                 vm.invoke_exception(&cls, args)
@@ -639,7 +640,7 @@ impl PyBaseException {
     }
 
     pub fn get_arg(&self, idx: usize) -> Option<PyObjectRef> {
-        self.args.read().get(idx).cloned()
+        self.args.read().as_slice().get(idx).cloned()
     }
 }
 
@@ -1279,6 +1280,7 @@ impl serde::Serialize for SerializeException<'_, '_> {
                 fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                     s.collect_seq(
                         self.1
+                            .as_slice()
                             .iter()
                             .map(|arg| crate::py_serde::PyObjectSerializer::new(self.0, arg)),
                     )
@@ -2134,7 +2136,7 @@ pub(super) mod types {
         #[pymethod]
         fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyStrRef {
             let args = zelf.args();
-            if args.len() == 1 {
+            if args.as_slice().len() == 1 {
                 vm.exception_args_as_string(&args, false)
                     .into_iter()
                     .exactly_one()
@@ -2579,7 +2581,7 @@ pub(super) mod types {
             let obj = zelf.as_object().to_owned();
             let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into()];
 
-            if args.len() >= 2 && args.len() <= 5 {
+            if args.as_slice().len() >= 2 && args.as_slice().len() <= 5 {
                 // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
                 let errno = zelf.get_arg(0).unwrap();
                 let msg = zelf.get_arg(1).unwrap();
@@ -2915,7 +2917,7 @@ pub(super) mod types {
                     .clone()
                     .downcast::<crate::builtins::PyTuple>()
             {
-                let location_tup_len = location_tuple.len();
+                let location_tup_len = location_tuple.as_slice().len();
 
                 match location_tup_len {
                     4 | 6 | 7 => {}
@@ -2948,7 +2950,7 @@ pub(super) mod types {
                 .enumerate()
                 {
                     let value = if location_tup_len > i {
-                        location_tuple[i].to_owned()
+                        location_tuple.as_slice()[i].to_owned()
                     } else {
                         vm.ctx.none()
                     };
@@ -3379,7 +3381,7 @@ fn check_except_star_type_valid(match_type: &PyObject, vm: &VirtualMachine) -> P
 
     // If it's a tuple, check each element
     if let Ok(tuple) = match_type.to_owned().downcast::<PyTuple>() {
-        for item in tuple.iter() {
+        for item in tuple.as_slice() {
             check_one(item)?;
         }
     } else {
@@ -3439,15 +3441,15 @@ pub fn exception_group_match(
             )));
         }
         let pair_tuple: PyTupleRef = pair.try_into_value(vm)?;
-        if pair_tuple.len() < 2 {
+        if pair_tuple.as_slice().len() < 2 {
             return Err(vm.new_type_error(format!(
                 "{}.split must return a 2-tuple, got tuple of size {}",
                 exc_value.class().name(),
-                pair_tuple.len()
+                pair_tuple.as_slice().len()
             )));
         }
-        let matched = pair_tuple[0].clone();
-        let rest = pair_tuple[1].clone();
+        let matched = pair_tuple.as_slice()[0].clone();
+        let rest = pair_tuple.as_slice()[1].clone();
         return Ok((rest, matched));
     }
 
@@ -3564,7 +3566,7 @@ fn collect_exception_group_leaf_ids(
     if let Ok(excs_attr) = exc.get_attr("exceptions", vm)
         && let Ok(tuple) = excs_attr.downcast::<PyTuple>()
     {
-        for e in tuple.iter() {
+        for e in tuple.as_slice() {
             collect_exception_group_leaf_ids(e, leaf_ids, vm);
         }
     }
@@ -3612,7 +3614,7 @@ fn split_by_leaf_ids(exc: &PyObject, leaf_ids: &HashSet<usize>, vm: &VirtualMach
     let tuple: PyTupleRef = excs_attr.try_into_value(vm)?;
 
     let mut matched = Vec::new();
-    for e in tuple.iter() {
+    for e in tuple.as_slice() {
         let m = split_by_leaf_ids(e, leaf_ids, vm)?;
         if !vm.is_none(&m) {
             matched.push(m);

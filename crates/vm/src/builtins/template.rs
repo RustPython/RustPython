@@ -112,6 +112,7 @@ impl PyTemplate {
     fn values(&self, vm: &VirtualMachine) -> PyTupleRef {
         let values: Vec<PyObjectRef> = self
             .interpolations
+            .as_slice()
             .iter()
             .map(|interp| {
                 interp
@@ -136,13 +137,13 @@ impl PyTemplate {
         let mut new_interps: Vec<PyObjectRef> = Vec::new();
 
         // Add all strings from self except the last one
-        let self_strings_len = self.strings.len();
+        let self_strings_len = self.strings.as_slice().len();
         for i in 0..self_strings_len.saturating_sub(1) {
-            new_strings.push(self.strings.get(i).unwrap().clone());
+            new_strings.push(self.strings.as_slice().get(i).unwrap().clone());
         }
 
         // Add all interpolations from self
-        for interp in self.interpolations.iter() {
+        for interp in self.interpolations.as_slice() {
             new_interps.push(interp.clone());
         }
 
@@ -150,6 +151,7 @@ impl PyTemplate {
         let mut buf = Wtf8Buf::new();
         if let Some(s) = self
             .strings
+            .as_slice()
             .get(self_strings_len.saturating_sub(1))
             .and_then(|s| s.downcast_ref::<PyStr>())
         {
@@ -157,6 +159,7 @@ impl PyTemplate {
         }
         if let Some(s) = other
             .strings
+            .as_slice()
             .first()
             .and_then(|s| s.downcast_ref::<PyStr>())
         {
@@ -165,12 +168,12 @@ impl PyTemplate {
         new_strings.push(vm.ctx.new_str(buf).into());
 
         // Add remaining strings from other (skip first)
-        for i in 1..other.strings.len() {
-            new_strings.push(other.strings.get(i).unwrap().clone());
+        for i in 1..other.strings.as_slice().len() {
+            new_strings.push(other.strings.as_slice().get(i).unwrap().clone());
         }
 
         // Add all interpolations from other
-        for interp in other.interpolations.iter() {
+        for interp in other.interpolations.as_slice() {
             new_interps.push(interp.clone());
         }
 
@@ -308,8 +311,8 @@ impl IterNext for PyTemplateIter {
             let index = zelf.index.load(Ordering::SeqCst);
 
             if from_strings {
-                if index < zelf.template.strings.len() {
-                    let item = zelf.template.strings.get(index).unwrap();
+                if index < zelf.template.strings.as_slice().len() {
+                    let item = zelf.template.strings.as_slice().get(index).unwrap();
                     zelf.from_strings.store(false, Ordering::SeqCst);
 
                     // Skip empty strings
@@ -321,8 +324,8 @@ impl IterNext for PyTemplateIter {
                     return Ok(PyIterReturn::Return(item.clone()));
                 }
                 return Ok(PyIterReturn::StopIteration(None));
-            } else if index < zelf.template.interpolations.len() {
-                let item = zelf.template.interpolations.get(index).unwrap();
+            } else if index < zelf.template.interpolations.as_slice().len() {
+                let item = zelf.template.interpolations.as_slice().get(index).unwrap();
                 zelf.index.fetch_add(1, Ordering::SeqCst);
                 zelf.from_strings.store(true, Ordering::SeqCst);
                 return Ok(PyIterReturn::Return(item.clone()));

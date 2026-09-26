@@ -91,6 +91,7 @@ impl PyUnion {
 
         Ok(self
             .args
+            .as_slice()
             .iter()
             .map(|o| repr_item(o, vm))
             .collect::<PyResult<Vec<_>>>()?
@@ -136,6 +137,7 @@ impl PyUnion {
     ) -> PyResult<bool> {
         if zelf
             .args
+            .as_slice()
             .iter()
             .any(|x| x.class().is(vm.ctx.types.generic_alias_type))
         {
@@ -153,6 +155,7 @@ impl PyUnion {
     ) -> PyResult<bool> {
         if zelf
             .args
+            .as_slice()
             .iter()
             .any(|x| x.class().is(vm.ctx.types.generic_alias_type))
         {
@@ -185,7 +188,7 @@ impl PyUnion {
         };
 
         // Check for empty union
-        if args_tuple.is_empty() {
+        if args_tuple.as_slice().is_empty() {
             return Err(vm.new_type_error("Cannot create empty Union"));
         }
 
@@ -243,7 +246,7 @@ fn flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
     let mut total_args = 0;
     for arg in args {
         if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
-            total_args += pyref.args.len();
+            total_args += pyref.args.as_slice().len();
         } else {
             total_args += 1;
         };
@@ -252,7 +255,7 @@ fn flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
     let mut flattened_args = Vec::with_capacity(total_args);
     for arg in args {
         if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
-            flattened_args.extend(pyref.args.iter().cloned());
+            flattened_args.extend(pyref.args.as_slice().iter().cloned());
         } else if vm.is_none(arg) {
             flattened_args.push(vm.ctx.types.none_type.to_owned().into());
         } else if arg.downcast_ref::<PyStr>().is_some() {
@@ -296,7 +299,7 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<U
     // This avoids calling __eq__ when hashes differ, so `int | BadType`
     // doesn't raise even if BadType.__eq__ raises.
 
-    let mut new_args: Vec<PyObjectRef> = Vec::with_capacity(args.len());
+    let mut new_args: Vec<PyObjectRef> = Vec::with_capacity(args.as_slice().len());
 
     // Track hashable elements using a Python set (uses hash + equality)
     let hashable_set = PySet::default().into_ref(&vm.ctx);
@@ -364,7 +367,7 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<U
 
 pub fn make_union(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult {
     let result = dedup_and_flatten_args(args, vm)?;
-    Ok(match result.args.len() {
+    Ok(match result.args.as_slice().len() {
         1 => result.args.as_slice()[0].to_owned(),
         _ => PyUnion::from_components(result, vm)?.to_pyobject(vm),
     })
@@ -380,11 +383,11 @@ impl PyUnion {
             vm,
         )?;
 
-        Ok(if new_args.is_empty() {
+        Ok(if new_args.as_slice().is_empty() {
             make_union(&new_args, vm)?
         } else {
             let mut tmp = new_args.as_slice()[0].to_owned();
-            for arg in new_args.iter().skip(1) {
+            for arg in new_args.as_slice().iter().skip(1) {
                 tmp = vm._or(&tmp, arg)?;
             }
             tmp
@@ -426,7 +429,7 @@ impl Comparable for PyUnion {
             let other = class_or_notimplemented!(Self, other);
 
             // Check if lengths are equal
-            if zelf.args.len() != other.args.len() {
+            if zelf.args.as_slice().len() != other.args.as_slice().len() {
                 return Ok(PyComparisonValue::Implemented(false));
             }
 
@@ -489,9 +492,9 @@ impl Hashable for PyUnion {
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         // If there are any unhashable args from creation time, the union is unhashable
         if let Some(ref unhashable_args) = zelf.unhashable_args {
-            let n = unhashable_args.len();
+            let n = unhashable_args.as_slice().len();
             // Try to hash each previously unhashable arg to get an error
-            for arg in unhashable_args.iter() {
+            for arg in unhashable_args.as_slice() {
                 arg.hash(vm)?;
             }
             // All previously unhashable args somehow became hashable
