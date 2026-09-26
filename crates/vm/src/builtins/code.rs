@@ -281,6 +281,133 @@ fn is_name_chars(value: &crate::common::wtf8::Wtf8) -> bool {
         .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
+/// Structural hash for an object built from a compile-time constant, without a `VirtualMachine`.
+/// Safe because none of these types can have a custom `__hash__`. Must agree with each type's
+/// real `Hashable` impl, notably matching across the numeric tower (`hash(1) == hash(1.0)`),
+/// since `1` and `1.0` must land in the same frozenset-constant bucket.
+fn const_hash(ctx: &Context, obj: &PyObject) -> crate::common::hash::PyHash {
+    use crate::builtins::{PyBool, PyBytes, PyComplex, PyFloat, PyInt, PyStr, PyTuple};
+    use crate::common::hash;
+
+    if let Some(b) = obj.downcast_ref::<PyBool>() {
+        hash::hash_bigint(b.0.as_bigint())
+    } else if let Some(int) = obj.downcast_ref::<PyInt>() {
+        hash::hash_bigint(int.as_bigint())
+    } else if let Some(float) = obj.downcast_ref::<PyFloat>() {
+        hash::hash_float(float.to_f64()).unwrap_or_else(|| hash::hash_object_id(obj.get_id()))
+    } else if let Some(complex) = obj.downcast_ref::<PyComplex>() {
+        let value = complex.to_complex64();
+        let re_hash =
+            hash::hash_float(value.re).unwrap_or_else(|| hash::hash_object_id(obj.get_id()));
+        let im_hash =
+            hash::hash_float(value.im).unwrap_or_else(|| hash::hash_object_id(obj.get_id()));
+        let core::num::Wrapping(ret) = core::num::Wrapping(re_hash)
+            + core::num::Wrapping(im_hash) * core::num::Wrapping(hash::IMAG);
+        hash::fix_sentinel(ret)
+    } else if let Some(s) = obj.downcast_ref::<PyStr>() {
+        // Matches `PyStr::hash` - strings hash their WTF-8 bytes, not a validated `&str`.
+        ctx.hash_secret.load().hash_bytes(s.as_bytes())
+    } else if let Some(b) = obj.downcast_ref::<PyBytes>() {
+        ctx.hash_secret.load().hash_bytes(b.as_bytes())
+    } else if let Some(t) = obj.downcast_ref::<PyTuple>() {
+        let hashes = t
+            .as_slice()
+            .iter()
+            .map(|e| Ok::<_, core::convert::Infallible>(const_hash(ctx, e)));
+        match hash::hash_tuple(hashes) {
+            Ok(h) => h,
+            Err(never) => match never {},
+        }
+    } else if let Some(fs) = obj.downcast_ref::<PyFrozenSet>() {
+        let mut acc = hash::FrozenSetHash::new(fs.elements().len());
+        for e in fs.elements() {
+            acc.add(const_hash(ctx, &e));
+        }
+        acc.finish()
+    } else if obj.is(ctx.none.as_object()) {
+        // Matches `Hashable for PyNone`.
+        0xFCA86420_u64 as hash::PyHash
+    } else {
+        // `Ellipsis` (no custom `__hash__`) and anything else - identity-based, same as the
+        // default object hash a real VM would compute for it.
+        hash::hash_object_id(obj.get_id())
+    }
+}
+
+/// Structural equality for compile-time constant objects, matching Python equality - including
+/// numeric-tower cross-type equality (`1 == 1.0 == True`) - without a `VirtualMachine`. Safe
+/// because none of these types can have a custom `__eq__`.
+fn const_eq(a: &PyObject, b: &PyObject) -> bool {
+    use crate::builtins::{PyBool, PyBytes, PyComplex, PyFloat, PyInt, PyStr, PyTuple};
+    use crate::common::float_ops;
+
+    if a.is(b) {
+        return true;
+    }
+    let a_bigint = a
+        .downcast_ref::<PyBool>()
+        .map(|b| b.0.as_bigint())
+        .or_else(|| a.downcast_ref::<PyInt>().map(|i| i.as_bigint()));
+    let b_bigint = b
+        .downcast_ref::<PyBool>()
+        .map(|b| b.0.as_bigint())
+        .or_else(|| b.downcast_ref::<PyInt>().map(|i| i.as_bigint()));
+    if let (Some(x), Some(y)) = (a_bigint, b_bigint) {
+        return x == y;
+    }
+    if let (Some(x), Some(y)) = (a_bigint, b.downcast_ref::<PyFloat>()) {
+        return float_ops::eq_int(y.to_f64(), x);
+    }
+    if let (Some(x), Some(y)) = (a.downcast_ref::<PyFloat>(), b_bigint) {
+        return float_ops::eq_int(x.to_f64(), y);
+    }
+    if let (Some(x), Some(y)) = (a.downcast_ref::<PyFloat>(), b.downcast_ref::<PyFloat>()) {
+        return x.to_f64() == y.to_f64();
+    }
+    // Complex vs. complex/int/float/bool.
+    let a_complex = a.downcast_ref::<PyComplex>().map(|c| c.to_complex64());
+    let b_complex = b.downcast_ref::<PyComplex>().map(|c| c.to_complex64());
+    if let (Some(x), Some(y)) = (a_complex, b_complex) {
+        return x == y;
+    }
+    if let Some(c) = a_complex.or(b_complex) {
+        let other = if a_complex.is_some() { b } else { a };
+        if c.im != 0.0 {
+            return false;
+        }
+        if let Some(f) = other.downcast_ref::<PyFloat>() {
+            return c.re == f.to_f64();
+        }
+        let other_int = other
+            .downcast_ref::<PyBool>()
+            .map(|v| v.0.as_bigint())
+            .or_else(|| other.downcast_ref::<PyInt>().map(|i| i.as_bigint()));
+        return other_int.is_some_and(|i| float_ops::eq_int(c.re, i));
+    }
+    if let (Some(x), Some(y)) = (a.downcast_ref::<PyStr>(), b.downcast_ref::<PyStr>()) {
+        return x.as_bytes() == y.as_bytes();
+    }
+    if let (Some(x), Some(y)) = (a.downcast_ref::<PyBytes>(), b.downcast_ref::<PyBytes>()) {
+        return x.as_bytes() == y.as_bytes();
+    }
+    if let (Some(x), Some(y)) = (a.downcast_ref::<PyTuple>(), b.downcast_ref::<PyTuple>()) {
+        return x.as_slice().len() == y.as_slice().len()
+            && x.as_slice()
+                .iter()
+                .zip(y.as_slice())
+                .all(|(e1, e2)| const_eq(e1, e2));
+    }
+    if let (Some(x), Some(y)) = (
+        a.downcast_ref::<PyFrozenSet>(),
+        b.downcast_ref::<PyFrozenSet>(),
+    ) {
+        let (xe, ye) = (x.elements(), y.elements());
+        return xe.len() == ye.len() && xe.iter().all(|e1| ye.iter().any(|e2| const_eq(e1, e2)));
+    }
+    // `None`/`Ellipsis` are canonical singletons already handled by the identity check above.
+    false
+}
+
 impl ConstantBag for PyObjBag<'_> {
     type Constant = Literal;
 
@@ -320,13 +447,18 @@ impl ConstantBag for PyObjBag<'_> {
                 .into_ref(ctx)
                 .into()
             }
-            BorrowedConstant::Frozenset { elements: _ } => {
-                // Creating a frozenset requires VirtualMachine for element hashing.
-                // PyObjBag only has Context, so we cannot construct PyFrozenSet here.
-                // Frozenset constants from .pyc are handled by PyMarshalBag which has VM access.
-                unimplemented!(
-                    "frozenset constant in PyObjBag::make_constant requires VirtualMachine"
-                )
+            BorrowedConstant::Frozenset { elements } => {
+                let elements_with_hashes = elements
+                    .iter()
+                    .map(|constant| {
+                        let obj = self.make_constant(constant.borrow_constant()).0;
+                        let hash = const_hash(ctx, &obj);
+                        (obj, hash)
+                    })
+                    .collect();
+                PyFrozenSet::from_constant_elements(elements_with_hashes, const_eq)
+                    .into_ref(ctx)
+                    .into()
             }
             BorrowedConstant::None => ctx.none(),
             BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),
@@ -1735,4 +1867,54 @@ impl<'a> LineTableReader<'a> {
 
 pub(crate) fn init(ctx: &'static Context) {
     PyCode::extend_class(ctx, ctx.types.code_type);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Interpreter;
+
+    /// Exercises `PyObjBag` specifically (`Context`, no `VirtualMachine`) via `ctx.new_code`,
+    /// not `vm.compile`/`PyVmBag` - a frozenset literal constant used to panic here.
+    #[test]
+    fn context_only_frozenset_constant() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let source = "\
+x = frozenset({1, 2, 3})
+assert 1 in x and 2 in x and 3 in x and 4 not in x
+assert len(x) == 3
+
+# numeric tower: 1 == 1.0 == True must collapse to a single element, matching real Python.
+y = frozenset({1, 1.0, True})
+assert len(y) == 1
+assert 1 in y and 1.0 in y and True in y
+
+z = frozenset({'a', 'b', 'a'})
+assert len(z) == 2
+
+w = frozenset({(1, 'a'), (1, 'a'), (2, 'b')})
+assert len(w) == 2
+
+# complex with a zero imaginary part is numeric-tower equal too.
+v = frozenset({1, 1j, (1+0j), 1.0})
+assert len(v) == 2
+assert 1 in v and 1j in v and (1+0j) in v and 1.0 in v
+
+# huge int vs. a same-magnitude complex must compare exactly, not via lossy f64 rounding:
+# 2**114 + (2**61 - 1) and (2**114+0j) round to the same f64, but aren't equal. A `for` loop
+# (unlike a plain assignment) iterates the folded frozenset constant directly instead of
+# rebuilding it through set.update()'s real-VM equality, so this exercises `const_eq` itself.
+u_count = 0
+for _e in {20769187434139312819964994530574335, (20769187434139310514121985316880384+0j), 42}:
+    u_count += 1
+assert u_count == 3
+";
+            let opts = vm.compile_opts();
+            let code =
+                crate::compiler::compile(source, crate::compiler::Mode::Exec, "<test>", opts)
+                    .expect("compile should succeed");
+            let code_ref = vm.ctx.new_code(code);
+            let scope = vm.new_scope_with_builtins();
+            vm.run_code_obj(code_ref, scope).unwrap();
+        });
+    }
 }

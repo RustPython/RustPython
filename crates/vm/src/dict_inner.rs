@@ -564,6 +564,123 @@ impl<T: Clone> Dict<T> {
         Ok(stored_index)
     }
 
+    /// Store a key using a caller-supplied equality closure instead of full `DictKey`/VM
+    /// dispatch - for keys (e.g. compile-time constant literals) whose equality never needs
+    /// `__eq__`, so no `VirtualMachine` is required at all.
+    ///
+    /// `hash` must be `key`'s real hash under the algorithm real objects of its type use, or
+    /// lookups against this entry from a VM-dispatched caller will never find it. `key_eq` must
+    /// agree with Python equality for `key`'s type - notably the numeric tower, where
+    /// `1 == 1.0 == True` and must compare (and already hash) equal.
+    pub(crate) fn insert_no_vm(
+        &self,
+        key: PyObjectRef,
+        hash: HashValue,
+        value: T,
+        key_eq: impl Fn(&PyObject, &PyObject) -> bool,
+    ) {
+        loop {
+            let (entry_index, index_index) = self.lookup_no_vm(&key, hash, &key_eq);
+            let mut inner = self.write();
+            if let Some(index) = entry_index.index() {
+                // Update existing key
+                if let Some(entry) = inner.entries.get_mut(index) {
+                    let Some(entry) = entry.as_mut() else {
+                        // The dict was changed since we did lookup. Let's try again.
+                        continue;
+                    };
+                    if entry.index == index_index {
+                        entry.value = value;
+                        return;
+                    }
+                    // stuff shifted around, let's try again
+                    continue;
+                }
+                // The dict was changed since we did lookup. Let's try again.
+                continue;
+            }
+            // New key - validate slot is still what lookup found
+            if inner.indices.get(index_index) != Some(&entry_index) {
+                // Dict was resized since lookup, retry
+                continue;
+            }
+            self.invalidate_keys_version();
+            inner.unchecked_push(index_index, hash, key, value, entry_index);
+            return;
+        }
+    }
+
+    /// [`Self::lookup`], but the collision-resolution equality check is a caller-supplied
+    /// closure instead of `DictKey::key_eq`, so no `VirtualMachine` is required.
+    fn lookup_no_vm(
+        &self,
+        key: &PyObject,
+        hash_value: HashValue,
+        key_eq: &impl Fn(&PyObject, &PyObject) -> bool,
+    ) -> LookupResult {
+        let mut idxs = None;
+        let mut free_slot = None;
+        loop {
+            let (entry_key, ret) = {
+                let inner = self.read();
+                let mask = (inner.indices.len() - 1) as i64;
+                let idxs = idxs.get_or_insert_with(|| GenIndexes::new(hash_value, mask));
+                if idxs.mask != mask {
+                    // Dict was resized since last probe, restart
+                    *idxs = GenIndexes::new(hash_value, mask);
+                    free_slot = None;
+                }
+                loop {
+                    let index_index = idxs.next();
+                    let index_entry = *unsafe {
+                        // Safety: index_index is generated
+                        inner.indices.get_unchecked(index_index)
+                    };
+                    match index_entry {
+                        IndexEntry::DUMMY => {
+                            if free_slot.is_none() {
+                                free_slot = Some(index_index);
+                            }
+                        }
+                        IndexEntry::FREE => {
+                            let idxs = match free_slot {
+                                Some(free) => (IndexEntry::DUMMY, free),
+                                None => (IndexEntry::FREE, index_index),
+                            };
+                            return idxs;
+                        }
+                        idx => {
+                            let entry = unsafe {
+                                // Safety: DUMMY and FREE are already handled above.
+                                // i is always valid and entry always exists.
+                                let i = idx.index().unwrap_unchecked();
+                                inner.entries.get_unchecked(i).as_ref().unwrap_unchecked()
+                            };
+                            let ret = (idx, index_index);
+
+                            #[expect(
+                                clippy::redundant_else,
+                                reason = "Keeping the empty `else` block here for documentation"
+                            )]
+                            if key.is(&entry.key) {
+                                return ret;
+                            } else if entry.hash == hash_value {
+                                break (entry.key.clone(), ret);
+                            } else {
+                                // entry mismatch
+                            }
+                        }
+                    }
+                }
+            };
+            // This comparison needs to be done outside the lock.
+            if key_eq(key, &entry_key) {
+                return ret;
+            }
+            // hash collision, continue probing
+        }
+    }
+
     pub(crate) fn contains<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,

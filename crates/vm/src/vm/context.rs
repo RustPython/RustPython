@@ -15,7 +15,7 @@ use crate::{
         type_::PyAttributes,
     },
     class::StaticType,
-    common::rc::PyRc,
+    common::{hash::HashSecret, rc::PyRc},
     exceptions,
     function::{
         HeapMethodDef, IntoPyGetterFunc, IntoPyNativeFn, IntoPySetterFunc, PyMethodDef,
@@ -26,6 +26,7 @@ use crate::{
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
 use core::ffi::{CStr, c_void};
+use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
@@ -55,6 +56,9 @@ pub struct Context {
     pub(crate) slot_new_wrapper: PyMethodDef,
     pub names: ConstName,
     // GC module state (callbacks and garbage lists)
+    /// Hash secret for `str`/`bytes` built from `Context` alone, synced to the first real
+    /// interpreter's secret so they agree with its `VirtualMachine` hashing.
+    pub(crate) hash_secret: AtomicCell<HashSecret>,
 }
 
 macro_rules! declare_const_name {
@@ -422,6 +426,7 @@ impl Context {
             string_pool,
             slot_new_wrapper,
             names,
+            hash_secret: AtomicCell::new(HashSecret::new(crate::vm::process_hash_secret_seed())),
         }
     }
 
