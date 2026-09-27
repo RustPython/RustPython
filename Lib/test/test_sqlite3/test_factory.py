@@ -170,7 +170,6 @@ class RowFactoryTests(MemoryDatabaseMixin, unittest.TestCase):
         with self.assertRaises(AttributeError):
             del self.con.text_factory
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sqlite_row_index_unicode(self):
         row = self.con.execute("select 1 as \xff").fetchone()
         self.assertEqual(row["\xff"], 1)

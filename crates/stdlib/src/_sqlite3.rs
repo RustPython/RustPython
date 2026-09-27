@@ -2388,10 +2388,12 @@ mod _sqlite3 {
                     let Some(obj) = obj.downcast_ref::<PyStr>() else {
                         break;
                     };
-                    let a_iter = name.expect_str().chars().flat_map(|x| x.to_uppercase());
-                    let b_iter = obj.expect_str().chars().flat_map(|x| x.to_uppercase());
+                    let name = name.expect_str();
+                    let obj = obj.expect_str();
 
-                    if a_iter.eq(b_iter) {
+                    if name == obj
+                        || (name.is_ascii() && obj.is_ascii() && name.eq_ignore_ascii_case(obj))
+                    {
                         return self.data.as_slice().getitem_by_index(vm, i);
                     }
                 }
