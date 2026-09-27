@@ -1105,15 +1105,16 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
-    pub(crate) fn try_fold_keys<Acc, Fold>(&self, init: Acc, f: Fold) -> PyResult<Acc>
+    /// Fold stored hashes under the read lock; the callback must not run Python.
+    pub(crate) fn fold_hashes<Acc, Fold>(&self, init: Acc, f: Fold) -> Acc
     where
-        Fold: FnMut(Acc, &PyObject) -> PyResult<Acc>,
+        Fold: FnMut(Acc, HashValue) -> Acc,
     {
         self.read()
             .entries
             .iter()
-            .filter_map(|v| v.as_ref().map(|v| v.key.as_object()))
-            .try_fold(init, f)
+            .filter_map(|v| v.as_ref().map(|v| v.hash))
+            .fold(init, f)
     }
 
     /// Lookup the index for the given key.
