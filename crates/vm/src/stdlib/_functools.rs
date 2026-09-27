@@ -645,7 +645,7 @@ mod _functools {
                         || Wtf8Buf::from(zelf.class().name().to_owned()),
                         |s| s.as_wtf8().to_owned(),
                     );
-                let module = zelf.class().__module__(vm);
+                let module = zelf.class().__module__(vm)?;
 
                 let mut result = Wtf8Buf::new();
                 if let Ok(module_str) = module.downcast::<crate::builtins::PyStr>() {

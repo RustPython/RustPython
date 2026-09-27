@@ -534,6 +534,15 @@ impl ExceptionItemMeta {
     pub(crate) fn has_impl(&self) -> Result<bool> {
         self.inner()._bool("impl")
     }
+
+    /// `module = "..."` when present. Omitted means a builtin exception.
+    pub(crate) fn optional_module(&self) -> Result<Option<String>> {
+        if self.inner().meta_map.contains_key("module") {
+            self.module()
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 impl core::ops::Deref for ExceptionItemMeta {

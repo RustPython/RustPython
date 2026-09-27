@@ -211,7 +211,7 @@ mod _pyexpat {
 
     #[pyattr]
     #[pyattr(name = "XMLParserType")]
-    #[pyclass(name = "xmlparser", module = false, traverse)]
+    #[pyclass(name = "xmlparser", traverse)]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyExpatLikeXmlParser {
         #[pytraverse(skip)]
@@ -1460,7 +1460,7 @@ mod _pyexpat {
     // TODO: Tie this exception to the module's state.
     #[pyattr]
     #[pyattr(name = "error")]
-    #[pyexception(name = "ExpatError", base = PyException)]
+    #[pyexception(name = "ExpatError", module = "xml.parsers.expat", base = PyException)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(super) struct PyExpatError(PyException);

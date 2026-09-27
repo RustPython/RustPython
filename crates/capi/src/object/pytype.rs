@@ -59,7 +59,7 @@ pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *mut PyTypeObject) ->
     with_vm(|vm| {
         let ty = unsafe { ptr.assume_borrowed() };
         let qualname = ty.__qualname__(vm).try_downcast::<PyStr>(vm)?;
-        let module = ty.__module__(vm);
+        let module = ty.__module__(vm)?;
 
         if let Some(module) = module.downcast_ref::<PyStr>()
             && module.as_wtf8() != "builtins"

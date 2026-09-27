@@ -740,13 +740,16 @@ fn member_get_one(
 ) -> PyResult {
     let value = match member.kind {
         MemberKind::Object => obj.get_slot(offset).unwrap_or_else(|| vm.ctx.none()),
-        MemberKind::ObjectEx => obj.get_slot(offset).ok_or_else(|| {
-            vm.new_attribute_error(format!(
-                "'{}' object has no attribute '{}'",
-                obj.class().fully_qualified_name(vm),
-                member.name
-            ))
-        })?,
+        MemberKind::ObjectEx => match obj.get_slot(offset) {
+            Some(value) => value,
+            None => {
+                return Err(vm.new_attribute_error(format!(
+                    "'{}' object has no attribute '{}'",
+                    obj.class().fully_qualified_name(vm)?,
+                    member.name
+                )));
+            }
+        },
         MemberKind::Bool => {
             // SAFETY: a bool member addresses an `AtomicBool` or a `bool`
             // (one byte, naturally aligned). The macro rejects any other field

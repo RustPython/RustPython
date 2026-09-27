@@ -16,7 +16,7 @@ pub(crate) mod _ast {
         warn,
     };
     #[pyattr]
-    #[pyclass(module = "_ast", name = "AST")]
+    #[pyclass(module = "ast", name = "AST")]
     #[derive(Debug, PyPayload)]
     pub(crate) struct NodeAst;
 

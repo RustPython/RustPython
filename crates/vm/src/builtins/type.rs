@@ -15,7 +15,6 @@ use crate::{
     },
     class::{PyClassDef, PyClassImpl, StaticType},
     common::{
-        ascii,
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
@@ -1586,17 +1585,19 @@ impl PyType {
 
     /// The type's fully qualified name, the way the `%T` format code prints it:
     /// `module.qualname`, with a `builtins` or `__main__` module left off.
-    pub fn fully_qualified_name(&self, vm: &VirtualMachine) -> String {
+    pub fn fully_qualified_name(&self, vm: &VirtualMachine) -> PyResult<String> {
         let qualname = self.__qualname__(vm);
         let qualname = qualname
             .downcast_ref::<PyStr>()
             .and_then(|qualname| qualname.to_str())
             .map_or_else(|| self.name().to_string(), str::to_owned);
-        let module = self.__module__(vm);
-        match module.downcast_ref::<PyStr>().and_then(|m| m.to_str()) {
-            Some("builtins" | "__main__") | None => qualname,
-            Some(module) => format!("{module}.{qualname}"),
-        }
+        let module = self.__module__(vm)?;
+        Ok(
+            match module.downcast_ref::<PyStr>().and_then(|m| m.to_str()) {
+                Some("builtins" | "__main__") | None => qualname,
+                Some(module) => format!("{module}.{qualname}"),
+            },
+        )
     }
 
     pub fn name(&self) -> BorrowedValue<'_, str> {
@@ -2243,20 +2244,22 @@ impl PyType {
     }
 
     #[pygetset]
-    pub fn __module__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.attributes
-            .get(identifier!(vm, __module__))
-            // We need to exclude this method from going into recursion:
-            .filter(|found| !found.fast_isinstance(vm.ctx.types.getset_type))
-            .unwrap_or_else(|| {
-                // For non-heap types, extract module from tp_name (e.g. "typing.TypeAliasType" -> "typing")
-                let slot_name = self.slot_name();
-                if let Some((module, _)) = slot_name.rsplit_once('.') {
-                    vm.ctx.intern_str(module).to_object()
-                } else {
-                    vm.ctx.new_str(ascii!("builtins")).into()
-                }
-            })
+    pub fn __module__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        // Heap types store the module in the type dict. Static types take the
+        // text before the last `.` of the type name, or `builtins`.
+        if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return self
+                .attributes
+                .get(identifier!(vm, __module__))
+                .ok_or_else(|| vm.new_attribute_error("__module__"));
+        }
+        let slot_name = self.slot_name();
+        let module = if let Some((module, _)) = slot_name.rsplit_once('.') {
+            vm.ctx.intern_str(module)
+        } else {
+            vm.ctx.intern_str("builtins")
+        };
+        Ok(module.to_object())
     }
 
     #[pygetset(setter)]
@@ -2555,10 +2558,10 @@ impl Constructor for PyType {
 
         if let Some(globals) = crate::frame::current_globals() {
             let entry = attributes.entry(identifier!(vm, __module__));
-            if matches!(entry, Entry::Vacant(_)) {
-                let module_name =
-                    vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
-                entry.or_insert(module_name);
+            if let Entry::Vacant(entry) = entry
+                && let Some(module_name) = globals.get_item_opt(identifier!(vm, __name__), vm)?
+            {
+                entry.insert(module_name);
             }
         }
 
@@ -3301,8 +3304,12 @@ impl AsNumber for PyType {
 impl Representable for PyType {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let module = zelf.__module__(vm);
-        let module = module.downcast_ref::<PyStr>().map(|m| m.as_wtf8());
+        // A missing `__module__` is not an error here.
+        let module = zelf.__module__(vm).ok();
+        let module = module
+            .as_ref()
+            .and_then(|m| m.downcast_ref::<PyStr>())
+            .map(|m| m.as_wtf8());
 
         let repr = match module {
             Some(module) if module != "builtins" => {

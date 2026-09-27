@@ -914,8 +914,13 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
         None => quote! {},
     };
 
+    let module_attr = match class_meta.optional_module()? {
+        Some(module) => quote! { module = #module, },
+        None => quote! { module = false, },
+    };
+
     let ret = quote! {
-        #[pyclass(module = false, name = #class_name, base = #base_class_name #traverse_attr #payload_attr)]
+        #[pyclass(#module_attr name = #class_name, base = #base_class_name #traverse_attr #payload_attr)]
         #item
         #impl_pyclass
     };

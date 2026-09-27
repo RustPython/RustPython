@@ -1187,7 +1187,7 @@ pub mod sys {
         );
 
         // Print module name (if not builtins or __main__)
-        let module_name = unraisable.exc_type.__module__(vm);
+        let module_name = unraisable.exc_type.__module__(vm)?;
         if let Ok(module_str) = module_name.downcast::<PyStr>() {
             let module = module_str.as_wtf8();
             if module != "builtins" && module != "__main__" {

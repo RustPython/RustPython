@@ -343,14 +343,16 @@ impl PyBaseObject {
     #[pyslot]
     fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let class = zelf.class();
+        // A missing `__module__` is not an error here.
+        let module = class.__module__(vm).ok();
         match (
             class
                 .__qualname__(vm)
                 .downcast_ref::<PyStr>()
                 .map(|n| n.as_wtf8()),
-            class
-                .__module__(vm)
-                .downcast_ref::<PyStr>()
+            module
+                .as_ref()
+                .and_then(|m| m.downcast_ref::<PyStr>())
                 .map(|m| m.as_wtf8()),
         ) {
             (None, _) => Err(vm.new_type_error("Unknown qualified name")),
