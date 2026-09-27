@@ -11,8 +11,8 @@ mod _collections {
         VirtualMachine, atomic_func,
         builtins::{
             IterStatus::{Active, Exhausted},
-            PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyStr, PyTuple, PyType, PyTypeRef,
-            locked_step,
+            PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyList, PyStr, PyTuple, PyType,
+            PyTypeRef, locked_step,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
@@ -90,8 +90,43 @@ mod _collections {
             self.deque.write()
         }
 
-        fn is_over_maxlen(&self, deque: &VecDeque<PyObjectRef>) -> bool {
-            self.maxlen.is_some_and(|maxlen| deque.len() > maxlen)
+        fn append_item(&self, item: PyObjectRef, left: bool, maxlen: Option<usize>) {
+            let removed = {
+                let mut deque = self.borrow_deque_mut();
+                if left {
+                    deque.push_front(item);
+                } else {
+                    deque.push_back(item);
+                }
+                self.state.fetch_add(1);
+                // Trim after pushing, so that a `maxlen` of zero drops what just
+                // arrived instead of popping from an empty deque and keeping it.
+                if maxlen.is_some_and(|maxlen| deque.len() > maxlen) {
+                    if left {
+                        deque.pop_back()
+                    } else {
+                        deque.pop_front()
+                    }
+                } else {
+                    None
+                }
+            };
+            drop(removed);
+        }
+
+        fn extend_items(
+            &self,
+            items: impl Iterator<Item = PyResult>,
+            left: bool,
+            maxlen: Option<usize>,
+        ) -> PyResult<()> {
+            for item in items {
+                let item = item?;
+                if maxlen != Some(0) {
+                    self.append_item(item, left, maxlen);
+                }
+            }
+            Ok(())
         }
     }
 
@@ -110,24 +145,12 @@ mod _collections {
     impl PyDeque {
         #[pymethod]
         fn append(&self, item: PyObjectRef) {
-            self.state.fetch_add(1);
-            let mut deque = self.borrow_deque_mut();
-            deque.push_back(item);
-            // Trim after pushing, so that a `maxlen` of zero drops what just
-            // arrived instead of popping from an empty deque and keeping it.
-            if self.is_over_maxlen(&deque) {
-                deque.pop_front();
-            }
+            self.append_item(item, false, self.maxlen);
         }
 
         #[pymethod]
         fn appendleft(&self, item: PyObjectRef) {
-            self.state.fetch_add(1);
-            let mut deque = self.borrow_deque_mut();
-            deque.push_front(item);
-            if self.is_over_maxlen(&deque) {
-                deque.pop_back();
-            }
+            self.append_item(item, true, self.maxlen);
         }
 
         #[pymethod]
@@ -160,54 +183,66 @@ mod _collections {
 
         #[pymethod]
         fn extend(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self._extend(&iterable, vm)
+            self._extend(&iterable, false, vm)
         }
 
-        fn _extend(&self, iter: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            self.state.fetch_add(1);
-            let max_len = self.maxlen;
-            let mut elements: Vec<PyObjectRef> = iter.try_to_value(vm)?;
-            if let Some(max_len) = max_len {
-                if max_len > elements.len() {
-                    let mut deque = self.borrow_deque_mut();
-                    let drain_until = deque.len().saturating_sub(max_len - elements.len());
-                    deque.drain(..drain_until);
-                } else {
-                    self.borrow_deque_mut().clear();
-                    elements.drain(..(elements.len() - max_len));
-                }
+        fn _extend(&self, iterable: &PyObject, left: bool, vm: &VirtualMachine) -> PyResult<()> {
+            if iterable
+                .downcast_ref::<Self>()
+                .is_some_and(|other| core::ptr::eq(self, &**other))
+            {
+                // Snapshot self-extension through the iterator protocol so
+                // subclass overrides of __iter__ are still respected.
+                let elements: Vec<PyObjectRef> = iterable.try_to_value(vm)?;
+                // Retain the snapshot until extension finishes, as a temporary list does.
+                return self.extend_items(elements.iter().cloned().map(Ok), left, self.maxlen);
             }
-            self.borrow_deque_mut().extend(elements);
-            Ok(())
+
+            let maxlen = self.maxlen;
+            let class = iterable.class();
+            if maxlen.is_none()
+                && (class.is(vm.ctx.types.list_type) || class.is(vm.ctx.types.tuple_type))
+            {
+                // Exact containers cannot run Python while being copied, and
+                // an unbounded deque cannot evict items. Fill under one lock.
+                let elements: Vec<PyObjectRef> = iterable.try_to_value(vm)?;
+                let count = elements.len();
+                if count != 0 {
+                    let mut deque = self.borrow_deque_mut();
+                    deque.reserve(count);
+                    self.state.fetch_add(count);
+                    if left {
+                        for item in elements {
+                            deque.push_front(item);
+                        }
+                    } else {
+                        deque.extend(elements);
+                    }
+                }
+                return Ok(());
+            }
+
+            if class.is(vm.ctx.types.tuple_type) {
+                let tuple = iterable.downcast_ref::<PyTuple>().unwrap();
+                self.extend_items(tuple.as_slice().iter().cloned().map(Ok), left, maxlen)
+            } else if class.is(vm.ctx.types.list_type) {
+                let list = iterable.downcast_ref::<PyList>().unwrap();
+                let mut index = 0;
+                let items = core::iter::from_fn(|| {
+                    // Evicted elements can mutate the source list in __del__.
+                    let item = list.borrow_vec().get(index).cloned();
+                    index += 1;
+                    item.map(Ok)
+                });
+                self.extend_items(items, left, maxlen)
+            } else {
+                self.extend_items(iterable.get_iter(vm)?.into_iter(vm), left, maxlen)
+            }
         }
 
         #[pymethod]
         fn extendleft(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let max_len = self.maxlen;
-            let mut elements: Vec<PyObjectRef> = iterable.try_to_value(vm)?;
-            elements.reverse();
-            if let Some(max_len) = max_len {
-                elements.truncate(max_len);
-            }
-            if elements.is_empty() {
-                return Ok(());
-            }
-            let mut created = VecDeque::from(elements);
-            let discarded = {
-                let mut deque = self.borrow_deque_mut();
-                let discarded = if let Some(max_len) = max_len {
-                    let retained = (max_len - created.len()).min(deque.len());
-                    deque.split_off(retained)
-                } else {
-                    VecDeque::new()
-                };
-                created.append(&mut deque);
-                core::mem::swap(&mut created, &mut deque);
-                self.state.fetch_add(1);
-                discarded
-            };
-            drop(discarded);
-            Ok(())
+            self._extend(&iterable, true, vm)
         }
 
         #[pymethod]
@@ -557,27 +592,7 @@ mod _collections {
             let Some(iterable) = iterable.into_option() else {
                 return Ok(());
             };
-            let maxlen = zelf.maxlen;
-            let mut elements: Vec<PyObjectRef> = iterable.try_to_value(vm)?;
-            if let Some(maxlen) = maxlen {
-                elements.drain(..elements.len().saturating_sub(maxlen));
-            }
-            if elements.is_empty() {
-                return Ok(());
-            }
-            let discarded = {
-                let mut deque = zelf.borrow_deque_mut();
-                let discard_until = maxlen.map_or(0, |maxlen| {
-                    deque.len().saturating_sub(maxlen - elements.len())
-                });
-                let discarded: Vec<_> = deque.drain(..discard_until).collect();
-                deque.extend(elements);
-                zelf.state.fetch_add(1);
-                discarded
-            };
-            drop(discarded);
-
-            Ok(())
+            zelf._extend(&iterable, false, vm)
         }
     }
 
@@ -626,7 +641,7 @@ mod _collections {
 
                 inplace_concat: atomic_func!(|seq, other, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
-                    zelf._extend(other, vm)?;
+                    zelf._extend(other, false, vm)?;
                     Ok(zelf.to_owned().into())
                 }),
 
