@@ -17,6 +17,7 @@ use crate::{
         SetattroFunc, StringifyFunc,
     },
 };
+use core::mem::{align_of, size_of};
 use rustpython_common::lock::PyRwLock;
 
 #[derive(Debug)]
@@ -405,6 +406,13 @@ impl<T> MemberLayout for Option<PyRef<T>> {
 impl MemberLayout for crate::object::PyAtomicRef<PyObject> {
     const KIND: MemberKind = MemberKind::Object;
 }
+// `PyAtomicRef<T>` is the same pointer-sized cell as `PyAtomicRef<PyObject>`
+// (`PhantomData<T>` is zero-sized). Readonly object members may use it. The
+// getter loads the slot as an object pointer. Writable cells stay
+// `PyAtomicRef<PyObject>` or `PyAtomicRef<Option<PyObject>>` (`MemberCell`).
+impl<T: PyPayload> MemberLayout for crate::object::PyAtomicRef<T> {
+    const KIND: MemberKind = MemberKind::Object;
+}
 impl MemberLayout for crate::object::PyAtomicRef<Option<PyObject>> {
     const KIND: MemberKind = MemberKind::Object;
 }
@@ -435,6 +443,34 @@ impl MemberLayout for core::sync::atomic::AtomicIsize {
     const KIND: MemberKind = MemberKind::PySsizeT;
 }
 impl MemberCell for core::sync::atomic::AtomicIsize {}
+
+// `usize` and `isize` are the same width. A readonly `Py_ssize_t` member may
+// be a `usize` that is not written after publication and whose value fits in
+// `isize` (the getter reads the bits as `isize`).
+const _: () =
+    assert!(size_of::<usize>() == size_of::<isize>() && align_of::<usize>() == align_of::<isize>());
+impl MemberLayout for usize {
+    const KIND: MemberKind = MemberKind::PySsizeT;
+}
+
+// Readonly `co_filename`. The field is `AtomicPtr<PyStrInterned>`: the pointer
+// is never null, and `PyStrInterned` is `repr(transparent)` over `Py<PyStr>`,
+// so the word is an object pointer. `member_get_one` reads an Object member
+// through `PyAtomicRef<Option<PyObject>>` (`get_slot`). That cell is
+// `AtomicPtr<u8>` when `threading` is on and `Cell<*mut u8>` otherwise; both
+// are one pointer, and `AtomicPtr<PyStrInterned>` is one pointer in either
+// build (`Atomic<*mut T>` stores `Align8<*mut T>`, same size and alignment as
+// the pointer). The load copies that word and increfs. Interned strings live
+// for the process, and the slot does not own the reference.
+const _: () = assert!(
+    size_of::<core::sync::atomic::AtomicPtr<PyStrInterned>>()
+        == size_of::<crate::object::PyAtomicRef<Option<PyObject>>>()
+        && align_of::<core::sync::atomic::AtomicPtr<PyStrInterned>>()
+            == align_of::<crate::object::PyAtomicRef<Option<PyObject>>>()
+);
+impl MemberLayout for core::sync::atomic::AtomicPtr<PyStrInterned> {
+    const KIND: MemberKind = MemberKind::Object;
+}
 
 /// Where `PyMemberDef.offset` points.
 ///

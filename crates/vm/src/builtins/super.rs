@@ -9,32 +9,51 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::function::PyCell,
     class::PyClassImpl,
-    common::lock::PyRwLock,
     function::{FuncArgs, IntoFuncArgs, OptionalArg},
+    object::PyAtomicRef,
     types::{Callable, Constructor, GetAttr, GetDescriptor, Initializer, Representable},
 };
 
 #[pyclass(module = false, name = "super", traverse)]
 #[derive(Debug)]
 pub struct PySuper {
-    inner: PyRwLock<PySuperInner>,
+    #[pymember(name = "__thisclass__")]
+    typ: PyAtomicRef<PyType>,
+    #[pymember(name = "__self__")]
+    obj: PyAtomicRef<Option<PyObject>>,
+    #[pymember(name = "__self_class__")]
+    obj_type: PyAtomicRef<Option<PyType>>,
 }
 
-#[derive(Debug, Traverse)]
-struct PySuperInner {
+fn bind_super(
     typ: PyTypeRef,
-    obj: Option<(PyObjectRef, PyTypeRef)>,
+    obj: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<(PyTypeRef, Option<PyObjectRef>, Option<PyTypeRef>)> {
+    if vm.is_none(&obj) {
+        return Ok((typ, None, None));
+    }
+    let obj_type = super_check(&typ, &obj, vm)?;
+    Ok((typ, Some(obj), Some(obj_type)))
 }
 
-impl PySuperInner {
-    fn new(typ: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let obj = if vm.is_none(&obj) {
-            None
-        } else {
-            let obj_type = super_check(&typ, &obj, vm)?;
-            Some((obj, obj_type))
-        };
-        Ok(Self { typ, obj })
+impl PySuper {
+    fn new_bound(typ: PyTypeRef, obj: Option<PyObjectRef>, obj_type: Option<PyTypeRef>) -> Self {
+        Self {
+            typ: PyAtomicRef::from(typ),
+            obj: PyAtomicRef::from(obj),
+            obj_type: PyAtomicRef::from(obj_type),
+        }
+    }
+
+    fn store_bound(&self, typ: PyTypeRef, obj: Option<PyObjectRef>, obj_type: Option<PyTypeRef>) {
+        drop(self.obj.store(obj));
+        drop(self.obj_type.store(obj_type));
+        drop(self.typ.store(typ));
+    }
+
+    fn thisclass(&self) -> PyTypeRef {
+        self.typ.load_owned()
     }
 }
 
@@ -49,13 +68,12 @@ impl Constructor for PySuper {
     type Args = FuncArgs;
 
     fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(Self {
-            inner: PyRwLock::new(PySuperInner::new(
-                vm.ctx.types.object_type.to_owned(), // is this correct?
-                vm.ctx.none(),
-                vm,
-            )?),
-        })
+        let (typ, obj, obj_type) = bind_super(
+            vm.ctx.types.object_type.to_owned(), // is this correct?
+            vm.ctx.none(),
+            vm,
+        )?;
+        Ok(Self::new_bound(typ, obj, obj_type))
     }
 }
 
@@ -146,8 +164,8 @@ impl Initializer for PySuper {
             (typ, obj)
         };
 
-        let inner = PySuperInner::new(typ, obj, vm)?;
-        *zelf.inner.write() = inner;
+        let (typ, obj, obj_type) = bind_super(typ, obj, vm)?;
+        zelf.store_bound(typ, obj, obj_type);
 
         Ok(())
     }
@@ -157,29 +175,16 @@ impl Initializer for PySuper {
     with(GetAttr, GetDescriptor, Constructor, Initializer, Representable),
     flags(BASETYPE)
 )]
-impl PySuper {
-    #[pygetset]
-    fn __thisclass__(&self) -> PyTypeRef {
-        self.inner.read().typ.clone()
-    }
-
-    #[pygetset]
-    fn __self_class__(&self) -> Option<PyTypeRef> {
-        Some(self.inner.read().obj.as_ref()?.1.clone())
-    }
-
-    #[pygetset]
-    fn __self__(&self) -> Option<PyObjectRef> {
-        Some(self.inner.read().obj.as_ref()?.0.clone())
-    }
-}
+impl PySuper {}
 
 impl GetAttr for PySuper {
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         let skip = |zelf: &Py<Self>, name| zelf.as_object().generic_getattr(name, vm);
-        let (obj, start_type): (PyObjectRef, PyTypeRef) = match &zelf.inner.read().obj {
-            Some(o) => o.clone(),
-            None => return skip(zelf, name),
+        let Some(obj) = zelf.obj.load_owned() else {
+            return skip(zelf, name);
+        };
+        let Some(start_type) = zelf.obj_type.load_owned() else {
+            return skip(zelf, name);
         };
 
         // We want __class__ to return the class of the super object
@@ -195,7 +200,7 @@ impl GetAttr for PySuper {
             // Both locks are dropped before any arbitrary Python code
             // (the descriptor call below) runs, so they can't be held
             // across a call that might re-enter and want them again.
-            let su_type = zelf.inner.read().typ.clone();
+            let su_type = zelf.thisclass();
             let descr = {
                 let mro = start_type.mro.read();
                 mro.iter()
@@ -230,19 +235,15 @@ impl GetDescriptor for PySuper {
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf_obj, obj, vm)?;
-        if vm.is_none(obj) || zelf.inner.read().obj.is_some() {
+        if vm.is_none(obj) || zelf.obj.deref().is_some() {
             return Ok(zelf_obj.to_owned());
         }
         let zelf_class = zelf.as_object().class();
+        let typ = zelf.thisclass();
         if zelf_class.is(vm.ctx.types.super_type) {
-            let typ = zelf.inner.read().typ.clone();
-            Ok(Self {
-                inner: PyRwLock::new(PySuperInner::new(typ, obj.to_owned(), vm)?),
-            }
-            .into_ref(&vm.ctx)
-            .into())
+            let (typ, obj, obj_type) = bind_super(typ, obj.to_owned(), vm)?;
+            Ok(Self::new_bound(typ, obj, obj_type).into_ref(&vm.ctx).into())
         } else {
-            let typ = zelf.inner.read().typ.clone();
             PyType::call(zelf.class(), (typ, obj.to_owned()).into_args(vm), vm)
         }
     }
@@ -251,12 +252,9 @@ impl GetDescriptor for PySuper {
 impl Representable for PySuper {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        let type_name = zelf.inner.read().typ.name().to_owned();
-        let obj = zelf.inner.read().obj.clone();
-        let repr = match obj {
-            Some((_, ref ty)) => {
-                format!("<super: <class '{}'>, <{} object>>", type_name, ty.name())
-            }
+        let type_name = zelf.thisclass().name().to_owned();
+        let repr = match zelf.obj_type.load_owned() {
+            Some(ty) => format!("<super: <class '{}'>, <{} object>>", type_name, ty.name()),
             None => format!("<super: <class '{type_name}'>, NULL>"),
         };
         Ok(repr)

@@ -252,6 +252,7 @@ const _: () = assert!(
             == core::mem::align_of::<PyAtomicRef<()>>()
         && core::mem::offset_of!(PyAtomicRef<Option<PyObject>>, inner)
             == core::mem::offset_of!(PyAtomicRef<()>, inner)
+        && core::mem::offset_of!(PyAtomicRef<Option<PyObject>>, inner) == 0
 );
 
 impl<T> Drop for PyAtomicRef<T> {
@@ -367,6 +368,32 @@ impl<T: PyPayload> PyAtomicRef<T> {
             frame.iframe().cold().temporary_refs.lock().push(old.into());
         }
     }
+
+    /// Strong reference to the current value.
+    ///
+    /// The cell is never null. A concurrent store may drop the previous value;
+    /// the incref is retried until it applies to the pointer still in the slot.
+    /// A null load is retried rather than forged.
+    pub(crate) fn load_owned(&self) -> PyRef<T> {
+        loop {
+            if let Some(obj) = cell_load_owned(&self.inner) {
+                // SAFETY: this cell is only stored with `PyRef<T>`.
+                return unsafe { obj.downcast_unchecked() };
+            }
+            core::hint::spin_loop();
+        }
+    }
+
+    /// Replace the stored reference. Returns the previous one, still owned.
+    ///
+    /// `None` only if the cell was empty. Callers that publish through
+    /// `From<PyRef<T>>` and `store` keep a `T` in the slot.
+    pub(crate) fn store(&self, value: PyRef<T>) -> Option<PyRef<T>> {
+        cell_store(&self.inner, Some(value.into())).map(|obj| {
+            // SAFETY: this cell is only stored with `PyRef<T>`.
+            unsafe { obj.downcast_unchecked() }
+        })
+    }
 }
 
 impl<T: PyPayload> From<Option<PyRef<T>>> for PyAtomicRef<Option<T>> {
@@ -457,13 +484,6 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
             // SAFETY: a typed cell only stores references of payload `T`.
             unsafe { obj.downcast_unchecked() }
         })
-    }
-}
-
-fn empty_cell<T>() -> PyAtomicRef<T> {
-    PyAtomicRef {
-        inner: Radium::new(null_mut()),
-        _phantom: PhantomData,
     }
 }
 
@@ -629,8 +649,20 @@ impl From<Option<PyObjectRef>> for PyAtomicRef<Option<PyObject>> {
 
 impl PyAtomicRef<Option<PyObject>> {
     /// Empty slot. The pointer is null and owns no reference.
-    pub(crate) fn new_empty() -> Self {
-        empty_cell()
+    pub(crate) const fn new_empty() -> Self {
+        Self {
+            inner: {
+                #[cfg(feature = "threading")]
+                {
+                    core::sync::atomic::AtomicPtr::new(null_mut())
+                }
+                #[cfg(not(feature = "threading"))]
+                {
+                    core::cell::Cell::new(null_mut())
+                }
+            },
+            _phantom: PhantomData,
+        }
     }
 
     /// Borrowed pointer currently stored. Null when the slot is empty.

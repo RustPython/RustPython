@@ -657,7 +657,7 @@ pub(crate) fn unraisable_while_closing(
     if e.traceback().is_none()
         && let Some(frame) = coro.frame_opt()
     {
-        let lasti = frame.lasti().saturating_mul(2);
+        let lasti = frame.lasti().saturating_mul(2) as i32;
         let lineno = rustpython_compiler_core::OneIndexed::new(frame.lineno().max(1) as usize)
             .unwrap_or(rustpython_compiler_core::OneIndexed::MIN);
         let tb = PyTraceback::new(None, frame, lasti, lineno);

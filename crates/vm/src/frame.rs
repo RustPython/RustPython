@@ -2689,7 +2689,7 @@ pub(crate) fn trampoline_handle_exception(
     // Add traceback entry at the call site.
     if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {
         let next = exception.traceback();
-        let new_traceback = PyTraceback::new(next, exec.frame_object(vm), idx as u32 * 2, loc.line);
+        let new_traceback = PyTraceback::new(next, exec.frame_object(vm), idx as i32 * 2, loc.line);
         exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
     }
 
@@ -3608,7 +3608,7 @@ impl ExecutingFrame<'_> {
                                 let new_traceback = PyTraceback::new(
                                     next,
                                     self.frame_object(vm),
-                                    idx as u32 * 2,
+                                    idx as i32 * 2,
                                     loc.line,
                                 );
                                 exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
@@ -3717,7 +3717,7 @@ impl ExecutingFrame<'_> {
                         let new_traceback = PyTraceback::new(
                             next,
                             frame.frame_object(vm),
-                            idx as u32 * 2,
+                            idx as i32 * 2,
                             loc.line,
                         );
                         exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
@@ -3808,7 +3808,7 @@ impl ExecutingFrame<'_> {
                                 let new_traceback = PyTraceback::new(
                                     next,
                                     frame.frame_object(vm),
-                                    idx as u32 * 2,
+                                    idx as i32 * 2,
                                     loc.line,
                                 );
                                 vm_trace!(
@@ -4017,7 +4017,7 @@ impl ExecutingFrame<'_> {
                         let (loc, _end_loc) = self.code.locations[idx];
                         let next = err.traceback();
                         let new_traceback =
-                            PyTraceback::new(next, self.frame_object(vm), idx as u32 * 2, loc.line);
+                            PyTraceback::new(next, self.frame_object(vm), idx as i32 * 2, loc.line);
                         err.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                     }
 
@@ -4077,7 +4077,7 @@ impl ExecutingFrame<'_> {
                             let new_traceback = PyTraceback::new(
                                 next,
                                 self.frame_object(vm),
-                                idx as u32 * 2,
+                                idx as i32 * 2,
                                 loc.line,
                             );
                             err.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
@@ -4124,7 +4124,7 @@ impl ExecutingFrame<'_> {
             let (loc, _end_loc) = self.code.locations[idx];
             let next = exception.traceback();
             let new_traceback =
-                PyTraceback::new(next, self.frame_object(vm), idx as u32 * 2, loc.line);
+                PyTraceback::new(next, self.frame_object(vm), idx as i32 * 2, loc.line);
             exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
         }
 

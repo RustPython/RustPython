@@ -10,9 +10,11 @@ use rustpython_compiler_core::OneIndexed;
 #[derive(Debug)]
 pub struct PyTraceback {
     pub next: PyMutex<Option<PyTracebackRef>>,
+    #[pymember(name = "tb_frame", audit_read)]
     pub frame: FrameObjectRef,
+    #[pymember(name = "tb_lasti")]
     #[pytraverse(skip)]
-    pub lasti: u32,
+    pub lasti: i32,
     #[pytraverse(skip)]
     pub lineno: OneIndexed,
 }
@@ -32,7 +34,7 @@ impl PyTraceback {
     pub const fn new(
         next: Option<PyRef<Self>>,
         frame: FrameObjectRef,
-        lasti: u32,
+        lasti: i32,
         lineno: OneIndexed,
     ) -> Self {
         Self {
@@ -41,16 +43,6 @@ impl PyTraceback {
             lasti,
             lineno,
         }
-    }
-
-    #[pygetset]
-    fn tb_frame(&self) -> FrameObjectRef {
-        self.frame.clone()
-    }
-
-    #[pygetset]
-    const fn tb_lasti(&self) -> u32 {
-        self.lasti
     }
 
     #[pygetset]
@@ -104,7 +96,7 @@ impl PyTraceback {
 }
 
 impl Constructor for PyTraceback {
-    type Args = (Option<PyRef<Self>>, FrameObjectRef, u32, usize);
+    type Args = (Option<PyRef<Self>>, FrameObjectRef, i32, usize);
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let (next, frame, lasti, lineno) = args;

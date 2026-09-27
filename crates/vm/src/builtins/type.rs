@@ -55,6 +55,7 @@ pub struct PyType {
     pub mro: PyRwLock<Vec<PyTypeRef>>,
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: TypeNamespace,
+    #[pymember(name = "__itemsize__", path = "itemsize")]
     pub slots: PyTypeSlots,
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
     /// Type version tag for inline caching. 0 means unassigned/invalidated.
@@ -1974,11 +1975,6 @@ impl PyType {
     #[pygetset]
     fn __basicsize__(&self) -> usize {
         crate::object::SIZEOF_PYOBJECT_HEAD + self.slots.basicsize
-    }
-
-    #[pygetset]
-    fn __itemsize__(&self) -> usize {
-        self.slots.itemsize
     }
 
     #[pygetset]
