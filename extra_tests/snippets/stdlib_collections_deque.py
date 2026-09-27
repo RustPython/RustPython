@@ -414,3 +414,128 @@ test_deque_bulk_mutation_invalidates_iterators()
 test_deque_bulk_noops_preserve_iterators()
 test_deque_bulk_mutation_releases_lock_before_finalizing()
 test_deque_reinitialization_order_and_limit()
+
+
+def test_deque_streaming_preserves_prefix_on_error():
+    for method in ("extend", "extendleft", "__iadd__", "__init__"):
+        d = deque([10], maxlen=2)
+        seen = []
+
+        def source():
+            yield 1
+            seen.append(list(d))
+            yield 2
+            raise ValueError("source failed")
+
+        if method == "__init__":
+            assert_raises(ValueError, d.__init__, source(), 2)
+            expected_seen = [1]
+        else:
+            assert_raises(ValueError, getattr(d, method), source())
+            expected_seen = [1, 10] if method == "extendleft" else [10, 1]
+        assert seen == [expected_seen], (method, seen)
+        assert list(d) == ([2, 1] if method == "extendleft" else [1, 2])
+
+
+def test_deque_streaming_keeps_only_bounded_items():
+    for operation in ("constructor", "extend", "extendleft"):
+        for maxlen in (0, 3):
+
+            class Item:
+                live = 0
+                peak = 0
+
+                def __init__(self):
+                    Item.live += 1
+                    Item.peak = max(Item.peak, Item.live)
+
+                def __del__(self):
+                    Item.live -= 1
+
+            source = (Item() for _ in range(20))
+            if operation == "constructor":
+                d = deque(source, maxlen=maxlen)
+            else:
+                d = deque(maxlen=maxlen)
+                getattr(d, operation)(source)
+            assert Item.peak <= maxlen + 1, (operation, maxlen, Item.peak)
+            assert Item.live == maxlen, (operation, maxlen, Item.live)
+            del d
+            assert Item.live == 0
+
+
+def test_deque_self_extension_uses_subclass_iterator():
+    class CustomDeque(deque):
+        def __iter__(self):
+            return iter((7, 8))
+
+    for method in ("extend", "extendleft", "__iadd__"):
+        d = CustomDeque([1, 2])
+        getattr(d, method)(d)
+        expected = [8, 7, 1, 2] if method == "extendleft" else [1, 2, 7, 8]
+        assert list(deque.__iter__(d)) == expected, method
+
+    d = deque([1, 2])
+    assert_raises(RuntimeError, d.extend, iter(d))
+    assert list(d) == [1, 2, 1]
+
+
+def test_deque_extend_noops_preserve_iterators():
+    d = deque([1, 2])
+    iterator = iter(d)
+    d.extend(iter(()))
+    assert_raises(TypeError, d.extend, None)
+    assert list(iterator) == [1, 2]
+
+    d = deque(maxlen=0)
+    iterator = iter(d)
+    d.extend(iter((1, 2)))
+    assert list(iterator) == []
+
+
+def test_deque_self_extension_retains_snapshot_until_complete():
+    for method in ("extend", "extendleft"):
+        seen = []
+
+        class Item:
+            def __init__(self, value):
+                self.value = value
+
+            def __del__(self):
+                seen.append([item.value for item in deque.__iter__(d)])
+
+        class CustomDeque(deque):
+            def __iter__(self):
+                return (Item(value) for value in range(3))
+
+        d = CustomDeque(maxlen=1)
+        getattr(d, method)(d)
+        assert seen == [[2], [2]], (method, seen)
+        last = d[0]
+        d.clear()
+        del last
+
+
+def test_deque_eviction_can_mutate_source_list():
+    for method in ("extend", "extendleft"):
+        d = deque(maxlen=1)
+        source = [1, 2]
+        seen = []
+
+        class Item:
+            def __del__(self):
+                seen.append(list(d))
+                source[1:] = [3, 4]
+
+        d.append(Item())
+        getattr(d, method)(source)
+        assert seen == [[1]], (method, seen)
+        assert list(d) == [4], (method, d)
+
+
+test_deque_streaming_preserves_prefix_on_error()
+test_deque_streaming_keeps_only_bounded_items()
+test_deque_self_extension_uses_subclass_iterator()
+test_deque_extend_noops_preserve_iterators()
+test_deque_self_extension_retains_snapshot_until_complete()
+test_deque_eviction_can_mutate_source_list()
