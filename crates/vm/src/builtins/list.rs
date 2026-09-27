@@ -68,7 +68,7 @@ unsafe impl Traverse for PyList {
         self.elements.traverse(traverse_fn);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         // During GC, we use interior mutability to access elements.
         // This is safe because during GC collection, the object is unreachable
         // and no other code should be accessing it.

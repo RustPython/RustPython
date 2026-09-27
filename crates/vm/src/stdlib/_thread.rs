@@ -1169,7 +1169,7 @@ pub(crate) mod _thread {
             }
         }
 
-        fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<crate::PyObjectRef>) {
             out.append(&mut self.init_args.args);
             out.extend(self.init_args.kwargs.drain(..).map(|(_, value)| value));
             out.extend(self.dicts.drain().map(|(_, dict)| dict.into()));
@@ -1199,9 +1199,9 @@ pub(crate) mod _thread {
             self.inner.state.traverse(tracer_fn);
         }
 
-        fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<crate::PyObjectRef>) {
             if let Some(mut state) = self.inner.state.try_lock() {
-                state.clear(out);
+                state.clear_refs(out);
             }
         }
     }

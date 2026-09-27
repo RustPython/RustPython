@@ -202,7 +202,7 @@ pub(crate) mod _elementtree {
             inner.children.traverse(traverse_fn);
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
             // Only reached for an object the collector has already proven
             // unreachable, so grabbing the lock cannot race with user code.
             let Some(mut inner) = self.inner.try_write() else {
@@ -1331,7 +1331,7 @@ pub(crate) mod _elementtree {
             st.pi_event.traverse(traverse_fn);
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
             let Some(mut st) = self.state.try_write() else {
                 return;
             };
@@ -1880,7 +1880,7 @@ pub(crate) mod _elementtree {
             st.handle_doctype.traverse(traverse_fn);
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
             let Some(mut st) = self.state.try_write() else {
                 return;
             };

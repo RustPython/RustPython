@@ -537,7 +537,7 @@ mod _testinternalcapi {
             }
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
             #[allow(clippy::iter_over_hash_type)]
             for (_, pairs) in self.buckets.drain() {
                 for (k, v) in pairs {

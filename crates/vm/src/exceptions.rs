@@ -2224,7 +2224,7 @@ pub(super) mod types {
             self.0.0.traverse(tracer_fn);
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
             let base = &mut self.0.0;
             if let Some(traceback) = base.traceback.get_mut().take() {
                 out.push(traceback.into());

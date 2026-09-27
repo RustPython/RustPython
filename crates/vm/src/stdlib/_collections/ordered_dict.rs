@@ -162,8 +162,8 @@ pub(crate) mod ordered_dict {
             }
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-            Traverse::clear(&mut self.dict, out);
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
+            Traverse::clear_refs(&mut self.dict, out);
             let links = self.links.get_mut();
             for node in links.nodes.drain(..).flatten() {
                 out.push(node.key);
@@ -857,7 +857,7 @@ pub(crate) mod ordered_dict {
             }
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
             if let Some(key) = self.current.get_mut().take() {
                 out.push(key);
             }

@@ -1531,7 +1531,7 @@ pub struct FrameObject {
     #[pymember(name = "f_trace_lines", writable)]
     pub(crate) f_trace_lines: core::sync::atomic::AtomicBool,
     // Owned references — keep the pointed-to objects alive for InterpreterFrame's
-    // raw pointers. Wrapped in Option so Traverse::clear can release them,
+    // raw pointers. Wrapped in Option so Traverse::clear_refs can release them,
     // allowing GC cycle collection to reclaim referenced objects.
     pub(crate) owned_code: Option<PyRef<PyCode>>,
     pub(crate) owned_globals: Option<PyDictRef>,
@@ -1539,7 +1539,7 @@ pub struct FrameObject {
     pub(crate) owned_func_obj: Option<PyObjectRef>,
 
     /// Always `Some` while the frame is reachable from Python. Emptied only
-    /// by `Traverse::clear` during deallocation, leaving a trivially-droppable
+    /// by `Traverse::clear_refs` during deallocation, leaving a trivially-droppable
     /// husk that the freelist can cache.
     pub(crate) iframe: FrameUnsafeCell<Option<InterpreterFrame>>,
 }
@@ -1550,7 +1550,7 @@ impl FrameObject {
     /// # Safety
     /// Caller must ensure no concurrent mutable access (see `FrameUnsafeCell`)
     /// and that the frame has not been cleared (i.e. it is still reachable
-    /// from Python; `Traverse::clear` only runs during deallocation).
+    /// from Python; `Traverse::clear_refs` only runs during deallocation).
     #[inline(always)]
     pub(crate) unsafe fn iframe_ref(&self) -> &InterpreterFrame {
         let opt = unsafe { &*self.iframe.get() };
@@ -1682,7 +1682,7 @@ unsafe impl Traverse for FrameObject {
         }
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         // Extract every child before dropping the frame husk. GC drops `out`
         // after this exclusive payload borrow ends, so re-entrant finalizers
         // cannot alias frame storage or run under one of its locks.

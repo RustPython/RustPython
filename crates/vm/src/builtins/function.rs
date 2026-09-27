@@ -115,7 +115,7 @@ unsafe impl Traverse for PyFunction {
         self.doc.traverse(tracer_fn);
     }
 
-    fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<crate::PyObjectRef>) {
         // Pop closure if present (equivalent to Py_CLEAR(func_closure))
         if let Some(closure) = self.closure.take() {
             out.push(closure.into());
