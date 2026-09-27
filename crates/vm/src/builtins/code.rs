@@ -286,7 +286,7 @@ fn is_name_chars(value: &crate::common::wtf8::Wtf8) -> bool {
 /// real `Hashable` impl, notably matching across the numeric tower (`hash(1) == hash(1.0)`),
 /// since `1` and `1.0` must land in the same frozenset-constant bucket.
 fn const_hash(ctx: &Context, obj: &PyObject) -> crate::common::hash::PyHash {
-    use crate::builtins::{PyBool, PyBytes, PyComplex, PyFloat, PyInt, PyStr, PyTuple};
+    use crate::builtins::{PyBool, PyBytes, PyComplex, PyFloat, PyInt, PySlice, PyStr, PyTuple};
     use crate::common::hash;
 
     if let Some(b) = obj.downcast_ref::<PyBool>() {
@@ -310,6 +310,15 @@ fn const_hash(ctx: &Context, obj: &PyObject) -> crate::common::hash::PyHash {
         crate::vm::init_hash_secret(None).hash_bytes(s.as_bytes())
     } else if let Some(b) = obj.downcast_ref::<PyBytes>() {
         crate::vm::init_hash_secret(None).hash_bytes(b.as_bytes())
+    } else if let Some(slice) = obj.downcast_ref::<PySlice>() {
+        match slice.hash_with(ctx, |part| {
+            Ok::<_, core::convert::Infallible>(const_hash(ctx, part))
+        }) {
+            Ok(h) => h,
+            Err(never) => match never {},
+        }
+    } else if let Some(code) = obj.downcast_ref::<PyCode>() {
+        const_hash(ctx, code.hash_attributes(ctx).as_object())
     } else if let Some(t) = obj.downcast_ref::<PyTuple>() {
         let hashes = t
             .as_slice()
@@ -338,8 +347,8 @@ fn const_hash(ctx: &Context, obj: &PyObject) -> crate::common::hash::PyHash {
 /// Structural equality for compile-time constant objects, matching Python equality - including
 /// numeric-tower cross-type equality (`1 == 1.0 == True`) - without a `VirtualMachine`. Safe
 /// because none of these types can have a custom `__eq__`.
-fn const_eq(a: &PyObject, b: &PyObject) -> bool {
-    use crate::builtins::{PyBool, PyBytes, PyComplex, PyFloat, PyInt, PyStr, PyTuple};
+fn const_eq(ctx: &Context, a: &PyObject, b: &PyObject) -> bool {
+    use crate::builtins::{PyBool, PyBytes, PyComplex, PyFloat, PyInt, PySlice, PyStr, PyTuple};
     use crate::common::float_ops;
 
     if a.is(b) {
@@ -391,19 +400,38 @@ fn const_eq(a: &PyObject, b: &PyObject) -> bool {
     if let (Some(x), Some(y)) = (a.downcast_ref::<PyBytes>(), b.downcast_ref::<PyBytes>()) {
         return x.as_bytes() == y.as_bytes();
     }
+    if let (Some(x), Some(y)) = (a.downcast_ref::<PySlice>(), b.downcast_ref::<PySlice>()) {
+        return x
+            .parts(ctx)
+            .into_iter()
+            .zip(y.parts(ctx))
+            .all(|(x, y)| const_eq(ctx, x, y));
+    }
+    if let (Some(x), Some(y)) = (a.downcast_ref::<PyCode>(), b.downcast_ref::<PyCode>()) {
+        return x.eq_metadata(y)
+            && x.code.constants.len() == y.code.constants.len()
+            && x.code
+                .constants
+                .iter()
+                .zip(y.code.constants.iter())
+                .all(|(x, y)| const_eq(ctx, &x.0, &y.0));
+    }
     if let (Some(x), Some(y)) = (a.downcast_ref::<PyTuple>(), b.downcast_ref::<PyTuple>()) {
         return x.as_slice().len() == y.as_slice().len()
             && x.as_slice()
                 .iter()
                 .zip(y.as_slice())
-                .all(|(e1, e2)| const_eq(e1, e2));
+                .all(|(e1, e2)| const_eq(ctx, e1, e2));
     }
     if let (Some(x), Some(y)) = (
         a.downcast_ref::<PyFrozenSet>(),
         b.downcast_ref::<PyFrozenSet>(),
     ) {
         let (xe, ye) = (x.elements(), y.elements());
-        return xe.len() == ye.len() && xe.iter().all(|e1| ye.iter().any(|e2| const_eq(e1, e2)));
+        return xe.len() == ye.len()
+            && xe
+                .iter()
+                .all(|e1| ye.iter().any(|e2| const_eq(ctx, e1, e2)));
     }
     // `None`/`Ellipsis` are canonical singletons already handled by the identity check above.
     false
@@ -457,9 +485,11 @@ impl ConstantBag for PyObjBag<'_> {
                         (obj, hash)
                     })
                     .collect();
-                PyFrozenSet::from_constant_elements(elements_with_hashes, const_eq)
-                    .into_ref(ctx)
-                    .into()
+                PyFrozenSet::from_constant_elements(elements_with_hashes, |a, b| {
+                    const_eq(ctx, a, b)
+                })
+                .into_ref(ctx)
+                .into()
             }
             BorrowedConstant::None => ctx.none(),
             BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),
@@ -883,6 +913,44 @@ impl fmt::Debug for PyCode {
 }
 
 impl PyCode {
+    fn eq_metadata(&self, other: &Self) -> bool {
+        let a = &self.code;
+        let b = &other.code;
+        a.obj_name == b.obj_name
+            && a.arg_count == b.arg_count
+            && a.posonlyarg_count == b.posonlyarg_count
+            && a.kwonlyarg_count == b.kwonlyarg_count
+            && a.flags == b.flags
+            && a.first_line_number == b.first_line_number
+            && a.instructions.original_bytes() == b.instructions.original_bytes()
+            && a.linetable == b.linetable
+            && a.exceptiontable == b.exceptiontable
+            && a.names == b.names
+            && a.varnames == b.varnames
+            && a.freevars == b.freevars
+            && a.cellvars == b.cellvars
+    }
+
+    fn hash_attributes(&self, ctx: &Context) -> PyTupleRef {
+        let code = &self.code;
+        // Hash a tuple of key attributes, matching CPython's code_hash
+        ctx.new_tuple(vec![
+            ctx.new_str(code.obj_name.as_str()).into(),
+            ctx.new_int(code.arg_count).into(),
+            ctx.new_int(code.posonlyarg_count).into(),
+            ctx.new_int(code.kwonlyarg_count).into(),
+            ctx.new_int(code.varnames.len()).into(),
+            ctx.new_int(code.flags.bits()).into(),
+            ctx.new_int(code.first_line_number.map_or(0, |n| n.get()) as i64)
+                .into(),
+            ctx.new_bytes(code.instructions.original_bytes()).into(),
+            {
+                let consts: Vec<_> = code.constants.iter().map(|c| c.0.clone()).collect();
+                ctx.new_tuple(consts).into()
+            },
+        ])
+    }
+
     /// Line number for a byte offset, or -1 when the linetable has no line.
     pub fn addr2line(&self, lasti_bytes: i32) -> i32 {
         if lasti_bytes < 0 {
@@ -935,35 +1003,22 @@ impl Comparable for PyCode {
             let other = class_or_notimplemented!(Self, other);
             let a = &zelf.code;
             let b = &other.code;
-            let eq = a.obj_name == b.obj_name
-                && a.arg_count == b.arg_count
-                && a.posonlyarg_count == b.posonlyarg_count
-                && a.kwonlyarg_count == b.kwonlyarg_count
-                && a.flags == b.flags
-                && a.first_line_number == b.first_line_number
-                && a.instructions.original_bytes() == b.instructions.original_bytes()
-                && a.linetable == b.linetable
-                && a.exceptiontable == b.exceptiontable
-                && a.names == b.names
-                && a.varnames == b.varnames
-                && a.freevars == b.freevars
-                && a.cellvars == b.cellvars
-                && {
-                    let a_consts: Vec<_> = a.constants.iter().map(|c| c.0.clone()).collect();
-                    let b_consts: Vec<_> = b.constants.iter().map(|c| c.0.clone()).collect();
-                    if a_consts.len() != b_consts.len() {
-                        false
-                    } else {
-                        let mut eq = true;
-                        for (ac, bc) in a_consts.iter().zip(b_consts.iter()) {
-                            if !vm.bool_eq(ac, bc)? {
-                                eq = false;
-                                break;
-                            }
+            let eq = zelf.eq_metadata(other) && {
+                let a_consts: Vec<_> = a.constants.iter().map(|c| c.0.clone()).collect();
+                let b_consts: Vec<_> = b.constants.iter().map(|c| c.0.clone()).collect();
+                if a_consts.len() != b_consts.len() {
+                    false
+                } else {
+                    let mut eq = true;
+                    for (ac, bc) in a_consts.iter().zip(b_consts.iter()) {
+                        if !vm.bool_eq(ac, bc)? {
+                            eq = false;
+                            break;
                         }
-                        eq
                     }
-                };
+                    eq
+                }
+            };
             Ok(eq.into())
         })
     }
@@ -971,25 +1026,7 @@ impl Comparable for PyCode {
 
 impl Hashable for PyCode {
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<crate::common::hash::PyHash> {
-        let code = &zelf.code;
-        // Hash a tuple of key attributes, matching CPython's code_hash
-        let tuple = vm.ctx.new_tuple(vec![
-            vm.ctx.new_str(code.obj_name.as_str()).into(),
-            vm.ctx.new_int(code.arg_count).into(),
-            vm.ctx.new_int(code.posonlyarg_count).into(),
-            vm.ctx.new_int(code.kwonlyarg_count).into(),
-            vm.ctx.new_int(code.varnames.len()).into(),
-            vm.ctx.new_int(code.flags.bits()).into(),
-            vm.ctx
-                .new_int(code.first_line_number.map_or(0, |n| n.get()) as i64)
-                .into(),
-            vm.ctx.new_bytes(code.instructions.original_bytes()).into(),
-            {
-                let consts: Vec<_> = code.constants.iter().map(|c| c.0.clone()).collect();
-                vm.ctx.new_tuple(consts).into()
-            },
-        ]);
-        tuple.as_object().hash(vm)
+        zelf.hash_attributes(&vm.ctx).as_object().hash(vm)
     }
 }
 
@@ -1898,6 +1935,117 @@ assert u_count == 3
             let code_ref = vm.ctx.new_code(code);
             let scope = vm.new_scope_with_builtins();
             vm.run_code_obj(code_ref, scope).unwrap();
+        });
+    }
+
+    #[test]
+    fn context_only_frozenset_slice_and_code() {
+        use super::{PyObjBag, const_hash};
+        use crate::{
+            AsObject, Context, PyPayload,
+            builtins::PyFrozenSet,
+            bytecode::{Constant, ConstantBag, ConstantData},
+            compiler,
+        };
+
+        let slice = |stop| ConstantData::Slice {
+            elements: Box::new([ConstantData::None, stop, ConstantData::None]),
+        };
+        let int_slice = slice(ConstantData::Integer { value: 10.into() });
+        let code = compiler::compile(
+            "pass",
+            compiler::Mode::Exec,
+            "<constant-test>",
+            Default::default(),
+        )
+        .unwrap();
+        let mut different_constants = code.clone();
+        different_constants.constants = core::iter::once(ConstantData::Tuple {
+            elements: vec![
+                int_slice.clone(),
+                ConstantData::Code {
+                    code: Box::new(code.clone()),
+                },
+            ],
+        })
+        .collect();
+        // Names affect code equality but are omitted from its hash.
+        let mut different_names = code.clone();
+        different_names.names = vec!["unused".into()].into_boxed_slice();
+        let code_constant = |code| ConstantData::Code {
+            code: Box::new(code),
+        };
+        let different_constants = code_constant(different_constants);
+        let code = code_constant(code);
+        let nested = ConstantData::Tuple {
+            elements: vec![
+                int_slice.clone(),
+                ConstantData::Frozenset {
+                    elements: vec![code.clone(), code.clone()],
+                },
+            ],
+        };
+        let cases = [
+            (
+                "slices",
+                vec![
+                    int_slice.clone(),
+                    int_slice,
+                    slice(ConstantData::Float { value: 10.0 }),
+                    slice(ConstantData::Integer { value: 11.into() }),
+                ],
+                2,
+            ),
+            (
+                "code constants",
+                vec![
+                    code.clone(),
+                    different_constants.clone(),
+                    different_constants,
+                ],
+                2,
+            ),
+            (
+                "code hash collision",
+                vec![code, code_constant(different_names)],
+                2,
+            ),
+            ("nested", vec![nested.clone(), nested], 1),
+        ];
+        let ctx = Context::genesis();
+        let make = |data: &ConstantData| PyObjBag(ctx).make_constant(data.borrow_constant()).0;
+        let cases: Vec<_> = cases
+            .into_iter()
+            .map(|(label, elements, expected_len)| {
+                let keys: Vec<_> = elements.iter().map(make).collect();
+                let constant = make(&ConstantData::Frozenset { elements });
+                (label, constant, keys, expected_len)
+            })
+            .collect();
+
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for (label, constant, keys, expected_len) in cases {
+                let frozen = constant.downcast_ref::<PyFrozenSet>().unwrap();
+                assert_eq!(frozen.elements().len(), expected_len, "{label}");
+                for key in &keys {
+                    assert_eq!(const_hash(ctx, key), key.hash(vm).unwrap(), "{label}");
+                    assert!(frozen.contains(key, vm).unwrap(), "{label}");
+                }
+                if label == "code hash collision" {
+                    assert_eq!(keys[0].hash(vm).unwrap(), keys[1].hash(vm).unwrap());
+                    assert!(!vm.bool_eq(&keys[0], &keys[1]).unwrap());
+                }
+                let runtime = PyFrozenSet::from_iter(vm, keys).unwrap().into_ref(ctx);
+                assert!(
+                    vm.bool_eq(&constant, runtime.as_object()).unwrap(),
+                    "{label}"
+                );
+                assert_eq!(
+                    const_hash(ctx, &constant),
+                    runtime.as_object().hash(vm).unwrap(),
+                    "{label}",
+                );
+            }
         });
     }
 
