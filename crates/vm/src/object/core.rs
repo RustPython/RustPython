@@ -3188,6 +3188,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn clear_reuses_storage_and_preserves_existing_edges() {
+        use crate::builtins::PyList;
+
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for tuple in [false, true] {
+                for existing in [false, true] {
+                    let elements = vec![vm.ctx.none(), vm.ctx.none()];
+                    let allocation = elements.as_ptr();
+                    let mut sequence: Box<dyn Traverse> = if tuple {
+                        Box::new(PyTuple::new_unchecked(elements.into_boxed_slice()))
+                    } else {
+                        Box::new(PyList::from(elements))
+                    };
+                    let mut out = if existing {
+                        vec![vm.ctx.new_int(1).into()]
+                    } else {
+                        Vec::new()
+                    };
+                    sequence.clear(&mut out);
+                    if existing {
+                        assert_eq!(out[0].try_to_value::<i32>(vm).unwrap(), 1);
+                    } else {
+                        assert_eq!(out.as_ptr(), allocation);
+                    }
+                    assert_eq!(out.len(), 2 + usize::from(existing));
+                    assert!(out[usize::from(existing)..].iter().all(|x| vm.is_none(x)));
+                    sequence.traverse(&mut |_| panic!("cleared sequence still owns an edge"));
+                }
+            }
+        });
+    }
+
+    #[test]
     fn miri_test_type_initialization() {
         let hierarchy = init_type_hierarchy();
 

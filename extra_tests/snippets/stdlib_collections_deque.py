@@ -156,6 +156,7 @@ assert list(d) == ["z", "b", "c"]
 assert deque([1], maxlen=3) * 2**62 == deque([1, 1, 1])
 assert deque([1, 2, 3], maxlen=4) * 3 == deque([3, 1, 2, 3])
 
+
 def assert_deque_error(error_type, message, function, *args):
     with assert_raises(error_type) as caught:
         function(*args)

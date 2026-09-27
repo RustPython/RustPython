@@ -96,7 +96,12 @@ unsafe impl Traverse for PyTuple {
 
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
         let elements = core::mem::take(self.elements.get_mut());
-        out.extend(elements.into_vec());
+        if out.is_empty() {
+            // Reuse the allocation so deallocation does not need more memory.
+            *out = elements.into_vec();
+        } else {
+            out.extend(elements.into_vec());
+        }
     }
 }
 

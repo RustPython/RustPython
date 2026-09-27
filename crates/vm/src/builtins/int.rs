@@ -227,9 +227,9 @@ fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
     )
 }
 
-/// malachite aborts the process when it cannot allocate. Before an operation that allocates
-/// `bits` bits, check that they can be allocated at all, so an impossible result is a
-/// `MemoryError`.
+/// Reject sizes that cannot be allocated before calling Malachite's infallible arithmetic.
+/// This is only a preflight check: Malachite allocates its own result and scratch buffers,
+/// so an allocation failure during the operation can still abort the process.
 fn reserve_result_bits(bits: Option<u64>, vm: &VirtualMachine) -> PyResult<()> {
     // Results below this size are not worth the extra allocation.
     const CHECK_FROM_BITS: u64 = 1 << 26;

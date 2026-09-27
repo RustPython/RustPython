@@ -480,6 +480,25 @@ with assert_raises(MemoryError):
     slice_target[1::-1] = HugeLen()
 
 
+class ShortLen(HugeLen):
+    def __len__(self):
+        return 1
+
+
+slice_target[::-1] = ShortLen()
+assert slice_target == [2, 1, 0]
+
+
+def fails_during_iteration():
+    yield 9
+    raise MemoryError
+
+
+with assert_raises(MemoryError):
+    slice_target[:] = fails_during_iteration()
+assert slice_target == [2, 1, 0]
+
+
 # insert sec
 x = a[:]
 y = a[:]
