@@ -385,13 +385,13 @@ impl core::ops::BitOrAssign<PyTypeFlags> for PyAtomicTypeFlags {
     }
 }
 
+// `__flags__` is `PY_ATOMIC`, so the load reads this field as an `AtomicU64`.
+// A plain `u64` may be less aligned; the load does not use that alignment.
 const _: () = assert!(
     core::mem::size_of::<PyAtomicTypeFlags>()
         == core::mem::size_of::<core::sync::atomic::AtomicU64>()
         && core::mem::align_of::<PyAtomicTypeFlags>()
             == core::mem::align_of::<core::sync::atomic::AtomicU64>()
-        && core::mem::size_of::<core::sync::atomic::AtomicU64>() == core::mem::size_of::<u64>()
-        && core::mem::align_of::<core::sync::atomic::AtomicU64>() == core::mem::align_of::<u64>()
 );
 
 impl crate::builtins::descriptor::MemberLayout for PyAtomicTypeFlags {
