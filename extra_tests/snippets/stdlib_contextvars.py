@@ -56,21 +56,25 @@ ctx2.run(nested.set, object())
 assert ctx1 == ctx2
 
 try:
-    import _interpreters
     import gc
+
+    import _interpreters
 except ImportError:
     _interpreters = None
 
 if _interpreters is not None:
     child = _interpreters.create()
     try:
-        assert _interpreters.run_string(
-            child,
-            """
+        assert (
+            _interpreters.run_string(
+                child,
+                """
 import contextvars
 contextvars.ContextVar('child_marker').set(42)
 """,
-        ) is None
+            )
+            is None
+        )
     finally:
         _interpreters.destroy(child)
 
@@ -80,4 +84,3 @@ contextvars.ContextVar('child_marker').set(42)
         for var, value in copy_context().items()
         if var.name == "child_marker"
     ] == []
-
