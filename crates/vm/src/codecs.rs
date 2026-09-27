@@ -596,6 +596,13 @@ impl FastCodec {
             "latin",
             "latin1",
         ];
+        // The spellings used most often, matched before normalizing allocates.
+        match encoding {
+            "utf-8" | "utf8" | "UTF-8" => return Some(Self::Utf8),
+            "ascii" => return Some(Self::Ascii),
+            "latin-1" | "latin1" | "iso-8859-1" => return Some(Self::Latin1),
+            _ => {}
+        }
         let normalized = normalize_encoding_name(encoding);
         let normalized = normalized.as_ref();
         if UTF8_ALIASES.contains(&normalized) {
