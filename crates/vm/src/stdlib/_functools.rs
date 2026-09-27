@@ -692,9 +692,9 @@ mod _functools {
     #[pyclass(flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
     impl PyLruListElem {}
 
-    /// Native implementation of `functools._lru_cache_wrapper`, mirroring CPython's
-    /// `_functools` accelerator so `functools.lru_cache` doesn't fall back to the much
-    /// slower pure-Python implementation in `Lib/functools.py`.
+    // Native implementation of `functools._lru_cache_wrapper`, mirroring CPython's
+    // `_functools` accelerator so `functools.lru_cache` doesn't fall back to the much
+    // slower pure-Python implementation in `Lib/functools.py`.
     #[pyattr]
     #[pyclass(name = "_lru_cache_wrapper", module = "functools")]
     #[derive(PyPayload)]

@@ -98,7 +98,7 @@ pub use zip::PyZip;
 #[path = "union.rs"]
 pub(crate) mod union_;
 pub use union_::{PyUnion, make_union};
-pub(crate) mod descriptor;
+pub mod descriptor;
 pub use descriptor::{
     MemberAccess, MemberKind, PY_READONLY, PY_RELATIVE_OFFSET, PyDescriptorOwned,
     PyMemberDef as DescriptorMemberDef, PyMemberDescriptor,

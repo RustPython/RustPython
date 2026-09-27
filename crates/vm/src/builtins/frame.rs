@@ -6,7 +6,7 @@ use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyIntRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    frame::{FrameObject, FrameObjectRef, FrameOwner},
+    frame::{FrameObject, FrameOwner},
     function::PySetterValue,
     types::{Destructor, Representable},
 };
@@ -771,69 +771,24 @@ impl FrameObject {
         }
     }
 
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember(type = "bool")]
-    fn f_trace_lines(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-
-        let boxed = zelf.iframe().cold().trace_lines.lock();
-        Ok(vm.ctx.new_bool(*boxed).into())
+    #[pygetset]
+    fn f_trace_opcodes(&self, vm: &VirtualMachine) -> PyObjectRef {
+        let trace_opcodes = self.iframe().cold().trace_opcodes.lock();
+        vm.ctx.new_bool(*trace_opcodes).into()
     }
 
-    #[pymember(type = "bool", setter)]
-    fn set_f_trace_lines(
-        vm: &VirtualMachine,
-        zelf: PyObjectRef,
-        value: PySetterValue,
-    ) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set_f_trace_opcodes(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-
                 let value: PyIntRef = value
                     .downcast()
                     .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
                 let val = !value.as_bigint().is_zero();
-                *zelf.iframe().cold().trace_lines.lock() = val;
+                *self.iframe().cold().trace_opcodes.lock() = val;
                 // Propagate to live source iframe.
-                let live = zelf.find_live_source_iframe();
-                if !live.is_null() {
-                    *unsafe { &*live }.cold().trace_lines.lock() = val;
-                }
-
-                Ok(())
-            }
-            PySetterValue::Delete => Err(vm.new_type_error("can't delete numeric/char attribute")),
-        }
-    }
-
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember(type = "bool")]
-    fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-        let trace_opcodes = zelf.iframe().cold().trace_opcodes.lock();
-        Ok(vm.ctx.new_bool(*trace_opcodes).into())
-    }
-
-    #[pymember(type = "bool", setter)]
-    fn set_f_trace_opcodes(
-        vm: &VirtualMachine,
-        zelf: PyObjectRef,
-        value: PySetterValue,
-    ) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(value) => {
-                let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-
-                let value: PyIntRef = value
-                    .downcast()
-                    .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
-
-                let val = !value.as_bigint().is_zero();
-                *zelf.iframe().cold().trace_opcodes.lock() = val;
-                // Propagate to live source iframe.
-                let live = zelf.find_live_source_iframe();
+                let live = self.find_live_source_iframe();
                 if !live.is_null() {
                     *unsafe { &*live }.cold().trace_opcodes.lock() = val;
                 }

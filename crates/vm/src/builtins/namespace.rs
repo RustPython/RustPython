@@ -11,9 +11,6 @@ use crate::{
 };
 use rustpython_common::wtf8::Wtf8Buf;
 
-/// A simple attribute-based namespace.
-///
-/// SimpleNamespace(**kwargs)
 #[pyclass(module = "types", name = "SimpleNamespace")]
 #[derive(Debug, Default)]
 pub struct PyNamespace {}

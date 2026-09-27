@@ -16,13 +16,12 @@ use crate::{
 };
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
-/// Template object for t-strings (PEP 750).
-///
-/// Represents a template string with interpolated expressions.
 #[pyclass(module = "string.templatelib", name = "Template")]
 #[derive(Debug, Clone)]
 pub struct PyTemplate {
+    #[pymember(type = "object_ex")]
     pub strings: PyTupleRef,
+    #[pymember(type = "object_ex")]
     pub interpolations: PyTupleRef,
 }
 
@@ -98,16 +97,6 @@ impl Constructor for PyTemplate {
 
 #[pyclass(with(Constructor, Comparable, Iterable, Representable, AsSequence))]
 impl PyTemplate {
-    #[pygetset]
-    fn strings(&self) -> PyTupleRef {
-        self.strings.clone()
-    }
-
-    #[pygetset]
-    fn interpolations(&self) -> PyTupleRef {
-        self.interpolations.clone()
-    }
-
     #[pygetset]
     fn values(&self, vm: &VirtualMachine) -> PyTupleRef {
         let values: Vec<PyObjectRef> = self
@@ -271,7 +260,6 @@ impl Representable for PyTemplate {
     }
 }
 
-/// Iterator for Template objects
 #[pyclass(module = "string.templatelib", name = "TemplateIter")]
 #[derive(Debug)]
 pub struct PyTemplateIter {

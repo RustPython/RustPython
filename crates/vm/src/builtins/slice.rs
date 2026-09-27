@@ -9,7 +9,6 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::{PyClassDef, PyClassImpl},
     common::hash::{PyHash, PyUHash},
-    convert::ToPyObject,
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -20,8 +19,11 @@ use num_traits::{One, Signed, Zero};
 #[pyclass(module = false, name = "slice", unhashable = true, traverse = "manual")]
 #[derive(Debug)]
 pub struct PySlice {
+    #[pymember]
     pub start: Option<PyObjectRef>,
+    #[pymember]
     pub stop: PyObjectRef,
+    #[pymember]
     pub step: Option<PyObjectRef>,
 }
 
@@ -91,26 +93,11 @@ impl PyPayload for PySlice {
 
 #[pyclass(with(Comparable, Representable, Hashable))]
 impl PySlice {
-    #[pygetset]
-    fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.start.clone().to_pyobject(vm)
-    }
-
     pub(crate) fn start_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObject {
         match &self.start {
             Some(v) => v,
             None => vm.ctx.none.as_object(),
         }
-    }
-
-    #[pygetset]
-    pub(crate) fn stop(&self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.stop.clone()
-    }
-
-    #[pygetset]
-    fn step(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.step.clone().to_pyobject(vm)
     }
 
     pub(crate) fn step_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObject {
@@ -158,7 +145,7 @@ impl PySlice {
             step = One::one();
         } else {
             // Clone the value, not the reference.
-            let this_step = self.step(vm).try_index(vm)?;
+            let this_step = self.step_ref(vm).try_index(vm)?;
             step = this_step.as_bigint().clone();
 
             if step.is_zero() {
@@ -192,7 +179,7 @@ impl PySlice {
                 lower.clone()
             };
         } else {
-            let this_start = self.start(vm).try_index(vm)?;
+            let this_start = self.start_ref(vm).try_index(vm)?;
             start = this_start.as_bigint().clone();
 
             if start < Zero::zero() {
@@ -212,7 +199,7 @@ impl PySlice {
         if vm.is_none(&self.stop) {
             stop = if backwards { lower } else { upper };
         } else {
-            let this_stop = self.stop(vm).try_index(vm)?;
+            let this_stop = self.stop.try_index(vm)?;
             stop = this_stop.as_bigint().clone();
 
             if stop < Zero::zero() {

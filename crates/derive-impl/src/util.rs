@@ -867,8 +867,9 @@ fn args_const(pieces: &[SigPiece]) -> TokenStream {
 
 /// Expression of type `Option<&'static str>`: the internal doc, or the plain
 /// doc when the arguments cannot form a signature.
-/// `doc` is a const `Option<&'static str>`. A table entry wins; an empty
-/// string is no docstring. The text is composed into the internal doc so
+/// `doc` is a const `Option<&'static str>` already chosen by the caller
+/// (a Rust doc comment wins over the stored docstring). An empty string is
+/// no docstring. The text is composed into the internal doc so
 /// `__text_signature__` stays on the signature half.
 pub(crate) fn internal_doc_tokens(
     sig: &Signature,

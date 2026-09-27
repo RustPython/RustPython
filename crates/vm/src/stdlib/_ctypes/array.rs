@@ -388,8 +388,7 @@ impl AsNumber for PyCArrayType {
     }
 }
 
-/// PyCArray - Array instance
-/// All array metadata (element_type, length, element_size) is stored in the type's StgInfo
+// All array metadata (element_type, length, element_size) is stored in the type's StgInfo
 #[pyclass(
     name = "Array",
     base = PyCData,

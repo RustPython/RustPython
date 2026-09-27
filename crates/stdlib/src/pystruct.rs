@@ -309,8 +309,8 @@ pub(crate) mod _struct {
             Ok(self.ready(vm)?.format.clone())
         }
 
-        /// The size an uninitialized `Struct` reports, which no format has
-        /// yet given a value.
+        // The size an uninitialized `Struct` reports, which no format has
+        // yet given a value.
         #[pygetset]
         fn size(&self) -> isize {
             self.inner

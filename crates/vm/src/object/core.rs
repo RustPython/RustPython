@@ -239,9 +239,13 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         && !obj_ref.0.ref_count.is_published()
     {
         if let Some(ext) = obj_ref.0.ext_ref() {
-            if let Some(dict) = &ext.dict {
-                let old = dict.d.write().take();
-                drop(old);
+            if obj_ref
+                .class()
+                .slots
+                .flags
+                .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+            {
+                drop(ext.dict.replace(None));
             }
             for slot in obj_ref.0.slot_cells() {
                 drop(slot.store(None));
@@ -365,16 +369,19 @@ unsafe impl Link for GcLink {
 /// but some payloads like PyWeak have align 8 due to i64 fields).
 #[repr(C, align(8))]
 pub(super) struct ObjExt {
-    pub(super) dict: Option<InstanceDict>,
+    /// Always present. The dict cell is its first field, so
+    /// `dict_member_offset` addresses that pointer. Null when the type has
+    /// no dict slot.
+    pub(super) dict: InstanceDict,
 }
 
 impl ObjExt {
     fn new(dict: Option<PyDictRef>, has_dict: bool, inline_values: bool) -> Self {
         Self {
             dict: if has_dict {
-                Some(InstanceDict::from_opt(dict, inline_values))
+                InstanceDict::from_opt(dict, inline_values)
             } else {
-                None
+                InstanceDict::from_opt(None, false)
             },
         }
     }
@@ -400,7 +407,7 @@ const EXT_OFFSET: usize = core::mem::size_of::<ObjExt>();
 pub(crate) fn slot_member_offset(index: usize) -> isize {
     // Cell 0 sits directly in front of ObjExt. Higher indexes extend further
     // forward, so a base class offset stays valid on a subclass with more slots.
-    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+    let cell = core::mem::size_of::<PyAtomicRef<Option<PyObject>>>();
     -((EXT_OFFSET + (index + 1) * cell) as isize)
 }
 
@@ -408,7 +415,7 @@ fn slot_region_layout(member_count: usize) -> Option<core::alloc::Layout> {
     if member_count == 0 {
         return None;
     }
-    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+    let cell = core::mem::size_of::<PyAtomicRef<Option<PyObject>>>();
     let bytes = member_count * cell;
     let align = core::mem::align_of::<ObjExt>();
     // Padding goes in front of the cells so cell 0 stays flush with ObjExt.
@@ -465,6 +472,23 @@ pub struct Py<T> {
 }
 pub const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<Py<()>>();
 
+/// Byte offset of the payload inside `Py<T>`.
+#[must_use]
+#[inline]
+pub const fn payload_offset<T>() -> usize {
+    core::mem::offset_of!(Py<T>, payload)
+}
+
+/// Byte offset of the instance-dict pointer from the start of `Py`.
+///
+/// The pointer is the first field of `ObjExt`, which sits immediately in front
+/// of `Py`. The cell owns the dict.
+#[must_use]
+#[inline]
+pub const fn dict_member_offset() -> isize {
+    -(core::mem::size_of::<ObjExt>() as isize)
+}
+
 // ref_count, vtable, gc_pointers (two) and typ are one word each; the gc bits,
 // generation, owner and refs take eight bytes between them. A 64-bit header had
 // those eight as the padding its alignment forces, so they cost it nothing; a
@@ -514,8 +538,8 @@ impl<T> Py<T> {
     }
 
     /// Member cells are the pointer array immediately before [`ObjExt`].
-    /// Layout: `[WeakRefList?][PyAtomicRef<PyObject>; N][ObjExt?][Py]`.
-    pub(super) fn slot_cells(&self) -> &[PyAtomicRef<PyObject>] {
+    /// Layout: `[WeakRefList?][PyAtomicRef<Option<PyObject>>; N][ObjExt?][Py]`.
+    pub(super) fn slot_cells(&self) -> &[PyAtomicRef<Option<PyObject>>] {
         let Some(ext) = self.ext_ref() else {
             return &[];
         };
@@ -523,12 +547,12 @@ impl<T> Py<T> {
         if member_count == 0 {
             return &[];
         }
-        let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+        let cell = core::mem::size_of::<PyAtomicRef<Option<PyObject>>>();
         // Index 0 is the cell adjacent to ObjExt; index i is i cells before it.
         let first = (ext as *const ObjExt)
             .addr()
             .wrapping_sub(member_count * cell);
-        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<PyObject>>(first);
+        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<Option<PyObject>>>(first);
         unsafe { core::slice::from_raw_parts(ptr, member_count) }
     }
 
@@ -1108,10 +1132,18 @@ impl Py<PyWeak> {
 pub(crate) const SHARED_KEYS_MAX_SIZE: usize = 30;
 
 #[derive(Debug)]
+#[repr(C)]
 pub(crate) struct InstanceDict {
-    pub(crate) d: PyRwLock<Option<PyDictRef>>,
+    /// Owned dict pointer. First field so `dict_member_offset` addresses it.
+    /// Null when this object has no dict.
+    pub(crate) dict: PyAtomicRef<Option<crate::builtins::PyDict>>,
+    /// Separate from the pointer: shared-key inline values are valid only
+    /// while this stays true. Replacing the dict does not change it.
     inline_values_valid: PyAtomic<bool>,
 }
+
+const _: () = assert!(core::mem::offset_of!(InstanceDict, dict) == 0);
+const _: () = assert!(core::mem::offset_of!(ObjExt, dict) == 0);
 
 impl From<PyDictRef> for InstanceDict {
     #[inline(always)]
@@ -1129,7 +1161,7 @@ impl InstanceDict {
     #[inline]
     pub(crate) fn from_opt(d: Option<PyDictRef>, inline_values: bool) -> Self {
         Self {
-            d: PyRwLock::new(d),
+            dict: PyAtomicRef::from(d),
             inline_values_valid: Radium::new(inline_values),
         }
     }
@@ -1156,17 +1188,18 @@ impl InstanceDict {
 
     #[inline]
     pub(crate) fn get(&self) -> Option<PyDictRef> {
-        self.d.read().clone()
+        self.dict.load_owned()
     }
 
-    /// Run `f` on the dict without cloning it.
+    /// Run `f` on the current dict.
     ///
-    /// For callers that only need to look at the dict — a predicate, a version
-    /// stamp — this drops the refcount round-trip [`Self::get`] pays. `f` runs
-    /// under the read guard, so it must not run Python or take this lock again.
+    /// The dict is held by a strong reference for the call, so a concurrent
+    /// replace cannot free it. `f` must not re-enter `get_or_insert` on this
+    /// cell.
     #[inline]
     pub(crate) fn with<R>(&self, f: impl FnOnce(Option<&Py<crate::builtins::PyDict>>) -> R) -> R {
-        f(self.d.read().as_deref())
+        let owned = self.get();
+        f(owned.as_deref())
     }
 
     #[inline]
@@ -1176,20 +1209,22 @@ impl InstanceDict {
 
     #[inline]
     pub(crate) fn replace(&self, d: Option<PyDictRef>) -> Option<PyDictRef> {
-        core::mem::replace(&mut self.d.write(), d)
+        self.dict.store(d)
     }
 
     pub(crate) fn get_or_insert(&self, vm: &VirtualMachine) -> PyDictRef {
-        if let Some(existing) = self.d.read().as_ref() {
-            return existing.clone();
-        }
-        let dict = vm.ctx.new_dict();
-        let mut d = self.d.write();
-        if let Some(existing) = d.as_ref() {
-            existing.clone()
-        } else {
-            *d = Some(dict.clone());
-            dict
+        loop {
+            if let Some(existing) = self.get() {
+                return existing;
+            }
+            let dict = vm.ctx.new_dict();
+            match self.dict.compare_exchange_empty(dict.clone()) {
+                Ok(()) => return dict,
+                Err(rejected) => {
+                    drop(rejected);
+                    drop(dict);
+                }
+            }
         }
     }
 }
@@ -1210,7 +1245,7 @@ impl<T: PyPayload> Py<T> {
     }
 
     /// Deallocate a Py, handling optional prefix(es).
-    /// Layout: `[WeakRefList?][PyAtomicRef<PyObject>; N][ObjExt?][Py<T>]`
+    /// Layout: `[WeakRefList?][PyAtomicRef<Option<PyObject>>; N][ObjExt?][Py<T>]`
     ///
     /// # Safety
     /// `ptr` must be a valid pointer from `Py::new` and must not be used after this call.
@@ -1257,9 +1292,9 @@ impl<T: PyPayload> Py<T> {
                     cursor = cursor.add(core::mem::size_of::<WeakRefList>());
                 }
                 if let Some(region) = slot_region_layout(member_count) {
-                    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+                    let cell = core::mem::size_of::<PyAtomicRef<Option<PyObject>>>();
                     let first = cursor.add(region.size() - member_count * cell);
-                    let cells = first.cast::<PyAtomicRef<PyObject>>();
+                    let cells = first.cast::<PyAtomicRef<Option<PyObject>>>();
                     for i in 0..member_count {
                         core::ptr::drop_in_place(cells.add(i));
                     }
@@ -1292,7 +1327,7 @@ impl<T: PyPayload> Py<T> {
 impl<T: PyPayload + core::fmt::Debug> Py<T> {
     /// Allocate a new Py, optionally with prefix(es).
     /// Returns a raw pointer to the Py (NOT the allocation start).
-    /// Layout: `[WeakRefList?][PyAtomicRef<PyObject>; N][ObjExt?][Py<T>]`
+    /// Layout: `[WeakRefList?][PyAtomicRef<Option<PyObject>>; N][ObjExt?][Py<T>]`
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> *mut Self {
         let member_count = typ.slots.member_count;
         let needs_ext = typ
@@ -1355,11 +1390,13 @@ impl<T: PyPayload + core::fmt::Debug> Py<T> {
             unsafe {
                 if let Some(offset) = slots_start {
                     let region = slot_region_layout(member_count).unwrap();
-                    let cell = core::mem::size_of::<PyAtomicRef<PyObject>>();
+                    let cell = core::mem::size_of::<PyAtomicRef<Option<PyObject>>>();
                     let first = alloc_ptr.add(offset + region.size() - member_count * cell);
-                    let cells = first.cast::<PyAtomicRef<PyObject>>();
+                    let cells = first.cast::<PyAtomicRef<Option<PyObject>>>();
                     for i in 0..member_count {
-                        cells.add(i).write(PyAtomicRef::<PyObject>::new_empty());
+                        cells
+                            .add(i)
+                            .write(PyAtomicRef::<Option<PyObject>>::new_empty());
                     }
                 }
 
@@ -1778,7 +1815,13 @@ impl PyObject {
 
     #[inline(always)]
     pub(crate) fn instance_dict(&self) -> Option<&InstanceDict> {
-        self.0.ext_ref().and_then(|ext| ext.dict.as_ref())
+        let ext = self.0.ext_ref()?;
+        let (flags, _) = self.0.read_type_flags();
+        if flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) {
+            Some(&ext.dict)
+        } else {
+            None
+        }
     }
 
     /// `_PyObject_InlineValues(obj)->valid` when the type has INLINE_VALUES.
@@ -2180,11 +2223,13 @@ impl PyObject {
         drop(self.slot_cell_at(byte_offset).store(value));
     }
 
-    fn slot_cell_at(&self, byte_offset: isize) -> &PyAtomicRef<Self> {
+    fn slot_cell_at(&self, byte_offset: isize) -> &PyAtomicRef<Option<Self>> {
         let addr = (self as *const Self as *const u8)
             .addr()
             .wrapping_add(byte_offset as usize);
-        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<Self>>(addr);
+        let ptr = core::ptr::with_exposed_provenance::<PyAtomicRef<Option<Self>>>(addr);
+        // SAFETY: `byte_offset` addresses an object-pointer cell. Nullable and
+        // non-null cells share this layout; member loads go through the nullable view.
         unsafe { &*ptr }
     }
 
@@ -2302,7 +2347,9 @@ impl PyObject {
                 self_addr.wrapping_sub(EXT_OFFSET),
             );
             let ext = unsafe { &mut *ext_ptr };
-            if let Some(dict_ref) = ext.dict.as_ref().and_then(|d| d.replace(None)) {
+            if flags.has_feature(crate::types::PyTypeFlags::HAS_DICT)
+                && let Some(dict_ref) = ext.dict.replace(None)
+            {
                 result.push(dict_ref.into());
             }
             for slot in obj.0.slot_cells() {
@@ -2333,7 +2380,11 @@ impl PyObject {
     // Py_TPFLAGS_HAVE_GC types have tp_clear
     pub fn gc_has_clear(&self) -> bool {
         self.0.vtable.clear.is_some()
-            || self.0.ext_ref().is_some_and(|ext| ext.dict.is_some())
+            || self
+                .0
+                .read_type_flags()
+                .0
+                .has_feature(crate::types::PyTypeFlags::HAS_DICT)
             || self.0.read_type_flags().1 > 0
     }
 }

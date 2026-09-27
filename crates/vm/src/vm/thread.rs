@@ -1110,7 +1110,7 @@ pub fn get_all_current_exceptions(vm: &VirtualMachine) -> Vec<(u64, Option<PyBas
     let registry = vm.state.thread_frames.lock();
     registry
         .iter()
-        .map(|(id, slot)| (*id, slot.exception.to_owned()))
+        .map(|(id, slot)| (*id, slot.exception.load_owned()))
         .collect()
 }
 

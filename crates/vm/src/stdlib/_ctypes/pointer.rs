@@ -249,8 +249,7 @@ impl AsNumber for PyCPointerType {
     }
 }
 
-/// PyCPointer - Pointer instance
-/// `contents` is a computed property, not a stored field.
+// `contents` is a computed property, not a stored field.
 #[pyclass(
     name = "_Pointer",
     base = PyCData,

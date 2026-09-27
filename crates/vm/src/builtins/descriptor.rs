@@ -33,10 +33,11 @@ pub struct PyDescriptorOwned {
 
 #[pyclass(name = "method_descriptor", module = false)]
 pub struct PyMethodDescriptor {
+    #[pymember(name = "__objclass__", path = "typ")]
+    #[pymember(name = "__name__", path = "name")]
     pub common: PyDescriptor,
     pub method: &'static PyMethodDef,
     // vectorcall: vector_call_func,
-    pub objclass: &'static Py<PyType>, // TODO: move to tp_members
     /// Prevent HeapMethodDef from being freed while this descriptor references it
     pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
@@ -50,7 +51,6 @@ impl PyMethodDescriptor {
                 qualname: PyRwLock::new(None),
             },
             method,
-            objclass: typ,
             _method_def_owner: None,
         }
     }
@@ -78,6 +78,7 @@ impl GetDescriptor for PyMethodDescriptor {
         let descr = Self::_as_pyref(zelf, vm).unwrap();
         let bound = match obj {
             Some(obj) => {
+                method_descr_typecheck(descr, obj, vm)?;
                 if descr.method.flags.contains(PyMethodFlags::METHOD) {
                     if cls
                         .as_ref()
@@ -108,6 +109,9 @@ impl Callable for PyMethodDescriptor {
     type Args = FuncArgs;
     #[inline]
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if let Some(obj) = args.args.first() {
+            method_descr_typecheck(zelf, obj, vm)?;
+        }
         (zelf.method.func)(
             vm,
             args,
@@ -128,11 +132,6 @@ impl PyMethodDescriptor {
 )]
 impl PyMethodDescriptor {
     #[pygetset]
-    const fn __name__(&self) -> &'static PyStrInterned {
-        self.common.name
-    }
-
-    #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.common.typ.name(), self.common.name)
     }
@@ -147,11 +146,6 @@ impl PyMethodDescriptor {
     fn __text_signature__(&self) -> Option<&'static str> {
         let doc = self.method.doc?;
         type_::get_text_signature_from_internal_doc(self.method.name, doc)
-    }
-
-    #[pygetset]
-    fn __objclass__(&self) -> PyTypeRef {
-        self.objclass.to_owned()
     }
 
     #[pymethod]
@@ -179,9 +173,10 @@ impl Representable for PyMethodDescriptor {
 /// METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
 #[pyclass(name = "classmethod_descriptor", module = false)]
 pub struct PyClassMethodDescriptor {
+    #[pymember(name = "__objclass__", path = "typ")]
+    #[pymember(name = "__name__", path = "name")]
     pub common: PyDescriptor,
     pub method: &'static PyMethodDef,
-    pub objclass: &'static Py<PyType>,
     pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
 
@@ -194,7 +189,6 @@ impl PyClassMethodDescriptor {
                 qualname: PyRwLock::new(None),
             },
             method,
-            objclass: typ,
             _method_def_owner: None,
         }
     }
@@ -287,11 +281,6 @@ impl Callable for PyClassMethodDescriptor {
 )]
 impl PyClassMethodDescriptor {
     #[pygetset]
-    const fn __name__(&self) -> &'static PyStrInterned {
-        self.common.name
-    }
-
-    #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.common.typ.name(), self.common.name)
     }
@@ -306,11 +295,6 @@ impl PyClassMethodDescriptor {
     fn __text_signature__(&self) -> Option<&'static str> {
         let doc = self.method.doc?;
         type_::get_text_signature_from_internal_doc(self.method.name, doc)
-    }
-
-    #[pygetset]
-    fn __objclass__(&self) -> PyTypeRef {
-        self.objclass.to_owned()
     }
 }
 
@@ -329,53 +313,138 @@ impl Representable for PyClassMethodDescriptor {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(i32)]
 pub enum MemberKind {
+    Int = 1,
+    Double = 4,
     Object = 6,
+    Uint = 11,
     Bool = 14,
     ObjectEx = 16,
+    /// `Py_ssize_t`. Writable cells are `AtomicIsize`.
+    PySsizeT = 19,
 }
 
 impl MemberKind {
     #[must_use]
     pub fn from_i32(value: i32) -> Option<Self> {
         match value {
+            1 => Some(Self::Int),
+            4 => Some(Self::Double),
             6 => Some(Self::Object),
+            11 => Some(Self::Uint),
             14 => Some(Self::Bool),
             16 => Some(Self::ObjectEx),
+            19 => Some(Self::PySsizeT),
             _ => None,
         }
     }
 }
 
 pub const PY_READONLY: i32 = 1;
-pub(crate) const PY_AUDIT_READ: i32 = 2;
+#[doc(hidden)]
+pub const PY_AUDIT_READ: i32 = 2;
 pub const PY_RELATIVE_OFFSET: i32 = 8;
 
-pub(crate) type MemberSetterFunc =
-    Option<fn(&VirtualMachine, PyObjectRef, PySetterValue) -> PyResult<()>>;
+/// Kind of a `#[pymember]` field. The macro reads [`MemberLayout::KIND`].
+#[doc(hidden)]
+pub trait MemberLayout {
+    const KIND: MemberKind;
+}
+
+/// Writable `#[pymember]` field. Only an atomic cell may change after publication.
+#[doc(hidden)]
+pub trait MemberCell: MemberLayout {}
+
+/// `KIND` of the field named by `probe`. `probe` is not called.
+#[doc(hidden)]
+#[must_use]
+pub const fn member_kind_of<T: MemberLayout, Owner>(
+    _: for<'a> fn(&'a Owner) -> &'a T,
+) -> MemberKind {
+    <T as MemberLayout>::KIND
+}
+
+impl MemberLayout for bool {
+    const KIND: MemberKind = MemberKind::Bool;
+}
+impl MemberLayout for core::sync::atomic::AtomicBool {
+    const KIND: MemberKind = MemberKind::Bool;
+}
+impl MemberCell for core::sync::atomic::AtomicBool {}
+
+impl MemberLayout for i32 {
+    const KIND: MemberKind = MemberKind::Int;
+}
+impl MemberLayout for core::sync::atomic::AtomicI32 {
+    const KIND: MemberKind = MemberKind::Int;
+}
+impl MemberCell for core::sync::atomic::AtomicI32 {}
+
+impl MemberLayout for u32 {
+    const KIND: MemberKind = MemberKind::Uint;
+}
+impl MemberLayout for core::sync::atomic::AtomicU32 {
+    const KIND: MemberKind = MemberKind::Uint;
+}
+impl MemberCell for core::sync::atomic::AtomicU32 {}
+
+// One object pointer. Readonly members may be a plain pointer. Writable
+// members are an atomic cell: `PyAtomicRef<PyObject>` when the pointer is
+// never null, or `PyAtomicRef<Option<PyObject>>` when it may be.
+impl MemberLayout for PyObjectRef {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl MemberLayout for Option<PyObjectRef> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl<T> MemberLayout for PyRef<T> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl<T> MemberLayout for Option<PyRef<T>> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl MemberLayout for crate::object::PyAtomicRef<PyObject> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl MemberLayout for crate::object::PyAtomicRef<Option<PyObject>> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl<T: PyPayload> MemberLayout for crate::object::PyAtomicRef<Option<T>> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl MemberLayout for &'static crate::builtins::PyStrInterned {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl<T: PyPayload> MemberLayout for &'static Py<T> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl MemberCell for crate::object::PyAtomicRef<PyObject> {}
+impl MemberCell for crate::object::PyAtomicRef<Option<PyObject>> {}
+
+impl MemberLayout for f64 {
+    const KIND: MemberKind = MemberKind::Double;
+}
+impl MemberLayout for crate::common::atomic::AtomicF64 {
+    const KIND: MemberKind = MemberKind::Double;
+}
+impl MemberCell for crate::common::atomic::AtomicF64 {}
+
+impl MemberLayout for isize {
+    const KIND: MemberKind = MemberKind::PySsizeT;
+}
+impl MemberLayout for core::sync::atomic::AtomicIsize {
+    const KIND: MemberKind = MemberKind::PySsizeT;
+}
+impl MemberCell for core::sync::atomic::AtomicIsize {}
 
 /// Where `PyMemberDef.offset` points.
 ///
-/// Slot members use a byte offset from the object to an inline pointer cell.
-/// Builtin payloads keep fields behind locks, so those members use a function
-/// and ignore `offset`.
-#[derive(Clone, Copy)]
+/// `Offset` is a byte offset from the object to the field.
+/// `TupleItem` is a struct-sequence element index: the elements live in the
+/// tuple payload, not as separately addressable fields.
+#[derive(Clone, Copy, Debug)]
 pub enum MemberAccess {
-    Func {
-        get: fn(&VirtualMachine, PyObjectRef) -> PyResult,
-        set: MemberSetterFunc,
-    },
-    Slot,
+    Offset,
     TupleItem,
-}
-
-impl core::fmt::Debug for MemberAccess {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Func { set, .. } => f.debug_struct("Func").field("set", &set.is_some()).finish(),
-            Self::Slot => write!(f, "Slot"),
-            Self::TupleItem => write!(f, "TupleItem"),
-        }
-    }
 }
 
 /// Same fields as `PyMemberDef`: name, type, offset, flags, doc.
@@ -391,6 +460,10 @@ impl PyMemberDef {
     pub(crate) fn readonly(&self) -> bool {
         self.flags & PY_READONLY != 0
     }
+
+    pub(crate) fn audit_read(&self) -> bool {
+        self.flags & PY_AUDIT_READ != 0
+    }
 }
 
 impl core::fmt::Debug for PyMemberDef {
@@ -405,21 +478,69 @@ impl core::fmt::Debug for PyMemberDef {
     }
 }
 
+/// Const-constructible member spec. Registered as a `PyMemberDef`.
+#[derive(Clone, Copy)]
+pub struct PyMemberSpec {
+    pub name: &'static str,
+    pub kind: MemberKind,
+    pub offset: isize,
+    pub flags: i32,
+    pub doc: Option<&'static str>,
+}
+
+impl PyMemberSpec {
+    /// Concatenate cfg-gated member groups into one table.
+    #[must_use]
+    pub const fn concat<const N: usize>(parts: &[&[Self]]) -> [Self; N] {
+        const EMPTY: PyMemberSpec = PyMemberSpec {
+            name: "",
+            kind: MemberKind::Object,
+            offset: 0,
+            flags: 0,
+            doc: None,
+        };
+        let mut out = [EMPTY; N];
+        let mut index = 0;
+        let mut part_index = 0;
+        while part_index < parts.len() {
+            let part = parts[part_index];
+            let mut item_index = 0;
+            while item_index < part.len() {
+                out[index] = part[item_index];
+                index += 1;
+                item_index += 1;
+            }
+            part_index += 1;
+        }
+        out
+    }
+}
+
 // = PyMemberDescrObject
 #[pyclass(name = "member_descriptor", module = false)]
 #[derive(Debug)]
 pub struct PyMemberDescriptor {
+    #[pymember(name = "__objclass__", path = "typ")]
+    #[pymember(name = "__name__", path = "name")]
     pub common: PyDescriptorOwned,
     pub member: PyMemberDef,
     pub access: MemberAccess,
 }
 
 impl PyMemberDescriptor {
-    /// Byte offset of an instance-slot member. `None` when this is not a slot.
+    /// Byte offset of an object-pointer member. `None` for bool, float, and
+    /// struct-sequence indexes, which slot specialization must not treat as cells.
     pub(crate) fn slot_offset(&self) -> Option<isize> {
-        match self.access {
-            MemberAccess::Slot => Some(self.member.offset),
-            _ => None,
+        if matches!(self.access, MemberAccess::TupleItem) {
+            return None;
+        }
+        match self.member.kind {
+            MemberKind::Object | MemberKind::ObjectEx => Some(self.member.offset),
+            MemberKind::Bool
+            | MemberKind::Double
+            | MemberKind::Int
+            | MemberKind::Uint
+            | MemberKind::PySsizeT => None,
         }
     }
 
@@ -430,8 +551,7 @@ impl PyMemberDescriptor {
             })?;
         }
         match self.access {
-            MemberAccess::Func { get, .. } => get(vm, obj),
-            MemberAccess::Slot => get_slot_from_object(&obj, self.member.offset, &self.member, vm),
+            MemberAccess::Offset => member_get_one(&obj, self.member.offset, &self.member, vm),
             MemberAccess::TupleItem => {
                 let index = self.member.offset as usize;
                 let tuple = obj.downcast_ref::<PyTuple>().ok_or_else(|| {
@@ -456,12 +576,8 @@ impl PyMemberDescriptor {
             return Err(vm.new_attribute_error("readonly attribute"));
         }
         match self.access {
-            MemberAccess::Func { set, .. } => match set {
-                Some(set) => set(vm, obj, value),
-                None => Err(vm.new_attribute_error("readonly attribute")),
-            },
-            MemberAccess::Slot => {
-                set_slot_at_object(&obj, self.member.offset, &self.member, value, vm)
+            MemberAccess::Offset => {
+                member_set_one(&obj, self.member.offset, &self.member, value, vm)
             }
             MemberAccess::TupleItem => Err(vm.new_attribute_error("readonly attribute")),
         }
@@ -487,18 +603,6 @@ fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResul
 
 #[pyclass(with(GetDescriptor, Representable), flags(DISALLOW_INSTANTIATION))]
 impl PyMemberDescriptor {
-    #[pymember]
-    fn __objclass__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-        Ok(zelf.common.typ.clone().into())
-    }
-
-    #[pymember]
-    fn __name__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-        Ok(zelf.common.name.to_owned().into())
-    }
-
     #[pygetset]
     fn __doc__(&self) -> Option<String> {
         self.member.doc.to_owned()
@@ -556,18 +660,86 @@ impl PyMemberDescriptor {
     }
 }
 
-// PyMember_GetOne for a value stored in the instance slot array.
-fn get_slot_from_object(
+fn member_addr(obj: &PyObject, offset: isize) -> *mut u8 {
+    (obj as *const PyObject as *const u8).wrapping_add(offset as usize) as *mut u8
+}
+
+fn warn_member(vm: &VirtualMachine, message: &str) -> PyResult<()> {
+    crate::warn::warn(
+        vm.ctx.new_str(message).into(),
+        Some(vm.ctx.exceptions.runtime_warning.to_owned()),
+        1,
+        None,
+        vm,
+    )
+}
+
+fn load_i32(obj: &PyObject, offset: isize, readonly: bool) -> i32 {
+    let addr = member_addr(obj, offset);
+    if readonly {
+        // SAFETY: a readonly int member addresses an `i32` that is not written
+        // after publication.
+        unsafe { addr.cast::<i32>().read() }
+    } else {
+        // SAFETY: a writable int member addresses an aligned `AtomicI32`.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicI32>())
+                .load(core::sync::atomic::Ordering::Relaxed)
+        }
+    }
+}
+
+fn load_u32(obj: &PyObject, offset: isize, readonly: bool) -> u32 {
+    let addr = member_addr(obj, offset);
+    if readonly {
+        // SAFETY: a readonly uint member addresses a `u32` that is not written
+        // after publication.
+        unsafe { addr.cast::<u32>().read() }
+    } else {
+        // SAFETY: a writable uint member addresses an aligned `AtomicU32`.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU32>())
+                .load(core::sync::atomic::Ordering::Relaxed)
+        }
+    }
+}
+
+fn member_as_c_long(value: &PyObject, vm: &VirtualMachine) -> PyResult<core::ffi::c_long> {
+    let int_obj = value.try_index(vm)?;
+    core::ffi::c_long::try_from(int_obj.as_bigint())
+        .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))
+}
+
+fn member_uint_value(
+    value: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<(u32, Option<&'static str>)> {
+    let int_obj = value.try_index(vm)?;
+    let big = int_obj.as_bigint();
+    if big.sign() == malachite_bigint::Sign::Minus {
+        let long_val = core::ffi::c_long::try_from(big)
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
+        // Keeps the low 32 bits whether `c_long` is 32 or 64 bits wide.
+        let stored = long_val as u32;
+        return Ok((stored, Some("Writing negative value into unsigned field")));
+    }
+    core::ffi::c_ulong::try_from(big)
+        .map_err(|_| vm.new_overflow_error("Python int too large to convert to C unsigned long"))?;
+    let wide = u64::try_from(big).expect("a value that fits c_ulong fits u64");
+    let stored = wide as u32;
+    let warning = (wide > u64::from(u32::MAX)).then_some("Truncation of value to unsigned int");
+    Ok((stored, warning))
+}
+
+// PyMember_GetOne. `offset` is a byte offset from the object to the field.
+fn member_get_one(
     obj: &PyObject,
     offset: isize,
     member: &PyMemberDef,
     vm: &VirtualMachine,
 ) -> PyResult {
-    let slot = match member.kind {
+    let value = match member.kind {
         MemberKind::Object => obj.get_slot(offset).unwrap_or_else(|| vm.ctx.none()),
-        MemberKind::Bool => obj
-            .get_slot(offset)
-            .unwrap_or_else(|| vm.ctx.new_bool(false).into()),
         MemberKind::ObjectEx => obj.get_slot(offset).ok_or_else(|| {
             vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
@@ -575,12 +747,62 @@ fn get_slot_from_object(
                 member.name
             ))
         })?,
+        MemberKind::Bool => {
+            // SAFETY: a bool member addresses an `AtomicBool` or a `bool`
+            // (one byte, naturally aligned). The macro rejects any other field
+            // type. A plain `bool` is not written after the object is published.
+            let raw = unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicBool>())
+                    .load(core::sync::atomic::Ordering::Relaxed)
+            };
+            vm.ctx.new_bool(raw).into()
+        }
+        MemberKind::Int => vm
+            .ctx
+            .new_int(load_i32(obj, offset, member.readonly()))
+            .into(),
+        MemberKind::Uint => vm
+            .ctx
+            .new_int(load_u32(obj, offset, member.readonly()))
+            .into(),
+        MemberKind::Double => {
+            let raw = if member.readonly() {
+                // SAFETY: a readonly double member addresses an `f64` that is
+                // not written after publication. A plain `f64` may be only
+                // 4-byte aligned, so this is a plain read and not an atomic
+                // access.
+                unsafe { member_addr(obj, offset).cast::<f64>().read() }
+            } else {
+                // SAFETY: a writable double member addresses an aligned
+                // `AtomicF64`. The macro accepts only `MemberCell`.
+                unsafe {
+                    (*member_addr(obj, offset).cast::<crate::common::atomic::AtomicF64>())
+                        .load(core::sync::atomic::Ordering::Relaxed)
+                }
+            };
+            vm.ctx.new_float(raw).into()
+        }
+        MemberKind::PySsizeT => {
+            let raw = if member.readonly() {
+                // SAFETY: a readonly `Py_ssize_t` member addresses an `isize`
+                // that is not written after publication.
+                unsafe { member_addr(obj, offset).cast::<isize>().read() }
+            } else {
+                // SAFETY: a writable `Py_ssize_t` member addresses an aligned
+                // `AtomicIsize`. The macro accepts only `MemberCell`.
+                unsafe {
+                    (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicIsize>())
+                        .load(core::sync::atomic::Ordering::Relaxed)
+                }
+            };
+            vm.ctx.new_int(raw).into()
+        }
     };
-    Ok(slot)
+    Ok(value)
 }
 
-// PyMember_SetOne for a value stored in the instance slot array.
-fn set_slot_at_object(
+// PyMember_SetOne.
+fn member_set_one(
     obj: &PyObject,
     offset: isize,
     member: &PyMemberDef,
@@ -588,35 +810,17 @@ fn set_slot_at_object(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     if matches!(value, PySetterValue::Delete)
-        && member.kind != MemberKind::ObjectEx
-        && member.kind != MemberKind::Object
+        && !matches!(member.kind, MemberKind::Object | MemberKind::ObjectEx)
     {
         return Err(vm.new_type_error("can't delete numeric/char attribute"));
     }
     match member.kind {
         MemberKind::Object => match value {
-            PySetterValue::Assign(v) => {
-                obj.set_slot(offset, Some(v));
-            }
-            PySetterValue::Delete => {
-                obj.set_slot(offset, None);
-            }
-        },
-        MemberKind::Bool => match value {
-            PySetterValue::Assign(v) => {
-                if !v.class().is(vm.ctx.types.bool_type) {
-                    return Err(vm.new_type_error("attribute value type must be bool"));
-                }
-                obj.set_slot(offset, Some(v))
-            }
-            PySetterValue::Delete => {
-                return Err(vm.new_type_error("can't delete numeric/char attribute"));
-            }
+            PySetterValue::Assign(v) => obj.set_slot(offset, Some(v)),
+            PySetterValue::Delete => obj.set_slot(offset, None),
         },
         MemberKind::ObjectEx => match value {
-            PySetterValue::Assign(v) => {
-                obj.set_slot(offset, Some(v));
-            }
+            PySetterValue::Assign(v) => obj.set_slot(offset, Some(v)),
             PySetterValue::Delete => {
                 if obj.get_slot(offset).is_none() {
                     return Err(vm.new_attribute_error(member.name.clone()));
@@ -624,8 +828,87 @@ fn set_slot_at_object(
                 obj.set_slot(offset, None);
             }
         },
+        MemberKind::Bool => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            if !value.class().is(vm.ctx.types.bool_type) {
+                return Err(vm.new_type_error("attribute value type must be bool"));
+            }
+            let stored = value.is(&vm.ctx.true_value);
+            // SAFETY: a writable bool member addresses an `AtomicBool`.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicBool>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        MemberKind::Int => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let long_val = member_as_c_long(&value, vm)?;
+            let stored = long_val as i32;
+            // SAFETY: a writable int member addresses an aligned `AtomicI32`.
+            // Readonly members are rejected before this call.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicI32>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+            let truncated = long_val > i32::MAX as core::ffi::c_long
+                || long_val < i32::MIN as core::ffi::c_long;
+            if truncated {
+                warn_member(vm, "Truncation of value to int")?;
+            }
+        }
+        MemberKind::Uint => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let (stored, warning) = member_uint_value(&value, vm)?;
+            // SAFETY: a writable uint member addresses an aligned `AtomicU32`.
+            // Readonly members are rejected before this call.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicU32>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+            if let Some(warning) = warning {
+                warn_member(vm, warning)?;
+            }
+        }
+        MemberKind::Double => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let number = value.try_float(vm)?.to_f64();
+            // SAFETY: a writable double member addresses an aligned `AtomicF64`.
+            // Readonly members are rejected before this call.
+            unsafe {
+                (*member_addr(obj, offset).cast::<crate::common::atomic::AtomicF64>())
+                    .store(number, core::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        MemberKind::PySsizeT => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            // PyLong_AsSsize_t: an int (bool included). No `__index__`.
+            if !value.fast_isinstance(vm.ctx.types.int_type) {
+                return Err(vm.new_type_error("an integer is required"));
+            }
+            let Some(int_obj) = value.downcast_ref::<crate::builtins::PyInt>() else {
+                return Err(vm.new_type_error("an integer is required"));
+            };
+            let stored = isize::try_from(int_obj.as_bigint()).map_err(|_| {
+                vm.new_overflow_error("Python int too large to convert to C ssize_t")
+            })?;
+            // SAFETY: a writable `Py_ssize_t` member addresses an aligned
+            // `AtomicIsize`. Readonly members are rejected before this call.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicIsize>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+        }
     }
-
     Ok(())
 }
 
@@ -665,6 +948,25 @@ impl GetDescriptor for PyMemberDescriptor {
     }
 }
 
+fn method_descr_typecheck(
+    descr: &PyMethodDescriptor,
+    obj: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    if descr.method.flags.contains(PyMethodFlags::STATIC)
+        || descr.method.flags.contains(PyMethodFlags::CLASS)
+        || obj.fast_isinstance(descr.common.typ)
+    {
+        return Ok(());
+    }
+    Err(vm.new_type_error(format!(
+        "descriptor '{}' for '{}' objects doesn't apply to a '{}' object",
+        descr.common.name.as_str(),
+        descr.common.typ.name(),
+        obj.class().name()
+    )))
+}
+
 /// Vectorcall for method_descriptor: calls native method directly
 fn vectorcall_method_descriptor(
     zelf_obj: &PyObject,
@@ -674,6 +976,11 @@ fn vectorcall_method_descriptor(
     vm: &VirtualMachine,
 ) -> PyResult {
     let zelf: &Py<PyMethodDescriptor> = zelf_obj.downcast_ref().unwrap();
+    if nargs > 0
+        && let Some(obj) = args.first()
+    {
+        method_descr_typecheck(zelf, obj, vm)?;
+    }
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
     (zelf.method.func)(
         vm,
@@ -1058,7 +1365,9 @@ fn parse_buffer_flags(
 #[pyclass(name = "wrapper_descriptor", module = false)]
 #[derive(Debug)]
 pub(crate) struct PyWrapper {
+    #[pymember(name = "__objclass__")]
     pub typ: &'static Py<PyType>,
+    #[pymember(name = "__name__")]
     pub name: &'static PyStrInterned,
     pub wrapped: SlotFunc,
     /// Slot text, including the text signature.
@@ -1120,18 +1429,8 @@ impl Callable for PyWrapper {
 )]
 impl PyWrapper {
     #[pygetset]
-    fn __name__(&self) -> &'static PyStrInterned {
-        self.name
-    }
-
-    #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.typ.name(), self.name)
-    }
-
-    #[pygetset]
-    fn __objclass__(&self) -> PyTypeRef {
-        self.typ.to_owned()
     }
 
     #[pygetset]
@@ -1171,6 +1470,7 @@ impl Representable for PyWrapper {
 #[derive(Debug)]
 pub(crate) struct PyMethodWrapper {
     pub wrapper: PyRef<PyWrapper>,
+    #[pymember(name = "__self__")]
     #[pytraverse(skip)]
     pub obj: PyObjectRef,
 }
@@ -1203,11 +1503,6 @@ impl Callable for PyMethodWrapper {
     flags(DISALLOW_INSTANTIATION)
 )]
 impl PyMethodWrapper {
-    #[pygetset]
-    fn __self__(&self) -> PyObjectRef {
-        self.obj.clone()
-    }
-
     #[pygetset]
     fn __name__(&self) -> &'static PyStrInterned {
         self.wrapper.name

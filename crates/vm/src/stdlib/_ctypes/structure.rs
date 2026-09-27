@@ -662,7 +662,6 @@ impl SetAttr for PyCStructType {
     }
 }
 
-/// PyCStructure - base class for Structure instances
 #[pyclass(
     module = "_ctypes",
     name = "Structure",

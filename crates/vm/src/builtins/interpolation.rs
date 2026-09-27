@@ -13,15 +13,16 @@ use crate::{
 use itertools::Itertools;
 use rustpython_common::wtf8::Wtf8Buf;
 
-/// Interpolation object for t-strings (PEP 750).
-///
-/// Represents an interpolated expression within a template string.
 #[pyclass(module = "string.templatelib", name = "Interpolation")]
 #[derive(Debug, Clone)]
 pub struct PyInterpolation {
+    #[pymember(type = "object_ex")]
     pub value: PyObjectRef,
+    #[pymember(type = "object_ex")]
     pub expression: PyStrRef,
+    #[pymember(type = "object_ex")]
     pub conversion: PyObjectRef, // None or 's', 'r', 'a'
+    #[pymember(type = "object_ex")]
     pub format_spec: PyStrRef,
 }
 
@@ -117,26 +118,6 @@ impl PyInterpolation {
             ctx.intern_str("conversion").to_owned().into(),
             ctx.intern_str("format_spec").to_owned().into(),
         ])
-    }
-
-    #[pygetset]
-    fn value(&self) -> PyObjectRef {
-        self.value.clone()
-    }
-
-    #[pygetset]
-    fn expression(&self) -> PyStrRef {
-        self.expression.clone()
-    }
-
-    #[pygetset]
-    fn conversion(&self) -> PyObjectRef {
-        self.conversion.clone()
-    }
-
-    #[pygetset]
-    fn format_spec(&self) -> PyStrRef {
-        self.format_spec.clone()
     }
 
     #[pyclassmethod]

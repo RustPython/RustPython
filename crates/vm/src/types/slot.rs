@@ -599,7 +599,7 @@ pub(crate) fn hackcheck_setattro(
                 obj_cls.slot_name()
             )));
         }
-        base = b.base.deref().map(|cls| cls.to_owned());
+        base = b.base.load_owned();
     }
     Ok(())
 }

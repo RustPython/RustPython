@@ -2,7 +2,7 @@ use crate::util::{ItemMeta, ItemMetaInner};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{DeriveInput, Ident, Item, Result};
-use syn_ext::ext::{AttributeExt, GetIdent};
+use syn_ext::ext::{AttributeExt, AttributeIteratorExt, GetIdent};
 use syn_ext::types::{Meta, PunctuatedNestedMeta};
 
 // #[pystruct_sequence_data] - For Data structs
@@ -524,13 +524,18 @@ pub(crate) fn impl_pystruct_sequence(
     } else {
         class_name.clone()
     };
-    let doc = rustpython_doc::get(module_class_name.as_str()).or_else(|| {
+    let db_doc = rustpython_doc::get(module_class_name.as_str()).or_else(|| {
         // os re-exports the posix/nt struct sequences.
         let class_name = module_class_name.strip_prefix("os.")?;
         rustpython_doc::get(&format!("posix.{class_name}"))
             .or_else(|| rustpython_doc::get(&format!("nt.{class_name}")))
     });
-    let doc = doc.filter(|doc| !doc.is_empty());
+    let db_doc = db_doc.filter(|doc| !doc.is_empty()).map(str::to_owned);
+    let doc = struct_item
+        .attrs
+        .doc()
+        .filter(|doc| !doc.is_empty())
+        .or(db_doc);
     let doc = match doc {
         Some(doc) => quote!(Some(#doc)),
         None => quote!(None),

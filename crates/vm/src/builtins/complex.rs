@@ -17,12 +17,11 @@ use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::hash;
 
-/// Create a complex number from a real part and an optional imaginary part.
-///
-/// This is equivalent to (real + imag*1j) where imag defaults to 0.
 #[pyclass(module = false, name = "complex")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {
+    #[pymember(name = "real", path = "re")]
+    #[pymember(name = "imag", path = "im")]
     value: Complex64,
 }
 
@@ -551,18 +550,6 @@ impl PyComplex {
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyComplex {
-    #[pymember]
-    fn real(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-        Ok(vm.ctx.new_float(zelf.as_complex().re).into())
-    }
-
-    #[pymember]
-    fn imag(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-        Ok(vm.ctx.new_float(zelf.as_complex().im).into())
-    }
-
     #[pymethod]
     fn conjugate(&self) -> Complex64 {
         self.value.conj()

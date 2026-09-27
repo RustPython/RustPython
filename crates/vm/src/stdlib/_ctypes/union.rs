@@ -534,7 +534,6 @@ impl SetAttr for PyCUnionType {
     }
 }
 
-/// PyCUnion - base class for Union
 #[pyclass(module = "_ctypes", name = "Union", base = PyCData, metaclass = "PyCUnionType")]
 #[repr(transparent)]
 pub(crate) struct PyCUnion(pub PyCData);

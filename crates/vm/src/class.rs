@@ -140,6 +140,9 @@ pub trait PyClassDef {
     const BASICSIZE: usize;
     const ITEMSIZE: usize = 0;
     const UNHASHABLE: bool = false;
+    const MEMBERS: &'static [crate::builtins::descriptor::PyMemberSpec] = &[];
+
+    fn assert_member_layout() {}
 
     // due to restriction of rust trait system, object.__base__ is None
     // but PyBaseObject::Base will be PyBaseObject.
@@ -240,6 +243,22 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
 
+        Self::assert_member_layout();
+        for member in Self::MEMBERS {
+            class.set_str_attr(
+                member.name,
+                ctx.new_member(
+                    member.name,
+                    member.kind,
+                    member.offset,
+                    member.flags,
+                    class,
+                    member.doc,
+                ),
+                ctx,
+            );
+        }
+
         Self::impl_extend_class(ctx, class);
 
         if let Some(doc) = Self::DOC {
@@ -284,8 +303,14 @@ pub trait PyClassImpl: PyClassDef {
         // Add slot wrappers using SLOT_DEFS array
         add_operators::<Self>(class, ctx);
 
-        // Inherit slots from base types after slots are fully initialized
-        for base in class.bases.read().as_slice() {
+        // Same walk as init_slots: a slot such as tp_init is copied only from
+        // a base that defines it, so a static grandchild must see that base
+        // in the MRO, not only its direct bases.
+        let mro = {
+            let guard = class.mro.read();
+            guard[1..].to_vec()
+        };
+        for base in &mro {
             class.inherit_slots(base);
         }
 

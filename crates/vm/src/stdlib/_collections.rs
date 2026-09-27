@@ -19,7 +19,7 @@ mod _collections {
         function::{
             ArgIterable, FuncArgs, KwArgs, OptionalArg, PyComparisonValue, PySetterValue, PySsize,
         },
-        object::{Traverse, TraverseFn},
+        object::{PyAtomicRef, Traverse, TraverseFn},
         protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
         sequence::{MutObjectSequenceOp, OptionalRangeArgs},
@@ -925,10 +925,20 @@ mod _collections {
         unhashable = true,
         traverse = "manual"
     )]
-    #[derive(Debug, Default)]
+    #[derive(Debug)]
     struct PyDefaultDict {
         dict: PyDict,
-        default_factory: PyRwLock<Option<PyObjectRef>>,
+        #[pymember(writable)]
+        default_factory: PyAtomicRef<Option<PyObject>>,
+    }
+
+    impl Default for PyDefaultDict {
+        fn default() -> Self {
+            Self {
+                dict: PyDict::default(),
+                default_factory: PyAtomicRef::new_empty(),
+            }
+        }
     }
 
     // SAFETY: Traverse visits each owned Python reference at most once.
@@ -940,7 +950,7 @@ mod _collections {
 
         fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
             Traverse::clear(&mut self.dict, out);
-            if let Some(factory) = self.default_factory.get_mut().take() {
+            if let Some(factory) = self.default_factory.store(None) {
                 out.push(factory);
             }
         }
@@ -951,33 +961,12 @@ mod _collections {
         flags(BASETYPE, MAPPING, HAS_DICT)
     )]
     impl PyDefaultDict {
-        #[pymember(type = "object")]
-        fn default_factory(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-            let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-            Ok(zelf
-                .default_factory
-                .read()
-                .clone()
-                .unwrap_or_else(|| vm.ctx.none()))
-        }
-
-        #[pymember(type = "object", setter)]
-        fn set_default_factory(
-            vm: &VirtualMachine,
-            zelf: PyObjectRef,
-            value: PySetterValue,
-        ) -> PyResult<()> {
-            let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-            *zelf.default_factory.write() = match value {
-                PySetterValue::Assign(v) if !v.is(&vm.ctx.none()) => Some(v),
-                _ => None,
-            };
-            Ok(())
-        }
-
         #[pymethod]
         fn __missing__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let factory = self.default_factory.read().clone();
+            let factory = self
+                .default_factory
+                .load_owned()
+                .filter(|factory| !vm.is_none(factory));
 
             if let Some(f) = factory {
                 let value = f.call((), vm)?;
@@ -990,11 +979,14 @@ mod _collections {
         #[pymethod]
         #[pymethod(name = "__copy__")]
         fn copy(&self) -> Self {
-            let default_factory = self.default_factory.read().clone();
+            let default_factory = match self.default_factory.load_owned() {
+                Some(factory) => PyAtomicRef::from(Some(factory)),
+                None => PyAtomicRef::new_empty(),
+            };
 
             Self {
                 dict: self.dict.copy(),
-                default_factory: PyRwLock::new(default_factory),
+                default_factory,
             }
         }
 
@@ -1002,7 +994,11 @@ mod _collections {
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let cls = zelf.class().to_owned();
 
-            let default_factory = zelf.default_factory.read().clone();
+            // NULL and None both mean "no factory": the args tuple is empty.
+            let default_factory = zelf
+                .default_factory
+                .load_owned()
+                .filter(|factory| !vm.is_none(factory));
             let factory_tuple_elements =
                 default_factory.map_or_else(Vec::new, |factory| vec![factory]);
             let factory_tuple = vm.ctx.new_tuple(factory_tuple_elements);
@@ -1034,13 +1030,13 @@ mod _collections {
                     return not_implemented();
                 }
 
-                (zelf.default_factory.read().clone(), zelf.dict.copy())
+                (zelf.default_factory.load_owned(), zelf.dict.copy())
             } else if let Some(zelf) = rhs.downcast_ref::<Self>() {
                 let Some(dict) = lhs.downcast_ref::<PyDict>() else {
                     return not_implemented();
                 };
 
-                (zelf.default_factory.read().clone(), dict.copy())
+                (zelf.default_factory.load_owned(), dict.copy())
             } else {
                 return Err(vm.new_type_error(format!(
                     "unsupported operand type(s) for |: '{}' and '{}'",
@@ -1053,7 +1049,10 @@ mod _collections {
 
             Ok(Self {
                 dict,
-                default_factory: PyRwLock::new(default_factory),
+                default_factory: match default_factory {
+                    Some(factory) => PyAtomicRef::from(Some(factory)),
+                    None => PyAtomicRef::new_empty(),
+                },
             }
             .to_pyobject(vm))
         }
@@ -1077,7 +1076,7 @@ mod _collections {
                 }
             })?;
 
-            *zelf.default_factory.write() = default_factory;
+            zelf.default_factory.store(default_factory);
 
             zelf.dict.update(
                 OptionalArg::from_option(args.take_positional()),
@@ -1091,7 +1090,7 @@ mod _collections {
 
     impl Representable for PyDefaultDict {
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let default_factory = zelf.default_factory.read();
+            let default_factory = zelf.default_factory.load_owned();
 
             let factory_repr = match default_factory.as_ref() {
                 Some(factory) => {
@@ -1183,7 +1182,8 @@ mod _collections {
     struct PyTupleGetter {
         #[pytraverse(skip)]
         index: isize,
-        doc: PyRwLock<Option<PyObjectRef>>,
+        #[pymember(name = "__doc__", writable)]
+        doc: PyAtomicRef<Option<PyObject>>,
     }
 
     impl Constructor for PyTupleGetter {
@@ -1196,7 +1196,7 @@ mod _collections {
         ) -> PyResult<Self> {
             Ok(Self {
                 index,
-                doc: PyRwLock::new(Some(doc)),
+                doc: PyAtomicRef::from(Some(doc)),
             })
         }
     }
@@ -1204,27 +1204,7 @@ mod _collections {
     #[pyclass(with(Constructor, GetDescriptor, Representable))]
     impl PyTupleGetter {
         fn doc(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.doc.read().clone().unwrap_or_else(|| vm.ctx.none())
-        }
-
-        #[pymember(type = "object")]
-        fn __doc__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-            let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-            Ok(zelf.doc(vm))
-        }
-
-        #[pymember(type = "object", setter)]
-        fn set___doc__(
-            vm: &VirtualMachine,
-            zelf: PyObjectRef,
-            value: PySetterValue,
-        ) -> PyResult<()> {
-            let zelf: &Py<Self> = zelf.try_to_value(vm)?;
-            *zelf.doc.write() = match value {
-                PySetterValue::Assign(doc) => Some(doc),
-                PySetterValue::Delete => None,
-            };
-            Ok(())
+            self.doc.load_owned().unwrap_or_else(|| vm.ctx.none())
         }
 
         #[pyslot]
