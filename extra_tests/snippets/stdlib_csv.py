@@ -345,7 +345,7 @@ def test_quote_nonnumeric_writer():
         '42,"1,2"\r\n'
         '""\r\n'
         '""\r\n'
-        '\r\n'
+        "\r\n"
         '"",""\r\n'
     ), repr(buf.getvalue())
 
@@ -361,4 +361,3 @@ def test_quote_nonnumeric_writer():
 
 
 test_quote_nonnumeric_writer()
-
