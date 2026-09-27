@@ -128,7 +128,6 @@ class RowFactoryTests(MemoryDatabaseMixin, unittest.TestCase):
         row = self.con.execute("select 1, 2").fetchone()
         self.assertIsInstance(row, list)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sqlite_row_index(self):
         row = self.con.execute("select 1 as a_1, 2 as b").fetchone()
         self.assertIsInstance(row, sqlite.Row)
