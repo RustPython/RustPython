@@ -145,10 +145,16 @@ pub trait StaticType {
     where
         Self: PyClassImpl,
     {
+        // inherit_special COPYVAL(tp_itemsize): the direct base, and only when
+        // this type left the slot at 0. The base type object already exists.
+        let mut slots = Self::make_slots();
+        if slots.itemsize == 0 {
+            slots.itemsize = Self::static_baseclass().slots.itemsize;
+        }
         PyType::new_static(
             Self::static_baseclass().to_owned(),
             Default::default(),
-            Self::make_slots(),
+            slots,
             Self::static_metaclass().to_owned(),
         )
         .unwrap()

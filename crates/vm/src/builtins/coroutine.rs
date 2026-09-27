@@ -42,6 +42,7 @@ impl PyPayload for PyCoroutine {
 }
 
 #[pyclass(
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
     with(Py, Representable, Destructor)
 )]

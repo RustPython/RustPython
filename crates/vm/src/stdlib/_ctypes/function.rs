@@ -2004,7 +2004,17 @@ impl PyCThunk {
 unsafe impl Send for PyCThunk {}
 unsafe impl Sync for PyCThunk {}
 
-#[pyclass]
+/// `ffi_type`: `size_t` size, two `unsigned short`s, then a pointer.
+#[repr(C)]
+#[allow(dead_code)]
+struct FfiTypeLayout {
+    _size: usize,
+    _alignment: u16,
+    _type_code: u16,
+    _elements: *mut *mut u8,
+}
+
+#[pyclass(itemsize = core::mem::size_of::<FfiTypeLayout>())]
 impl PyCThunk {
     #[pygetset]
     fn callable(&self) -> PyObjectRef {

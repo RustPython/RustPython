@@ -1724,6 +1724,7 @@ impl Py<PyType> {
 }
 
 #[pyclass(
+    itemsize = core::mem::size_of::<crate::builtins::descriptor::PyMemberDefLayout>(),
     with(
         Py,
         Constructor,
@@ -2601,14 +2602,10 @@ impl Constructor for PyType {
                 tuple.try_into_typed(vm)?
             };
 
-            // Check if base has itemsize > 0 - can't add arbitrary slots to variable-size types
-            // Types like int, bytes, tuple have itemsize > 0 and don't allow custom slots
-            // But types like weakref.ref have itemsize = 0 and DO allow slots
-            let has_custom_slots = slots
-                .as_slice()
-                .iter()
-                .any(|s| !matches!(s.as_bytes(), b"__dict__" | b"__weakref__"));
-            if has_custom_slots && base.slots.itemsize > 0 {
+            // Any nonempty __slots__ is rejected when the base has a variable
+            // item size, including a tuple of only `__dict__` or `__weakref__`.
+            // Types like weakref.ref have itemsize 0 and do allow slots.
+            if !slots.as_slice().is_empty() && base.slots.itemsize > 0 {
                 return Err(vm.new_type_error(format!(
                     "nonempty __slots__ not supported for subtype of '{}'",
                     base.name()
@@ -2725,7 +2722,9 @@ impl Constructor for PyType {
         // Add HAS_WEAKREF if:
         // 1. __slots__ is not defined (automatic weakref support), OR
         // 2. __weakref__ is in __slots__
-        let may_add_weakref = !base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
+        // A variable-size base does not gain a weakref slot.
+        let may_add_weakref =
+            base.slots.itemsize == 0 && !base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
         if (heaptype_slots.is_none() && may_add_weakref) || add_weakref {
             flags |= PyTypeFlags::HAS_WEAKREF | PyTypeFlags::MANAGED_WEAKREF;
         }

@@ -1041,6 +1041,7 @@ impl Constructor for PyCode {
 }
 
 #[pyclass(
+    itemsize = core::mem::size_of::<u16>(),
     with(Representable, Constructor, Comparable, Hashable),
     flags(HAS_WEAKREF)
 )]

@@ -590,6 +590,18 @@ pub enum MemberAccess {
     TupleItem,
 }
 
+/// C layout of `PyMemberDef`: name pointer, int type, `Py_ssize_t` offset,
+/// int flags, doc pointer. `size_of` of this is `type`'s `tp_itemsize`.
+#[repr(C)]
+#[allow(dead_code)]
+pub struct PyMemberDefLayout {
+    _name: *const core::ffi::c_char,
+    _type: core::ffi::c_int,
+    _offset: isize,
+    _flags: core::ffi::c_int,
+    _doc: *const core::ffi::c_char,
+}
+
 /// Same fields as `PyMemberDef`: name, type, offset, flags, doc.
 pub struct PyMemberDef {
     pub name: String,

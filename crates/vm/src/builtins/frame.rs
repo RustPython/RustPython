@@ -465,7 +465,11 @@ impl FrameObject {
     }
 }
 
-#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py, Representable))]
+#[pyclass(
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
+    flags(DISALLOW_INSTANTIATION),
+    with(Py, Representable)
+)]
 impl FrameObject {
     #[pygetset]
     pub fn f_globals(&self) -> PyDictRef {

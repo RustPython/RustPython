@@ -18,7 +18,7 @@ use crate::{
 #[derive(Debug)]
 pub struct PySuper {
     #[pymember(name = "__thisclass__")]
-    typ: PyAtomicRef<PyType>,
+    typ: PyAtomicRef<Option<PyType>>,
     #[pymember(name = "__self__")]
     obj: PyAtomicRef<Option<PyObject>>,
     #[pymember(name = "__self_class__")]
@@ -38,22 +38,23 @@ fn bind_super(
 }
 
 impl PySuper {
-    fn new_bound(typ: PyTypeRef, obj: Option<PyObjectRef>, obj_type: Option<PyTypeRef>) -> Self {
+    fn empty() -> Self {
         Self {
-            typ: PyAtomicRef::from(typ),
-            obj: PyAtomicRef::from(obj),
-            obj_type: PyAtomicRef::from(obj_type),
+            typ: PyAtomicRef::from(None),
+            obj: PyAtomicRef::from(None),
+            obj_type: PyAtomicRef::from(None),
         }
     }
 
-    fn store_bound(&self, typ: PyTypeRef, obj: Option<PyObjectRef>, obj_type: Option<PyTypeRef>) {
+    fn store_bound(
+        &self,
+        typ: Option<PyTypeRef>,
+        obj: Option<PyObjectRef>,
+        obj_type: Option<PyTypeRef>,
+    ) {
+        drop(self.typ.store(typ));
         drop(self.obj.store(obj));
         drop(self.obj_type.store(obj_type));
-        drop(self.typ.store(typ));
-    }
-
-    fn thisclass(&self) -> PyTypeRef {
-        self.typ.load_owned()
     }
 }
 
@@ -67,13 +68,9 @@ impl PyPayload for PySuper {
 impl Constructor for PySuper {
     type Args = FuncArgs;
 
-    fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        let (typ, obj, obj_type) = bind_super(
-            vm.ctx.types.object_type.to_owned(), // is this correct?
-            vm.ctx.none(),
-            vm,
-        )?;
-        Ok(Self::new_bound(typ, obj, obj_type))
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        // `tp_new` leaves every field null. `tp_init` fills them in.
+        Ok(Self::empty())
     }
 }
 
@@ -98,77 +95,93 @@ impl Initializer for PySuper {
         Self::Args { py_type, object }: Self::Args,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        // Get the type:
-        let (typ, obj) = if let OptionalArg::Present(ty) = py_type {
-            (ty, object.unwrap_or_none(vm))
-        } else {
-            // Access the InterpreterFrame directly — no need to materialize
-            // a FrameObject just to read code/locals.
-            let iframe_ptr = crate::vm::thread::get_current_frame();
-            if iframe_ptr.is_null() {
-                return Err(vm.new_runtime_error("super(): no current frame"));
-            }
-            let iframe = unsafe { &*iframe_ptr };
-            let code = iframe.code();
-
-            if code.arg_count == 0 {
-                return Err(vm.new_runtime_error("super(): no arguments"));
-            }
-
-            // SAFETY: InterpreterFrame is current and not concurrently mutated.
-            use rustpython_compiler_core::bytecode::CO_FAST_CELL;
-            let fastlocals = iframe.localsplus.fastlocals();
-            let obj = fastlocals[0]
-                .clone()
-                .and_then(|val| {
-                    // If slot 0 is a merged cell (LOCAL|CELL), extract value from cell
-                    if code
-                        .localspluskinds
-                        .first()
-                        .is_some_and(|&k| k & CO_FAST_CELL != 0)
-                    {
-                        val.downcast_ref::<PyCell>().and_then(|c| c.get())
-                    } else {
-                        Some(val)
-                    }
-                })
-                .ok_or_else(|| vm.new_runtime_error("super(): arg[0] deleted"))?;
-
-            let mut typ = None;
-            // Search for __class__ in freevars using localspluskinds
-            let nlocalsplus = code.localspluskinds.len();
-            let nfrees = code.freevars.len();
-            let free_start = nlocalsplus - nfrees;
-            for (i, var) in code.freevars.iter().enumerate() {
-                if var.as_bytes() == b"__class__" {
-                    let class = fastlocals[free_start + i]
-                        .as_ref()
-                        .and_then(|v| v.downcast_ref::<PyCell>())
-                        .and_then(|c| c.get())
-                        .ok_or_else(|| vm.new_runtime_error("super(): empty __class__ cell"))?;
-                    typ = Some(class.downcast().map_err(|o| {
-                        vm.new_type_error(format!(
-                            "super(): __class__ is not a type ({})",
-                            o.class().name()
-                        ))
-                    })?);
-                    break;
-                }
-            }
-            let typ = typ.ok_or_else(|| {
-                vm.new_type_error(
-                    "super must be called with 1 argument or from inside class method",
-                )
-            })?;
-
-            (typ, obj)
+        let typ = match py_type {
+            OptionalArg::Present(ty) => Some(ty),
+            OptionalArg::Missing => None,
         };
-
-        let (typ, obj, obj_type) = bind_super(typ, obj, vm)?;
-        zelf.store_bound(typ, obj, obj_type);
-
-        Ok(())
+        let obj = match object {
+            OptionalArg::Present(obj) => Some(obj),
+            OptionalArg::Missing => None,
+        };
+        super_init_impl(zelf, typ, obj, vm)
     }
+}
+
+/// `super_init_impl`. A null type takes the zero-argument path.
+fn super_init_impl(
+    zelf: &Py<PySuper>,
+    typ: Option<PyTypeRef>,
+    obj: Option<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let (typ, obj) = match typ {
+        Some(typ) => (typ, obj.unwrap_or_else(|| vm.ctx.none())),
+        None => super_init_without_args(vm)?,
+    };
+    let (typ, obj, obj_type) = bind_super(typ, obj, vm)?;
+    zelf.store_bound(Some(typ), obj, obj_type);
+    Ok(())
+}
+
+fn super_init_without_args(vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyObjectRef)> {
+    // Access the InterpreterFrame directly — no need to materialize
+    // a FrameObject just to read code/locals.
+    let iframe_ptr = crate::vm::thread::get_current_frame();
+    if iframe_ptr.is_null() {
+        return Err(vm.new_runtime_error("super(): no current frame"));
+    }
+    let iframe = unsafe { &*iframe_ptr };
+    let code = iframe.code();
+
+    if code.arg_count == 0 {
+        return Err(vm.new_runtime_error("super(): no arguments"));
+    }
+
+    // SAFETY: InterpreterFrame is current and not concurrently mutated.
+    use rustpython_compiler_core::bytecode::CO_FAST_CELL;
+    let fastlocals = iframe.localsplus.fastlocals();
+    let obj = fastlocals[0]
+        .clone()
+        .and_then(|val| {
+            // If slot 0 is a merged cell (LOCAL|CELL), extract value from cell
+            if code
+                .localspluskinds
+                .first()
+                .is_some_and(|&k| k & CO_FAST_CELL != 0)
+            {
+                val.downcast_ref::<PyCell>().and_then(|c| c.get())
+            } else {
+                Some(val)
+            }
+        })
+        .ok_or_else(|| vm.new_runtime_error("super(): arg[0] deleted"))?;
+
+    let mut typ = None;
+    // Search for __class__ in freevars using localspluskinds
+    let nlocalsplus = code.localspluskinds.len();
+    let nfrees = code.freevars.len();
+    let free_start = nlocalsplus - nfrees;
+    for (i, var) in code.freevars.iter().enumerate() {
+        if var.as_bytes() == b"__class__" {
+            let class = fastlocals[free_start + i]
+                .as_ref()
+                .and_then(|v| v.downcast_ref::<PyCell>())
+                .and_then(|c| c.get())
+                .ok_or_else(|| vm.new_runtime_error("super(): empty __class__ cell"))?;
+            typ = Some(class.downcast().map_err(|o| {
+                vm.new_type_error(format!(
+                    "super(): __class__ is not a type ({})",
+                    o.class().name()
+                ))
+            })?);
+            break;
+        }
+    }
+    let typ = typ.ok_or_else(|| {
+        vm.new_type_error("super must be called with 1 argument or from inside class method")
+    })?;
+
+    Ok((typ, obj))
 }
 
 #[pyclass(
@@ -200,7 +213,9 @@ impl GetAttr for PySuper {
             // Both locks are dropped before any arbitrary Python code
             // (the descriptor call below) runs, so they can't be held
             // across a call that might re-enter and want them again.
-            let su_type = zelf.thisclass();
+            let Some(su_type) = zelf.typ.load_owned() else {
+                return skip(zelf, name);
+            };
             let descr = {
                 let mro = start_type.mro.read();
                 mro.iter()
@@ -239,12 +254,19 @@ impl GetDescriptor for PySuper {
             return Ok(zelf_obj.to_owned());
         }
         let zelf_class = zelf.as_object().class();
-        let typ = zelf.thisclass();
+        let typ = zelf.typ.load_owned();
         if zelf_class.is(vm.ctx.types.super_type) {
-            let (typ, obj, obj_type) = bind_super(typ, obj.to_owned(), vm)?;
-            Ok(Self::new_bound(typ, obj, obj_type).into_ref(&vm.ctx).into())
+            let newobj = Self::empty().into_ref(&vm.ctx);
+            // A null type takes the zero-argument path inside super_init_impl.
+            super_init_impl(&newobj, typ, Some(obj.to_owned()), vm)?;
+            Ok(newobj.into())
         } else {
-            PyType::call(zelf.class(), (typ, obj.to_owned()).into_args(vm), vm)
+            // Call stops at the first null argument.
+            let args = match typ {
+                Some(typ) => (typ, obj.to_owned()).into_args(vm),
+                None => FuncArgs::default(),
+            };
+            PyType::call(zelf.class(), args, vm)
         }
     }
 }
@@ -252,7 +274,10 @@ impl GetDescriptor for PySuper {
 impl Representable for PySuper {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        let type_name = zelf.thisclass().name().to_owned();
+        let type_name = match zelf.typ.load_owned() {
+            Some(ty) => ty.name().to_owned(),
+            None => "NULL".to_owned(),
+        };
         let repr = match zelf.obj_type.load_owned() {
             Some(ty) => format!("<super: <class '{}'>, <{} object>>", type_name, ty.name()),
             None => format!("<super: <class '{type_name}'>, NULL>"),

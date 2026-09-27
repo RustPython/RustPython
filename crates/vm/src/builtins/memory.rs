@@ -675,6 +675,7 @@ impl Py<PyMemoryView> {
 }
 
 #[pyclass(
+    itemsize = core::mem::size_of::<isize>(),
     with(
         Py,
         Hashable,
