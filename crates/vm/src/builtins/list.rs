@@ -676,23 +676,19 @@ impl Representable for PyList {
         }
 
         if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            // Clone elements before calling repr to release the read lock.
+            // Clone each element before calling repr to release the read lock.
             // Element repr may mutate the list (e.g., list.clear()), which
             // needs a write lock and would deadlock if read lock is held.
             let mut writer = Wtf8Buf::new();
             writer.push_char('[');
 
-            let mut elements = zelf.borrow_vec().to_vec();
-            let mut size = zelf.__len__();
             let mut first = true;
             let mut i = 0;
-            while i < size {
-                if elements.len() != size {
-                    // `repr` mutated the list. refetch it.
-                    elements = zelf.borrow_vec().to_vec();
-                }
-
-                let item = &elements[i];
+            loop {
+                let item = zelf.borrow_vec().get(i).cloned();
+                let Some(item) = item else {
+                    break;
+                };
 
                 if first {
                     first = false;
@@ -702,7 +698,6 @@ impl Representable for PyList {
 
                 writer.push_wtf8(item.repr(vm)?.as_wtf8());
 
-                size = zelf.__len__(); // Refetch list size as `repr` may mutate the list.
                 i += 1;
             }
 
