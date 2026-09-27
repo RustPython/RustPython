@@ -291,6 +291,25 @@ assert x["c"] is None
 assert {1: None, "b": None} == dict.fromkeys([1, "b"])
 assert {1: 0, "b": 0} == dict.fromkeys([1, "b"], 0)
 
+for source in ({i: -1 for i in range(128)}, set(range(128)), frozenset(range(128))):
+    shared_value = []
+    result = dict.fromkeys(source, shared_value)
+    assert list(result) == list(source)
+    assert all(value is shared_value for value in result.values())
+
+
+class UnsizedFromKeys:
+    def __iter__(self):
+        return iter((1, 1, 2))
+
+    def __len__(self):
+        raise AssertionError("fromkeys must not request a length hint")
+
+    __length_hint__ = __len__
+
+
+assert dict.fromkeys(UnsizedFromKeys()) == {1: None, 2: None}
+
 x = {"a": 1, "b": 1, "c": 1}
 y = {"b": 2, "c": 2, "d": 2}
 z = {"c": 3, "d": 3, "e": 3}
