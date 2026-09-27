@@ -651,18 +651,51 @@ fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResul
     })
 }
 
+// slot_tp_getattr_hook in CPython
 fn getattro_wrapper(zelf: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
     let __getattribute__ = identifier!(vm, __getattribute__);
     let __getattr__ = identifier!(vm, __getattr__);
-    match vm.call_special_method(zelf, __getattribute__, (name.to_owned(),)) {
-        Ok(r) => Ok(r),
-        Err(e)
-            if e.fast_isinstance(vm.ctx.exceptions.attribute_error)
-                && zelf.class().has_attr(__getattr__) =>
-        {
-            vm.call_special_method(zelf, __getattr__, (name.to_owned(),))
-        }
-        Err(e) => Err(e),
+    let class = zelf.class();
+    // Keep the original hook if attribute lookup replaces or removes it.
+    let Some(getattr) = class.get_attr(__getattr__) else {
+        return vm.call_special_method(zelf, __getattribute__, (name.to_owned(),));
+    };
+    let generic = class
+        .get_attr(__getattribute__)
+        .is_some_and(|getattribute| {
+            vm.ctx
+                .types
+                .object_type
+                .get_attr(__getattribute__)
+                .is_some_and(|generic| getattribute.is(&generic))
+        });
+    // A generic miss does not need an AttributeError before calling the hook.
+    let result = if generic {
+        zelf.generic_getattr_opt(name, None, vm)
+    } else {
+        vm.call_special_method(zelf, __getattribute__, (name.to_owned(),))
+            .map(Some)
+    };
+    match result {
+        Ok(Some(value)) => return Ok(value),
+        Ok(None) => {}
+        Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+        Err(e) => return Err(e),
+    }
+    // Bind only after lookup, using the instance's current class.
+    if getattr
+        .class()
+        .slots
+        .flags
+        .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
+    {
+        getattr.call((zelf.to_owned(), name.to_owned()), vm)
+    } else {
+        let bound = vm.call_get_descriptor(&getattr, zelf).transpose()?;
+        bound
+            .as_ref()
+            .unwrap_or(&getattr)
+            .call((name.to_owned(),), vm)
     }
 }
 
