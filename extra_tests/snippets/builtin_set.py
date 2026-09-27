@@ -612,3 +612,42 @@ for stored_source in stored_sources:
     stored_target |= stored_target
     assert len(stored_target) == 2
 RemainingHashKey.blocked = False
+
+
+# Difference folds and reflected subtraction leave both operands unchanged.
+for left_type in (set, frozenset):
+    for right_type in (set, frozenset):
+        left = left_type([1, 2, 3])
+        right = right_type([2])
+        assert left.difference(right, [3]) == {1}
+        assert right.__rsub__(left) == {1, 3}
+        assert left == {1, 2, 3}
+        assert right == {2}
+
+
+# The temporary set deduplicates input without hashing its keys a second time.
+for set_type in (set, frozenset):
+    present = StoredHashKey(10)
+    added = StoredHashKey(11)
+    source = set_type([present])
+    present.hash_count = 0
+    result = source.symmetric_difference([present, added, added])
+    assert list(result) == [added]
+    assert list(source) == [present]
+    assert (present.hash_count, added.hash_count) == (1, 2)
+    if set_type is set:
+        present.hash_count = added.hash_count = 0
+        source.symmetric_difference_update([present, added, added])
+        assert list(source) == [added]
+        assert (present.hash_count, added.hash_count) == (1, 2)
+
+
+# Streaming removal retains progress if the input iterator later raises.
+source = {0, 1, 2}
+assert_raises(ValueError, source.difference_update, matched_then_error())
+assert source == {0, 2}
+source = {1, 2}
+assert_raises(RuntimeError, source.difference_update, iter(source))
+assert len(source) == 1
+source.difference_update(source)
+assert source == set()
