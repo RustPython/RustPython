@@ -84,11 +84,32 @@ mod _functools {
         obj: PyObjectRef,
     }
 
-    #[pyclass(no_attr, name = "KeyWrapper", module = "functools", unhashable = true)]
+    #[pyclass(
+        no_attr,
+        name = "KeyWrapper",
+        module = "functools",
+        unhashable = true,
+        traverse = "manual"
+    )]
     #[derive(Debug, PyPayload)]
     struct PyKeyWrapper {
         cmp: PyObjectRef,
         object: PyRwLock<Option<PyObjectRef>>,
+    }
+
+    // SAFETY: Each owned reference is visited once, without cloning it.
+    unsafe impl crate::object::Traverse for PyKeyWrapper {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.cmp.traverse(tracer_fn);
+            self.object.traverse(tracer_fn);
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            out.push(core::mem::replace(&mut self.cmp, Context::genesis().none()));
+            if let Some(object) = self.object.get_mut().take() {
+                out.push(object);
+            }
+        }
     }
 
     #[pyclass(with(Callable), flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
@@ -100,10 +121,12 @@ mod _functools {
 
         #[pygetset(setter)]
         fn set_obj(&self, value: PySetterValue) {
-            *self.object.write() = match value {
+            let value = match value {
                 PySetterValue::Assign(v) => Some(v),
                 PySetterValue::Delete => None,
             };
+            let old = core::mem::replace(&mut *self.object.write(), value);
+            drop(old);
         }
 
         #[pygetset]

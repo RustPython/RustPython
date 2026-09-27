@@ -709,14 +709,16 @@ mod _collections {
     }
 
     #[pyattr]
-    #[pyclass(name = "_deque_iterator")]
+    #[pyclass(name = "_deque_iterator", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyDequeIterator {
+        #[pytraverse(skip)]
         state: usize,
         /// How many elements are left to walk, `dequeiterobject.counter`. Kept
         /// beside the deque rather than read back from it, because a mutated
         /// deque is walked no further and what is left of it then reads as
         /// nothing.
+        #[pytraverse(skip)]
         counter: AtomicCell<usize>,
         internal: PyMutex<PositionIterInternal<PyDequeRef>>,
     }
@@ -843,11 +845,13 @@ mod _collections {
     }
 
     #[pyattr]
-    #[pyclass(name = "_deque_reverse_iterator")]
+    #[pyclass(name = "_deque_reverse_iterator", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyReverseDequeIterator {
+        #[pytraverse(skip)]
         state: usize,
         /// As in [`PyDequeIterator`].
+        #[pytraverse(skip)]
         counter: AtomicCell<usize>,
         // position is counting from the tail
         internal: PyMutex<PositionIterInternal<PyDequeRef>>,
