@@ -11,3 +11,4 @@ rustpython-pylib = { path = "../../crates/pylib", default-features = false, feat
 [workspace]
 
 [patch.crates-io]
+bitflagset = { git = "https://github.com/youknowone/bitflagset", branch = "main" }

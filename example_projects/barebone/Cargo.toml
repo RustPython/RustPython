@@ -9,3 +9,4 @@ rustpython-vm = { path = "../../crates/vm", default-features = false, features =
 [workspace]
 
 [patch.crates-io]
+bitflagset = { git = "https://github.com/youknowone/bitflagset", branch = "main" }

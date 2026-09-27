@@ -386,9 +386,8 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
 name = "bitflagset"
-version = "0.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64b6ee310aa7af14142c8c9121775774ff601ae055ed98ba7fac96098bcde1b9"
+version = "0.0.4"
+source = "git+https://github.com/youknowone/bitflagset?branch=main#d6d1490931255a6319df0d0025f4fc6133ceeee1"
 dependencies = [
  "num-integer",
  "num-traits",
