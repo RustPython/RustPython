@@ -27,7 +27,7 @@ pub unsafe extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) ->
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyType_GetFlags(ptr: *mut PyTypeObject) -> c_ulong {
     let ty = unsafe { ptr.assume_borrowed() };
-    ty.slots.flags.bits() as u32 as c_ulong
+    ty.slots.flags.load().bits() as u32 as c_ulong
 }
 
 #[unsafe(no_mangle)]

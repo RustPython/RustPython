@@ -514,10 +514,12 @@ impl<T> Py<T> {
     fn read_type_flags(&self) -> (crate::types::PyTypeFlags, usize) {
         let typ_ptr = self.typ.load_raw();
         let slots = unsafe { core::ptr::addr_of!((*typ_ptr).payload.slots) };
-        // SAFETY: `flags` is `PyAtomicTypeFlags`, transparent over `AtomicU64`.
-        // The type object is live. This load does not form a reference to it.
+        // SAFETY: `flags` is the live atomic word on this type object. `as_bits`
+        // is the crate accessor for that word. The type object is live. This
+        // load does not form a reference to the type object itself.
         let bits = unsafe {
-            (*core::ptr::addr_of!((*slots).flags).cast::<core::sync::atomic::AtomicU64>())
+            (*core::ptr::addr_of!((*slots).flags))
+                .as_bits()
                 .load(core::sync::atomic::Ordering::Acquire)
         };
         let member_count = unsafe { core::ptr::addr_of!((*slots).member_count).read() };

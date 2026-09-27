@@ -283,7 +283,7 @@ pub(crate) mod _ast {
         let copied_dict = if cls
             .slots
             .flags
-            .contains(crate::types::PyTypeFlags::HAS_DICT)
+            .has_feature(crate::types::PyTypeFlags::HAS_DICT)
         {
             Some(vm.ctx.new_dict())
         } else {
@@ -322,7 +322,7 @@ pub(crate) mod _ast {
             let dict = if cls
                 .slots
                 .flags
-                .contains(crate::types::PyTypeFlags::HAS_DICT)
+                .has_feature(crate::types::PyTypeFlags::HAS_DICT)
             {
                 Some(vm.ctx.new_dict())
             } else {

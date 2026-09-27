@@ -782,7 +782,7 @@ impl PyType {
         name: &str,
         bases: Vec<PyRef<Self>>,
         attrs: PyAttributes,
-        mut slots: PyTypeSlots,
+        slots: PyTypeSlots,
         metaclass: PyRef<Self>,
         ctx: &Context,
     ) -> Result<PyRef<Self>, String> {
@@ -790,7 +790,7 @@ impl PyType {
         // assert_eq!(slots.name.borrow(), "");
 
         // Set HEAPTYPE flag for heap-allocated types
-        slots.flags |= PyTypeFlags::HEAPTYPE;
+        slots.flags.insert(PyTypeFlags::HEAPTYPE);
 
         let name_utf8 = ctx.new_utf8_str(name);
         let name = name_utf8.clone().into_wtf8();
@@ -842,12 +842,11 @@ impl PyType {
     /// Inherit SEQUENCE and MAPPING flags from base classes
     /// Check all bases in order and inherit the first SEQUENCE or MAPPING flag found
     fn inherit_patma_flags(slots: &mut PyTypeSlots, bases: &[PyRef<Self>]) {
-        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
-            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
-        );
+        const COLLECTION_FLAGS: PyTypeFlags =
+            PyTypeFlags::from_slice(&[PyTypeFlags::SEQUENCE, PyTypeFlags::MAPPING]);
 
         // If flags are already set, don't override
-        if slots.flags.intersects(COLLECTION_FLAGS) {
+        if slots.flags.load().intersects(COLLECTION_FLAGS) {
             return;
         }
 
@@ -861,18 +860,14 @@ impl PyType {
         }
     }
 
-    pub fn has_patma_collection_flag(&self, flag: PyTypeFlags) -> bool {
-        debug_assert!(matches!(flag, PyTypeFlags::SEQUENCE | PyTypeFlags::MAPPING));
-        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
-            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
-        );
-        let slot_flags = self.slots.flags.load() & COLLECTION_FLAGS;
-        slot_flags.contains(flag)
+    pub fn has_patma_collection_flag(&self, flag: u8) -> bool {
+        debug_assert!(flag == PyTypeFlags::SEQUENCE || flag == PyTypeFlags::MAPPING);
+        self.slots.flags.has_feature(flag)
     }
 
     pub fn set_is_abstract(&self, is_abstract: bool) {
         if is_abstract {
-            self.slots.flags.set(PyTypeFlags::IS_ABSTRACT);
+            self.slots.flags.insert(PyTypeFlags::IS_ABSTRACT);
         } else {
             self.slots.flags.remove(PyTypeFlags::IS_ABSTRACT);
         }
@@ -880,9 +875,8 @@ impl PyType {
     }
 
     pub fn set_abc_collection_flags_recursive(&self, flags: PyTypeFlags) {
-        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
-            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
-        );
+        const COLLECTION_FLAGS: PyTypeFlags =
+            PyTypeFlags::from_slice(&[PyTypeFlags::SEQUENCE, PyTypeFlags::MAPPING]);
         let flags = flags & COLLECTION_FLAGS;
         if flags.is_empty() {
             return;
@@ -906,9 +900,8 @@ impl PyType {
         bases: &[PyRef<Self>],
         ctx: &Context,
     ) -> Result<(), String> {
-        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
-            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
-        );
+        const COLLECTION_FLAGS: PyTypeFlags =
+            PyTypeFlags::from_slice(&[PyTypeFlags::SEQUENCE, PyTypeFlags::MAPPING]);
 
         // Always validate this class's own __abc_tpflags__ even when slot
         // flags were already inherited, otherwise a child setting both
@@ -926,14 +919,14 @@ impl PyType {
                         .to_owned(),
                 );
             }
-            slots.flags.remove(COLLECTION_FLAGS);
+            slots.flags.remove_masked(COLLECTION_FLAGS);
             slots.flags |= masked;
             return Ok(());
         }
 
         // No __abc_tpflags__ on this class. Inheritance already happened in
         // inherit_patma_flags, using base order and including ABC markers.
-        if slots.flags.intersects(COLLECTION_FLAGS) {
+        if slots.flags.load().intersects(COLLECTION_FLAGS) {
             return Ok(());
         }
 
@@ -952,7 +945,7 @@ impl PyType {
                             .to_owned(),
                     );
                 }
-                slots.flags.remove(COLLECTION_FLAGS);
+                slots.flags.remove_masked(COLLECTION_FLAGS);
                 slots.flags |= masked;
                 return Ok(());
             }
@@ -985,14 +978,14 @@ impl PyType {
             .iter()
             .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_DICT))
         {
-            slots.flags |= PyTypeFlags::HAS_DICT;
+            slots.flags.insert(PyTypeFlags::HAS_DICT);
         }
         if bases
             .as_slice()
             .iter()
             .any(|b| b.slots.flags.has_feature(PyTypeFlags::MANAGED_DICT))
         {
-            slots.flags |= PyTypeFlags::MANAGED_DICT;
+            slots.flags.insert(PyTypeFlags::MANAGED_DICT);
         }
 
         if bases
@@ -1000,7 +993,8 @@ impl PyType {
             .iter()
             .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF))
         {
-            slots.flags |= PyTypeFlags::HAS_WEAKREF | PyTypeFlags::MANAGED_WEAKREF;
+            slots.flags |= PyTypeFlags::from_element(PyTypeFlags::HAS_WEAKREF)
+                | PyTypeFlags::from_element(PyTypeFlags::MANAGED_WEAKREF);
         }
 
         // Inherit SEQUENCE and MAPPING flags from base classes
@@ -1015,7 +1009,7 @@ impl PyType {
 
         // Normalize: any type with HAS_WEAKREF gets MANAGED_WEAKREF
         if slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF) {
-            slots.flags |= PyTypeFlags::MANAGED_WEAKREF;
+            slots.flags.insert(PyTypeFlags::MANAGED_WEAKREF);
         }
 
         if let Some(qualname) = attrs.get(identifier!(ctx, __qualname__))
@@ -1066,10 +1060,11 @@ impl PyType {
         metaclass: PyRef<Self>,
     ) -> Result<PyRef<Self>, String> {
         if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
-            slots.flags |= PyTypeFlags::HAS_DICT
+            slots.flags.insert(PyTypeFlags::HAS_DICT);
         }
         if base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF) {
-            slots.flags |= PyTypeFlags::HAS_WEAKREF | PyTypeFlags::MANAGED_WEAKREF
+            slots.flags |= PyTypeFlags::from_element(PyTypeFlags::HAS_WEAKREF)
+                | PyTypeFlags::from_element(PyTypeFlags::MANAGED_WEAKREF);
         }
 
         // Inherit SEQUENCE and MAPPING flags from base class
@@ -1082,7 +1077,7 @@ impl PyType {
 
         // Normalize: any type with HAS_WEAKREF gets MANAGED_WEAKREF
         if slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF) {
-            slots.flags |= PyTypeFlags::MANAGED_WEAKREF;
+            slots.flags.insert(PyTypeFlags::MANAGED_WEAKREF);
         }
 
         let bases =
@@ -1197,7 +1192,7 @@ impl PyType {
     }
 
     fn set_new(slots: &PyTypeSlots, base: Option<&Py<Self>>) {
-        if slots.flags.contains(PyTypeFlags::DISALLOW_INSTANTIATION) {
+        if slots.flags.has_feature(PyTypeFlags::DISALLOW_INSTANTIATION) {
             slots.new.store(None)
         } else if slots.new.load().is_none() {
             slots.new.store(base.and_then(|base| base.slots.new.load()))
@@ -2059,11 +2054,12 @@ impl Constructor for PyType {
         // 1. __slots__ is not defined AND base doesn't have dict, OR
         // 2. __dict__ is in __slots__
         if (heaptype_slots.is_none() && may_add_dict) || add_dict {
-            flags |= PyTypeFlags::HAS_DICT | PyTypeFlags::MANAGED_DICT;
+            flags |= PyTypeFlags::from_element(PyTypeFlags::HAS_DICT)
+                | PyTypeFlags::from_element(PyTypeFlags::MANAGED_DICT);
             // type_ready_managed_dict: fixed-size managed-dict types
             // get an inline values array after the object.
             if base.slots.itemsize == 0 {
-                flags |= PyTypeFlags::INLINE_VALUES;
+                flags |= PyTypeFlags::from_element(PyTypeFlags::INLINE_VALUES);
             }
         }
 
@@ -2074,12 +2070,13 @@ impl Constructor for PyType {
         let may_add_weakref =
             base.slots.itemsize == 0 && !base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
         if (heaptype_slots.is_none() && may_add_weakref) || add_weakref {
-            flags |= PyTypeFlags::HAS_WEAKREF | PyTypeFlags::MANAGED_WEAKREF;
+            flags |= PyTypeFlags::from_element(PyTypeFlags::HAS_WEAKREF)
+                | PyTypeFlags::from_element(PyTypeFlags::MANAGED_WEAKREF);
         }
 
         let (slots, heaptype_ext) = {
             let slots = PyTypeSlots {
-                flags: crate::types::PyAtomicTypeFlags::new(flags),
+                flags: crate::types::AtomicPyTypeFlags::from_plain(flags),
                 member_count,
                 itemsize: base.slots.itemsize,
                 ..PyTypeSlots::heap_default()
@@ -3302,8 +3299,8 @@ fn get_builtin_base_with_dict(typ: &Py<PyType>, vm: &VirtualMachine) -> Option<P
             return Some(t);
         }
         // We check HAS_DICT flag (equivalent to tp_dictoffset != 0) and HEAPTYPE
-        if t.slots.flags.contains(PyTypeFlags::HAS_DICT)
-            && !t.slots.flags.contains(PyTypeFlags::HEAPTYPE)
+        if t.slots.flags.has_feature(PyTypeFlags::HAS_DICT)
+            && !t.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
         {
             return Some(t);
         }

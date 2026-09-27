@@ -636,8 +636,8 @@ impl Context {
         let slots = PyTypeSlots {
             name: interned_name.as_str(),
             basicsize: 0,
-            flags: crate::types::PyAtomicTypeFlags::new(
-                PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT,
+            flags: crate::types::AtomicPyTypeFlags::from_plain(
+                PyTypeFlags::heap_type_flags() | PyTypeFlags::from_element(PyTypeFlags::HAS_DICT),
             ),
             ..PyTypeSlots::default()
         };
@@ -777,7 +777,7 @@ impl Context {
 
     pub fn new_base_object(&self, class: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
         debug_assert_eq!(
-            class.slots.flags.contains(PyTypeFlags::HAS_DICT),
+            class.slots.flags.has_feature(PyTypeFlags::HAS_DICT),
             dict.is_some()
         );
         PyRef::new_ref(object::PyBaseObject, class, dict).into()

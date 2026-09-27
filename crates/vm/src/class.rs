@@ -420,7 +420,7 @@ pub trait PyClassImpl: PyClassDef {
 
     fn make_slots() -> PyTypeSlots {
         let mut slots = PyTypeSlots {
-            flags: crate::types::PyAtomicTypeFlags::new(Self::TP_FLAGS),
+            flags: crate::types::AtomicPyTypeFlags::from_plain(Self::TP_FLAGS),
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
             itemsize: Self::ITEMSIZE,
