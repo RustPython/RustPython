@@ -3,7 +3,7 @@ pub(crate) use _functools::module_def;
 #[pymodule]
 mod _functools {
     use crate::{
-        Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
             PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef, object,
         },
@@ -11,7 +11,7 @@ mod _functools {
         function::{
             Either, FuncArgs, KwArgs, OptionalOption, PosArgs, PyComparisonValue, PySetterValue,
         },
-        object::AsObject,
+        object::{AsObject, TraverseFn},
         protocol::PyIter,
         pyclass,
         recursion::ReprGuard,
@@ -222,7 +222,7 @@ mod _functools {
     }
 
     #[pyattr]
-    #[pyclass(name = "partial", module = "functools")]
+    #[pyclass(name = "partial", module = "functools", traverse = "manual")]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyPartial {
         inner: PyRwLock<PyPartialInner>,
@@ -234,6 +234,26 @@ mod _functools {
         args: PyRef<PyTuple>,
         keywords: PyRef<PyDict>,
         phcount: usize,
+    }
+
+    // SAFETY: Each owned reference is visited once, without cloning it.
+    unsafe impl crate::object::Traverse for PyPartial {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            if let Some(inner) = self.inner.try_read_recursive() {
+                inner.func.traverse(tracer_fn);
+                inner.args.traverse(tracer_fn);
+                inner.keywords.traverse(tracer_fn);
+            }
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            // __setstate__ can make func point directly back to this partial.
+            // The args tuple and keywords dict have their own cycle clearing.
+            out.push(core::mem::replace(
+                &mut self.inner.get_mut().func,
+                Context::genesis().none(),
+            ));
+        }
     }
 
     #[pyclass(
@@ -364,14 +384,18 @@ mod _functools {
             let phcount = count_placeholders(args_slice);
 
             // Actually update the state
-            let mut inner = zelf.inner.write();
-            inner.func = func.clone();
-            // Handle args - use the already validated tuple
-            inner.args = args_tuple;
-
-            // Handle keywords - keep the original type
-            inner.keywords = keywords_dict;
-            inner.phcount = phcount;
+            let old_inner = core::mem::replace(
+                &mut *zelf.inner.write(),
+                PyPartialInner {
+                    func: func.clone(),
+                    // Handle args - use the already validated tuple
+                    args: args_tuple,
+                    // Handle keywords - keep the original type
+                    keywords: keywords_dict,
+                    phcount,
+                },
+            );
+            drop(old_inner);
 
             // Update __dict__ if provided
             let Some(instance_dict) = zelf.as_object().dict() else {
@@ -682,9 +706,10 @@ mod _functools {
         }
     }
 
-    #[pyclass(no_attr, name = "_lru_list_elem", module = "functools")]
+    #[pyclass(no_attr, name = "_lru_list_elem", module = "functools", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyLruListElem {
+        #[pytraverse(skip)]
         hash: PyHash,
         result: PyObjectRef,
     }
@@ -696,7 +721,7 @@ mod _functools {
     // `_functools` accelerator so `functools.lru_cache` doesn't fall back to the much
     // slower pure-Python implementation in `Lib/functools.py`.
     #[pyattr]
-    #[pyclass(name = "_lru_cache_wrapper", module = "functools")]
+    #[pyclass(name = "_lru_cache_wrapper", module = "functools", traverse = "manual")]
     #[derive(PyPayload)]
     pub(super) struct PyLruCacheWrapper {
         /// The wrapped user function.
@@ -716,10 +741,22 @@ mod _functools {
         /// entry to the end by removing and reinserting it, so the front of the dict
         /// is always the next eviction candidate. Ordering is only maintained (at the
         /// cost of the extra reinsert on a hit) when `maxsize` is `Some`.
+        /// Unbounded caches store results directly, without an LRU entry wrapper.
         cache: PyRwLock<PyDictRef>,
         /// Coarse-grained reentrant lock guarding the cache lookup/insert critical
         /// sections (not held while calling the user function), matching CPython.
         lock: RawRMutex,
+    }
+
+    // SAFETY: Each owned reference is visited once; the instance dict is
+    // traversed separately by the object layer.
+    unsafe impl crate::object::Traverse for PyLruCacheWrapper {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.func.traverse(tracer_fn);
+            self.keyword_marker.traverse(tracer_fn);
+            self.cache_info_type.traverse(tracer_fn);
+            self.cache.traverse(tracer_fn);
+        }
     }
 
     impl core::fmt::Debug for PyLruCacheWrapper {
@@ -840,10 +877,15 @@ mod _functools {
 
         #[pymethod]
         fn cache_clear(&self, vm: &VirtualMachine) {
-            let _guard = RMutexGuard::acquire(&self.lock);
-            *self.cache.write() = vm.ctx.new_dict();
-            self.hits.store(0, Ordering::Relaxed);
-            self.misses.store(0, Ordering::Relaxed);
+            let new_cache = vm.ctx.new_dict();
+            let old_cache = {
+                let _guard = RMutexGuard::acquire(&self.lock);
+                let old_cache = core::mem::replace(&mut *self.cache.write(), new_cache);
+                self.hits.store(0, Ordering::Relaxed);
+                self.misses.store(0, Ordering::Relaxed);
+                old_cache
+            };
+            drop(old_cache);
         }
 
         #[pymethod]
@@ -887,10 +929,14 @@ mod _functools {
                 let _guard = RMutexGuard::acquire(&zelf.lock);
                 let cache = zelf.cache.read().clone();
                 if let Some(value) = cache.get_item_known_hash(key.as_object(), hash, vm)? {
-                    let Some(elem) = value.downcast_ref::<PyLruListElem>() else {
-                        return Err(vm.new_type_error("lru cache entry is corrupted"));
+                    let result = if zelf.maxsize.is_some() {
+                        let Some(elem) = value.downcast_ref::<PyLruListElem>() else {
+                            return Err(vm.new_type_error("lru cache entry is corrupted"));
+                        };
+                        elem.result.clone()
+                    } else {
+                        value.clone()
                     };
-                    let result = elem.result.clone();
                     zelf.hits.fetch_add(1, Ordering::Relaxed);
                     if zelf.maxsize.is_some() {
                         Self::touch_key(&key, hash, &value, &cache, vm)?;
@@ -912,11 +958,15 @@ mod _functools {
                 // case keep the existing entry instead of creating orphan eviction
                 // links (see CPython issue gh-35780).
                 if !cache.contains_known_hash(key.as_object(), hash, vm)? {
-                    let entry = PyLruListElem {
-                        hash,
-                        result: result.clone(),
-                    }
-                    .into_pyobject(vm);
+                    let entry = if zelf.maxsize.is_some() {
+                        PyLruListElem {
+                            hash,
+                            result: result.clone(),
+                        }
+                        .into_pyobject(vm)
+                    } else {
+                        result.clone()
+                    };
                     cache.set_item_known_hash(key.as_object(), hash, entry, vm)?;
                     if let Some(maxsize) = zelf.maxsize {
                         Self::evict_if_full(maxsize, &cache, vm)?;
