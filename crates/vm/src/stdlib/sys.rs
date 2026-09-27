@@ -764,7 +764,6 @@ pub mod sys {
         false // RustPython has no GIL (like free-threaded Python)
     }
 
-    // Return True if remote debugging is enabled, False otherwise.
     #[pyfunction]
     const fn is_remote_debug_enabled() -> bool {
         false // RustPython does not support remote debugging
@@ -1063,8 +1062,6 @@ pub mod sys {
         })
     }
 
-    // Return a dictionary mapping each thread's identifier to the topmost stack frame
-    // currently active in that thread at the time the function is called.
     #[cfg(feature = "threading")]
     #[pyfunction]
     fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictRef> {
@@ -1082,8 +1079,6 @@ pub mod sys {
         Ok(dict)
     }
 
-    // Return a dictionary mapping each thread's identifier to its currently
-    // active exception, or None if no exception is active.
     #[cfg(feature = "threading")]
     #[pyfunction]
     fn _current_exceptions(vm: &VirtualMachine) -> PyResult<PyDictRef> {

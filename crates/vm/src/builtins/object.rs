@@ -13,13 +13,6 @@ use crate::{
 };
 use itertools::Itertools;
 
-// object()
-// --
-//
-// The base class of the class hierarchy.
-//
-// When called, it accepts no arguments and returns a new featureless
-// instance that has no instance attributes and cannot be given any.
 #[pyclass(module = false, name = "object")]
 #[derive(Debug)]
 pub struct PyBaseObject;

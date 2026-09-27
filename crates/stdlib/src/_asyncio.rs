@@ -111,7 +111,6 @@ pub(crate) mod _asyncio {
         }
     }
 
-    // asyncio.Future implementation
     #[pyattr]
     #[pyclass(name = "Future", module = "_asyncio", traverse)]
     #[derive(Debug, PyPayload)]

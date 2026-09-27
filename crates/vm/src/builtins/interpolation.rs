@@ -13,9 +13,6 @@ use crate::{
 use itertools::Itertools;
 use rustpython_common::wtf8::Wtf8Buf;
 
-// Interpolation object for t-strings (PEP 750).
-//
-// Represents an interpolated expression within a template string.
 #[pyclass(module = "string.templatelib", name = "Interpolation")]
 #[derive(Debug, Clone)]
 pub struct PyInterpolation {

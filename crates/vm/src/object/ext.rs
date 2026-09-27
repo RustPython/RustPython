@@ -431,12 +431,18 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
     /// after a QSBR grace period (see `object::qsbr`), so the refcount word of
     /// a swapped-out value stays readable.
     pub fn load_owned(&self) -> Option<PyRef<T>> {
-        cell_load_owned(&self.inner).map(downcast_cell)
+        cell_load_owned(&self.inner).map(|obj| {
+            // SAFETY: a typed cell only stores references of payload `T`.
+            unsafe { obj.downcast_unchecked() }
+        })
     }
 
     /// Replace the stored reference. Returns the previous one, still owned.
     pub(crate) fn store(&self, value: Option<PyRef<T>>) -> Option<PyRef<T>> {
-        cell_store(&self.inner, value.map(PyObjectRef::from)).map(downcast_cell)
+        cell_store(&self.inner, value.map(PyObjectRef::from)).map(|obj| {
+            // SAFETY: a typed cell only stores references of payload `T`.
+            unsafe { obj.downcast_unchecked() }
+        })
     }
 
     /// Store `value` only when the cell is empty.
@@ -447,8 +453,10 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
         // zero-sized marker, so the layouts match. The untyped cell API only
         // loads and stores that pointer.
         let cell = unsafe { &*core::ptr::from_ref(self).cast::<PyAtomicRef<Option<PyObject>>>() };
-        cell.compare_exchange_empty(value.into())
-            .map_err(downcast_cell)
+        cell.compare_exchange_empty(value.into()).map_err(|obj| {
+            // SAFETY: a typed cell only stores references of payload `T`.
+            unsafe { obj.downcast_unchecked() }
+        })
     }
 }
 
@@ -549,11 +557,6 @@ fn cell_compare_exchange_empty(
             Err(unsafe { PyObjectRef::from_raw(raw) })
         }
     }
-}
-
-fn downcast_cell<T: PyPayload>(obj: PyObjectRef) -> PyRef<T> {
-    // SAFETY: a typed cell only stores references of payload `T`.
-    unsafe { obj.downcast_unchecked() }
 }
 
 impl From<PyObjectRef> for PyAtomicRef<PyObject> {

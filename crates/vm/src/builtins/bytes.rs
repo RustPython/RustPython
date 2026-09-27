@@ -607,12 +607,6 @@ impl PyRef<PyBytes> {
         }
     }
 
-    // Return a string decoded from the given bytes.
-    // Default encoding is 'utf-8'.
-    // Default errors is 'strict', meaning that encoding errors raise a UnicodeError.
-    // Other possible values are 'ignore', 'replace'
-    // For a list of possible encodings,
-    // see https://docs.python.org/3/library/codecs.html#standard-encodings
     // currently, only 'utf-8' and 'ascii' implemented
     #[pymethod]
     fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {

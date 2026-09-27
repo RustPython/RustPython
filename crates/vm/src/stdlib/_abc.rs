@@ -134,7 +134,6 @@ mod _abc {
         Ok(())
     }
 
-    // Returns the current ABC cache token.
     #[pyfunction]
     fn get_cache_token() -> u64 {
         get_invalidation_counter()
@@ -203,7 +202,6 @@ mod _abc {
         cls: PyObjectRef,
     }
 
-    // Internal ABC helper for class set-up. Should be never used outside abc module.
     #[pyfunction]
     fn _abc_init(AbcSelf { cls }: AbcSelf, vm: &VirtualMachine) -> PyResult<()> {
         compute_abstract_methods(&cls, vm)?;
@@ -220,7 +218,6 @@ mod _abc {
         Ok(())
     }
 
-    // Internal ABC helper for subclass registration. Should be never used outside abc module.
     #[pyfunction]
     fn _abc_register(
         AbcSelf { cls }: AbcSelf,
@@ -269,7 +266,6 @@ mod _abc {
         Ok(subclass)
     }
 
-    // Internal ABC helper for instance checks. Should be never used outside abc module.
     #[pyfunction]
     fn _abc_instancecheck(
         AbcSelf { cls }: AbcSelf,
@@ -345,7 +341,6 @@ mod _abc {
         Ok(None)
     }
 
-    // Internal ABC helper for subclass checks. Should be never used outside abc module.
     #[pyfunction]
     fn _abc_subclasscheck(
         AbcSelf { cls }: AbcSelf,
@@ -431,7 +426,6 @@ mod _abc {
         Ok(false)
     }
 
-    // Internal ABC helper for cache and registry debugging.
     #[pyfunction]
     fn _get_dump(AbcSelf { cls }: AbcSelf, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let impl_data = get_impl(&cls, vm)?;
@@ -473,7 +467,6 @@ mod _abc {
         ]))
     }
 
-    // Internal ABC helper to reset registry of a given class.
     #[pyfunction]
     fn _reset_registry(AbcSelf { cls }: AbcSelf, vm: &VirtualMachine) -> PyResult<()> {
         let impl_data = get_impl(&cls, vm)?;
@@ -485,7 +478,6 @@ mod _abc {
         Ok(())
     }
 
-    // Internal ABC helper to reset both caches of a given class.
     #[pyfunction]
     fn _reset_caches(AbcSelf { cls }: AbcSelf, vm: &VirtualMachine) -> PyResult<()> {
         let impl_data = get_impl(&cls, vm)?;
