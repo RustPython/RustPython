@@ -1093,7 +1093,7 @@ mod _sqlite3 {
             }
 
             if let Some(cursor_ref) = cursor.downcast_ref::<Cursor>()
-                && let Some(factory) = zelf.row_factory.to_owned()
+                && let Some(factory) = zelf.row_factory.load_owned()
             {
                 let _ = unsafe { cursor_ref.row_factory.swap(Some(factory)) };
             }
@@ -1187,7 +1187,7 @@ mod _sqlite3 {
             parameters: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            let row_factory = zelf.row_factory.to_owned();
+            let row_factory = zelf.row_factory.load_owned();
             let cursor = Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx);
             Cursor::execute(cursor, sql, parameters, vm)
         }
@@ -1199,7 +1199,7 @@ mod _sqlite3 {
             seq_of_params: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            let row_factory = zelf.row_factory.to_owned();
+            let row_factory = zelf.row_factory.load_owned();
             let cursor = Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx);
             Cursor::executemany(cursor, sql, seq_of_params, vm)
         }
@@ -1210,7 +1210,7 @@ mod _sqlite3 {
             script: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            let row_factory = zelf.row_factory.to_owned();
+            let row_factory = zelf.row_factory.load_owned();
             Cursor::executescript(
                 Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx),
                 script,
@@ -1669,7 +1669,7 @@ mod _sqlite3 {
 
         #[pygetset]
         fn row_factory(&self) -> Option<PyObjectRef> {
-            self.row_factory.to_owned()
+            self.row_factory.load_owned()
         }
         #[pygetset(setter)]
         fn set_row_factory(
@@ -2146,7 +2146,7 @@ mod _sqlite3 {
 
         #[pygetset]
         fn row_factory(&self) -> Option<PyObjectRef> {
-            self.row_factory.to_owned()
+            self.row_factory.load_owned()
         }
 
         #[pygetset(setter)]
@@ -2346,7 +2346,7 @@ mod _sqlite3 {
 
             let row = vm.ctx.new_tuple(row);
 
-            if let Some(row_factory) = zelf.row_factory.to_owned() {
+            if let Some(row_factory) = zelf.row_factory.load_owned() {
                 row_factory
                     .call((zelf.to_owned(), row), vm)
                     .map(PyIterReturn::Return)
