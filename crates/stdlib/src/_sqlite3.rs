@@ -2380,7 +2380,9 @@ mod _sqlite3 {
 
         fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
             if let Some(i) = needle.downcast_ref::<PyInt>() {
-                let i = i.try_to_primitive::<isize>(vm)?;
+                let i = i.try_to_primitive::<isize>(vm).map_err(|_| {
+                    vm.new_index_error("cannot fit 'int' into an index-sized integer")
+                })?;
                 self.data.as_slice().getitem_by_index(vm, i)
             } else if let Some(name) = needle.downcast_ref::<PyStr>() {
                 for (obj, i) in self.description.as_slice().iter().zip(0..) {
