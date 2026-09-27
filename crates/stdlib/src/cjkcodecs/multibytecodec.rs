@@ -974,6 +974,7 @@ mod _multibytecodec {
     struct MultibyteStreamReader {
         #[pytraverse(skip)]
         codec: CodecRef,
+        #[pymember]
         stream: PyObjectRef,
         #[pytraverse(skip)]
         inner: PyMutex<DecoderState>,
@@ -1006,11 +1007,6 @@ mod _multibytecodec {
 
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
     impl MultibyteStreamReader {
-        #[pygetset]
-        fn stream(&self) -> PyObjectRef {
-            self.stream.clone()
-        }
-
         #[pygetset]
         fn errors(&self, vm: &VirtualMachine) -> PyStrRef {
             self.inner.lock().errors.name(vm)
@@ -1134,6 +1130,7 @@ mod _multibytecodec {
     struct MultibyteStreamWriter {
         #[pytraverse(skip)]
         codec: CodecRef,
+        #[pymember]
         stream: PyObjectRef,
         #[pytraverse(skip)]
         inner: PyMutex<EncoderState>,
@@ -1166,11 +1163,6 @@ mod _multibytecodec {
 
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
     impl MultibyteStreamWriter {
-        #[pygetset]
-        fn stream(&self) -> PyObjectRef {
-            self.stream.clone()
-        }
-
         #[pygetset]
         fn errors(&self, vm: &VirtualMachine) -> PyStrRef {
             self.inner.lock().errors.name(vm)

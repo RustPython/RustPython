@@ -6,14 +6,15 @@ pub(crate) use _bz2::module_def;
 mod _bz2 {
     use crate::compression::DecompressorArgs;
     use crate::vm::{
-        Py, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyBytesRef, PyType},
+        Py, PyObject, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyBytes, PyType},
         common::lock::PyMutex,
         function::ArgBytesLike,
-        object::PyResult,
+        object::{PyAtomicRef, PyResult},
         types::Constructor,
     };
     use alloc::fmt;
+    use core::sync::atomic::{AtomicBool, Ordering};
     use rustpython_common::compression::bz2 as backend;
 
     fn map_bz2_error(error: backend::Bz2Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -31,15 +32,6 @@ mod _bz2 {
 
     struct PyBZ2DecompressorInner {
         decompress: backend::Decompressor,
-        unused_data: PyBytesRef,
-    }
-
-    impl PyBZ2DecompressorInner {
-        fn sync_visible_state(&mut self, vm: &VirtualMachine) {
-            if self.unused_data.as_bytes() != self.decompress.unused_data() {
-                self.unused_data = vm.ctx.new_bytes(self.decompress.unused_data().to_vec());
-            }
-        }
     }
 
     #[pyattr]
@@ -48,6 +40,14 @@ mod _bz2 {
     struct BZ2Decompressor {
         #[pytraverse(skip)]
         inner: PyMutex<PyBZ2DecompressorInner>,
+        #[pymember]
+        #[pytraverse(skip)]
+        eof: AtomicBool,
+        #[pymember]
+        #[pytraverse(skip)]
+        needs_input: AtomicBool,
+        #[pymember(type = "object_ex")]
+        unused_data: PyAtomicRef<Option<PyObject>>,
     }
 
     impl fmt::Debug for BZ2Decompressor {
@@ -63,8 +63,10 @@ mod _bz2 {
             Ok(Self {
                 inner: PyMutex::new(PyBZ2DecompressorInner {
                     decompress: backend::Decompressor::new(),
-                    unused_data: vm.ctx.empty_bytes.clone(),
                 }),
+                eof: AtomicBool::new(false),
+                needs_input: AtomicBool::new(true),
+                unused_data: PyAtomicRef::from(Some(vm.ctx.empty_bytes.clone().into())),
             })
         }
     }
@@ -84,23 +86,19 @@ mod _bz2 {
                 return Err(vm.new_value_error("Decompressor is unusable after a previous error"));
             }
             let result = inner.decompress.decompress(data, max_length);
-            inner.sync_visible_state(vm);
+            self.eof.store(inner.decompress.eof(), Ordering::Relaxed);
+            self.needs_input
+                .store(inner.decompress.needs_input(), Ordering::Relaxed);
+            let stale = self.unused_data.deref().is_none_or(|obj| {
+                obj.downcast_ref::<PyBytes>()
+                    .is_none_or(|bytes| bytes.as_bytes() != inner.decompress.unused_data())
+            });
+            if stale {
+                let bytes = vm.ctx.new_bytes(inner.decompress.unused_data().to_vec());
+                // The previous bytes object is dropped after the slot is replaced.
+                let _previous = unsafe { self.unused_data.swap(Some(bytes.into())) };
+            }
             result.map_err(|error| map_bz2_error(error, vm))
-        }
-
-        #[pygetset]
-        fn eof(&self) -> bool {
-            self.inner.lock().decompress.eof()
-        }
-
-        #[pygetset]
-        fn unused_data(&self) -> PyBytesRef {
-            self.inner.lock().unused_data.clone()
-        }
-
-        #[pygetset]
-        fn needs_input(&self) -> bool {
-            self.inner.lock().decompress.needs_input()
         }
 
         #[pymethod(name = "__reduce__")]

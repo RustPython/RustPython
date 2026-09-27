@@ -72,12 +72,27 @@ mod unicodedata {
     #[derive(Debug, PyPayload)]
     pub(super) struct Ucd {
         inner: unicode_core::Ucd,
+        /// Owns the bytes `unidata_version` points at.
+        #[expect(dead_code, reason = "keeps the version string alive")]
+        version_owner: alloc::ffi::CString,
+        #[pymember]
+        unidata_version: crate::vm::builtins::descriptor::CStrMember,
     }
 
     impl Ucd {
-        pub(super) const fn new(modern: bool) -> Self {
+        pub(super) fn new(modern: bool) -> Self {
+            let text = if modern {
+                unicode_core::unicode_version()
+            } else {
+                "3.2.0".to_owned()
+            };
+            let version_owner = alloc::ffi::CString::new(text).unwrap_or_default();
+            let unidata_version =
+                crate::vm::builtins::descriptor::CStrMember::new(version_owner.as_ptr());
             Self {
                 inner: unicode_core::Ucd::new(modern),
+                version_owner,
+                unidata_version,
             }
         }
 
@@ -216,11 +231,6 @@ mod unicodedata {
                 .or_else(|| default.present())
                 .map(Option::Some)
                 .ok_or_else(|| vm.new_value_error("not a numeric character"))
-        }
-
-        #[pygetset]
-        fn unidata_version(&self) -> String {
-            self.inner.unidata_version()
         }
     }
 

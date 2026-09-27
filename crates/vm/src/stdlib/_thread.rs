@@ -1004,34 +1004,18 @@ pub(crate) mod _thread {
     #[pyclass(module = "_thread", name = "_ExceptHookArgs")]
     #[derive(Debug, PyPayload)]
     struct ExceptHookArgs {
+        #[pymember]
         exc_type: crate::PyObjectRef,
+        #[pymember]
         exc_value: crate::PyObjectRef,
+        #[pymember]
         exc_traceback: crate::PyObjectRef,
+        #[pymember]
         thread: crate::PyObjectRef,
     }
 
     #[pyclass(with(Constructor))]
-    impl ExceptHookArgs {
-        #[pygetset]
-        fn exc_type(&self) -> crate::PyObjectRef {
-            self.exc_type.clone()
-        }
-
-        #[pygetset]
-        fn exc_value(&self) -> crate::PyObjectRef {
-            self.exc_value.clone()
-        }
-
-        #[pygetset]
-        fn exc_traceback(&self) -> crate::PyObjectRef {
-            self.exc_traceback.clone()
-        }
-
-        #[pygetset]
-        fn thread(&self) -> crate::PyObjectRef {
-            self.thread.clone()
-        }
-    }
+    impl ExceptHookArgs {}
 
     #[derive(FromArgs)]
     struct ExceptHookNewArgs {

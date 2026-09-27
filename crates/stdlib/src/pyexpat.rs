@@ -255,7 +255,8 @@ mod _pyexpat {
         namespace_prefixes: MutableObject,
         ordered_attributes: MutableObject,
         specified_attributes: MutableObject,
-        intern: MutableObject,
+        #[pymember]
+        intern: PyObjectRef,
         // Additional handlers (stubs for compatibility)
         processing_instruction: MutableObject,
         unparsed_entity_decl: MutableObject,
@@ -830,7 +831,7 @@ mod _pyexpat {
                 namespace_prefixes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 ordered_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 specified_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
-                intern: MutableObject::new(intern_dict),
+                intern: intern_dict,
                 // Additional handlers (stubs for compatibility)
                 processing_instruction: MutableObject::new(vm.ctx.none()),
                 unparsed_entity_decl: MutableObject::new(vm.ctx.none()),
@@ -890,7 +891,6 @@ mod _pyexpat {
                 class,
                 specified_attributes
             );
-            create_property!(ctx, attributes, "intern", class, intern);
             create_readonly_int_property!(
                 ctx,
                 attributes,
@@ -1066,7 +1066,7 @@ mod _pyexpat {
         /// Attribute *values* are intentionally left out of this cache, same
         /// as libexpat: they vary far more than names and rarely repeat.
         fn intern_name(&self, vm: &VirtualMachine, name: String) -> PyStrRef {
-            let intern_obj = self.intern.read().clone();
+            let intern_obj = self.intern.clone();
             if let Ok(dict) = intern_obj.downcast::<crate::vm::builtins::PyDict>() {
                 if let Ok(Some(existing)) = dict.get_item_opt(name.as_str(), vm)
                     && let Ok(existing) = existing.downcast::<PyStr>()

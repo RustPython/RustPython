@@ -44,6 +44,7 @@ mod _socket {
         Ok(())
     }
 
+    use core::sync::atomic::{AtomicI32, Ordering};
     use core::{
         mem::ManuallyDrop,
         net::{Ipv4Addr, Ipv6Addr, SocketAddr},
@@ -1062,9 +1063,12 @@ mod _socket {
     #[pyclass(name = "socket")]
     #[derive(Debug, PyPayload)]
     pub struct PySocket {
-        kind: AtomicCell<i32>,
-        family: AtomicCell<i32>,
-        proto: AtomicCell<i32>,
+        #[pymember(name = "type")]
+        kind: AtomicI32,
+        #[pymember]
+        family: AtomicI32,
+        #[pymember]
+        proto: AtomicI32,
         pub(crate) timeout: AtomicCell<f64>,
         sock: PyRwLock<Option<Socket>>,
     }
@@ -1074,9 +1078,9 @@ mod _socket {
     impl Default for PySocket {
         fn default() -> Self {
             Self {
-                kind: AtomicCell::default(),
-                family: AtomicCell::default(),
-                proto: AtomicCell::default(),
+                kind: AtomicI32::new(0),
+                family: AtomicI32::new(0),
+                proto: AtomicI32::new(0),
                 timeout: AtomicCell::new(-1.0),
                 sock: PyRwLock::new(None),
             }
@@ -1137,7 +1141,7 @@ mod _socket {
             proto: i32,
             sock: Socket,
         ) -> io::Result<()> {
-            self.family.store(family);
+            self.family.store(family, Ordering::Relaxed);
             // Mask out SOCK_NONBLOCK and SOCK_CLOEXEC flags from stored type
             // to ensure consistent cross-platform behavior
             #[cfg(any(
@@ -1164,8 +1168,8 @@ mod _socket {
                 target_os = "redox"
             )))]
             let masked_kind = socket_kind;
-            self.kind.store(masked_kind);
-            self.proto.store(proto);
+            self.kind.store(masked_kind, Ordering::Relaxed);
+            self.proto.store(proto, Ordering::Relaxed);
             let mut s = self.sock.write();
             let sock = s.insert(sock);
             // If SOCK_NONBLOCK is set, use timeout 0 (non-blocking)
@@ -1272,7 +1276,7 @@ mod _socket {
             caller: &str,
             vm: &VirtualMachine,
         ) -> Result<host_socket::raw::SockAddr, IoOrPyException> {
-            let family = self.family.load();
+            let family = self.family.load(Ordering::Relaxed);
             match family {
                 #[cfg(unix)]
                 c::AF_UNIX => {
@@ -1338,11 +1342,11 @@ mod _socket {
                 }
                 #[cfg(windows)]
                 family if family == c::AF_HYPERV => {
-                    if self.proto.load() != host_socket::HV_PROTOCOL_RAW {
+                    if self.proto.load(Ordering::Relaxed) != host_socket::HV_PROTOCOL_RAW {
                         return Err(vm
                             .new_os_error(format!(
                                 "{caller}(): unsupported AF_HYPERV protocol: {}",
-                                self.proto.load()
+                                self.proto.load(Ordering::Relaxed)
                             ))
                             .into());
                     }
@@ -1403,7 +1407,7 @@ mod _socket {
                 }
                 #[cfg(windows)]
                 family if family == c::AF_BLUETOOTH => {
-                    if self.proto.load() != host_socket::BTHPROTO_RFCOMM {
+                    if self.proto.load(Ordering::Relaxed) != host_socket::BTHPROTO_RFCOMM {
                         return Err(vm
                             .new_os_error(format!("{caller}(): unknown Bluetooth protocol"))
                             .into());
@@ -1448,7 +1452,7 @@ mod _socket {
                             obj.class().name()
                         ))
                     })?;
-                    let proto = self.proto.load();
+                    let proto = self.proto.load(Ordering::Relaxed);
                     let interface: PyStrRef = tuple
                         .as_slice()
                         .first()
@@ -1697,9 +1701,9 @@ mod _socket {
             Ok(format!(
                 "<socket object, fd={}, family={}, type={}, proto={}>",
                 zelf.fileno(),
-                zelf.family.load(),
-                zelf.kind.load(),
-                zelf.proto.load(),
+                zelf.family.load(Ordering::Relaxed),
+                zelf.kind.load(Ordering::Relaxed),
+                zelf.proto.load(Ordering::Relaxed),
             ))
         }
     }
@@ -1896,7 +1900,10 @@ mod _socket {
                 self.sock_snapshot()?.accept_raw()
             })?;
             let fd = into_sock_fileno(sock);
-            Ok((fd, get_addr_tuple(&addr, self.proto.load(), vm)))
+            Ok((
+                fd,
+                get_addr_tuple(&addr, self.proto.load(Ordering::Relaxed), vm),
+            ))
         }
 
         #[pymethod]
@@ -1969,7 +1976,10 @@ mod _socket {
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
-            Ok((buffer, get_addr_tuple(&addr, self.proto.load(), vm)))
+            Ok((
+                buffer,
+                get_addr_tuple(&addr, self.proto.load(Ordering::Relaxed), vm),
+            ))
         }
 
         #[pymethod]
@@ -2002,7 +2012,10 @@ mod _socket {
             })?;
             unsafe { scratch.set_len(n) };
             buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
-            Ok((n, get_addr_tuple(&addr, self.proto.load(), vm)))
+            Ok((
+                n,
+                get_addr_tuple(&addr, self.proto.load(Ordering::Relaxed), vm),
+            ))
         }
 
         #[pymethod]
@@ -2226,7 +2239,7 @@ mod _socket {
                 let storage: host_socket::raw::SockAddrStorage =
                     unsafe { core::mem::transmute(address.storage) };
                 let addr = unsafe { host_socket::raw::SockAddr::new(storage, address.len as _) };
-                get_addr_tuple(&addr, self.proto.load(), vm)
+                get_addr_tuple(&addr, self.proto.load(Ordering::Relaxed), vm)
             } else {
                 vm.ctx.none()
             };
@@ -2310,14 +2323,22 @@ mod _socket {
         fn getsockname(&self, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
             let addr = self.sock()?.local_addr()?;
 
-            Ok(get_addr_tuple(&addr, self.proto.load(), vm))
+            Ok(get_addr_tuple(
+                &addr,
+                self.proto.load(Ordering::Relaxed),
+                vm,
+            ))
         }
 
         #[pymethod]
         fn getpeername(&self, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
             let addr = self.sock()?.peer_addr()?;
 
-            Ok(get_addr_tuple(&addr, self.proto.load(), vm))
+            Ok(get_addr_tuple(
+                &addr,
+                self.proto.load(Ordering::Relaxed),
+                vm,
+            ))
         }
 
         #[pymethod]
@@ -2506,21 +2527,6 @@ mod _socket {
             let sock = self.sock()?;
             let fd = sock_fileno(&sock);
             host_socket::share_socket(fd as _, process_id).map_err(Into::into)
-        }
-
-        #[pygetset(name = "type")]
-        fn kind(&self) -> i32 {
-            self.kind.load()
-        }
-
-        #[pygetset]
-        fn family(&self) -> i32 {
-            self.family.load()
-        }
-
-        #[pygetset]
-        fn proto(&self) -> i32 {
-            self.proto.load()
         }
     }
 
