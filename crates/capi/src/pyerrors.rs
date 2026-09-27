@@ -211,6 +211,7 @@ pub unsafe extern "C" fn PyErr_NewException(
                 vec![ty.to_owned()]
             } else if let Some(tuple) = bases.downcast_ref::<PyTuple>() {
                 tuple
+                    .as_slice()
                     .iter()
                     .map(|item| item.to_owned().downcast())
                     .collect::<Result<Vec<_>, _>>()

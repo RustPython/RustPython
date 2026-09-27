@@ -155,17 +155,17 @@ pub(crate) mod _struct {
     #[derive(FromArgs)]
     struct UpdateFromArgs {
         buffer: ArgBytesLike,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         offset: isize,
     }
 
     #[pyfunction]
     fn unpack_from(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         args: UpdateFromArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = format.format_spec(vm)?;
         let offset =
             get_buffer_offset(args.buffer.len(), args.offset, format_spec.size, false, vm)?;
         args.buffer
@@ -309,8 +309,8 @@ pub(crate) mod _struct {
             Ok(self.ready(vm)?.format.clone())
         }
 
-        /// The size an uninitialized `Struct` reports, which no format has
-        /// yet given a value.
+        // The size an uninitialized `Struct` reports, which no format has
+        // yet given a value.
         #[pygetset]
         fn size(&self) -> isize {
             self.inner

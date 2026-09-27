@@ -14,7 +14,7 @@ mod decl {
             PyStopIteration, PyStr, PyTuple,
         },
         convert::ToPyObject,
-        function::{ArgBytesLike, OptionalArg},
+        function::ArgBytesLike,
         object::{AsObject, PyPayload},
     };
     use core::cell::RefCell;
@@ -53,7 +53,7 @@ mod decl {
                     f(DumpableValue::Float(pyfloat.to_f64()))
                 }
                 ref pycomplex @ PyComplex => {
-                    f(DumpableValue::Complex(pycomplex.to_complex64()))
+                    f(DumpableValue::Complex(pycomplex.as_complex()))
                 }
                 ref pystr @ PyStr => {
                     f(DumpableValue::Str(pystr.as_wtf8()))
@@ -93,9 +93,10 @@ mod decl {
 
     #[derive(FromArgs)]
     struct DumpsArgs {
+        #[pyarg(positional)]
         value: PyObjectRef,
-        #[pyarg(any, optional)]
-        _version: OptionalArg<i32>,
+        #[pyarg(positional, default = 5)]
+        version: i32,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }
@@ -105,16 +106,10 @@ mod decl {
         let DumpsArgs {
             value,
             allow_code,
-            _version,
+            version,
         } = args;
-        let version = _version.unwrap_or(marshal::FORMAT_VERSION as i32);
 
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call(
-                (vm.ctx.new_str("marshal.dumps"), value.clone(), version),
-                vm,
-            )?;
-        }
+        vm.audit("marshal.dumps", || (value.clone(), version))?;
 
         check_exact_type(&value, vm)?;
         let mut buf = Vec::new();
@@ -320,7 +315,7 @@ mod decl {
                 write_float_str(buf, f.to_f64());
             }
         } else if let Some(c) = obj.downcast_ref::<PyComplex>() {
-            let cv = c.to_complex64();
+            let cv = c.as_complex();
             if version > 1 {
                 buf.write_u8(b'y');
                 buf.write_u64(cv.re.to_bits());
@@ -360,12 +355,12 @@ mod decl {
             buf.write_slice(&data);
         } else if let Some(t) = obj.downcast_ref::<PyTuple>() {
             // From 4 on a short tuple carries its length in a single byte.
-            if version >= 4 && t.len() < 256 {
+            if version >= 4 && t.as_slice().len() < 256 {
                 buf.write_u8(b')');
-                buf.write_u8(t.len() as u8);
+                buf.write_u8(t.as_slice().len() as u8);
             } else {
                 buf.write_u8(b'(');
-                buf.write_u32(t.len() as u32);
+                buf.write_u32(t.as_slice().len() as u32);
             }
             for elem in t.as_slice() {
                 write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
@@ -474,10 +469,12 @@ mod decl {
 
     #[derive(FromArgs)]
     struct DumpArgs {
+        #[pyarg(positional)]
         value: PyObjectRef,
-        f: PyObjectRef,
-        #[pyarg(any, optional)]
-        _version: OptionalArg<i32>,
+        #[pyarg(positional)]
+        file: PyObjectRef,
+        #[pyarg(positional, default = 5)]
+        version: i32,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }
@@ -487,12 +484,12 @@ mod decl {
         let dumped = dumps(
             DumpsArgs {
                 value: args.value,
-                _version: args._version,
+                version: args.version,
                 allow_code: args.allow_code,
             },
             vm,
         )?;
-        vm.call_method(&args.f, "write", (dumped,))?;
+        vm.call_method(&args.file, "write", (dumped,))?;
         Ok(())
     }
 
@@ -593,7 +590,7 @@ mod decl {
                 .ok_or(marshal::MarshalError::BadType)?;
             // SAFETY: compiler-core calls this only on a fresh placeholder,
             // once per index, before returning it to Python code.
-            unsafe { tuple.set_marshal_item(index, value) };
+            unsafe { tuple.payload.set_marshal_item(index, value) };
             Ok(())
         }
         fn make_code(&self, code: CodeObject) -> Result<Self::Value, marshal::MarshalError> {
@@ -765,24 +762,25 @@ mod decl {
 
     #[derive(FromArgs)]
     struct LoadsArgs {
-        #[pyarg(any)]
+        #[pyarg(positional)]
         // marshal_loads_impl takes `bytes: Py_buffer`, a y* argument.
-        data: ArgBytesLike,
+        bytes: ArgBytesLike,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }
 
     #[pyfunction]
     fn loads(args: LoadsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let LoadsArgs { data, allow_code } = args;
-        let buf = data.borrow_buf();
+        let LoadsArgs { bytes, allow_code } = args;
+        let buf = bytes.borrow_buf();
 
         deserialize_value(&mut &buf[..], allow_code, vm)
     }
 
     #[derive(FromArgs)]
     struct LoadArgs {
-        f: PyObjectRef,
+        #[pyarg(positional)]
+        file: PyObjectRef,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }
@@ -790,7 +788,7 @@ mod decl {
     #[pyfunction]
     fn load(args: LoadArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let mut rdr = ReadableFile {
-            file: args.f,
+            file: args.file,
             vm,
             buf: Vec::new(),
             error: None,

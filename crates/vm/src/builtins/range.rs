@@ -64,8 +64,11 @@ fn iter_search(
 #[pyclass(module = false, name = "range")]
 #[derive(Debug, Clone)]
 pub struct PyRange {
+    #[pymember(type = "object_ex")]
     pub start: PyIntRef,
+    #[pymember(type = "object_ex")]
     pub stop: PyIntRef,
+    #[pymember(type = "object_ex")]
     pub step: PyIntRef,
 }
 
@@ -259,21 +262,6 @@ impl PyRange {
         .into_ref_with_type(vm, cls)
     }
 
-    #[pygetset]
-    fn start(&self) -> PyIntRef {
-        self.start.clone()
-    }
-
-    #[pygetset]
-    fn stop(&self) -> PyIntRef {
-        self.stop.clone()
-    }
-
-    #[pygetset]
-    fn step(&self) -> PyIntRef {
-        self.step.clone()
-    }
-
     #[pymethod]
     fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
         let start = self.start.as_bigint();
@@ -395,8 +383,8 @@ impl Py<PyRange> {
     }
 
     #[pymethod]
-    fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-        if let Ok(int) = needle.clone().downcast::<PyInt>() {
+    fn index(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+        if let Ok(int) = object.clone().downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
                 Some(idx) => Ok(idx),
                 None => Err(vm.new_value_error(format!("{int} is not in range"))),
@@ -405,28 +393,29 @@ impl Py<PyRange> {
             // Fallback to iteration.
             Ok(BigInt::from_bytes_be(
                 Sign::Plus,
-                &iter_search(self.as_object(), &needle, SearchType::Index, vm)?.to_be_bytes(),
+                &iter_search(self.as_object(), &object, SearchType::Index, vm)?.to_be_bytes(),
             ))
         }
     }
 
     #[pymethod]
-    fn count(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        if let Ok(int) = item.clone().downcast::<PyInt>() {
+    fn count(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        if let Ok(int) = object.clone().downcast::<PyInt>() {
             Ok(usize::from(self.index_of(int.as_bigint()).is_some()))
         } else {
             // Dealing with classes who might compare equal with ints in their
             // __eq__, slow search.
-            iter_search(self.as_object(), &item, SearchType::Count, vm)
+            iter_search(self.as_object(), &object, SearchType::Count, vm)
         }
     }
 }
 
 impl PyRange {
     fn protocol_length(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        PyInt::from(self.__len__())
-            .try_to_primitive::<isize>(vm)
+        self.__len__()
+            .to_isize()
             .map(|x| x as usize)
+            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to Rust isize"))
     }
 }
 
@@ -485,14 +474,14 @@ impl Hashable for PyRange {
         } else if length.is_one() {
             [
                 vm.ctx.new_int(length).into(),
-                zelf.start().into(),
+                zelf.start.clone().into(),
                 vm.ctx.none(),
             ]
         } else {
             [
                 vm.ctx.new_int(length).into(),
-                zelf.start().into(),
-                zelf.step().into(),
+                zelf.start.clone().into(),
+                zelf.step.clone().into(),
             ]
         };
         tuple_hash(&elements, vm)
@@ -673,9 +662,9 @@ impl PyRangeIterator {
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.index
-            .store(range_state(&BigInt::from(self.length), &state, vm)?);
+            .store(range_state(&BigInt::from(self.length), &object, vm)?);
         Ok(())
     }
 

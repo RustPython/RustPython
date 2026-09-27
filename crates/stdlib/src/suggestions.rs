@@ -9,7 +9,7 @@ mod _suggestions {
     #[pyfunction]
     fn _generate_suggestions(
         candidates: PyObjectRef,
-        name: PyObjectRef,
+        item: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
         let candidates = candidates
@@ -19,7 +19,7 @@ mod _suggestions {
         Ok(
             match crate::vm::suggestion::calculate_suggestions(
                 candidates.iter().map(|o| &**o),
-                &name,
+                &item,
             ) {
                 Some(suggestion) => suggestion.into(),
                 None => vm.ctx.none(),

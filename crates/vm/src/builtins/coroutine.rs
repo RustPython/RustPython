@@ -16,6 +16,7 @@ use crossbeam_utils::atomic::AtomicCell;
 // PyCoro_Type in CPython
 pub struct PyCoroutine {
     inner: Coro,
+    #[pymember(name = "cr_origin")]
     origin: Option<PyTupleRef>,
 }
 
@@ -113,10 +114,6 @@ impl PyCoroutine {
         self.inner.code()
     }
     #[pygetset]
-    fn cr_origin(&self, _vm: &VirtualMachine) -> Option<PyTupleRef> {
-        self.origin.clone()
-    }
-    #[pygetset]
     fn cr_suspended(&self, _vm: &VirtualMachine) -> bool {
         self.inner.suspended()
     }
@@ -134,20 +131,11 @@ impl PyCoroutine {
 #[pyclass]
 impl Py<PyCoroutine> {
     #[pymethod]
-    /// send(arg) -> send 'arg' into coroutine,
-    /// return next iterated value or raise StopIteration.
     fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         self.inner.send(self.as_object(), value, vm)
     }
 
     #[pymethod]
-    /// throw(value)
-    /// throw(type[,value[,traceback]])
-    ///
-    /// Raise exception in coroutine, return next iterated value or raise
-    /// StopIteration.
-    /// the (type, val, tb) signature is deprecated,
-    /// and may be removed in a future version of Python.
     fn throw(
         &self,
         exc_type: PyObjectRef,
@@ -166,7 +154,6 @@ impl Py<PyCoroutine> {
     }
 
     #[pymethod]
-    /// close() -> raise GeneratorExit inside coroutine.
     fn close(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         self.inner.close(self.as_object(), vm)
     }

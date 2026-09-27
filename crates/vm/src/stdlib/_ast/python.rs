@@ -36,22 +36,6 @@ pub(crate) mod _ast {
             class.set_str_attr("_attributes", empty_tuple.clone(), ctx);
             class.set_str_attr("__match_args__", empty_tuple, ctx);
 
-            const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
-                "__reduce__",
-                |zelf: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyTupleRef> {
-                    ast_reduce(&zelf, vm)
-                },
-                PyMethodFlags::METHOD,
-                None,
-            );
-            const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
-                "__replace__",
-                |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
-                    ast_replace(&zelf, args, vm)
-                },
-                PyMethodFlags::METHOD,
-                None,
-            );
             const AST_DEEPCOPY: PyMethodDef = PyMethodDef::new_const(
                 "__deepcopy__",
                 |zelf: PyObjectRef, memo: PyObjectRef, vm: &VirtualMachine| -> PyResult {
@@ -61,8 +45,6 @@ pub(crate) mod _ast {
                 None,
             );
 
-            class.set_str_attr("__reduce__", AST_REDUCE.to_proper_method(class, ctx), ctx);
-            class.set_str_attr("__replace__", AST_REPLACE.to_proper_method(class, ctx), ctx);
             class.set_str_attr(
                 "__deepcopy__",
                 AST_DEEPCOPY.to_proper_method(class, ctx),
@@ -84,16 +66,6 @@ pub(crate) mod _ast {
         #[pyattr]
         fn __match_args__(ctx: &Context) -> PyTupleRef {
             ctx.empty_tuple.clone()
-        }
-
-        #[pymethod]
-        fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            ast_reduce(&zelf, vm)
-        }
-
-        #[pymethod]
-        fn __replace__(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            ast_replace(&zelf, args, vm)
         }
 
         #[pymethod]
@@ -597,7 +569,7 @@ This will become an error in Python 3.15.",
                 ast_reduce(&zelf, vm)
             },
             PyMethodFlags::METHOD,
-            None,
+            Some("__reduce__($self, /)\n--\n\n"),
         );
         const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
             "__replace__",
@@ -605,7 +577,9 @@ This will become an error in Python 3.15.",
                 ast_replace(&zelf, args, vm)
             },
             PyMethodFlags::METHOD,
-            None,
+            Some(
+                "__replace__($self, /, **fields)\n--\n\nReturn a copy of the AST node with new values for the specified fields.",
+            ),
         );
         let base_type = NodeAst::static_type();
         ast_type.set_str_attr(

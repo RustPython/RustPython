@@ -216,7 +216,7 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
         }
         ref f @ super::float::PyFloat => BorrowedConstant::Float { value: f.to_f64() },
         ref c @ super::complex::PyComplex => BorrowedConstant::Complex {
-            value: c.to_complex()
+            value: c.as_complex()
         },
         ref s @ super::pystr::PyStr => BorrowedConstant::Str { value: s.as_wtf8() },
         ref b @ super::bytes::PyBytes => BorrowedConstant::Bytes {
@@ -296,7 +296,7 @@ fn const_hash(ctx: &Context, obj: &PyObject) -> crate::common::hash::PyHash {
     } else if let Some(float) = obj.downcast_ref::<PyFloat>() {
         hash::hash_float(float.to_f64()).unwrap_or_else(|| hash::hash_object_id(obj.get_id()))
     } else if let Some(complex) = obj.downcast_ref::<PyComplex>() {
-        let value = complex.to_complex64();
+        let value = complex.as_complex();
         let re_hash =
             hash::hash_float(value.re).unwrap_or_else(|| hash::hash_object_id(obj.get_id()));
         let im_hash =
@@ -305,10 +305,11 @@ fn const_hash(ctx: &Context, obj: &PyObject) -> crate::common::hash::PyHash {
             + core::num::Wrapping(im_hash) * core::num::Wrapping(hash::IMAG);
         hash::fix_sentinel(ret)
     } else if let Some(s) = obj.downcast_ref::<PyStr>() {
-        // Matches `PyStr::hash` - strings hash their WTF-8 bytes, not a validated `&str`.
-        ctx.hash_secret.load().hash_bytes(s.as_bytes())
+        // Matches `PyStr::hash`, including WTF-8 bytes. Context-only constants initialize the process
+        // secret before any interpreter; later interpreters must retain that secret.
+        crate::vm::init_hash_secret(None).hash_bytes(s.as_bytes())
     } else if let Some(b) = obj.downcast_ref::<PyBytes>() {
-        ctx.hash_secret.load().hash_bytes(b.as_bytes())
+        crate::vm::init_hash_secret(None).hash_bytes(b.as_bytes())
     } else if let Some(t) = obj.downcast_ref::<PyTuple>() {
         let hashes = t
             .as_slice()
@@ -365,8 +366,8 @@ fn const_eq(a: &PyObject, b: &PyObject) -> bool {
         return x.to_f64() == y.to_f64();
     }
     // Complex vs. complex/int/float/bool.
-    let a_complex = a.downcast_ref::<PyComplex>().map(|c| c.to_complex64());
-    let b_complex = b.downcast_ref::<PyComplex>().map(|c| c.to_complex64());
+    let a_complex = a.downcast_ref::<PyComplex>().map(|c| c.as_complex());
+    let b_complex = b.downcast_ref::<PyComplex>().map(|c| c.as_complex());
     if let (Some(x), Some(y)) = (a_complex, b_complex) {
         return x == y;
     }
@@ -603,6 +604,12 @@ pub struct CoMonitoringData {
 
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
+    #[pymember(name = "co_argcount", path = "arg_count")]
+    #[pymember(name = "co_posonlyargcount", path = "posonlyarg_count")]
+    #[pymember(name = "co_kwonlyargcount", path = "kwonlyarg_count")]
+    #[pymember(name = "co_stacksize", path = "max_stackdepth")]
+    #[pymember(name = "co_name", path = "obj_name")]
+    #[pymember(name = "co_qualname", path = "qualname")]
     pub code: CodeObject,
     /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
     /// Derived once so frame-local proxy operations do not repeatedly scan
@@ -1016,6 +1023,7 @@ impl Constructor for PyCode {
         // Convert names tuple to vector of interned strings
         let names: Box<[&'static PyStrInterned]> = args
             .names
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -1028,6 +1036,7 @@ impl Constructor for PyCode {
 
         let varnames: Box<[&'static PyStrInterned]> = args
             .varnames
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -1040,6 +1049,7 @@ impl Constructor for PyCode {
 
         let cellvars: Box<[&'static PyStrInterned]> = args
             .cellvars
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -1052,6 +1062,7 @@ impl Constructor for PyCode {
 
         let freevars: Box<[&'static PyStrInterned]> = args
             .freevars
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -1079,6 +1090,7 @@ impl Constructor for PyCode {
         // Convert constants
         let constants = args
             .consts
+            .as_slice()
             .iter()
             .map(|obj| {
                 // Convert PyObject to Literal constant. For now, just wrap it
@@ -1156,21 +1168,6 @@ impl Constructor for PyCode {
 )]
 impl PyCode {
     #[pygetset]
-    const fn co_posonlyargcount(&self) -> usize {
-        self.code.posonlyarg_count as usize
-    }
-
-    #[pygetset]
-    const fn co_argcount(&self) -> usize {
-        self.code.arg_count as usize
-    }
-
-    #[pygetset]
-    const fn co_stacksize(&self) -> u32 {
-        self.code.max_stackdepth
-    }
-
-    #[pygetset]
     pub fn co_filename(&self) -> PyStrRef {
         self.source_path().to_owned()
     }
@@ -1196,23 +1193,9 @@ impl PyCode {
     }
 
     #[pygetset]
-    const fn co_kwonlyargcount(&self) -> usize {
-        self.code.kwonlyarg_count as usize
-    }
-
-    #[pygetset]
     fn co_consts(&self, vm: &VirtualMachine) -> PyTupleRef {
         let consts = self.code.constants.iter().map(|x| x.0.clone()).collect();
         vm.ctx.new_tuple(consts)
-    }
-
-    #[pygetset]
-    fn co_name(&self) -> PyStrRef {
-        self.code.obj_name.to_owned()
-    }
-    #[pygetset]
-    fn co_qualname(&self) -> PyStrRef {
-        self.code.qualname.to_owned()
     }
 
     #[pygetset]
@@ -1916,5 +1899,104 @@ assert u_count == 3
             let scope = vm.new_scope_with_builtins();
             vm.run_code_obj(code_ref, scope).unwrap();
         });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn context_only_frozenset_hash_secret() {
+        use super::{PyObjBag, const_hash};
+        use crate::{
+            AsObject, Context, PyPayload,
+            builtins::PyFrozenSet,
+            bytecode::{Constant, ConstantBag, ConstantData},
+            common::hash::HashSecret,
+            vm::Settings,
+        };
+
+        const CHILD_MODE: &str = "RUSTPYTHON_FROZENSET_HASH_TEST";
+        let Ok(mode) = rustpython_host_env::os::var(CHILD_MODE) else {
+            // Other tests may already have initialized the process-wide secret.
+            for mode in ["context_first", "interpreter_first"] {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "A fresh native test process is required to isolate the hash secret"
+                )]
+                let output = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "builtins::code::tests::context_only_frozenset_hash_secret",
+                        "--test-threads=1",
+                    ])
+                    .env(CHILD_MODE, mode)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{mode}: {}\n{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                );
+            }
+            return;
+        };
+        let settings = |seed| Settings {
+            hash_seed: Some(seed),
+            ..Settings::default()
+        };
+        let mut first = match mode.as_str() {
+            "context_first" => None,
+            "interpreter_first" => {
+                let interpreter = Interpreter::builder(settings(7))
+                    .settings(settings(8))
+                    .build();
+                assert_eq!(
+                    crate::vm::hash_secret().hash_bytes(b"constant hash string"),
+                    HashSecret::new(8).hash_bytes(b"constant hash string"),
+                );
+                Some(interpreter)
+            }
+            _ => panic!("unexpected subprocess mode: {mode}"),
+        };
+        let text = ConstantData::Str {
+            value: "constant hash string".into(),
+        };
+        let bytes = ConstantData::Bytes {
+            value: b"constant hash bytes".to_vec(),
+        };
+        let elements = vec![
+            text.clone(),
+            bytes.clone(),
+            ConstantData::Tuple {
+                elements: vec![ConstantData::Tuple {
+                    elements: vec![text, bytes],
+                }],
+            },
+        ];
+        let data = ConstantData::Frozenset {
+            elements: elements.clone(),
+        };
+        let ctx = Context::genesis();
+        let constant = PyObjBag(ctx).make_constant(data.borrow_constant()).0;
+        let expected_hash = const_hash(ctx, &constant);
+        let frozen = constant.downcast_ref::<PyFrozenSet>().unwrap();
+        assert_eq!(frozen.elements().len(), elements.len());
+
+        for seed in [7, 9] {
+            let interpreter = first
+                .take()
+                .unwrap_or_else(|| Interpreter::without_stdlib(settings(seed)));
+            interpreter.enter(|vm| {
+                let keys: Vec<_> = elements
+                    .iter()
+                    .map(|value| PyObjBag(&vm.ctx).make_constant(value.borrow_constant()).0)
+                    .collect();
+                for key in &keys {
+                    assert!(frozen.contains(key, vm).unwrap());
+                }
+                let runtime = PyFrozenSet::from_iter(vm, keys).unwrap().into_ref(&vm.ctx);
+                assert_eq!(constant.hash(vm).unwrap(), expected_hash);
+                assert_eq!(runtime.as_object().hash(vm).unwrap(), expected_hash);
+            });
+        }
     }
 }

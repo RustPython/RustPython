@@ -366,7 +366,7 @@ mod _ssl {
     #[derive(FromArgs)]
     struct Txt2ObjArgs {
         txt: PyStrRef,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         name: bool,
     }
 

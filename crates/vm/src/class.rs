@@ -5,7 +5,7 @@ use crate::{
     builtins::{PyBaseObject, PyType, PyTypeRef, descriptor::PyWrapper},
     function::PyMethodDef,
     object::Py,
-    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, fn_addr, hash_not_implemented},
+    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, SLOT_DEFS_COUNT, fn_addr, hash_not_implemented},
     vm::Context,
 };
 use rustpython_common::static_cell;
@@ -15,8 +15,9 @@ use rustpython_common::static_cell;
 /// Iterates SLOT_DEFS and creates a PyWrapper for each slot that:
 /// 1. Has a function set in the type's slots
 /// 2. Doesn't already have an attribute in the type's dict
-pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
-    for def in SLOT_DEFS {
+pub fn add_operators<T: PyClassImpl>(class: &'static Py<PyType>, ctx: &Context) {
+    for (index, def) in SLOT_DEFS.iter().enumerate() {
+        let plain_doc = T::SLOT_DOCS[index];
         // Skip __new__ - it has special handling
         if def.name == "__new__" {
             continue;
@@ -56,6 +57,7 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
             name: attr_name,
             wrapped: slot_func,
             doc: Some(def.doc),
+            plain_doc,
         };
         class.set_attr(attr_name, wrapper.into_ref(ctx).into());
     }
@@ -133,17 +135,83 @@ pub trait PyClassDef {
     const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
+    /// Attribute name → doc, sorted by name. `""` is an explicit empty doc.
+    const ATTR_DOCS: &'static [(&'static str, &'static str)] = &[];
     const BASICSIZE: usize;
     const ITEMSIZE: usize = 0;
     const UNHASHABLE: bool = false;
+    const MEMBERS: &'static [crate::builtins::descriptor::PyMemberSpec] = &[];
+
+    fn assert_member_layout() {}
 
     // due to restriction of rust trait system, object.__base__ is None
     // but PyBaseObject::Base will be PyBaseObject.
     type Base: PyClassDef;
 }
 
+const fn cmp_str(left: &str, right: &str) -> i8 {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    let n = if left.len() < right.len() {
+        left.len()
+    } else {
+        right.len()
+    };
+    let mut i = 0;
+    while i < n {
+        if left[i] != right[i] {
+            return if left[i] < right[i] { -1 } else { 1 };
+        }
+        i += 1;
+    }
+    if left.len() == right.len() {
+        0
+    } else if left.len() < right.len() {
+        -1
+    } else {
+        1
+    }
+}
+
+/// Doc for `name` in a sorted attribute-doc table.
+#[must_use]
+pub const fn attr_doc<'a>(table: &'a [(&'a str, &'a str)], name: &str) -> Option<&'a str> {
+    let mut lo = 0;
+    let mut hi = table.len();
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        let ord = cmp_str(table[mid].0, name);
+        if ord == 0 {
+            return Some(table[mid].1);
+        } else if ord < 0 {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    None
+}
+
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
+
+    /// Plain docstring for each [`SLOT_DEFS`] entry, resolved while this impl
+    /// is compiled. `None` keeps the slotdef text.
+    const SLOT_DOCS: [Option<&'static str>; SLOT_DEFS_COUNT] = {
+        let mut docs = [None; SLOT_DEFS_COUNT];
+        let mut i = 0;
+        while i < SLOT_DEFS_COUNT {
+            docs[i] = match attr_doc(Self::ATTR_DOCS, SLOT_DEFS[i].name) {
+                Some(doc) if !doc.is_empty() => Some(doc),
+                _ => None,
+            };
+            i += 1;
+        }
+        docs
+    };
+
+    /// `Name(sig)\n--\n\ndoc` when the constructor arguments form a signature.
+    const INTERNAL_DOC: Option<&'static str> = None;
 
     const METHOD_DEFS: &'static [PyMethodDef];
 
@@ -172,6 +240,22 @@ pub trait PyClassImpl: PyClassDef {
                     crate::builtins::object::object_set_dict,
                 )
                 .into(),
+            );
+        }
+
+        Self::assert_member_layout();
+        for member in Self::MEMBERS {
+            class.set_str_attr(
+                member.name,
+                ctx.new_member(
+                    member.name,
+                    member.kind,
+                    member.offset,
+                    member.flags,
+                    class,
+                    member.doc,
+                ),
+                ctx,
             );
         }
 
@@ -217,10 +301,16 @@ pub trait PyClassImpl: PyClassDef {
         }
 
         // Add slot wrappers using SLOT_DEFS array
-        add_operators(class, ctx);
+        add_operators::<Self>(class, ctx);
 
-        // Inherit slots from base types after slots are fully initialized
-        for base in class.bases.read().iter() {
+        // Same walk as init_slots: a slot such as tp_init is copied only from
+        // a base that defines it, so a static grandchild must see that base
+        // in the MRO, not only its direct bases.
+        let mro = {
+            let guard = class.mro.read();
+            guard[1..].to_vec()
+        };
+        for base in &mro {
             class.inherit_slots(base);
         }
 
@@ -256,7 +346,11 @@ pub trait PyClassImpl: PyClassDef {
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
             itemsize: Self::ITEMSIZE,
-            doc: Self::DOC,
+            doc: if let Some(doc) = Self::INTERNAL_DOC {
+                Some(doc)
+            } else {
+                Self::DOC
+            },
             methods: Self::METHOD_DEFS,
             ..Default::default()
         };

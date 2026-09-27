@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, PyObject, PyResult, VirtualMachine,
+    AsObject, PyObject,
     builtins::{
         PyByteArray, PyBytes, PyCapsule, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
         PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr,
@@ -7,15 +7,15 @@ use crate::{
         bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
-            MemberAccess, MemberKind, MemberSetterFunc, PY_READONLY, PyDescriptorOwned,
-            PyMemberDef, PyMemberDescriptor,
+            MemberAccess, MemberKind, PY_READONLY, PyDescriptorOwned, PyMemberDef,
+            PyMemberDescriptor,
         },
         getset::PyGetSet,
         object, pystr,
         type_::PyAttributes,
     },
     class::StaticType,
-    common::{hash::HashSecret, rc::PyRc},
+    common::rc::PyRc,
     exceptions,
     function::{
         HeapMethodDef, IntoPyGetterFunc, IntoPyNativeFn, IntoPySetterFunc, PyMethodDef,
@@ -26,7 +26,6 @@ use crate::{
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
 use core::ffi::{CStr, c_void};
-use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
@@ -56,9 +55,6 @@ pub struct Context {
     pub(crate) slot_new_wrapper: PyMethodDef,
     pub names: ConstName,
     // GC module state (callbacks and garbage lists)
-    /// Hash secret for `str`/`bytes` built from `Context` alone, synced to the first real
-    /// interpreter's secret so they agree with its `VirtualMachine` hashing.
-    pub(crate) hash_secret: AtomicCell<HashSecret>,
 }
 
 macro_rules! declare_const_name {
@@ -426,7 +422,6 @@ impl Context {
             string_pool,
             slot_new_wrapper,
             names,
-            hash_secret: AtomicCell::new(HashSecret::new(crate::vm::process_hash_secret_seed())),
         }
     }
 
@@ -526,7 +521,9 @@ impl Context {
     #[inline]
     pub fn new_str(&self, s: impl Into<pystr::PyStr>) -> PyRef<PyStr> {
         let s = s.into();
-        if let Some(ch) = Self::latin1_singleton_index(&s) {
+        if s.is_empty() {
+            self.empty_str.to_owned()
+        } else if let Some(ch) = Self::latin1_singleton_index(&s) {
             self.latin1_char(ch)
         } else {
             s.into_ref(self)
@@ -664,12 +661,11 @@ impl Context {
         &self,
         name: &str,
         kind: MemberKind,
-        getter: fn(&VirtualMachine, PyObjectRef) -> PyResult,
-        setter: MemberSetterFunc,
+        offset: isize,
+        flags: i32,
         class: &'static Py<PyType>,
         doc: Option<&str>,
     ) -> PyRef<PyMemberDescriptor> {
-        let flags = if setter.is_none() { PY_READONLY } else { 0 };
         let member_descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
                 typ: class.to_owned(),
@@ -679,14 +675,11 @@ impl Context {
             member: PyMemberDef {
                 name: name.to_owned(),
                 kind,
-                offset: 0,
+                offset,
                 flags,
                 doc: doc.map(str::to_owned),
             },
-            access: MemberAccess::Func {
-                get: getter,
-                set: setter,
-            },
+            access: MemberAccess::Offset,
         };
         member_descriptor.into_ref(self)
     }
@@ -724,7 +717,7 @@ impl Context {
     where
         F: IntoPyGetterFunc<T>,
     {
-        let getset = PyGetSet::new(name, class).with_get(f);
+        let getset = PyGetSet::new(name, class, self).with_get(f);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
@@ -739,7 +732,7 @@ impl Context {
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        let getset = PyGetSet::new(name, class).with_get(g).with_set(s);
+        let getset = PyGetSet::new(name, class, self).with_get(g).with_set(s);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
@@ -755,7 +748,7 @@ impl Context {
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        let getset = PyGetSet::new(name, class).with_get(g).with_set(s);
+        let getset = PyGetSet::new(name, class, self).with_get(g).with_set(s);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 

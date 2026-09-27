@@ -50,7 +50,7 @@ impl Py<PyType> {
 
     /// Mark all base classes as finalized
     fn mark_bases_final(&self) {
-        for base in self.bases.read().iter() {
+        for base in self.bases.read().as_slice() {
             if let Some(mut stg) = base.get_type_data_mut::<StgInfo>() {
                 stg.flags |= StgInfoFlags::DICTFLAG_FINAL;
             } else {
@@ -97,7 +97,7 @@ pub(crate) mod _ctypes {
     #[cfg(windows)]
     use crate::convert::ToPyException;
     use crate::convert::ToPyObject;
-    use crate::function::{Either, OptionalArg};
+    use crate::function::{ArgStrictInt, Either, OptionalArg};
     use crate::types::Representable;
     use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
     use num_traits::ToPrimitive;
@@ -335,7 +335,6 @@ pub(crate) mod _ctypes {
         exc_type
     }
 
-    /// Get the size of a ctypes type or instance
     #[pyfunction]
     pub(crate) fn sizeof(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         use super::structure::PyCStructType;
@@ -454,24 +453,25 @@ pub(crate) mod _ctypes {
 
     #[cfg(not(windows))]
     #[pyfunction(name = "FreeLibrary")]
-    fn free_library(handle: usize) {
-        rustpython_host_env::ctypes::drop_library(handle);
+    fn free_library(handle: ArgStrictInt<usize>) {
+        rustpython_host_env::ctypes::drop_library(handle.value);
     }
 
     #[cfg(not(windows))]
     #[pyfunction]
-    fn dlclose(handle: usize, _vm: &VirtualMachine) {
+    fn dlclose(handle: ArgStrictInt<usize>, _vm: &VirtualMachine) {
         // Remove from the host_env cache. The underlying library is closed on Drop.
-        rustpython_host_env::ctypes::drop_library(handle);
+        rustpython_host_env::ctypes::drop_library(handle.value);
     }
 
     #[cfg(not(windows))]
     #[pyfunction]
     fn dlsym(
-        handle: usize,
+        handle: ArgStrictInt<usize>,
         name: crate::builtins::PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
+        let handle = handle.value;
         let symbol_name = alloc::ffi::CString::new(name.as_str())
             .map_err(|_| vm.new_value_error("symbol name contains null byte"))?;
         let ptr = rustpython_host_env::ctypes::dlsym_checked(handle, symbol_name.as_c_str())
@@ -588,12 +588,17 @@ pub(crate) mod _ctypes {
         }
     }
 
+    #[derive(FromArgs)]
+    pub(crate) struct ByRefArgs {
+        #[pyarg(positional)]
+        pub(crate) obj: PyObjectRef,
+        #[pyarg(positional, default)]
+        pub(crate) offset: isize,
+    }
+
     #[pyfunction]
-    pub(crate) fn byref(
-        obj: PyObjectRef,
-        offset: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    pub(crate) fn byref(args: ByRefArgs, vm: &VirtualMachine) -> PyResult {
+        let ByRefArgs { obj, offset } = args;
         use super::CArgValue;
 
         // Check if obj is a ctypes instance
@@ -606,7 +611,7 @@ pub(crate) mod _ctypes {
             )));
         }
 
-        let offset_val = offset.unwrap_or(0);
+        let offset_val = offset;
 
         // Get buffer address: (char *)((CDataObject *)obj)->b_ptr + offset
         let ptr_val = if let Some(simple) = obj.downcast_ref::<PyCSimple>() {
@@ -632,10 +637,10 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction]
-    fn alignment(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
+    fn alignment(object: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
         use crate::builtins::PyType;
 
-        let obj = match &tp {
+        let obj = match &object {
             Either::A(t) => t.as_object(),
             Either::B(o) => o.as_ref(),
         };
@@ -679,7 +684,7 @@ pub(crate) mod _ctypes {
         }
 
         // Get the type object to check
-        let type_obj: PyObjectRef = match &tp {
+        let type_obj: PyObjectRef = match &object {
             Either::A(t) => t.clone().into(),
             Either::B(obj) => obj.class().to_owned().into(),
         };
@@ -707,7 +712,7 @@ pub(crate) mod _ctypes {
             let mut max_align = 1usize;
             for field in &fields {
                 if let Some(tuple) = field.downcast_ref::<crate::builtins::PyTuple>()
-                    && let Some(field_type) = tuple.get(1)
+                    && let Some(field_type) = tuple.as_slice().get(1)
                 {
                     let align =
                         if let Ok(ft) = field_type.clone().downcast::<crate::builtins::PyType>() {
@@ -722,7 +727,7 @@ pub(crate) mod _ctypes {
         }
 
         // For instances, delegate to their class
-        if let Either::B(obj) = &tp
+        if let Either::B(obj) = &object
             && !obj.class().is(vm.ctx.types.type_type.as_ref())
         {
             return alignment(Either::A(obj.class().to_owned()), vm);
@@ -841,19 +846,16 @@ pub(crate) mod _ctypes {
         super::function::cast_impl(&obj, obj.clone(), &typ, vm)
     }
 
-    /// Return buffer interface information for a ctypes type or object.
-    /// Returns a tuple (format, ndim, shape) where:
-    /// - format: PEP 3118 format string
-    /// - ndim: number of dimensions
-    /// - shape: tuple of dimension sizes
     #[pyfunction]
-    fn buffer_info(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // Determine if obj is a type or an instance
-        let is_type = obj.class().fast_issubclass(vm.ctx.types.type_type.as_ref());
+    fn buffer_info(object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // Determine if object is a type or an instance
+        let is_type = object
+            .class()
+            .fast_issubclass(vm.ctx.types.type_type.as_ref());
         let cls = if is_type {
-            obj
+            object
         } else {
-            obj.class().to_owned().into()
+            object.class().to_owned().into()
         };
 
         // Get format from type - try _type_ first (for simple types), then _stg_info_format_
@@ -895,20 +897,22 @@ pub(crate) mod _ctypes {
     /// Call a function at the given address with the given arguments.
     #[pyfunction]
     fn call_function(
-        func_addr: usize,
+        func_addr: ArgStrictInt<usize>,
         args: crate::builtins::PyTupleRef,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let func_addr = func_addr.value;
         call_function_internal(func_addr, args, 0, vm)
     }
 
     /// Call a cdecl function at the given address with the given arguments.
     #[pyfunction]
     fn call_cdeclfunction(
-        func_addr: usize,
+        func_addr: ArgStrictInt<usize>,
         args: crate::builtins::PyTupleRef,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let func_addr = func_addr.value;
         call_function_internal(func_addr, args, FUNCFLAG_CDECL, vm)
     }
 
@@ -922,9 +926,9 @@ pub(crate) mod _ctypes {
             return Err(vm.new_value_error("NULL function pointer"));
         }
 
-        let mut call_args = Vec::with_capacity(args.len());
+        let mut call_args = Vec::with_capacity(args.as_slice().len());
 
-        for arg in args.iter() {
+        for arg in args.as_slice() {
             if vm.is_none(arg) {
                 call_args.push(rustpython_host_env::ctypes::CdeclArgValue::Pointer(0));
             } else if let Ok(int_val) = arg.try_int(vm) {
@@ -950,7 +954,8 @@ pub(crate) mod _ctypes {
 
     /// Convert a pointer (as integer) to a Python object.
     #[pyfunction(name = "PyObj_FromPtr")]
-    fn py_obj_from_ptr(ptr: usize, vm: &VirtualMachine) -> PyResult {
+    fn py_obj_from_ptr(ptr: ArgStrictInt<usize>, vm: &VirtualMachine) -> PyResult {
+        let ptr = ptr.value;
         if ptr == 0 {
             return Err(vm.new_value_error("NULL pointer access"));
         }
@@ -963,15 +968,15 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction(name = "Py_INCREF")]
-    fn py_incref(obj: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
+    fn py_incref(object: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
         // TODO:
-        obj
+        object
     }
 
     #[pyfunction(name = "Py_DECREF")]
-    fn py_decref(obj: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
+    fn py_decref(object: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
         // TODO:
-        obj
+        object
     }
 
     #[cfg(target_os = "macos")]

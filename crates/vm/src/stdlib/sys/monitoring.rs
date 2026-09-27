@@ -707,15 +707,7 @@ fn register_callback(
     let tool = check_valid_tool(tool_id, vm)?;
     let event_id = parse_single_event(event, vm)?;
 
-    if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-        audit.call(
-            (
-                vm.ctx.new_str("sys.monitoring.register_callback"),
-                func.clone(),
-            ),
-            vm,
-        )?;
-    }
+    vm.audit("sys.monitoring.register_callback", || (func.clone(),))?;
 
     let mut state = vm.state.monitoring.lock();
     let prev = state

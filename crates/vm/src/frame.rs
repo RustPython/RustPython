@@ -874,7 +874,6 @@ unsafe impl Traverse for FrameLocals {
 /// to keep the hot InterpreterFrame small.
 pub(crate) struct FrameColdData {
     pub trace: PyMutex<Option<PyObjectRef>>,
-    pub trace_lines: PyMutex<bool>,
     pub trace_opcodes: PyMutex<bool>,
     pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
     pub f_extra_locals: PyMutex<Option<PyDictRef>>,
@@ -897,7 +896,6 @@ impl Default for FrameColdData {
     fn default() -> Self {
         Self {
             trace: PyMutex::new(None),
-            trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(Vec::new()),
             f_extra_locals: PyMutex::new(None),
@@ -1320,6 +1318,7 @@ impl InterpreterFrame {
         };
 
         let frame_obj = FrameObject {
+            f_trace_lines: core::sync::atomic::AtomicBool::new(self.trace_lines_flag()),
             owned_code: Some(code),
             owned_globals: Some(globals),
             owned_builtins: Some(builtins),
@@ -1397,6 +1396,7 @@ impl InterpreterFrame {
         };
 
         let frame_obj = FrameObject {
+            f_trace_lines: core::sync::atomic::AtomicBool::new(self.trace_lines_flag()),
             owned_code: Some(code),
             owned_globals: Some(globals),
             owned_builtins: Some(builtins),
@@ -1492,6 +1492,20 @@ impl InterpreterFrame {
         self.cold.get().map(|b| &**b)
     }
 
+    /// `f_trace_lines` of the materialized frame object. True when the frame
+    /// has not been materialized.
+    pub(crate) fn trace_lines_flag(&self) -> bool {
+        let mat = self.materialized.load(atomic::Ordering::Relaxed);
+        if mat != 0 {
+            // SAFETY: `materialized` holds a `Py<FrameObject>` that stays
+            // allocated while the pointer is published.
+            return unsafe { &*(mat as *const Py<FrameObject>) }
+                .f_trace_lines
+                .load(core::sync::atomic::Ordering::Relaxed);
+        }
+        true
+    }
+
     /// Thread still running the frame this one was materialized from, or 0.
     #[inline]
     pub(crate) fn attached_tid(&self) -> u64 {
@@ -1513,6 +1527,9 @@ impl InterpreterFrame {
 /// Analogous to CPython's `PyFrameObject`.
 #[pyclass(module = false, name = "frame", traverse = "manual")]
 pub struct FrameObject {
+    // The executing iframe reads this when it points at the frame object.
+    #[pymember(name = "f_trace_lines", writable)]
+    pub(crate) f_trace_lines: core::sync::atomic::AtomicBool,
     // Owned references — keep the pointed-to objects alive for InterpreterFrame's
     // raw pointers. Wrapped in Option so Traverse::clear can release them,
     // allowing GC cycle collection to reclaim referenced objects.
@@ -1821,6 +1838,7 @@ impl FrameObject {
             )
         };
         Self {
+            f_trace_lines: core::sync::atomic::AtomicBool::new(true),
             owned_code: Some(code),
             owned_globals: Some(scope.globals),
             owned_builtins: Some(builtins),
@@ -3353,12 +3371,10 @@ impl ExecutingFrame<'_> {
             .is_some_and(|c| *c.trace_opcodes.lock())
     }
 
-    /// f_trace_lines, defaulting to true when cold data is not allocated.
+    /// f_trace_lines, defaulting to true when no frame object exists.
     #[inline]
     fn trace_lines_is_set(&self) -> bool {
-        self.iframe()
-            .cold_opt()
-            .is_none_or(|c| *c.trace_lines.lock())
+        self.iframe().trace_lines_flag()
     }
 
     /// Get pending_stack_pops from the frame.
@@ -4495,7 +4511,8 @@ impl ExecutingFrame<'_> {
                     let fastlocals = self.localsplus.fastlocals_mut();
                     if let Some(closure) = closure {
                         for i in 0..n {
-                            fastlocals[freevar_start + i] = Some(closure[i].clone().into());
+                            fastlocals[freevar_start + i] =
+                                Some(closure.as_slice()[i].clone().into());
                         }
                     }
                 }
@@ -5235,12 +5252,16 @@ impl ExecutingFrame<'_> {
                             };
 
                             // Check if we have enough match args
-                            if match_args.len() < nargs_val {
+                            if match_args.as_slice().len() < nargs_val {
                                 let type_name = type_name();
-                                let plural = if match_args.len() == 1 { "" } else { "s" };
+                                let plural = if match_args.as_slice().len() == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                };
                                 return Err(vm.new_type_error(format!(
                                     "{type_name}() accepts {} positional sub-pattern{} ({} given)",
-                                    match_args.len(),
+                                    match_args.as_slice().len(),
                                     plural,
                                     nargs_val
                                 )));
@@ -5248,7 +5269,7 @@ impl ExecutingFrame<'_> {
 
                             // Extract positional attributes
                             for i in 0..nargs_val {
-                                let attr_name = &match_args[i];
+                                let attr_name = &match_args.as_slice()[i];
                                 let attr_name_str = match attr_name.downcast_ref::<PyStr>() {
                                     Some(s) => s,
                                     None => {
@@ -7030,7 +7051,7 @@ impl ExecutingFrame<'_> {
                             .localsplus
                             .stack_index(self_index)
                             .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                     {
                         let func = descr.method.func;
                         let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7071,7 +7092,7 @@ impl ExecutingFrame<'_> {
                             .localsplus
                             .stack_index(self_index)
                             .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                     {
                         let func = descr.method.func;
                         let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7112,7 +7133,7 @@ impl ExecutingFrame<'_> {
                         .localsplus
                         .stack_index(self_index)
                         .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                 {
                     let func = descr.method.func;
                     let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7218,7 +7239,7 @@ impl ExecutingFrame<'_> {
                         .localsplus
                         .stack_index(self_index)
                         .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                 {
                     let func = descr.method.func;
                     let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7312,7 +7333,7 @@ impl ExecutingFrame<'_> {
                     let kwarg_names_tuple = kwarg_names_obj
                         .downcast_ref::<PyTuple>()
                         .expect("kwarg names should be tuple");
-                    let kw_count = kwarg_names_tuple.len();
+                    let kw_count = kwarg_names_tuple.as_slice().len();
                     let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
@@ -7370,7 +7391,7 @@ impl ExecutingFrame<'_> {
                         let kwarg_names_tuple = kwarg_names_obj
                             .downcast_ref::<PyTuple>()
                             .expect("kwarg names should be tuple");
-                        let kw_count = kwarg_names_tuple.len();
+                        let kw_count = kwarg_names_tuple.as_slice().len();
                         let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                         self.pop_stackref_opt(); // null (self_or_null)
                         self.pop_stackref(); // callable (bound method)
@@ -7412,7 +7433,7 @@ impl ExecutingFrame<'_> {
                 let kwarg_names_tuple = kwarg_names_obj
                     .downcast_ref::<PyTuple>()
                     .expect("kwarg names should be tuple");
-                let kw_count = kwarg_names_tuple.len();
+                let kw_count = kwarg_names_tuple.as_slice().len();
                 let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                 let self_or_null = self.pop_value_opt();
                 let callable = self.pop_value();
@@ -8931,7 +8952,7 @@ impl ExecutingFrame<'_> {
         let kwarg_names_tuple = kwarg_names_obj
             .downcast_ref::<PyTuple>()
             .expect("kwarg names should be tuple");
-        let kw_count = kwarg_names_tuple.len();
+        let kw_count = kwarg_names_tuple.as_slice().len();
         debug_assert!(kw_count <= nargs_usize, "CALL_KW kw_count exceeds nargs");
 
         let stack_len = self.localsplus.stack_len();
@@ -10207,6 +10228,7 @@ impl ExecutingFrame<'_> {
                 if let Some(ref descr) = cls_attr
                     && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
                     && let Some(offset) = member_descr.slot_offset()
+                    && !member_descr.member.audit_read()
                     && cls.fast_issubclass(&member_descr.common.typ)
                 {
                     unsafe {
@@ -11928,7 +11950,7 @@ impl ExecutingFrame<'_> {
         }
         let obj = self.top_value();
         let new_op = if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
-            if tuple.len() != expected_count as usize {
+            if tuple.as_slice().len() != expected_count as usize {
                 None
             } else if expected_count == 2 {
                 Some(Instruction::UnpackSequenceTwoTuple)
@@ -12292,10 +12314,10 @@ impl ExecutingFrame<'_> {
                     .downcast()
                     .map_err(|_| vm.new_type_error("TypeAlias expects a tuple argument"))?;
 
-                if tuple.len() != 3 {
+                if tuple.as_slice().len() != 3 {
                     return Err(vm.new_type_error(format!(
                         "TypeAlias expects exactly 3 arguments, got {}",
-                        tuple.len()
+                        tuple.as_slice().len()
                     )));
                 }
 

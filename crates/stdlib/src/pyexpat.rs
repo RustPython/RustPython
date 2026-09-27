@@ -132,7 +132,7 @@ macro_rules! create_property {
 
 macro_rules! create_readonly_int_property {
     ($ctx: expr, $attributes: expr, $name: expr, $class: expr, $element: ident) => {
-        let getset = crate::vm::builtins::PyGetSet::new($name, $class).with_get(
+        let getset = crate::vm::builtins::PyGetSet::new($name, $class, $ctx).with_get(
             move |this: &Py<PyExpatLikeXmlParser>, vm: &VirtualMachine| -> PyObjectRef {
                 vm.ctx.new_int(*this.$element.read()).into()
             },
@@ -170,7 +170,7 @@ mod _pyexpat {
         VirtualMachine,
         builtins::{PyBytesRef, PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
-        function::{ArgBytesLike, ArgPrimitiveIndex, Either, IntoFuncArgs, OptionalArg},
+        function::{ArgBytesLike, Either, IntoFuncArgs, OptionalArg, OptionalOption},
         types::Constructor,
     };
     use alloc::collections::VecDeque;
@@ -805,10 +805,14 @@ mod _pyexpat {
     impl PyExpatLikeXmlParser {
         fn new(
             namespace_separator: Option<String>,
-            intern: Option<PyObjectRef>,
+            intern: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyExpatLikeXmlParserRef {
-            let intern_dict = intern.unwrap_or_else(|| vm.ctx.new_dict().into());
+            let intern_dict = match intern {
+                OptionalArg::Missing => vm.ctx.new_dict().into(),
+                OptionalArg::Present(Some(obj)) => obj,
+                OptionalArg::Present(None) => vm.ctx.none(),
+            };
             Self {
                 namespace_separator,
                 base: PyRwLock::new(None),
@@ -1010,7 +1014,7 @@ mod _pyexpat {
         }
 
         #[pymethod(name = "SetParamEntityParsing")]
-        fn set_param_entity_parsing(&self, _flag: ArgPrimitiveIndex<i32>) -> i32 {
+        fn set_param_entity_parsing(&self, _flag: i32) -> i32 {
             // Compatibility shim: xml.sax requires this setup API, but xml-rs
             // does not expose Expat parameter entity parsing configuration.
             1
@@ -1426,7 +1430,7 @@ mod _pyexpat {
         #[pyarg(any, optional)]
         namespace_separator: Option<PyUtf8StrRef>,
         #[pyarg(any, optional)]
-        intern: Option<PyObjectRef>,
+        intern: OptionalOption<PyObjectRef>,
     }
 
     #[pyfunction(name = "ParserCreate")]

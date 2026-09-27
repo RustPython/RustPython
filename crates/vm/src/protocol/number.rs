@@ -84,7 +84,7 @@ impl PyObject {
         } else if let Some(s) = self.downcast_ref::<PyStr>() {
             try_convert(self, numeric_literal_from_str(s).as_bytes(), vm)
         } else if let Some(bytes) = self.downcast_ref::<PyBytes>() {
-            try_convert(self, bytes, vm)
+            try_convert(self, bytes.as_bytes(), vm)
         } else if let Some(bytearray) = self.downcast_ref::<PyByteArray>() {
             try_convert(self, &bytearray.borrow_buf(), vm)
         } else if let Ok(buffer) = ArgBytesLike::try_from_borrowed_object(vm, self) {

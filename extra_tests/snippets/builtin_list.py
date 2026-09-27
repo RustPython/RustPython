@@ -462,6 +462,43 @@ assert x == [0, 1, 2, 3, 4, "a", "b", "c"]
 assert x == y
 assert x == z
 assert x == zz
+
+
+# A huge length hint is a MemoryError, not an aborted process
+class HugeLen:
+    def __len__(self):
+        return 2**62
+
+    def __getitem__(self, i):
+        if i >= 3:
+            raise IndexError
+        return i
+
+
+slice_target = [3, 1, 2]
+with assert_raises(MemoryError):
+    slice_target[1::-1] = HugeLen()
+
+
+class ShortLen(HugeLen):
+    def __len__(self):
+        return 1
+
+
+slice_target[::-1] = ShortLen()
+assert slice_target == [2, 1, 0]
+
+
+def fails_during_iteration():
+    yield 9
+    raise MemoryError
+
+
+with assert_raises(MemoryError):
+    slice_target[:] = fails_during_iteration()
+assert slice_target == [2, 1, 0]
+
+
 # insert sec
 x = a[:]
 y = a[:]
@@ -1062,3 +1099,9 @@ assert held == [0, 1, 2, 3]
 # A report the list can act on is acted on.
 assert list(Reports(3)) == [1, 2, 3]
 assert list(Reports(0)) == [1, 2, 3]
+
+# Repeating an empty list by a huge count returns at once
+empty = []
+empty *= sys.maxsize
+assert empty == []
+assert [] * sys.maxsize == []

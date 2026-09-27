@@ -161,7 +161,7 @@ Run `./scripts/whats_left.py` to get a list of unimplemented methods, which is h
 
 - Do not delete or rewrite existing comments unless they are factually wrong or directly contradict the new code.
 - Do not add decorative section separators (e.g. `// -----------`, `// ===`, `/* *** */`). Use `///` doc-comments or short `//` comments only when they add value.
-- Do not put `///` doc comments on items annotated with `#[pyattr]`, `#[pyclass]`, or `#[pyfunction]`. The derive macros pull authoritative docstrings from CPython via the `rustpython-doc` crate; a Rust doc comment overrides that source, and on `#[pyattr]` it is silently dropped.
+- A `///` doc comment on a Python-exposed item (`#[pyattr]`, `#[pyclass]`, `#[pyfunction]`, `#[pymethod]`, `#[pyclassmethod]`, `#[pystaticmethod]`, `#[pygetset]`, `#[pymember]`, `#[pyslot]`, `#[pyexception]`, `#[pymodule]`, `#[pystruct_sequence]`) is that item's docstring and overrides the stored docs in `rustpython-doc` (`crates/doc`). Those stored docs are used only when the item has no `///` comment. Developer notes on these items must be `//` comments.
 
 #### Avoid Duplicate Code in Branches
 

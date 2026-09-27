@@ -1,6 +1,7 @@
 use super::{
-    IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PyMappingProxy, PySet,
-    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, locked_step, set, set::PySetInner,
+    IterStatus, PositionIterInternal, PyBaseExceptionRef, PyFrozenSet, PyGenericAlias,
+    PyMappingProxy, PySet, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, locked_step, set,
+    set::PySetInner,
 };
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
@@ -13,10 +14,7 @@ use crate::{
     common::{ascii, hash::PyHash},
     dict_inner::{self, DictKey},
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
-    iter::PyExactSizeIterator,
-    protocol::{
-        PyIter, PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods,
-    },
+    protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
         AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, DefaultConstructor,
@@ -370,10 +368,18 @@ impl PyDict {
 }
 
 #[derive(FromArgs)]
+struct DictGetArgs {
+    #[pyarg(positional)]
+    key: PyObjectRef,
+    #[pyarg(positional, optional)]
+    default: Option<PyObjectRef>,
+}
+
+#[derive(FromArgs)]
 struct FromKeysArgs {
     #[pyarg(positional)]
     iterable: ArgIterable,
-    #[pyarg(positional, default = None)]
+    #[pyarg(positional, optional)]
     value: Option<PyObjectRef>,
 }
 
@@ -451,27 +457,26 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn get(
-        &self,
-        key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn get(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
         Ok(self
             .entries
-            .get(vm, &*key)?
-            .unwrap_or_else(|| default.unwrap_or_none(vm)))
+            .get(vm, &*args.key)?
+            .unwrap_or_else(|| args.default.unwrap_or_else(|| vm.ctx.none())))
     }
 
-    #[pymethod]
     pub(crate) fn setdefault(
         &self,
         key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
+        default: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        self.entries
-            .setdefault(vm, &*key, || default.unwrap_or_none(vm))
+        self.entries.setdefault(vm, &*key, || default)
+    }
+
+    #[pymethod(name = "setdefault")]
+    fn setdefault_py(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
+        let default = args.default.unwrap_or_else(|| vm.ctx.none());
+        self.setdefault(args.key, default, vm)
     }
 
     #[pymethod]
@@ -537,10 +542,10 @@ impl PyDict {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
@@ -583,7 +588,6 @@ impl Py<PyDict> {
         Ok(PyArithmeticValue::Implemented(true))
     }
 
-    /// Return self[key].
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
     #[pymethod(coexist)]
     fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -1483,87 +1487,79 @@ dict_view! {
         vm.new_tuple((key, value)).into()
 }
 
+fn is_set_or_dict_view(obj: &PyObject) -> bool {
+    obj.downcast_ref::<PySet>().is_some()
+        || obj.downcast_ref::<PyFrozenSet>().is_some()
+        || obj.downcast_ref::<PyDictKeys>().is_some()
+        || obj.downcast_ref::<PyDictItems>().is_some()
+}
+
 // Set operations defined on set-like views of the dictionary.
 #[pyclass]
 trait ViewSetOps: DictView {
-    fn to_set(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let len = zelf.dict().__len__();
-        let zelf: PyObjectRef = Self::iter(zelf, vm)?;
-        let iter = PyIterIter::new(vm, zelf, Some(len));
-        PySetInner::from_iter(iter, vm)
-    }
-
-    fn __xor__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.symmetric_difference(other, vm)?;
-        Ok(PySet { inner })
-    }
-
-    fn __and__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.intersection(other, vm)?;
-        Ok(PySet { inner })
-    }
-
-    fn __or__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.union(other, vm)?;
-        Ok(PySet { inner })
-    }
-
-    fn __sub__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let zelf = Self::to_set(zelf, vm)?;
-        let inner = zelf.difference(other, vm)?;
-        Ok(PySet { inner })
-    }
-
-    fn __rsub__(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
-        let left = PySetInner::from_iter(other.iter(vm)?, vm)?;
-        let right = ArgIterable::try_from_object(vm, Self::iter(zelf, vm)?)?;
-        let inner = left.difference(right, vm)?;
-        Ok(PySet { inner })
-    }
-
     fn cmp(
         zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        match_class!(match other {
-            ref dictview @ Self => {
-                return zelf.dict().inner_cmp(
-                    dictview.dict(),
-                    op,
-                    !zelf.class().is(vm.ctx.types.dict_keys_type),
-                    vm,
-                );
+        if let Some(dictview) = other.downcast_ref::<Self>() {
+            return zelf.dict().inner_cmp(
+                dictview.dict(),
+                op,
+                !zelf.class().is(vm.ctx.types.dict_keys_type),
+                vm,
+            );
+        }
+        if !is_set_or_dict_view(other) {
+            return Ok(PyComparisonValue::NotImplemented);
+        }
+        if op == PyComparisonOp::Ne {
+            return ViewSetOps::cmp(zelf, other, PyComparisonOp::Eq, vm)
+                .map(|result| result.map(|equal| !equal));
+        }
+        if !op.eval_ord(zelf.__len__().cmp(&other.length(vm)?)) {
+            return Ok(PyComparisonValue::Implemented(false));
+        }
+        let (subset, superset) = if matches!(op, PyComparisonOp::Gt | PyComparisonOp::Ge) {
+            (other, zelf.as_object())
+        } else {
+            (zelf.as_object(), other)
+        };
+        let subset = ArgIterable::<PyObjectRef>::try_from_object(vm, subset.to_owned())?;
+        for item in subset.iter(vm)? {
+            let item = item?;
+            if !superset.sequence_unchecked().contains(&item, vm)? {
+                return Ok(PyComparisonValue::Implemented(false));
             }
-            ref _set @ PySet => {
-                let inner = Self::to_set(zelf.to_owned(), vm)?;
-                let zelf_set = PySet { inner }.into_pyobject(vm);
-                return PySet::cmp(zelf_set.downcast_ref().unwrap(), other, op, vm);
-            }
-            ref _dictitems @ PyDictItems => {}
-            ref _dictkeys @ PyDictKeys => {}
-            _ => {
-                return Ok(PyArithmeticValue::NotImplemented);
-            }
-        });
-        let lhs: Vec<PyObjectRef> = zelf.as_object().to_owned().try_into_value(vm)?;
-        let rhs: Vec<PyObjectRef> = other.to_owned().try_into_value(vm)?;
-        lhs.iter()
-            .map(|o| &**o)
-            .richcompare(rhs.iter().map(|o| &**o), op, vm)
-            .map(PyComparisonValue::Implemented)
+        }
+        Ok(PyComparisonValue::Implemented(true))
     }
 
     #[pymethod]
-    fn isdisjoint(zelf: PyRef<Self>, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        // TODO: to_set is an expensive operation. After merging #3316 rewrite implementation using PySequence_Contains.
-        let zelf = Self::to_set(zelf, vm)?;
-        let result = zelf.isdisjoint(other, vm)?;
-        Ok(result)
+    fn isdisjoint(zelf: PyRef<Self>, object: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        if zelf.is(object.as_object()) {
+            return Ok(zelf.__len__() == 0);
+        }
+        let other_is_larger = if is_set_or_dict_view(object.as_object()) {
+            let len = zelf.__len__();
+            object.as_object().length(vm)? > len
+        } else {
+            false
+        };
+        let (container, iterable) = if other_is_larger {
+            (object.as_object(), zelf.as_object())
+        } else {
+            (zelf.as_object(), object.as_object())
+        };
+        let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable.to_owned())?;
+        for item in iterable.iter(vm)? {
+            let item = item?;
+            if container.sequence_unchecked().contains(&item, vm)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }
 
@@ -1675,17 +1671,16 @@ impl AsSequence for PyDictItems {
                     Some(needle) => needle,
                     None => return Ok(false),
                 };
-                if needle.len() != 2 {
+                if needle.as_slice().len() != 2 {
                     return Ok(false);
                 }
 
                 let zelf = PyDictItems::sequence_downcast(seq);
-                let key = &needle[0];
-                if !zelf.dict.__contains__(key, vm)? {
+                let key = &needle.as_slice()[0];
+                let Some(found) = zelf.dict().inner_getitem_opt(&**key, vm)? else {
                     return Ok(false);
-                }
-                let value = &needle[1];
-                let found = zelf.dict().__getitem__(key.to_owned(), vm)?;
+                };
+                let value = &needle.as_slice()[1];
                 vm.identical_or_equal(&found, value)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED

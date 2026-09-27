@@ -19,7 +19,7 @@ use crate::{
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
-    function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
+    function::{ArgumentError, FromArgs, FuncArgs, KwArgs, Param, PyMethodDef, PySetterValue},
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
@@ -46,7 +46,8 @@ pub(crate) type PyTypeTupleRef = PyRef<PyTuple<PyTypeRef>>;
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
-    /// tp_base. Written under the type lock (see `set_bases`); read lock-free.
+    // tp_base. Written under the type lock (see `set_bases`); read lock-free.
+    #[pymember(name = "__base__", doc = false)]
     pub base: PyAtomicRef<Option<Self>>,
     pub bases: PyRwLock<PyTypeTupleRef>,
     pub mro: PyRwLock<Vec<PyTypeRef>>,
@@ -329,7 +330,7 @@ impl TypeSpecializationCache {
             new.as_object().mark_cache_published();
         }
         // SAFETY: reclamation of published objects is deferred via QSBR;
-        // racing try_to_owned readers never touch freed memory.
+        // racing load_owned readers never touch freed memory.
         let old = unsafe { self.init.swap(new_init) };
         if let Some(old) = old {
             // Dropping may run arbitrary Python; defer past the type lock.
@@ -668,7 +669,7 @@ impl PyType {
         }
 
         // Assign versions to all direct bases first (MRO invariant).
-        for base in self.bases.read().iter() {
+        for base in self.bases.read().as_slice() {
             if base.assign_version_tag_inner() == 0 {
                 return 0;
             }
@@ -996,18 +997,20 @@ impl PyType {
             // Leave tp_mro unset so a custom metaclass mro() sees __mro__ is None.
             Vec::new()
         } else {
-            Self::resolve_mro(&bases)?
+            Self::resolve_mro(bases.as_slice())?
         };
 
         // Layout flags come from each direct base's own flags. A custom
         // mro() can omit a physical base from the stored MRO.
         if bases
+            .as_slice()
             .iter()
             .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_DICT))
         {
             slots.flags |= PyTypeFlags::HAS_DICT;
         }
         if bases
+            .as_slice()
             .iter()
             .any(|b| b.slots.flags.has_feature(PyTypeFlags::MANAGED_DICT))
         {
@@ -1015,6 +1018,7 @@ impl PyType {
         }
 
         if bases
+            .as_slice()
             .iter()
             .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF))
         {
@@ -1022,10 +1026,10 @@ impl PyType {
         }
 
         // Inherit SEQUENCE and MAPPING flags from base classes
-        Self::inherit_patma_flags(&mut slots, &bases);
+        Self::inherit_patma_flags(&mut slots, bases.as_slice());
 
         // Check for __abc_tpflags__ from ABCMeta (for collections.abc.Sequence, Mapping, etc.)
-        Self::check_abc_tpflags(&mut slots, &attrs, &bases, ctx)?;
+        Self::check_abc_tpflags(&mut slots, &attrs, bases.as_slice(), ctx)?;
 
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;
@@ -1045,7 +1049,7 @@ impl PyType {
             ));
         }
 
-        let inherited_abc_tpflags = Self::inherited_abc_tpflags(&bases);
+        let inherited_abc_tpflags = Self::inherited_abc_tpflags(bases.as_slice());
         let new_type = PyRef::new_ref(
             Self {
                 base: Some(base).into(),
@@ -1067,7 +1071,7 @@ impl PyType {
         }
 
         let weakref_type = super::PyWeak::static_type();
-        for base in new_type.bases.read().iter() {
+        for base in new_type.bases.read().as_slice() {
             base.subclasses.write().push(
                 new_type
                     .as_object()
@@ -1146,7 +1150,7 @@ impl PyType {
         Self::set_alloc(&new_type.slots, new_type.base.deref());
 
         let weakref_type = super::PyWeak::static_type();
-        for base in new_type.bases.read().iter() {
+        for base in new_type.bases.read().as_slice() {
             base.subclasses.write().push(
                 new_type
                     .as_object()
@@ -1395,10 +1399,7 @@ impl PyType {
             return None;
         }
         // Check order: pointer (Acquire) then function version.
-        let init = ext
-            .specialization_cache
-            .init
-            .try_to_owned(Ordering::Acquire)?;
+        let init = ext.specialization_cache.init.load_owned()?;
         let cached_version = ext
             .specialization_cache
             .init_version
@@ -1443,10 +1444,7 @@ impl PyType {
     pub(crate) fn get_cached_getitem_for_specialization(&self) -> Option<(PyRef<PyFunction>, u32)> {
         let ext = self.heaptype_ext.as_ref()?;
         // Check order: pointer (Acquire) then function version.
-        let getitem = ext
-            .specialization_cache
-            .getitem
-            .try_to_owned(Ordering::Acquire)?;
+        let getitem = ext.specialization_cache.getitem.load_owned()?;
         let cached_version = ext
             .specialization_cache
             .getitem_version
@@ -1748,13 +1746,13 @@ impl PyType {
                 zelf.name()
             )));
         }
-        if bases_tuple.is_empty() {
+        if bases_tuple.as_slice().is_empty() {
             return Err(vm.new_type_error(format!(
                 "can only assign non-empty tuple to {}.__bases__, not ()",
                 zelf.name()
             )));
         }
-        for base in bases_tuple.iter() {
+        for base in bases_tuple.as_slice() {
             if base.downcast_ref::<Self>().is_none() {
                 return Err(vm.new_type_error(format!(
                     "{}.__bases__ must be tuple of classes, not '{}'",
@@ -1768,11 +1766,14 @@ impl PyType {
         // Compute the new solid base before committing anything. This also
         // validates the new bases (BASETYPE flag, no instance layout
         // conflict), the same checks type creation performs.
-        let new_base = best_base(&bases, vm)?.to_owned();
+        let new_base = best_base(bases.as_slice(), vm)?.to_owned();
 
         // Reject reparenting onto a base whose instances have an incompatible
         // object layout.
-        let old_base = zelf.base.deref().unwrap_or(vm.ctx.types.object_type);
+        let old_base_owned = zelf.base.load_owned();
+        let old_base = old_base_owned
+            .as_deref()
+            .unwrap_or(vm.ctx.types.object_type);
         compatible_for_assignment(old_base, &new_base, "__bases__", vm)?;
 
         // References released inside the critical section are collected here
@@ -1829,7 +1830,7 @@ impl PyType {
         };
 
         let result = Self::with_type_lock(vm, || {
-            for base in bases.iter() {
+            for base in bases.as_slice() {
                 if is_subtype_with_mro(&base.mro.read(), base, zelf)
                     || (!base.mro.read().is_empty() && type_is_subtype_base_chain(base, zelf, vm))
                 {
@@ -1903,8 +1904,8 @@ impl PyType {
 
             // Take no action if tp_bases was replaced through reentrance.
             if core::ptr::eq(&**zelf.bases.read(), &*bases) {
-                remove_as_subclass(&old_bases, &mut retired);
-                add_as_subclass(&bases);
+                remove_as_subclass(old_bases.as_slice(), &mut retired);
+                add_as_subclass(bases.as_slice());
                 zelf.update_all_slots(&vm.ctx);
             }
 
@@ -1917,11 +1918,6 @@ impl PyType {
         });
         drop(retired);
         result
-    }
-
-    #[pygetset]
-    fn __base__(&self) -> Option<PyTypeRef> {
-        self.base.to_owned()
     }
 
     #[pygetset]
@@ -2273,13 +2269,7 @@ impl PyType {
     }
 
     #[pyclassmethod]
-    fn __prepare__(
-        _cls: PyTypeRef,
-        _name: OptionalArg<PyObjectRef>,
-        _bases: OptionalArg<PyObjectRef>,
-        _kwargs: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyDictRef {
+    fn __prepare__(_cls: PyTypeRef, _args: PrepareArgs, vm: &VirtualMachine) -> PyDictRef {
         vm.ctx.new_dict()
     }
 
@@ -2420,6 +2410,22 @@ impl PyType {
     }
 }
 
+/// Accepts and ignores any arguments.
+struct PrepareArgs;
+
+impl FromArgs for PrepareArgs {
+    const PARAMS: Option<&'static [Param]> = Some(&[
+        Param::positional_only("name"),
+        Param::positional_only("bases"),
+        Param::var_keyword("kwds"),
+    ]);
+
+    fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        core::mem::take(args);
+        Ok(Self)
+    }
+}
+
 impl Constructor for PyType {
     type Args = FuncArgs;
 
@@ -2461,12 +2467,12 @@ impl Constructor for PyType {
         }
         let name = name.try_into_utf8(vm)?;
 
-        let (metatype, base, bases, base_is_type) = if bases.is_empty() {
+        let (metatype, base, bases, base_is_type) = if bases.as_slice().is_empty() {
             let base = vm.ctx.types.object_type.to_owned();
             let bases = PyTuple::new_ref_typed(vec![base.clone()], &vm.ctx);
             (metatype, base, bases, false)
         } else {
-            for obj in bases.iter() {
+            for obj in bases.as_slice() {
                 if obj.downcast_ref::<Self>().is_none() {
                     if vm
                         .get_attribute_opt(obj, identifier!(vm, __mro_entries__))?
@@ -2483,7 +2489,7 @@ impl Constructor for PyType {
             let bases = bases.try_into_typed::<Self>(vm)?;
 
             // Search the bases for the proper metatype to deal with this:
-            let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
+            let winner = calculate_meta_class(metatype.clone(), bases.as_slice(), vm)?;
             let metatype = if !winner.is(&metatype) {
                 if let Some(ref slot_new) = winner.slots.new.load() {
                     // Pass it to the winner
@@ -2494,7 +2500,7 @@ impl Constructor for PyType {
                 metatype
             };
 
-            let base = best_base(&bases, vm)?;
+            let base = best_base(bases.as_slice(), vm)?;
             let base_is_type = base.is(vm.ctx.types.type_type);
 
             (metatype, base.to_owned(), bases, base_is_type)
@@ -2597,6 +2603,7 @@ impl Constructor for PyType {
             // Types like int, bytes, tuple have itemsize > 0 and don't allow custom slots
             // But types like weakref.ref have itemsize = 0 and DO allow slots
             let has_custom_slots = slots
+                .as_slice()
                 .iter()
                 .any(|s| !matches!(s.as_bytes(), b"__dict__" | b"__weakref__"));
             if has_custom_slots && base.slots.itemsize > 0 {
@@ -2609,7 +2616,7 @@ impl Constructor for PyType {
             // Validate slot names and track duplicates
             let mut seen_dict = false;
             let mut seen_weakref = false;
-            for slot in slots.iter() {
+            for slot in slots.as_slice() {
                 // Use isidentifier for validation (handles Unicode properly)
                 if !slot.isidentifier() {
                     return Err(vm.new_type_error("__slots__ must be identifiers"));
@@ -2664,13 +2671,14 @@ impl Constructor for PyType {
             // Check if __dict__ or __weakref__ is in slots
             let dict_name = "__dict__";
             let weakref_name = "__weakref__";
-            let has_dict = slots.iter().any(|s| s.as_wtf8() == dict_name);
+            let has_dict = slots.as_slice().iter().any(|s| s.as_wtf8() == dict_name);
             let add_weakref = seen_weakref;
 
             // Filter out __dict__ and __weakref__ from slots
             // (they become descriptors, not member slots), then sort so
             // __class__ assignment can compare layouts by slot name.
             let mut filtered: Vec<PyStrRef> = slots
+                .as_slice()
                 .iter()
                 .filter(|s| s.as_wtf8() != dict_name && s.as_wtf8() != weakref_name)
                 .cloned()
@@ -2685,11 +2693,12 @@ impl Constructor for PyType {
 
         // FIXME: this is a temporary fix. multi bases with multiple slots will break object
         let base_member_count = bases
+            .as_slice()
             .iter()
             .map(|base| base.slots.member_count)
             .max()
             .unwrap();
-        let heaptype_member_count = heaptype_slots.as_ref().map_or(0, |x| x.len());
+        let heaptype_member_count = heaptype_slots.as_ref().map_or(0, |x| x.as_slice().len());
         let member_count: usize = base_member_count + heaptype_member_count;
 
         let mut flags = PyTypeFlags::heap_type_flags();
@@ -2815,7 +2824,7 @@ impl Constructor for PyType {
                             qualname: PyRwLock::new(None),
                         },
                         member: member_def,
-                        access: MemberAccess::Slot,
+                        access: MemberAccess::Offset,
                     });
                 // __slots__ attributes always get a member descriptor
                 // (this overrides any inherited attribute from MRO)
@@ -3313,7 +3322,7 @@ fn get_builtin_base_with_dict(typ: &Py<PyType>, vm: &VirtualMachine) -> Option<P
         {
             return Some(t);
         }
-        current = t.__base__();
+        current = t.base.load_owned();
     }
     None
 }
@@ -3475,7 +3484,7 @@ pub(crate) fn call_slot_new(
         .load()
         .is_some_and(|f| fn_addr(f) == fn_addr(new_wrapper as NewFunc))
     {
-        match staticbase.base.to_owned() {
+        match staticbase.base.load_owned() {
             Some(base) => staticbase = base,
             None => break,
         }
@@ -3612,7 +3621,7 @@ fn type_is_subtype_base_chain(a: &Py<PyType>, b: &Py<PyType>, vm: &VirtualMachin
 }
 
 fn mro_implementation(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Vec<PyTypeRef>> {
-    for base in typ.bases.read().iter() {
+    for base in typ.bases.read().as_slice() {
         if base.mro.read().is_empty() {
             return Err(vm.new_type_error(format!(
                 "Cannot extend an incomplete type '{}'",
@@ -3620,7 +3629,8 @@ fn mro_implementation(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Vec<PyT
             )));
         }
     }
-    let mut mro = PyType::resolve_mro(&typ.bases.read()).map_err(|msg| vm.new_type_error(msg))?;
+    let mut mro =
+        PyType::resolve_mro(typ.bases.read().as_slice()).map_err(|msg| vm.new_type_error(msg))?;
     mro.insert(0, typ.to_owned());
     Ok(mro)
 }
@@ -3775,9 +3785,10 @@ fn same_slots_added(a: &Py<PyType>, b: &Py<PyType>) -> bool {
         b.heaptype_ext.as_ref().and_then(|e| e.slots.as_ref()),
     ) {
         (Some(x), Some(y)) => {
-            x.len() == y.len()
-                && x.iter()
-                    .zip(y.iter())
+            x.as_slice().len() == y.as_slice().len()
+                && x.as_slice()
+                    .iter()
+                    .zip(y.as_slice().iter())
                     .all(|(p, q)| p.as_wtf8() == q.as_wtf8())
         }
         _ => true,

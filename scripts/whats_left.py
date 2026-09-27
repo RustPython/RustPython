@@ -397,6 +397,12 @@ def compare():
     import warnings
     from contextlib import redirect_stdout
 
+    def sig_mismatch(rustpy_sig, cpython_sig):
+        # A signature CPython cannot produce is never a mismatch; having one is fine.
+        if cpython_sig is None or cpython_sig.startswith("ValueError("):
+            return False
+        return rustpy_sig != cpython_sig
+
     def method_incompatibility_reason(typ, method_name, real_method_value):
         has_method = hasattr(typ, method_name)
         if not has_method:
@@ -423,7 +429,7 @@ def compare():
             # A method that exists but differs is a mismatch, not a missing one.
             value = extra_info(getattr(typ, method))
             item = f"{name}.{method}"
-            if value["sig"] != real_method_value["sig"]:
+            if sig_mismatch(value["sig"], real_method_value["sig"]):
                 mismatched_methods.setdefault(name, []).append(
                     (item, value["sig"], real_method_value["sig"])
                 )
@@ -499,8 +505,7 @@ def compare():
             mod_mismatched_items = [
                 (f"{modname}.{item}", rustpymod[item]["sig"], cpymod[item]["sig"])
                 for item in implemented_items
-                if rustpymod[item]["sig"] != cpymod[item]["sig"]
-                and not isinstance(cpymod[item]["sig"], Exception)
+                if sig_mismatch(rustpymod[item]["sig"], cpymod[item]["sig"])
             ]
             mod_mismatched_doc_items = [
                 (f"{modname}.{item}", rustpymod[item]["doc"], cpymod[item]["doc"])
@@ -605,8 +610,6 @@ if args.signature:
     print("\n# mismatching signatures (warnings)")
     for modname, mismatched in result["mismatched_items"].items():
         for i, (item, rustpy_value, cpython_value) in enumerate(mismatched):
-            if cpython_value and cpython_value.startswith("ValueError("):
-                continue  # these items will never match
             if rustpy_value is None or rustpy_value.startswith("ValueError("):
                 rustpy_value = f" {rustpy_value}"
             print(f"{item}{rustpy_value}")

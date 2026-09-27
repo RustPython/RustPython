@@ -1007,6 +1007,7 @@ jobs:
         test_class
         test_genericpath
         test_grammar
+        test_fstring
     steps:
       - name: Skip wasm-wasi when rust sources did not change
         if: env.RUN_WASM_WASI != 'true'

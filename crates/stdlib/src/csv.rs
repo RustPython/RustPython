@@ -7,7 +7,7 @@ mod _csv {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
-        function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg},
+        function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param},
         protocol::{PyIter, PyIterReturn},
         types::{Callable, Constructor, IterNext, Iterable, SelfIter},
     };
@@ -323,13 +323,16 @@ mod _csv {
         }
     }
 
+    #[derive(FromArgs)]
+    struct DialectName {
+        #[pyarg(any)]
+        name: PyObjectRef,
+    }
+
     #[pyfunction]
     fn register_dialect(
         name: PyObjectRef,
-        dialect: OptionalArg<PyObjectRef>,
         opts: FormatOptions,
-        // TODO: handle quote style, etc
-        mut _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let name = name
@@ -338,13 +341,7 @@ mod _csv {
 
         let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
 
-        let dialect = match dialect {
-            OptionalArg::Present(d) => PyDialect::try_from_object(vm, d)
-                .map_err(|_| vm.new_type_error("argument 1 must be a dialect object"))?,
-            OptionalArg::Missing => opts.result(vm)?,
-        };
-
-        let dialect = opts.update_py_dialect(dialect);
+        let dialect = opts.result(vm)?;
         validate_dialect(vm, &dialect)?;
         GLOBAL_HASHMAP
             .lock()
@@ -354,11 +351,7 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn get_dialect(
-        name: PyObjectRef,
-        mut _rest: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyDialect> {
+    fn get_dialect(DialectName { name }: DialectName, vm: &VirtualMachine) -> PyResult<PyDialect> {
         let name = name.downcast::<PyStr>().map_err(|obj| {
             new_csv_error(
                 vm,
@@ -377,11 +370,7 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn unregister_dialect(
-        name: PyObjectRef,
-        mut _rest: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn unregister_dialect(DialectName { name }: DialectName, vm: &VirtualMachine) -> PyResult<()> {
         let name = name.downcast::<PyStr>().map_err(|obj| {
             new_csv_error(
                 vm,
@@ -400,13 +389,7 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn list_dialects(
-        rest: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<rustpython_vm::builtins::PyListRef> {
-        if !rest.args.is_empty() || !rest.kwargs.is_empty() {
-            return Err(vm.new_type_error("too many argument"));
-        }
+    fn list_dialects(vm: &VirtualMachine) -> rustpython_vm::builtins::PyListRef {
         let g = GLOBAL_HASHMAP.lock();
         let t = g
             .keys()
@@ -414,20 +397,20 @@ mod _csv {
             .map(|x| vm.ctx.new_str(x).into())
             .collect_vec();
         // .iter().map(|x| vm.ctx.new_str(x.clone()).into_pyobject(vm)).collect_vec();
-        Ok(vm.ctx.new_list(t))
+        vm.ctx.new_list(t)
+    }
+
+    #[derive(FromArgs)]
+    struct FieldSizeLimitArgs {
+        #[pyarg(any, optional)]
+        new_limit: OptionalArg<PyObjectRef>,
     }
 
     #[pyfunction]
-    fn field_size_limit(rest: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
+    fn field_size_limit(args: FieldSizeLimitArgs, vm: &VirtualMachine) -> PyResult<isize> {
         let old_size = GLOBAL_FIELD_LIMIT.lock().to_owned();
-        if !rest.args.is_empty() {
-            let arg_len = rest.args.len();
-            if arg_len != 1 {
-                return Err(vm.new_type_error(format!(
-                    "field_size_limit() takes at most 1 argument ({arg_len} given)"
-                )));
-            }
-            let Ok(new_size) = rest.args.first().unwrap().try_int(vm) else {
+        if let OptionalArg::Present(limit) = args.new_limit {
+            let Ok(new_size) = limit.try_int(vm) else {
                 return Err(vm.new_type_error("limit must be an integer"));
             };
             *GLOBAL_FIELD_LIMIT.lock() = new_size.try_to_primitive::<isize>(vm)?;
@@ -436,16 +419,10 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn reader(
-        iter: PyIter,
-        options: FormatOptions,
-        // TODO: handle quote style, etc
-        _rest: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<Reader> {
+    fn reader(iterable: PyIter, options: FormatOptions, vm: &VirtualMachine) -> PyResult<Reader> {
         let dialect = options.result(vm)?;
         Ok(Reader {
-            iter,
+            iter: iterable,
             state: PyMutex::new(ReadState {
                 line_num: 0,
                 generation: 0,
@@ -456,15 +433,13 @@ mod _csv {
 
     #[pyfunction]
     fn writer(
-        file: PyObjectRef,
+        fileobj: PyObjectRef,
         options: FormatOptions,
-        // TODO: handle quote style, etc
-        _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Writer> {
-        let write = match vm.get_attribute_opt(&file, "write")? {
+        let write = match vm.get_attribute_opt(&fileobj, "write")? {
             Some(write_meth) => write_meth,
-            None if file.is_callable() => file,
+            None if fileobj.is_callable() => fileobj,
             None => {
                 return Err(vm.new_type_error(r#"argument 1 must have a "write" method"#));
             }
@@ -624,11 +599,18 @@ mod _csv {
     }
 
     impl FromArgs for FormatOptions {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param {
+                name: "dialect",
+                kind: rustpython_vm::function::ParamKind::PositionalOrKeyword,
+                default: Some(rustpython_vm::function::DefaultRepr::Str("excel")),
+            },
+            Param::var_keyword("fmtparams"),
+        ]);
+
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            let dialect = if let Some(dialect) = args.kwargs.swap_remove("dialect") {
+            let dialect = if let Some(dialect) = args.take_positional_keyword("dialect") {
                 prase_dialect_item_from_arg(vm, dialect)?
-            } else if let Some(dialect) = args.args.first() {
-                prase_dialect_item_from_arg(vm, dialect.clone())?
             } else {
                 DialectItem::None
             };

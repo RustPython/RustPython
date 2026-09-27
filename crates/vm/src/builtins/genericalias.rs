@@ -5,7 +5,7 @@ use super::type_;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine, atomic_func,
-    builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType},
+    builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::{PyClassDef, PyClassImpl},
     common::hash,
     convert::ToPyObject,
@@ -36,9 +36,12 @@ static ATTR_BLOCKED: [&str; 3] = ["__bases__", "__copy__", "__deepcopy__"];
 
 #[pyclass(module = "types", name = "GenericAlias")]
 pub struct PyGenericAlias {
+    #[pymember(name = "__origin__")]
     origin: PyObjectRef,
+    #[pymember(name = "__args__")]
     args: PyTupleRef,
     parameters: PyTupleRef,
+    #[pymember(name = "__unpacked__")]
     starred: bool, // for __unpacked__ attribute
 }
 
@@ -55,14 +58,39 @@ impl PyPayload for PyGenericAlias {
     }
 }
 
-impl Constructor for PyGenericAlias {
-    type Args = FuncArgs;
+#[derive(FromArgs)]
+pub struct GenericAliasArgs {
+    #[pyarg(positional)]
+    origin: PyObjectRef,
+    #[pyarg(positional)]
+    args: PyObjectRef,
+}
 
-    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+impl Constructor for PyGenericAlias {
+    type Args = GenericAliasArgs;
+
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.kwargs.is_empty() {
             return Err(vm.new_type_error("GenericAlias() takes no keyword arguments"));
         }
-        let (origin, arguments): (PyObjectRef, PyObjectRef) = args.bind_for(vm, Self::NAME)?;
+        let GenericAliasArgs {
+            origin,
+            args: arguments,
+        } = args.bind_for(vm, Self::NAME)?;
+        let arguments = if let Ok(tuple) = arguments.try_to_ref::<PyTuple>(vm) {
+            tuple.to_owned()
+        } else {
+            PyTuple::new_ref(vec![arguments], &vm.ctx)
+        };
+        let payload = Self::new(origin, arguments, false, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        let GenericAliasArgs {
+            origin,
+            args: arguments,
+        } = args;
         let args = if let Ok(tuple) = arguments.try_to_ref::<PyTuple>(vm) {
             tuple.to_owned()
         } else {
@@ -171,10 +199,11 @@ impl PyGenericAlias {
         let repr_str = format!(
             "{}[{}]",
             repr_item(&self.origin, vm)?,
-            if self.args.is_empty() {
+            if self.args.as_slice().is_empty() {
                 "()".to_owned()
             } else {
                 self.args
+                    .as_slice()
                     .iter()
                     .map(|o| repr_arg(o, vm))
                     .collect::<PyResult<Vec<_>>>()?
@@ -196,21 +225,6 @@ impl PyGenericAlias {
     }
 
     #[pygetset]
-    fn __args__(&self) -> PyObjectRef {
-        self.args.clone().into()
-    }
-
-    #[pygetset]
-    fn __origin__(&self) -> PyObjectRef {
-        self.origin.clone()
-    }
-
-    #[pygetset]
-    const fn __unpacked__(&self) -> bool {
-        self.starred
-    }
-
-    #[pygetset]
     fn __typing_unpacked_tuple_args__(&self, vm: &VirtualMachine) -> PyObjectRef {
         if self.starred && self.origin.is(vm.ctx.types.tuple_type.as_object()) {
             self.args.clone().into()
@@ -227,7 +241,7 @@ impl PyGenericAlias {
 
     #[pymethod]
     fn __dir__(&self, vm: &VirtualMachine) -> PyResult<PyList> {
-        let dir = vm.dir(Some(self.__origin__()))?;
+        let dir = vm.dir(Some(self.origin.clone()))?;
         for exc in &ATTR_EXCEPTIONS {
             let exc_obj = (*exc).to_pyobject(vm);
             if !dir.__contains__(&exc_obj, vm)? {
@@ -264,17 +278,25 @@ impl PyGenericAlias {
     }
 
     #[pymethod]
-    fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
-        PyTuple::new_ref(vec![self.__origin__()], &vm.ctx)
+    fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
+        PyTuple::new_ref(vec![self.origin.clone()], &vm.ctx)
     }
 
     #[pymethod]
-    fn __instancecheck__(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __instancecheck__(
+        _zelf: PyRef<Self>,
+        _object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         Err(vm.new_type_error("isinstance() argument 2 cannot be a parameterized generic"))
     }
 
     #[pymethod]
-    fn __subclasscheck__(_zelf: PyRef<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __subclasscheck__(
+        _zelf: PyRef<Self>,
+        _object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
     }
 
@@ -324,7 +346,7 @@ fn make_parameters_from_slice(args: &[PyObjectRef], vm: &VirtualMachine) -> PyRe
             let sub = vm.with_recursion("while computing __parameters__", || {
                 make_parameters_from_slice(&items, vm)
             })?;
-            for sub_param in sub.iter() {
+            for sub_param in sub.as_slice() {
                 if tuple_index(&parameters, sub_param).is_none() {
                     parameters.push(sub_param.clone());
                 }
@@ -363,11 +385,11 @@ fn subs_tvars(
         .and_then(|sub_params| {
             PyTupleRef::try_from_object(vm, sub_params)
                 .ok()
-                .filter(|sub_params| !sub_params.is_empty())
+                .filter(|sub_params| !sub_params.as_slice().is_empty())
                 .map(|sub_params| {
                     let mut sub_args = Vec::new();
 
-                    for arg in sub_params.iter() {
+                    for arg in sub_params.as_slice() {
                         if let Some(idx) = tuple_index(params.as_slice(), arg) {
                             let param = &params.as_slice()[idx];
                             let substituted_arg = &arg_items[idx];
@@ -450,7 +472,7 @@ pub(crate) fn subs_parameters(
     item: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<PyTupleRef> {
-    let n_params = parameters.len();
+    let n_params = parameters.as_slice().len();
     if n_params == 0 {
         return Err(vm.new_type_error(format!("{} is not a generic class", alias.repr(vm)?)));
     }
@@ -609,10 +631,10 @@ impl Comparable for PyGenericAlias {
                 return Ok(PyComparisonValue::Implemented(false));
             }
             Ok(PyComparisonValue::Implemented(
-                zelf.__origin__()
-                    .rich_compare_bool(&other.__origin__(), PyComparisonOp::Eq, vm)?
-                    && zelf.__args__().rich_compare_bool(
-                        &other.__args__(),
+                zelf.origin
+                    .rich_compare_bool(&other.origin, PyComparisonOp::Eq, vm)?
+                    && zelf.args.as_object().rich_compare_bool(
+                        other.args.as_object(),
                         PyComparisonOp::Eq,
                         vm,
                     )?,
@@ -641,7 +663,7 @@ impl GetAttr for PyGenericAlias {
                 return zelf.as_object().generic_getattr(attr, vm);
             }
         }
-        zelf.__origin__().get_attr(attr, vm)
+        zelf.origin.get_attr(attr, vm)
     }
 }
 

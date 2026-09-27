@@ -7,12 +7,31 @@ mod _multiprocessing {
         Context, FromArgs, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDict, PyType, PyTypeRef},
         convert::ToPyException,
-        function::{ArgBytesLike, FuncArgs, KwArgs},
+        function::ArgBytesLike,
         types::Constructor,
     };
     use core::sync::atomic::{AtomicI32, AtomicU32, Ordering};
     use rustpython_common::lock::PyMutex;
     use rustpython_host_env::multiprocessing as host_multiprocessing;
+
+    #[derive(FromArgs)]
+    struct AcquireArgs {
+        #[pyarg(any, default = true)]
+        block: bool,
+        #[pyarg(any, optional)]
+        timeout: Option<crate::vm::PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    #[allow(dead_code)]
+    struct ExitArgs {
+        #[pyarg(positional, optional)]
+        exc_type: Option<crate::vm::PyObjectRef>,
+        #[pyarg(positional, optional)]
+        exc_value: Option<crate::vm::PyObjectRef>,
+        #[pyarg(positional, optional)]
+        exc_tb: Option<crate::vm::PyObjectRef>,
+    }
 
     // These match the values in Lib/multiprocessing/synchronize.py
     const RECURSIVE_MUTEX: i32 = 0;
@@ -79,20 +98,9 @@ mod _multiprocessing {
         }
 
         #[pymethod]
-        fn acquire(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            let blocking: bool = args
-                .kwargs
-                .get("block")
-                .or_else(|| args.args.first())
-                .map(|o| o.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(true);
-
-            let timeout_obj = args
-                .kwargs
-                .get("timeout")
-                .or_else(|| args.args.get(1))
-                .cloned();
+        fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
+            let blocking = args.block;
+            let timeout_obj = args.timeout;
 
             // Calculate timeout in milliseconds
             let full_msecs: u32 = if !blocking {
@@ -206,16 +214,16 @@ mod _multiprocessing {
         #[pymethod(name = "__enter__")]
         fn enter(&self, vm: &VirtualMachine) -> PyResult<bool> {
             self.acquire(
-                FuncArgs::new::<Vec<_>, KwArgs>(
-                    vec![vm.ctx.new_bool(true).into()],
-                    KwArgs::default(),
-                ),
+                AcquireArgs {
+                    block: true,
+                    timeout: None,
+                },
                 vm,
             )
         }
 
         #[pymethod]
-        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(&self, _args: ExitArgs, vm: &VirtualMachine) -> PyResult<()> {
             self.release(vm)
         }
 
@@ -359,7 +367,6 @@ mod _multiprocessing {
         Context, FromArgs, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyDict, PyType, PyTypeRef},
         convert::ToPyException,
-        function::{FuncArgs, KwArgs},
         types::Constructor,
     };
     use core::sync::atomic::{AtomicI32, AtomicU64, Ordering};
@@ -368,6 +375,25 @@ mod _multiprocessing {
         self as host_multiprocessing, SemError, TryAcquireStatus, WaitStatus,
     };
     use rustpython_vm::exceptions;
+
+    #[derive(FromArgs)]
+    struct AcquireArgs {
+        #[pyarg(any, default = true)]
+        block: bool,
+        #[pyarg(any, optional)]
+        timeout: Option<crate::vm::PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    #[allow(dead_code)]
+    struct ExitArgs {
+        #[pyarg(positional, optional)]
+        exc_type: Option<crate::vm::PyObjectRef>,
+        #[pyarg(positional, optional)]
+        exc_value: Option<crate::vm::PyObjectRef>,
+        #[pyarg(positional, optional)]
+        exc_tb: Option<crate::vm::PyObjectRef>,
+    }
 
     /// Error type for sem_timedwait operations
     #[cfg(target_vendor = "apple")]
@@ -470,25 +496,11 @@ mod _multiprocessing {
             self.name.clone()
         }
 
-        /// Acquire the semaphore/lock.
         // _multiprocessing_SemLock_acquire_impl
         #[pymethod]
-        fn acquire(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            // block=True, timeout=None
-
-            let blocking: bool = args
-                .kwargs
-                .get("block")
-                .or_else(|| args.args.first())
-                .map(|o| o.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(true);
-
-            let timeout_obj = args
-                .kwargs
-                .get("timeout")
-                .or_else(|| args.args.get(1))
-                .cloned();
+        fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
+            let blocking = args.block;
+            let timeout_obj = args.timeout;
 
             let _crit = self.crit.lock();
             if self.kind == RECURSIVE_MUTEX && ismine!(self) {
@@ -596,7 +608,6 @@ mod _multiprocessing {
                 .store(host_multiprocessing::current_thread_id(), Ordering::Release);
         }
 
-        /// Release the semaphore/lock.
         // _multiprocessing_SemLock_release_impl
         #[pymethod]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -657,24 +668,22 @@ mod _multiprocessing {
             Ok(())
         }
 
-        /// Enter the semaphore/lock (context manager).
         // _multiprocessing_SemLock___enter___impl
         #[pymethod(name = "__enter__")]
         fn enter(&self, vm: &VirtualMachine) -> PyResult<bool> {
             // return _multiprocessing_SemLock_acquire_impl(self, 1, Py_None);
             self.acquire(
-                FuncArgs::new::<Vec<_>, KwArgs>(
-                    vec![vm.ctx.new_bool(true).into()],
-                    KwArgs::default(),
-                ),
+                AcquireArgs {
+                    block: true,
+                    timeout: None,
+                },
                 vm,
             )
         }
 
-        /// Exit the semaphore/lock (context manager).
         // _multiprocessing_SemLock___exit___impl
         #[pymethod]
-        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(&self, _args: ExitArgs, vm: &VirtualMachine) -> PyResult<()> {
             self.release(vm)
         }
 
@@ -706,7 +715,6 @@ mod _multiprocessing {
             zelf.into_ref_with_type(vm, cls).map(Into::into)
         }
 
-        /// Rezero the net acquisition count after fork().
         // _multiprocessing_SemLock__after_fork_impl
         #[pymethod]
         fn _after_fork(&self) {
@@ -716,14 +724,13 @@ mod _multiprocessing {
             self.last_tid.store(0, Ordering::Release);
         }
 
-        /// SemLock objects cannot be pickled directly.
-        /// Use multiprocessing.synchronize.SemLock wrapper which handles pickling.
+        // SemLock objects cannot be pickled directly.
+        // Use multiprocessing.synchronize.SemLock wrapper which handles pickling.
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot pickle 'SemLock' object"))
         }
 
-        /// Num of `acquire()`s minus num of `release()`s for this process.
         // _multiprocessing_SemLock__count_impl
         #[pymethod]
         fn _count(&self) -> i32 {
@@ -731,14 +738,12 @@ mod _multiprocessing {
             self.count.load(Ordering::Acquire)
         }
 
-        /// Whether the lock is owned by this thread.
         // _multiprocessing_SemLock__is_mine_impl
         #[pymethod]
         fn _is_mine(&self) -> bool {
             ismine!(self)
         }
 
-        /// Get the value of the semaphore.
         // _multiprocessing_SemLock__get_value_impl
         #[pymethod]
         fn _get_value(&self, vm: &VirtualMachine) -> PyResult<i32> {
@@ -754,7 +759,6 @@ mod _multiprocessing {
             }
         }
 
-        /// Return whether semaphore has value zero.
         // _multiprocessing_SemLock__is_zero_impl
         #[pymethod]
         fn _is_zero(&self, vm: &VirtualMachine) -> PyResult<bool> {

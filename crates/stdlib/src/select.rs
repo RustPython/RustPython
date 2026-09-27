@@ -36,7 +36,7 @@ mod decl {
         Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyModule, PyTypeRef},
         convert::ToPyException,
-        function::{Either, OptionalOption},
+        function::Either,
         stdlib::time,
     };
 
@@ -60,15 +60,30 @@ mod decl {
         vm.ctx.exceptions.os_error.to_owned()
     }
 
+    #[derive(FromArgs)]
+    struct SelectArgs {
+        #[pyarg(positional)]
+        rlist: PyObjectRef,
+        #[pyarg(positional)]
+        wlist: PyObjectRef,
+        #[pyarg(positional)]
+        xlist: PyObjectRef,
+        #[pyarg(positional, optional)]
+        timeout: Option<Either<f64, isize>>,
+    }
+
     #[pyfunction]
     fn select(
-        rlist: PyObjectRef,
-        wlist: PyObjectRef,
-        xlist: PyObjectRef,
-        timeout: OptionalOption<Either<f64, isize>>,
+        args: SelectArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(PyListRef, PyListRef, PyListRef)> {
-        let mut timeout = timeout.flatten().map(|e| match e {
+        let SelectArgs {
+            rlist,
+            wlist,
+            xlist,
+            timeout,
+        } = args;
+        let mut timeout = timeout.map(|e| match e {
             Either::A(f) => f,
             Either::B(i) => i as f64,
         });
@@ -273,10 +288,8 @@ mod decl {
 
         impl TryFromObject for EventMask {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                use crate::builtins::PyInt;
-                let int = obj
-                    .downcast::<PyInt>()
-                    .map_err(|_| vm.new_type_error("argument must be an integer"))?;
+                // Event masks go through the integer converter, so `__index__` counts.
+                let int = obj.try_index(vm)?;
 
                 let val = int.as_bigint();
                 if val.is_negative() {
@@ -433,7 +446,7 @@ mod decl {
         pub(crate) struct EpollNewArgs {
             #[pyarg(any, default = -1)]
             sizehint: i32,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             flags: i32,
         }
 
@@ -681,7 +694,7 @@ mod decl {
             class_or_notimplemented,
             common::lock::{PyMutex, PyRwLock},
             convert::{IntoPyException, ToPyObject},
-            function::{OptionalArg, PyComparisonValue},
+            function::PyComparisonValue,
             types::{Comparable, Constructor, Destructor, PyComparisonOp, Representable},
         };
         use alloc::sync::Arc;
@@ -703,11 +716,11 @@ mod decl {
             filter: i16,
             #[pyarg(any, default = host_select::kqueue::DEFAULT_FLAGS)]
             flags: u16,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             fflags: u32,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             data: isize,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             udata: usize,
         }
 
@@ -879,15 +892,15 @@ mod decl {
             changelist: PyObjectRef,
             #[pyarg(positional)]
             maxevents: i32,
-            #[pyarg(any, optional)]
-            timeout: OptionalArg<PyObjectRef>,
+            #[pyarg(positional, optional)]
+            timeout: Option<PyObjectRef>,
         }
 
         fn timespec_from_timeout(
-            timeout: OptionalArg<PyObjectRef>,
+            timeout: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<host_select::kqueue::Timespec>> {
-            let Some(obj) = timeout.into_option() else {
+            let Some(obj) = timeout else {
                 return Ok(None);
             };
             if vm.is_none(&obj) {

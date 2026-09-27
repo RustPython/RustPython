@@ -5,18 +5,14 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyResult,
-    function::{Callee, Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
+    function::{
+        ArgumentError, Either, FromArgs, FuncArgs, Param, PyArithmeticValue, PyComparisonValue,
+        PySetterValue,
+    },
     types::{Constructor, Initializer, PyComparisonOp},
 };
 use itertools::Itertools;
 
-/// object()
-/// --
-///
-/// The base class of the class hierarchy.
-///
-/// When called, it accepts no arguments and returns a new featureless
-/// instance that has no instance attributes and cannot be given any.
 #[pyclass(module = false, name = "object")]
 #[derive(Debug)]
 pub struct PyBaseObject;
@@ -28,11 +24,22 @@ impl PyPayload for PyBaseObject {
     }
 }
 
+pub struct ObjectArgs;
+
+impl FromArgs for ObjectArgs {
+    const PARAMS: Option<&'static [Param]> = Some(&[]);
+
+    fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        core::mem::take(args);
+        Ok(Self)
+    }
+}
+
 impl Constructor for PyBaseObject {
-    type Args = FuncArgs;
+    type Args = ObjectArgs;
 
     // = object_new
-    fn slot_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() || !args.kwargs.is_empty() {
             // Check if type's __new__ != object.__new__
             let tp_new = cls.get_attr(identifier!(vm, __new__));
@@ -111,7 +118,7 @@ pub(crate) fn generic_alloc(cls: PyTypeRef, _nitems: usize, vm: &VirtualMachine)
 }
 
 impl Initializer for PyBaseObject {
-    type Args = FuncArgs;
+    type Args = ObjectArgs;
 
     // object_init: excess_args validation
     fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
@@ -204,34 +211,10 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         type_slot_names(obj.class(), vm).map_err(|_| vm.new_type_error("cannot pickle object"))?;
 
     if required {
-        // Start with PyBaseObject_Type's basicsize
-        let mut basicsize = vm.ctx.types.object_type.slots().basicsize;
-
-        // Add __dict__ size if type has dict
-        if obj.class().slots().flags.has_feature(PyTypeFlags::HAS_DICT) {
-            basicsize += core::mem::size_of::<PyObjectRef>();
-        }
-
-        // Add __weakref__ size if type has weakref support
-        let has_weakref = if let Some(ext) = obj.class().heaptype_ext() {
-            match &ext.slots {
-                None => true, // Heap type without __slots__ has automatic weakref
-                Some(slots) => slots.iter().any(|s| s.as_bytes() == b"__weakref__"),
-            }
-        } else {
-            let weakref_name = vm.ctx.intern_str("__weakref__");
-            obj.class().attributes().contains(weakref_name)
-        };
-        if has_weakref {
-            basicsize += core::mem::size_of::<PyObjectRef>();
-        }
-
-        // Add slots size
-        if let Some(ref slot_names) = slot_names {
-            basicsize += core::mem::size_of::<PyObjectRef>() * slot_names.__len__();
-        }
-
-        // Fail if actual type's basicsize > expected basicsize
+        // Dict, weakref list, and slot cells sit in the prefix in front of
+        // the payload, so they are not part of `slots.basicsize`. Only state
+        // stored inside the payload counts.
+        let basicsize = vm.ctx.types.object_type.slots().basicsize;
         if obj.class().slots().basicsize > basicsize {
             return Err(vm.new_type_error(format!("cannot pickle '{}' object", obj.class().name())));
         }
@@ -294,9 +277,8 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 
 #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
 impl PyBaseObject {
-    #[pymethod(raw)]
-    fn __getstate__(vm: &VirtualMachine, args: FuncArgs, callee: Callee) -> PyResult {
-        let (zelf,): (PyObjectRef,) = args.bind_for(vm, callee)?;
+    #[pymethod]
+    fn __getstate__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         object_getstate_default(&zelf, false, vm)
     }
 
@@ -389,7 +371,7 @@ impl PyBaseObject {
     }
 
     #[pyclassmethod]
-    fn __subclasshook__(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+    fn __subclasshook__(_cls: PyTypeRef, _object: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented()
     }
 
@@ -610,10 +592,10 @@ fn get_new_arguments(
             ))
         })?;
 
-        if newargs_tuple.len() != 2 {
+        if newargs_tuple.as_slice().len() != 2 {
             return Err(vm.new_value_error(format!(
                 "__getnewargs_ex__ should return a tuple of length 2, not {}",
-                newargs_tuple.len()
+                newargs_tuple.as_slice().len()
             )));
         }
 

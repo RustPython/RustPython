@@ -18,8 +18,8 @@ macro_rules! codecs_module {
             const CODECS: &[&'static str] = &[$($name),+];
 
             #[pyfunction]
-            fn getcodec(encoding: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-                multibytecodec::get_codec(CODECS, &encoding, vm)
+            fn getcodec(object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+                multibytecodec::get_codec(CODECS, &object, vm)
             }
         }
     };

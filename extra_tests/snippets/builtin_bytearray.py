@@ -3,6 +3,9 @@ import sys
 
 from testutils import assert_raises
 
+with assert_raises(MemoryError):
+    bytearray(b"ab").resize(sys.maxsize)
+
 # new
 assert bytearray([1, 2, 3])
 assert bytearray((1, 2, 3))
@@ -882,3 +885,8 @@ for i in range(-1, 2, 1):
     assert_raises(
         IndexError, lambda: a[-sys.maxsize - i], _msg="bytearray index out of range"
     )
+
+# Repeating an empty bytearray by a huge count returns at once
+empty = bytearray()
+empty *= sys.maxsize
+assert empty == bytearray()

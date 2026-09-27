@@ -139,7 +139,7 @@ mod winsound {
 
     #[derive(FromArgs)]
     struct MessageBeepArgs {
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         r#type: u32,
     }
 

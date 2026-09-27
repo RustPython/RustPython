@@ -8,7 +8,9 @@ mod _functools {
             PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef, object,
         },
         common::{hash::PyHash, lock::PyRwLock},
-        function::{Either, FuncArgs, KwArgs, OptionalOption, PyComparisonValue, PySetterValue},
+        function::{
+            Either, FuncArgs, KwArgs, OptionalOption, PosArgs, PyComparisonValue, PySetterValue,
+        },
         object::AsObject,
         protocol::PyIter,
         pyclass,
@@ -27,9 +29,11 @@ mod _functools {
 
     #[derive(FromArgs)]
     struct ReduceArgs {
+        #[pyarg(positional)]
         function: PyObjectRef,
-        iterator: PyIter,
-        #[pyarg(any, optional, name = "initial")]
+        #[pyarg(positional)]
+        iterable: PyIter,
+        #[pyarg(any, optional)]
         initial: OptionalOption<PyObjectRef>,
     }
 
@@ -37,10 +41,10 @@ mod _functools {
     fn reduce(args: ReduceArgs, vm: &VirtualMachine) -> PyResult {
         let ReduceArgs {
             function,
-            iterator,
+            iterable,
             initial,
         } = args;
-        let mut iter = iterator.iter(vm)?;
+        let mut iter = iterable.iter(vm)?;
         // OptionalOption distinguishes between:
         // - Missing: no argument provided → use first element from iterator
         // - Present(None): explicitly passed None → use None as initial value
@@ -295,22 +299,23 @@ mod _functools {
         }
 
         #[pymethod]
-        fn __setstate__(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn __setstate__(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let state = object;
             let state_tuple = state
                 .downcast::<PyTuple>()
                 .map_err(|_| vm.new_type_error("argument to __setstate__ must be a tuple"))?;
 
-            if state_tuple.len() != 4 {
+            if state_tuple.as_slice().len() != 4 {
                 return Err(vm.new_type_error(format!(
                     "expected 4 items in state, got {}",
-                    state_tuple.len()
+                    state_tuple.as_slice().len()
                 )));
             }
 
-            let func = &state_tuple[0];
-            let args = &state_tuple[1];
-            let kwds = &state_tuple[2];
-            let dict = &state_tuple[3];
+            let func = &state_tuple.as_slice()[0];
+            let args = &state_tuple.as_slice()[1];
+            let kwds = &state_tuple.as_slice()[2];
+            let dict = &state_tuple.as_slice()[3];
 
             if !func.is_callable() {
                 return Err(vm.new_type_error("invalid partial state"));
@@ -396,21 +401,48 @@ mod _functools {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 
+    #[derive(FromArgs)]
+    pub(crate) struct PartialSig {
+        #[pyarg(positional)]
+        func: PyObjectRef,
+        #[pyarg(flatten)]
+        args: PosArgs<PyObjectRef>,
+        #[pyarg(flatten)]
+        keywords: KwArgs<PyObjectRef, crate::function::NameKeywords>,
+    }
+
     impl Constructor for PyPartial {
-        type Args = FuncArgs;
+        type Args = PartialSig;
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let zelf = Self::py_new_funcargs(args, vm)?;
+            zelf.into_ref_with_type(vm, cls).map(Into::into)
+        }
 
         fn py_new(
             _cls: &crate::Py<crate::builtins::PyType>,
-            args: Self::Args,
+            _args: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let Self::Args {
+                func,
+                args,
+                keywords,
+            } = _args;
+            let _ = (func, args, keywords);
+            Err(vm.new_type_error("use slot_new"))
+        }
+    }
+
+    impl PyPartial {
+        fn py_new_funcargs(args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
             let (func, args_slice) = args
                 .args
                 .split_first()
@@ -508,7 +540,8 @@ mod _functools {
             }
 
             // Build combined args, replacing placeholders
-            let mut combined_args = Vec::with_capacity(stored_args.len() + args.args.len());
+            let mut combined_args =
+                Vec::with_capacity(stored_args.as_slice().len() + args.args.len());
             let mut new_args_iter = args.args.iter();
 
             for stored_arg in stored_args.as_slice() {
@@ -659,9 +692,9 @@ mod _functools {
     #[pyclass(flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
     impl PyLruListElem {}
 
-    /// Native implementation of `functools._lru_cache_wrapper`, mirroring CPython's
-    /// `_functools` accelerator so `functools.lru_cache` doesn't fall back to the much
-    /// slower pure-Python implementation in `Lib/functools.py`.
+    // Native implementation of `functools._lru_cache_wrapper`, mirroring CPython's
+    // `_functools` accelerator so `functools.lru_cache` doesn't fall back to the much
+    // slower pure-Python implementation in `Lib/functools.py`.
     #[pyattr]
     #[pyclass(name = "_lru_cache_wrapper", module = "functools")]
     #[derive(PyPayload)]

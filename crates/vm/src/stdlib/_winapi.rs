@@ -396,14 +396,20 @@ mod _winapi {
         WindowsSysResult(host_winapi::terminate_process(h.0, exit_code))
     }
 
+    #[derive(FromArgs)]
+    struct OptionalJobName {
+        #[pyarg(positional, optional)]
+        name: Option<PyStrRef>,
+    }
+
     #[pyfunction]
     fn CreateJobObject(
         _security_attributes: PyObjectRef,
-        name: OptionalArg<Option<PyStrRef>>,
+        name: OptionalJobName,
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
         let name = name
-            .flatten()
+            .name
             .map(|name| name.as_wtf8().to_wide_cstring())
             .transpose()
             .map_err(|_| nul_char_error(vm))?;
@@ -668,7 +674,6 @@ mod _winapi {
         vm.ctx.new_str(result_str)
     }
 
-    /// GetShortPathName - Return the short version of the provided path.
     #[pyfunction]
     fn GetShortPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let path = path
@@ -679,7 +684,6 @@ mod _winapi {
         Ok(path_name_result_to_pystr(wide, vm))
     }
 
-    /// GetLongPathName - Return the long version of the provided path.
     #[pyfunction]
     fn GetLongPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let path = path
@@ -771,7 +775,7 @@ mod _winapi {
         handle: WinHandle,
         #[pyarg(any)]
         buffer: crate::function::ArgBytesLike,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         overlapped: bool,
     }
 
@@ -811,7 +815,7 @@ mod _winapi {
         handle: WinHandle,
         #[pyarg(any)]
         size: u32,
-        #[pyarg(any, default = false)]
+        #[pyarg(any, default)]
         overlapped: bool,
     }
 
@@ -909,7 +913,6 @@ mod _winapi {
 
     const MAXIMUM_WAIT_OBJECTS: usize = host_winapi::MAXIMUM_WAIT_OBJECTS as usize;
 
-    /// BatchedWaitForMultipleObjects - Wait for multiple handles, supporting more than 64.
     #[pyfunction]
     fn BatchedWaitForMultipleObjects(
         handle_seq: PyObjectRef,
@@ -1064,7 +1067,6 @@ mod _winapi {
         host_winapi::virtual_query_size(address).map_err(|e| e.to_pyexception(vm))
     }
 
-    /// CopyFile2 - Copy a file with extended parameters.
     #[pyfunction]
     fn CopyFile2(
         existing_file_name: PyStrRef,
@@ -1084,7 +1086,6 @@ mod _winapi {
         host_winapi::copy_file2(&src_wide, &dst_wide, flags).map_err(|e| e.to_pyexception(vm))
     }
 
-    /// _mimetypes_read_windows_registry - Read MIME type associations from registry.
     #[pyfunction]
     fn _mimetypes_read_windows_registry(
         on_type_read: PyObjectRef,

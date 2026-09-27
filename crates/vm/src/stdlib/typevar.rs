@@ -79,6 +79,7 @@ pub(crate) mod typevar {
     #[pyclass(name = "TypeVar", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct TypeVar {
+        #[pymember(name = "__name__")]
         name: PyObjectRef, // TODO PyStrRef?
         bound: PyMutex<PyObjectRef>,
         evaluate_bound: PyObjectRef,
@@ -86,8 +87,11 @@ pub(crate) mod typevar {
         evaluate_constraints: PyObjectRef,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
+        #[pymember(name = "__covariant__")]
         covariant: bool,
+        #[pymember(name = "__contravariant__")]
         contravariant: bool,
+        #[pymember(name = "__infer_variance__")]
         infer_variance: bool,
     }
 
@@ -97,13 +101,8 @@ pub(crate) mod typevar {
     )]
     impl TypeVar {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of TypeVar"))
-        }
-
-        #[pygetset]
-        fn __name__(&self) -> PyObjectRef {
-            self.name.clone()
         }
 
         #[pygetset]
@@ -134,21 +133,6 @@ pub(crate) mod typevar {
                 vm.ctx.none()
             };
             Ok(r)
-        }
-
-        #[pygetset]
-        const fn __covariant__(&self) -> bool {
-            self.covariant
-        }
-
-        #[pygetset]
-        const fn __contravariant__(&self) -> bool {
-            self.contravariant
-        }
-
-        #[pygetset]
-        const fn __infer_variance__(&self) -> bool {
-            self.infer_variance
         }
 
         #[pygetset]
@@ -258,13 +242,13 @@ pub(crate) mod typevar {
 
             // Find our index in parameters
             let self_obj: PyObjectRef = zelf.to_owned().into();
-            let param_index = params_tuple.iter().position(|p| p.is(&self_obj));
+            let param_index = params_tuple.as_slice().iter().position(|p| p.is(&self_obj));
 
             if let Some(index) = param_index {
                 // Check if we have enough arguments
-                if args_tuple.len() <= index && zelf.has_default(vm) {
+                if args_tuple.as_slice().len() <= index && zelf.has_default(vm) {
                     // Need to add default value
-                    let mut new_args = args_tuple.iter().cloned().collect::<Vec<PyObjectRef>>();
+                    let mut new_args = args_tuple.as_slice().to_vec();
 
                     // Add default value at the correct position
                     while new_args.len() <= index {
@@ -455,12 +439,17 @@ pub(crate) mod typevar {
     #[pyclass(name = "ParamSpec", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct ParamSpec {
+        #[pymember(name = "__name__")]
         name: PyObjectRef,
+        #[pymember(name = "__bound__")]
         bound: Option<PyObjectRef>,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
+        #[pymember(name = "__covariant__")]
         covariant: bool,
+        #[pymember(name = "__contravariant__")]
         contravariant: bool,
+        #[pymember(name = "__infer_variance__")]
         infer_variance: bool,
     }
 
@@ -470,13 +459,8 @@ pub(crate) mod typevar {
     )]
     impl ParamSpec {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpec"))
-        }
-
-        #[pygetset]
-        fn __name__(&self) -> PyObjectRef {
-            self.name.clone()
         }
 
         #[pygetset]
@@ -495,29 +479,6 @@ pub(crate) mod typevar {
                 __origin__: self_obj,
             };
             psk.into_ref(&vm.ctx).into()
-        }
-
-        #[pygetset]
-        fn __bound__(&self, vm: &VirtualMachine) -> PyObjectRef {
-            if let Some(bound) = self.bound.clone() {
-                return bound;
-            }
-            vm.ctx.none()
-        }
-
-        #[pygetset]
-        const fn __covariant__(&self) -> bool {
-            self.covariant
-        }
-
-        #[pygetset]
-        const fn __contravariant__(&self) -> bool {
-            self.contravariant
-        }
-
-        #[pygetset]
-        const fn __infer_variance__(&self) -> bool {
-            self.infer_variance
         }
 
         #[pygetset]
@@ -687,7 +648,7 @@ pub(crate) mod typevar {
     impl Representable for ParamSpec {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name = zelf.__name__().str_utf8(vm)?;
+            let name = zelf.name.str_utf8(vm)?;
             Ok(variance_repr(
                 name.as_str(),
                 zelf.infer_variance,
@@ -715,6 +676,7 @@ pub(crate) mod typevar {
     #[pyclass(name = "TypeVarTuple", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct TypeVarTuple {
+        #[pymember(name = "__name__")]
         name: PyObjectRef,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
@@ -725,11 +687,6 @@ pub(crate) mod typevar {
         with(Constructor, Representable, Iterable)
     )]
     impl TypeVarTuple {
-        #[pygetset]
-        fn __name__(&self) -> PyObjectRef {
-            self.name.clone()
-        }
-
         #[pygetset]
         fn __default__(&self, vm: &VirtualMachine) -> PyResult {
             {
@@ -778,7 +735,7 @@ pub(crate) mod typevar {
         }
 
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of TypeVarTuple"))
         }
 
@@ -891,19 +848,15 @@ pub(crate) mod typevar {
     #[pyclass(name = "ParamSpecArgs", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct ParamSpecArgs {
+        #[pymember]
         __origin__: PyObjectRef,
     }
 
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
     impl ParamSpecArgs {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecArgs"))
-        }
-
-        #[pygetset]
-        fn __origin__(&self) -> PyObjectRef {
-            self.__origin__.clone()
         }
     }
 
@@ -922,7 +875,7 @@ pub(crate) mod typevar {
             // A ParamSpec origin is named; anything else is shown by its repr,
             // which carries the recursion guard a Rust `{:?}` walk does not.
             if let Some(param_spec) = zelf.__origin__.downcast_ref::<ParamSpec>() {
-                return Ok(format!("{}.args", param_spec.__name__().str_utf8(vm)?));
+                return Ok(format!("{}.args", param_spec.name.str_utf8(vm)?));
             }
             Ok(format!("{}.args", zelf.__origin__.repr(vm)?))
         }
@@ -955,19 +908,15 @@ pub(crate) mod typevar {
     #[pyclass(name = "ParamSpecKwargs", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct ParamSpecKwargs {
+        #[pymember]
         __origin__: PyObjectRef,
     }
 
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
     impl ParamSpecKwargs {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecKwargs"))
-        }
-
-        #[pygetset]
-        fn __origin__(&self) -> PyObjectRef {
-            self.__origin__.clone()
         }
     }
 
@@ -986,7 +935,7 @@ pub(crate) mod typevar {
             // A ParamSpec origin is named; anything else is shown by its repr,
             // which carries the recursion guard a Rust `{:?}` walk does not.
             if let Some(param_spec) = zelf.__origin__.downcast_ref::<ParamSpec>() {
-                return Ok(format!("{}.kwargs", param_spec.__name__().str_utf8(vm)?));
+                return Ok(format!("{}.kwargs", param_spec.name.str_utf8(vm)?));
             }
             Ok(format!("{}.kwargs", zelf.__origin__.repr(vm)?))
         }

@@ -361,11 +361,11 @@ mod _sqlite3 {
         timeout: TimeoutSeconds,
         #[pyarg(any, default = 0)]
         detect_types: c_int,
-        #[pyarg(any, default = IsolationLevelArg(Some(vm.ctx.empty_str.to_owned())))]
+        #[pyarg(any, default = "")]
         isolation_level: IsolationLevelArg,
         #[pyarg(any, default = true)]
         check_same_thread: bool,
-        #[pyarg(any, default = Connection::class(&vm.ctx).to_owned())]
+        #[pyarg(any, default = Connection::class(&vm.ctx).to_owned(), py_default = "ConnectionType")]
         factory: PyTypeRef,
         // TODO: cache statements
         #[allow(dead_code)]
@@ -440,10 +440,10 @@ mod _sqlite3 {
         #[pyarg(positional)]
         column: PyStrRef,
         #[pyarg(positional)]
-        row: i64,
+        rowid: i64,
         #[pyarg(named, default)]
         readonly: bool,
-        #[pyarg(named, default = vm.ctx.new_str("main"))]
+        #[pyarg(named, default = "main")]
         name: PyStrRef,
     }
 
@@ -1093,7 +1093,7 @@ mod _sqlite3 {
             }
 
             if let Some(cursor_ref) = cursor.downcast_ref::<Cursor>()
-                && let Some(factory) = zelf.row_factory.to_owned()
+                && let Some(factory) = zelf.row_factory.load_owned()
             {
                 let _ = unsafe { cursor_ref.row_factory.swap(Some(factory)) };
             }
@@ -1120,7 +1120,7 @@ mod _sqlite3 {
                     name.as_ptr(),
                     table.as_ptr(),
                     column.as_ptr(),
-                    args.row,
+                    args.rowid,
                     (!args.readonly) as c_int,
                     &mut blob,
                 )
@@ -1187,7 +1187,7 @@ mod _sqlite3 {
             parameters: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            let row_factory = zelf.row_factory.to_owned();
+            let row_factory = zelf.row_factory.load_owned();
             let cursor = Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx);
             Cursor::execute(cursor, sql, parameters, vm)
         }
@@ -1199,7 +1199,7 @@ mod _sqlite3 {
             seq_of_params: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            let row_factory = zelf.row_factory.to_owned();
+            let row_factory = zelf.row_factory.load_owned();
             let cursor = Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx);
             Cursor::executemany(cursor, sql, seq_of_params, vm)
         }
@@ -1210,7 +1210,7 @@ mod _sqlite3 {
             script: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            let row_factory = zelf.row_factory.to_owned();
+            let row_factory = zelf.row_factory.load_owned();
             Cursor::executescript(
                 Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx),
                 script,
@@ -1669,7 +1669,7 @@ mod _sqlite3 {
 
         #[pygetset]
         fn row_factory(&self) -> Option<PyObjectRef> {
-            self.row_factory.to_owned()
+            self.row_factory.load_owned()
         }
         #[pygetset(setter)]
         fn set_row_factory(
@@ -2146,7 +2146,7 @@ mod _sqlite3 {
 
         #[pygetset]
         fn row_factory(&self) -> Option<PyObjectRef> {
-            self.row_factory.to_owned()
+            self.row_factory.load_owned()
         }
 
         #[pygetset(setter)]
@@ -2346,7 +2346,7 @@ mod _sqlite3 {
 
             let row = vm.ctx.new_tuple(row);
 
-            if let Some(row_factory) = zelf.row_factory.to_owned() {
+            if let Some(row_factory) = zelf.row_factory.load_owned() {
                 row_factory
                     .call((zelf.to_owned(), row), vm)
                     .map(PyIterReturn::Return)
@@ -2372,6 +2372,7 @@ mod _sqlite3 {
         #[pymethod]
         fn keys(&self, _vm: &VirtualMachine) -> Vec<PyObjectRef> {
             self.description
+                .as_slice()
                 .iter()
                 .map(|x| x.downcast_ref::<PyTuple>().unwrap().as_slice()[0].clone())
                 .collect()
@@ -2380,9 +2381,9 @@ mod _sqlite3 {
         fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
             if let Some(i) = needle.downcast_ref::<PyInt>() {
                 let i = i.try_to_primitive::<isize>(vm)?;
-                self.data.getitem_by_index(vm, i)
+                self.data.as_slice().getitem_by_index(vm, i)
             } else if let Some(name) = needle.downcast_ref::<PyStr>() {
-                for (obj, i) in self.description.iter().zip(0..) {
+                for (obj, i) in self.description.as_slice().iter().zip(0..) {
                     let obj = &obj.downcast_ref::<PyTuple>().unwrap().as_slice()[0];
                     let Some(obj) = obj.downcast_ref::<PyStr>() else {
                         break;
@@ -2391,12 +2392,15 @@ mod _sqlite3 {
                     let b_iter = obj.expect_str().chars().flat_map(|x| x.to_uppercase());
 
                     if a_iter.eq(b_iter) {
-                        return self.data.getitem_by_index(vm, i);
+                        return self.data.as_slice().getitem_by_index(vm, i);
                     }
                 }
                 Err(vm.new_index_error(format!("No item with key '{}'", name.to_string_lossy())))
             } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
-                let list = self.data.getitem_by_slice(vm, slice.to_saturated(vm)?)?;
+                let list = self
+                    .data
+                    .as_slice()
+                    .getitem_by_slice(vm, slice.to_saturated(vm)?)?;
                 Ok(vm.ctx.new_tuple(list).into())
             } else {
                 Err(vm.new_index_error("Index must be int or string"))
@@ -2460,6 +2464,7 @@ mod _sqlite3 {
                 std::sync::LazyLock::new(|| PyMappingMethods {
                     length: atomic_func!(|mapping, _vm| Ok(Row::mapping_downcast(mapping)
                         .data
+                        .as_slice()
                         .len())),
                     subscript: atomic_func!(|mapping, needle, vm| {
                         Row::mapping_downcast(mapping).subscript(needle, vm)
@@ -2474,9 +2479,13 @@ mod _sqlite3 {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: std::sync::LazyLock<PySequenceMethods> =
                 std::sync::LazyLock::new(|| PySequenceMethods {
-                    length: atomic_func!(|seq, _vm| Ok(Row::sequence_downcast(seq).data.len())),
+                    length: atomic_func!(|seq, _vm| Ok(Row::sequence_downcast(seq)
+                        .data
+                        .as_slice()
+                        .len())),
                     item: atomic_func!(|seq, i, vm| Row::sequence_downcast(seq)
                         .data
+                        .as_slice()
                         .getitem_by_index(vm, i)),
                     ..PySequenceMethods::NOT_IMPLEMENTED
                 });

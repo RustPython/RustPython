@@ -124,7 +124,6 @@ pub struct VirtualMachine {
     /// Current running asyncio task for this thread
     pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
     pub(crate) callable_cache: CallableCache,
-    pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
     /// Side channel for TailCall: the bytecode loop stores the new frame
     /// pointer here before returning `ExecutionResult::TailCall`.
     /// Access only via `set_pending_tailcall` / `take_pending_tailcall`.
@@ -816,11 +815,12 @@ pub struct PyGlobalState {
     pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
-    pub hash_secret: HashSecret,
     /// Registered `atexit` callbacks, newest first. Shared ownership so
     /// `atexit.unregister` can keep the entry it is comparing alive while the
     /// list is unlocked, and still recognize it afterwards by identity.
     pub atexit_funcs: PyMutex<Vec<PyRc<(PyObjectRef, FuncArgs)>>>,
+    /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
+    pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
     pub finalizing: AtomicBool,
     pub warnings: WarningsState,
@@ -913,11 +913,31 @@ impl PyGlobalState {
     }
 }
 
-pub fn process_hash_secret_seed() -> u32 {
-    use std::sync::OnceLock;
-    static SEED: OnceLock<u32> = OnceLock::new();
-    // os_random is expensive, but this is only ever called once
-    *SEED.get_or_init(|| u32::from_ne_bytes(rustpython_common::rand::os_random()))
+/// Process-wide `_Py_HashSecret`. The first interpreter or VM-free constant
+/// hashing initializes it; later calls keep that value.
+static HASH_SECRET: std::sync::OnceLock<HashSecret> = std::sync::OnceLock::new();
+
+/// Initialize the process-wide hash secret for an interpreter or VM-free constants.
+///
+/// `hash_seed` is used only when the secret is not set yet. `None` draws a
+/// random seed. A later call keeps the existing secret and ignores `hash_seed`.
+pub(crate) fn init_hash_secret(hash_seed: Option<u32>) -> &'static HashSecret {
+    HASH_SECRET.get_or_init(|| {
+        let seed = hash_seed.unwrap_or_else(|| {
+            // os_random is expensive, but this runs only once per process.
+            u32::from_ne_bytes(rustpython_common::rand::os_random())
+        });
+        HashSecret::new(seed)
+    })
+}
+
+/// Process-wide `_Py_HashSecret` used for str/bytes hashing.
+#[inline]
+#[must_use]
+pub(crate) fn hash_secret() -> &'static HashSecret {
+    HASH_SECRET
+        .get()
+        .expect("hash secret is set before runtime hashing")
 }
 
 /// A `NonNull<T>` wrapper that implements `Send + Sync`.
@@ -1254,22 +1274,11 @@ impl VirtualMachine {
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
             callable_cache: CallableCache::default(),
-            audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(None),
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
             pending_gen_resume: core::cell::UnsafeCell::new(None),
             trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
         };
-
-        if vm.state.hash_secret.hash_str("")
-            != vm
-                .ctx
-                .interned_str("")
-                .expect("empty str must be interned")
-                .hash(&vm)
-        {
-            panic!("Interpreters in same process must share the hash seed");
-        }
 
         vm.builtins.init_dict(
             vm.ctx.intern_str("builtins"),
@@ -1618,7 +1627,9 @@ impl VirtualMachine {
 
         // Create a function object for module code, similar to PyEval_EvalCode
         let mut func = PyFunction::new(code, scope.globals.clone(), self)?;
-        func.closure = closure;
+        if let Some(closure) = closure {
+            func.closure = Some(closure);
+        }
         let func = func.into_ref(&self.ctx);
         func.invoke_with_locals(FuncArgs::default(), scope.locals, self)
     }
@@ -3007,6 +3018,21 @@ impl VirtualMachine {
         }
     }
 
+    /// `PySys_Audit`: raise audit `event` to the registered hooks. `args` is only built when a hook
+    /// is registered.
+    pub fn audit<A: crate::function::IntoFuncArgs>(
+        &self,
+        event: &str,
+        args: impl FnOnce() -> A,
+    ) -> PyResult<()> {
+        if self.state.audit_hooks.lock().is_empty() {
+            return Ok(());
+        }
+        let event = self.ctx.new_str(event);
+        let args = self.ctx.new_tuple(args().into_args(self).args);
+        crate::stdlib::sys::sys::run_audit_hooks(&event, args.as_object(), self)
+    }
+
     #[inline]
     pub(crate) fn enter_tracing(&self) {
         self.tracing_depth.set(self.tracing_depth.get() + 1);
@@ -3127,7 +3153,7 @@ impl VirtualMachine {
         let fromlist_empty = self.is_none(&from_list)
             || from_list
                 .downcast_ref::<PyTuple>()
-                .is_some_and(|tuple| tuple.is_empty());
+                .is_some_and(|tuple| tuple.as_slice().is_empty());
         if level == 0
             && fromlist_empty
             && builtins.is(self.builtins.dict().as_object())
@@ -3377,7 +3403,7 @@ impl VirtualMachine {
                     i += 1;
                 }
             }
-            ref t @ PyTuple => Ok(t.iter().cloned().map(f).collect()),
+            ref t @ PyTuple => Ok(t.as_slice().iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
                 Ok(self.map_py_iter(obj, hint, f))
@@ -3824,6 +3850,7 @@ impl VirtualMachine {
             .state
             .codec_registry
             .encode_text(s.to_owned(), "utf-8", Some(errors), self)?
+            .as_bytes()
             .to_vec();
         // XXX: this is sketchy on windows; it's not guaranteed that the
         //      OsStr encoding will always be compatible with WTF-8.

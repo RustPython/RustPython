@@ -7,7 +7,7 @@ mod _operator {
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
         class::PyClassDef,
         common::wtf8::{Wtf8, Wtf8Buf},
-        function::{ArgBytesLike, Either, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, ArgumentError, Either, FromArgs, FuncArgs, Param},
         protocol::PyIter,
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp, Representable},
@@ -219,19 +219,28 @@ mod _operator {
         a.set_item(&*b, c, vm)
     }
 
+    #[derive(FromArgs)]
+    struct LengthHintArgs {
+        #[pyarg(positional)]
+        obj: PyObjectRef,
+        // The value is checked as an exact int.
+        #[pyarg(positional, default = 0)]
+        default: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult<usize> {
+    fn length_hint(args: LengthHintArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        let LengthHintArgs { obj, default } = args;
+        if !default.fast_isinstance(vm.ctx.types.int_type) {
+            return Err(vm.new_type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                default.class().name()
+            )));
+        }
         let default: usize = default
-            .map(|v| {
-                if !v.fast_isinstance(vm.ctx.types.int_type) {
-                    return Err(vm.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer",
-                        v.class().name()
-                    )));
-                }
-                v.downcast_ref::<PyInt>().unwrap().try_to_primitive(vm)
-            })
-            .unwrap_or(Ok(0))?;
+            .downcast_ref::<PyInt>()
+            .unwrap()
+            .try_to_primitive(vm)?;
         obj.length_hint(default, vm)
     }
 
@@ -341,14 +350,6 @@ mod _operator {
         Ok(res)
     }
 
-    /// attrgetter(attr, /, *attrs)
-    /// --
-    ///
-    /// Return a callable object that fetches the given attribute(s) from its operand.
-    /// After f = attrgetter('name'), the call f(r) returns r.name.
-    /// After g = attrgetter('name', 'date'), the call g(r) returns (r.name, r.date).
-    /// After h = attrgetter('name.first', 'name.last'), the call h(r) returns
-    /// (r.name.first, r.name.last).
     #[pyattr]
     #[pyclass(name = "attrgetter")]
     #[derive(Debug, PyPayload)]
@@ -391,10 +392,24 @@ mod _operator {
         }
     }
 
+    struct AttrGetterArgs(FuncArgs);
+
+    impl FromArgs for AttrGetterArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param::positional_only("attr"),
+            Param::var_positional("attrs"),
+        ]);
+
+        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            Ok(Self(core::mem::take(args)))
+        }
+    }
+
     impl Constructor for PyAttrGetter {
-        type Args = FuncArgs;
+        type Args = AttrGetterArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let args = args.0;
             let n_attr = args.args.len();
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
@@ -452,12 +467,6 @@ mod _operator {
         }
     }
 
-    /// itemgetter(item, /, *items)
-    /// --
-    ///
-    /// Return a callable object that fetches the given item(s) from its operand.
-    /// After f = itemgetter(2), the call f(r) returns r[2].
-    /// After g = itemgetter(2, 5, 3), the call g(r) returns (r[2], r[5], r[3])
     #[pyattr]
     #[pyclass(name = "itemgetter")]
     #[derive(Debug, PyPayload)]
@@ -478,10 +487,24 @@ mod _operator {
             vm.new_pyobj((zelf.class().to_owned(), items))
         }
     }
+    struct ItemGetterArgs(FuncArgs);
+
+    impl FromArgs for ItemGetterArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param::positional_only("item"),
+            Param::var_positional("items"),
+        ]);
+
+        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            Ok(Self(core::mem::take(args)))
+        }
+    }
+
     impl Constructor for PyItemGetter {
-        type Args = FuncArgs;
+        type Args = ItemGetterArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let args = args.0;
             // Check we get no keyword and at least one positional.
             if !args.kwargs.is_empty() {
                 return Err(vm.new_type_error("itemgetter() takes no keyword arguments"));
@@ -530,13 +553,6 @@ mod _operator {
         }
     }
 
-    /// methodcaller(name, /, *args, **kwargs)
-    /// --
-    ///
-    /// Return a callable object that calls the given method on its operand.
-    /// After f = methodcaller('name'), the call f(r) returns r.name().
-    /// After g = methodcaller('name', 'date', foo=1), the call g(r) returns
-    /// r.name('date', foo=1).
     #[pyattr]
     #[pyclass(name = "methodcaller")]
     #[derive(Debug, PyPayload)]
@@ -573,14 +589,28 @@ mod _operator {
         }
     }
 
-    impl Constructor for PyMethodCaller {
-        type Args = (PyObjectRef, FuncArgs);
+    struct MethodCallerArgs(FuncArgs);
 
-        fn py_new(
-            _cls: &Py<PyType>,
-            (name, args): Self::Args,
-            vm: &VirtualMachine,
-        ) -> PyResult<Self> {
+    impl FromArgs for MethodCallerArgs {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param::positional_only("name"),
+            Param::var_positional("args"),
+            Param::var_keyword("kwargs"),
+        ]);
+
+        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            Ok(Self(core::mem::take(args)))
+        }
+    }
+
+    impl Constructor for PyMethodCaller {
+        type Args = MethodCallerArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            let mut args = args.0;
+            let name = args.take_positional().ok_or_else(|| {
+                vm.new_type_error("methodcaller needs at least one argument, the method name")
+            })?;
             let name = name
                 .try_into_value(vm)
                 .map_err(|_| vm.new_type_error("method name must be a string"))?;

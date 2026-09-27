@@ -22,14 +22,18 @@ pub(crate) mod _posix_unix_like {
         environ
     }
 
+    #[derive(FromArgs)]
+    struct RemoveArgs<'a> {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, { _os::UNLINK_DIR_FD as usize }>,
+    }
+
     #[pyfunction]
     #[pyfunction(name = "unlink")]
-    fn remove(
-        path: OsPath,
-        dir_fd: DirFd<'_, { _os::UNLINK_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        rustpython_host_env::posix::unlinkat(dir_fd.get_opt(), &path)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+    fn remove(args: RemoveArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::unlinkat(args.dir_fd.get_opt(), &args.path)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, args.path, vm))
     }
 }

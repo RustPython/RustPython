@@ -116,10 +116,28 @@ where
     }
 }
 
+unsafe impl<T: crate::PyPayload> Traverse for super::ext::PyAtomicRef<Option<T>> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        if let Some(obj) = self.deref() {
+            traverse_fn(obj.as_object());
+        }
+    }
+}
+
 unsafe impl Traverse for super::ext::PyAtomicRef<PyObject> {
     #[inline]
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        traverse_fn(self);
+    }
+}
+
+unsafe impl Traverse for super::ext::PyAtomicRef<Option<PyObject>> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         let ptr = self.load_ptr();
+        // SAFETY: traversal runs with other threads stopped, so a non-null
+        // slot pointer stays allocated for this borrow.
         if let Some(obj) = unsafe { ptr.as_ref() } {
             traverse_fn(obj);
         }

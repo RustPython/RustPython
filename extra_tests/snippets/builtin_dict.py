@@ -408,3 +408,163 @@ expected_keys = ["x", "y", "w", "z"]
 assert list(result.keys()) == expected_keys, (
     f"Expected {expected_keys}, got {list(result.keys())}"
 )
+
+
+def check_view_comparisons(view, other, expected):
+    assert (
+        view == other,
+        view != other,
+        view < other,
+        view <= other,
+        view > other,
+        view >= other,
+    ) == expected
+    assert (
+        other == view,
+        other != view,
+        other > view,
+        other >= view,
+        other < view,
+        other <= view,
+    ) == expected
+
+
+# Dictionary views support the same comparisons with mutable and frozen sets.
+config = {"host": "localhost", "port": 8080}
+for view in (config.keys(), config.items()):
+    for set_type in (set, frozenset):
+        schema = set_type(view)
+        check_view_comparisons(view, schema, (True, False, False, True, False, True))
+        smaller_schema = schema - {next(iter(schema))}
+        check_view_comparisons(
+            view, smaller_schema, (False, True, False, False, True, True)
+        )
+        larger_schema = schema | {("extra",)}
+        check_view_comparisons(
+            view, larger_schema, (False, True, True, True, False, False)
+        )
+        check_view_comparisons(
+            view, set_type({("other",)}), (False, True, False, False, False, False)
+        )
+
+# Mixed keys/items views compare their members regardless of insertion order.
+indexed_settings = {("port", 8080): None, ("host", "localhost"): None}
+check_view_comparisons(
+    config.items(), indexed_settings.keys(), (True, False, False, True, False, True)
+)
+del indexed_settings[("port", 8080)]
+check_view_comparisons(
+    config.items(), indexed_settings.keys(), (False, True, False, False, True, True)
+)
+
+# Testing for common settings does not require hashable values.
+left_settings = {"ports": [80, 443], "hosts": ["localhost"]}
+right_settings = {"ports": [80, 443], "timeout": 30}
+assert not left_settings.items().isdisjoint(right_settings.items())
+assert not right_settings.items().isdisjoint(left_settings.items())
+assert not left_settings.items().isdisjoint([("ports", [80, 443])])
+assert left_settings.items().isdisjoint({"ports": [8080]}.items())
+assert left_settings.items().isdisjoint(())
+assert left_settings.items().isdisjoint({"timeout": 30}.items())
+assert left_settings.items() != frozenset()
+assert left_settings.items() >= frozenset()
+assert not left_settings.items() <= frozenset()
+settings_view = left_settings.items()
+assert not settings_view.isdisjoint(settings_view)
+assert {}.items().isdisjoint({}.items())
+
+
+def settings_then_error(setting):
+    yield setting
+    raise ValueError("remaining settings unavailable")
+
+
+# A match stops consumption, while an error before a match still propagates.
+assert not config.keys().isdisjoint(settings_then_error("host"))
+assert not left_settings.items().isdisjoint(settings_then_error(("ports", [80, 443])))
+with assert_raises(ValueError):
+    config.keys().isdisjoint(settings_then_error("missing"))
+with assert_raises(TypeError):
+    config.keys().isdisjoint(42)
+
+
+class ViewMembershipKey:
+    hash_calls = 0
+
+    def __hash__(self):
+        self.hash_calls += 1
+        return 42
+
+
+# Successful item membership needs one dictionary lookup.
+membership_key = ViewMembershipKey()
+membership_dict = {membership_key: [1, 2]}
+membership_key.hash_calls = 0
+assert (membership_key, [1, 2]) in membership_dict.items()
+assert membership_key.hash_calls == 1
+
+for set_type in (set, frozenset):
+
+    class ViewSetSubclass(set_type):
+        events = []
+
+        def __iter__(self):
+            self.events.append("iter")
+            return super().__iter__()
+
+        def __contains__(self, item):
+            self.events.append("contains")
+            return super().__contains__(item)
+
+    # View operations preserve a set subclass's iteration and membership hooks.
+    schema = ViewSetSubclass({"host", "port"})
+    schema.events.clear()
+    assert config.keys() == schema
+    assert schema.events == ["contains", "contains"]
+    schema.events.clear()
+    assert config.keys() >= schema
+    assert schema.events == ["iter"]
+    schema.events.clear()
+    assert not config.keys().isdisjoint(schema)
+    assert schema.events == ["iter"]
+    larger_schema = ViewSetSubclass({"host", "port", "timeout"})
+    schema.events.clear()
+    assert not config.keys().isdisjoint(larger_schema)
+    assert schema.events == ["contains"]
+
+# An empty view must still consume arbitrary iterables and validate their keys.
+with assert_raises(TypeError):
+    {}.keys().isdisjoint([[]])
+with assert_raises(ValueError):
+    {}.keys().isdisjoint(settings_then_error("missing"))
+
+for set_type in (set, frozenset):
+
+    class ClearingLengthSet(set_type):
+        def __len__(self):
+            changing_config.clear()
+            return 1
+
+        def __iter__(self):
+            raise ValueError("settings unavailable")
+
+    # The view's size is captured before calling the other operand's __len__.
+    changing_config = {"host": "localhost", "port": 8080}
+    with assert_raises(ValueError):
+        changing_config.keys().isdisjoint(ClearingLengthSet({"host"}))
+    assert changing_config == {}
+
+
+class ItemLookupDict(dict):
+    def __getitem__(self, key):
+        raise AssertionError("item membership called __getitem__")
+
+    def __missing__(self, key):
+        raise AssertionError("item membership called __missing__")
+
+
+# Item views inspect dictionary storage without invoking subclass lookup hooks.
+lookup_items = ItemLookupDict(ports=[80, 443]).items()
+assert ("ports", [80, 443]) in lookup_items
+assert ("ports", [8080]) not in lookup_items
+assert ("missing", []) not in lookup_items

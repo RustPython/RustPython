@@ -14,8 +14,9 @@ use rustpython_compiler::{CompileError, ParseError, is_blank_python_source};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyMemoryError, PyModule,
-        PyOSError, PyStopIteration, PyStrRef, PySystemExit, PyType, PyTypeRef,
+        PyAttributeError, PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef,
+        PyImportError, PyMemoryError, PyModule, PyNameError, PyOSError, PyStopIteration, PyStrRef,
+        PySyntaxError, PySystemExit, PyType, PyTypeRef,
         builtin_func::PyNativeFunction,
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
@@ -538,14 +539,18 @@ impl VirtualMachine {
     }
 
     pub fn new_name_error(&self, msg: impl Into<Wtf8Buf>, name: PyStrRef) -> PyBaseExceptionRef {
-        let name_error_type = self.ctx.exceptions.name_error.to_owned();
-        let name_error = self.new_exception_msg(name_error_type, msg.into());
+        let name_error = self
+            .new_payload_exception::<PyNameError>(
+                self.ctx.exceptions.name_error.to_owned(),
+                vec![self.ctx.new_str(msg.into()).into()].into(),
+            )
+            .expect("NameError construction from internal args is infallible");
         set_attrs!(
             name_error.as_object(), self, unwrap,
             "name" => name,
         );
 
-        name_error
+        name_error.upcast()
     }
 
     /// The error a call that passed the wrong number of arguments gets. The
@@ -961,7 +966,13 @@ impl VirtualMachine {
             _ => false,
         };
 
-        let syntax_error = self.new_exception_msg(syntax_error_type, msg.into());
+        let syntax_error: PyBaseExceptionRef = self
+            .new_payload_exception::<PySyntaxError>(
+                syntax_error_type,
+                vec![self.ctx.new_str(msg).into()].into(),
+            )
+            .expect("SyntaxError construction from internal args is infallible")
+            .upcast();
 
         let (lineno_raw, offset_raw) = error.python_location();
         let lineno = self.ctx.new_int(lineno_raw);
@@ -1043,14 +1054,18 @@ impl VirtualMachine {
         msg: impl Into<Wtf8Buf>,
         name: impl Into<PyStrRef>,
     ) -> PyBaseExceptionRef {
-        let import_error = self.ctx.exceptions.import_error.to_owned();
-        let exc = self.new_exception_msg(import_error, msg.into());
+        let exc = self
+            .new_payload_exception::<PyImportError>(
+                self.ctx.exceptions.import_error.to_owned(),
+                vec![self.ctx.new_str(msg.into()).into()].into(),
+            )
+            .expect("ImportError construction from internal args is infallible");
         set_attrs!(
             exc.as_object(), self, unwrap,
             "name" => name.into(),
         );
 
-        exc
+        exc.upcast()
     }
 
     pub fn new_system_exit(&self, args: FuncArgs) -> PyBaseExceptionRef {
@@ -1138,7 +1153,15 @@ impl VirtualMachine {
 
     define_exception_fn!(fn new_lookup_error, lookup_error, LookupError);
     define_exception_fn!(fn new_eof_error, eof_error, EOFError);
-    define_exception_fn!(fn new_attribute_error, attribute_error, AttributeError);
+    pub fn new_attribute_error(&self, msg: impl Into<Wtf8Buf>) -> PyBaseExceptionRef {
+        self.new_payload_exception::<PyAttributeError>(
+            self.ctx.exceptions.attribute_error.to_owned(),
+            vec![self.ctx.new_str(msg.into()).into()].into(),
+        )
+        .expect("AttributeError construction from internal args is infallible")
+        .upcast()
+    }
+
     define_exception_fn!(fn new_type_error, type_error, TypeError);
     define_exception_fn!(fn new_system_error, system_error, SystemError);
 
@@ -1158,7 +1181,14 @@ impl VirtualMachine {
     define_exception_fn!(fn new_python_finalization_error, python_finalization_error, PythonFinalizationError);
     define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
     define_exception_fn!(fn new_assertion_error, assertion_error, AssertionError);
-    define_exception_fn!(fn new_unbound_local_error, unbound_local_error, UnboundLocalError);
+    pub fn new_unbound_local_error(&self, msg: impl Into<Wtf8Buf>) -> PyBaseExceptionRef {
+        self.new_payload_exception::<PyNameError>(
+            self.ctx.exceptions.unbound_local_error.to_owned(),
+            vec![self.ctx.new_str(msg.into()).into()].into(),
+        )
+        .expect("UnboundLocalError construction from internal args is infallible")
+        .upcast()
+    }
 }
 
 #[cfg(feature = "parser")]

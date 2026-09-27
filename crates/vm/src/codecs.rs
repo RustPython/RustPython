@@ -44,7 +44,7 @@ pub struct PyCodec(PyTupleRef);
 impl PyCodec {
     #[inline]
     pub fn from_tuple(tuple: PyTupleRef) -> Result<Self, PyTupleRef> {
-        if tuple.len() == 4 {
+        if tuple.as_slice().len() == 4 {
             Ok(Self(tuple))
         } else {
             Err(tuple)
@@ -63,12 +63,12 @@ impl PyCodec {
 
     #[inline]
     pub fn get_encode_func(&self) -> &PyObject {
-        &self.0[0]
+        &self.0.as_slice()[0]
     }
 
     #[inline]
     pub fn get_decode_func(&self) -> &PyObject {
-        &self.0[1]
+        &self.0.as_slice()[1]
     }
 
     pub fn is_text_codec(&self, vm: &VirtualMachine) -> PyResult<bool> {
@@ -90,10 +90,10 @@ impl PyCodec {
         let res = res
             .downcast::<PyTuple>()
             .ok()
-            .filter(|tuple| tuple.len() == 2)
+            .filter(|tuple| tuple.as_slice().len() == 2)
             .ok_or_else(|| vm.new_type_error("encoder must return a tuple (object, integer)"))?;
         // we don't actually care about the integer
-        Ok(res[0].clone())
+        Ok(res.as_slice()[0].clone())
     }
 
     pub fn decode(
@@ -110,10 +110,10 @@ impl PyCodec {
         let res = res
             .downcast::<PyTuple>()
             .ok()
-            .filter(|tuple| tuple.len() == 2)
+            .filter(|tuple| tuple.as_slice().len() == 2)
             .ok_or_else(|| vm.new_type_error("decoder must return a tuple (object,integer)"))?;
         // we don't actually care about the integer
-        Ok(res[0].clone())
+        Ok(res.as_slice()[0].clone())
     }
 
     pub fn get_incremental_encoder(
@@ -168,15 +168,25 @@ impl CodecsRegistry {
         }
 
         let methods = METHODS.get_or_init(|| {
-            crate::define_methods![
-                "strict_errors" => strict_errors as EMPTY,
-                "ignore_errors" => ignore_errors as EMPTY,
-                "replace_errors" => replace_errors as EMPTY,
-                "xmlcharrefreplace_errors" => xmlcharrefreplace_errors as EMPTY,
-                "backslashreplace_errors" => backslashreplace_errors as EMPTY,
-                "namereplace_errors" => namereplace_errors as EMPTY,
-                "surrogatepass_errors" => surrogatepass_errors as EMPTY,
-                "surrogateescape_errors" => surrogateescape_errors as EMPTY
+            macro_rules! error_handler {
+                ($name:literal, $func:ident) => {
+                    crate::function::PyMethodDef {
+                        name: $name,
+                        func: crate::function::static_func($func),
+                        flags: crate::function::PyMethodFlags::O,
+                        doc: Some(concat!($name, "($self, object, /)\n--\n\n")),
+                    }
+                };
+            }
+            vec![
+                error_handler!("strict_errors", strict_errors),
+                error_handler!("ignore_errors", ignore_errors),
+                error_handler!("replace_errors", replace_errors),
+                error_handler!("xmlcharrefreplace_errors", xmlcharrefreplace_errors),
+                error_handler!("backslashreplace_errors", backslashreplace_errors),
+                error_handler!("namereplace_errors", namereplace_errors),
+                error_handler!("surrogatepass_errors", surrogatepass_errors),
+                error_handler!("surrogateescape_errors", surrogateescape_errors),
             ]
             .into_boxed_slice()
         });
@@ -901,7 +911,7 @@ impl Deref for PyDecodeData<'_> {
     fn deref(&self) -> &Self::Target {
         match self {
             PyDecodeData::Original(data) => data,
-            PyDecodeData::Modified(data) => data,
+            PyDecodeData::Modified(data) => data.as_bytes(),
         }
     }
 }

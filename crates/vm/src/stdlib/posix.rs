@@ -21,9 +21,7 @@ pub mod module {
         builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
-        function::{
-            ArgBytesLike, ArgMapping, ArgPrimitiveIndex, ArgSize, Either, KwArgs, OptionalArg,
-        },
+        function::{ArgBytesLike, ArgMapping, Either, OptionalArg, PySsize},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
             _os, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata, warn_if_bool_fd,
@@ -395,9 +393,34 @@ pub mod module {
             .collect())
     }
 
+    #[derive(FromArgs)]
+    pub(super) struct AccessArgs<'a> {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(any)]
+        mode: u8,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, 0>,
+        #[pyarg(named, default)]
+        effective_ids: bool,
+        #[pyarg(flatten)]
+        follow_symlinks: FollowSymlinks,
+    }
+
     #[pyfunction]
-    pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        rustpython_host_env::posix::check_access(path.as_ref(), mode)
+    pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+        let [] = args.dir_fd.0;
+        if args.effective_ids {
+            return Err(
+                vm.new_not_implemented_error("access: effective_ids unavailable on this platform")
+            );
+        }
+        if !args.follow_symlinks.0 {
+            return Err(vm.new_not_implemented_error(
+                "access: follow_symlinks unavailable on this platform",
+            ));
+        }
+        rustpython_host_env::posix::check_access(args.path.as_ref(), args.mode)
             .map_err(|err| err.to_pyexception(vm))
     }
 
@@ -429,26 +452,41 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct FchdirArgs {
+        #[pyarg(any)]
+        fd: PyObjectRef,
+    }
+
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchdir(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn fchdir(fd: FchdirArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = fd.fd;
         warn_if_bool_fd(&fd, vm)?;
         let fd = i32::try_from_object(vm, fd)?;
         rustpython_host_env::posix::fchdir(fd).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct ChrootArgs {
+        #[pyarg(any)]
+        path: OsPath,
+    }
+
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn chroot(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
+    fn chroot(path: ChrootArgs, vm: &VirtualMachine) -> PyResult<()> {
         use crate::exceptions::OSErrorBuilder;
 
+        let path = path.path;
         rustpython_host_env::posix::chroot(std::path::Path::new(&path.path))
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     // As of now, redox does not seems to support chown command (cf. https://gitlab.redox-os.org/redox-os/coreutils , last checked on 05/07/2020)
     #[cfg(not(target_os = "redox"))]
-    #[pyfunction]
-    fn chown(
+    fn chown_inner(
         path: OsPathOrFd<'_>,
         uid: isize,
         gid: isize,
@@ -486,9 +524,49 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct ChownArgs<'a> {
+        #[pyarg(any)]
+        path: OsPathOrFd<'a>,
+        #[pyarg(any)]
+        uid: isize,
+        #[pyarg(any)]
+        gid: isize,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, 1>,
+        #[pyarg(flatten)]
+        follow_symlinks: FollowSymlinks,
+    }
+
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn lchown(path: OsPath, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
-        chown(
+    fn chown(args: ChownArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        chown_inner(
+            args.path,
+            args.uid,
+            args.gid,
+            args.dir_fd,
+            args.follow_symlinks,
+            vm,
+        )
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct LchownArgs {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(any)]
+        uid: isize,
+        #[pyarg(any)]
+        gid: isize,
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn lchown(args: LchownArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let LchownArgs { path, uid, gid } = args;
+        chown_inner(
             OsPathOrFd::Path(path),
             uid,
             gid,
@@ -499,9 +577,21 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct FchownArgs<'a> {
+        #[pyarg(any)]
+        fd: BorrowedFd<'a>,
+        #[pyarg(any)]
+        uid: isize,
+        #[pyarg(any)]
+        gid: isize,
+    }
+
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchown(fd: BorrowedFd<'_>, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
-        chown(
+    fn fchown(args: FchownArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let FchownArgs { fd, uid, gid } = args;
+        chown_inner(
             OsPathOrFd::Fd(fd.into()),
             uid,
             gid,
@@ -516,9 +606,9 @@ pub mod module {
         #[pyarg(named, optional)]
         before: OptionalArg<PyObjectRef>,
         #[pyarg(named, optional)]
-        after_in_parent: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
         after_in_child: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        after_in_parent: OptionalArg<PyObjectRef>,
     }
 
     impl RegisterAtForkArgs {
@@ -555,11 +645,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn register_at_fork(
-        args: RegisterAtForkArgs,
-        _ignored: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn register_at_fork(args: RegisterAtForkArgs, vm: &VirtualMachine) -> PyResult<()> {
         let (before, after_in_parent, after_in_child) = args.into_validated(vm)?;
 
         if let Some(before) = before {
@@ -858,11 +944,7 @@ pub mod module {
             );
         }
 
-        // RustPython does not yet have C-level audit hooks; call sys.audit()
-        // to preserve Python-visible behavior and failure semantics.
-        vm.sys_module
-            .get_attr("audit", vm)?
-            .call(("os.fork",), vm)?;
+        vm.audit("os.fork", || ())?;
 
         py_os_before_fork(vm);
         let pid = rustpython_host_env::posix::fork();
@@ -907,9 +989,7 @@ pub mod module {
             );
         }
 
-        vm.sys_module
-            .get_attr("audit", vm)?
-            .call(("os.forkpty",), vm)?;
+        vm.audit("os.forkpty", || ())?;
 
         py_os_before_fork(vm);
         let result = rustpython_host_env::posix::forkpty();
@@ -940,9 +1020,9 @@ pub mod module {
     struct MknodArgs<'fd> {
         #[pyarg(any)]
         path: OsPath,
-        #[pyarg(any)]
+        #[pyarg(any, default = 0o600)]
         mode: libc::mode_t,
-        #[pyarg(any)]
+        #[pyarg(any, default = 0)]
         device: libc::dev_t,
         #[pyarg(flatten)]
         dir_fd: DirFd<'fd, { MKNOD_DIR_FD as usize }>,
@@ -987,16 +1067,23 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct SchedPolicyArgs {
+        #[pyarg(any)]
+        policy: i32,
+    }
+
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn sched_get_priority_max(policy: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        rustpython_host_env::posix::sched_get_priority_max(policy)
+    fn sched_get_priority_max(policy: SchedPolicyArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        rustpython_host_env::posix::sched_get_priority_max(policy.policy)
             .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn sched_get_priority_min(policy: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        rustpython_host_env::posix::sched_get_priority_min(policy)
+    fn sched_get_priority_min(policy: SchedPolicyArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        rustpython_host_env::posix::sched_get_priority_min(policy.policy)
             .map_err(|err| err.into_pyexception(vm))
     }
 
@@ -1028,12 +1115,12 @@ pub mod module {
 
     #[pyfunction]
     fn pread(
-        fd: ArgPrimitiveIndex<i32>,
-        n: ArgSize,
-        offset: ArgPrimitiveIndex<libc::off_t>,
+        fd: i32,
+        length: PySsize,
+        offset: libc::off_t,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesRef> {
-        let (fd, n, offset) = (fd.value, n.value, offset.value);
+        let (fd, n, offset) = (fd, length, offset);
         if n < 0 {
             return Err(io::Error::from_raw_os_error(libc::EINVAL).into_pyexception(vm));
         }
@@ -1055,18 +1142,16 @@ pub mod module {
 
     #[pyfunction]
     fn pwrite(
-        fd: ArgPrimitiveIndex<i32>,
+        fd: i32,
         buffer: ArgBytesLike,
-        offset: ArgPrimitiveIndex<libc::off_t>,
+        offset: libc::off_t,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         // Avoid holding a buffer lock across blocking I/O,
         // which can prevent other threads from reaching GC safepoints.
         let data = buffer.borrow_buf_unlocked(vm)?;
         loop {
-            match vm
-                .allow_threads(|| rustpython_host_env::posix::pwrite(fd.value, &data, offset.value))
-            {
+            match vm.allow_threads(|| rustpython_host_env::posix::pwrite(fd, &data, offset)) {
                 Ok(n) => return Ok(n),
                 Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
                     vm.check_signals()?;
@@ -1160,7 +1245,7 @@ pub mod module {
             OsPathOrFd::Path(path) => {
                 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
                 if !follow_symlinks.0 && dir_fd == Default::default() {
-                    return lchmod(path, mode, vm);
+                    return lchmod(LchmodArgs { path, mode }, vm);
                 }
                 _chmod(path, dir_fd, mode, follow_symlinks, vm)
             }
@@ -1181,14 +1266,33 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct FchmodArgs<'a> {
+        #[pyarg(any)]
+        fd: BorrowedFd<'a>,
+        #[pyarg(any)]
+        mode: u32,
+    }
+
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchmod(fd: BorrowedFd<'_>, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        _fchmod(fd, mode, vm)
+    fn fchmod(args: FchmodArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        _fchmod(args.fd, args.mode, vm)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
+    #[derive(FromArgs)]
+    struct LchmodArgs {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(any)]
+        mode: u32,
     }
 
     #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
     #[pyfunction]
-    fn lchmod(path: OsPath, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+    fn lchmod(args: LchmodArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let LchmodArgs { path, mode } = args;
         let c_path = path.clone().into_cstring(vm)?;
         rustpython_host_env::posix::lchmod(&c_path, mode as libc::mode_t)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
@@ -1222,13 +1326,19 @@ pub mod module {
         rustpython_host_env::posix::execv(&path, &argv).map_err(|err| err.into_pyexception(vm))
     }
 
-    #[pyfunction]
-    fn execve(
+    #[derive(FromArgs)]
+    struct ExecveArgs {
+        #[pyarg(any)]
         path: OsPath,
+        #[pyarg(any)]
         argv: Either<PyListRef, PyTupleRef>,
+        #[pyarg(any)]
         env: ArgMapping,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    }
+
+    #[pyfunction]
+    fn execve(args: ExecveArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let ExecveArgs { path, argv, env } = args;
         if !vm.state.allow_exec() {
             return Err(
                 vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
@@ -1295,8 +1405,15 @@ pub mod module {
         vm.ctx.new_int(egid).into()
     }
 
+    #[derive(FromArgs)]
+    struct GetPgidArgs {
+        #[pyarg(any)]
+        pid: u32,
+    }
+
     #[pyfunction]
-    fn getpgid(pid: u32, vm: &VirtualMachine) -> PyResult {
+    fn getpgid(pid: GetPgidArgs, vm: &VirtualMachine) -> PyResult {
+        let pid = pid.pid;
         let pgid = rustpython_host_env::posix::getpgid(pid).map_err(|e| e.into_pyexception(vm))?;
         Ok(vm.new_pyobj(pgid))
     }
@@ -1651,15 +1768,15 @@ pub mod module {
         let Some(tuple) = obj.downcast_ref::<PyTuple>() else {
             return Err(vm.new_type_error("scheduler must be a tuple or None"));
         };
-        if tuple.len() != 2 {
+        if tuple.as_slice().len() != 2 {
             return Err(vm.new_type_error("A scheduler tuple must have two elements"));
         }
-        let policy = if tuple[0].is(&vm.ctx.none()) {
+        let policy = if tuple.as_slice()[0].is(&vm.ctx.none()) {
             None
         } else {
-            Some(i32::try_from_object(vm, tuple[0].clone())?)
+            Some(i32::try_from_object(vm, tuple.as_slice()[0].clone())?)
         };
-        let param = super::posix_sched::convert_sched_param(&tuple[1], vm)?;
+        let param = super::posix_sched::convert_sched_param(&tuple.as_slice()[1], vm)?;
         Ok(Some(rustpython_host_env::posix::PosixSpawnScheduler {
             policy,
             param,
@@ -1680,7 +1797,7 @@ pub mod module {
         let Some(tuple) = obj.downcast_ref::<PyTuple>() else {
             return Err(vm.new_type_error("scheduler must be a tuple or None"));
         };
-        if tuple.len() != 2 {
+        if tuple.as_slice().len() != 2 {
             return Err(vm.new_type_error("A scheduler tuple must have two elements"));
         }
         Err(vm.new_not_implemented_error("The scheduler option is not supported in this system."))
@@ -1714,7 +1831,7 @@ pub mod module {
             if let Some(it) = self.file_actions {
                 for action in it.iter(vm)? {
                     let action = action?;
-                    let (id, args) = action.split_first().ok_or_else(|| {
+                    let (id, args) = action.as_slice().split_first().ok_or_else(|| {
                         vm.new_type_error("Each file_actions element must be a non-empty tuple")
                     })?;
                     let id = i32::try_from_borrowed_object(vm, id)?;
@@ -1835,44 +1952,50 @@ pub mod module {
         args.spawn(true, vm)
     }
 
+    #[derive(FromArgs)]
+    struct StatusArg {
+        #[pyarg(any)]
+        status: i32,
+    }
+
     #[pyfunction(name = "WCOREDUMP")]
     fn wcoredump(status: i32) -> bool {
         rustpython_host_env::posix::wcoredump(status)
     }
 
     #[pyfunction(name = "WIFCONTINUED")]
-    fn wifcontinued(status: i32) -> bool {
-        rustpython_host_env::posix::wifcontinued(status)
+    fn wifcontinued(status: StatusArg) -> bool {
+        rustpython_host_env::posix::wifcontinued(status.status)
     }
 
     #[pyfunction(name = "WIFSTOPPED")]
-    fn wifstopped(status: i32) -> bool {
-        rustpython_host_env::posix::wifstopped(status)
+    fn wifstopped(status: StatusArg) -> bool {
+        rustpython_host_env::posix::wifstopped(status.status)
     }
 
     #[pyfunction(name = "WIFSIGNALED")]
-    fn wifsignaled(status: i32) -> bool {
-        rustpython_host_env::posix::wifsignaled(status)
+    fn wifsignaled(status: StatusArg) -> bool {
+        rustpython_host_env::posix::wifsignaled(status.status)
     }
 
     #[pyfunction(name = "WIFEXITED")]
-    fn wifexited(status: i32) -> bool {
-        rustpython_host_env::posix::wifexited(status)
+    fn wifexited(status: StatusArg) -> bool {
+        rustpython_host_env::posix::wifexited(status.status)
     }
 
     #[pyfunction(name = "WEXITSTATUS")]
-    fn wexitstatus(status: i32) -> i32 {
-        rustpython_host_env::posix::wexitstatus(status)
+    fn wexitstatus(status: StatusArg) -> i32 {
+        rustpython_host_env::posix::wexitstatus(status.status)
     }
 
     #[pyfunction(name = "WSTOPSIG")]
-    fn wstopsig(status: i32) -> i32 {
-        rustpython_host_env::posix::wstopsig(status)
+    fn wstopsig(status: StatusArg) -> i32 {
+        rustpython_host_env::posix::wstopsig(status.status)
     }
 
     #[pyfunction(name = "WTERMSIG")]
-    fn wtermsig(status: i32) -> i32 {
-        rustpython_host_env::posix::wtermsig(status)
+    fn wtermsig(status: StatusArg) -> i32 {
+        rustpython_host_env::posix::wtermsig(status.status)
     }
 
     #[cfg(target_os = "linux")]
@@ -1961,14 +2084,31 @@ pub mod module {
         }
     }
 
-    #[pyfunction]
-    fn wait3(options: i32, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        wait_with_rusage(vm, || rustpython_host_env::posix::wait3(options))
+    #[derive(FromArgs)]
+    struct Wait3Args {
+        #[pyarg(any)]
+        options: i32,
     }
 
     #[pyfunction]
-    fn wait4(pid: libc::pid_t, options: i32, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        wait_with_rusage(vm, || rustpython_host_env::posix::wait4(pid, options))
+    fn wait3(options: Wait3Args, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let options = options.options;
+        wait_with_rusage(vm, || rustpython_host_env::posix::wait3(options))
+    }
+
+    #[derive(FromArgs)]
+    struct Wait4Args {
+        #[pyarg(any)]
+        pid: libc::pid_t,
+        #[pyarg(any)]
+        options: i32,
+    }
+
+    #[pyfunction]
+    fn wait4(args: Wait4Args, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        wait_with_rusage(vm, || {
+            rustpython_host_env::posix::wait4(args.pid, args.options)
+        })
     }
 
     #[pyfunction]
@@ -2008,9 +2148,9 @@ pub mod module {
 
     #[derive(FromArgs)]
     struct Dup2Args<'fd> {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         fd: BorrowedFd<'fd>,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         fd2: OwnedFd,
         #[pyarg(any, default = true)]
         inheritable: bool,
@@ -2092,25 +2232,42 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
-    #[pyfunction]
-    fn getpriority(
+    #[derive(FromArgs)]
+    struct GetPriorityArgs {
+        #[pyarg(any)]
         which: rustpython_host_env::posix::PriorityWhichType,
+        #[pyarg(any)]
         who: rustpython_host_env::posix::PriorityWhoType,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn getpriority(args: GetPriorityArgs, vm: &VirtualMachine) -> PyResult {
+        let GetPriorityArgs { which, who } = args;
         rustpython_host_env::posix::getpriority(which, who)
             .map(|retval| vm.ctx.new_int(retval).into())
             .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
-    #[pyfunction]
-    fn setpriority(
+    #[derive(FromArgs)]
+    struct SetPriorityArgs {
+        #[pyarg(any)]
         which: rustpython_host_env::posix::PriorityWhichType,
+        #[pyarg(any)]
         who: rustpython_host_env::posix::PriorityWhoType,
+        #[pyarg(any)]
         priority: i32,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn setpriority(args: SetPriorityArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let SetPriorityArgs {
+            which,
+            who,
+            priority,
+        } = args;
         rustpython_host_env::posix::setpriority(which, who, priority)
             .map_err(|err| err.into_pyexception(vm))
     }
@@ -2302,10 +2459,21 @@ pub mod module {
     }
 
     #[cfg(unix)]
+    #[derive(FromArgs)]
+    struct PathconfArgs {
+        #[pyarg(any)]
+        path: OsPathOrFd<'static>,
+        #[pyarg(any)]
+        name: PathconfName,
+    }
+
+    #[cfg(unix)]
     #[pyfunction]
     fn pathconf(
-        path: OsPathOrFd<'_>,
-        PathconfName(name): PathconfName,
+        PathconfArgs {
+            path,
+            name: PathconfName(name),
+        }: PathconfArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
         match &path {
@@ -2325,7 +2493,12 @@ pub mod module {
         name: PathconfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
-        pathconf(OsPathOrFd::Fd(fd.into()), name, vm)
+        let path = OsPathOrFd::Fd(fd.into());
+        let OsPathOrFd::Fd(fd) = &path else {
+            unreachable!()
+        };
+        rustpython_host_env::posix::fpathconf(fd.as_raw(), name.0)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[pyattr]
@@ -2547,16 +2720,18 @@ pub mod module {
         offset: rustpython_host_env::crt_fd::Offset,
         count: i64,
         #[cfg(target_os = "macos")]
-        #[pyarg(any, optional)]
+        // Missing means an empty header list.
+        #[pyarg(any, optional, py_default = "()")]
         headers: OptionalArg<PyObjectRef>,
         #[cfg(target_os = "macos")]
-        #[pyarg(any, optional)]
+        // Missing means an empty trailer list.
+        #[pyarg(any, optional, py_default = "()")]
         trailers: OptionalArg<PyObjectRef>,
         #[cfg(target_os = "macos")]
         #[allow(dead_code)]
         #[pyarg(any, default)]
         // TODO: not implemented
-        flags: OptionalArg<i32>,
+        flags: i32,
     }
 
     #[cfg(target_os = "linux")]
@@ -2726,7 +2901,7 @@ mod posix_sched {
                     |zelf: crate::PyRef<crate::builtins::PyTuple>,
                      vm: &VirtualMachine|
                      -> PyTupleRef {
-                        vm.new_tuple((zelf.class().to_owned(), (zelf[0].clone(),)))
+                        vm.new_tuple((zelf.class().to_owned(), (zelf.as_slice()[0].clone(),)))
                     },
                     crate::function::PyMethodFlags::METHOD,
                     None,
@@ -2751,7 +2926,7 @@ mod posix_sched {
             return Err(vm.new_type_error("must have a sched_param object"));
         }
         let tuple = obj.downcast_ref::<PyTuple>().unwrap();
-        let priority = tuple[0].clone();
+        let priority = tuple.as_slice()[0].clone();
         let priority_type = priority.class().name().to_string();
         let value = priority.downcast::<PyInt>().map_err(|_| {
             vm.new_type_error(format!("an integer is required (got type {priority_type})"))

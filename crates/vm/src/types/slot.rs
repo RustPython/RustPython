@@ -362,12 +362,8 @@ pub(crate) fn python_as_buffer(
 // slot_sq_length
 pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     let ret = vm.call_special_method(obj, identifier!(vm, __len__), ())?;
-    let len = ret.downcast_ref::<PyInt>().ok_or_else(|| {
-        vm.new_type_error(format!(
-            "'{}' object cannot be interpreted as an integer",
-            ret.class()
-        ))
-    })?;
+    // `__len__` may return any object with `__index__`, not only `int`.
+    let len = ret.try_index(vm)?;
     let len = len.as_bigint();
     if len.is_negative() {
         return Err(vm.new_value_error("__len__() should return >= 0"));
@@ -603,7 +599,7 @@ pub(crate) fn hackcheck_setattro(
                 obj_cls.slot_name()
             )));
         }
-        base = b.base.deref().map(|cls| cls.to_owned());
+        base = b.base.load_owned();
     }
     Ok(())
 }
@@ -1564,7 +1560,21 @@ impl PyType {
             SlotAccessor::SqLength => {
                 update_sub_slot!(as_sequence, length, sequence_len_wrapper, SeqLength)
             }
-            SlotAccessor::SqConcat | SlotAccessor::SqInplaceConcat if !ADD => {
+            SlotAccessor::SqConcat => {
+                // Python __add__ overrides use nb_add, not the inherited sq_concat.
+                let concat = match self.lookup_slot_in_mro(name, ctx, |sf| {
+                    if let SlotFunc::SeqConcat(f) = sf {
+                        Some(*f)
+                    } else {
+                        None
+                    }
+                }) {
+                    SlotLookupResult::NativeSlot(func) => Some(func),
+                    SlotLookupResult::PythonMethod | SlotLookupResult::NotFound => None,
+                };
+                self.slots.as_sequence.concat.store(concat);
+            }
+            SlotAccessor::SqInplaceConcat if !ADD => {
                 // Sequence concat uses sq_concat slot - no generic wrapper needed
                 // (handled by number protocol fallback)
                 accessor.inherit_from_mro(self);

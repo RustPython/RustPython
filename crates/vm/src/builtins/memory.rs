@@ -17,7 +17,7 @@ use crate::{
     },
     convert::ToPyObject,
     function::Either,
-    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, NameExcInfo, OptionalArg, PosArgs, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PySequenceMethods, VecBuffer,
@@ -385,8 +385,8 @@ impl PyMemoryView {
         self.format_spec
             .unpack(&bytes[pos..pos + self.format_spec.size()], vm)
             .map(|x| {
-                if x.len() == 1 {
-                    x[0].to_owned()
+                if x.as_slice().len() == 1 {
+                    x.as_slice()[0].to_owned()
                 } else {
                     x.into()
                 }
@@ -692,10 +692,10 @@ impl PyMemoryView {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 
     #[pyclassmethod]
@@ -847,7 +847,11 @@ impl PyMemoryView {
 
     // memory_exit
     #[pymethod]
-    fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn __exit__(
+        &self,
+        _exc_info: PosArgs<PyObjectRef, NameExcInfo>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.py_release(vm)
     }
 
@@ -859,7 +863,7 @@ impl PyMemoryView {
                 return Ok(zelf.into());
             }
             if let Some(tuple) = needle.downcast_ref::<PyTuple>()
-                && tuple.is_empty()
+                && tuple.as_slice().is_empty()
             {
                 return zelf.unpack_single(zelf.desc.offset as usize, vm);
             }
@@ -980,13 +984,7 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn index(
-        &self,
-        value: PyObjectRef,
-        start: OptionalArg<isize>,
-        stop: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
+    fn index(&self, args: MemoryIndexArgs, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm)?;
         if self.desc.ndim() != 1 {
             return Err(
@@ -994,8 +992,7 @@ impl PyMemoryView {
             );
         }
         let len = self.desc.dim_desc[0].0;
-        let start = start.unwrap_or(0);
-        let stop = stop.unwrap_or(len as isize);
+        let MemoryIndexArgs { value, start, stop } = args;
 
         let start = if start < 0 {
             (start + len as isize).max(0) as usize
@@ -1173,7 +1170,7 @@ impl Py<PyMemoryView> {
             if needle.is(&vm.ctx.ellipsis) {
                 return self.pack_single(self.desc.offset as usize, value, vm);
             } else if let Some(tuple) = needle.downcast_ref::<PyTuple>()
-                && tuple.is_empty()
+                && tuple.as_slice().is_empty()
             {
                 return self.pack_single(self.desc.offset as usize, value, vm);
             }
@@ -1198,8 +1195,20 @@ impl Py<PyMemoryView> {
 }
 
 #[derive(FromArgs)]
+struct MemoryIndexArgs {
+    #[pyarg(positional)]
+    value: PyObjectRef,
+    #[pyarg(positional, default)]
+    start: isize,
+    // Omission is clamped to the view length.
+    #[pyarg(positional, default = isize::MAX)]
+    stop: isize,
+}
+
+#[derive(FromArgs)]
 struct ToBytesArgs {
-    #[pyarg(any, default)]
+    // Missing means C order.
+    #[pyarg(any, default, py_default = "'C'")]
     order: Option<PyStrRef>,
 }
 
@@ -1240,16 +1249,17 @@ impl TryFromObject for SubscriptNeedle {
             return Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }));
         }
         if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
-            if tuple.iter().all(|x| x.number().is_index()) {
+            if tuple.as_slice().iter().all(|x| x.number().is_index()) {
                 // ptr_from_tuple: each item is converted where it sits, and the
                 // conversion can run Python that releases the view.
                 let indices = tuple
+                    .as_slice()
                     .iter()
                     .map(|x| x.try_index(vm)?.try_to_primitive::<isize>(vm))
                     .try_collect()?;
                 return Ok(Self::MultiIndex(indices));
             }
-            if tuple.iter().all(|x| x.downcastable::<PySlice>()) {
+            if tuple.as_slice().iter().all(|x| x.downcastable::<PySlice>()) {
                 return Err(
                     vm.new_not_implemented_error("multi-dimensional slicing is not implemented")
                 );
@@ -1393,7 +1403,7 @@ impl Hashable for PyMemoryView {
         if !zelf.buffer.obj.downcastable::<PyBufferWindow>() {
             zelf.while_exported(|| zelf.buffer.obj.hash(vm))?;
         }
-        let val = zelf.contiguous_or_collect(|bytes| vm.state.hash_secret.hash_bytes(bytes));
+        let val = zelf.contiguous_or_collect(|bytes| crate::vm::hash_secret().hash_bytes(bytes));
         let _ = zelf.hash.set(val);
         Ok(*zelf.hash.get().unwrap())
     }
@@ -1640,8 +1650,8 @@ fn format_unpack(
     vm: &VirtualMachine,
 ) -> PyResult<PyObjectRef> {
     format_spec.unpack(bytes, vm).map(|x| {
-        if x.len() == 1 {
-            x[0].to_owned()
+        if x.as_slice().len() == 1 {
+            x.as_slice()[0].to_owned()
         } else {
             x.into()
         }

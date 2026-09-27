@@ -13,7 +13,7 @@ use crate::{
     builtins::{PyFloat, PyInt, PyStr, PyTuple},
     class::{PyClassDef, PyClassImpl},
     convert::ToPyObject,
-    function::{ArgSize, Either, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
@@ -73,7 +73,12 @@ unsafe impl Traverse for PyList {
         // This is safe because during GC collection, the object is unreachable
         // and no other code should be accessing it.
         if let Some(mut guard) = self.elements.try_write() {
-            out.extend(guard.drain(..));
+            if out.is_empty() {
+                // Reuse the allocation so deallocation does not need more memory.
+                *out = core::mem::take(&mut *guard);
+            } else {
+                out.extend(guard.drain(..));
+            }
         }
     }
 }
@@ -170,14 +175,20 @@ impl PyList {
 
 #[derive(FromArgs, Default, Traverse)]
 pub(crate) struct SortOptions {
-    #[pyarg(named, default = None)]
+    #[pyarg(named, optional)]
     key: Option<PyObjectRef>,
     #[pytraverse(skip)]
-    #[pyarg(named, default = false)]
+    #[pyarg(named, default)]
     reverse: bool,
 }
 
 pub type PyListRef = PyRef<PyList>;
+
+#[derive(FromArgs)]
+struct PopArgs {
+    #[pyarg(positional, default = -1)]
+    index: isize,
+}
 
 #[pyclass(
     with(
@@ -210,7 +221,7 @@ impl PyList {
     }
 
     #[pymethod]
-    pub(crate) fn insert(&self, index: isize, object: PyObjectRef) {
+    pub(crate) fn insert(&self, index: PySsize, object: PyObjectRef) {
         let mut elements = self.borrow_vec_mut();
         let index = elements.saturate_index(index);
         elements.insert(index, object);
@@ -300,7 +311,6 @@ impl PyList {
         }
     }
 
-    /// Return self[index].
     #[pymethod(coexist)]
     fn __getitem__(&self, index: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&index, vm)
@@ -334,12 +344,12 @@ impl PyList {
         self._setitem(needle, value, vm)
     }
 
-    fn __mul__(&self, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        self.repeat(n.into(), vm)
+    fn __mul__(&self, n: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        self.repeat(n, vm)
     }
 
-    fn __imul__(zelf: PyRef<Self>, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::irepeat(zelf, n.into(), vm)
+    fn __imul__(zelf: PyRef<Self>, n: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::irepeat(zelf, n, vm)
     }
 
     #[pymethod]
@@ -354,22 +364,22 @@ impl PyList {
     #[pymethod]
     fn index(
         &self,
-        needle: PyObjectRef,
+        value: PyObjectRef,
         range: OptionalRangeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let (start, stop) = range.saturate(self.__len__(), vm)?;
-        let index = self.mut_index_range(vm, &needle, start..stop)?;
+        let index = self.mut_index_range(vm, &value, start..stop)?;
         if let Some(index) = index.into() {
             Ok(index)
         } else {
-            Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
+            Err(vm.new_value_error(format!("'{}' is not in list", value.str(vm)?)))
         }
     }
 
     #[pymethod]
-    fn pop(&self, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
-        let mut index = index.into_option().unwrap_or(-1);
+    fn pop(&self, args: PopArgs, vm: &VirtualMachine) -> PyResult {
+        let mut index = args.index;
         let mut elements = self.borrow_vec_mut();
         if index < 0 {
             index += elements.len() as isize;
@@ -440,10 +450,10 @@ impl PyList {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
@@ -452,10 +462,20 @@ where
     F: FnMut(PyObjectRef) -> PyResult<R>,
 {
     use crate::builtins::PyTuple;
+    let mut v = Vec::new();
     if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
-        tuple.iter().map(|x| f(x.clone())).collect()
+        v.try_reserve_exact(tuple.len())
+            .map_err(|_| vm.no_memory_error())?;
+        for x in tuple.as_slice() {
+            v.push(f(x.clone())?);
+        }
     } else if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
-        list.borrow_vec().iter().map(|x| f(x.clone())).collect()
+        let elements = list.borrow_vec();
+        v.try_reserve_exact(elements.len())
+            .map_err(|_| vm.no_memory_error())?;
+        for x in elements.iter() {
+            v.push(f(x.clone())?);
+        }
     } else {
         let iter = obj.to_owned().get_iter(vm)?;
         let iter = iter.iter::<PyObjectRef>(vm)?;
@@ -464,13 +484,16 @@ where
             .length_opt(vm)
             .transpose()?
             .unwrap_or(0);
-        let mut v = Vec::with_capacity(len);
+        v.try_reserve_exact(len).map_err(|_| vm.no_memory_error())?;
         for x in iter {
-            v.push(f(x?)?);
+            let item = f(x?)?;
+            if v.len() == v.capacity() {
+                v.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+            }
+            v.push(item);
         }
-        v.shrink_to_fit();
-        Ok(v)
     }
+    Ok(v)
 }
 
 impl MutObjectSequenceOp for PyList {
@@ -494,7 +517,7 @@ impl Constructor for PyList {
 }
 
 impl Initializer for PyList {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = crate::function::PositionalIterable;
 
     fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         let list_type = vm.ctx.types.list_type;
@@ -508,8 +531,12 @@ impl Initializer for PyList {
             args.bind_for(vm, Self::NAME)?
         } else {
             match args.args.as_slice() {
-                [] => OptionalArg::Missing,
-                [iterable] => OptionalArg::Present(iterable.clone()),
+                [] => Self::Args {
+                    iterable: OptionalArg::Missing,
+                },
+                [iterable] => Self::Args {
+                    iterable: OptionalArg::Present(iterable.clone()),
+                },
                 slice => {
                     return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
                 }
@@ -518,8 +545,8 @@ impl Initializer for PyList {
         Self::init(zelf.try_to_ref(vm)?, iterable, vm)
     }
 
-    fn init(zelf: &Py<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        let mut elements = if let OptionalArg::Present(iterable) = iterable {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        let mut elements = if let OptionalArg::Present(iterable) = args.iterable {
             vm.extract_elements_sized(&iterable, &|| 0, Ok)?
         } else {
             vec![]
@@ -937,10 +964,10 @@ impl PyListIterator {
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(&state, |obj, pos| pos.min(obj.__len__()), vm)
+            .set_state(&object, |obj, pos| pos.min(obj.__len__()), vm)
     }
 
     #[pymethod]
