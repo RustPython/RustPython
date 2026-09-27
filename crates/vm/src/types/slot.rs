@@ -134,6 +134,8 @@ pub struct PyTypeSlots {
     /// For heap types, `__name__` must alive
     pub(crate) name: &'static str, // tp_name with <module>.<class> for print, not class name
 
+    /// Full `tp_basicsize`: object header plus payload. `0` before type
+    /// creation means "inherit the base size".
     pub basicsize: usize,
     pub itemsize: usize, // tp_itemsize
 
@@ -171,8 +173,9 @@ pub struct PyTypeSlots {
 
     pub methods: &'static [PyMethodDef],
 
-    // Flags to define presence of optional/expanded features
-    pub flags: PyTypeFlags,
+    // Flags to define presence of optional/expanded features.
+    // One atomic word: runtime code sets and clears bits in place.
+    pub flags: PyAtomicTypeFlags,
 
     // tp_doc
     pub doc: ItemDoc,
@@ -215,7 +218,7 @@ impl PyTypeSlots {
     pub fn new(name: &'static str, flags: PyTypeFlags) -> Self {
         Self {
             name,
-            flags,
+            flags: PyAtomicTypeFlags::new(flags),
             ..Default::default()
         }
     }
@@ -298,6 +301,107 @@ impl Default for PyTypeFlags {
     fn default() -> Self {
         Self::DEFAULT
     }
+}
+
+/// `tp_flags` as one atomic word. Reads match [`PyTypeFlags`]; bits that change
+/// after the type is published are set and cleared in place.
+#[repr(transparent)]
+pub struct PyAtomicTypeFlags(core::sync::atomic::AtomicU64);
+
+impl core::fmt::Debug for PyAtomicTypeFlags {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.load().fmt(f)
+    }
+}
+
+impl Default for PyAtomicTypeFlags {
+    fn default() -> Self {
+        Self::new(PyTypeFlags::DEFAULT)
+    }
+}
+
+impl PyAtomicTypeFlags {
+    #[must_use]
+    pub const fn new(flags: PyTypeFlags) -> Self {
+        Self(core::sync::atomic::AtomicU64::new(flags.bits()))
+    }
+
+    #[must_use]
+    pub fn load(&self) -> PyTypeFlags {
+        PyTypeFlags::from_bits_truncate(self.bits())
+    }
+
+    #[must_use]
+    pub fn bits(&self) -> u64 {
+        self.0.load(core::sync::atomic::Ordering::Acquire)
+    }
+
+    #[must_use]
+    pub fn has_feature(&self, flag: PyTypeFlags) -> bool {
+        self.load().has_feature(flag)
+    }
+
+    #[must_use]
+    pub fn contains(&self, flag: PyTypeFlags) -> bool {
+        self.load().contains(flag)
+    }
+
+    #[must_use]
+    pub fn intersects(&self, flag: PyTypeFlags) -> bool {
+        self.load().intersects(flag)
+    }
+
+    pub fn remove(&self, flag: PyTypeFlags) {
+        self.0
+            .fetch_and(!flag.bits(), core::sync::atomic::Ordering::AcqRel);
+    }
+
+    pub fn set(&self, flag: PyTypeFlags) {
+        self.0
+            .fetch_or(flag.bits(), core::sync::atomic::Ordering::AcqRel);
+    }
+
+    /// Replace `mask` bits with `value & mask`.
+    pub fn replace_masked(&self, mask: PyTypeFlags, value: PyTypeFlags) {
+        let mask_bits = mask.bits();
+        let value_bits = (value & mask).bits();
+        let _ = self.0.fetch_update(
+            core::sync::atomic::Ordering::AcqRel,
+            core::sync::atomic::Ordering::Acquire,
+            |old| Some((old & !mask_bits) | value_bits),
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[must_use]
+    pub fn is_created_with_flags(&self) -> bool {
+        self.load().is_created_with_flags()
+    }
+}
+
+impl core::ops::BitOrAssign<PyTypeFlags> for PyAtomicTypeFlags {
+    fn bitor_assign(&mut self, rhs: PyTypeFlags) {
+        self.set(rhs);
+    }
+}
+
+const _: () = assert!(
+    core::mem::size_of::<PyAtomicTypeFlags>()
+        == core::mem::size_of::<core::sync::atomic::AtomicU64>()
+        && core::mem::align_of::<PyAtomicTypeFlags>()
+            == core::mem::align_of::<core::sync::atomic::AtomicU64>()
+        && core::mem::size_of::<core::sync::atomic::AtomicU64>() == core::mem::size_of::<u64>()
+        && core::mem::align_of::<core::sync::atomic::AtomicU64>() == core::mem::align_of::<u64>()
+);
+
+impl crate::builtins::descriptor::MemberLayout for PyAtomicTypeFlags {
+    const KIND: crate::builtins::descriptor::MemberKind = {
+        if core::mem::size_of::<core::ffi::c_ulong>() == 8 {
+            crate::builtins::descriptor::MemberKind::ULong
+        } else {
+            crate::builtins::descriptor::MemberKind::ULongLong
+        }
+    };
 }
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;

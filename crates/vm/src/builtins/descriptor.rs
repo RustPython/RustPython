@@ -899,9 +899,14 @@ fn load_i64(obj: &PyObject, offset: isize, readonly: bool) -> i64 {
 fn load_u64(obj: &PyObject, offset: isize, readonly: bool) -> u64 {
     let addr = member_addr(obj, offset);
     if readonly {
-        // SAFETY: a readonly `unsigned long long` member addresses a `u64` that
-        // is not written after publication.
-        unsafe { addr.cast::<u64>().read() }
+        // SAFETY: a readonly `unsigned long long` member is a `u64` or an
+        // `AtomicU64` of the same size and alignment. A relaxed atomic load
+        // reads either; a plain integer is not written after publication, and
+        // an atomic word (type flags) is updated in place.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU64>())
+                .load(core::sync::atomic::Ordering::Relaxed)
+        }
     } else {
         // SAFETY: a writable `unsigned long long` member addresses an aligned `AtomicU64`.
         unsafe {
@@ -958,9 +963,18 @@ fn store_c_long(obj: &PyObject, offset: isize, value: core::ffi::c_long) {
 #[allow(clippy::unnecessary_cast)] // `c_ulong` is `u32` or `u64`
 fn load_c_ulong(obj: &PyObject, offset: isize, readonly: bool) -> core::ffi::c_ulong {
     let addr = member_addr(obj, offset);
-    if readonly {
+    if readonly && size_of::<core::ffi::c_ulong>() == 8 {
+        // SAFETY: a readonly `unsigned long` member is a `c_ulong` or an
+        // `AtomicU64` of the same size and alignment. A relaxed atomic load
+        // reads either; a plain integer is not written after publication, and
+        // an atomic word (type flags) is updated in place.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU64>())
+                .load(core::sync::atomic::Ordering::Relaxed) as core::ffi::c_ulong
+        }
+    } else if readonly {
         // SAFETY: a readonly `unsigned long` member addresses a `c_ulong` that
-        // is not written after publication.
+        // is not written after publication. `c_ulong` is 4 bytes on this target.
         unsafe { addr.cast::<core::ffi::c_ulong>().read() }
     } else if size_of::<core::ffi::c_ulong>() == 8 {
         // SAFETY: a writable `unsigned long` member addresses an aligned `AtomicU64`.

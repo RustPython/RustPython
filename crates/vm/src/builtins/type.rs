@@ -36,7 +36,7 @@ use core::{
     cell::Cell,
     ops::Deref,
     pin::Pin,
-    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
@@ -56,11 +56,12 @@ pub struct PyType {
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: TypeNamespace,
     #[pymember(name = "__itemsize__", path = "itemsize")]
+    #[pymember(name = "__basicsize__", path = "basicsize")]
+    #[pymember(name = "__flags__", path = "flags")]
     pub slots: PyTypeSlots,
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
     /// Type version tag for inline caching. 0 means unassigned/invalidated.
     pub tp_version_tag: AtomicU32,
-    pub abc_tpflags: AtomicU64,
 }
 
 /// Monotonic counter for type version tags. Once it reaches `u32::MAX`,
@@ -851,9 +852,7 @@ impl PyType {
 
         // Check each base in order and inherit the first collection flag found
         for base in bases {
-            let base_flags = (base.slots.flags
-                | PyTypeFlags::from_bits_truncate(base.abc_tpflags.load(Ordering::Acquire)))
-                & COLLECTION_FLAGS;
+            let base_flags = base.slots.flags.load() & COLLECTION_FLAGS;
             if !base_flags.is_empty() {
                 slots.flags |= base_flags;
                 return;
@@ -861,40 +860,21 @@ impl PyType {
         }
     }
 
-    fn inherited_abc_tpflags(bases: &[PyRef<Self>]) -> u64 {
-        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
-            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
-        );
-        for base in bases {
-            let base_flags =
-                PyTypeFlags::from_bits_truncate(base.abc_tpflags.load(Ordering::Acquire))
-                    & COLLECTION_FLAGS;
-            if !base_flags.is_empty() {
-                return base_flags.bits();
-            }
-        }
-        0
-    }
-
     pub fn has_patma_collection_flag(&self, flag: PyTypeFlags) -> bool {
         debug_assert!(matches!(flag, PyTypeFlags::SEQUENCE | PyTypeFlags::MAPPING));
         const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
             PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
         );
-        let slot_flags = self.slots.flags & COLLECTION_FLAGS;
-        if !slot_flags.is_empty() {
-            return slot_flags.contains(flag);
-        }
-        PyTypeFlags::from_bits_truncate(self.abc_tpflags.load(Ordering::Acquire)).contains(flag)
+        let slot_flags = self.slots.flags.load() & COLLECTION_FLAGS;
+        slot_flags.contains(flag)
     }
 
     pub fn set_is_abstract(&self, is_abstract: bool) {
-        const MASK: u64 = PyTypeFlags::IS_ABSTRACT.bits();
-        let _ = self
-            .abc_tpflags
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
-                Some(if is_abstract { old | MASK } else { old & !MASK })
-            });
+        if is_abstract {
+            self.slots.flags.set(PyTypeFlags::IS_ABSTRACT);
+        } else {
+            self.slots.flags.remove(PyTypeFlags::IS_ABSTRACT);
+        }
         self.modified();
     }
 
@@ -906,13 +886,7 @@ impl PyType {
         if flags.is_empty() {
             return;
         }
-        let collection_bits = COLLECTION_FLAGS.bits();
-        let flags_bits = flags.bits();
-        let _ = self
-            .abc_tpflags
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
-                Some((old & !collection_bits) | flags_bits)
-            });
+        self.slots.flags.replace_masked(COLLECTION_FLAGS, flags);
         self.modified();
         for weak_ref in self.subclasses.read().iter() {
             if let Some(subclass) = weak_ref.upgrade()
@@ -1052,7 +1026,6 @@ impl PyType {
             ));
         }
 
-        let inherited_abc_tpflags = Self::inherited_abc_tpflags(bases.as_slice());
         let new_type = PyRef::new_ref(
             Self {
                 base: Some(base).into(),
@@ -1063,7 +1036,6 @@ impl PyType {
                 slots,
                 heaptype_ext: Some(Pin::new(Box::new(heaptype_ext))),
                 tp_version_tag: AtomicU32::new(0),
-                abc_tpflags: AtomicU64::new(inherited_abc_tpflags),
             },
             metaclass,
             None,
@@ -1112,7 +1084,6 @@ impl PyType {
             slots.flags |= PyTypeFlags::MANAGED_WEAKREF;
         }
 
-        let inherited_abc_tpflags = Self::inherited_abc_tpflags(core::slice::from_ref(&base));
         let bases =
             PyTuple::new_ref_typed_with_type(vec![base.clone()], PyTuple::static_type().to_owned());
         let mro = base.mro_map_collect(|x| x.to_owned());
@@ -1127,7 +1098,6 @@ impl PyType {
                 slots,
                 heaptype_ext: None,
                 tp_version_tag: AtomicU32::new(0),
-                abc_tpflags: AtomicU64::new(inherited_abc_tpflags),
             },
             metaclass,
             None,
@@ -1927,12 +1897,6 @@ impl PyType {
     }
 
     #[pygetset]
-    fn __flags__(&self) -> u64 {
-        self.slots.flags.bits()
-            | (self.abc_tpflags.load(Ordering::Acquire) & PyTypeFlags::IS_ABSTRACT.bits())
-    }
-
-    #[pygetset]
     fn __abstractmethods__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
         if zelf.is(vm.ctx.types.type_type) {
             return Err(vm.new_attribute_error("__abstractmethods__"));
@@ -1971,11 +1935,6 @@ impl PyType {
             }
         }
         Ok(())
-    }
-
-    #[pygetset]
-    fn __basicsize__(&self) -> usize {
-        crate::object::SIZEOF_PYOBJECT_HEAD + self.slots.basicsize
     }
 
     #[pygetset]
@@ -2731,7 +2690,7 @@ impl Constructor for PyType {
 
         let (slots, heaptype_ext) = {
             let slots = PyTypeSlots {
-                flags,
+                flags: crate::types::PyAtomicTypeFlags::new(flags),
                 member_count,
                 itemsize: base.slots.itemsize,
                 ..PyTypeSlots::heap_default()
@@ -3705,7 +3664,7 @@ fn mro_internal(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<i32> {
 
 /// Returns true if the two types have different instance layouts.
 fn shape_differs(t1: &Py<PyType>, t2: &Py<PyType>) -> bool {
-    t1.__basicsize__() != t2.__basicsize__() || t1.slots.itemsize != t2.slots.itemsize
+    t1.slots.basicsize != t2.slots.basicsize || t1.slots.itemsize != t2.slots.itemsize
 }
 
 fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {

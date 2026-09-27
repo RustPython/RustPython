@@ -622,7 +622,9 @@ impl Context {
         let slots = PyTypeSlots {
             name: interned_name.as_str(),
             basicsize: 0,
-            flags: PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT,
+            flags: crate::types::PyAtomicTypeFlags::new(
+                PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT,
+            ),
             ..PyTypeSlots::default()
         };
         PyType::new_heap(

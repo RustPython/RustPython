@@ -16,7 +16,7 @@ macro_rules! py_class {
         {
             #[allow(unused_mut)]
             let mut slots = $crate::types::PyTypeSlots::heap_default();
-            slots.flags = $flags;
+            slots.flags = $crate::types::PyAtomicTypeFlags::new($flags);
             $($crate::py_class!(@extract_slots($ctx, &mut slots, $name, $value));)*
             let py_class = $ctx.new_class(None, $class_name, $class_base, slots);
             $($crate::py_class!(@extract_attrs($ctx, &py_class, $name, $value));)*

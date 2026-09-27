@@ -514,9 +514,17 @@ impl<T> Py<T> {
     fn read_type_flags(&self) -> (crate::types::PyTypeFlags, usize) {
         let typ_ptr = self.typ.load_raw();
         let slots = unsafe { core::ptr::addr_of!((*typ_ptr).payload.slots) };
-        let flags = unsafe { core::ptr::addr_of!((*slots).flags).read() };
+        // SAFETY: `flags` is `PyAtomicTypeFlags`, transparent over `AtomicU64`.
+        // The type object is live. This load does not form a reference to it.
+        let bits = unsafe {
+            (*core::ptr::addr_of!((*slots).flags).cast::<core::sync::atomic::AtomicU64>())
+                .load(core::sync::atomic::Ordering::Acquire)
+        };
         let member_count = unsafe { core::ptr::addr_of!((*slots).member_count).read() };
-        (flags, member_count)
+        (
+            crate::types::PyTypeFlags::from_bits_truncate(bits),
+            member_count,
+        )
     }
 
     /// Access the ObjExt prefix at a negative offset from this Py.
@@ -1402,9 +1410,14 @@ impl<T: PyPayload + core::fmt::Debug> Py<T> {
 
                 if let Some(offset) = ext_start {
                     let ext_ptr = alloc_ptr.add(offset) as *mut ObjExt;
-                    let flags = typ.slots.flags;
-                    let has_dict = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT);
-                    let inline_values = flags.has_feature(crate::types::PyTypeFlags::INLINE_VALUES);
+                    let has_dict = typ
+                        .slots
+                        .flags
+                        .has_feature(crate::types::PyTypeFlags::HAS_DICT);
+                    let inline_values = typ
+                        .slots
+                        .flags
+                        .has_feature(crate::types::PyTypeFlags::INLINE_VALUES);
                     ext_ptr.write(ObjExt::new(dict, has_dict, inline_values));
                 }
 
@@ -3118,7 +3131,6 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: PyType::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
-        abc_tpflags: core::sync::atomic::AtomicU64::new(0),
     };
     let object_payload = PyType {
         base: unsafe { PyAtomicRef::from_optional_ref_without_retag(None) },
@@ -3129,7 +3141,6 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: object::PyBaseObject::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
-        abc_tpflags: core::sync::atomic::AtomicU64::new(0),
     };
     let tuple_payload = PyType {
         base: unsafe {
@@ -3144,7 +3155,6 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: tuple::PyTuple::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
-        abc_tpflags: core::sync::atomic::AtomicU64::new(0),
     };
 
     let object_element =
@@ -3192,7 +3202,6 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
         slots: PyWeak::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
-        abc_tpflags: core::sync::atomic::AtomicU64::new(0),
     };
     let weakref_type = PyRef::new_ref(weakref_payload, type_type.clone(), None);
     // Static type: untrack from GC (was tracked by new_ref because PyType has HAS_TRAVERSE)

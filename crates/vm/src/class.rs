@@ -269,7 +269,9 @@ pub trait PyClassImpl: PyClassDef {
 
         let _ = ctx.intern_str(Self::NAME); // intern type name
 
-        if Self::TP_FLAGS.has_feature(PyTypeFlags::HAS_DICT) {
+        if Self::TP_FLAGS.has_feature(PyTypeFlags::HAS_DICT)
+            && !Self::MEMBERS.iter().any(|member| member.name == "__dict__")
+        {
             let __dict__ = identifier!(ctx, __dict__);
             class.set_attr(
                 __dict__,
@@ -382,7 +384,7 @@ pub trait PyClassImpl: PyClassDef {
 
     fn make_slots() -> PyTypeSlots {
         let mut slots = PyTypeSlots {
-            flags: Self::TP_FLAGS,
+            flags: crate::types::PyAtomicTypeFlags::new(Self::TP_FLAGS),
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
             itemsize: Self::ITEMSIZE,

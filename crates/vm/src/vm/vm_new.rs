@@ -434,7 +434,7 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         debug_assert_eq!(
             exc_type.slots.basicsize,
-            core::mem::size_of::<PyBaseException>(),
+            crate::object::SIZEOF_PYOBJECT_HEAD + core::mem::size_of::<PyBaseException>(),
             "vm.new_simple_exception() requires a BaseException-sized type, got {}",
             exc_type.name()
         );
@@ -452,7 +452,9 @@ impl VirtualMachine {
     /// [`invoke_exception`][Self::invoke_exception] or
     /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor].
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
-        if exc_type.slots.basicsize == core::mem::size_of::<PyBaseException>() {
+        if exc_type.slots.basicsize
+            == crate::object::SIZEOF_PYOBJECT_HEAD + core::mem::size_of::<PyBaseException>()
+        {
             self.new_simple_exception(exc_type, args)
         } else {
             self.invoke_exception(&exc_type, args).unwrap_or_else(|e| e)
@@ -468,7 +470,7 @@ impl VirtualMachine {
     {
         debug_assert_eq!(
             cls.slots.basicsize,
-            size_of::<T>(),
+            crate::object::SIZEOF_PYOBJECT_HEAD + size_of::<T>(),
             "vm.new_payload_exception::<{}>() called with mismatched type '{}'",
             core::any::type_name::<T>(),
             cls.name()
@@ -494,7 +496,10 @@ impl VirtualMachine {
         errno: Option<i32>,
         msg: impl ToPyObject,
     ) -> PyRef<PyOSError> {
-        debug_assert_eq!(exc_type.slots.basicsize, core::mem::size_of::<PyOSError>());
+        debug_assert_eq!(
+            exc_type.slots.basicsize,
+            crate::object::SIZEOF_PYOBJECT_HEAD + core::mem::size_of::<PyOSError>()
+        );
 
         OSErrorBuilder::with_subtype(exc_type, errno, msg, self).build(self)
     }

@@ -12,6 +12,9 @@ use crate::{
 use rustpython_common::wtf8::Wtf8Buf;
 
 #[pyclass(module = "types", name = "SimpleNamespace")]
+// The dict lives in the object extension, not the payload. The offset is
+// the dict cell at the front of that extension.
+#[pymember(name = "__dict__", offset = ::rustpython_vm::object::dict_member_offset())]
 #[derive(Debug, Default)]
 pub struct PyNamespace {}
 
