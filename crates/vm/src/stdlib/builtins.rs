@@ -504,7 +504,7 @@ mod builtins {
                 ))
             })?
             .into_pyref();
-        if closure_tuple.len() != num_free {
+        if closure_tuple.as_slice().len() != num_free {
             return Err(vm.new_type_error(format!(
                 "code object requires a closure of exactly length {num_free}"
             )));
@@ -1294,7 +1294,7 @@ mod builtins {
         // Update bases.
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
         let bases = PyTuple::new_ref(bases.into_vec(), &vm.ctx);
-        for (i, base) in bases.iter().enumerate() {
+        for (i, base) in bases.as_slice().iter().enumerate() {
             if base.fast_isinstance(vm.ctx.types.type_type) {
                 if let Some(bases) = &mut new_bases {
                     bases.push(base.clone());
@@ -1314,8 +1314,8 @@ mod builtins {
             let entries: PyTupleRef = entries
                 .downcast()
                 .map_err(|_| vm.new_type_error("__mro_entries__ must return a tuple"))?;
-            let new_bases = new_bases.get_or_insert_with(|| bases[..i].to_vec());
-            new_bases.extend_from_slice(&entries);
+            let new_bases = new_bases.get_or_insert_with(|| bases.as_slice()[..i].to_vec());
+            new_bases.extend_from_slice(entries.as_slice());
         }
 
         let new_bases = new_bases.map(|v| PyTuple::new_ref(v, &vm.ctx));
@@ -1328,10 +1328,10 @@ mod builtins {
         let metaclass = kwargs.pop_kwarg("metaclass").map_or_else(
             || {
                 // if there are no bases, use type; else get the type of the first base
-                Ok(if bases.is_empty() {
+                Ok(if bases.as_slice().is_empty() {
                     vm.ctx.types.type_type.to_owned()
                 } else {
-                    bases.first().unwrap().class().to_owned()
+                    bases.as_slice().first().unwrap().class().to_owned()
                 })
             },
             |metaclass| {
@@ -1343,7 +1343,7 @@ mod builtins {
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {
-                for base in bases.iter() {
+                for base in bases.as_slice() {
                     let base_class = base.class();
                     // if winner is subtype of tmptype, continue (winner is more derived)
                     if metaclass.fast_issubclass(base_class) {
@@ -1390,7 +1390,7 @@ mod builtins {
             .as_object()
             .get_attr(identifier!(vm, __type_params__), vm)
             && let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>()
-            && !type_params_tuple.is_empty()
+            && !type_params_tuple.as_slice().is_empty()
         {
             // Set .type_params in namespace so the compiler-generated code can use it
             namespace
@@ -1423,7 +1423,7 @@ mod builtins {
             .as_object()
             .get_attr(identifier!(vm, __type_params__), vm)
             && let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>()
-            && !type_params_tuple.is_empty()
+            && !type_params_tuple.as_slice().is_empty()
         {
             class.set_attr(identifier!(vm, __type_params__), type_params.clone(), vm)?;
             // Also set __parameters__ for compatibility with typing module

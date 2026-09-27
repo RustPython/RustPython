@@ -33,6 +33,14 @@ impl PyFloat {
     }
 }
 
+impl Py<PyFloat> {
+    #[must_use]
+    #[inline]
+    pub const fn to_f64(&self) -> f64 {
+        self.payload.to_f64()
+    }
+}
+
 thread_local! {
     static FLOAT_FREELIST: Cell<crate::object::FreeList<PyFloat>> = const { Cell::new(crate::object::FreeList::new()) };
 }
@@ -97,7 +105,7 @@ impl From<f64> for PyFloat {
 
 pub(crate) fn to_op_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<f64>> {
     let v = if let Some(float) = obj.downcast_ref::<PyFloat>() {
-        Some(float.value)
+        Some(float.to_f64())
     } else if let Some(int) = obj.downcast_ref::<PyInt>() {
         Some(try_bigint_to_f64(int.as_bigint(), vm)?)
     } else {
@@ -224,7 +232,7 @@ impl Constructor for PyFloat {
             OptionalArg::Missing => 0.0,
             OptionalArg::Present(val) => {
                 if let Some(f) = val.try_float_opt(vm) {
-                    f?.value
+                    f?.to_f64()
                 } else {
                     float_from_string(&val, vm)?
                 }
@@ -291,9 +299,9 @@ impl PyFloat {
             FormatSpec::parse(format_spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
         let result = if format_spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
-            format_spec.format_float_locale(zelf.value, &locale)
+            format_spec.format_float_locale(zelf.to_f64(), &locale)
         } else {
-            format_spec.format_float(zelf.value)
+            format_spec.format_float(zelf.to_f64())
         };
         result
             .map(Wtf8Buf::from_string)
@@ -449,8 +457,8 @@ impl Comparable for PyFloat {
         _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         let ret = if let Some(other) = other.downcast_ref::<Self>() {
-            zelf.value
-                .partial_cmp(&other.value)
+            zelf.to_f64()
+                .partial_cmp(&other.to_f64())
                 .map_or_else(|| op == PyComparisonOp::Ne, |ord| op.eval_ord(ord))
         } else if let Some(other) = other.downcast_ref::<PyInt>() {
             let a = zelf.to_f64();
@@ -507,17 +515,17 @@ impl AsNumber for PyFloat {
                 }
             }),
             negative: Some(|num, vm| {
-                let value = PyFloat::number_downcast(num).value;
+                let value = PyFloat::number_downcast(num).to_f64();
                 (-value).to_pyresult(vm)
             }),
             positive: Some(|num, vm| PyFloat::number_downcast_exact(num, vm).to_pyresult(vm)),
             absolute: Some(|num, vm| {
-                let value = PyFloat::number_downcast(num).value;
+                let value = PyFloat::number_downcast(num).to_f64();
                 value.abs().to_pyresult(vm)
             }),
-            boolean: Some(|num, _vm| Ok(!PyFloat::number_downcast(num).value.is_zero())),
+            boolean: Some(|num, _vm| Ok(!PyFloat::number_downcast(num).to_f64().is_zero())),
             int: Some(|num, vm| {
-                let value = PyFloat::number_downcast(num).value;
+                let value = PyFloat::number_downcast(num).to_f64();
                 try_to_bigint(value, vm).map(|x| PyInt::from(x).into_pyobject(vm))
             }),
             float: Some(|num, vm| Ok(PyFloat::number_downcast_exact(num, vm).into())),
@@ -530,14 +538,14 @@ impl AsNumber for PyFloat {
 
     #[inline]
     fn clone_exact(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        vm.ctx.new_float(zelf.value)
+        vm.ctx.new_float(zelf.to_f64())
     }
 }
 
 impl Representable for PyFloat {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(crate::literal::float::to_string(zelf.value))
+        Ok(crate::literal::float::to_string(zelf.to_f64()))
     }
 }
 
@@ -558,7 +566,7 @@ impl PyFloat {
 // Retrieve inner float value:
 #[cfg(feature = "serde")]
 pub(crate) fn get_value(obj: &PyObject) -> f64 {
-    obj.downcast_ref::<PyFloat>().unwrap().value
+    obj.downcast_ref::<PyFloat>().unwrap().to_f64()
 }
 
 fn vectorcall_float(

@@ -196,10 +196,11 @@ impl PyGenericAlias {
         let repr_str = format!(
             "{}[{}]",
             repr_item(&self.origin, vm)?,
-            if self.args.is_empty() {
+            if self.args.as_slice().is_empty() {
                 "()".to_owned()
             } else {
                 self.args
+                    .as_slice()
                     .iter()
                     .map(|o| repr_arg(o, vm))
                     .collect::<PyResult<Vec<_>>>()?
@@ -357,7 +358,7 @@ fn make_parameters_from_slice(args: &[PyObjectRef], vm: &VirtualMachine) -> PyRe
             let sub = vm.with_recursion("while computing __parameters__", || {
                 make_parameters_from_slice(&items, vm)
             })?;
-            for sub_param in sub.iter() {
+            for sub_param in sub.as_slice() {
                 if tuple_index(&parameters, sub_param).is_none() {
                     parameters.push(sub_param.clone());
                 }
@@ -396,11 +397,11 @@ fn subs_tvars(
         .and_then(|sub_params| {
             PyTupleRef::try_from_object(vm, sub_params)
                 .ok()
-                .filter(|sub_params| !sub_params.is_empty())
+                .filter(|sub_params| !sub_params.as_slice().is_empty())
                 .map(|sub_params| {
                     let mut sub_args = Vec::new();
 
-                    for arg in sub_params.iter() {
+                    for arg in sub_params.as_slice() {
                         if let Some(idx) = tuple_index(params.as_slice(), arg) {
                             let param = &params.as_slice()[idx];
                             let substituted_arg = &arg_items[idx];
@@ -483,7 +484,7 @@ pub(crate) fn subs_parameters(
     item: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<PyTupleRef> {
-    let n_params = parameters.len();
+    let n_params = parameters.as_slice().len();
     if n_params == 0 {
         return Err(vm.new_type_error(format!("{} is not a generic class", alias.repr(vm)?)));
     }

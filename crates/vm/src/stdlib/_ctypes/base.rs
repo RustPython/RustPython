@@ -940,7 +940,7 @@ impl PyCData {
         {
             let items: Option<Vec<PyObjectRef>> =
                 if let Some(tuple) = value.downcast_ref::<PyTuple>() {
-                    Some(tuple.to_vec())
+                    Some(tuple.as_slice().to_vec())
                 } else {
                     value
                         .downcast_ref::<crate::builtins::PyList>()
@@ -953,6 +953,7 @@ impl PyCData {
                     let exc_name = e.class().name().to_string();
                     let exc_args = e.args();
                     let exc_msg = exc_args
+                        .as_slice()
                         .first()
                         .and_then(|a| a.downcast_ref::<PyStr>().map(|s| s.to_string()))
                         .unwrap_or_default();
@@ -2196,7 +2197,7 @@ fn make_fields(
     let fieldlist: Vec<PyObjectRef> = if let Some(list) = fields.downcast_ref::<PyList>() {
         list.borrow_vec().to_vec()
     } else if let Some(tuple) = fields.downcast_ref::<PyTuple>() {
-        tuple.to_vec()
+        tuple.as_slice().to_vec()
     } else {
         return Err(vm.new_type_error("_fields_ must be a sequence"));
     };
@@ -2206,11 +2207,12 @@ fn make_fields(
             .downcast_ref::<PyTuple>()
             .ok_or_else(|| vm.new_type_error("_fields_ must contain tuples"))?;
 
-        if field_tuple.len() < 2 {
+        if field_tuple.as_slice().len() < 2 {
             continue;
         }
 
         let fname = field_tuple
+            .as_slice()
             .first()
             .expect("len checked")
             .downcast_ref::<PyUtf8Str>()
@@ -2255,7 +2257,7 @@ pub(super) fn make_anon_fields(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResul
     let anon_names: Vec<PyObjectRef> = if let Some(list) = anon.downcast_ref::<PyList>() {
         list.borrow_vec().to_vec()
     } else if let Some(tuple) = anon.downcast_ref::<PyTuple>() {
-        tuple.to_vec()
+        tuple.as_slice().to_vec()
     } else {
         return Err(vm.new_type_error("_anonymous_ must be a sequence"));
     };

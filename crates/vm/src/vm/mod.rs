@@ -815,7 +815,6 @@ pub struct PyGlobalState {
     pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
-    pub hash_secret: HashSecret,
     /// Registered `atexit` callbacks, newest first. Shared ownership so
     /// `atexit.unregister` can keep the entry it is comparing alive while the
     /// list is unlocked, and still recognize it afterwards by identity.
@@ -914,11 +913,31 @@ impl PyGlobalState {
     }
 }
 
-pub fn process_hash_secret_seed() -> u32 {
-    use std::sync::OnceLock;
-    static SEED: OnceLock<u32> = OnceLock::new();
-    // os_random is expensive, but this is only ever called once
-    *SEED.get_or_init(|| u32::from_ne_bytes(rustpython_common::rand::os_random()))
+/// Process-wide `_Py_HashSecret`. The first top-level interpreter sets it;
+/// later calls keep that value.
+static HASH_SECRET: std::sync::OnceLock<HashSecret> = std::sync::OnceLock::new();
+
+/// Set the process-wide hash secret from the first top-level interpreter.
+///
+/// `hash_seed` is used only when the secret is not set yet. `None` draws a
+/// random seed. A later call keeps the existing secret and ignores `hash_seed`.
+pub(crate) fn init_hash_secret(hash_seed: Option<u32>) {
+    let _ = HASH_SECRET.get_or_init(|| {
+        let seed = hash_seed.unwrap_or_else(|| {
+            // os_random is expensive, but this runs only once per process.
+            u32::from_ne_bytes(rustpython_common::rand::os_random())
+        });
+        HashSecret::new(seed)
+    });
+}
+
+/// Process-wide `_Py_HashSecret` used for str/bytes hashing.
+#[inline]
+#[must_use]
+pub(crate) fn hash_secret() -> &'static HashSecret {
+    HASH_SECRET
+        .get()
+        .expect("hash secret is set by the first top-level interpreter")
 }
 
 /// A `NonNull<T>` wrapper that implements `Send + Sync`.
@@ -1260,16 +1279,6 @@ impl VirtualMachine {
             pending_gen_resume: core::cell::UnsafeCell::new(None),
             trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
         };
-
-        if vm.state.hash_secret.hash_str("")
-            != vm
-                .ctx
-                .interned_str("")
-                .expect("empty str must be interned")
-                .hash(&vm)
-        {
-            panic!("Interpreters in same process must share the hash seed");
-        }
 
         vm.builtins.init_dict(
             vm.ctx.intern_str("builtins"),
@@ -3142,7 +3151,7 @@ impl VirtualMachine {
         let fromlist_empty = self.is_none(&from_list)
             || from_list
                 .downcast_ref::<PyTuple>()
-                .is_some_and(|tuple| tuple.is_empty());
+                .is_some_and(|tuple| tuple.as_slice().is_empty());
         if level == 0
             && fromlist_empty
             && builtins.is(self.builtins.dict().as_object())
@@ -3392,7 +3401,7 @@ impl VirtualMachine {
                     i += 1;
                 }
             }
-            ref t @ PyTuple => Ok(t.iter().cloned().map(f).collect()),
+            ref t @ PyTuple => Ok(t.as_slice().iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
                 Ok(self.map_py_iter(obj, hint, f))
@@ -3839,6 +3848,7 @@ impl VirtualMachine {
             .state
             .codec_registry
             .encode_text(s.to_owned(), "utf-8", Some(errors), self)?
+            .as_bytes()
             .to_vec();
         // XXX: this is sketchy on windows; it's not guaranteed that the
         //      OsStr encoding will always be compatible with WTF-8.

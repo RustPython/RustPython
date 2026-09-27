@@ -305,17 +305,17 @@ mod _functools {
                 .downcast::<PyTuple>()
                 .map_err(|_| vm.new_type_error("argument to __setstate__ must be a tuple"))?;
 
-            if state_tuple.len() != 4 {
+            if state_tuple.as_slice().len() != 4 {
                 return Err(vm.new_type_error(format!(
                     "expected 4 items in state, got {}",
-                    state_tuple.len()
+                    state_tuple.as_slice().len()
                 )));
             }
 
-            let func = &state_tuple[0];
-            let args = &state_tuple[1];
-            let kwds = &state_tuple[2];
-            let dict = &state_tuple[3];
+            let func = &state_tuple.as_slice()[0];
+            let args = &state_tuple.as_slice()[1];
+            let kwds = &state_tuple.as_slice()[2];
+            let dict = &state_tuple.as_slice()[3];
 
             if !func.is_callable() {
                 return Err(vm.new_type_error("invalid partial state"));
@@ -540,7 +540,8 @@ mod _functools {
             }
 
             // Build combined args, replacing placeholders
-            let mut combined_args = Vec::with_capacity(stored_args.len() + args.args.len());
+            let mut combined_args =
+                Vec::with_capacity(stored_args.as_slice().len() + args.args.len());
             let mut new_args_iter = args.args.iter();
 
             for stored_arg in stored_args.as_slice() {

@@ -745,6 +745,7 @@ impl Constructor for PyCFuncPtr {
         // Check if first argument is a tuple (name, dll) form
         if let Some(tuple) = first_arg.downcast_ref::<PyTuple>() {
             let name = tuple
+                .as_slice()
                 .first()
                 .ok_or_else(|| vm.new_type_error("Expected a tuple with at least 2 elements"))?
                 .downcast_ref::<PyStr>()
@@ -1080,14 +1081,16 @@ fn parse_paramflags(
                 return (direction, None, None);
             };
             let direction = tuple
+                .as_slice()
                 .first()
                 .and_then(|d| d.try_int(vm).ok())
                 .and_then(|i| i.as_bigint().to_u32())
                 .unwrap_or(1);
             let name = tuple
+                .as_slice()
                 .get(1)
                 .and_then(|n| n.downcast_ref::<PyStr>().map(|s| s.to_string()));
-            let default = tuple.get(2).cloned();
+            let default = tuple.as_slice().get(2).cloned();
             (direction, name, default)
         })
         .collect();

@@ -57,7 +57,7 @@ pub extern "C" fn PyTuple_SetItem(
 pub unsafe extern "C" fn PyTuple_Size(tuple: *mut PyObject) -> isize {
     with_vm(|vm| {
         let tuple = unsafe { tuple.assume_borrowed_and_cast::<PyTuple>(vm) }?;
-        Ok(tuple.__len__())
+        Ok(tuple.as_slice().len())
     })
 }
 
@@ -68,7 +68,7 @@ pub unsafe extern "C" fn PyTuple_GetItem(tuple: *mut PyObject, pos: isize) -> *m
         let result: &PyObject = pos
             .try_into()
             .ok()
-            .and_then(|index: usize| tuple.get(index))
+            .and_then(|index: usize| tuple.as_slice().get(index))
             .ok_or_else(|| vm.new_index_error("tuple index out of range"))?;
 
         Ok(result.as_raw())
@@ -83,10 +83,10 @@ pub unsafe extern "C" fn PyTuple_GetSlice(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let tuple = unsafe { tuple.assume_borrowed_and_cast::<PyTuple>(vm) }?;
-        let len = tuple.__len__() as isize;
+        let len = tuple.as_slice().len() as isize;
         let low = low.clamp(0, len);
         let high = high.clamp(low, len);
-        let slice = tuple.do_slice(low as usize..high as usize);
+        let slice = tuple.as_slice().do_slice(low as usize..high as usize);
         Ok(vm.ctx.new_tuple(slice))
     })
 }

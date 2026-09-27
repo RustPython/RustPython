@@ -532,7 +532,7 @@ pub(super) mod _os {
     ) -> Option<&[u8]> {
         match obj {
             crate::function::Either::A(s) if !s.contains_nuls() => Some(s.as_bytes()),
-            crate::function::Either::B(b) if !b.contains_nuls() => Some(b.as_bytes()),
+            crate::function::Either::B(b) if !b.payload.contains_nuls() => Some(b.as_bytes()),
             _ => {
                 cold_path();
                 None
@@ -1432,7 +1432,7 @@ pub(super) mod _os {
                 vm,
             )?;
             let tuple = result.downcast_ref::<PyTuple>().unwrap();
-            let mut items: Vec<PyObjectRef> = tuple.to_vec();
+            let mut items: Vec<PyObjectRef> = tuple.as_slice().to_vec();
 
             // Copy integer time fields to hidden float timestamp slots when not provided.
             // indices 7-9: st_atime_int, st_mtime_int, st_ctime_int
@@ -1835,10 +1835,10 @@ pub(super) mod _os {
     #[pyfunction]
     fn utime(args: UtimeArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         let parse_tup = |tup: &Py<PyTuple>| -> Option<(PyObjectRef, PyObjectRef)> {
-            if tup.len() != 2 {
+            if tup.as_slice().len() != 2 {
                 None
             } else {
-                Some((tup[0].clone(), tup[1].clone()))
+                Some((tup.as_slice()[0].clone(), tup.as_slice()[1].clone()))
             }
         };
         let (acc, modif) = match (args.times, args.ns) {
@@ -2123,7 +2123,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn waitstatus_to_exitcode(status: WaitStatusArgs, vm: &VirtualMachine) -> PyResult<u32> {
         let status = status.status;
-        let status = status.try_index(vm)?.try_to_primitive_raw::<u64>(vm)?;
+        let status = status.try_index(vm)?.try_to_primitive_in_range::<u64>(vm)?;
         let exitcode = status >> 8;
         // ExitProcess() accepts an UINT type:
         // reject exit code which doesn't fit in an UINT

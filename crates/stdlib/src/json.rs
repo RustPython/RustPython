@@ -626,7 +626,7 @@ mod _json {
                             Ok(tuple) => {
                                 use crate::vm::builtins::PyTupleRef;
                                 let tuple: PyTupleRef = tuple.try_into_value(vm)?;
-                                if tuple.len() != 2 {
+                                if tuple.as_slice().len() != 2 {
                                     return Err(vm.new_value_error("scan_once must return 2-tuple"));
                                 }
                                 let value = tuple.as_slice()[0].clone();
@@ -1144,7 +1144,7 @@ mod _json {
             vm.extract_elements_with(&items_obj, |item| {
                 use crate::vm::builtins::PyTupleRef;
                 let tuple: PyTupleRef = item.try_into_value(vm)?;
-                if tuple.len() != 2 {
+                if tuple.as_slice().len() != 2 {
                     return Err(vm.new_value_error("items() must return 2-tuples"));
                 }
                 let slice = tuple.as_slice();

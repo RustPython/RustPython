@@ -784,6 +784,7 @@ pub(crate) mod _interpreters {
                 if !o
                     .downcast_ref::<crate::builtins::PyTuple>()
                     .unwrap()
+                    .as_slice()
                     .is_empty() =>
             {
                 Some(SharedValue::from_object(o, Fallback::Full, vm)?)
