@@ -1663,8 +1663,20 @@ mod _sqlite3 {
             self.text_factory.to_owned()
         }
         #[pygetset(setter)]
-        fn set_text_factory(&self, val: PyObjectRef) {
-            let _ = unsafe { self.text_factory.swap(val) };
+        fn set_text_factory(
+            &self,
+            val: PySetterValue<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            match val {
+                PySetterValue::Assign(val) => {
+                    let _ = unsafe { self.text_factory.swap(val) };
+                    Ok(())
+                }
+                PySetterValue::Delete => {
+                    Err(vm.new_attribute_error("cannot delete text_factory attribute"))
+                }
+            }
         }
 
         #[pygetset]
