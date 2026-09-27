@@ -278,11 +278,14 @@ impl PyDict {
     ) -> PyResult<()> {
         let dict = &self.entries;
         let dict_size = &dict_other.size();
-        for (key, value) in dict_other {
-            if !override_existing && dict.contains(vm, &*key)? {
+        let mut position = 0;
+        while let Some((next, key, value, hash)) = dict_other.entries.next_entry_with_hash(position)
+        {
+            position = next;
+            if !override_existing && dict.contains_known_hash(vm, &*key, hash)? {
                 continue;
             }
-            dict.insert(vm, &*key, value)?;
+            dict.insert_known_hash(vm, &*key, hash, value)?;
         }
         if dict_other.entries.has_changed_size(dict_size) {
             return Err(vm.new_runtime_error("dict mutated during update"));

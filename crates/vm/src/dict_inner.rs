@@ -486,8 +486,9 @@ impl<T: Clone> Dict<T> {
     /// Store a key whose hash the caller already knows.
     ///
     /// `hash` must be computed for `key` or read from [`Self::keys_with_hashes`]
-    /// on a container holding this same key. A wrong hash lands the entry in a
-    /// bucket no lookup probes, silently losing the key.
+    /// or [`Self::next_entry_with_hash`] on a container holding this same key.
+    /// A wrong hash lands the entry in a bucket no lookup probes, silently
+    /// losing the key.
     pub(crate) fn insert_known_hash<K>(
         &self,
         vm: &VirtualMachine,
@@ -1037,13 +1038,21 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub(crate) fn next_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
+    pub(crate) fn next_entry(&self, position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
+        self.next_entry_with_hash(position)
+            .map(|(position, key, value, _)| (position, key, value))
+    }
+
+    pub(crate) fn next_entry_with_hash(
+        &self,
+        mut position: EntryIndex,
+    ) -> Option<(usize, PyObjectRef, T, HashValue)> {
         let inner = self.read();
         loop {
             let entry = inner.entries.get(position)?;
             position += 1;
             if let Some(entry) = entry {
-                break Some((position, entry.key.clone(), entry.value.clone()));
+                break Some((position, entry.key.clone(), entry.value.clone(), entry.hash));
             }
         }
     }
