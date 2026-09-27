@@ -136,4 +136,3 @@ def collects_function_annotate():
 assert collects_function_annotate()
 
 print("ok")
-
