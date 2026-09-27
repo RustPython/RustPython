@@ -207,8 +207,11 @@ mod _socket {
     #[pyclass(name = "socket")]
     #[derive(Debug, PyPayload)]
     struct PySocket {
+        #[pymember]
         family: AtomicI32,
+        #[pymember(name = "type")]
         kind: AtomicI32,
+        #[pymember]
         proto: AtomicI32,
         timeout: PyMutex<Option<f64>>,
         closed: PyMutex<bool>,
@@ -233,21 +236,6 @@ mod _socket {
                 return Err(vm.new_os_error("Bad file descriptor"));
             }
             Ok(())
-        }
-
-        #[pygetset]
-        fn family(&self) -> i32 {
-            self.family.load(Ordering::Relaxed)
-        }
-
-        #[pygetset]
-        fn r#type(&self) -> i32 {
-            self.kind.load(Ordering::Relaxed)
-        }
-
-        #[pygetset]
-        fn proto(&self) -> i32 {
-            self.proto.load(Ordering::Relaxed)
         }
 
         #[pymethod]

@@ -198,15 +198,13 @@ impl Representable for PyStaticMethod {
         let callable = zelf.callable.load_owned().repr(vm)?;
         let class = Self::class(&vm.ctx);
 
+        let module = class.__module__(vm)?;
         match (
             class
                 .__qualname__(vm)
                 .downcast_ref::<PyStr>()
                 .map(|n| n.as_wtf8()),
-            class
-                .__module__(vm)
-                .downcast_ref::<PyStr>()
-                .map(|m| m.as_wtf8()),
+            module.downcast_ref::<PyStr>().map(|m| m.as_wtf8()),
         ) {
             (None, _) => Err(vm.new_type_error("Unknown qualified name")),
             (Some(qualname), Some(module)) if module != "builtins" => {

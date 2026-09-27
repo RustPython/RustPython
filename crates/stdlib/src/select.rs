@@ -692,21 +692,41 @@ mod decl {
             Py, PyObject, PyPayload, PyRef,
             builtins::{PyFloat, PyType},
             class_or_notimplemented,
-            common::lock::{PyMutex, PyRwLock},
+            common::lock::PyRwLock,
             convert::{IntoPyException, ToPyObject},
             function::PyComparisonValue,
             types::{Comparable, Constructor, Destructor, PyComparisonOp, Representable},
         };
         use alloc::sync::Arc;
-        use core::sync::atomic::AtomicI32;
+        use core::sync::atomic::{
+            AtomicI16, AtomicI32, AtomicI64, AtomicU16, AtomicU32, AtomicU64, Ordering,
+        };
         use num_traits::ToPrimitive;
         use std::time::Instant;
 
         #[pyclass(module = "select", name = "kevent")]
         #[derive(Debug, PyPayload)]
         pub(crate) struct PyKevent {
-            ev: PyMutex<host_select::kqueue::Event>,
+            #[pymember(writable)]
+            ident: AtomicU64,
+            #[pymember(writable)]
+            filter: AtomicI16,
+            #[pymember(writable)]
+            flags: AtomicU16,
+            #[pymember(writable)]
+            fflags: AtomicU32,
+            #[pymember(writable)]
+            data: AtomicI64,
+            #[pymember(writable)]
+            udata: AtomicU64,
         }
+
+        const _: () = assert!(
+            core::mem::size_of::<usize>() == core::mem::size_of::<u64>()
+                && core::mem::size_of::<isize>() == core::mem::size_of::<i64>()
+                && core::mem::size_of::<std::os::raw::c_ulong>() == core::mem::size_of::<u64>()
+                && core::mem::size_of::<std::os::raw::c_long>() == core::mem::size_of::<i64>()
+        );
 
         #[derive(FromArgs)]
         pub(crate) struct KeventNewArgs {
@@ -741,14 +761,12 @@ mod decl {
             fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
                 let ident = ident_from_object(&args.ident, vm)?;
                 Ok(Self {
-                    ev: PyMutex::new(host_select::kqueue::Event {
-                        ident,
-                        filter: args.filter,
-                        flags: args.flags,
-                        fflags: args.fflags,
-                        data: args.data,
-                        udata: args.udata,
-                    }),
+                    ident: AtomicU64::new(ident as u64),
+                    filter: AtomicI16::new(args.filter),
+                    flags: AtomicU16::new(args.flags),
+                    fflags: AtomicU32::new(args.fflags),
+                    data: AtomicI64::new(args.data as i64),
+                    udata: AtomicU64::new(args.udata as u64),
                 })
             }
         }
@@ -756,74 +774,25 @@ mod decl {
         #[pyclass(with(Constructor, Comparable, Representable))]
         impl PyKevent {
             pub(super) fn event(&self) -> host_select::kqueue::Event {
-                *self.ev.lock()
+                host_select::kqueue::Event {
+                    ident: self.ident.load(Ordering::Relaxed) as usize,
+                    filter: self.filter.load(Ordering::Relaxed),
+                    flags: self.flags.load(Ordering::Relaxed),
+                    fflags: self.fflags.load(Ordering::Relaxed),
+                    data: self.data.load(Ordering::Relaxed) as isize,
+                    udata: self.udata.load(Ordering::Relaxed) as usize,
+                }
             }
 
             pub(super) fn from_event(ev: host_select::kqueue::Event) -> Self {
                 Self {
-                    ev: PyMutex::new(ev),
+                    ident: AtomicU64::new(ev.ident as u64),
+                    filter: AtomicI16::new(ev.filter),
+                    flags: AtomicU16::new(ev.flags),
+                    fflags: AtomicU32::new(ev.fflags),
+                    data: AtomicI64::new(ev.data as i64),
+                    udata: AtomicU64::new(ev.udata as u64),
                 }
-            }
-
-            #[pygetset]
-            fn ident(&self) -> usize {
-                self.ev.lock().ident
-            }
-
-            #[pygetset(setter)]
-            fn set_ident(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-                self.ev.lock().ident = ident_from_object(&value, vm)?;
-                Ok(())
-            }
-
-            #[pygetset]
-            fn filter(&self) -> i16 {
-                self.ev.lock().filter
-            }
-
-            #[pygetset(setter)]
-            fn set_filter(&self, value: i16) {
-                self.ev.lock().filter = value;
-            }
-
-            #[pygetset]
-            fn flags(&self) -> u16 {
-                self.ev.lock().flags
-            }
-
-            #[pygetset(setter)]
-            fn set_flags(&self, value: u16) {
-                self.ev.lock().flags = value;
-            }
-
-            #[pygetset]
-            fn fflags(&self) -> u32 {
-                self.ev.lock().fflags
-            }
-
-            #[pygetset(setter)]
-            fn set_fflags(&self, value: u32) {
-                self.ev.lock().fflags = value;
-            }
-
-            #[pygetset]
-            fn data(&self) -> isize {
-                self.ev.lock().data
-            }
-
-            #[pygetset(setter)]
-            fn set_data(&self, value: isize) {
-                self.ev.lock().data = value;
-            }
-
-            #[pygetset]
-            fn udata(&self) -> usize {
-                self.ev.lock().udata
-            }
-
-            #[pygetset(setter)]
-            fn set_udata(&self, value: usize) {
-                self.ev.lock().udata = value;
             }
         }
 

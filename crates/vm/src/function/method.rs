@@ -158,7 +158,7 @@ impl PyMethodDef {
             zelf: None,
             value: self,
             module_object: None,
-            module: None,
+            module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: None,
         }
     }
@@ -181,7 +181,7 @@ impl PyMethodDef {
                 zelf: Some(obj),
                 value: self,
                 module_object: None,
-                module: None,
+                module: crate::object::PyAtomicRef::new_empty(),
                 _method_def_owner: None,
             },
             class,
@@ -201,7 +201,7 @@ impl PyMethodDef {
             zelf: Some(obj),
             value: self,
             module_object: None,
-            module: None,
+            module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: None,
         };
         PyRef::new_ref(
@@ -255,7 +255,7 @@ impl PyMethodDef {
             zelf: Some(class.to_owned().into()),
             value: self,
             module_object: None,
-            module: None,
+            module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: None,
         };
         PyNativeMethod { func, class }.into_ref(ctx)

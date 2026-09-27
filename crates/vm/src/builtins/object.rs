@@ -212,8 +212,8 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
 
     if required {
         // Dict, weakref list, and slot cells sit in the prefix in front of
-        // the payload, so they are not part of `slots.basicsize`. Only state
-        // stored inside the payload counts.
+        // the object header. `slots.basicsize` is the header plus the payload,
+        // so only state stored inside the payload counts.
         let basicsize = vm.ctx.types.object_type.slots().basicsize;
         if obj.class().slots().basicsize > basicsize {
             return Err(vm.new_type_error(format!("cannot pickle '{}' object", obj.class().name())));
@@ -343,14 +343,16 @@ impl PyBaseObject {
     #[pyslot]
     fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let class = zelf.class();
+        // A missing `__module__` is not an error here.
+        let module = class.__module__(vm).ok();
         match (
             class
                 .__qualname__(vm)
                 .downcast_ref::<PyStr>()
                 .map(|n| n.as_wtf8()),
-            class
-                .__module__(vm)
-                .downcast_ref::<PyStr>()
+            module
+                .as_ref()
+                .and_then(|m| m.downcast_ref::<PyStr>())
                 .map(|m| m.as_wtf8()),
         ) {
             (None, _) => Err(vm.new_type_error("Unknown qualified name")),
@@ -506,7 +508,11 @@ impl PyBaseObject {
 
     #[pymethod]
     fn __sizeof__(zelf: PyObjectRef) -> usize {
-        zelf.class().slots().basicsize
+        // `slots.basicsize` includes the object header. This reports the payload.
+        zelf.class()
+            .slots()
+            .basicsize
+            .saturating_sub(crate::object::SIZEOF_PYOBJECT_HEAD)
     }
 }
 

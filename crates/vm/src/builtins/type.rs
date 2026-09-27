@@ -15,7 +15,6 @@ use crate::{
     },
     class::{PyClassDef, PyClassImpl, StaticType},
     common::{
-        ascii,
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
@@ -37,7 +36,7 @@ use core::{
     cell::Cell,
     ops::Deref,
     pin::Pin,
-    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
@@ -56,11 +55,13 @@ pub struct PyType {
     pub mro: PyRwLock<Vec<PyTypeRef>>,
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: TypeNamespace,
+    #[pymember(name = "__itemsize__", path = "itemsize")]
+    #[pymember(name = "__basicsize__", path = "basicsize")]
+    #[pymember(name = "__flags__", path = "flags")]
     pub slots: PyTypeSlots,
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
     /// Type version tag for inline caching. 0 means unassigned/invalidated.
     pub tp_version_tag: AtomicU32,
-    pub abc_tpflags: AtomicU64,
 }
 
 /// Monotonic counter for type version tags. Once it reaches `u32::MAX`,
@@ -851,9 +852,7 @@ impl PyType {
 
         // Check each base in order and inherit the first collection flag found
         for base in bases {
-            let base_flags = (base.slots.flags
-                | PyTypeFlags::from_bits_truncate(base.abc_tpflags.load(Ordering::Acquire)))
-                & COLLECTION_FLAGS;
+            let base_flags = base.slots.flags.load() & COLLECTION_FLAGS;
             if !base_flags.is_empty() {
                 slots.flags |= base_flags;
                 return;
@@ -861,40 +860,21 @@ impl PyType {
         }
     }
 
-    fn inherited_abc_tpflags(bases: &[PyRef<Self>]) -> u64 {
-        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
-            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
-        );
-        for base in bases {
-            let base_flags =
-                PyTypeFlags::from_bits_truncate(base.abc_tpflags.load(Ordering::Acquire))
-                    & COLLECTION_FLAGS;
-            if !base_flags.is_empty() {
-                return base_flags.bits();
-            }
-        }
-        0
-    }
-
     pub fn has_patma_collection_flag(&self, flag: PyTypeFlags) -> bool {
         debug_assert!(matches!(flag, PyTypeFlags::SEQUENCE | PyTypeFlags::MAPPING));
         const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
             PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
         );
-        let slot_flags = self.slots.flags & COLLECTION_FLAGS;
-        if !slot_flags.is_empty() {
-            return slot_flags.contains(flag);
-        }
-        PyTypeFlags::from_bits_truncate(self.abc_tpflags.load(Ordering::Acquire)).contains(flag)
+        let slot_flags = self.slots.flags.load() & COLLECTION_FLAGS;
+        slot_flags.contains(flag)
     }
 
     pub fn set_is_abstract(&self, is_abstract: bool) {
-        const MASK: u64 = PyTypeFlags::IS_ABSTRACT.bits();
-        let _ = self
-            .abc_tpflags
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
-                Some(if is_abstract { old | MASK } else { old & !MASK })
-            });
+        if is_abstract {
+            self.slots.flags.set(PyTypeFlags::IS_ABSTRACT);
+        } else {
+            self.slots.flags.remove(PyTypeFlags::IS_ABSTRACT);
+        }
         self.modified();
     }
 
@@ -906,13 +886,7 @@ impl PyType {
         if flags.is_empty() {
             return;
         }
-        let collection_bits = COLLECTION_FLAGS.bits();
-        let flags_bits = flags.bits();
-        let _ = self
-            .abc_tpflags
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
-                Some((old & !collection_bits) | flags_bits)
-            });
+        self.slots.flags.replace_masked(COLLECTION_FLAGS, flags);
         self.modified();
         for weak_ref in self.subclasses.read().iter() {
             if let Some(subclass) = weak_ref.upgrade()
@@ -1052,7 +1026,6 @@ impl PyType {
             ));
         }
 
-        let inherited_abc_tpflags = Self::inherited_abc_tpflags(bases.as_slice());
         let new_type = PyRef::new_ref(
             Self {
                 base: Some(base).into(),
@@ -1063,7 +1036,6 @@ impl PyType {
                 slots,
                 heaptype_ext: Some(Pin::new(Box::new(heaptype_ext))),
                 tp_version_tag: AtomicU32::new(0),
-                abc_tpflags: AtomicU64::new(inherited_abc_tpflags),
             },
             metaclass,
             None,
@@ -1112,7 +1084,6 @@ impl PyType {
             slots.flags |= PyTypeFlags::MANAGED_WEAKREF;
         }
 
-        let inherited_abc_tpflags = Self::inherited_abc_tpflags(core::slice::from_ref(&base));
         let bases =
             PyTuple::new_ref_typed_with_type(vec![base.clone()], PyTuple::static_type().to_owned());
         let mro = base.mro_map_collect(|x| x.to_owned());
@@ -1127,7 +1098,6 @@ impl PyType {
                 slots,
                 heaptype_ext: None,
                 tp_version_tag: AtomicU32::new(0),
-                abc_tpflags: AtomicU64::new(inherited_abc_tpflags),
             },
             metaclass,
             None,
@@ -1586,17 +1556,19 @@ impl PyType {
 
     /// The type's fully qualified name, the way the `%T` format code prints it:
     /// `module.qualname`, with a `builtins` or `__main__` module left off.
-    pub fn fully_qualified_name(&self, vm: &VirtualMachine) -> String {
+    pub fn fully_qualified_name(&self, vm: &VirtualMachine) -> PyResult<String> {
         let qualname = self.__qualname__(vm);
         let qualname = qualname
             .downcast_ref::<PyStr>()
             .and_then(|qualname| qualname.to_str())
             .map_or_else(|| self.name().to_string(), str::to_owned);
-        let module = self.__module__(vm);
-        match module.downcast_ref::<PyStr>().and_then(|m| m.to_str()) {
-            Some("builtins" | "__main__") | None => qualname,
-            Some(module) => format!("{module}.{qualname}"),
-        }
+        let module = self.__module__(vm)?;
+        Ok(
+            match module.downcast_ref::<PyStr>().and_then(|m| m.to_str()) {
+                Some("builtins" | "__main__") | None => qualname,
+                Some(module) => format!("{module}.{qualname}"),
+            },
+        )
     }
 
     pub fn name(&self) -> BorrowedValue<'_, str> {
@@ -1722,6 +1694,7 @@ impl Py<PyType> {
 }
 
 #[pyclass(
+    itemsize = core::mem::size_of::<crate::builtins::descriptor::PyMemberDefLayout>(),
     with(
         Py,
         Constructor,
@@ -1924,12 +1897,6 @@ impl PyType {
     }
 
     #[pygetset]
-    fn __flags__(&self) -> u64 {
-        self.slots.flags.bits()
-            | (self.abc_tpflags.load(Ordering::Acquire) & PyTypeFlags::IS_ABSTRACT.bits())
-    }
-
-    #[pygetset]
     fn __abstractmethods__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
         if zelf.is(vm.ctx.types.type_type) {
             return Err(vm.new_attribute_error("__abstractmethods__"));
@@ -1968,16 +1935,6 @@ impl PyType {
             }
         }
         Ok(())
-    }
-
-    #[pygetset]
-    fn __basicsize__(&self) -> usize {
-        crate::object::SIZEOF_PYOBJECT_HEAD + self.slots.basicsize
-    }
-
-    #[pygetset]
-    fn __itemsize__(&self) -> usize {
-        self.slots.itemsize
     }
 
     #[pygetset]
@@ -2243,20 +2200,22 @@ impl PyType {
     }
 
     #[pygetset]
-    pub fn __module__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.attributes
-            .get(identifier!(vm, __module__))
-            // We need to exclude this method from going into recursion:
-            .filter(|found| !found.fast_isinstance(vm.ctx.types.getset_type))
-            .unwrap_or_else(|| {
-                // For non-heap types, extract module from tp_name (e.g. "typing.TypeAliasType" -> "typing")
-                let slot_name = self.slot_name();
-                if let Some((module, _)) = slot_name.rsplit_once('.') {
-                    vm.ctx.intern_str(module).to_object()
-                } else {
-                    vm.ctx.new_str(ascii!("builtins")).into()
-                }
-            })
+    pub fn __module__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        // Heap types store the module in the type dict. Static types take the
+        // text before the last `.` of the type name, or `builtins`.
+        if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return self
+                .attributes
+                .get(identifier!(vm, __module__))
+                .ok_or_else(|| vm.new_attribute_error("__module__"));
+        }
+        let slot_name = self.slot_name();
+        let module = if let Some((module, _)) = slot_name.rsplit_once('.') {
+            vm.ctx.intern_str(module)
+        } else {
+            vm.ctx.intern_str("builtins")
+        };
+        Ok(module.to_object())
     }
 
     #[pygetset(setter)]
@@ -2555,10 +2514,10 @@ impl Constructor for PyType {
 
         if let Some(globals) = crate::frame::current_globals() {
             let entry = attributes.entry(identifier!(vm, __module__));
-            if matches!(entry, Entry::Vacant(_)) {
-                let module_name =
-                    vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
-                entry.or_insert(module_name);
+            if let Entry::Vacant(entry) = entry
+                && let Some(module_name) = globals.get_item_opt(identifier!(vm, __name__), vm)?
+            {
+                entry.insert(module_name);
             }
         }
 
@@ -2602,14 +2561,10 @@ impl Constructor for PyType {
                 tuple.try_into_typed(vm)?
             };
 
-            // Check if base has itemsize > 0 - can't add arbitrary slots to variable-size types
-            // Types like int, bytes, tuple have itemsize > 0 and don't allow custom slots
-            // But types like weakref.ref have itemsize = 0 and DO allow slots
-            let has_custom_slots = slots
-                .as_slice()
-                .iter()
-                .any(|s| !matches!(s.as_bytes(), b"__dict__" | b"__weakref__"));
-            if has_custom_slots && base.slots.itemsize > 0 {
+            // Any nonempty __slots__ is rejected when the base has a variable
+            // item size, including a tuple of only `__dict__` or `__weakref__`.
+            // Types like weakref.ref have itemsize 0 and do allow slots.
+            if !slots.as_slice().is_empty() && base.slots.itemsize > 0 {
                 return Err(vm.new_type_error(format!(
                     "nonempty __slots__ not supported for subtype of '{}'",
                     base.name()
@@ -2726,14 +2681,16 @@ impl Constructor for PyType {
         // Add HAS_WEAKREF if:
         // 1. __slots__ is not defined (automatic weakref support), OR
         // 2. __weakref__ is in __slots__
-        let may_add_weakref = !base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
+        // A variable-size base does not gain a weakref slot.
+        let may_add_weakref =
+            base.slots.itemsize == 0 && !base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
         if (heaptype_slots.is_none() && may_add_weakref) || add_weakref {
             flags |= PyTypeFlags::HAS_WEAKREF | PyTypeFlags::MANAGED_WEAKREF;
         }
 
         let (slots, heaptype_ext) = {
             let slots = PyTypeSlots {
-                flags,
+                flags: crate::types::PyAtomicTypeFlags::new(flags),
                 member_count,
                 itemsize: base.slots.itemsize,
                 ..PyTypeSlots::heap_default()
@@ -3301,8 +3258,12 @@ impl AsNumber for PyType {
 impl Representable for PyType {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let module = zelf.__module__(vm);
-        let module = module.downcast_ref::<PyStr>().map(|m| m.as_wtf8());
+        // A missing `__module__` is not an error here.
+        let module = zelf.__module__(vm).ok();
+        let module = module
+            .as_ref()
+            .and_then(|m| m.downcast_ref::<PyStr>())
+            .map(|m| m.as_wtf8());
 
         let repr = match module {
             Some(module) if module != "builtins" => {
@@ -3703,7 +3664,7 @@ fn mro_internal(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<i32> {
 
 /// Returns true if the two types have different instance layouts.
 fn shape_differs(t1: &Py<PyType>, t2: &Py<PyType>) -> bool {
-    t1.__basicsize__() != t2.__basicsize__() || t1.slots.itemsize != t2.slots.itemsize
+    t1.slots.basicsize != t2.slots.basicsize || t1.slots.itemsize != t2.slots.itemsize
 }
 
 fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {

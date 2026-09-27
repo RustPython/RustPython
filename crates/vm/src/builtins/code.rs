@@ -1,5 +1,6 @@
 //! Infamous code object. The python class `code`
 
+use super::descriptor::{MemberKind, MemberLayout};
 use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, set::PyFrozenSet};
 use crate::common::lock::PyMutex;
 #[cfg(feature = "host_env")]
@@ -477,12 +478,16 @@ pub struct PyCode {
     #[pymember(name = "co_stacksize", path = "max_stackdepth")]
     #[pymember(name = "co_name", path = "obj_name")]
     #[pymember(name = "co_qualname", path = "qualname")]
+    #[pymember(name = "co_flags", path = "flags")]
     pub code: CodeObject,
     /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
     /// Derived once so frame-local proxy operations do not repeatedly scan
     /// merged cell variables.
     localsplus_names: Box<[&'static PyStrInterned]>,
+    #[pymember(name = "co_filename")]
     source_path: AtomicPtr<PyStrInterned>,
+    #[pymember(name = "co_nlocals")]
+    nlocals: i32,
     /// Version counter for lazy re-instrumentation.
     /// Compared against `PyGlobalState::instrumentation_version` at RESUME.
     pub instrumentation_version: AtomicU64,
@@ -582,9 +587,14 @@ fn build_localspluskinds(
     Ok(kinds.into_boxed_slice())
 }
 
+impl MemberLayout for CodeFlags {
+    const KIND: MemberKind = MemberKind::Int;
+}
+
 impl PyCode {
     pub fn new(code: CodeObject) -> Self {
         let sp = code.source_path as *const PyStrInterned as *mut PyStrInterned;
+        let nlocals = i32::try_from(code.varnames.len()).unwrap_or(i32::MAX);
         let localsplus_names = {
             let varname_ids = code
                 .varnames
@@ -622,6 +632,7 @@ impl PyCode {
             code,
             localsplus_names,
             source_path: AtomicPtr::new(sp),
+            nlocals,
             instrumentation_version: AtomicU64::new(0),
             monitoring_data: PyMutex::new(None),
             quickened: core::sync::atomic::AtomicBool::new(false),
@@ -1030,11 +1041,11 @@ impl Constructor for PyCode {
 }
 
 #[pyclass(
+    itemsize = core::mem::size_of::<u16>(),
     with(Representable, Constructor, Comparable, Hashable),
     flags(HAS_WEAKREF)
 )]
 impl PyCode {
-    #[pygetset]
     pub fn co_filename(&self) -> PyStrRef {
         self.source_path().to_owned()
     }
@@ -1047,11 +1058,6 @@ impl PyCode {
             .map(|name| name.to_pyobject(vm))
             .collect();
         vm.ctx.new_tuple(cellvars)
-    }
-
-    #[pygetset]
-    fn co_nlocals(&self) -> usize {
-        self.code.varnames.len()
     }
 
     #[pygetset]
@@ -1075,11 +1081,6 @@ impl PyCode {
             .map(|name| name.to_pyobject(vm))
             .collect();
         vm.ctx.new_tuple(names)
-    }
-
-    #[pygetset]
-    const fn co_flags(&self) -> u32 {
-        self.code.flags.bits()
     }
 
     #[pygetset]

@@ -1,5 +1,73 @@
 pub(crate) use _multiprocessing::module_def;
 
+#[cfg(any(unix, windows))]
+const _: () = assert!(
+    core::mem::size_of::<rustpython_host_env::multiprocessing::SemHandle>()
+        == core::mem::size_of::<usize>()
+        && core::mem::align_of::<rustpython_host_env::multiprocessing::SemHandle>()
+            == core::mem::align_of::<usize>()
+);
+
+/// `SemLock.handle` is one pointer-sized word (`sem_t *` or `HANDLE`).
+#[cfg(any(unix, windows))]
+#[repr(transparent)]
+struct SemHandleWord(rustpython_host_env::multiprocessing::SemHandle);
+
+#[cfg(any(unix, windows))]
+impl core::ops::Deref for SemHandleWord {
+    type Target = rustpython_host_env::multiprocessing::SemHandle;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[cfg(any(unix, windows))]
+impl core::fmt::Debug for SemHandleWord {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[cfg(any(unix, windows))]
+impl crate::vm::builtins::descriptor::MemberLayout for SemHandleWord {
+    const KIND: crate::vm::builtins::descriptor::MemberKind = {
+        if cfg!(all(windows, target_pointer_width = "64")) {
+            crate::vm::builtins::descriptor::MemberKind::ULongLong
+        } else {
+            crate::vm::builtins::descriptor::MemberKind::ULong
+        }
+    };
+}
+
+#[cfg(any(unix, windows))]
+fn semlock_name(
+    name: Option<String>,
+) -> (
+    Option<alloc::ffi::CString>,
+    crate::vm::builtins::descriptor::CStrMember,
+) {
+    let Some(name) = name else {
+        return (
+            None,
+            crate::vm::builtins::descriptor::CStrMember::new(core::ptr::null()),
+        );
+    };
+    let owner = match alloc::ffi::CString::new(name) {
+        Ok(owner) => owner,
+        Err(err) => {
+            let bytes: Vec<u8> = err
+                .into_vec()
+                .into_iter()
+                .filter(|byte| *byte != 0)
+                .collect();
+            alloc::ffi::CString::new(bytes).unwrap_or_default()
+        }
+    };
+    let member = crate::vm::builtins::descriptor::CStrMember::new(owner.as_ptr());
+    (Some(owner), member)
+}
+
 #[cfg(windows)]
 #[pymodule]
 mod _multiprocessing {
@@ -63,10 +131,17 @@ mod _multiprocessing {
     #[pyclass(name = "SemLock", module = "_multiprocessing")]
     #[derive(Debug, PyPayload)]
     struct SemLock {
-        handle: SemHandle,
+        #[pymember]
+        handle: super::SemHandleWord,
+        #[pymember]
         kind: i32,
+        #[pymember]
         maxvalue: i32,
-        name: Option<String>,
+        /// Owns the bytes `name` points at.
+        #[expect(dead_code, reason = "keeps the semaphore name allocation alive")]
+        name_owner: Option<alloc::ffi::CString>,
+        #[pymember]
+        name: crate::vm::builtins::descriptor::CStrMember,
         last_tid: AtomicU32,
         count: AtomicI32,
         /// Serializes owner bookkeeping. Dropped around blocking waits.
@@ -77,26 +152,6 @@ mod _multiprocessing {
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl SemLock {
-        #[pygetset]
-        fn handle(&self) -> isize {
-            self.handle.as_handle_int()
-        }
-
-        #[pygetset]
-        fn kind(&self) -> i32 {
-            self.kind
-        }
-
-        #[pygetset]
-        fn maxvalue(&self) -> i32 {
-            self.maxvalue
-        }
-
-        #[pygetset]
-        fn name(&self) -> Option<String> {
-            self.name.clone()
-        }
-
         #[pymethod]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
             let blocking = args.block;
@@ -237,11 +292,15 @@ mod _multiprocessing {
             vm: &VirtualMachine,
         ) -> PyResult {
             // On Windows, _rebuild receives the handle directly (no sem_open)
+            let (name_owner, name_member) = super::semlock_name(name);
             let zelf = Self {
-                handle: SemHandle::from_raw(handle as host_multiprocessing::RawHandle),
+                handle: super::SemHandleWord(SemHandle::from_raw(
+                    handle as host_multiprocessing::RawHandle,
+                )),
                 kind,
                 maxvalue,
-                name,
+                name_owner,
+                name: name_member,
                 last_tid: AtomicU32::new(0),
                 count: AtomicI32::new(0),
                 crit: PyMutex::new(()),
@@ -311,14 +370,17 @@ mod _multiprocessing {
                 return Err(vm.new_value_error("invalid value"));
             }
 
-            let handle =
-                SemHandle::create(args.value, args.maxvalue).map_err(|e| e.to_pyexception(vm))?;
-            let name = if args.unlink { None } else { Some(args.name) };
+            let handle = super::SemHandleWord(
+                SemHandle::create(args.value, args.maxvalue).map_err(|e| e.to_pyexception(vm))?,
+            );
+            let (name_owner, name) =
+                super::semlock_name(if args.unlink { None } else { Some(args.name) });
 
             Ok(Self {
                 handle,
                 kind: args.kind,
                 maxvalue: args.maxvalue,
+                name_owner,
                 name,
                 last_tid: AtomicU32::new(0),
                 count: AtomicI32::new(0),
@@ -462,10 +524,17 @@ mod _multiprocessing {
     #[pyclass(name = "SemLock", module = "_multiprocessing")]
     #[derive(Debug, PyPayload)]
     struct SemLock {
-        handle: SemHandle,
+        #[pymember]
+        handle: super::SemHandleWord,
+        #[pymember]
         kind: i32,
+        #[pymember]
         maxvalue: i32,
-        name: Option<String>,
+        /// Owns the bytes `name` points at.
+        #[expect(dead_code, reason = "keeps the semaphore name allocation alive")]
+        name_owner: Option<alloc::ffi::CString>,
+        #[pymember]
+        name: crate::vm::builtins::descriptor::CStrMember,
         last_tid: AtomicU64, // unsigned long
         count: AtomicI32,    // int
         /// Serializes owner bookkeeping. Dropped around blocking waits.
@@ -476,26 +545,6 @@ mod _multiprocessing {
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl SemLock {
-        #[pygetset]
-        fn handle(&self) -> isize {
-            self.handle.as_handle_int()
-        }
-
-        #[pygetset]
-        fn kind(&self) -> i32 {
-            self.kind
-        }
-
-        #[pygetset]
-        fn maxvalue(&self) -> i32 {
-            self.maxvalue
-        }
-
-        #[pygetset]
-        fn name(&self) -> Option<String> {
-            self.name.clone()
-        }
-
         // _multiprocessing_SemLock_acquire_impl
         #[pymethod]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
@@ -701,12 +750,16 @@ mod _multiprocessing {
             let Some(ref name_str) = name else {
                 return Err(vm.new_value_error("cannot rebuild SemLock without name"));
             };
-            let handle = SemHandle::open_existing(name_str).map_err(|err| os_error(vm, err))?;
+            let handle = super::SemHandleWord(
+                SemHandle::open_existing(name_str).map_err(|err| os_error(vm, err))?,
+            );
             // return newsemlockobject(type, handle, kind, maxvalue, name_copy);
+            let (name_owner, name) = super::semlock_name(name);
             let zelf = Self {
                 handle,
                 kind,
                 maxvalue,
+                name_owner,
                 name,
                 last_tid: AtomicU64::new(0),
                 count: AtomicI32::new(0),
@@ -828,10 +881,12 @@ mod _multiprocessing {
                 })?;
 
             // return newsemlockobject(type, handle, kind, maxvalue, name_copy);
+            let (name_owner, name) = super::semlock_name(name);
             Ok(Self {
-                handle,
+                handle: super::SemHandleWord(handle),
                 kind: args.kind,
                 maxvalue: args.maxvalue,
+                name_owner,
                 name,
                 last_tid: AtomicU64::new(0),
                 count: AtomicI32::new(0),

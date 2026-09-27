@@ -18,6 +18,7 @@ mod _pickle {
         protocol::{PyBuffer, PyIter, PyIterReturn},
         types::{AsBuffer, Constructor, Initializer, Representable},
     };
+    use core::sync::atomic::{AtomicI32, Ordering};
     use malachite_bigint::BigInt;
     use num_traits::{ToPrimitive, Zero};
     use std::collections::HashMap;
@@ -1872,8 +1873,6 @@ mod _pickle {
     pub(super) struct PicklerConfig {
         initialized: bool,
         proto: u8,
-        bin: bool,
-        fast: bool,
         fix_imports: bool,
         buffer_callback: Option<PyObjectRef>,
     }
@@ -1883,8 +1882,6 @@ mod _pickle {
             Self {
                 initialized: false,
                 proto: DEFAULT_PROTOCOL,
-                bin: true,
-                fast: false,
                 fix_imports: false,
                 buffer_callback: None,
             }
@@ -1943,6 +1940,10 @@ mod _pickle {
         out: PyMutex<Output>,
         memo: PyRwLock<MemoTable>,
         config: PyRwLock<PicklerConfig>,
+        #[pymember(writable)]
+        bin: AtomicI32,
+        #[pymember(writable)]
+        fast: AtomicI32,
     }
 
     #[derive(FromArgs)]
@@ -1989,8 +1990,6 @@ mod _pickle {
         Ok(PicklerConfig {
             initialized: true,
             proto,
-            bin: proto >= 1,
-            fast: false,
             fix_imports: args.fix_imports && proto < 3,
             buffer_callback,
         })
@@ -2004,6 +2003,8 @@ mod _pickle {
                 out: PyMutex::new(Output::default()),
                 memo: PyRwLock::new(MemoTable::default()),
                 config: PyRwLock::new(PicklerConfig::default()),
+                bin: AtomicI32::new(1),
+                fast: AtomicI32::new(0),
             })
         }
     }
@@ -2028,6 +2029,9 @@ mod _pickle {
                 ..Output::default()
             };
             zelf.memo.write().clear();
+            zelf.bin
+                .store(i32::from(config.proto >= 1), Ordering::Relaxed);
+            zelf.fast.store(0, Ordering::Relaxed);
             *zelf.config.write() = config;
             Ok(())
         }
@@ -2094,42 +2098,6 @@ mod _pickle {
             };
             *zelf.memo.write() = new_memo;
             Ok(())
-        }
-
-        #[pygetset]
-        fn fast(&self) -> bool {
-            self.config.read().fast
-        }
-
-        #[pygetset(setter)]
-        fn set_fast(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-            match value {
-                PySetterValue::Assign(v) => {
-                    self.config.write().fast = v.try_to_bool(vm)?;
-                    Ok(())
-                }
-                PySetterValue::Delete => {
-                    Err(vm.new_type_error("attribute deletion is not supported"))
-                }
-            }
-        }
-
-        #[pygetset]
-        fn bin(&self) -> bool {
-            self.config.read().bin
-        }
-
-        #[pygetset(setter)]
-        fn set_bin(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-            match value {
-                PySetterValue::Assign(v) => {
-                    self.config.write().bin = v.try_to_bool(vm)?;
-                    Ok(())
-                }
-                PySetterValue::Delete => {
-                    Err(vm.new_type_error("attribute deletion is not supported"))
-                }
-            }
         }
     }
 
@@ -3709,17 +3677,17 @@ mod _pickle {
         let Some(mut out) = zelf.out.try_lock() else {
             return Err(vm.new_runtime_error("Pickler.dump() called recursively"));
         };
-        let (initialized, proto, bin, fast, fix_imports, buffer_callback) = {
+        let (initialized, proto, fix_imports, buffer_callback) = {
             let cfg = zelf.config.read();
             (
                 cfg.initialized,
                 cfg.proto,
-                cfg.bin,
-                cfg.fast,
                 cfg.fix_imports,
                 cfg.buffer_callback.clone(),
             )
         };
+        let bin = zelf.bin.load(Ordering::Relaxed) != 0;
+        let fast = zelf.fast.load(Ordering::Relaxed) != 0;
         if !initialized {
             return Err(new_pickling_error(
                 vm,
@@ -3803,6 +3771,8 @@ mod _pickle {
                 ..Output::default()
             }),
             memo: PyRwLock::new(MemoTable::default()),
+            bin: AtomicI32::new(i32::from(config.proto >= 1)),
+            fast: AtomicI32::new(0),
             config: PyRwLock::new(config),
         }
         .into_ref(&vm.ctx);
@@ -3833,6 +3803,8 @@ mod _pickle {
         let pickler = PyPickler {
             out: PyMutex::new(Output::default()),
             memo: PyRwLock::new(MemoTable::default()),
+            bin: AtomicI32::new(i32::from(config.proto >= 1)),
+            fast: AtomicI32::new(0),
             config: PyRwLock::new(config),
         }
         .into_ref(&vm.ctx);

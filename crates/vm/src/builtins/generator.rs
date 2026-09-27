@@ -39,6 +39,7 @@ impl PyPayload for PyGenerator {
 }
 
 #[pyclass(
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
     flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
     with(Py, IterNext, Iterable, Representable, Destructor)
 )]

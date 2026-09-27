@@ -125,6 +125,13 @@ unsafe impl<T: crate::PyPayload> Traverse for super::ext::PyAtomicRef<Option<T>>
     }
 }
 
+unsafe impl<T: crate::PyPayload> Traverse for super::ext::PyAtomicRef<T> {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        traverse_fn(self.as_object());
+    }
+}
+
 unsafe impl Traverse for super::ext::PyAtomicRef<PyObject> {
     #[inline]
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {

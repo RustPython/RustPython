@@ -359,6 +359,7 @@ mod _contextvars {
     #[pyclass(name, traverse)]
     #[derive(PyPayload)]
     struct ContextVar {
+        #[pymember]
         name: PyStrRef,
         default: Option<PyObjectRef>,
         #[pytraverse(skip)]
@@ -436,11 +437,6 @@ mod _contextvars {
 
     #[pyclass(with(Constructor, Hashable, Representable))]
     impl ContextVar {
-        #[pygetset]
-        fn name(&self) -> PyStrRef {
-            self.name.clone()
-        }
-
         #[pymethod]
         fn get(
             zelf: &Py<Self>,

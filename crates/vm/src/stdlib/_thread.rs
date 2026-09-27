@@ -31,7 +31,7 @@ pub(crate) mod _thread {
             OptionalArg, Param, ParamKind, PosArgs, PySetterValue, TimeoutSeconds,
         },
         object::{Traverse, TraverseFn},
-        types::{Constructor, GetAttr, Representable, SetAttr},
+        types::{Constructor, GetAttr, PyStructSequence, Representable, SetAttr},
     };
 
     use alloc::sync::{Arc, Weak};
@@ -1000,81 +1000,69 @@ pub(crate) mod _thread {
     }
 
     // This allows threading.py to import _excepthook and _ExceptHookArgs from _thread
-    #[pyattr]
-    #[pyclass(module = "_thread", name = "_ExceptHookArgs")]
-    #[derive(Debug, PyPayload)]
-    struct ExceptHookArgs {
+    #[pystruct_sequence_data]
+    struct ExceptHookArgsData {
         exc_type: crate::PyObjectRef,
         exc_value: crate::PyObjectRef,
         exc_traceback: crate::PyObjectRef,
         thread: crate::PyObjectRef,
     }
 
-    #[pyclass(with(Constructor))]
-    impl ExceptHookArgs {
-        #[pygetset]
-        fn exc_type(&self) -> crate::PyObjectRef {
-            self.exc_type.clone()
-        }
+    #[pyattr]
+    #[pystruct_sequence(
+        name = "_ExceptHookArgs",
+        module = "_thread",
+        data = "ExceptHookArgsData"
+    )]
+    struct PyExceptHookArgs;
 
-        #[pygetset]
-        fn exc_value(&self) -> crate::PyObjectRef {
-            self.exc_value.clone()
-        }
-
-        #[pygetset]
-        fn exc_traceback(&self) -> crate::PyObjectRef {
-            self.exc_traceback.clone()
-        }
-
-        #[pygetset]
-        fn thread(&self) -> crate::PyObjectRef {
-            self.thread.clone()
-        }
-    }
-
-    #[derive(FromArgs)]
-    struct ExceptHookNewArgs {
-        #[pyarg(positional, default, py_default = "()")]
-        iterable: crate::function::OptionalArg<crate::PyObjectRef>,
-    }
-
-    impl Constructor for ExceptHookArgs {
-        // Takes a single iterable argument like namedtuple
-        type Args = ExceptHookNewArgs;
-
-        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            // Convert the argument to a list/tuple and extract elements
-            let seq: Vec<crate::PyObjectRef> = match args.iterable {
-                crate::function::OptionalArg::Present(iterable) => iterable.try_to_value(vm)?,
-                crate::function::OptionalArg::Missing => Vec::new(),
-            };
-            if seq.len() != 4 {
-                return Err(vm.new_type_error(format!(
-                    "_ExceptHookArgs expected 4 arguments, got {}",
-                    seq.len()
-                )));
-            }
-            Ok(Self {
-                exc_type: seq[0].clone(),
-                exc_value: seq[1].clone(),
-                exc_traceback: seq[2].clone(),
-                thread: seq[3].clone(),
-            })
+    #[pyclass(with(PyStructSequence))]
+    impl PyExceptHookArgs {
+        #[extend_class]
+        fn extend_pyclass(ctx: &crate::vm::Context, class: &'static Py<crate::builtins::PyType>) {
+            // (type, (sequence, dict)). Set before the trait installs its default.
+            const EXCEPT_HOOK_ARGS_REDUCE: crate::function::PyMethodDef =
+                crate::function::PyMethodDef::new_const(
+                    "__reduce__",
+                    |zelf: crate::PyRef<crate::builtins::PyTuple>,
+                     vm: &VirtualMachine|
+                     -> PyTupleRef {
+                        vm.new_tuple((
+                            zelf.class().to_owned(),
+                            (
+                                vm.ctx.new_tuple(zelf.as_slice().to_vec()),
+                                vm.ctx.new_dict(),
+                            ),
+                        ))
+                    },
+                    crate::function::PyMethodFlags::METHOD,
+                    crate::function::ItemDoc::NONE,
+                );
+            class.set_attr(
+                ctx.intern_str("__reduce__"),
+                EXCEPT_HOOK_ARGS_REDUCE.to_proper_method(class, ctx),
+            );
         }
     }
 
     #[pyfunction]
     fn _excepthook(args: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Type check: args must be _ExceptHookArgs
-        let args = args.downcast::<ExceptHookArgs>().map_err(|_| {
-            vm.new_type_error("_thread._excepthook argument type must be _ExceptHookArgs")
+        let args = args.downcast::<PyExceptHookArgs>().map_err(|_| {
+            vm.new_type_error("_thread.excepthook argument type must be ExceptHookArgs")
         })?;
-
-        let exc_type = args.exc_type.clone();
-        let exc_value = args.exc_value.clone();
-        let exc_traceback = args.exc_traceback.clone();
-        let thread = args.thread.clone();
+        let fields = args.0.as_slice();
+        let (Some(exc_type), Some(exc_value), Some(exc_traceback), Some(thread)) =
+            (fields.first(), fields.get(1), fields.get(2), fields.get(3))
+        else {
+            return Err(
+                vm.new_type_error("_thread.excepthook argument type must be ExceptHookArgs")
+            );
+        };
+        let exc_type = exc_type.clone();
+        let exc_value = exc_value.clone();
+        let exc_traceback = exc_traceback.clone();
+        let thread = thread.clone();
 
         // Silently ignore SystemExit (identity check)
         if exc_type.is(vm.ctx.exceptions.system_exit.as_ref()) {

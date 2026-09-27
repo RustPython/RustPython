@@ -551,12 +551,14 @@ fn generate_class_def(
             }
     });
     // If repr(transparent) with a base, the type has the same memory layout as base,
-    // so basicsize should be 0 (no additional space beyond the base type)
-    // Otherwise, basicsize = sizeof(payload). The header size is added in __basicsize__ getter.
+    // so basicsize stays 0 and type creation copies the base's full tp_basicsize.
+    // Otherwise, basicsize is the object header plus the payload.
     let basicsize = if is_repr_transparent && base.is_some() {
         quote!(0)
     } else {
-        quote!(std::mem::size_of::<#ident>())
+        quote!(
+            ::rustpython_vm::object::SIZEOF_PYOBJECT_HEAD + ::core::mem::size_of::<#ident>()
+        )
     };
     if base.is_some() && is_pystruct {
         bail_span!(ident, "PyStructSequence cannot have `base` class attr",);
@@ -914,8 +916,13 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
         None => quote! {},
     };
 
+    let module_attr = match class_meta.optional_module()? {
+        Some(module) => quote! { module = #module, },
+        None => quote! { module = false, },
+    };
+
     let ret = quote! {
-        #[pyclass(module = false, name = #class_name, base = #base_class_name #traverse_attr #payload_attr)]
+        #[pyclass(#module_attr name = #class_name, base = #base_class_name #traverse_attr #payload_attr)]
         #item
         #impl_pyclass
     };

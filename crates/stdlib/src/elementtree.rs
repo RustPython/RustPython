@@ -1829,11 +1829,9 @@ pub(crate) mod _elementtree {
         /// The `pyexpat.xmlparser` doing the actual scanning, or `None`
         /// before `__init__` (and after `close()` dropped it).
         parser: Option<PyObjectRef>,
-        target: Option<PyObjectRef>,
         /// The target again, when it is exactly our own `TreeBuilder`, so a
         /// per-event dispatch is one clone rather than a type check.
         native_target: Option<PyRef<PyTreeBuilder>>,
-        entity: Option<PyDictRef>,
         /// Cache of raw expat names to their `{uri}local` form.
         names: Option<PyDictRef>,
         handle_start: Option<PyObjectRef>,
@@ -1855,6 +1853,10 @@ pub(crate) mod _elementtree {
     )]
     #[derive(Debug, PyPayload)]
     pub(crate) struct PyXMLParser {
+        #[pymember]
+        entity: crate::vm::object::PyAtomicRef<Option<PyObject>>,
+        #[pymember]
+        target: crate::vm::object::PyAtomicRef<Option<PyObject>>,
         state: PyRwLock<XMLParserState>,
     }
 
@@ -1865,9 +1867,9 @@ pub(crate) mod _elementtree {
                 return;
             };
             st.parser.traverse(traverse_fn);
-            st.target.traverse(traverse_fn);
             st.native_target.traverse(traverse_fn);
-            st.entity.traverse(traverse_fn);
+            self.entity.traverse(traverse_fn);
+            self.target.traverse(traverse_fn);
             st.names.traverse(traverse_fn);
             st.handle_start.traverse(traverse_fn);
             st.handle_end.traverse(traverse_fn);
@@ -1887,9 +1889,9 @@ pub(crate) mod _elementtree {
             out.extend(
                 [
                     st.parser.take(),
-                    st.target.take(),
+                    unsafe { self.entity.swap(None) },
+                    unsafe { self.target.swap(None) },
                     st.native_target.take().map(Into::into),
-                    st.entity.take().map(Into::into),
                     st.names.take().map(Into::into),
                     st.handle_start.take(),
                     st.handle_end.take(),
@@ -1920,6 +1922,8 @@ pub(crate) mod _elementtree {
     impl Default for PyXMLParser {
         fn default() -> Self {
             Self {
+                entity: crate::vm::object::PyAtomicRef::from(None),
+                target: crate::vm::object::PyAtomicRef::from(None),
                 state: PyRwLock::new(XMLParserState::default()),
             }
         }
@@ -1963,9 +1967,11 @@ pub(crate) mod _elementtree {
                 _ => PyTreeBuilder::default().into_ref(&vm.ctx).into(),
             };
 
+            let entity = vm.ctx.new_dict();
+            let _previous = unsafe { zelf.entity.swap(Some(entity.into())) };
+            let _previous = unsafe { zelf.target.swap(Some(target.clone())) };
             let handlers = XMLParserState {
                 parser: Some(parser.clone()),
-                entity: Some(vm.ctx.new_dict()),
                 names: Some(vm.ctx.new_dict()),
                 handle_start_ns: optional_handler(&target, "start_ns", vm)?,
                 handle_end_ns: optional_handler(&target, "end_ns", vm)?,
@@ -1981,7 +1987,6 @@ pub(crate) mod _elementtree {
                     .is(PyTreeBuilder::class(&vm.ctx))
                     .then(|| target.clone().downcast::<PyTreeBuilder>().ok())
                     .flatten(),
-                target: Some(target),
             };
             let has_comment = handlers.handle_comment.is_some();
             let has_pi = handlers.handle_pi.is_some();
@@ -2044,7 +2049,7 @@ pub(crate) mod _elementtree {
     impl PyXMLParser {
         fn check(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let st = self.state.read();
-            if st.target.is_none() {
+            if self.target.deref().is_none() {
                 return Err(vm.new_value_error("XMLParser.__init__() wasn't called"));
             }
             st.parser
@@ -2125,24 +2130,6 @@ pub(crate) mod _elementtree {
 
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_WEAKREF))]
     impl PyXMLParser {
-        #[pygetset]
-        fn entity(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.state
-                .read()
-                .entity
-                .clone()
-                .map_or_else(|| vm.ctx.none(), Into::into)
-        }
-
-        #[pygetset]
-        fn target(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.state
-                .read()
-                .target
-                .clone()
-                .unwrap_or_else(|| vm.ctx.none())
-        }
-
         #[pygetset]
         fn version(&self, vm: &VirtualMachine) -> PyResult<String> {
             let expat = vm.import("pyexpat", 0)?;

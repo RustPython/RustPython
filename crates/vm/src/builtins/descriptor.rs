@@ -17,6 +17,7 @@ use crate::{
         SetattroFunc, StringifyFunc,
     },
 };
+use core::mem::{align_of, size_of};
 use rustpython_common::lock::PyRwLock;
 
 #[derive(Debug)]
@@ -313,26 +314,64 @@ impl Representable for PyClassMethodDescriptor {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(i32)]
 pub enum MemberKind {
+    /// `short`. Writable cells are `AtomicI16`.
+    Short = 0,
     Int = 1,
+    /// `long` (`c_long`). Writable cells are the atomic of that width.
+    Long = 2,
     Double = 4,
+    /// `char *`. The slot is a pointer to a NUL-terminated string. Null loads
+    /// as `None`. Assignment is rejected.
+    String = 5,
     Object = 6,
+    /// `unsigned short`. Writable cells are `AtomicU16`.
+    UShort = 10,
     Uint = 11,
+    /// `unsigned long` (`c_ulong`). Writable cells are the atomic of that width.
+    ULong = 12,
     Bool = 14,
     ObjectEx = 16,
+    /// `long long`. Writable cells are `AtomicI64`.
+    LongLong = 17,
+    /// `unsigned long long`. Writable cells are `AtomicU64`.
+    ULongLong = 18,
     /// `Py_ssize_t`. Writable cells are `AtomicIsize`.
     PySsizeT = 19,
 }
 
 impl MemberKind {
+    const fn from_i64() -> Self {
+        if size_of::<core::ffi::c_long>() == 8 {
+            Self::Long
+        } else {
+            Self::LongLong
+        }
+    }
+
+    const fn from_u64() -> Self {
+        if size_of::<core::ffi::c_ulong>() == 8 {
+            Self::ULong
+        } else {
+            Self::ULongLong
+        }
+    }
+
     #[must_use]
     pub fn from_i32(value: i32) -> Option<Self> {
         match value {
+            0 => Some(Self::Short),
             1 => Some(Self::Int),
+            2 => Some(Self::Long),
             4 => Some(Self::Double),
+            5 => Some(Self::String),
             6 => Some(Self::Object),
+            10 => Some(Self::UShort),
             11 => Some(Self::Uint),
+            12 => Some(Self::ULong),
             14 => Some(Self::Bool),
             16 => Some(Self::ObjectEx),
+            17 => Some(Self::LongLong),
+            18 => Some(Self::ULongLong),
             19 => Some(Self::PySsizeT),
             _ => None,
         }
@@ -361,6 +400,75 @@ pub const fn member_kind_of<T: MemberLayout, Owner>(
     _: for<'a> fn(&'a Owner) -> &'a T,
 ) -> MemberKind {
     <T as MemberLayout>::KIND
+}
+
+impl MemberLayout for i16 {
+    const KIND: MemberKind = MemberKind::Short;
+}
+impl MemberLayout for core::sync::atomic::AtomicI16 {
+    const KIND: MemberKind = MemberKind::Short;
+}
+impl MemberCell for core::sync::atomic::AtomicI16 {}
+
+impl MemberLayout for u16 {
+    const KIND: MemberKind = MemberKind::UShort;
+}
+impl MemberLayout for core::sync::atomic::AtomicU16 {
+    const KIND: MemberKind = MemberKind::UShort;
+}
+impl MemberCell for core::sync::atomic::AtomicU16 {}
+
+// `i64` is `long` where `c_long` is 8 bytes, and `long long` otherwise.
+impl MemberLayout for i64 {
+    const KIND: MemberKind = MemberKind::from_i64();
+}
+impl MemberLayout for core::sync::atomic::AtomicI64 {
+    const KIND: MemberKind = MemberKind::from_i64();
+}
+impl MemberCell for core::sync::atomic::AtomicI64 {}
+
+impl MemberLayout for u64 {
+    const KIND: MemberKind = MemberKind::from_u64();
+}
+impl MemberLayout for core::sync::atomic::AtomicU64 {
+    const KIND: MemberKind = MemberKind::from_u64();
+}
+impl MemberCell for core::sync::atomic::AtomicU64 {}
+
+/// Readonly `char *`. The word is the pointer, not the characters.
+#[repr(transparent)]
+#[derive(Copy, Clone)]
+pub struct CStrMember(*const core::ffi::c_char);
+
+impl core::fmt::Debug for CStrMember {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CStrMember").field("ptr", &self.0).finish()
+    }
+}
+
+impl CStrMember {
+    #[must_use]
+    pub const fn new(ptr: *const core::ffi::c_char) -> Self {
+        Self(ptr)
+    }
+
+    #[must_use]
+    pub const fn as_ptr(self) -> *const core::ffi::c_char {
+        self.0
+    }
+}
+
+// The pointer is not dereferenced by moving the wrapper.
+unsafe impl Send for CStrMember {}
+unsafe impl Sync for CStrMember {}
+
+const _: () = assert!(
+    size_of::<CStrMember>() == size_of::<*const core::ffi::c_char>()
+        && align_of::<CStrMember>() == align_of::<*const core::ffi::c_char>()
+);
+
+impl MemberLayout for CStrMember {
+    const KIND: MemberKind = MemberKind::String;
 }
 
 impl MemberLayout for bool {
@@ -405,6 +513,13 @@ impl<T> MemberLayout for Option<PyRef<T>> {
 impl MemberLayout for crate::object::PyAtomicRef<PyObject> {
     const KIND: MemberKind = MemberKind::Object;
 }
+// `PyAtomicRef<T>` is the same pointer-sized cell as `PyAtomicRef<PyObject>`
+// (`PhantomData<T>` is zero-sized). Readonly object members may use it. The
+// getter loads the slot as an object pointer. Writable cells stay
+// `PyAtomicRef<PyObject>` or `PyAtomicRef<Option<PyObject>>` (`MemberCell`).
+impl<T: PyPayload> MemberLayout for crate::object::PyAtomicRef<T> {
+    const KIND: MemberKind = MemberKind::Object;
+}
 impl MemberLayout for crate::object::PyAtomicRef<Option<PyObject>> {
     const KIND: MemberKind = MemberKind::Object;
 }
@@ -436,6 +551,34 @@ impl MemberLayout for core::sync::atomic::AtomicIsize {
 }
 impl MemberCell for core::sync::atomic::AtomicIsize {}
 
+// `usize` and `isize` are the same width. A readonly `Py_ssize_t` member may
+// be a `usize` that is not written after publication and whose value fits in
+// `isize` (the getter reads the bits as `isize`).
+const _: () =
+    assert!(size_of::<usize>() == size_of::<isize>() && align_of::<usize>() == align_of::<isize>());
+impl MemberLayout for usize {
+    const KIND: MemberKind = MemberKind::PySsizeT;
+}
+
+// Readonly `co_filename`. The field is `AtomicPtr<PyStrInterned>`: the pointer
+// is never null, and `PyStrInterned` is `repr(transparent)` over `Py<PyStr>`,
+// so the word is an object pointer. `member_get_one` reads an Object member
+// through `PyAtomicRef<Option<PyObject>>` (`get_slot`). That cell is
+// `AtomicPtr<u8>` when `threading` is on and `Cell<*mut u8>` otherwise; both
+// are one pointer, and `AtomicPtr<PyStrInterned>` is one pointer in either
+// build (`Atomic<*mut T>` stores `Align8<*mut T>`, same size and alignment as
+// the pointer). The load copies that word and increfs. Interned strings live
+// for the process, and the slot does not own the reference.
+const _: () = assert!(
+    size_of::<core::sync::atomic::AtomicPtr<PyStrInterned>>()
+        == size_of::<crate::object::PyAtomicRef<Option<PyObject>>>()
+        && align_of::<core::sync::atomic::AtomicPtr<PyStrInterned>>()
+            == align_of::<crate::object::PyAtomicRef<Option<PyObject>>>()
+);
+impl MemberLayout for core::sync::atomic::AtomicPtr<PyStrInterned> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+
 /// Where `PyMemberDef.offset` points.
 ///
 /// `Offset` is a byte offset from the object to the field.
@@ -445,6 +588,18 @@ impl MemberCell for core::sync::atomic::AtomicIsize {}
 pub enum MemberAccess {
     Offset,
     TupleItem,
+}
+
+/// C layout of `PyMemberDef`: name pointer, int type, `Py_ssize_t` offset,
+/// int flags, doc pointer. `size_of` of this is `type`'s `tp_itemsize`.
+#[repr(C)]
+#[allow(dead_code)]
+pub struct PyMemberDefLayout {
+    _name: *const core::ffi::c_char,
+    _type: core::ffi::c_int,
+    _offset: isize,
+    _flags: core::ffi::c_int,
+    _doc: *const core::ffi::c_char,
 }
 
 /// Same fields as `PyMemberDef`: name, type, offset, flags, doc.
@@ -539,7 +694,14 @@ impl PyMemberDescriptor {
             MemberKind::Bool
             | MemberKind::Double
             | MemberKind::Int
+            | MemberKind::Long
+            | MemberKind::LongLong
+            | MemberKind::Short
+            | MemberKind::String
             | MemberKind::Uint
+            | MemberKind::ULong
+            | MemberKind::ULongLong
+            | MemberKind::UShort
             | MemberKind::PySsizeT => None,
         }
     }
@@ -689,6 +851,168 @@ fn load_i32(obj: &PyObject, offset: isize, readonly: bool) -> i32 {
     }
 }
 
+fn load_i16(obj: &PyObject, offset: isize, readonly: bool) -> i16 {
+    let addr = member_addr(obj, offset);
+    if readonly {
+        // SAFETY: a readonly short member addresses an `i16` that is not written
+        // after publication.
+        unsafe { addr.cast::<i16>().read() }
+    } else {
+        // SAFETY: a writable short member addresses an aligned `AtomicI16`.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicI16>())
+                .load(core::sync::atomic::Ordering::Relaxed)
+        }
+    }
+}
+
+fn load_u16(obj: &PyObject, offset: isize, readonly: bool) -> u16 {
+    let addr = member_addr(obj, offset);
+    if readonly {
+        // SAFETY: a readonly unsigned short member addresses a `u16` that is not
+        // written after publication.
+        unsafe { addr.cast::<u16>().read() }
+    } else {
+        // SAFETY: a writable unsigned short member addresses an aligned `AtomicU16`.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU16>())
+                .load(core::sync::atomic::Ordering::Relaxed)
+        }
+    }
+}
+
+fn load_i64(obj: &PyObject, offset: isize, readonly: bool) -> i64 {
+    let addr = member_addr(obj, offset);
+    if readonly {
+        // SAFETY: a readonly `long long` member addresses an `i64` that is not
+        // written after publication.
+        unsafe { addr.cast::<i64>().read() }
+    } else {
+        // SAFETY: a writable `long long` member addresses an aligned `AtomicI64`.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicI64>())
+                .load(core::sync::atomic::Ordering::Relaxed)
+        }
+    }
+}
+
+fn load_u64(obj: &PyObject, offset: isize, readonly: bool) -> u64 {
+    let addr = member_addr(obj, offset);
+    if readonly {
+        // SAFETY: a readonly `unsigned long long` member is a `u64` or an
+        // `AtomicU64` of the same size and alignment. A relaxed atomic load
+        // reads either; a plain integer is not written after publication, and
+        // an atomic word (type flags) is updated in place.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU64>())
+                .load(core::sync::atomic::Ordering::Relaxed)
+        }
+    } else {
+        // SAFETY: a writable `unsigned long long` member addresses an aligned `AtomicU64`.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU64>())
+                .load(core::sync::atomic::Ordering::Relaxed)
+        }
+    }
+}
+
+#[allow(clippy::unnecessary_cast)] // `c_long` is `i32` or `i64`
+fn load_c_long(obj: &PyObject, offset: isize, readonly: bool) -> core::ffi::c_long {
+    let addr = member_addr(obj, offset);
+    if readonly {
+        // SAFETY: a readonly `long` member addresses a `c_long` that is not
+        // written after publication.
+        unsafe { addr.cast::<core::ffi::c_long>().read() }
+    } else if size_of::<core::ffi::c_long>() == 8 {
+        // SAFETY: a writable `long` member addresses an aligned `AtomicI64`.
+        // `c_long` is 8 bytes on this target.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicI64>())
+                .load(core::sync::atomic::Ordering::Relaxed) as core::ffi::c_long
+        }
+    } else {
+        // SAFETY: a writable `long` member addresses an aligned `AtomicI32`.
+        // `c_long` is 4 bytes on this target.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicI32>())
+                .load(core::sync::atomic::Ordering::Relaxed) as core::ffi::c_long
+        }
+    }
+}
+
+#[allow(clippy::unnecessary_cast)] // `c_long` is `i32` or `i64`
+fn store_c_long(obj: &PyObject, offset: isize, value: core::ffi::c_long) {
+    let addr = member_addr(obj, offset);
+    if size_of::<core::ffi::c_long>() == 8 {
+        // SAFETY: a writable `long` member addresses an aligned `AtomicI64`.
+        // `c_long` is 8 bytes on this target.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicI64>())
+                .store(value as i64, core::sync::atomic::Ordering::Relaxed);
+        }
+    } else {
+        // SAFETY: a writable `long` member addresses an aligned `AtomicI32`.
+        // `c_long` is 4 bytes on this target.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicI32>())
+                .store(value as i32, core::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+#[allow(clippy::unnecessary_cast)] // `c_ulong` is `u32` or `u64`
+fn load_c_ulong(obj: &PyObject, offset: isize, readonly: bool) -> core::ffi::c_ulong {
+    let addr = member_addr(obj, offset);
+    if readonly && size_of::<core::ffi::c_ulong>() == 8 {
+        // SAFETY: a readonly `unsigned long` member is a `c_ulong` or an
+        // `AtomicU64` of the same size and alignment. A relaxed atomic load
+        // reads either; a plain integer is not written after publication, and
+        // an atomic word (type flags) is updated in place.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU64>())
+                .load(core::sync::atomic::Ordering::Relaxed) as core::ffi::c_ulong
+        }
+    } else if readonly {
+        // SAFETY: a readonly `unsigned long` member addresses a `c_ulong` that
+        // is not written after publication. `c_ulong` is 4 bytes on this target.
+        unsafe { addr.cast::<core::ffi::c_ulong>().read() }
+    } else if size_of::<core::ffi::c_ulong>() == 8 {
+        // SAFETY: a writable `unsigned long` member addresses an aligned `AtomicU64`.
+        // `c_ulong` is 8 bytes on this target.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU64>())
+                .load(core::sync::atomic::Ordering::Relaxed) as core::ffi::c_ulong
+        }
+    } else {
+        // SAFETY: a writable `unsigned long` member addresses an aligned `AtomicU32`.
+        // `c_ulong` is 4 bytes on this target.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU32>())
+                .load(core::sync::atomic::Ordering::Relaxed) as core::ffi::c_ulong
+        }
+    }
+}
+
+#[allow(clippy::unnecessary_cast)] // `c_ulong` is `u32` or `u64`
+fn store_c_ulong(obj: &PyObject, offset: isize, value: core::ffi::c_ulong) {
+    let addr = member_addr(obj, offset);
+    if size_of::<core::ffi::c_ulong>() == 8 {
+        // SAFETY: a writable `unsigned long` member addresses an aligned `AtomicU64`.
+        // `c_ulong` is 8 bytes on this target.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU64>())
+                .store(value as u64, core::sync::atomic::Ordering::Relaxed);
+        }
+    } else {
+        // SAFETY: a writable `unsigned long` member addresses an aligned `AtomicU32`.
+        // `c_ulong` is 4 bytes on this target.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU32>())
+                .store(value as u32, core::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
 fn load_u32(obj: &PyObject, offset: isize, readonly: bool) -> u32 {
     let addr = member_addr(obj, offset);
     if readonly {
@@ -740,13 +1064,16 @@ fn member_get_one(
 ) -> PyResult {
     let value = match member.kind {
         MemberKind::Object => obj.get_slot(offset).unwrap_or_else(|| vm.ctx.none()),
-        MemberKind::ObjectEx => obj.get_slot(offset).ok_or_else(|| {
-            vm.new_attribute_error(format!(
-                "'{}' object has no attribute '{}'",
-                obj.class().fully_qualified_name(vm),
-                member.name
-            ))
-        })?,
+        MemberKind::ObjectEx => match obj.get_slot(offset) {
+            Some(value) => value,
+            None => {
+                return Err(vm.new_attribute_error(format!(
+                    "'{}' object has no attribute '{}'",
+                    obj.class().fully_qualified_name(vm)?,
+                    member.name
+                )));
+            }
+        },
         MemberKind::Bool => {
             // SAFETY: a bool member addresses an `AtomicBool` or a `bool`
             // (one byte, naturally aligned). The macro rejects any other field
@@ -796,6 +1123,56 @@ fn member_get_one(
                 }
             };
             vm.ctx.new_int(raw).into()
+        }
+        MemberKind::Short => vm
+            .ctx
+            .new_int(load_i16(obj, offset, member.readonly()))
+            .into(),
+        MemberKind::UShort => vm
+            .ctx
+            .new_int(load_u16(obj, offset, member.readonly()))
+            .into(),
+        MemberKind::Long => vm
+            .ctx
+            .new_int(load_c_long(obj, offset, member.readonly()))
+            .into(),
+        MemberKind::LongLong => vm
+            .ctx
+            .new_int(load_i64(obj, offset, member.readonly()))
+            .into(),
+        MemberKind::ULong => vm
+            .ctx
+            .new_int(load_c_ulong(obj, offset, member.readonly()))
+            .into(),
+        MemberKind::ULongLong => vm
+            .ctx
+            .new_int(load_u64(obj, offset, member.readonly()))
+            .into(),
+        MemberKind::String => {
+            // SAFETY: a string member addresses a `*const c_char` that is not
+            // written after publication. Null is `None`.
+            let ptr = unsafe {
+                member_addr(obj, offset)
+                    .cast::<*const core::ffi::c_char>()
+                    .read()
+            };
+            if ptr.is_null() {
+                vm.ctx.none()
+            } else {
+                // SAFETY: `ptr` is non-null. The slot points at a `CString` the
+                // owner keeps alive, so the bytes stay NUL-terminated for this read.
+                let bytes = unsafe { core::ffi::CStr::from_ptr(ptr) }.to_bytes();
+                let Ok(text) = core::str::from_utf8(bytes) else {
+                    return Err(vm.new_unicode_decode_error(
+                        vm.ctx.new_str("utf-8"),
+                        vm.ctx.new_bytes(bytes.to_vec()),
+                        0,
+                        bytes.len(),
+                        vm.ctx.new_str("invalid UTF-8"),
+                    ));
+                };
+                vm.ctx.new_str(text).into()
+            }
         }
     };
     Ok(value)
@@ -908,8 +1285,129 @@ fn member_set_one(
                     .store(stored, core::sync::atomic::Ordering::Relaxed);
             }
         }
+        MemberKind::Short => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let long_val = member_as_c_long(&value, vm)?;
+            let stored = long_val as i16;
+            // SAFETY: a writable short member addresses an aligned `AtomicI16`.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicI16>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+            if long_val > i16::MAX as core::ffi::c_long || long_val < i16::MIN as core::ffi::c_long
+            {
+                warn_member(vm, "Truncation of value to short")?;
+            }
+        }
+        MemberKind::UShort => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let long_val = member_as_c_long(&value, vm)?;
+            let stored = long_val as u16;
+            // SAFETY: a writable unsigned short member addresses an aligned `AtomicU16`.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicU16>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+            if long_val > u16::MAX as core::ffi::c_long || long_val < 0 {
+                warn_member(vm, "Truncation of value to unsigned short")?;
+            }
+        }
+        MemberKind::Long => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let stored = member_as_c_long(&value, vm)?;
+            store_c_long(obj, offset, stored);
+        }
+        MemberKind::LongLong => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let stored = member_as_c_longlong(&value, vm)?;
+            // SAFETY: a writable `long long` member addresses an aligned `AtomicI64`.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicI64>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        MemberKind::ULong => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let (stored, warning) = member_ulong_value(&value, vm)?;
+            store_c_ulong(obj, offset, stored);
+            if let Some(warning) = warning {
+                warn_member(vm, warning)?;
+            }
+        }
+        MemberKind::ULongLong => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let (stored, warning) = member_ulonglong_value(&value, vm)?;
+            // SAFETY: a writable `unsigned long long` member addresses an aligned `AtomicU64`.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicU64>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+            if let Some(warning) = warning {
+                warn_member(vm, warning)?;
+            }
+        }
+        MemberKind::String => {
+            return Err(vm.new_type_error("readonly attribute"));
+        }
     }
     Ok(())
+}
+
+fn member_as_c_longlong(value: &PyObject, vm: &VirtualMachine) -> PyResult<i64> {
+    let int_obj = value.try_index(vm)?;
+    i64::try_from(int_obj.as_bigint())
+        .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long long"))
+}
+
+fn member_ulong_value(
+    value: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<(core::ffi::c_ulong, Option<&'static str>)> {
+    let int_obj = value.try_index(vm)?;
+    let big = int_obj.as_bigint();
+    if big.sign() == malachite_bigint::Sign::Minus {
+        let long_val = core::ffi::c_long::try_from(big)
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
+        return Ok((
+            long_val as core::ffi::c_ulong,
+            Some("Writing negative value into unsigned field"),
+        ));
+    }
+    let stored = core::ffi::c_ulong::try_from(big)
+        .map_err(|_| vm.new_overflow_error("Python int too large to convert to C unsigned long"))?;
+    Ok((stored, None))
+}
+
+fn member_ulonglong_value(
+    value: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<(u64, Option<&'static str>)> {
+    let int_obj = value.try_index(vm)?;
+    let big = int_obj.as_bigint();
+    if big.sign() == malachite_bigint::Sign::Minus {
+        let long_val = core::ffi::c_long::try_from(big)
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
+        return Ok((
+            long_val as u64,
+            Some("Writing negative value into unsigned field"),
+        ));
+    }
+    let stored = u64::try_from(big).map_err(|_| {
+        vm.new_overflow_error("Python int too large to convert to C unsigned long long")
+    })?;
+    Ok((stored, None))
 }
 
 impl Representable for PyMemberDescriptor {

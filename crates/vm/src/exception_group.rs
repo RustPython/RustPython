@@ -18,16 +18,23 @@ use crate::exceptions::types::PyBaseException;
 fn create_exception_group(ctx: &Context) -> PyRef<PyType> {
     let excs = &ctx.exceptions;
     let exception_group_slots = PyTypeSlots {
-        flags: PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT,
+        flags: crate::types::PyAtomicTypeFlags::new(
+            PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT,
+        ),
         ..Default::default()
     };
+    let mut attrs = crate::builtins::type_::PyAttributes::default();
+    attrs.insert(
+        crate::identifier!(ctx, __module__),
+        ctx.intern_str("builtins").to_object(),
+    );
     PyType::new_heap(
         "ExceptionGroup",
         vec![
             excs.base_exception_group.to_owned(),
             excs.exception_type.to_owned(),
         ],
-        Default::default(),
+        attrs,
         exception_group_slots,
         ctx.types.type_type.to_owned(),
         ctx,

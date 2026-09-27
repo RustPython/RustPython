@@ -7,14 +7,16 @@ mod zlib {
     use crate::compression::{DecompressArgs, DecompressorArgs};
     use crate::vm::{
         Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyBytesRef, PyType, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyType, PyTypeRef},
         common::lock::PyMutex,
         convert::TryFromBorrowedObject,
         function::{ArgBytesLike, ArgIndex, OptionalArg, PySize, PySsize},
+        object::PyAtomicRef,
         types::Constructor,
     };
     use adler32::RollingAdler32 as Adler32;
     use alloc::fmt;
+    use core::sync::atomic::{AtomicBool, Ordering};
     use rustpython_common::compression::zlib as backend;
 
     #[pyattr]
@@ -416,7 +418,6 @@ mod zlib {
 
     struct PyZlibDecompressorInner {
         decompress: backend::ZlibDecompressor,
-        unused_data: PyBytesRef,
     }
 
     #[pyattr]
@@ -425,6 +426,14 @@ mod zlib {
     struct ZlibDecompressor {
         #[pytraverse(skip)]
         inner: PyMutex<PyZlibDecompressorInner>,
+        #[pymember]
+        #[pytraverse(skip)]
+        eof: AtomicBool,
+        #[pymember]
+        #[pytraverse(skip)]
+        needs_input: AtomicBool,
+        #[pymember(type = "object_ex")]
+        unused_data: PyAtomicRef<Option<PyObject>>,
     }
 
     impl fmt::Debug for ZlibDecompressor {
@@ -450,31 +459,16 @@ mod zlib {
             let decompress = backend::ZlibDecompressor::new(args.wbits, owned_dict(args.zdict))
                 .map_err(|err| new_init_or_zlib_error(err, vm))?;
             Ok(Self {
-                inner: PyMutex::new(PyZlibDecompressorInner {
-                    decompress,
-                    unused_data: vm.ctx.empty_bytes.clone(),
-                }),
+                inner: PyMutex::new(PyZlibDecompressorInner { decompress }),
+                eof: AtomicBool::new(false),
+                needs_input: AtomicBool::new(true),
+                unused_data: PyAtomicRef::from(Some(vm.ctx.empty_bytes.clone().into())),
             })
         }
     }
 
     #[pyclass(with(Constructor))]
     impl ZlibDecompressor {
-        #[pygetset]
-        fn eof(&self) -> bool {
-            self.inner.lock().decompress.eof()
-        }
-
-        #[pygetset]
-        fn unused_data(&self) -> PyBytesRef {
-            self.inner.lock().unused_data.clone()
-        }
-
-        #[pygetset]
-        fn needs_input(&self) -> bool {
-            self.inner.lock().decompress.needs_input()
-        }
-
         #[pymethod]
         fn decompress(&self, args: DecompressorArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let max_length = args.max_length();
@@ -482,8 +476,16 @@ mod zlib {
 
             let mut inner = self.inner.lock();
             let result = inner.decompress.decompress(data, max_length);
-            if inner.unused_data.as_bytes() != inner.decompress.unused_data() {
-                inner.unused_data = vm.ctx.new_bytes(inner.decompress.unused_data().to_vec());
+            self.eof.store(inner.decompress.eof(), Ordering::Relaxed);
+            self.needs_input
+                .store(inner.decompress.needs_input(), Ordering::Relaxed);
+            let stale = self.unused_data.deref().is_none_or(|obj| {
+                obj.downcast_ref::<PyBytes>()
+                    .is_none_or(|bytes| bytes.as_bytes() != inner.decompress.unused_data())
+            });
+            if stale {
+                let bytes = vm.ctx.new_bytes(inner.decompress.unused_data().to_vec());
+                let _previous = unsafe { self.unused_data.swap(Some(bytes.into())) };
             }
             result.map_err(|err| match err {
                 backend::DecompressError::Zlib(err) => new_zlib_error(err, vm),

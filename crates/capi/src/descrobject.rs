@@ -130,7 +130,8 @@ impl PyMemberDef {
         let mut flags = self.flags;
         if flags & PY_RELATIVE_OFFSET != 0 {
             // type creation adds tp_basicsize and clears the flag before GetOne.
-            offset += (rustpython_vm::object::SIZEOF_PYOBJECT_HEAD + ty.slots.basicsize) as isize;
+            // `slots.basicsize` is already the full tp_basicsize.
+            offset += ty.slots.basicsize as isize;
             flags &= !PY_RELATIVE_OFFSET;
         }
 

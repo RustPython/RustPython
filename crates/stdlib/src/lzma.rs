@@ -6,9 +6,11 @@ pub(crate) use _lzma::module_def;
 mod _lzma {
     use crate::compression::DecompressorArgs;
     use alloc::fmt;
+    use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use rustpython_common::{compression::lzma as backend, lock::PyMutex};
-    use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytesRef, PyDict, PyType, PyTypeRef};
+    use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytes, PyDict, PyType, PyTypeRef};
     use rustpython_vm::function::ArgBytesLike;
+    use rustpython_vm::object::PyAtomicRef;
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 
@@ -264,22 +266,25 @@ mod _lzma {
 
     struct DecompressorInner {
         backend: backend::Decompressor,
-        unused_data: PyBytesRef,
-    }
-
-    impl DecompressorInner {
-        fn sync_visible_state(&mut self, vm: &VirtualMachine) {
-            if self.unused_data.as_bytes() != self.backend.unused_data() {
-                self.unused_data = vm.ctx.new_bytes(self.backend.unused_data().to_vec());
-            }
-        }
     }
 
     #[pyattr]
-    #[pyclass(name = "LZMADecompressor")]
+    #[pyclass(name = "LZMADecompressor", traverse)]
     #[derive(PyPayload)]
     struct LZMADecompressor {
+        #[pytraverse(skip)]
         state: PyMutex<DecompressorInner>,
+        #[pymember]
+        #[pytraverse(skip)]
+        check: AtomicI32,
+        #[pymember]
+        #[pytraverse(skip)]
+        eof: AtomicBool,
+        #[pymember]
+        #[pytraverse(skip)]
+        needs_input: AtomicBool,
+        #[pymember(type = "object_ex")]
+        unused_data: PyAtomicRef<Option<PyObject>>,
     }
 
     impl fmt::Debug for LZMADecompressor {
@@ -314,11 +319,13 @@ mod _lzma {
             let filters = filters_to_backend(args.filters, vm)?;
             let backend = backend::Decompressor::new(args.format, args.memlimit, filters)
                 .map_err(|error| map_backend_error(error, vm))?;
+            let check = backend.check();
             Ok(Self {
-                state: PyMutex::new(DecompressorInner {
-                    backend,
-                    unused_data: vm.ctx.empty_bytes.clone(),
-                }),
+                state: PyMutex::new(DecompressorInner { backend }),
+                check: AtomicI32::new(check),
+                eof: AtomicBool::new(false),
+                needs_input: AtomicBool::new(true),
+                unused_data: PyAtomicRef::from(Some(vm.ctx.empty_bytes.clone().into())),
             })
         }
     }
@@ -331,28 +338,19 @@ mod _lzma {
             let data = &*args.data();
             let mut state = self.state.lock();
             let result = state.backend.decompress(data, max_length);
-            state.sync_visible_state(vm);
+            self.check.store(state.backend.check(), Ordering::Relaxed);
+            self.eof.store(state.backend.eof(), Ordering::Relaxed);
+            self.needs_input
+                .store(state.backend.needs_input(), Ordering::Relaxed);
+            let stale = self.unused_data.deref().is_none_or(|obj| {
+                obj.downcast_ref::<PyBytes>()
+                    .is_none_or(|bytes| bytes.as_bytes() != state.backend.unused_data())
+            });
+            if stale {
+                let bytes = vm.ctx.new_bytes(state.backend.unused_data().to_vec());
+                let _previous = unsafe { self.unused_data.swap(Some(bytes.into())) };
+            }
             result.map_err(|error| map_backend_error(error, vm))
-        }
-
-        #[pygetset]
-        fn check(&self) -> i32 {
-            self.state.lock().backend.check()
-        }
-
-        #[pygetset]
-        fn eof(&self) -> bool {
-            self.state.lock().backend.eof()
-        }
-
-        #[pygetset]
-        fn unused_data(&self) -> PyBytesRef {
-            self.state.lock().unused_data.clone()
-        }
-
-        #[pygetset]
-        fn needs_input(&self) -> bool {
-            self.state.lock().backend.needs_input()
         }
     }
 

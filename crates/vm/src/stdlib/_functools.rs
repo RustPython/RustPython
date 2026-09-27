@@ -3,7 +3,7 @@ pub(crate) use _functools::module_def;
 #[pymodule]
 mod _functools {
     use crate::{
-        Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
             PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef, object,
         },
@@ -11,13 +11,13 @@ mod _functools {
         function::{
             Either, FuncArgs, KwArgs, OptionalOption, PosArgs, PyComparisonValue, PySetterValue,
         },
-        object::{AsObject, TraverseFn},
+        object::{AsObject, PyAtomicRef, TraverseFn},
         protocol::PyIter,
         pyclass,
         recursion::ReprGuard,
         types::{Callable, Constructor, GetDescriptor, PyComparisonOp, Representable},
     };
-    use core::sync::atomic::{AtomicU64, Ordering};
+    use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use parking_lot::lock_api::RawReentrantMutex as GenericRawReentrantMutex;
     use rustpython_common::wtf8::Wtf8Buf;
 
@@ -225,34 +225,27 @@ mod _functools {
     #[pyclass(name = "partial", module = "functools", traverse = "manual")]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyPartial {
-        inner: PyRwLock<PyPartialInner>,
-    }
-
-    #[derive(Debug)]
-    struct PyPartialInner {
-        func: PyObjectRef,
-        args: PyRef<PyTuple>,
-        keywords: PyRef<PyDict>,
-        phcount: usize,
+        #[pymember]
+        func: PyAtomicRef<PyObject>,
+        #[pymember]
+        args: PyAtomicRef<PyTuple>,
+        #[pymember]
+        keywords: PyAtomicRef<PyDict>,
+        phcount: AtomicUsize,
     }
 
     // SAFETY: Each owned reference is visited once, without cloning it.
     unsafe impl crate::object::Traverse for PyPartial {
         fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-            if let Some(inner) = self.inner.try_read_recursive() {
-                inner.func.traverse(tracer_fn);
-                inner.args.traverse(tracer_fn);
-                inner.keywords.traverse(tracer_fn);
-            }
+            self.func.traverse(tracer_fn);
+            self.args.traverse(tracer_fn);
+            self.keywords.traverse(tracer_fn);
         }
 
         fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
             // __setstate__ can make func point directly back to this partial.
             // The args tuple and keywords dict have their own cycle clearing.
-            out.push(core::mem::replace(
-                &mut self.inner.get_mut().func,
-                Context::genesis().none(),
-            ));
+            out.push(self.func.store(Context::genesis().none()));
         }
     }
 
@@ -261,21 +254,6 @@ mod _functools {
         flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl PyPartial {
-        #[pygetset]
-        fn func(&self) -> PyObjectRef {
-            self.inner.read().func.clone()
-        }
-
-        #[pygetset]
-        fn args(&self) -> PyRef<PyTuple> {
-            self.inner.read().args.clone()
-        }
-
-        #[pygetset]
-        fn keywords(&self) -> PyRef<PyDict> {
-            self.inner.read().keywords.clone()
-        }
-
         #[pygetset]
         fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
             zelf.as_object()
@@ -294,7 +272,9 @@ mod _functools {
 
         #[pymethod]
         fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyObjectRef {
-            let inner = zelf.inner.read();
+            let func = zelf.func.load_owned();
+            let args = zelf.args.load_owned();
+            let keywords = zelf.keywords.load_owned();
             let partial_type = zelf.class();
 
             // Get __dict__ if it exists and is not empty
@@ -303,16 +283,13 @@ mod _functools {
                 _ => vm.ctx.none(),
             };
 
-            let state = vm.ctx.new_tuple(vec![
-                inner.func.clone(),
-                inner.args.clone().into(),
-                inner.keywords.clone().into(),
-                dict_obj,
-            ]);
+            let state =
+                vm.ctx
+                    .new_tuple(vec![func.clone(), args.into(), keywords.into(), dict_obj]);
             vm.ctx
                 .new_tuple(vec![
                     partial_type.to_owned().into(),
-                    vm.ctx.new_tuple(vec![inner.func.clone()]).into(),
+                    vm.ctx.new_tuple(vec![func]).into(),
                     state.into(),
                 ])
                 .into()
@@ -383,19 +360,10 @@ mod _functools {
             }
             let phcount = count_placeholders(args_slice);
 
-            // Actually update the state
-            let old_inner = core::mem::replace(
-                &mut *zelf.inner.write(),
-                PyPartialInner {
-                    func: func.clone(),
-                    // Handle args - use the already validated tuple
-                    args: args_tuple,
-                    // Handle keywords - keep the original type
-                    keywords: keywords_dict,
-                    phcount,
-                },
-            );
-            drop(old_inner);
+            zelf.func.store(func.clone());
+            zelf.args.store(args_tuple);
+            zelf.keywords.store(keywords_dict);
+            zelf.phcount.store(phcount, Ordering::Relaxed);
 
             // Update __dict__ if provided
             let Some(instance_dict) = zelf.as_object().dict() else {
@@ -489,8 +457,10 @@ mod _functools {
             // Handle nested partial objects
             let (final_func, final_args, final_keywords) =
                 if let Some(partial) = func.downcast_ref::<Self>() {
-                    let inner = partial.inner.read();
-                    let stored_args = inner.args.as_slice();
+                    let stored_args_obj = partial.args.load_owned();
+                    let stored_func = partial.func.load_owned();
+                    let stored_keywords = partial.keywords.load_owned();
+                    let stored_args = stored_args_obj.as_slice();
 
                     // Merge placeholders: replace placeholders in stored_args with new args
                     let mut merged_args = Vec::with_capacity(stored_args.len() + args_slice.len());
@@ -511,7 +481,7 @@ mod _functools {
                     // Append remaining new args
                     merged_args.extend(new_args_iter.cloned());
 
-                    (inner.func.clone(), merged_args, inner.keywords.clone())
+                    (stored_func, merged_args, stored_keywords)
                 } else {
                     (func.clone(), args_slice.to_vec(), vm.ctx.new_dict())
                 };
@@ -529,12 +499,10 @@ mod _functools {
             }
 
             Ok(Self {
-                inner: PyRwLock::new(PyPartialInner {
-                    func: final_func,
-                    args: vm.ctx.new_tuple(final_args),
-                    keywords: final_keywords,
-                    phcount,
-                }),
+                func: PyAtomicRef::from(final_func),
+                args: PyAtomicRef::from(vm.ctx.new_tuple(final_args)),
+                keywords: PyAtomicRef::from(final_keywords),
+                phcount: AtomicUsize::new(phcount),
             })
         }
     }
@@ -544,15 +512,10 @@ mod _functools {
 
         fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // Clone and release lock before calling Python code to prevent deadlock
-            let (func, stored_args, keywords, phcount) = {
-                let inner = zelf.inner.read();
-                (
-                    inner.func.clone(),
-                    inner.args.clone(),
-                    inner.keywords.clone(),
-                    inner.phcount,
-                )
-            };
+            let func = zelf.func.load_owned();
+            let stored_args = zelf.args.load_owned();
+            let keywords = zelf.keywords.load_owned();
+            let phcount = zelf.phcount.load(Ordering::Relaxed);
 
             // Check if we have enough args to fill placeholders
             if phcount > 0 && args.args.len() < phcount {
@@ -629,14 +592,9 @@ mod _functools {
             let obj = zelf.as_object();
             if let Some(_guard) = ReprGuard::enter(vm, obj) {
                 // Clone and release lock before calling Python code to prevent deadlock
-                let (func, args, keywords) = {
-                    let inner = zelf.inner.read();
-                    (
-                        inner.func.clone(),
-                        inner.args.clone(),
-                        inner.keywords.clone(),
-                    )
-                };
+                let func = zelf.func.load_owned();
+                let args = zelf.args.load_owned();
+                let keywords = zelf.keywords.load_owned();
 
                 let qualname = zelf.class().__qualname__(vm);
                 let qualname_wtf8 = qualname
@@ -645,7 +603,7 @@ mod _functools {
                         || Wtf8Buf::from(zelf.class().name().to_owned()),
                         |s| s.as_wtf8().to_owned(),
                     );
-                let module = zelf.class().__module__(vm);
+                let module = zelf.class().__module__(vm)?;
 
                 let mut result = Wtf8Buf::new();
                 if let Ok(module_str) = module.downcast::<crate::builtins::PyStr>() {

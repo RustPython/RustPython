@@ -263,7 +263,15 @@ mod _sre {
         items: Vec<(usize, PyObjectRef)>,
     }
 
-    #[pyclass]
+    /// One `TemplateObject.items` element: `Py_ssize_t` index, object pointer.
+    #[repr(C)]
+    #[allow(dead_code)]
+    struct SreTemplateItem {
+        _index: isize,
+        _literal: *mut PyObject,
+    }
+
+    #[pyclass(itemsize = core::mem::size_of::<SreTemplateItem>())]
     impl Template {
         fn compile(
             pattern: PyRef<Pattern>,
@@ -378,7 +386,11 @@ mod _sre {
         }};
     }
 
-    #[pyclass(with(Hashable, Comparable, Representable), flags(HAS_WEAKREF))]
+    #[pyclass(
+        itemsize = core::mem::size_of::<u32>(),
+        with(Hashable, Comparable, Representable),
+        flags(HAS_WEAKREF)
+    )]
     impl Pattern {
         fn downcast_str<'a>(string: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a Py<PyStr>> {
             string.downcast_ref::<PyStr>().ok_or_else(|| {
@@ -817,7 +829,11 @@ mod _sre {
         regs: Vec<(isize, isize)>,
     }
 
-    #[pyclass(with(AsMapping, Representable), flags(DISALLOW_INSTANTIATION))]
+    #[pyclass(
+        itemsize = core::mem::size_of::<isize>(),
+        with(AsMapping, Representable),
+        flags(DISALLOW_INSTANTIATION)
+    )]
     impl Match {
         pub(crate) fn new(state: &mut State, pattern: PyRef<Pattern>, string: PyObjectRef) -> Self {
             let string_position = state.cursor.position;

@@ -18,8 +18,8 @@ pub struct PyNativeFunction {
     pub(crate) zelf: Option<PyObjectRef>,
     // Module that owns this function. Not passed as a call argument.
     pub(crate) module_object: Option<PyObjectRef>,
-    #[pytraverse(skip)]
-    pub(crate) module: Option<&'static PyStrInterned>, // None for bound method
+    #[pymember(name = "__module__", writable)]
+    pub(crate) module: crate::object::PyAtomicRef<Option<PyObject>>,
     /// Prevent HeapMethodDef from being freed while this function references it
     pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
@@ -32,11 +32,18 @@ impl PyPayload for PyNativeFunction {
 
 impl fmt::Debug for PyNativeFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let module = match self
+            .module
+            .deref()
+            .and_then(|m| m.downcast_ref::<crate::builtins::PyStr>())
+        {
+            Some(module) => module.as_wtf8().to_owned(),
+            None => Wtf8::new("<unknown>").to_owned(),
+        };
         write!(
             f,
             "builtin function {}.{} ({:?}) self as instance of {:?}",
-            self.module
-                .map_or_else(|| Wtf8::new("<unknown>"), |m| m.as_wtf8()),
+            module,
             self.value.name,
             self.value.flags,
             self.zelf.as_ref().map(|z| z.class().name().to_owned())
@@ -45,8 +52,8 @@ impl fmt::Debug for PyNativeFunction {
 }
 
 impl PyNativeFunction {
-    pub const fn with_module(mut self, module: &'static PyStrInterned) -> Self {
-        self.module = Some(module);
+    pub fn with_module(self, module: &'static PyStrInterned) -> Self {
+        drop(self.module.store(Some(module.to_owned().into())));
         self
     }
 
@@ -150,11 +157,6 @@ impl Representable for PyNativeFunction {
 )]
 impl PyNativeFunction {
     #[pygetset]
-    fn __module__(zelf: NativeFunctionOrMethod) -> Option<&'static PyStrInterned> {
-        zelf.0.module
-    }
-
-    #[pygetset]
     fn __name__(zelf: NativeFunctionOrMethod) -> &'static str {
         zelf.0.value.name
     }
@@ -203,7 +205,7 @@ impl PyNativeFunction {
     #[pymethod]
     fn __reduce__(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyResult {
         let zelf = zelf.0;
-        if zelf.zelf.is_none() || zelf.module.is_some() {
+        if zelf.zelf.is_none() || zelf.module.deref().is_some() {
             Ok(vm.ctx.new_str(zelf.value.name).into())
         } else {
             let getattr = vm.builtins.get_attr("getattr", vm)?;
