@@ -826,40 +826,29 @@ mod math {
 
     #[pyfunction]
     fn perm(args: PermArgs, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let Some(k) = args.k else {
+            return factorial(args.n, vm);
+        };
         let n_int = args.n.into_int_ref();
         let n_big = n_int.as_bigint();
+        let k_int = k.into_int_ref();
+        let k_big = k_int.as_bigint();
 
         if n_big.is_negative() {
             return Err(vm.new_value_error("n must be a non-negative integer"));
         }
-
-        // k = None means k = n (factorial)
-        let k_int = args.k.map(|k| k.into_int_ref());
-        let k_big: Option<&BigInt> = k_int.as_ref().map(|k| k.as_bigint());
-
-        if let Some(k_val) = k_big {
-            if k_val.is_negative() {
-                return Err(vm.new_value_error("k must be a non-negative integer"));
-            }
-            if k_val > n_big {
-                return Ok(BigInt::from(0u8));
-            }
+        if k_big.is_negative() {
+            return Err(vm.new_value_error("k must be a non-negative integer"));
+        }
+        if k_big > n_big {
+            return Ok(BigInt::from(0u8));
         }
 
-        // Convert k to u64 (required by pymath)
-        let ki: u64 = match k_big {
-            None => match n_big.to_u64() {
-                Some(n) => n,
-                None => {
-                    return Err(vm.new_overflow_error(format!("n must not exceed {}", u64::MAX)));
-                }
-            },
-            Some(k_val) => match k_val.to_u64() {
-                Some(k) => k,
-                None => {
-                    return Err(vm.new_overflow_error(format!("k must not exceed {}", u64::MAX)));
-                }
-            },
+        let ki: u64 = match k_big.to_i64() {
+            Some(k) => k as u64,
+            None => {
+                return Err(vm.new_overflow_error(format!("k must not exceed {}", i64::MAX)));
+            }
         };
 
         // Fast path: n fits in i64
@@ -926,12 +915,11 @@ mod math {
             k_big
         };
 
-        // k must fit in u64
-        let ki: u64 = match effective_k.to_u64() {
-            Some(k) => k,
+        let ki: u64 = match effective_k.to_i64() {
+            Some(k) => k as u64,
             None => {
                 return Err(
-                    vm.new_overflow_error(format!("min(n - k, k) must not exceed {}", u64::MAX))
+                    vm.new_overflow_error(format!("min(n - k, k) must not exceed {}", i64::MAX))
                 );
             }
         };

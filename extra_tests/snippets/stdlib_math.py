@@ -318,3 +318,19 @@ assert math.gamma(1) == 1.0
 assert_raises(ValueError, lambda: math.sumprod(itertools.count(), [1, 2, 3]))
 assert_raises(ValueError, lambda: math.sumprod([1, 2, 3], itertools.count()))
 assert math.sumprod(iter([1, 2, 3]), iter([4, 5, 6])) == 32
+
+# perm/comb reject a k above 2**63 - 1 instead of computing, and perm(n) is factorial(n).
+for f in [
+    lambda: math.perm(2**63),
+    lambda: math.perm(2**64 + 1, 2**63),
+    lambda: math.comb(2**64 + 1, 2**63),
+]:
+    assert_raises(OverflowError, f)
+assert_raises(
+    ValueError,
+    lambda: math.perm(-1),
+    _msg="factorial() not defined for negative values",
+)
+assert math.perm(5) == math.perm(5, None) == 120
+assert math.perm(2**64, 0) == 1
+assert math.comb(2**64, 2**64 - 1) == 2**64
