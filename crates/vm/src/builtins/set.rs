@@ -491,20 +491,6 @@ impl PySetInner {
         }
     }
 
-    fn update(
-        &self,
-        others: impl core::iter::Iterator<Item = ArgIterable>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        for iterable in others {
-            for item in iterable.iter(vm)? {
-                let item = item?;
-                self.add(&item, vm)?;
-            }
-        }
-        Ok(())
-    }
-
     fn update_internal(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // check AnySet
         if let Ok(any_set) = AnySet::try_from_object(vm, iterable.to_owned()) {
@@ -592,15 +578,15 @@ impl PySetInner {
         Ok(())
     }
 
-    fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        let hasher = self.content.try_fold_keys(
+    fn hash(&self) -> PyHash {
+        let hasher = self.content.fold_hashes(
             hash::FrozenSetHash::new(self.len()),
-            |mut hasher, element| {
-                hasher.add(element.hash(vm)?);
-                Ok(hasher)
+            |mut hasher, element_hash| {
+                hasher.add(element_hash);
+                hasher
             },
-        )?;
-        Ok(hasher.finish())
+        );
+        hasher.finish()
     }
 
     // Run operation, on failure, if item is a set/set subclass, convert it
@@ -887,7 +873,7 @@ impl PySet {
     }
 
     fn __ior__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.inner.update(set.into_iterable_iter(vm)?, vm)?;
+        zelf.inner.merge_set(set, vm)?;
         Ok(zelf)
     }
 
@@ -1424,10 +1410,10 @@ impl AsSequence for PyFrozenSet {
 
 impl Hashable for PyFrozenSet {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
         let hash = match zelf.hash.load(Ordering::Relaxed) {
             hash::SENTINEL => {
-                let hash = zelf.inner.hash(vm)?;
+                let hash = zelf.inner.hash();
                 match Radium::compare_exchange(
                     &zelf.hash,
                     hash::SENTINEL,

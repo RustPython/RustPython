@@ -566,3 +566,49 @@ assert key.hash_count == 1
 dictionary = {key: None}
 key.hash_enabled = False
 assert_raises(AssertionError, source.intersection, dictionary)
+
+
+# Native operations reuse hashes stored when an element enters the collection.
+class RemainingHashKey:
+    blocked = False
+
+    def __init__(self, value):
+        self.value = value
+
+    def __hash__(self):
+        assert not type(self).blocked, "stored key was hashed again"
+        return 7
+
+    def __eq__(self, other):
+        return isinstance(other, RemainingHashKey) and self.value == other.value
+
+
+class NativeSetSource(set):
+    def __iter__(self):
+        raise AssertionError("native set operation called __iter__")
+
+
+class NativeFrozenSetSource(frozenset):
+    def __iter__(self):
+        raise AssertionError("native set operation called __iter__")
+
+
+stored_keys = [RemainingHashKey(1), RemainingHashKey(2)]
+stored_frozen = frozenset(stored_keys)
+stored_frozen_reversed = frozenset(reversed(stored_keys))
+stored_sources = [
+    source_type(stored_keys)
+    for source_type in (set, frozenset, NativeSetSource, NativeFrozenSetSource)
+]
+RemainingHashKey.blocked = True
+stored_hash = hash(stored_frozen)
+assert stored_hash == hash(stored_frozen_reversed)
+assert stored_hash == hash(stored_frozen)
+for stored_source in stored_sources:
+    stored_target = set()
+    assert stored_target.__ior__(stored_source) is stored_target
+    assert len(stored_target) == 2
+    assert {item.value for item in stored_target} == {1, 2}
+    stored_target |= stored_target
+    assert len(stored_target) == 2
+RemainingHashKey.blocked = False
