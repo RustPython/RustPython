@@ -123,6 +123,8 @@ pub struct VirtualMachine {
     pub asyncio_running_loop: RefCell<Option<PyObjectRef>>,
     /// Current running asyncio task for this thread
     pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
+    /// Active Context stack for this thread and interpreter (PEP 567 / contextvars)
+    pub context_stack: RefCell<Vec<PyObjectRef>>,
     pub(crate) callable_cache: CallableCache,
     /// Side channel for TailCall: the bytecode loop stores the new frame
     /// pointer here before returning `ExecutionResult::TailCall`.
@@ -1273,6 +1275,7 @@ impl VirtualMachine {
             async_gen_finalizer: RefCell::new(None),
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
+            context_stack: RefCell::default(),
             callable_cache: CallableCache::default(),
             pending_tailcall_frame: Cell::new(None),
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
