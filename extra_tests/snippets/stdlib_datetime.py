@@ -5,9 +5,12 @@ See http://www.zope.org/Members/fdrake/DateTimeWiki/TestCases
 
 # import copy
 import datetime as datetime_module
+import errno
+import gc
 import random
 import sys
 import time as _time
+import weakref
 from datetime import MAXYEAR, MINYEAR, date, datetime, time, timedelta, timezone, tzinfo
 from operator import eq, floordiv, ge, gt, le, lt, mod, ne, truediv
 
@@ -3792,3 +3795,187 @@ assert_equal(as_datetime, datetime_sc)
 assert_equal(datetime_sc, as_datetime)
 
 '''
+
+
+for base, value, fields in (
+    (date, date(2024, 2, 29), ("year", "month", "day")),
+    (time, time(1, 2, 3), ("hour", "minute", "second", "microsecond", "fold")),
+    (
+        datetime,
+        datetime(2024, 2, 29, 1, 2, 3),
+        ("year", "month", "day", "hour", "minute", "second", "microsecond", "fold"),
+    ),
+):
+    assert value.replace() == value
+    for field in fields:
+        assert_raises(TypeError, value.replace, **{field: None})
+
+    class InvalidIsoformat(base):
+        def isoformat(self, *args):
+            return 123
+
+    invalid = InvalidIsoformat(1) if base is time else InvalidIsoformat(2024, 2, 29)
+    assert_raises(TypeError, str, invalid)
+
+for value in (time(1, 2, 3), datetime(2024, 2, 29)):
+    assert_raises(TypeError, value.isoformat, timespec=None)
+assert_raises(TypeError, datetime(2024, 2, 29).isoformat, None)
+
+# Malformed but accepted pickle state must not panic during formatting.
+if sys.implementation.name == "rustpython":
+    assert isinstance(date(b"\x00\x00\x01\x01").ctime(), str)
+
+
+class DeltaIntOverrides(int):
+    def __mul__(self, other):
+        return 5
+
+    def __rmul__(self, other):
+        return 7
+
+    def __rfloordiv__(self, other):
+        return 13
+
+
+assert_equal(timedelta(seconds=DeltaIntOverrides(1)), timedelta(microseconds=5))
+assert_equal(timedelta(seconds=1) * DeltaIntOverrides(2), timedelta(microseconds=5))
+assert_equal(timedelta(seconds=1) // DeltaIntOverrides(2), timedelta(microseconds=13))
+assert_equal(
+    timedelta(seconds=1) / DeltaIntOverrides(2), timedelta(microseconds=500000)
+)
+
+
+class DeltaFloatRatio(float):
+    def as_integer_ratio(self):
+        return DeltaIntOverrides(2), DeltaIntOverrides(3)
+
+
+assert_equal(timedelta(seconds=1) * DeltaFloatRatio(), timedelta(microseconds=2))
+assert_equal(timedelta(seconds=1) / DeltaFloatRatio(), timedelta(microseconds=4))
+
+
+class DeltaProduct(int):
+    remainder = 7
+
+    def __radd__(self, other):
+        return self
+
+    def __divmod__(self, other):
+        return 0, self.remainder
+
+
+class DeltaInput(int):
+    def __mul__(self, other):
+        return DeltaProduct(0)
+
+
+assert_equal(timedelta(seconds=DeltaInput(1)), timedelta(microseconds=7))
+DeltaProduct.remainder = -1
+with assert_raises(TypeError):
+    timedelta(seconds=DeltaInput(1))
+
+assert_equal(str(timedelta() / timedelta(microseconds=-1)), "-0.0")
+
+
+# A date's Unicode pickle month must not be truncated before validation.
+assert_raises(TypeError, date, "\0\0\u0101\1")
+# datetime/time apply their fold mask before checking the month/hour; they
+# must still reject a non-latin-1 state with the dedicated unpickle error.
+assert_raises(ValueError, datetime, "\0\0\u0101\1\0\0\0\0\0\0")
+assert_raises(ValueError, time, "\u0101\0\0\0\0\0")
+
+
+def test_astimezone_subclass_state():
+    constructed = []
+
+    class TaggedDateTime(datetime_module.datetime):
+        __slots__ = ("marker",)
+
+        def __new__(cls, *args, **kwargs):
+            value = super().__new__(cls, *args, **kwargs)
+            value.marker = object()
+            constructed.append(value)
+            return value
+
+    class TargetZone(datetime_module.tzinfo):
+        def fromutc(self, value):
+            assert value.tzinfo is self
+            assert value.fold == 0
+            assert value is constructed[-1]
+            return value
+
+    value = TaggedDateTime(2020, 1, 2, 3, tzinfo=datetime_module.timezone.utc, fold=1)
+    zone = TargetZone()
+    converted = value.astimezone(zone)
+    assert len(constructed) == 2
+    assert converted is constructed[-1]
+    assert converted.fold == 0
+    assert converted.tzinfo is zone
+    assert value.fold == 1
+    assert value.tzinfo is datetime_module.timezone.utc
+
+
+def test_timezone_cycles():
+    # CPython's fixed-offset timezone is not GC-tracked. RustPython must keep
+    # collecting these cycles when replacing its Python implementation.
+    if sys.implementation.name != "rustpython":
+        return
+
+    class Offset(datetime_module.timedelta):
+        pass
+
+    class Name(str):
+        pass
+
+    for kind in ("offset", "name"):
+        value = Offset(seconds=1) if kind == "offset" else Name("local")
+        zone = (
+            datetime_module.timezone(value)
+            if kind == "offset"
+            else datetime_module.timezone(datetime_module.timedelta(seconds=1), value)
+        )
+        value.back = zone
+        reference = weakref.ref(value)
+        del value, zone
+        gc.collect()
+        assert reference() is None
+
+
+def test_timestamp_errno():
+    if sys.platform == "win32":
+        try:
+            datetime_module.datetime.fromtimestamp(-1)
+        except OSError as error:
+            assert error.errno == errno.EINVAL
+        else:
+            raise AssertionError("Windows localtime accepted a negative timestamp")
+
+
+test_astimezone_subclass_state()
+test_timezone_cycles()
+test_timestamp_errno()
+
+
+if sys.implementation.name == "rustpython":
+    # A constructor may return any object; native arithmetic must check it.
+    class NonDateResult(datetime):
+        return_other = False
+
+        def __new__(cls, *args, **kwargs):
+            if cls.return_other:
+                return object()
+            return super().__new__(cls, *args, **kwargs)
+
+    class NonzeroDst(tzinfo):
+        def utcoffset(self, value):
+            return timedelta(hours=2)
+
+        def dst(self, value):
+            return timedelta(hours=1)
+
+    zone = NonzeroDst()
+    value = NonDateResult(2024, 2, 29, tzinfo=zone)
+    NonDateResult.return_other = True
+    assert_raises(TypeError, value.utctimetuple)
+    assert_raises(TypeError, zone.fromutc, value)
+    assert_raises(TypeError, value.astimezone, timezone.utc)

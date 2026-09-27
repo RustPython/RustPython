@@ -689,6 +689,16 @@ impl PyAtomicRef<Option<PyObject>> {
         cell_store(&self.inner, value)
     }
 
+    /// Replace the stored reference, retaining the previous value as an owned reference.
+    ///
+    /// # Safety
+    /// No references obtained through `deref()` may remain alive across this call.
+    /// Concurrent readers must use `load_owned()`; borrowed GC traversal requires
+    /// the mutating threads to be stopped.
+    pub unsafe fn store_unchecked(&self, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
+        self.store(value)
+    }
+
     /// Store `value` only when the cell is empty.
     ///
     /// On failure the cell is unchanged and `value` is returned still owned.
