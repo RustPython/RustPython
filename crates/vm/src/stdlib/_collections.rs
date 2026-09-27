@@ -1182,7 +1182,8 @@ mod _collections {
     struct PyTupleGetter {
         #[pytraverse(skip)]
         index: isize,
-        doc: PyAtomicRef<PyObject>,
+        #[pymember(name = "__doc__", writable)]
+        doc: PyAtomicRef<Option<PyObject>>,
     }
 
     impl Constructor for PyTupleGetter {
@@ -1195,7 +1196,7 @@ mod _collections {
         ) -> PyResult<Self> {
             Ok(Self {
                 index,
-                doc: PyAtomicRef::from(doc),
+                doc: PyAtomicRef::from(Some(doc)),
             })
         }
     }
@@ -1205,9 +1206,6 @@ mod _collections {
         fn doc(&self, vm: &VirtualMachine) -> PyObjectRef {
             self.doc.load_owned().unwrap_or_else(|| vm.ctx.none())
         }
-
-        #[pymember(type = "object", name = "__doc__")]
-        const doc: () = ();
 
         #[pyslot]
         fn descr_set(
