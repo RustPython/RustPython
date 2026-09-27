@@ -445,3 +445,124 @@ class FS(frozenset):
 
 assert repr(FS()) == "FS()"
 assert repr(FS([1, 2, 3])) == "FS({1, 2, 3})"
+
+
+class StoredHashKey:
+    def __init__(self, value):
+        self.value = value
+        self.hash_enabled = True
+        self.hash_count = 0
+
+    def __hash__(self):
+        self.hash_count += 1
+        assert self.hash_enabled, "set operation recomputed a stored hash"
+        return self.value
+
+
+for left_type in (set, frozenset):
+    for right_type in (set, frozenset):
+        keys = [StoredHashKey(i) for i in range(3)]
+        small = left_type(keys[:1])
+        equal = right_type(keys[:1])
+        large = right_type(keys[:2])
+        separate = right_type(keys[2:])
+        for key in keys:
+            key.hash_enabled = False
+        assert small == equal
+        assert not (small != equal)
+        assert small < large
+        assert small <= large
+        assert large > small
+        assert large >= small
+        assert small.issubset(large)
+        assert large.issuperset(small)
+        assert small.isdisjoint(separate)
+        assert not small.isdisjoint(large)
+
+
+for set_type in (set, frozenset):
+
+    class IteratorOverride(set_type):
+        def __iter__(self):
+            raise RuntimeError("overridden iterator")
+
+    subclass = IteratorOverride([1, 2])
+    assert set_type([1]).issubset(subclass)
+    assert set_type([1, 2, 3]).issuperset(subclass)
+    assert set_type([1]).intersection(subclass) == {1}
+    assert not subclass.isdisjoint(subclass)
+    empty_subclass = IteratorOverride()
+    assert empty_subclass.isdisjoint(empty_subclass)
+    assert_raises(RuntimeError, set_type([3]).isdisjoint, subclass)
+
+
+# Intersections retain the key from the smaller operand, or RHS on a tie.
+small_key = float("1")
+small = {small_key}
+large = {1, 2}
+assert next(iter(small & large)) is small_key
+assert next(iter(large & small)) is small_key
+assert next(iter({1} & small)) is small_key
+result = large.intersection(small)
+result.clear()
+assert large == {1, 2}
+assert small == {small_key}
+
+
+def clear_during_intersection():
+    live_source.clear()
+    yield 1
+
+
+live_source = {1, 2}
+assert live_source.intersection(clear_during_intersection()) == set()
+
+
+class DirectionalKey:
+    def __init__(self, equal):
+        self.equal = equal
+
+    def __hash__(self):
+        return 17
+
+    def __eq__(self, other):
+        return self.equal
+
+
+small_key = DirectionalKey(False)
+large_key = DirectionalKey(True)
+small = {small_key}
+large = {large_key, 12345}
+equal_size = {large_key}
+assert next(iter(small & large)) is small_key
+assert next(iter(large & small)) is small_key
+assert not small.isdisjoint(large)
+assert not large.isdisjoint(small)
+assert small.issubset(large)
+assert large.issuperset(small)
+assert small == equal_size
+assert equal_size != small
+assert not small.issubset([large_key])
+
+
+def matched_then_error():
+    yield 1
+    raise ValueError("iterator consumed after matching")
+
+
+for set_type in (set, frozenset):
+    assert set_type([1]).intersection(matched_then_error()) == {1}
+    assert set_type([1]).issubset(matched_then_error())
+    assert_raises(ValueError, set_type([1, 2]).intersection, matched_then_error())
+    assert_raises(ValueError, set_type([1, 2]).issubset, matched_then_error())
+    assert_raises(ValueError, set_type().intersection, matched_then_error())
+    assert_raises(TypeError, set_type().intersection, [set()])
+
+key = StoredHashKey(4)
+source = {key}
+key.hash_count = 0
+assert len(source.intersection([key])) == 1
+assert key.hash_count == 1
+dictionary = {key: None}
+key.hash_enabled = False
+assert_raises(AssertionError, source.intersection, dictionary)

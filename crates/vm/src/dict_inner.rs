@@ -485,9 +485,9 @@ impl<T: Clone> Dict<T> {
 
     /// Store a key whose hash the caller already knows.
     ///
-    /// `hash` must equal `key.key_hash(vm)`; a wrong one lands the entry in a
-    /// bucket no lookup probes, silently losing the key. Only pass a hash from
-    /// [`Self::keys_with_hashes`] on a container holding this same key.
+    /// `hash` must be computed for `key` or read from [`Self::keys_with_hashes`]
+    /// on a container holding this same key. A wrong hash lands the entry in a
+    /// bucket no lookup probes, silently losing the key.
     pub(crate) fn insert_known_hash<K>(
         &self,
         vm: &VirtualMachine,
@@ -1330,6 +1330,7 @@ pub trait DictKey {
     }
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue>;
     fn key_is(&self, other: &PyObject) -> bool;
+    /// Compare the stored entry (`other_key`) with this lookup key, in that order.
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool>;
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize>;
 }
@@ -1369,7 +1370,7 @@ impl DictKey for PyObject {
             let b = unsafe { other_key.downcast_unchecked_ref::<PyInt>() };
             return Ok(a.as_bigint() == b.as_bigint());
         }
-        vm.bool_eq(self, other_key)
+        vm.bool_eq(other_key, self)
     }
 
     #[inline]
@@ -1401,7 +1402,7 @@ impl DictKey for Py<PyStr> {
         } else if let Some(pystr) = other_key.downcast_ref_if_exact::<PyStr>(vm) {
             Ok(self.as_wtf8() == pystr.as_wtf8())
         } else {
-            vm.bool_eq(self.as_object(), other_key)
+            vm.bool_eq(other_key, self.as_object())
         }
     }
 
@@ -1709,7 +1710,7 @@ impl DictKey for usize {
             }
         } else {
             let int = vm.ctx.new_int(*self);
-            vm.bool_eq(int.as_ref(), other_key)
+            vm.bool_eq(other_key, int.as_ref())
         }
     }
 
