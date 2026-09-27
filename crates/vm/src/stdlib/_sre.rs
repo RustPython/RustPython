@@ -727,7 +727,7 @@ mod _sre {
         fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
             let hash = zelf.pattern.hash(vm)?;
             let (_, code, _) = unsafe { zelf.code.align_to::<u8>() };
-            let hash = hash ^ vm.state.hash_secret.hash_bytes(code);
+            let hash = hash ^ crate::vm::hash_secret().hash_bytes(code);
             let hash = hash ^ (zelf.flags.bits() as PyHash);
             let hash = hash ^ (zelf.isbytes as i64);
             Ok(hash)

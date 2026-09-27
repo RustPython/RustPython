@@ -1510,9 +1510,9 @@ impl DictKey for str {
     }
 
     #[inline]
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
-        Ok(vm.state.hash_secret.hash_str(self))
+        Ok(crate::vm::hash_secret().hash_str(self))
     }
 
     #[inline(always)]
@@ -1571,9 +1571,9 @@ impl DictKey for Wtf8 {
     }
 
     #[inline]
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
-        Ok(vm.state.hash_secret.hash_bytes(self.as_bytes()))
+        Ok(crate::vm::hash_secret().hash_bytes(self.as_bytes()))
     }
 
     #[inline(always)]
@@ -1632,9 +1632,9 @@ impl DictKey for [u8] {
     }
 
     #[inline]
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
-        Ok(vm.state.hash_secret.hash_bytes(self))
+        Ok(crate::vm::hash_secret().hash_bytes(self))
     }
 
     #[inline(always)]
