@@ -882,3 +882,8 @@ for i in range(-1, 2, 1):
     assert_raises(
         IndexError, lambda: a[-sys.maxsize - i], _msg="bytearray index out of range"
     )
+
+# Repeating an empty bytearray by a huge count returns at once
+empty = bytearray()
+empty *= sys.maxsize
+assert empty == bytearray()

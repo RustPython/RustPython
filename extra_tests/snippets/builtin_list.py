@@ -1062,3 +1062,9 @@ assert held == [0, 1, 2, 3]
 # A report the list can act on is acted on.
 assert list(Reports(3)) == [1, 2, 3]
 assert list(Reports(0)) == [1, 2, 3]
+
+# Repeating an empty list by a huge count returns at once
+empty = []
+empty *= sys.maxsize
+assert empty == []
+assert [] * sys.maxsize == []

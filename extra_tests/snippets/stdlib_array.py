@@ -1,3 +1,4 @@
+import sys
 from array import array
 from pickle import dumps, loads
 
@@ -176,3 +177,10 @@ def test_frombytes_of_itself():
     wide = array("i", [1, 2, 3])
     with assert_raises(TypeError):
         wide.frombytes(memoryview(wide))
+
+
+# Repeating an empty array by a huge count returns at once
+empty = array("i")
+assert empty * sys.maxsize == array("i")
+empty *= sys.maxsize
+assert empty == array("i")

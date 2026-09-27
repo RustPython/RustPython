@@ -98,6 +98,9 @@ where
 {
     fn mul(&self, vm: &VirtualMachine, n: isize) -> PyResult<Vec<T>> {
         let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
+        if self.as_ref().is_empty() {
+            return Ok(Vec::new());
+        }
 
         if n > 1 && core::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
             return Err(vm.no_memory_error());
@@ -134,7 +137,7 @@ where
 
         if n == 0 {
             self.as_vec_mut().clear();
-        } else if n != 1 {
+        } else if n != 1 && !self.as_ref().is_empty() {
             let len = self.as_ref().len();
             let v = self.as_vec_mut();
             v.try_reserve_exact(len * (n - 1))
