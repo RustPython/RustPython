@@ -1,6 +1,6 @@
 import gc
 import weakref
-from functools import cache, lru_cache, partial, reduce
+from functools import cache, cmp_to_key, lru_cache, partial, reduce
 
 from testutils import assert_raises
 
@@ -217,3 +217,60 @@ def check_cache_clear_release(decorate):
 
 for decorate in (cache, lru_cache(maxsize=8)):
     check_cache_clear_release(decorate)
+
+
+# cmp_to_key retains both its comparator and the wrapped object.
+
+
+class KeyOwner:
+    def compare(self, left, right):
+        return (left > right) - (left < right)
+
+
+def check_key_wrapper_gc():
+    for kind in ("comparator", "object", "self"):
+        owner = KeyOwner()
+        if kind == "comparator":
+            key = cmp_to_key(owner.compare)
+            owner.key = key
+        elif kind == "object":
+            key = cmp_to_key(lambda left, right: 0)(owner)
+            owner.key = key
+        else:
+            key = cmp_to_key(owner.compare)
+            key.obj = key
+        key_id = id(key)
+        key_type = type(key)
+        ref = weakref.ref(owner)
+        del owner
+        gc.collect()
+        assert ref() is not None  # The reachable wrapper still owns the object.
+        del key
+        gc.collect()
+        assert ref() is None
+        if kind == "self":
+            assert not any(
+                type(obj) is key_type and id(obj) == key_id for obj in gc.get_objects()
+            )
+
+
+check_key_wrapper_gc()
+
+
+def check_key_wrapper_release():
+    key = cmp_to_key(lambda left, right: 0)
+    observed = []
+
+    class Value:
+        def __del__(self):
+            observed.append(key.obj)
+
+    key.obj = Value()
+    key.obj = 42
+    assert observed == [42]
+    key.obj = Value()
+    del key.obj
+    assert observed == [42, None]
+
+
+check_key_wrapper_release()
