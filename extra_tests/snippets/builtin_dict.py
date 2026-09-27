@@ -615,3 +615,75 @@ stored = LookupOrderKey("stored", False)
 lookup = LookupOrderSubclass("lookup", True)
 assert {stored: 1}[lookup] == 1
 assert LookupOrderKey.calls == ["lookup"]
+
+
+class MergeHashKey:
+    hash_disabled = False
+
+    def __init__(self, value):
+        self.value = value
+
+    def __hash__(self):
+        assert not self.hash_disabled, "dictionary merge rehashed a stored key"
+        return 42
+
+    def __eq__(self, other):
+        if not isinstance(other, MergeHashKey):
+            return NotImplemented
+        return self.value == other.value
+
+
+def merge_with_update(source):
+    result = {}
+    result.update(source)
+    return result
+
+
+def merge_with_ior(source):
+    result = {}
+    result |= source
+    return result
+
+
+# Exact dictionary merges reuse hashes, including colliding keys and holes.
+merge_keys = [MergeHashKey(i) for i in range(3)]
+merge_source = dict(zip(merge_keys, ("first", "removed", "last")))
+del merge_source[merge_keys[1]]
+existing_merge_key = MergeHashKey(2)
+merge_target = {existing_merge_key: "old"}
+MergeHashKey.hash_disabled = True
+for merge in (
+    dict,
+    merge_with_update,
+    merge_with_ior,
+    lambda source: {} | source,
+    lambda source: dict.__ror__(source, {}),
+    lambda source: {**source},
+):
+    assert list(merge(merge_source).items()) == list(merge_source.items())
+
+# Overwriting a matching key keeps its identity and position.
+merge_target.update(merge_source)
+assert next(iter(merge_target)) is existing_merge_key
+assert list(merge_target.values()) == ["last", "first"]
+merge_source.update(merge_source)
+merge_source |= merge_source
+assert list(merge_source.values()) == ["first", "last"]
+MergeHashKey.hash_disabled = False
+
+
+class MergeMapping(dict):
+    def __iter__(self):
+        return iter(("virtual",))
+
+    def keys(self):
+        return ["virtual"]
+
+    def __getitem__(self, key):
+        assert key == "virtual"
+        return 42
+
+
+# Generic mappings retain their lookup hooks instead of exposing dict storage.
+for merge in (dict, merge_with_update, merge_with_ior):
+    assert merge(MergeMapping(stored=0)) == {"virtual": 42}
