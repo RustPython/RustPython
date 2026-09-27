@@ -227,7 +227,12 @@ impl PySequence<'_> {
 
         // if both arguments appear to be sequences, try fallback to __iadd__
         if self.check() && other.sequence_unchecked().check() {
-            let ret = vm._iadd(self.obj, other)?;
+            let ret = vm.binary_iop1(
+                self.obj,
+                other,
+                PyNumberBinaryOp::InplaceAdd,
+                PyNumberBinaryOp::Add,
+            )?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
             }
@@ -249,7 +254,12 @@ impl PySequence<'_> {
         }
 
         if self.check() {
-            let ret = vm._imul(self.obj, &n.to_pyobject(vm))?;
+            let ret = vm.binary_iop1(
+                self.obj,
+                &n.to_pyobject(vm),
+                PyNumberBinaryOp::InplaceMultiply,
+                PyNumberBinaryOp::Multiply,
+            )?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
             }
@@ -502,6 +512,34 @@ mod tests {
         fn drop(&mut self) {
             self.0.set(self.0.get() + 1);
         }
+    }
+
+    #[test]
+    fn unsupported_inplace_operations_keep_sequence_errors() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let range = PyRange {
+                start: vm.ctx.new_int(0),
+                stop: vm.ctx.new_int(3),
+                step: vm.ctx.new_int(1),
+            }
+            .into_ref(&vm.ctx);
+            let sequence = range.as_object().sequence_unchecked();
+            for (result, message) in [
+                (
+                    sequence.inplace_repeat(2, vm),
+                    "'range' object can't be repeated",
+                ),
+                (
+                    sequence.inplace_concat(range.as_object(), vm),
+                    "'range' object can't be concatenated",
+                ),
+            ] {
+                let error = result.unwrap_err();
+                assert!(error.fast_isinstance(vm.ctx.exceptions.type_error));
+                let actual: String = error.args().as_slice()[0].try_to_value(vm).unwrap();
+                assert_eq!(actual, message);
+            }
+        });
     }
 
     #[test]

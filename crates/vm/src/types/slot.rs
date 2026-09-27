@@ -596,16 +596,6 @@ fn sequence_contains_wrapper(
     contains_wrapper(seq.obj, needle, vm)
 }
 
-#[inline(never)]
-fn sequence_repeat_wrapper(seq: PySequence<'_>, n: isize, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(seq.obj, identifier!(vm, __mul__), (n,))
-}
-
-#[inline(never)]
-fn sequence_inplace_repeat_wrapper(seq: PySequence<'_>, n: isize, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(seq.obj, identifier!(vm, __imul__), (n,))
-}
-
 fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
     let ret = vm.call_special_method(zelf, identifier!(vm, __repr__), ())?;
     ret.downcast::<PyStr>().map_err(|obj| {
@@ -1718,16 +1708,38 @@ impl PyType {
                 // (handled by number protocol fallback)
                 accessor.inherit_from_mro(self);
             }
-            SlotAccessor::SqRepeat => {
-                update_sub_slot!(as_sequence, repeat, sequence_repeat_wrapper, SeqRepeat)
-            }
-            SlotAccessor::SqInplaceRepeat => {
-                update_sub_slot!(
-                    as_sequence,
-                    inplace_repeat,
-                    sequence_inplace_repeat_wrapper,
-                    SeqRepeat
-                )
+            SlotAccessor::SqRepeat | SlotAccessor::SqInplaceRepeat => {
+                // Python `__mul__`/`__rmul__`/`__imul__` overrides use the number slots and
+                // leave no sequence repeat, as with `sq_concat`.
+                let (names, field) = if matches!(accessor, SlotAccessor::SqRepeat) {
+                    (
+                        &[identifier!(ctx, __mul__), identifier!(ctx, __rmul__)][..],
+                        &self.slots.as_sequence.repeat,
+                    )
+                } else {
+                    (
+                        &[identifier!(ctx, __imul__)][..],
+                        &self.slots.as_sequence.inplace_repeat,
+                    )
+                };
+                let mut repeat = None;
+                for &name in names {
+                    match self.lookup_slot_in_mro(name, ctx, |sf| {
+                        if let SlotFunc::SeqRepeat(f) = sf {
+                            Some(*f)
+                        } else {
+                            None
+                        }
+                    }) {
+                        SlotLookupResult::NativeSlot(func) => repeat = repeat.or(Some(func)),
+                        SlotLookupResult::PythonMethod => {
+                            repeat = None;
+                            break;
+                        }
+                        SlotLookupResult::NotFound => {}
+                    }
+                }
+                field.store(repeat);
             }
             SlotAccessor::SqItem => {
                 update_sub_slot!(as_sequence, item, sequence_getitem_wrapper, SeqItem)
