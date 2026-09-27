@@ -426,15 +426,15 @@ fn class_def_ty(self_ty: Option<&syn::Type>) -> Option<TokenStream> {
     Some(quote!(#ty))
 }
 
-/// Const `Option<&'static str>`: table entry, else the Rust doc.
-/// Generic impls cannot name `Self` from a nested const, so they keep the Rust doc.
+/// Const `Option<&'static str>`. A non-empty Rust doc is the docstring.
+/// The attribute table is used only when there is no Rust doc. Generic impls
+/// cannot name `Self` from a nested const, so without a Rust doc they store none.
 fn attr_doc_expr(self_ty: Option<&syn::Type>, attr: &str, rust_doc: Option<String>) -> TokenStream {
-    let fallback = match rust_doc {
-        Some(doc) => quote!(Some(#doc)),
-        None => quote!(None),
-    };
+    if let Some(doc) = rust_doc.filter(|doc| !doc.is_empty()) {
+        return quote!(Some(#doc));
+    }
     let Some(ty) = class_def_ty(self_ty) else {
-        return fallback;
+        return quote!(None);
     };
     quote! {
         {
@@ -442,11 +442,10 @@ fn attr_doc_expr(self_ty: Option<&syn::Type>, attr: &str, rust_doc: Option<Strin
                 <#ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
                 #attr,
             );
-            const RUST_DOC: Option<&str> = #fallback;
             if let Some(doc) = FOUND {
                 if doc.is_empty() { None } else { Some(doc) }
             } else {
-                RUST_DOC
+                None
             }
         }
     }
@@ -498,10 +497,11 @@ fn generate_class_def(
     let attrs = extras.attrs;
     let module_key = module_name.unwrap_or("builtins");
     let attr_docs = crate::class_docs::attr_docs_tokens(module_name, name);
-    let doc = rustpython_doc::get_qualified(module_key, name, None, true)
-        .filter(|doc| !doc.is_empty())
-        .map(str::to_owned)
-        .or_else(|| attrs.doc());
+    let doc = attrs.doc().filter(|doc| !doc.is_empty()).or_else(|| {
+        rustpython_doc::get_qualified(module_key, name, None, true)
+            .filter(|doc| !doc.is_empty())
+            .map(str::to_owned)
+    });
     let doc = if let Some(doc) = doc {
         quote!(Some(#doc))
     } else {
@@ -1878,27 +1878,25 @@ impl MemberItemMeta {
         Ok(Some(name_value.value.to_token_stream()))
     }
 
-    /// `Some(Some(text))` for `doc = "text"` (used as-is), `Some(None)` for
-    /// `doc = false`, and `None` when `doc` is absent.
-    fn doc(&self) -> Result<Option<Option<String>>> {
+    /// `doc = false` suppresses the stored docstring. The member docstring is
+    /// the field's `///` comment (or the `///` lines immediately above a
+    /// struct-level `#[pymember]`). A string `doc` is rejected.
+    fn suppress_doc(&self) -> Result<bool> {
         let Some((_, meta)) = self.inner().meta_map.get("doc") else {
-            return Ok(None);
+            return Ok(false);
         };
         match meta {
             Meta::NameValue(syn::MetaNameValue {
-                value: syn::Expr::Lit(syn::ExprLit { lit, .. }),
+                value:
+                    syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Bool(lit),
+                        ..
+                    }),
                 ..
-            }) => match lit {
-                syn::Lit::Str(lit) => Ok(Some(Some(lit.value()))),
-                syn::Lit::Bool(lit) if !lit.value => Ok(Some(None)),
-                _ => Err(syn::Error::new(
-                    lit.span(),
-                    "#[pymember(doc = ...)] must be a string or `false`",
-                )),
-            },
+            }) if !lit.value => Ok(true),
             _ => Err(syn::Error::new(
                 meta.span(),
-                "#[pymember(doc = ...)] must be a string or `false`",
+                "#[pymember] docstring is the `///` comment; only `doc = false` is accepted",
             )),
         }
     }
@@ -1952,6 +1950,61 @@ struct BuiltMember {
     doc: TokenStream,
     check: TokenStream,
     span: Span,
+}
+
+fn is_doc_attr(attr: &Attribute) -> bool {
+    attr.path().is_ident("doc")
+}
+
+fn doc_attr_line(attr: &Attribute) -> Option<String> {
+    let syn::Meta::NameValue(name_value) = &attr.meta else {
+        return None;
+    };
+    let syn::Expr::Lit(syn::ExprLit {
+        lit: syn::Lit::Str(lit),
+        ..
+    }) = &name_value.value
+    else {
+        return None;
+    };
+    Some(lit.value().trim().to_owned())
+}
+
+/// `#[pymember]` on a struct has no field. `///` lines placed immediately
+/// above that attribute (after any other attribute) are its docstring and are
+/// removed so they are not also the class docstring. Several struct-level
+/// members each take the `///` lines directly above them.
+fn split_struct_pymembers(attrs: &mut Vec<Attribute>) -> Vec<(Attribute, Option<String>)> {
+    let mut kept = Vec::with_capacity(attrs.len());
+    let mut members = Vec::new();
+    let mut pending_docs = Vec::new();
+    let mut pending_doc_attrs = Vec::new();
+    for attr in attrs.drain(..) {
+        if is_doc_attr(&attr)
+            && let Some(text) = doc_attr_line(&attr)
+        {
+            pending_docs.push(text);
+            pending_doc_attrs.push(attr);
+            continue;
+        }
+        if attr.path().is_ident("pymember") {
+            let doc = if pending_docs.is_empty() {
+                None
+            } else {
+                Some(pending_docs.join("\n")).filter(|doc| !doc.is_empty())
+            };
+            pending_docs.clear();
+            pending_doc_attrs.clear();
+            members.push((attr, doc));
+            continue;
+        }
+        kept.append(&mut pending_doc_attrs);
+        pending_docs.clear();
+        kept.push(attr);
+    }
+    kept.append(&mut pending_doc_attrs);
+    *attrs = kept;
+    members
 }
 
 fn split_pymember_attrs(attrs: &mut Vec<Attribute>) -> Vec<Attribute> {
@@ -2071,6 +2124,7 @@ fn build_member(
     field: Option<(&syn::Field, usize)>,
     cfgs: &[Attribute],
     class_ty: &syn::Type,
+    rust_doc: Option<String>,
     seen: &mut Vec<(String, Vec<Attribute>)>,
 ) -> Result<BuiltMember> {
     let fallback_ident = field
@@ -2161,12 +2215,10 @@ fn build_member(
         let kind_tokens = member_kind_tokens(kind.as_deref(), None, attr.span())?;
         (offset_expr, quote!(), kind_tokens)
     };
-    let doc = match meta.doc()? {
-        // An explicit string is the docstring. The attribute-doc table is not
-        // consulted. `doc = false` stores none. Omitted `doc` uses the table.
-        Some(Some(text)) => quote!(Some(#text)),
-        Some(None) => quote!(None),
-        None => attr_doc_expr(Some(class_ty), &name, None),
+    let doc = if meta.suppress_doc()? {
+        quote!(None)
+    } else {
+        attr_doc_expr(Some(class_ty), &name, rust_doc)
     };
     Ok(BuiltMember {
         name,
@@ -2244,8 +2296,15 @@ fn extract_py_members(item: &mut Item) -> Result<(TokenStream, TokenStream, Toke
     let class_ty: syn::Type = syn::parse_quote!(#struct_ident);
     let mut seen = Vec::new();
     let mut built = Vec::new();
-    for attr in split_pymember_attrs(&mut item_struct.attrs) {
-        built.push(build_member(&attr, None, &[], &class_ty, &mut seen)?);
+    for (attr, rust_doc) in split_struct_pymembers(&mut item_struct.attrs) {
+        built.push(build_member(
+            &attr,
+            None,
+            &[],
+            &class_ty,
+            rust_doc,
+            &mut seen,
+        )?);
     }
     let field_count = match &item_struct.fields {
         syn::Fields::Named(fields) => fields.named.len(),
@@ -2259,6 +2318,8 @@ fn extract_py_members(item: &mut Item) -> Result<(TokenStream, TokenStream, Toke
             syn::Fields::Unit => unreachable!(),
         };
         let cfgs = field_cfg_attrs(&field.attrs)?;
+        // Every #[pymember] on the field shares that field's `///` comment.
+        let rust_doc = field.attrs.doc().filter(|doc| !doc.is_empty());
         let attrs = split_pymember_attrs(&mut field.attrs);
         for attr in &attrs {
             built.push(build_member(
@@ -2266,6 +2327,7 @@ fn extract_py_members(item: &mut Item) -> Result<(TokenStream, TokenStream, Toke
                 Some((field, index)),
                 &cfgs,
                 &class_ty,
+                rust_doc.clone(),
                 &mut seen,
             )?);
         }

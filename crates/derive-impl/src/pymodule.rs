@@ -255,10 +255,11 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
     let module_name = context.name.as_str();
     let function_items = context.function_items.validate()?;
     let attribute_items = context.attribute_items.validate()?;
-    let doc = rustpython_doc::get(module_name)
-        .filter(|doc| !doc.is_empty())
-        .map(str::to_owned)
-        .or(doc);
+    let doc = doc.filter(|doc| !doc.is_empty()).or_else(|| {
+        rustpython_doc::get(module_name)
+            .filter(|doc| !doc.is_empty())
+            .map(str::to_owned)
+    });
     let doc = if let Some(doc) = doc {
         quote!(Some(#doc))
     } else {
@@ -708,22 +709,22 @@ impl ModuleItem for FunctionItem {
         }
 
         let module = args.module_name();
-        let rust_doc = args.attrs.doc();
-        // TODO: doc must exist at least one of code or CPython
+        let rust_doc = args.attrs.doc().filter(|doc| !doc.is_empty());
         let docs = py_names
             .iter()
             .map(|py_name| {
-                let doc = rustpython_doc::get_qualified(module, py_name, None, false)
-                    .filter(|doc| !doc.is_empty())
-                    .map(str::to_owned)
-                    .or_else(|| {
-                        if args.context.is_sub {
-                            unique_submodule_func_doc(py_name)
-                        } else {
-                            None
-                        }
-                    })
-                    .or_else(|| rust_doc.clone());
+                let doc = rust_doc.clone().or_else(|| {
+                    rustpython_doc::get_qualified(module, py_name, None, false)
+                        .filter(|doc| !doc.is_empty())
+                        .map(str::to_owned)
+                        .or_else(|| {
+                            if args.context.is_sub {
+                                unique_submodule_func_doc(py_name)
+                            } else {
+                                None
+                            }
+                        })
+                });
                 let doc = match doc {
                     Some(doc) => quote!(Some(#doc)),
                     None => quote!(None),

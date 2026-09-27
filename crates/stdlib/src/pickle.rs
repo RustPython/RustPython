@@ -96,8 +96,8 @@ mod _pickle {
             })
         }
 
-        /// Return a memoryview of the raw memory underlying this buffer.
-        /// Will raise BufferError if the buffer isn't contiguous.
+        // Return a memoryview of the raw memory underlying this buffer.
+        // Will raise BufferError if the buffer isn't contiguous.
         #[pymethod]
         fn raw(&self, vm: &VirtualMachine) -> PyResult<PyRef<crate::vm::builtins::PyMemoryView>> {
             let buffer = self.get(vm)?;
@@ -109,7 +109,7 @@ mod _pickle {
             Ok(crate::vm::builtins::PyMemoryView::from_buffer(buffer, vm)?.into_ref(&vm.ctx))
         }
 
-        /// Release the underlying buffer exposed by the PickleBuffer object.
+        // Release the underlying buffer exposed by the PickleBuffer object.
         #[pymethod]
         fn release(&self) {
             *self.buffer.write() = None;

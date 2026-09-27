@@ -75,7 +75,7 @@ mod re {
         }
     }
 
-    /// Inner data for a match object.
+    // Inner data for a match object.
     #[pyattr]
     #[pyclass(module = "re", name = "Match", traverse)]
     #[derive(PyPayload, Traverse)]

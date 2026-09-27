@@ -1527,8 +1527,8 @@ impl InterpreterFrame {
 /// Analogous to CPython's `PyFrameObject`.
 #[pyclass(module = false, name = "frame", traverse = "manual")]
 pub struct FrameObject {
-    /// `f_trace_lines`. Default true. The executing iframe reads this when it
-    /// points at the frame object.
+    // `f_trace_lines`. Default true. The executing iframe reads this when it
+    // points at the frame object.
     #[pymember(name = "f_trace_lines", writable)]
     pub(crate) f_trace_lines: core::sync::atomic::AtomicBool,
     // Owned references — keep the pointed-to objects alive for InterpreterFrame's

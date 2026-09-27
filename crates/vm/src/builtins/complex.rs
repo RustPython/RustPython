@@ -17,9 +17,9 @@ use num_complex::Complex64;
 use num_traits::Zero;
 use rustpython_common::hash;
 
-/// Create a complex number from a real part and an optional imaginary part.
-///
-/// This is equivalent to (real + imag*1j) where imag defaults to 0.
+// Create a complex number from a real part and an optional imaginary part.
+//
+// This is equivalent to (real + imag*1j) where imag defaults to 0.
 #[pyclass(module = false, name = "complex")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {

@@ -306,7 +306,7 @@ impl PyList {
         }
     }
 
-    /// Return self[index].
+    // Return self[index].
     #[pymethod(coexist)]
     fn __getitem__(&self, index: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self._getitem(&index, vm)

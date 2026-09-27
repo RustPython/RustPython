@@ -335,7 +335,7 @@ pub(crate) mod _ctypes {
         exc_type
     }
 
-    /// Get the size of a ctypes type or instance
+    // Get the size of a ctypes type or instance
     #[pyfunction]
     pub(crate) fn sizeof(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         use super::structure::PyCStructType;
@@ -847,11 +847,11 @@ pub(crate) mod _ctypes {
         super::function::cast_impl(&obj, obj.clone(), &typ, vm)
     }
 
-    /// Return buffer interface information for a ctypes type or object.
-    /// Returns a tuple (format, ndim, shape) where:
-    /// - format: PEP 3118 format string
-    /// - ndim: number of dimensions
-    /// - shape: tuple of dimension sizes
+    // Return buffer interface information for a ctypes type or object.
+    // Returns a tuple (format, ndim, shape) where:
+    // - format: PEP 3118 format string
+    // - ndim: number of dimensions
+    // - shape: tuple of dimension sizes
     #[pyfunction]
     fn buffer_info(object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Determine if object is a type or an instance

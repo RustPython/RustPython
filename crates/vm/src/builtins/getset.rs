@@ -13,8 +13,8 @@ use crate::{
 pub struct PyGetSet {
     #[pymember(name = "__name__")]
     name: &'static crate::builtins::PyStrInterned,
-    /// `d_type`. Owned: a type's namespace can outlive the type, and the
-    /// descriptors it holds have to stay valid for as long as it does.
+    // `d_type`. Owned: a type's namespace can outlive the type, and the
+    // descriptors it holds have to stay valid for as long as it does.
     #[pymember(name = "__objclass__")]
     class: PyRef<PyType>,
     getter: Option<PyGetterFunc>,

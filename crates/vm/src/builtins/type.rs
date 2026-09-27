@@ -46,7 +46,7 @@ pub(crate) type PyTypeTupleRef = PyRef<PyTuple<PyTypeRef>>;
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
-    /// tp_base. Written under the type lock (see `set_bases`); read lock-free.
+    // tp_base. Written under the type lock (see `set_bases`); read lock-free.
     #[pymember(name = "__base__", doc = false)]
     pub base: PyAtomicRef<Option<Self>>,
     pub bases: PyRwLock<PyTypeTupleRef>,

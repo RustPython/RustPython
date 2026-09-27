@@ -496,7 +496,7 @@ mod _multiprocessing {
             self.name.clone()
         }
 
-        /// Acquire the semaphore/lock.
+        // Acquire the semaphore/lock.
         // _multiprocessing_SemLock_acquire_impl
         #[pymethod]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
@@ -609,7 +609,7 @@ mod _multiprocessing {
                 .store(host_multiprocessing::current_thread_id(), Ordering::Release);
         }
 
-        /// Release the semaphore/lock.
+        // Release the semaphore/lock.
         // _multiprocessing_SemLock_release_impl
         #[pymethod]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -670,7 +670,7 @@ mod _multiprocessing {
             Ok(())
         }
 
-        /// Enter the semaphore/lock (context manager).
+        // Enter the semaphore/lock (context manager).
         // _multiprocessing_SemLock___enter___impl
         #[pymethod(name = "__enter__")]
         fn enter(&self, vm: &VirtualMachine) -> PyResult<bool> {
@@ -684,7 +684,7 @@ mod _multiprocessing {
             )
         }
 
-        /// Exit the semaphore/lock (context manager).
+        // Exit the semaphore/lock (context manager).
         // _multiprocessing_SemLock___exit___impl
         #[pymethod]
         fn __exit__(&self, _args: ExitArgs, vm: &VirtualMachine) -> PyResult<()> {
@@ -719,7 +719,7 @@ mod _multiprocessing {
             zelf.into_ref_with_type(vm, cls).map(Into::into)
         }
 
-        /// Rezero the net acquisition count after fork().
+        // Rezero the net acquisition count after fork().
         // _multiprocessing_SemLock__after_fork_impl
         #[pymethod]
         fn _after_fork(&self) {
@@ -729,14 +729,14 @@ mod _multiprocessing {
             self.last_tid.store(0, Ordering::Release);
         }
 
-        /// SemLock objects cannot be pickled directly.
-        /// Use multiprocessing.synchronize.SemLock wrapper which handles pickling.
+        // SemLock objects cannot be pickled directly.
+        // Use multiprocessing.synchronize.SemLock wrapper which handles pickling.
         #[pymethod]
         fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot pickle 'SemLock' object"))
         }
 
-        /// Num of `acquire()`s minus num of `release()`s for this process.
+        // Num of `acquire()`s minus num of `release()`s for this process.
         // _multiprocessing_SemLock__count_impl
         #[pymethod]
         fn _count(&self) -> i32 {
@@ -744,14 +744,14 @@ mod _multiprocessing {
             self.count.load(Ordering::Acquire)
         }
 
-        /// Whether the lock is owned by this thread.
+        // Whether the lock is owned by this thread.
         // _multiprocessing_SemLock__is_mine_impl
         #[pymethod]
         fn _is_mine(&self) -> bool {
             ismine!(self)
         }
 
-        /// Get the value of the semaphore.
+        // Get the value of the semaphore.
         // _multiprocessing_SemLock__get_value_impl
         #[pymethod]
         fn _get_value(&self, vm: &VirtualMachine) -> PyResult<i32> {
@@ -767,7 +767,7 @@ mod _multiprocessing {
             }
         }
 
-        /// Return whether semaphore has value zero.
+        // Return whether semaphore has value zero.
         // _multiprocessing_SemLock__is_zero_impl
         #[pymethod]
         fn _is_zero(&self, vm: &VirtualMachine) -> PyResult<bool> {

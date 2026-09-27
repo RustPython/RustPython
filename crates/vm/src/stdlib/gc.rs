@@ -21,19 +21,19 @@ mod gc {
     #[pyattr]
     const DEBUG_LEAK: u32 = gc_state::GcDebugFlags::LEAK.bits();
 
-    /// Enable automatic garbage collection.
+    // Enable automatic garbage collection.
     #[pyfunction]
     fn enable(vm: &VirtualMachine) {
         vm.state.gc.enable();
     }
 
-    /// Disable automatic garbage collection.
+    // Disable automatic garbage collection.
     #[pyfunction]
     fn disable(vm: &VirtualMachine) {
         vm.state.gc.disable();
     }
 
-    /// Return true if automatic gc is enabled.
+    // Return true if automatic gc is enabled.
     #[pyfunction]
     fn isenabled(vm: &VirtualMachine) -> bool {
         vm.state.gc.is_enabled()
@@ -77,7 +77,7 @@ mod gc {
         Ok((result.collected + result.uncollectable) as i32)
     }
 
-    /// Return the current collection thresholds as a tuple.
+    // Return the current collection thresholds as a tuple.
     #[pyfunction]
     fn get_threshold(vm: &VirtualMachine) -> PyObjectRef {
         let (t0, t1, t2) = vm.state.gc.get_threshold();
@@ -90,7 +90,7 @@ mod gc {
             .into()
     }
 
-    /// Set the collection thresholds.
+    // Set the collection thresholds.
     #[pyfunction]
     fn set_threshold(
         threshold0: u32,
@@ -105,7 +105,7 @@ mod gc {
         );
     }
 
-    /// Return the current collection counts as a tuple.
+    // Return the current collection counts as a tuple.
     #[pyfunction]
     fn get_count(vm: &VirtualMachine) -> PyObjectRef {
         let (c0, c1, c2) = gc_state::gc_state().get_count();
@@ -118,13 +118,13 @@ mod gc {
             .into()
     }
 
-    /// Return the current debugging flags.
+    // Return the current debugging flags.
     #[pyfunction]
     fn get_debug(vm: &VirtualMachine) -> u32 {
         vm.state.gc.get_debug().bits()
     }
 
-    /// Set the debugging flags.
+    // Set the debugging flags.
     #[pyfunction]
     fn set_debug(flags: u32, vm: &VirtualMachine) {
         vm.state
@@ -132,7 +132,7 @@ mod gc {
             .set_debug(gc_state::GcDebugFlags::from_bits_truncate(flags));
     }
 
-    /// Return a list of per-generation gc stats.
+    // Return a list of per-generation gc stats.
     #[pyfunction]
     fn get_stats(vm: &VirtualMachine) -> PyResult<PyListRef> {
         let stats = vm.state.gc.get_stats();
@@ -174,7 +174,7 @@ mod gc {
         Ok(vm.ctx.new_list(objects))
     }
 
-    /// Return the list of objects directly referred to by any of the arguments.
+    // Return the list of objects directly referred to by any of the arguments.
     #[pyfunction]
     fn get_referents(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
         let mut result = Vec::new();
@@ -187,7 +187,7 @@ mod gc {
         vm.ctx.new_list(result)
     }
 
-    /// Return the list of objects that directly refer to any of the arguments.
+    // Return the list of objects that directly refer to any of the arguments.
     #[pyfunction]
     fn get_referrers(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
         use std::collections::HashSet;
@@ -243,32 +243,32 @@ mod gc {
         vm.ctx.new_list(result)
     }
 
-    /// Return True if the object is tracked by the garbage collector.
+    // Return True if the object is tracked by the garbage collector.
     #[pyfunction]
     fn is_tracked(obj: PyObjectRef) -> bool {
         // An object is tracked if it has IS_TRACE = true (has a trace function)
         obj.is_gc_tracked()
     }
 
-    /// Return True if the object has been finalized by the garbage collector.
+    // Return True if the object has been finalized by the garbage collector.
     #[pyfunction]
     fn is_finalized(obj: PyObjectRef) -> bool {
         obj.gc_finalized()
     }
 
-    /// Freeze all objects tracked by gc.
+    // Freeze all objects tracked by gc.
     #[pyfunction]
     fn freeze(vm: &VirtualMachine) {
         vm.state.gc.freeze();
     }
 
-    /// Unfreeze all objects in the permanent generation.
+    // Unfreeze all objects in the permanent generation.
     #[pyfunction]
     fn unfreeze(vm: &VirtualMachine) {
         vm.state.gc.unfreeze();
     }
 
-    /// Return the number of objects in the permanent generation.
+    // Return the number of objects in the permanent generation.
     #[pyfunction]
     fn get_freeze_count() -> usize {
         gc_state::gc_state().get_freeze_count()

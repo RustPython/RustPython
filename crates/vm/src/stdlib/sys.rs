@@ -764,7 +764,7 @@ pub mod sys {
         false // RustPython has no GIL (like free-threaded Python)
     }
 
-    /// Return True if remote debugging is enabled, False otherwise.
+    // Return True if remote debugging is enabled, False otherwise.
     #[pyfunction]
     const fn is_remote_debug_enabled() -> bool {
         false // RustPython does not support remote debugging
@@ -1063,8 +1063,8 @@ pub mod sys {
         })
     }
 
-    /// Return a dictionary mapping each thread's identifier to the topmost stack frame
-    /// currently active in that thread at the time the function is called.
+    // Return a dictionary mapping each thread's identifier to the topmost stack frame
+    // currently active in that thread at the time the function is called.
     #[cfg(feature = "threading")]
     #[pyfunction]
     fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictRef> {
@@ -1082,8 +1082,8 @@ pub mod sys {
         Ok(dict)
     }
 
-    /// Return a dictionary mapping each thread's identifier to its currently
-    /// active exception, or None if no exception is active.
+    // Return a dictionary mapping each thread's identifier to its currently
+    // active exception, or None if no exception is active.
     #[cfg(feature = "threading")]
     #[pyfunction]
     fn _current_exceptions(vm: &VirtualMachine) -> PyResult<PyDictRef> {
@@ -1109,7 +1109,7 @@ pub mod sys {
         Ok(dict)
     }
 
-    /// Stub for non-threading builds - returns empty dict
+    // Stub for non-threading builds - returns empty dict
     #[cfg(not(feature = "threading"))]
     #[pyfunction]
     fn _current_frames(vm: &VirtualMachine) -> PyDictRef {
@@ -1261,7 +1261,7 @@ pub mod sys {
         PyIntInfo::from_data(IntInfoData::INFO, vm)
     }
 
-    /// Private function for getting PyConfig.cpu_count
+    // Private function for getting PyConfig.cpu_count
     #[pyfunction]
     fn _get_cpu_count_config(vm: &VirtualMachine) -> i32 {
         vm.state.config.settings.cpu_count.map_or(-1, |n| n.get())

@@ -2155,9 +2155,9 @@ mod _socket {
             .map_err(|e| e.into_pyexception(vm))
         }
 
-        /// sendmsg_afalg([msg], *, op[, iv[, assoclen[, flags]]]) -> int
-        ///
-        /// Set operation mode and target IV for an AF_ALG socket.
+        // sendmsg_afalg([msg], *, op[, iv[, assoclen[, flags]]]) -> int
+        //
+        // Set operation mode and target IV for an AF_ALG socket.
         #[cfg(target_os = "linux")]
         #[pymethod]
         fn sendmsg_afalg(&self, args: SendmsgAfalgArgs, vm: &VirtualMachine) -> PyResult<usize> {
@@ -2192,9 +2192,9 @@ mod _socket {
             .map_err(|e| e.into_pyexception(vm))
         }
 
-        /// recvmsg(bufsize[, ancbufsize[, flags]]) -> (data, ancdata, msg_flags, address)
-        ///
-        /// Receive normal data and ancillary data from the socket.
+        // recvmsg(bufsize[, ancbufsize[, flags]]) -> (data, ancdata, msg_flags, address)
+        //
+        // Receive normal data and ancillary data from the socket.
         #[cfg(all(unix, not(target_os = "redox")))]
         #[pymethod]
         fn recvmsg(

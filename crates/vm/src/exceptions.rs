@@ -1722,7 +1722,7 @@ pub(super) mod types {
         pub(super) traceback: PyRwLock<Option<PyTracebackRef>>,
         pub(super) cause: PyRwLock<Option<PyRef<Self>>>,
         pub(super) context: PyRwLock<Option<PyRef<Self>>>,
-        #[pymember(name = "__suppress_context__", writable, doc = false)]
+        #[pymember(name = "__suppress_context__", writable)]
         pub(super) suppress_context: AtomicBool,
         pub(super) args: PyRwLock<PyTupleRef>,
     }

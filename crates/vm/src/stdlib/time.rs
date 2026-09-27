@@ -467,7 +467,7 @@ mod decl {
         }
     }
 
-    /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
+    // https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
     #[pyfunction]
     fn gmtime(
         secs: OptionalOption<Either<f64, i64>>,

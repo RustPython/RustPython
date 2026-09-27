@@ -142,6 +142,11 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///    ...
 /// }
 /// ```
+/// ## Docstrings
+/// A `///` doc comment on the struct, or on a `#[pymethod]` / `#[pyclassmethod]` /
+/// `#[pystaticmethod]` / `#[pygetset]` / `#[pymember]` item, is the Python
+/// docstring and overrides the stored documentation. The stored documentation
+/// is used only when that item has no `///` comment. Use `//` for developer notes.
 /// ## Inner markers
 /// ### pymethod/pyclassmethod/pystaticmethod
 /// `pymethod` is used to mark a method of the Python class.
@@ -231,13 +236,16 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// - `audit_read`: audit `object.__getattr__` before the load.
 /// - `name`: Python attribute name. Defaults to the field name.
 /// - `path`: subfield of the annotated field (`value` with `path = "re"`).
-/// - `doc`: `doc = "text"` is that docstring and does not consult the stored
-///   attribute documentation. `doc = false` stores no docstring. When `doc` is
-///   omitted, the docstring is the stored attribute documentation.
+/// - `doc`: only `doc = false`, which stores no docstring. Otherwise the
+///   docstring is the field's `///` comment when present, and the stored
+///   attribute documentation when the field has no `///` comment. Every
+///   `#[pymember]` on one field shares that comment. A string `doc` is rejected.
 ///
 /// A struct-level `#[pymember]` (after `#[pyclass]`) has no field. `offset` is
-/// required there and rejected on a field. One field may carry several
-/// `#[pymember]` attributes. A `#[cfg]` on the field gates that entry.
+/// required there and rejected on a field. `///` lines placed immediately above
+/// that attribute are its docstring; otherwise the stored attribute
+/// documentation is used. One field may carry several `#[pymember]` attributes.
+/// A `#[cfg]` on the field gates that entry.
 /// ```rust, ignore
 /// #[pymember(name = "fget")]
 /// getter: PyAtomicRef<Option<PyObject>>,
@@ -255,6 +263,8 @@ pub fn pyclass(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Helper macro to define `Exception` types.
 /// More-or-less is an alias to `pyclass` macro.
+/// A `///` comment on the exception type is its docstring and overrides the
+/// stored documentation. Use `//` for developer notes.
 ///
 /// This macro serves a goal of generating multiple
 /// `BaseException` / `Exception`
@@ -272,6 +282,10 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// It defines a Python module in the form of a `module_def` function in the module;
 /// this has to be used in a `add_native_module` to properly register the module.
 /// Additionally, this macro defines 'MODULE_NAME' and 'DOC' in the module.
+/// A `///` comment on the module is its docstring and overrides the stored
+/// module documentation. `#[pyfunction]` works the same way: its `///` comment
+/// is the function docstring and overrides the stored function documentation.
+/// Use `//` for developer notes.
 /// # Arguments
 /// - `name`: the name of the python module,
 ///   by default, it is the name of the module, but this can be configured.
@@ -343,7 +357,8 @@ pub fn pymodule(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Attribute macro for defining Python struct sequence types.
 ///
 /// This macro is applied to an empty struct to create a Python type
-/// that wraps a Data struct.
+/// that wraps a Data struct. A `///` comment on that struct is the type's
+/// docstring and overrides the stored documentation. Use `//` for developer notes.
 ///
 /// # Example
 /// ```ignore

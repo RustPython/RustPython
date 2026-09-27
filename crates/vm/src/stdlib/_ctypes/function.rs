@@ -344,8 +344,8 @@ impl PyCFuncPtrType {
     }
 }
 
-/// PyCFuncPtr - Function pointer instance
-/// Saved in _base.buffer
+// PyCFuncPtr - Function pointer instance
+// Saved in _base.buffer
 #[pyclass(
     module = "_ctypes",
     name = "CFuncPtr",

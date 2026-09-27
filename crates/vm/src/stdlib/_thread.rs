@@ -373,7 +373,7 @@ pub(crate) mod _thread {
         }
     }
 
-    /// Get thread identity - uses pthread_self() on Unix for fork compatibility
+    // Get thread identity - uses pthread_self() on Unix for fork compatibility
     #[pyfunction]
     #[must_use]
     pub fn get_ident() -> u64 {
@@ -999,8 +999,8 @@ pub(crate) mod _thread {
         vm.state.main_thread_ident.store(ident);
     }
 
-    /// ExceptHookArgs - simple class to hold exception hook arguments
-    /// This allows threading.py to import _excepthook and _ExceptHookArgs from _thread
+    // ExceptHookArgs - simple class to hold exception hook arguments
+    // This allows threading.py to import _excepthook and _ExceptHookArgs from _thread
     #[pyattr]
     #[pyclass(module = "_thread", name = "_ExceptHookArgs")]
     #[derive(Debug, PyPayload)]
@@ -1065,7 +1065,7 @@ pub(crate) mod _thread {
         }
     }
 
-    /// Handle uncaught exception in Thread.run()
+    // Handle uncaught exception in Thread.run()
     #[pyfunction]
     fn _excepthook(args: crate::PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Type check: args must be _ExceptHookArgs

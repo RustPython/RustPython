@@ -16,9 +16,9 @@ use crate::{
 };
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 
-/// Template object for t-strings (PEP 750).
-///
-/// Represents a template string with interpolated expressions.
+// Template object for t-strings (PEP 750).
+//
+// Represents a template string with interpolated expressions.
 #[pyclass(module = "string.templatelib", name = "Template")]
 #[derive(Debug, Clone)]
 pub struct PyTemplate {
@@ -263,7 +263,7 @@ impl Representable for PyTemplate {
     }
 }
 
-/// Iterator for Template objects
+// Iterator for Template objects
 #[pyclass(module = "string.templatelib", name = "TemplateIter")]
 #[derive(Debug)]
 pub struct PyTemplateIter {
