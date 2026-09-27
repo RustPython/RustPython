@@ -949,6 +949,32 @@ impl Py<PyDict> {
         self.entries.keys_version()
     }
 
+    pub(crate) fn module_attr_cache(
+        &self,
+        name: &super::PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> Option<(u32, u16)> {
+        self.exact_dict(vm)
+            .then(|| self.entries.module_attr_cache(name, vm))
+            .flatten()
+    }
+
+    #[inline]
+    pub(crate) fn get_cached_module_attr(
+        &self,
+        name: &super::PyStrInterned,
+        version: usize,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> Option<PyObjectRef> {
+        self.exact_dict(vm)
+            .then(|| {
+                self.entries
+                    .get_cached_module_attr(name, version, index, vm)
+            })
+            .flatten()
+    }
+
     /// Current keys-version stamp, assigning one if none is set.
     ///
     /// Returns 0 for dict subclasses: their lookup can be overridden, so a
