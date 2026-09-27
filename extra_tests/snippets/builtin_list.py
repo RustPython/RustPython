@@ -142,6 +142,38 @@ recursive = []
 recursive.append(recursive)
 assert repr(recursive) == "[[...]]"
 
+
+def test_repr_mutation():
+    class ReplaceNext:
+        def __repr__(self):
+            values[1] = 42
+            return "item"
+
+    values = [ReplaceNext(), 0]
+    assert repr(values) == "[item, 42]"
+
+    class AppendNext:
+        def __repr__(self):
+            values.append(42)
+            return "item"
+
+    values = [AppendNext()]
+    assert repr(values) == "[item, 42]"
+
+    class RemoveSelf:
+        def __repr__(self):
+            values.pop(0)
+            return "item"
+
+        def __del__(self):
+            values.append(42)
+
+    values = [RemoveSelf(), 0]
+    assert repr(values) == "[item, 42]"
+
+
+test_repr_mutation()
+
 # insert()
 x = ["a", "b", "c"]
 x.insert(0, "z")  # insert is in-place, no return value
