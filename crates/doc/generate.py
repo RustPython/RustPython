@@ -21,6 +21,14 @@ OUTPUT_FILE.parent.mkdir(exist_ok=True)
 
 UNICODE_ESCAPE = re.compile(r"\\u([0-9]+)")
 
+HEAPTYPE = 1 << 9
+IMMUTABLETYPE = 1 << 8
+C_DESCRIPTORS = (
+    types.MethodDescriptorType,
+    types.WrapperDescriptorType,
+    types.ClassMethodDescriptorType,
+)
+
 IGNORED_MODULES = {"this", "antigravity"}
 IGNORED_ATTRS = {
     "__annotations__",
@@ -177,6 +185,18 @@ def traverse(
             yield DocEntry(new_parts, pydoc._getowndoc(attr))
 
 
+def is_python_class(typ: type) -> bool:
+    """Whether a class was defined in Python code rather than in C."""
+    if not typ.__flags__ & HEAPTYPE or typ.__flags__ & IMMUTABLETYPE:
+        return False
+    # C types keep their slot wrappers and method descriptors even when
+    # their __module__ names a Python module (e.g. ast.AST).
+    if any(isinstance(attr, C_DESCRIPTORS) for attr in vars(typ).values()):
+        return False
+    module = sys.modules.get(typ.__module__)
+    return module is not None and not is_c_extension(module)
+
+
 def find_doc_entries() -> "Iterable[DocEntry]":
     yield from (
         doc_entry
@@ -196,6 +216,9 @@ def find_doc_entries() -> "Iterable[DocEntry]":
             builtin_types.append(obj)
 
     for typ in builtin_types:
+        # Classes defined in Python get their docs from source.
+        if is_python_class(typ):
+            continue
         parts = ("builtins", typ.__name__)
         yield DocEntry(parts, pydoc._getowndoc(typ))
         yield from traverse(typ, __builtins__, parts)

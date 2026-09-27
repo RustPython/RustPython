@@ -242,7 +242,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                     impl ::rustpython_vm::class::PyClassImpl for #payload_ty {
                         const TP_FLAGS: ::rustpython_vm::types::PyTypeFlags = #flags;
 
-                        const INTERNAL_DOC: Option<&'static str> = #internal_doc;
+                        const INTERNAL_DOC: ::rustpython_vm::function::ItemDoc = #internal_doc;
 
                         fn impl_extend_class(
                             ctx: &'static ::rustpython_vm::Context,
@@ -426,26 +426,36 @@ fn class_def_ty(self_ty: Option<&syn::Type>) -> Option<TokenStream> {
     Some(quote!(#ty))
 }
 
-/// Const `Option<&'static str>`. A non-empty Rust doc is the docstring.
+/// Const `ItemDoc`. A non-empty Rust doc is the docstring.
 /// The attribute table is used only when there is no Rust doc. Generic impls
 /// cannot name `Self` from a nested const, so without a Rust doc they store none.
 fn attr_doc_expr(self_ty: Option<&syn::Type>, attr: &str, rust_doc: Option<String>) -> TokenStream {
     if let Some(doc) = rust_doc.filter(|doc| !doc.is_empty()) {
-        return quote!(Some(#doc));
+        return quote!(::rustpython_vm::function::ItemDoc::static_text(#doc));
     }
     let Some(ty) = class_def_ty(self_ty) else {
-        return quote!(None);
+        return quote!(::rustpython_vm::function::ItemDoc::NONE);
     };
     quote! {
         {
-            const FOUND: Option<&str> = ::rustpython_vm::class::attr_doc(
-                <#ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
-                #attr,
-            );
-            if let Some(doc) = FOUND {
-                if doc.is_empty() { None } else { Some(doc) }
-            } else {
-                None
+            #[cfg(feature = "doc")]
+            {
+                const FOUND: Option<(u32, u32)> = ::rustpython_vm::class::attr_doc(
+                    <#ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
+                    #attr,
+                );
+                match FOUND {
+                    Some((offset, len)) if len != 0 => ::rustpython_vm::function::ItemDoc {
+                        text: None,
+                        offset,
+                        len,
+                    },
+                    _ => ::rustpython_vm::function::ItemDoc::NONE,
+                }
+            }
+            #[cfg(not(feature = "doc"))]
+            {
+                ::rustpython_vm::function::ItemDoc::NONE
             }
         }
     }
@@ -496,17 +506,14 @@ fn generate_class_def(
 ) -> Result<TokenStream> {
     let attrs = extras.attrs;
     let module_key = module_name.unwrap_or("builtins");
-    let attr_docs = crate::class_docs::attr_docs_tokens(module_name, name);
-    let doc = attrs.doc().filter(|doc| !doc.is_empty()).or_else(|| {
-        rustpython_doc::get_qualified(module_key, name, None, true)
-            .filter(|doc| !doc.is_empty())
-            .map(str::to_owned)
-    });
-    let doc = if let Some(doc) = doc {
-        quote!(Some(#doc))
+    let (attr_docs, attr_names) = crate::class_docs::attr_docs_tokens(module_name, name);
+    let rust_doc = attrs.doc().filter(|doc| !doc.is_empty());
+    let db_doc = if rust_doc.is_some() {
+        None
     } else {
-        quote!(None)
+        rustpython_doc::get_qualified(module_key, name, None, true)
     };
+    let doc = crate::class_docs::item_doc_tokens(db_doc, rust_doc);
     let module_class_name = if let Some(module_name) = module_name {
         format!("{module_name}.{name}")
     } else {
@@ -616,8 +623,11 @@ fn generate_class_def(
             const NAME: &'static str = #name;
             const MODULE_NAME: Option<&'static str> = #module_name;
             const TP_NAME: &'static str = #module_class_name;
-            const DOC: Option<&'static str> = #doc;
-            const ATTR_DOCS: &'static [(&'static str, &'static str)] = #attr_docs;
+            const DOC: ::rustpython_vm::function::ItemDoc = #doc;
+            #[cfg(feature = "doc")]
+            const ATTR_DOCS: &'static [(&'static str, u32, u32)] = #attr_docs;
+            #[cfg(not(feature = "doc"))]
+            const ATTR_DOCS: &'static [&'static str] = #attr_names;
             const BASICSIZE: usize = #basicsize;
             const UNHASHABLE: bool = #unhashable;
             const MEMBERS: &'static [::rustpython_vm::builtins::descriptor::PyMemberSpec] = #members;
@@ -1588,12 +1598,12 @@ impl ToTokens for GetSetNursery {
             quote_spanned! { getter.span() =>
                 #( #cfgs )*
                 {
-                    const DOC: Option<&str> = #doc;
+                    const DOC: ::rustpython_vm::function::ItemDoc = #doc;
                     let mut getset = ::rustpython_vm::builtins::PyGetSet::new(#name, class, ctx)
                         .with_get(Self::#getter)
                         #setter;
-                    if let Some(doc) = DOC {
-                        getset = getset.with_doc(doc);
+                    if DOC.text.is_some() || DOC.len != 0 {
+                        getset = getset.with_doc(DOC);
                     }
                     class.set_str_attr(
                         #name,
@@ -2216,7 +2226,7 @@ fn build_member(
         (offset_expr, quote!(), kind_tokens)
     };
     let doc = if meta.suppress_doc()? {
-        quote!(None)
+        quote!(::rustpython_vm::function::ItemDoc::NONE)
     } else {
         attr_doc_expr(Some(class_ty), &name, rust_doc)
     };
@@ -2522,7 +2532,7 @@ fn class_internal_doc(
         {
             const CHOSEN: Option<&'static [::rustpython_vm::function::Param]> = #chosen;
             if CHOSEN.is_none() {
-                None
+                ::rustpython_vm::function::ItemDoc::NONE
             } else {
                 const ARGS: &[::rustpython_vm::function::SigArg] = &[
                     ::rustpython_vm::function::SigArg {
@@ -2530,20 +2540,37 @@ fn class_internal_doc(
                         params: CHOSEN,
                     },
                 ];
-                const DOC: &str = match <#payload as ::rustpython_vm::class::PyClassDef>::DOC {
-                    Some(doc) => doc,
-                    None => "",
-                };
+                const BASE: ::rustpython_vm::function::ItemDoc =
+                    <#payload as ::rustpython_vm::class::PyClassDef>::DOC;
                 const NAME: &str = <#payload as ::rustpython_vm::class::PyClassDef>::NAME;
-                const N: usize =
-                    ::rustpython_vm::function::internal_doc_len(NAME, ARGS, DOC);
-                const B: [u8; N] =
-                    ::rustpython_vm::function::internal_doc_bytes::<N>(NAME, ARGS, DOC);
-                const S: &str = match ::core::str::from_utf8(&B) {
-                    Ok(s) => s,
-                    Err(_) => panic!(),
-                };
-                Some(S)
+                if BASE.len != 0 {
+                    const N: usize = ::rustpython_vm::function::signature_prefix_len(NAME, ARGS);
+                    const B: [u8; N] =
+                        ::rustpython_vm::function::signature_prefix_bytes::<N>(NAME, ARGS);
+                    const PREFIX: &str = match ::core::str::from_utf8(&B) {
+                        Ok(s) => s,
+                        Err(_) => panic!(),
+                    };
+                    ::rustpython_vm::function::ItemDoc {
+                        text: Some(PREFIX),
+                        offset: BASE.offset,
+                        len: BASE.len,
+                    }
+                } else {
+                    const BODY: &str = match BASE.text {
+                        Some(text) => text,
+                        None => "",
+                    };
+                    const N: usize =
+                        ::rustpython_vm::function::internal_doc_len(NAME, ARGS, BODY);
+                    const B: [u8; N] =
+                        ::rustpython_vm::function::internal_doc_bytes::<N>(NAME, ARGS, BODY);
+                    const FULL: &str = match ::core::str::from_utf8(&B) {
+                        Ok(s) => s,
+                        Err(_) => panic!(),
+                    };
+                    ::rustpython_vm::function::ItemDoc::static_text(FULL)
+                }
             }
         }
     }

@@ -59,6 +59,10 @@ macro_rules! define_methods {
             name: $name,
             func: $crate::function::static_func($func),
             flags: $crate::function::PyMethodFlags::$flags,
+            #[cfg(feature = "doc")]
+            doc_off: 0,
+            #[cfg(feature = "doc")]
+            doc_len: 0,
             doc: None,
         }),+ ]
     };
@@ -69,22 +73,47 @@ pub struct PyMethodDef {
     pub name: &'static str, // TODO: interned
     pub func: &'static dyn PyNativeFn,
     pub flags: PyMethodFlags,
-    pub doc: Option<&'static str>, // TODO: interned
+    /// Database body span. Absent when the `doc` feature is off.
+    #[cfg(feature = "doc")]
+    pub doc_off: u32,
+    #[cfg(feature = "doc")]
+    pub doc_len: u32,
+    /// Plain doc, full internal doc, or signature prefix when `doc_len` is set.
+    pub doc: Option<&'static str>,
 }
 
 impl PyMethodDef {
+    #[must_use]
+    pub fn item_doc(&self) -> super::ItemDoc {
+        super::ItemDoc {
+            text: self.doc,
+            #[cfg(feature = "doc")]
+            offset: self.doc_off,
+            #[cfg(feature = "doc")]
+            len: self.doc_len,
+            #[cfg(not(feature = "doc"))]
+            offset: 0,
+            #[cfg(not(feature = "doc"))]
+            len: 0,
+        }
+    }
+
     #[inline]
     pub const fn new_const<Kind>(
         name: &'static str,
         func: impl IntoPyNativeFn<Kind>,
         flags: PyMethodFlags,
-        doc: Option<&'static str>,
+        doc: super::ItemDoc,
     ) -> Self {
         Self {
             name,
             func: super::static_func(func),
             flags,
-            doc,
+            #[cfg(feature = "doc")]
+            doc_off: doc.offset,
+            #[cfg(feature = "doc")]
+            doc_len: doc.len,
+            doc: doc.text,
         }
     }
 
@@ -93,13 +122,17 @@ impl PyMethodDef {
         name: &'static str,
         func: impl PyNativeFn,
         flags: PyMethodFlags,
-        doc: Option<&'static str>,
+        doc: super::ItemDoc,
     ) -> Self {
         Self {
             name,
             func: super::static_raw_func(func),
             flags,
-            doc,
+            #[cfg(feature = "doc")]
+            doc_off: doc.offset,
+            #[cfg(feature = "doc")]
+            doc_len: doc.len,
+            doc: doc.text,
         }
     }
 
@@ -237,6 +270,10 @@ impl PyMethodDef {
             name: "",
             func: &|_, _, _| unreachable!(),
             flags: PyMethodFlags::empty(),
+            #[cfg(feature = "doc")]
+            doc_off: 0,
+            #[cfg(feature = "doc")]
+            doc_len: 0,
             doc: None,
         };
         let mut all_methods = [NULL_METHOD; SUM_LEN];
@@ -261,6 +298,10 @@ impl PyMethodDef {
             name: self.name,
             func: self.func,
             flags: self.flags,
+            #[cfg(feature = "doc")]
+            doc_off: self.doc_off,
+            #[cfg(feature = "doc")]
+            doc_len: self.doc_len,
             doc: self.doc,
         }
     }

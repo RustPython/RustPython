@@ -11,7 +11,8 @@ license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["compiler", "host_env"]
+default = ["compiler", "host_env", "doc"]
+doc = ["rustpython-vm/doc"]
 host_env = ["rustpython-vm/host_env"]
 compiler = ["rustpython-vm/compiler"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]

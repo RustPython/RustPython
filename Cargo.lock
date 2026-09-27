@@ -3858,6 +3858,9 @@ dependencies = [
 [[package]]
 name = "rustpython-doc"
 version = "0.6.0"
+dependencies = [
+ "xz",
+]
 
 [[package]]
 name = "rustpython-host_env"
@@ -4140,6 +4143,7 @@ dependencies = [
  "rustpython-compiler",
  "rustpython-compiler-core",
  "rustpython-derive",
+ "rustpython-doc",
  "rustpython-host_env",
  "rustpython-jit",
  "rustpython-literal",
@@ -4157,6 +4161,7 @@ dependencies = [
  "thiserror",
  "wasm-bindgen",
  "widestring",
+ "xz",
 ]
 
 [[package]]

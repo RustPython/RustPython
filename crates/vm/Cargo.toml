@@ -10,7 +10,8 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["compiler", "wasmbind", "gc", "host_env", "stdio"]
+default = ["compiler", "wasmbind", "gc", "host_env", "stdio", "doc"]
+doc = ["dep:rustpython-doc", "dep:xz"]
 host_env = []
 stdio = []
 importlib = []
@@ -33,6 +34,7 @@ wasmbind = ["rustpython-common/wasm_js", "jiff/js", "wasm-bindgen"]
 rustpython-compiler = { workspace = true, optional = true }
 rustpython-codegen = { workspace = true, optional = true }
 rustpython-common = { workspace = true }
+rustpython-doc = { workspace = true, optional = true }
 rustpython-derive = { workspace = true }
 rustpython-host_env = { workspace = true }
 rustpython-jit = { workspace = true, optional = true }
@@ -71,6 +73,7 @@ rapidhash = { workspace = true }
 scopeguard = { workspace = true }
 serde = { workspace = true, optional = true }
 static_assertions = { workspace = true }
+xz = { workspace = true, optional = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }

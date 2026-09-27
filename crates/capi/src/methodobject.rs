@@ -4,7 +4,7 @@ use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int};
-use rustpython_vm::function::{FuncArgs, HeapMethodDef, PosArgs, PyMethodFlags};
+use rustpython_vm::function::{FuncArgs, HeapMethodDef, ItemDoc, PosArgs, PyMethodFlags};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 define_py_check!(fn PyCFunction_Check, types.builtin_function_or_method_type);
@@ -49,6 +49,12 @@ pub(crate) fn build_method_def(
     let name = unsafe { ml.ml_name.try_as_str(vm) }?;
 
     let doc = unsafe { ml.ml_doc.try_as_str_opt(vm) }?;
+    let doc = doc
+        .filter(|doc| !doc.is_empty())
+        .map_or(ItemDoc::NONE, |doc| {
+            let text: &'static str = Box::leak(doc.to_owned().into_boxed_str());
+            ItemDoc::static_text(text)
+        });
 
     let flags = PyMethodFlags::from_bits(ml.ml_flags as u32)
         .ok_or_else(|| vm.new_system_error("PyMethodDef contains unknown flags"))?;

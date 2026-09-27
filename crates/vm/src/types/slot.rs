@@ -7,7 +7,9 @@ use crate::{
     bytecode::ComparisonOperator,
     common::hash::{PyHash, fix_sentinel, hash_bigint},
     convert::ToPyObject,
-    function::{Callee, Either, FromArgs, FuncArgs, PyComparisonValue, PyMethodDef, PySetterValue},
+    function::{
+        Callee, Either, FromArgs, FuncArgs, ItemDoc, PyComparisonValue, PyMethodDef, PySetterValue,
+    },
     protocol::{
         BufferFlags, PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyMappingSlots, PyNumber,
         PyNumberMethods, PyNumberSlots, PySequence, PySequenceMethods, PySequenceSlots,
@@ -173,7 +175,7 @@ pub struct PyTypeSlots {
     pub flags: PyTypeFlags,
 
     // tp_doc
-    pub doc: Option<&'static str>,
+    pub doc: ItemDoc,
 
     // Strong reference on a heap type, borrowed reference on a static type
     // tp_base
