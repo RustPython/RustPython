@@ -100,7 +100,7 @@ pub(crate) mod union_;
 pub use union_::{PyUnion, make_union};
 pub mod descriptor;
 pub use descriptor::{
-    MemberAccess, MemberKind, PY_READONLY, PY_RELATIVE_OFFSET, PyDescriptorOwned,
+    MemberAccess, MemberKind, PY_ATOMIC, PY_READONLY, PY_RELATIVE_OFFSET, PyDescriptorOwned,
     PyMemberDef as DescriptorMemberDef, PyMemberDescriptor,
 };
 

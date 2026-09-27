@@ -562,13 +562,18 @@ pub(crate) fn subs_parameters(
         };
 
         if unpack {
-            let arg_type = arg.class().fully_qualified_name(vm)?;
-            let substituted_type = substituted_arg.class().fully_qualified_name(vm)?;
-            let tuple = substituted_arg.try_to_ref::<PyTuple>(vm).map_err(|_| {
-                vm.new_type_error(format!(
-                    "expected __typing_subst__ of {arg_type} objects to return a tuple, not {substituted_type}",
-                ))
-            })?;
+            // Names are read only for the error. A failing `__module__` lookup
+            // must not reject a substitution that did return a tuple.
+            let tuple = match substituted_arg.try_to_ref::<PyTuple>(vm) {
+                Ok(tuple) => tuple,
+                Err(_) => {
+                    let arg_type = arg.class().fully_qualified_name(vm)?;
+                    let substituted_type = substituted_arg.class().fully_qualified_name(vm)?;
+                    return Err(vm.new_type_error(format!(
+                        "expected __typing_subst__ of {arg_type} objects to return a tuple, not {substituted_type}",
+                    )));
+                }
+            };
             for elem in tuple {
                 new_args.push(elem.clone());
             }

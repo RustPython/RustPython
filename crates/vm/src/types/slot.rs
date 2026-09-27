@@ -402,6 +402,7 @@ impl crate::builtins::descriptor::MemberLayout for PyAtomicTypeFlags {
             crate::builtins::descriptor::MemberKind::ULongLong
         }
     };
+    const ATOMIC: bool = true;
 }
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;

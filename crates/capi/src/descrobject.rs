@@ -5,8 +5,8 @@ use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int, c_void};
 use rustpython_vm::builtins::{
-    DescriptorMemberDef, MemberAccess, MemberKind, PY_RELATIVE_OFFSET, PyDescriptorOwned, PyGetSet,
-    PyMappingProxy, PyMemberDescriptor, PyType,
+    DescriptorMemberDef, MemberAccess, MemberKind, PY_ATOMIC, PY_RELATIVE_OFFSET,
+    PyDescriptorOwned, PyGetSet, PyMappingProxy, PyMemberDescriptor, PyType,
 };
 use rustpython_vm::common::lock::PyRwLock;
 use rustpython_vm::function::{ItemDoc, PySetterValue};
@@ -128,6 +128,8 @@ impl PyMemberDef {
         };
         let mut offset = self.offset;
         let mut flags = self.flags;
+        // Extension members never carry the internal atomic-storage bit.
+        flags &= !PY_ATOMIC;
         if flags & PY_RELATIVE_OFFSET != 0 {
             // type creation adds tp_basicsize and clears the flag before GetOne.
             // `slots.basicsize` is already the full tp_basicsize.
