@@ -1,4 +1,6 @@
-from functools import partial, reduce
+import gc
+import weakref
+from functools import cache, lru_cache, partial, reduce
 
 from testutils import assert_raises
 
@@ -97,3 +99,121 @@ try:
     assert False, "TypeError expected for partial dict deletion"
 except TypeError:
     pass
+
+
+class CallbackOwner:
+    def handle(self, value):
+        return value + 1
+
+
+def check_callback_cycle(make_callback):
+    owner = CallbackOwner()
+    owner.callback = make_callback(owner)
+    owner_ref = weakref.ref(owner)
+    callback = owner.callback
+    del owner
+    gc.collect()
+    assert owner_ref() is not None
+    assert callback() == 2
+    del callback
+    gc.collect()
+    assert owner_ref() is None
+
+
+# Each partial field can retain the callback owner.
+check_callback_cycle(lambda owner: partial(owner.handle, 1))
+check_callback_cycle(lambda owner: partial(CallbackOwner.handle, owner, 1))
+check_callback_cycle(lambda owner: partial(CallbackOwner.handle, self=owner, value=1))
+
+part = partial(int)
+part.__setstate__((part, (), {}, None))
+part_ref = weakref.ref(part)
+del part
+gc.collect()
+assert part_ref() is None
+
+
+def check_cached_cycles(decorate):
+    owner = CallbackOwner()
+    owner.callback = decorate(owner.handle)
+    owner_ref = weakref.ref(owner)
+    assert owner.callback(1) == 2
+    gc.collect()
+    assert owner.callback(1) == 2
+    del owner
+    gc.collect()
+    assert owner_ref() is None
+
+    # Keep only the cached argument connected back to the wrapper.
+    def consume(value):
+        return None
+
+    cached = decorate(consume)
+    owner = CallbackOwner()
+    owner.callback = cached
+    owner_ref = weakref.ref(owner)
+    cached(owner)
+    del owner
+    gc.collect()
+    assert owner_ref() is not None
+    del cached
+    gc.collect()
+    assert owner_ref() is None
+
+    # Cached results can point back to the wrapper.
+    def produce():
+        return CallbackOwner()
+
+    cached = decorate(produce)
+    owner = cached()
+    owner.callback = cached
+    owner_ref = weakref.ref(owner)
+    del owner
+    gc.collect()
+    assert owner_ref() is cached()
+    del cached
+    gc.collect()
+    assert owner_ref() is None
+
+
+for decorate in (cache, lru_cache(maxsize=8)):
+    check_cached_cycles(decorate)
+
+check_callback_cycle(lambda owner: partial(lru_cache(maxsize=0)(owner.handle), 1))
+
+
+def check_partial_setstate_release():
+    released = []
+
+    class Finalizer:
+        def __call__(self):
+            pass
+
+        def __del__(self):
+            released.append(isinstance(part.args, tuple))
+
+    part = partial(Finalizer(), Finalizer(), old=Finalizer())
+    part.__setstate__((int, (), {}, None))
+    assert released == [True, True, True]
+
+
+check_partial_setstate_release()
+
+
+def check_cache_clear_release(decorate):
+    released = []
+
+    class Result:
+        def __del__(self):
+            info = cached.cache_info()
+            released.append((info.hits, info.misses, info.currsize))
+
+    cached = decorate(Result)
+    cached()
+    cached()
+    cached.cache_clear()
+    assert released == [(0, 0, 0)]
+
+
+for decorate in (cache, lru_cache(maxsize=8)):
+    check_cache_clear_release(decorate)
