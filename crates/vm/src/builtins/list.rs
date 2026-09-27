@@ -73,7 +73,12 @@ unsafe impl Traverse for PyList {
         // This is safe because during GC collection, the object is unreachable
         // and no other code should be accessing it.
         if let Some(mut guard) = self.elements.try_write() {
-            out.extend(guard.drain(..));
+            if out.is_empty() {
+                // Reuse the allocation so deallocation does not need more memory.
+                *out = core::mem::take(&mut *guard);
+            } else {
+                out.extend(guard.drain(..));
+            }
         }
     }
 }
@@ -457,10 +462,20 @@ where
     F: FnMut(PyObjectRef) -> PyResult<R>,
 {
     use crate::builtins::PyTuple;
+    let mut v = Vec::new();
     if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
-        tuple.as_slice().iter().map(|x| f(x.clone())).collect()
+        v.try_reserve_exact(tuple.len())
+            .map_err(|_| vm.no_memory_error())?;
+        for x in tuple.as_slice() {
+            v.push(f(x.clone())?);
+        }
     } else if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
-        list.borrow_vec().iter().map(|x| f(x.clone())).collect()
+        let elements = list.borrow_vec();
+        v.try_reserve_exact(elements.len())
+            .map_err(|_| vm.no_memory_error())?;
+        for x in elements.iter() {
+            v.push(f(x.clone())?);
+        }
     } else {
         let iter = obj.to_owned().get_iter(vm)?;
         let iter = iter.iter::<PyObjectRef>(vm)?;
@@ -469,13 +484,16 @@ where
             .length_opt(vm)
             .transpose()?
             .unwrap_or(0);
-        let mut v = Vec::with_capacity(len);
+        v.try_reserve_exact(len).map_err(|_| vm.no_memory_error())?;
         for x in iter {
-            v.push(f(x?)?);
+            let item = f(x?)?;
+            if v.len() == v.capacity() {
+                v.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+            }
+            v.push(item);
         }
-        v.shrink_to_fit();
-        Ok(v)
     }
+    Ok(v)
 }
 
 impl MutObjectSequenceOp for PyList {

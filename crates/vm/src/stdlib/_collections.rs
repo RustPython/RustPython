@@ -396,14 +396,14 @@ mod _collections {
             if n > 1 && result_len.saturating_mul(size_of::<PyObjectRef>()) >= MAX_MEMORY_SIZE {
                 return Err(vm.no_memory_error());
             }
-            let iter = deque.iter().cycle().take(mul_len);
-            let skipped = self
-                .maxlen
-                .and_then(|maxlen| mul_len.checked_sub(maxlen))
-                .unwrap_or(0);
-
-            let deque = iter.skip(skipped).cloned().collect();
-            Ok(deque)
+            // A maxlen keeps only the last `result_len` items; start the cycle where they begin.
+            let start = (mul_len - result_len).checked_rem(deque.len()).unwrap_or(0);
+            let mut result = VecDeque::new();
+            result
+                .try_reserve_exact(result_len)
+                .map_err(|_| vm.no_memory_error())?;
+            result.extend(deque.iter().cycle().skip(start).take(result_len).cloned());
+            Ok(result)
         }
 
         fn __mul__(&self, n: isize, vm: &VirtualMachine) -> PyResult<Self> {

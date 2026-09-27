@@ -546,7 +546,13 @@ impl PyByteArray {
         if size < 0 {
             return Err(vm.new_value_error("bytearray.resize(): new size must be >= 0"));
         }
-        self.try_resizable(vm)?.elements.resize(size as usize, 0);
+        let mut inner = self.try_resizable(vm)?;
+        let size = size as usize;
+        let elements = &mut inner.elements;
+        elements
+            .try_reserve_exact(size.saturating_sub(elements.len()))
+            .map_err(|_| vm.no_memory_error())?;
+        elements.resize(size, 0);
         Ok(())
     }
 

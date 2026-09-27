@@ -152,6 +152,19 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
         float::float_pow(v1, v2, vm)
     } else {
         let value = if let Some(v2) = int2.to_u64() {
+            // malachite builds a power of two at its exact size. Otherwise it allocates
+            // `bits * v2` bits for the result plus a scratch buffer of up to the same size.
+            let base_bits = int1.bits();
+            if base_bits > 1 {
+                let bits = if int1.trailing_zeros() == Some(base_bits - 1) {
+                    (base_bits - 1)
+                        .checked_mul(v2)
+                        .and_then(|b| b.checked_add(1))
+                } else {
+                    base_bits.checked_mul(v2).and_then(|b| b.checked_mul(2))
+                };
+                reserve_result_bits(bits, vm)?;
+            }
             return Ok(vm.ctx.new_int(Pow::pow(int1, v2)).into());
         } else if int1.is_one() {
             1
@@ -198,11 +211,37 @@ fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
         bits,
         |base, bits| base << bits,
         |bits, vm| {
-            bits.to_usize()
-                .ok_or_else(|| vm.new_overflow_error("the number is too large to convert to int"))
+            // CPython's limit: `(i64::MAX - 1) / 30` digits of 30 bits.
+            const MAX_DIGITS: u128 = (i64::MAX as u128 - 1) / 30;
+            let digits = bits.to_u128().map(|shift| {
+                u128::from(base.bits().div_ceil(30)) + shift / 30 + u128::from(shift % 30 != 0)
+            });
+            if digits.is_none_or(|digits| digits > MAX_DIGITS) {
+                return Err(vm.new_overflow_error("too many digits in integer"));
+            }
+            let shift = bits.to_u64().ok_or_else(|| vm.no_memory_error())?;
+            reserve_result_bits(base.bits().checked_add(shift), vm)?;
+            usize::try_from(shift).map_err(|_| vm.no_memory_error())
         },
         vm,
     )
+}
+
+/// Reject sizes that cannot be allocated before calling Malachite's infallible arithmetic.
+/// This is only a preflight check: Malachite allocates its own result and scratch buffers,
+/// so an allocation failure during the operation can still abort the process.
+fn reserve_result_bits(bits: Option<u64>, vm: &VirtualMachine) -> PyResult<()> {
+    // Results below this size are not worth the extra allocation.
+    const CHECK_FROM_BITS: u64 = 1 << 26;
+    let bits = bits.ok_or_else(|| vm.no_memory_error())?;
+    if bits < CHECK_FROM_BITS {
+        return Ok(());
+    }
+    let words =
+        usize::try_from(bits.div_ceil(u64::BITS.into())).map_err(|_| vm.no_memory_error())?;
+    Vec::<u64>::new()
+        .try_reserve_exact(words)
+        .map_err(|_| vm.no_memory_error())
 }
 
 fn inner_rshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {

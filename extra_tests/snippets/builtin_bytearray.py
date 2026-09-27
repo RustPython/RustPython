@@ -3,6 +3,9 @@ import sys
 
 from testutils import assert_raises
 
+with assert_raises(MemoryError):
+    bytearray(b"ab").resize(sys.maxsize)
+
 # new
 assert bytearray([1, 2, 3])
 assert bytearray((1, 2, 3))
