@@ -5,7 +5,6 @@ use crate::{
         PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr,
         PyStrInterned, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str,
         bool_::PyBool,
-        code::{self, PyCode},
         descriptor::{
             MemberAccess, MemberKind, PyDescriptorOwned, PyMemberDef, PyMemberDescriptor,
             PyMemberFlags,
@@ -779,11 +778,6 @@ impl Context {
             dict.is_some()
         );
         PyRef::new_ref(object::PyBaseObject, class, dict).into()
-    }
-
-    pub fn new_code(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
-        let code = code.into_code_object(self);
-        PyRef::new_ref(PyCode::new(code), self.types.code_type.to_owned(), None)
     }
 
     pub fn new_capsule(

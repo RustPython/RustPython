@@ -931,7 +931,7 @@ mod _testinternalcapi {
         let unit = super::metadata_to_code_unit(&metadata, vm)?;
         let code = rustpython_codegen::ir::assemble_for_tests(filename, rust_seq, unit, true)
             .map_err(|err| super::internal_error_to_py(err, vm))?;
-        Ok(vm.ctx.new_code(code))
+        Ok(vm.new_code(code))
     }
 
     #[cfg(feature = "codegen")]
@@ -1736,7 +1736,7 @@ fn constant_data_to_py(
         )
         .map_or_else(|_| vm.ctx.none(), |set| set.to_pyobject(vm)),
         ConstantData::Ellipsis => vm.ctx.ellipsis.clone().into(),
-        ConstantData::Code { code } => vm.ctx.new_code(*code).into(),
+        ConstantData::Code { code } => vm.new_code(*code).into(),
         ConstantData::Slice { elements } => {
             let [start, stop, step] = *elements;
             crate::builtins::PySlice {
