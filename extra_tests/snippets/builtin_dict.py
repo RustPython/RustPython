@@ -568,3 +568,50 @@ lookup_items = ItemLookupDict(ports=[80, 443]).items()
 assert ("ports", [80, 443]) in lookup_items
 assert ("ports", [8080]) not in lookup_items
 assert ("missing", []) not in lookup_items
+
+
+class LookupOrderKey:
+    calls = []
+
+    def __init__(self, name, equal):
+        self.name = name
+        self.equal = equal
+
+    def __hash__(self):
+        return 17
+
+    def __eq__(self, other):
+        self.calls.append(self.name)
+        return self.equal
+
+
+stored = LookupOrderKey("stored", True)
+lookup = LookupOrderKey("lookup", False)
+mapping = {stored: 1}
+assert mapping[lookup] == 1
+mapping[lookup] = 2
+assert len(mapping) == 1
+assert next(iter(mapping)) is stored
+del mapping[lookup]
+assert not mapping
+assert LookupOrderKey.calls == ["stored", "stored", "stored"]
+
+LookupOrderKey.calls.clear()
+stored = LookupOrderKey("stored", NotImplemented)
+lookup = LookupOrderKey("lookup", True)
+assert {stored: 1}[lookup] == 1
+assert LookupOrderKey.calls == ["stored", "lookup"]
+
+
+class LookupOrderSubclass(LookupOrderKey):
+    __hash__ = LookupOrderKey.__hash__
+
+    def __eq__(self, other):
+        return super().__eq__(other)
+
+
+LookupOrderKey.calls.clear()
+stored = LookupOrderKey("stored", False)
+lookup = LookupOrderSubclass("lookup", True)
+assert {stored: 1}[lookup] == 1
+assert LookupOrderKey.calls == ["lookup"]
