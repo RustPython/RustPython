@@ -11,6 +11,7 @@ use crate::{
     convert::ToPyObject,
     function::{FuncArgs, PyComparisonValue},
     protocol::{PyMappingMethods, PyNumberMethods},
+    sequence::MutObjectSequenceOp,
     types::{
         AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, IterNext,
         Iterable, PyComparisonOp, Representable,
@@ -244,8 +245,8 @@ impl PyGenericAlias {
         let dir = vm.dir(Some(self.origin.clone()))?;
         for exc in &ATTR_EXCEPTIONS {
             let exc_obj = (*exc).to_pyobject(vm);
-            if !dir.__contains__(&exc_obj, vm)? {
-                dir.append((*exc).to_pyobject(vm));
+            if !dir.mut_contains(vm, &exc_obj)? {
+                dir.borrow_vec_mut().push((*exc).to_pyobject(vm));
             }
         }
         Ok(dir)

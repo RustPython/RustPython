@@ -25,7 +25,7 @@ pub extern "C" fn PyList_New(size: isize) -> *mut PyObject {
 pub unsafe extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
         let list = unsafe { obj.assume_borrowed_and_cast::<PyList>(vm) }?;
-        Ok(list.__len__())
+        Ok(list.borrow_vec().len())
     })
 }
 
