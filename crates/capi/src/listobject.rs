@@ -25,7 +25,7 @@ pub extern "C" fn PyList_New(size: isize) -> *mut PyObject {
 pub unsafe extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
         let list = unsafe { obj.assume_borrowed_and_cast::<PyList>(vm) }?;
-        Ok(list.borrow_vec().len())
+        Ok(list.len())
     })
 }
 
@@ -77,7 +77,7 @@ pub unsafe extern "C" fn PyList_Append(list: *mut PyObject, item: *mut PyObject)
     with_vm(|vm| {
         let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
         let item = unsafe { item.assume_borrowed() }.to_owned();
-        list.borrow_vec_mut().push(item);
+        list.append(item);
         Ok(())
     })
 }
@@ -91,14 +91,7 @@ pub unsafe extern "C" fn PyList_Insert(
     with_vm(|vm| {
         let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
         let item = unsafe { item.assume_borrowed() }.to_owned();
-        let mut vec = list.borrow_vec_mut();
-        let index = if index < 0 {
-            index + vec.len() as isize
-        } else {
-            index
-        }
-        .clamp(0, vec.len() as isize) as usize;
-        vec.insert(index, item);
+        list.insert(index, item);
         Ok(())
     })
 }
@@ -107,7 +100,7 @@ pub unsafe extern "C" fn PyList_Insert(
 pub unsafe extern "C" fn PyList_Reverse(list: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
-        list.borrow_vec_mut().reverse();
+        list.reverse();
         Ok(())
     })
 }
@@ -116,7 +109,7 @@ pub unsafe extern "C" fn PyList_Reverse(list: *mut PyObject) -> c_int {
 pub unsafe extern "C" fn PyList_AsTuple(list: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
-        Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()))
+        Ok(list.to_tuple(vm))
     })
 }
 
