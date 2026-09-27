@@ -866,18 +866,8 @@ impl<T: Clone> Dict<T> {
         Ok(removed.map(|entry| entry.value))
     }
 
-    pub(crate) fn delete_or_insert(
-        &self,
-        vm: &VirtualMachine,
-        key: &PyObject,
-        value: T,
-    ) -> PyResult<()> {
-        let hash = key.key_hash(vm)?;
-        self.delete_or_insert_known_hash(vm, key, hash, value)
-    }
-
-    /// [`Self::delete_or_insert`] with a known hash. Same contract as
-    /// [`Self::insert_known_hash`].
+    /// Delete an existing key or insert a missing key using its known hash.
+    /// Same contract as [`Self::insert_known_hash`].
     pub(crate) fn delete_or_insert_known_hash(
         &self,
         vm: &VirtualMachine,

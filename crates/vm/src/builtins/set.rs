@@ -351,7 +351,7 @@ impl PySetInner {
     }
 
     pub(super) fn difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        let set = self.copy();
+        let set = self.clone();
         if let Some(elements) = Self::cached_hashes(other.as_object(), vm) {
             for (item, hash) in elements {
                 set.content.delete_if_exists_known_hash(vm, &*item, hash)?;
@@ -384,8 +384,10 @@ impl PySetInner {
         // We want to remove duplicates in other
         let other_set = Self::from_iter(other.iter(vm)?, vm)?;
 
-        for item in other_set.elements() {
-            new_inner.content.delete_or_insert(vm, &item, ())?
+        for (item, hash) in other_set.content.keys_with_hashes() {
+            new_inner
+                .content
+                .delete_or_insert_known_hash(vm, &item, hash, ())?;
         }
 
         Ok(new_inner)
@@ -547,9 +549,8 @@ impl PySetInner {
                 }
                 continue;
             }
-            let items = iterable.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
-            for item in items {
-                self.content.delete_if_exists(vm, &*item)?;
+            for item in iterable.iter(vm)? {
+                self.content.delete_if_exists(vm, &*item?)?;
             }
         }
         Ok(())
@@ -571,8 +572,9 @@ impl PySetInner {
             }
             // We want to remove duplicates in iterable
             let iterable_set = Self::from_iter(iterable.iter(vm)?, vm)?;
-            for item in iterable_set.elements() {
-                self.content.delete_or_insert(vm, &item, ())?;
+            for (item, hash) in iterable_set.content.keys_with_hashes() {
+                self.content
+                    .delete_or_insert_known_hash(vm, &item, hash, ())?;
             }
         }
         Ok(())
@@ -824,6 +826,7 @@ impl PySet {
             Ok(PyArithmeticValue::Implemented(Self {
                 inner: other
                     .as_inner()
+                    .copy()
                     .difference(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
             }))
         } else {
@@ -1353,6 +1356,7 @@ impl PyFrozenSet {
             Ok(PyArithmeticValue::Implemented(Self {
                 inner: other
                     .as_inner()
+                    .copy()
                     .difference(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
                 ..Default::default()
             }))
