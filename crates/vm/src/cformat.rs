@@ -98,20 +98,16 @@ fn spec_format_bytes(
         }
         CFormatType::Number(number_type) => match number_type {
             CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
-                match_class!(match &obj {
-                    ref i @ PyInt => {
-                        check_int_to_str_digits(i.as_bigint(), vm)?;
-                        Ok(spec.format_number(i.as_bigint()).into_bytes())
-                    }
-                    ref f @ PyFloat => {
-                        let bigint = try_f64_to_bigint(f.to_f64(), vm)?;
-                        check_int_to_str_digits(&bigint, vm)?;
-                        Ok(spec.format_number(&bigint).into_bytes())
-                    }
-                    obj => {
-                        format_decimal_object(vm, spec, obj).map(String::into_bytes)
-                    }
-                })
+                if let Some(i) = obj.downcast_ref::<PyInt>() {
+                    check_int_to_str_digits(i.as_bigint(), vm)?;
+                    Ok(spec.format_number(i.as_bigint()).into_bytes())
+                } else if let Some(f) = obj.downcast_ref_if_exact::<PyFloat>(vm) {
+                    let bigint = try_f64_to_bigint(f.to_f64(), vm)?;
+                    check_int_to_str_digits(&bigint, vm)?;
+                    Ok(spec.format_number(&bigint).into_bytes())
+                } else {
+                    format_decimal_object(vm, spec, &obj).map(String::into_bytes)
+                }
             }
             _ => {
                 // CPython parity: `%x` / `%o` / `%X` accept any object with
@@ -207,20 +203,16 @@ fn spec_format_string(
         }
         CFormatType::Number(number_type) => match number_type {
             CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
-                match_class!(match &obj {
-                    ref i @ PyInt => {
-                        check_int_to_str_digits(i.as_bigint(), vm)?;
-                        Ok(spec.format_number(i.as_bigint()).into())
-                    }
-                    ref f @ PyFloat => {
-                        let bigint = try_f64_to_bigint(f.to_f64(), vm)?;
-                        check_int_to_str_digits(&bigint, vm)?;
-                        Ok(spec.format_number(&bigint).into())
-                    }
-                    obj => {
-                        format_decimal_object(vm, spec, obj).map(Into::into)
-                    }
-                })
+                if let Some(i) = obj.downcast_ref::<PyInt>() {
+                    check_int_to_str_digits(i.as_bigint(), vm)?;
+                    Ok(spec.format_number(i.as_bigint()).into())
+                } else if let Some(f) = obj.downcast_ref_if_exact::<PyFloat>(vm) {
+                    let bigint = try_f64_to_bigint(f.to_f64(), vm)?;
+                    check_int_to_str_digits(&bigint, vm)?;
+                    Ok(spec.format_number(&bigint).into())
+                } else {
+                    format_decimal_object(vm, spec, &obj).map(Into::into)
+                }
             }
             _ => {
                 // CPython parity: `%x` / `%o` / `%X` accept any object with

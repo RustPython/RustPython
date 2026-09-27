@@ -362,6 +362,20 @@ class PercentInt(PercentIndex):
         return self.value
 
 
+class PercentFloat(float):
+    __int__ = PercentInt.__int__
+    __index__ = PercentIndex.__index__
+
+
+class PercentFloatIndex(float):
+    __index__ = PercentIndex.__index__
+
+
+class PercentIntSubclass(int):
+    def __int__(self):
+        raise AssertionError("int subclasses must use their stored value")
+
+
 for template in ("%d", "%i", "%u", b"%d", b"%i", b"%u"):
     assert template % PercentInt(3) == template % 3
     assert template % PercentIndex() == template % 7
@@ -372,6 +386,15 @@ for template in ("%d", "%i", "%u", b"%d", b"%i", b"%u"):
     assert_raises(
         RuntimeError, template.__mod__, PercentInt(RuntimeError("conversion failed"))
     )
+    number = PercentFloat(1.25)
+    number.value = 3
+    assert template % number == template % 3
+    number.value = None
+    assert_raises(TypeError, template.__mod__, number)
+    number.value = RuntimeError("conversion failed")
+    assert_raises(RuntimeError, template.__mod__, number)
+    assert template % PercentFloatIndex(1.25) == template % 1
+    assert template % PercentIntSubclass(1) == template % 1
 assert "%x" % PercentInt(3) == "7"
 assert b"%o" % PercentInt(3) == b"7"
 
