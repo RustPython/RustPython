@@ -1214,25 +1214,8 @@ impl PyStr {
         // and which has its own wording for what it cannot iterate.
         let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)
             .map_err(|_| vm.new_type_error("can only join an iterable"))?;
-        let iter = iterable.iter_sized(vm)?.enumerate().map(|(i, obj)| {
-            obj?.downcast::<Self>().map_err(|obj| {
-                vm.new_type_error(format!(
-                    "sequence item {i}: expected str instance, {} found",
-                    obj.class().slot_name()
-                ))
-            })
-        });
-        let joined = match iter.exactly_one() {
-            Ok(first) => {
-                let first = first?;
-                if first.as_object().class().is(vm.ctx.types.str_type) {
-                    return Ok(first);
-                }
-                first.as_wtf8().to_owned()
-            }
-            Err(iter) => zelf.as_wtf8().py_join(iter)?,
-        };
-        Ok(vm.ctx.new_str(joined))
+        let items = iterable.iter_sized(vm)?.collect::<PyResult<Vec<_>>>()?;
+        Self::join_items(&zelf, &items, vm)
     }
 
     /// `join` over already-materialized items: checks them and sizes the result before copying.

@@ -300,6 +300,77 @@ with assert_raises(TypeError):
 assert b"abc".join((b"123", b"xyz")) == b"123abcxyz"
 
 
+class JoinBytes(bytes):
+    def __buffer__(self, flags):
+        return memoryview(b"override")
+
+
+class JoinBuffer:
+    def __init__(self, action=None):
+        self.action = action
+
+    def __buffer__(self, flags):
+        if self.action is None:
+            join_chunk[0] = ord("b")
+        else:
+            self.action()
+        return memoryview(b"x")
+
+    def __release_buffer__(self, view):
+        join_events.append("release")
+
+
+for join_type in (bytes, bytearray):
+    join_separator = join_type(b",")
+
+    def join_mutable_chunks():
+        chunk = bytearray(b"a")
+        yield chunk
+        chunk[:] = b"bc"
+        yield chunk
+
+    assert join_separator.join(join_mutable_chunks()) == b"bc,bc"
+
+    def join_broken_iterable():
+        yield 42
+        yield b"a"
+        raise RuntimeError("producer failed")
+
+    with assert_raises(RuntimeError):
+        join_separator.join(join_broken_iterable())
+
+    for sequence_type in (list, tuple):
+
+        class JoinSequence(sequence_type):
+            def __iter__(self):
+                return iter([b"a", b"b"])
+
+        assert join_separator.join(JoinSequence([42])) == b"a,b"
+
+    result = join_separator.join([JoinBytes(b"original")])
+    assert result == b"override" and type(result) is join_type
+
+    join_chunk = bytearray(b"a")
+    join_events = []
+    assert join_separator.join([join_chunk, JoinBuffer()]) == b"b,x"
+    assert join_events == ["release"]
+    with assert_raises(TypeError):
+        join_separator.join([join_chunk, JoinBuffer(lambda: join_chunk.extend(b"c"))])
+    join_chunk.extend(b"c")
+    join_items = []
+    join_exporter = JoinBuffer(join_items.clear)
+    join_items[:] = [join_exporter, b"y"]
+    with assert_raises(RuntimeError):
+        join_separator.join(join_items)
+    join_events.clear()
+    with assert_raises(TypeError):
+        join_separator.join([JoinBuffer(), 42])
+    assert join_events == ["release"]
+
+join_single = b"single item"
+assert b",".join([join_single]) is join_single
+
+
 # endswith startswith
 assert b"abcde".endswith(b"de")
 assert b"abcde".endswith(b"")
