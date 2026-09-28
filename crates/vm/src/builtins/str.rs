@@ -893,10 +893,10 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn strip(&self, args: StripArgs) -> Self {
+    fn strip(zelf: PyRef<Self>, args: StripArgs, vm: &VirtualMachine) -> PyRef<Self> {
         let chars = args.chars;
-        match self.as_str_kind() {
-            PyKindStr::Ascii(s) => s
+        let stripped: &Wtf8 = match zelf.as_str_kind() {
+            PyKindStr::Ascii(s) if chars.as_ref().is_none_or(|c| c.kind().is_ascii()) => s
                 .py_strip(
                     chars,
                     |s, chars| {
@@ -910,21 +910,25 @@ impl PyStr {
                         unsafe { AsciiStr::from_ascii_unchecked(s.as_bytes()) }
                     },
                 )
+                .as_str()
                 .into(),
-            PyKindStr::Utf8(s) => s
+            PyKindStr::Utf8(s) if chars.as_ref().is_none_or(|c| c.kind().is_utf8()) => s
                 .py_strip(
                     chars,
                     |s, chars| s.trim_matches(|c| chars.contains(c)),
                     |s| s.trim_matches(unicode::classify::is_space),
                 )
                 .into(),
-            PyKindStr::Wtf8(w) => w
-                .py_strip(
-                    chars,
-                    |s, chars| s.trim_matches(|c| chars.code_points().contains(&c)),
-                    |s| s.trim_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
-                )
-                .into(),
+            _ => zelf.as_wtf8().py_strip(
+                chars,
+                |s, chars| s.trim_matches(|c| chars.code_points().contains(&c)),
+                |s| s.trim_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
+            ),
+        };
+        if zelf.byte_len() == stripped.len() {
+            Self::result_unchanged(zelf, vm)
+        } else {
+            vm.ctx.new_str(zelf.new_substr(stripped.to_owned()))
         }
     }
 
@@ -946,7 +950,7 @@ impl PyStr {
             |s, chars| s.trim_start_matches(|c| chars.contains_code_point(c)),
             |s| s.trim_start_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
         );
-        if s == stripped {
+        if s.len() == stripped.len() {
             Self::result_unchanged(zelf, vm)
         } else {
             vm.ctx.new_str(stripped)
@@ -962,7 +966,7 @@ impl PyStr {
             |s, chars| s.trim_end_matches(|c| chars.contains_code_point(c)),
             |s| s.trim_end_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
         );
-        if s == stripped {
+        if s.len() == stripped.len() {
             Self::result_unchanged(zelf, vm)
         } else {
             vm.ctx.new_str(stripped)
@@ -1110,28 +1114,28 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn replace(&self, args: ReplaceArgs) -> Wtf8Buf {
-        use core::cmp::Ordering;
-
-        let s = self.as_wtf8();
+    fn replace(zelf: PyRef<Self>, args: ReplaceArgs, vm: &VirtualMachine) -> PyRef<Self> {
         let ReplaceArgs { old, new, count } = args;
-
-        match count.cmp(&0) {
-            Ordering::Less => s.replace(old.as_wtf8(), new.as_wtf8()),
-            Ordering::Equal => s.to_owned(),
-            Ordering::Greater => {
-                let s_is_empty = s.is_empty();
-                let old_is_empty = old.is_empty();
-
-                if s_is_empty && !old_is_empty {
-                    s.to_owned()
-                } else if s_is_empty && old_is_empty {
-                    new.as_wtf8().to_owned()
-                } else {
-                    s.replacen(old.as_wtf8(), new.as_wtf8(), count as usize)
-                }
-            }
+        if count == 0 || old.byte_len() > zelf.byte_len() || old.as_wtf8() == new.as_wtf8() {
+            return Self::result_unchanged(zelf, vm);
         }
+
+        let s = zelf.as_wtf8();
+        let replaced = if count < 0 {
+            s.replace(old.as_wtf8(), new.as_wtf8())
+        } else {
+            let s_is_empty = s.is_empty();
+            let old_is_empty = old.is_empty();
+
+            if s_is_empty && !old_is_empty {
+                s.to_owned()
+            } else if s_is_empty && old_is_empty {
+                new.as_wtf8().to_owned()
+            } else {
+                s.replacen(old.as_wtf8(), new.as_wtf8(), count as usize)
+            }
+        };
+        vm.ctx.new_str(replaced)
     }
 
     #[pymethod]
