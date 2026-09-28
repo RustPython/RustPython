@@ -201,16 +201,23 @@ impl PyNativeFunction {
         vm.ctx.none()
     }
 
-    // meth_reduce in CPython
+    // meth_reduce: the name when unbound or bound to a module, otherwise
+    // `(getattr, (self, name))`. `__module__` is not part of the decision.
     #[pymethod]
     fn __reduce__(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyResult {
         let zelf = zelf.0;
-        if zelf.zelf.is_none() || zelf.module.deref().is_some() {
-            Ok(vm.ctx.new_str(zelf.value.name).into())
-        } else {
+        // PyModule_Check: the type or a subtype, same as meth_reduce.
+        if let Some(bound) = zelf
+            .zelf
+            .as_ref()
+            .filter(|bound| !bound.class().is_subtype(vm.ctx.types.module_type))
+        {
             let getattr = vm.builtins.get_attr("getattr", vm)?;
-            let target = zelf.zelf.clone().unwrap();
-            Ok(vm.new_tuple((getattr, (target, zelf.value.name))).into())
+            Ok(vm
+                .new_tuple((getattr, (bound.clone(), zelf.value.name)))
+                .into())
+        } else {
+            Ok(vm.ctx.new_str(zelf.value.name).into())
         }
     }
 

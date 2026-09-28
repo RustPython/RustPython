@@ -1968,8 +1968,8 @@ pub(crate) mod _elementtree {
             };
 
             let entity = vm.ctx.new_dict();
-            let _previous = unsafe { zelf.entity.swap(Some(entity.into())) };
-            let _previous = unsafe { zelf.target.swap(Some(target.clone())) };
+            // Lookups can fail. Build the whole state before publishing it, so a
+            // failed re-init leaves the previous parser, entity, and target in place.
             let handlers = XMLParserState {
                 parser: Some(parser.clone()),
                 names: Some(vm.ctx.new_dict()),
@@ -1992,6 +1992,11 @@ pub(crate) mod _elementtree {
             let has_pi = handlers.handle_pi.is_some();
             let has_ns = handlers.handle_start_ns.is_some() || handlers.handle_end_ns.is_some();
             *zelf.state.write() = handlers;
+            // SAFETY: `swap` returns the previous object. `_previous` holds it
+            // until `init` returns, so a `deref` of the old pointer stays valid
+            // for the rest of this call.
+            let _previous = unsafe { zelf.entity.swap(Some(entity.into())) };
+            let _previous = unsafe { zelf.target.swap(Some(target)) };
 
             // Expat calls back into these; they dispatch straight to the
             // target (and, when it is our own TreeBuilder, straight into

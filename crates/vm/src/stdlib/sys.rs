@@ -1186,15 +1186,20 @@ pub mod sys {
                 .fast_issubclass(vm.ctx.exceptions.base_exception_type)
         );
 
-        // Print module name (if not builtins or __main__)
-        let module_name = unraisable.exc_type.__module__(vm)?;
-        if let Ok(module_str) = module_name.downcast::<PyStr>() {
+        // Print module name (if not builtins or __main__).
+        // A failed lookup or a non-str `__module__` is discarded: print
+        // `<unknown>` with no trailing `.`, then the qualname.
+        let module_name = unraisable.exc_type.__module__(vm).ok();
+        if let Some(module_str) = module_name
+            .as_ref()
+            .and_then(|name| name.downcast_ref::<PyStr>())
+        {
             let module = module_str.as_wtf8();
             if module != "builtins" && module != "__main__" {
                 write!(stderr, "{module}.");
             }
         } else {
-            write!(stderr, "<unknown>.");
+            write!(stderr, "<unknown>");
         }
 
         // Print qualname

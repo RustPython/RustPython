@@ -9,6 +9,7 @@ use crate::{
         PyBaseExceptionRef,
         descriptor::{
             MemberAccess, MemberKind, PyDescriptorOwned, PyMemberDef, PyMemberDescriptor,
+            PyMemberFlags,
         },
         function::{PyCellRef, PyFunction},
         tuple::{IntoPyTuple, PyTuple},
@@ -2772,7 +2773,7 @@ impl Constructor for PyType {
                     name: mangled_name.clone(),
                     kind: MemberKind::ObjectEx,
                     offset: crate::object::slot_member_offset(offset),
-                    flags: 0,
+                    flags: PyMemberFlags::empty(),
                     doc: ItemDoc::NONE,
                 };
                 let attr_name = vm.ctx.intern_str(mangled_name.as_str());

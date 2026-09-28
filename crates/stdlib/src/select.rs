@@ -721,11 +721,12 @@ mod decl {
             udata: AtomicU64,
         }
 
+        // `ident`/`udata` live in `AtomicU64` and `data` in `AtomicI64`.
+        // Pointer-sized inputs widen into those cells. The cells are not
+        // `usize`/`c_long`, so those widths need not match.
         const _: () = assert!(
-            core::mem::size_of::<usize>() == core::mem::size_of::<u64>()
-                && core::mem::size_of::<isize>() == core::mem::size_of::<i64>()
-                && core::mem::size_of::<std::os::raw::c_ulong>() == core::mem::size_of::<u64>()
-                && core::mem::size_of::<std::os::raw::c_long>() == core::mem::size_of::<i64>()
+            core::mem::size_of::<usize>() <= core::mem::size_of::<u64>()
+                && core::mem::size_of::<isize>() <= core::mem::size_of::<i64>()
         );
 
         #[derive(FromArgs)]
