@@ -3704,6 +3704,7 @@ dependencies = [
  "rustls-graviola",
  "rustpython-capi",
  "rustpython-compiler",
+ "rustpython-module_pyo3",
  "rustpython-pylib",
  "rustpython-ruff_python_parser",
  "rustpython-stdlib",
@@ -3916,6 +3917,18 @@ dependencies = [
  "rand 0.10.3",
  "rustpython-unicode",
  "rustpython-wtf8",
+]
+
+[[package]]
+name = "rustpython-module_pyo3"
+version = "0.6.1"
+dependencies = [
+ "malachite-bigint",
+ "num-complex",
+ "num-traits",
+ "pyo3",
+ "rustpython-derive",
+ "rustpython-vm",
 ]
 
 [[package]]
