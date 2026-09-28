@@ -12,7 +12,7 @@ license.workspace = true
 [features]
 capi = ["dep:rustpython-capi", "threading"]
 default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env", "mimalloc", "doc", "ucd_3_2_0"]
-doc = ["rustpython-vm/doc", "rustpython-stdlib?/doc"]
+doc = ["rustpython-vm/doc", "rustpython-stdlib?/doc", "rustpython-module_pyo3?/doc"]
 mimalloc = ["dep:mimalloc"]
 host_env = ["rustpython-vm/host_env", "rustpython-stdlib?/host_env"]
 importlib = ["rustpython-vm/importlib"]
@@ -23,7 +23,11 @@ flame-it = ["rustpython-vm/flame-it", "rustpython-stdlib/flame-it", "flame", "fl
 freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
 opcode-histogram = ["rustpython-vm/opcode-histogram"]
-threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
+threading = [
+    "rustpython-vm/threading",
+    "rustpython-stdlib/threading",
+    "rustpython-module_pyo3?/threading",
+]
 sqlite = ["rustpython-stdlib/sqlite"]
 ssl = ["host_env", "rustpython-stdlib?/ssl"]
 ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
@@ -33,6 +37,7 @@ ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
 ssl-openssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-openssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
 ucd_3_2_0 = ["rustpython-stdlib?/ucd_3_2_0"]
+pyo3 = ["dep:rustpython-module_pyo3"]
 
 [build-dependencies]
 winresource = "0.1"
@@ -42,6 +47,7 @@ rustpython-capi = { workspace = true, optional = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, default-features = false, features = ["compiler"] }
 rustpython-vm = { workspace = true, features = ["compiler", "gc"] }
+rustpython-module_pyo3 = { workspace = true, optional = true }
 
 log = { workspace = true }
 flame = { workspace = true, optional = true }
@@ -200,6 +206,7 @@ rustpython-sre_engine = { path = "crates/sre_engine", version = "0.6.1" }
 rustpython-unicode = { path = "crates/unicode", default-features = false, version = "0.6.1" }
 rustpython-wtf8 = { path = "crates/wtf8", version = "0.6.1" }
 rustpython-doc = { path = "crates/doc", version = "0.6.1" }
+rustpython-module_pyo3 = { path = "crates/module_pyo3", version = "0.6.1", default-features = false }
 
 # Use the RustPython Ruff fork for RustPython public `_ast` metadata.
 ruff_python_parser = { package = "rustpython-ruff_python_parser", git = "https://github.com/RustPython/ruff.git", rev = "9290a8849542134d83f77e9360e7f0b93897fd93" }

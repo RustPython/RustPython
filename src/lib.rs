@@ -121,6 +121,12 @@ pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
 
     builder = builder.settings(settings);
 
+    #[cfg(feature = "pyo3")]
+    {
+        let def = rustpython_module_pyo3::module_def(&builder.ctx);
+        builder = builder.add_native_module(def);
+    }
+
     let interp = builder.interpreter();
     let exitcode = cfg_select! {
         feature = "capi" => rustpython_capi::run_main_interpreter(interp, move |vm| run_rustpython(vm, run_mode)),

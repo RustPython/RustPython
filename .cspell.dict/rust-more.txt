@@ -83,7 +83,9 @@ trai
 ulonglong
 unic
 unistd
+ungil
 unraw
+unsendable
 unsync
 wasip1
 wasip2
