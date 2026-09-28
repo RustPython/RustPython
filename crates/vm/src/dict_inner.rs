@@ -204,8 +204,30 @@ unsafe impl<T: Traverse> Traverse for DictInner<T> {
 
 impl<T: Clone> Clone for Dict<T> {
     fn clone(&self) -> Self {
+        let inner = self.read();
+        if inner.used == 0 {
+            return Self::default();
+        }
+        // Keep dense copies cheap, but do not carry mostly empty storage into
+        // a new dictionary. pop_back can leave oversized indices without holes.
+        let inner = if inner.used >= inner.entries.len() - inner.entries.len() / 3
+            && (inner.indices.len() <= 8 || inner.used >= inner.indices.len() / 4)
+        {
+            inner.clone()
+        } else {
+            let mut copy = DictInner {
+                used: inner.used,
+                filled: inner.used,
+                indices: Vec::new(),
+                entries: Vec::with_capacity(inner.used),
+            };
+            copy.entries
+                .extend(inner.entries.iter().flatten().cloned().map(Some));
+            copy.resize(inner.used * 2);
+            copy
+        };
         Self {
-            inner: PyRwLock::new(self.inner.read().clone()),
+            inner: PyRwLock::new(inner),
             keys_version: AtomicU32::new(0),
         }
     }
@@ -1815,6 +1837,66 @@ impl DictKey for usize {
 mod tests {
     use super::*;
     use crate::{Interpreter, common::ascii};
+
+    #[test]
+    fn clone_compacts_deleted_entries() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            for key in 0..128usize {
+                dict.insert(vm, &key, key).unwrap();
+            }
+            for key in 0..120usize {
+                dict.delete(vm, &key).unwrap();
+            }
+            let version = dict.assign_keys_version();
+            let copied = dict.clone();
+            assert_eq!(copied.keys_version(), 0);
+            assert_eq!(dict.keys_version(), version);
+            {
+                let source = dict.read();
+                let result = copied.read();
+                assert_eq!(source.entries.len(), 128);
+                assert_eq!(result.entries.len(), result.used);
+                assert!(result.indices.len() < source.indices.len());
+                assert!(result.entries.capacity() < source.entries.capacity());
+                assert_eq!(result.filled, result.used);
+            }
+            assert_eq!(copied.values(), (120..128).collect::<Vec<_>>());
+            for key in 120..128usize {
+                assert_eq!(copied.get(vm, &key).unwrap(), Some(key));
+            }
+            copied.insert(vm, &0usize, 0).unwrap();
+            assert!(!dict.contains(vm, &0usize).unwrap());
+        });
+    }
+
+    #[test]
+    fn clone_shrinks_indices_after_pop_back() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            for key in 0..128usize {
+                dict.insert(vm, &key, ()).unwrap();
+            }
+            for _ in 0..124 {
+                dict.pop_back().unwrap();
+            }
+            let copied = dict.clone();
+            assert_eq!(copied.len(), 4);
+            assert!(copied.read().indices.len() < dict.read().indices.len());
+            for key in 0..4usize {
+                assert!(copied.contains(vm, &key).unwrap());
+                dict.delete(vm, &key).unwrap();
+            }
+            let empty = dict.clone();
+            assert_eq!(dict.len(), 0);
+            assert_eq!(empty.len(), 0);
+            assert_eq!(
+                empty.read().indices.len(),
+                Dict::<()>::default().read().indices.len()
+            );
+            assert_eq!(empty.read().entries.capacity(), 0);
+        });
+    }
 
     #[test]
     fn module_attr_cache_rejects_mixed_entries_and_unsafe_layouts() {

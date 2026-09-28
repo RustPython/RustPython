@@ -691,6 +691,20 @@ assert list(merge_source.values()) == ["first", "last"]
 MergeHashKey.hash_disabled = False
 
 
+# Compact copies preserve order, key identity and stored hashes after deletions.
+copy_keys = [MergeHashKey(i) for i in range(32)]
+copy_source = {key: key.value for key in copy_keys}
+for key in copy_keys[:-3]:
+    del copy_source[key]
+MergeHashKey.hash_disabled = True
+copy_result = copy_source.copy()
+assert list(copy_result.values()) == [29, 30, 31]
+assert all(actual is expected for actual, expected in zip(copy_result, copy_keys[-3:]))
+copy_result.clear()
+assert len(copy_source) == 3
+MergeHashKey.hash_disabled = False
+
+
 class MergeMapping(dict):
     def __iter__(self):
         return iter(("virtual",))
