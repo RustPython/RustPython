@@ -4,7 +4,7 @@ use crate::{
     builtins::{
         PyBaseExceptionRef, PyDict, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
-    class::{PyClassImpl, StaticType},
+    class::{PyClassImpl, StaticType, class_attr_item_doc},
     function::{
         Either, FuncArgs, KwArgs, NameChanges, OptionalArg, PyComparisonValue, PyMethodDef,
         PyMethodFlags,
@@ -390,7 +390,8 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         for (i, &name) in Self::Data::REQUIRED_FIELD_NAMES.iter().enumerate() {
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_tuple_member(name, class, i).into(),
+                ctx.new_readonly_tuple_member(name, class, i, class_attr_item_doc::<Self>(name))
+                    .into(),
             );
         }
 
@@ -399,8 +400,13 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         for (i, &name) in Self::Data::OPTIONAL_FIELD_NAMES.iter().enumerate() {
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_tuple_member(name, class, visible_count + i)
-                    .into(),
+                ctx.new_readonly_tuple_member(
+                    name,
+                    class,
+                    visible_count + i,
+                    class_attr_item_doc::<Self>(name),
+                )
+                .into(),
             );
         }
 

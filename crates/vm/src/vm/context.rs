@@ -709,6 +709,7 @@ impl Context {
         name: &str,
         class: &'static Py<PyType>,
         index: usize,
+        doc: ItemDoc,
     ) -> PyRef<PyMemberDescriptor> {
         let member_descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
@@ -721,7 +722,7 @@ impl Context {
                 kind: MemberKind::Object,
                 offset: index as isize,
                 flags: PyMemberFlags::READONLY,
-                doc: ItemDoc::NONE,
+                doc,
             },
             access: MemberAccess::TupleItem,
         };

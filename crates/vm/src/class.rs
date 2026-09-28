@@ -227,6 +227,24 @@ pub const fn attr_name_present(table: &[&str], name: &str) -> bool {
     false
 }
 
+/// Database doc of attribute `name` of `T`.
+#[must_use]
+pub fn class_attr_item_doc<T: PyClassDef + ?Sized>(name: &str) -> ItemDoc {
+    #[cfg(feature = "doc")]
+    if let Some((offset, len)) = attr_doc(T::ATTR_DOCS, name)
+        && len != 0
+    {
+        return ItemDoc {
+            text: None,
+            offset,
+            len,
+        };
+    }
+    #[cfg(not(feature = "doc"))]
+    let _ = name;
+    ItemDoc::NONE
+}
+
 /// Set `doc` as `__doc__` of a native type that has none.
 pub fn assign_missing_doc(vm: &VirtualMachine, class: &Py<PyType>, doc: ItemDoc) {
     let Some(text) = plain_doc(doc) else {
