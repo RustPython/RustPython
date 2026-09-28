@@ -1,4 +1,5 @@
 use super::{
+    Traverse, TraverseFn,
     core::{Py, PyObject, PyObjectRef, PyRef},
     payload::PyPayload,
 };
@@ -689,16 +690,6 @@ impl PyAtomicRef<Option<PyObject>> {
         cell_store(&self.inner, value)
     }
 
-    /// Replace the stored reference, retaining the previous value as an owned reference.
-    ///
-    /// # Safety
-    /// No references obtained through `deref()` may remain alive across this call.
-    /// Concurrent readers must use `load_owned()`; borrowed GC traversal requires
-    /// the mutating threads to be stopped.
-    pub unsafe fn store_unchecked(&self, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
-        self.store(value)
-    }
-
     /// Store `value` only when the cell is empty.
     ///
     /// On failure the cell is unchanged and `value` is returned still owned.
@@ -733,6 +724,57 @@ impl PyAtomicRef<Option<PyObject>> {
         }
     }
 }
+
+/// A nullable object reference that can be replaced without invalidating readers.
+///
+/// Unlike [`PyAtomicRef`], this cell only exposes owned reads. Concurrent stores
+/// use the same QSBR reclamation as object slots without retaining old values
+/// for the lifetime of a Python frame.
+#[repr(transparent)]
+pub struct PyObjectCell(PyAtomicRef<Option<PyObject>>);
+
+impl From<Option<PyObjectRef>> for PyObjectCell {
+    fn from(value: Option<PyObjectRef>) -> Self {
+        Self(value.into())
+    }
+}
+
+impl PyObjectCell {
+    /// Return an owned reference to the current value, or `None` for an empty cell.
+    #[inline]
+    pub fn load_owned(&self) -> Option<PyObjectRef> {
+        self.0.load_owned()
+    }
+
+    /// Replace the stored value and return the previous reference, still owned.
+    #[inline]
+    pub fn store(&self, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
+        self.0.store(value)
+    }
+}
+
+impl fmt::Debug for PyObjectCell {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("PyObjectCell")
+            .field(&self.load_owned())
+            .finish()
+    }
+}
+
+// SAFETY: the underlying cell visits its single owned reference while mutating
+// threads are stopped. It does not clone the reference during traversal.
+unsafe impl Traverse for PyObjectCell {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        self.0.traverse(traverse_fn);
+    }
+}
+
+// Object members address a single pointer-sized cell at the field's offset.
+const _: () = assert!(
+    core::mem::size_of::<PyObjectCell>() == core::mem::size_of::<*mut PyObject>()
+        && core::mem::align_of::<PyObjectCell>() == core::mem::align_of::<*mut PyObject>()
+);
 
 /// Atomic borrowed (non-ref-counted) optional reference to a Python object.
 /// Unlike `PyAtomicRef`, this does NOT own the reference.
@@ -907,5 +949,64 @@ impl IntoPyException for PyBaseExceptionRef {
     #[inline(always)]
     fn into_pyexception(self, _vm: &VirtualMachine) -> PyBaseExceptionRef {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn object_cell_snapshots_survive_replacement_and_clear() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let cell = PyObjectCell::from(Some(vm.ctx.new_bytes(vec![1, 2, 3]).into()));
+            let first = cell.load_owned().unwrap();
+            let previous = cell.store(Some(vm.ctx.new_bytes(vec![4, 5, 6]).into()));
+            assert!(previous.as_ref().unwrap().is(&first));
+            drop(previous);
+            assert_eq!(first.strong_count(), 1);
+            assert_eq!(
+                first
+                    .downcast_ref::<crate::builtins::PyBytes>()
+                    .unwrap()
+                    .as_bytes(),
+                &[1, 2, 3]
+            );
+
+            let second = cell.load_owned().unwrap();
+            let previous = cell.store(None);
+            assert!(previous.as_ref().unwrap().is(&second));
+            drop(previous);
+            assert!(cell.load_owned().is_none());
+            assert!(cell.store(None).is_none());
+            assert_eq!(second.strong_count(), 1);
+            assert_eq!(
+                second
+                    .downcast_ref::<crate::builtins::PyBytes>()
+                    .unwrap()
+                    .as_bytes(),
+                &[4, 5, 6]
+            );
+        });
+    }
+
+    #[test]
+    fn object_cell_traverses_current_reference_once_without_cloning() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let cell = PyObjectCell::from(None);
+            cell.traverse(&mut |_| panic!("empty cell owns no edge"));
+            let value: PyObjectRef = vm.ctx.new_bytes(vec![1, 2, 3]).into();
+            assert!(cell.store(Some(value.clone())).is_none());
+            let references = value.strong_count();
+            let mut edges = 0;
+            cell.traverse(&mut |child| {
+                assert!(child.is(&value));
+                assert_eq!(value.strong_count(), references);
+                edges += 1;
+            });
+            assert_eq!(edges, 1);
+            drop(cell.store(None));
+            cell.traverse(&mut |_| panic!("cleared cell owns no edge"));
+        });
     }
 }

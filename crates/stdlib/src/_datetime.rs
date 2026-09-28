@@ -10,7 +10,7 @@ pub(crate) use _datetime::module_def;
 #[pymodule]
 mod _datetime {
     use crate::vm::{
-        AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        AsObject, Py, PyObject, PyObjectCell, PyObjectRef, PyPayload, PyRef, PyResult,
         VirtualMachine,
         builtins::{PyBytes, PyFloat, PyInt, PyStr, PyStrRef, PyTuple, PyType, PyTypeRef},
         class::{PyClassImpl, StaticType},
@@ -339,8 +339,11 @@ mod _datetime {
     #[pyclass(module = "datetime", name = "timedelta")]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyDelta {
+        #[pymember]
         days: i32,
+        #[pymember]
         seconds: i32,
+        #[pymember]
         microseconds: i32,
         hashcode: AtomicCell<PyHash>,
     }
@@ -885,21 +888,6 @@ mod _datetime {
         flags(BASETYPE)
     )]
     impl PyDelta {
-        #[pygetset]
-        fn days(&self) -> i32 {
-            self.days
-        }
-
-        #[pygetset]
-        fn seconds(&self) -> i32 {
-            self.seconds
-        }
-
-        #[pygetset]
-        fn microseconds(&self) -> i32 {
-            self.microseconds
-        }
-
         #[pymethod]
         fn total_seconds(&self, vm: &VirtualMachine) -> PyResult {
             let us = vm.ctx.new_bigint(&self.to_microseconds_big());
@@ -1603,8 +1591,11 @@ mod _datetime {
     #[pyclass(module = "datetime", name = "date")]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyDate {
+        #[pymember]
         year: u16,
+        #[pymember]
         month: u8,
+        #[pymember]
         day: u8,
         hashcode: AtomicCell<PyHash>,
     }
@@ -1934,21 +1925,6 @@ mod _datetime {
         flags(BASETYPE)
     )]
     impl PyDate {
-        #[pygetset]
-        fn year(&self) -> i32 {
-            self.y()
-        }
-
-        #[pygetset]
-        fn month(&self) -> i32 {
-            self.m()
-        }
-
-        #[pygetset]
-        fn day(&self) -> i32 {
-            self.d()
-        }
-
         #[pyclassmethod]
         fn fromtimestamp(cls: PyTypeRef, timestamp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let t = object_to_time_t(&timestamp, vm)?;
@@ -2634,15 +2610,21 @@ mod _datetime {
     #[derive(Debug, PyPayload)]
     pub(super) struct PyTime {
         #[pytraverse(skip)]
+        #[pymember]
         hour: u8,
         #[pytraverse(skip)]
+        #[pymember]
         minute: u8,
         #[pytraverse(skip)]
+        #[pymember]
         second: u8,
         #[pytraverse(skip)]
+        #[pymember]
         fold: u8,
         #[pytraverse(skip)]
+        #[pymember]
         microsecond: u32,
+        #[pymember]
         tzinfo: Option<PyObjectRef>,
         #[pytraverse(skip)]
         hashcode: AtomicCell<PyHash>,
@@ -2871,36 +2853,6 @@ mod _datetime {
         flags(BASETYPE)
     )]
     impl PyTime {
-        #[pygetset]
-        fn hour(&self) -> u8 {
-            self.hour
-        }
-
-        #[pygetset]
-        fn minute(&self) -> u8 {
-            self.minute
-        }
-
-        #[pygetset]
-        fn second(&self) -> u8 {
-            self.second
-        }
-
-        #[pygetset]
-        fn microsecond(&self) -> u32 {
-            self.microsecond
-        }
-
-        #[pygetset]
-        fn tzinfo(&self, vm: &VirtualMachine) -> PyObjectRef {
-            tzinfo_or_none(self.tzinfo.as_ref(), vm)
-        }
-
-        #[pygetset]
-        fn fold(&self) -> u8 {
-            self.fold
-        }
-
         #[pyclassmethod]
         fn strptime(
             cls: PyTypeRef,
@@ -3182,24 +3134,28 @@ mod _datetime {
         #[pytraverse(skip)]
         date: PyDate,
         #[pytraverse(skip)]
+        #[pymember]
         hour: u8,
         #[pytraverse(skip)]
+        #[pymember]
         minute: u8,
         #[pytraverse(skip)]
+        #[pymember]
         second: u8,
         #[pytraverse(skip)]
+        #[pymember]
         fold: u8,
         #[pytraverse(skip)]
+        #[pymember]
         microsecond: u32,
         // astimezone updates the newly constructed subclass instance in place.
-        tzinfo: PyAtomicRef<Option<PyObject>>,
+        #[pymember]
+        tzinfo: PyObjectCell,
     }
 
     impl PyDateTime {
         fn set_tzinfo(&self, tzinfo: PyObjectRef) {
-            // SAFETY: this private field is read through load_owned(), except
-            // during GC traversal with mutating threads stopped.
-            drop(unsafe { self.tzinfo.store_unchecked(Some(tzinfo)) });
+            drop(self.tzinfo.store(Some(tzinfo)));
         }
 
         #[allow(clippy::too_many_arguments)]
@@ -3722,36 +3678,6 @@ mod _datetime {
         flags(BASETYPE)
     )]
     impl PyDateTime {
-        #[pygetset]
-        fn hour(&self) -> u8 {
-            self.hour
-        }
-
-        #[pygetset]
-        fn minute(&self) -> u8 {
-            self.minute
-        }
-
-        #[pygetset]
-        fn second(&self) -> u8 {
-            self.second
-        }
-
-        #[pygetset]
-        fn microsecond(&self) -> u32 {
-            self.microsecond
-        }
-
-        #[pygetset]
-        fn tzinfo(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.tzinfo.load_owned().unwrap_or_else(|| vm.ctx.none())
-        }
-
-        #[pygetset]
-        fn fold(&self) -> u8 {
-            self.fold
-        }
-
         #[pyclassmethod]
         fn now(cls: PyTypeRef, args: NowArgs, vm: &VirtualMachine) -> PyResult {
             let tz = args.tz.unwrap_or_none(vm);

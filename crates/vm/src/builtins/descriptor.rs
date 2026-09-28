@@ -324,6 +324,8 @@ pub enum MemberKind {
     /// as `None`. Assignment is rejected.
     String = 5,
     Object = 6,
+    /// `unsigned char`. Writable cells are `AtomicU8`.
+    UByte = 9,
     /// `unsigned short`. Writable cells are `AtomicU16`.
     UShort = 10,
     Uint = 11,
@@ -365,6 +367,7 @@ impl MemberKind {
             4 => Some(Self::Double),
             5 => Some(Self::String),
             6 => Some(Self::Object),
+            9 => Some(Self::UByte),
             10 => Some(Self::UShort),
             11 => Some(Self::Uint),
             12 => Some(Self::ULong),
@@ -417,6 +420,14 @@ impl MemberLayout for core::sync::atomic::AtomicU16 {
     const KIND: MemberKind = MemberKind::UShort;
 }
 impl MemberCell for core::sync::atomic::AtomicU16 {}
+
+impl MemberLayout for u8 {
+    const KIND: MemberKind = MemberKind::UByte;
+}
+impl MemberLayout for core::sync::atomic::AtomicU8 {
+    const KIND: MemberKind = MemberKind::UByte;
+}
+impl MemberCell for core::sync::atomic::AtomicU8 {}
 
 // `i64` is `long` where `c_long` is 8 bytes, and `long long` otherwise.
 impl MemberLayout for i64 {
@@ -502,6 +513,9 @@ impl MemberLayout for PyObjectRef {
     const KIND: MemberKind = MemberKind::Object;
 }
 impl MemberLayout for Option<PyObjectRef> {
+    const KIND: MemberKind = MemberKind::Object;
+}
+impl MemberLayout for crate::object::PyObjectCell {
     const KIND: MemberKind = MemberKind::Object;
 }
 impl<T> MemberLayout for PyRef<T> {
@@ -698,6 +712,7 @@ impl PyMemberDescriptor {
             | MemberKind::LongLong
             | MemberKind::Short
             | MemberKind::String
+            | MemberKind::UByte
             | MemberKind::Uint
             | MemberKind::ULong
             | MemberKind::ULongLong
@@ -876,6 +891,21 @@ fn load_u16(obj: &PyObject, offset: isize, readonly: bool) -> u16 {
         // SAFETY: a writable unsigned short member addresses an aligned `AtomicU16`.
         unsafe {
             (*addr.cast::<core::sync::atomic::AtomicU16>())
+                .load(core::sync::atomic::Ordering::Relaxed)
+        }
+    }
+}
+
+fn load_u8(obj: &PyObject, offset: isize, readonly: bool) -> u8 {
+    let addr = member_addr(obj, offset);
+    if readonly {
+        // SAFETY: a readonly unsigned char member addresses a `u8` that is not
+        // written after publication.
+        unsafe { addr.cast::<u8>().read() }
+    } else {
+        // SAFETY: a writable unsigned char member addresses an `AtomicU8`.
+        unsafe {
+            (*addr.cast::<core::sync::atomic::AtomicU8>())
                 .load(core::sync::atomic::Ordering::Relaxed)
         }
     }
@@ -1132,6 +1162,10 @@ fn member_get_one(
             .ctx
             .new_int(load_u16(obj, offset, member.readonly()))
             .into(),
+        MemberKind::UByte => vm
+            .ctx
+            .new_int(load_u8(obj, offset, member.readonly()))
+            .into(),
         MemberKind::Long => vm
             .ctx
             .new_int(load_c_long(obj, offset, member.readonly()))
@@ -1314,6 +1348,21 @@ fn member_set_one(
             }
             if long_val > u16::MAX as core::ffi::c_long || long_val < 0 {
                 warn_member(vm, "Truncation of value to unsigned short")?;
+            }
+        }
+        MemberKind::UByte => {
+            let PySetterValue::Assign(value) = value else {
+                return Err(vm.new_type_error("can't delete numeric/char attribute"));
+            };
+            let long_val = member_as_c_long(&value, vm)?;
+            let stored = long_val as u8;
+            // SAFETY: a writable unsigned char member addresses an `AtomicU8`.
+            unsafe {
+                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicU8>())
+                    .store(stored, core::sync::atomic::Ordering::Relaxed);
+            }
+            if long_val > u8::MAX as core::ffi::c_long || long_val < 0 {
+                warn_member(vm, "Truncation of value to unsigned char")?;
             }
         }
         MemberKind::Long => {
@@ -2088,5 +2137,109 @@ impl Comparable for PyMethodWrapper {
             let eq = zelf.wrapper.is(&other.wrapper) && zelf.obj.is(&other.obj);
             Ok(eq.into())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{protocol::PyNumberMethods, types::AsNumber};
+    use core::sync::atomic::{AtomicU8, Ordering};
+
+    #[pyclass(name = "UByteMembers", module = false)]
+    #[derive(Debug, PyPayload)]
+    #[repr(C)]
+    struct UByteMembers {
+        prefix: u8,
+        #[pymember]
+        readonly: u8,
+        #[pymember(writable)]
+        writable: AtomicU8,
+        suffix: u8,
+    }
+
+    #[pyclass(with(AsNumber))]
+    impl UByteMembers {}
+
+    impl AsNumber for UByteMembers {
+        fn as_number() -> &'static PyNumberMethods {
+            static METHODS: PyNumberMethods = PyNumberMethods {
+                index: Some(|_, vm| Ok(vm.ctx.new_int(42).into())),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &METHODS
+        }
+    }
+
+    #[test]
+    fn unsigned_byte_members_preserve_adjacent_fields() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let _class = UByteMembers::make_static_type();
+            let obj = UByteMembers {
+                prefix: 17,
+                readonly: 255,
+                writable: AtomicU8::new(128),
+                suffix: 29,
+            }
+            .into_ref(&vm.ctx);
+
+            assert_eq!(MemberKind::from_i32(9), Some(MemberKind::UByte));
+            for (name, expected) in [("readonly", 255), ("writable", 128)] {
+                let value = obj.as_object().get_attr(name, vm).unwrap();
+                let value = value.downcast_ref::<crate::builtins::PyInt>().unwrap();
+                assert_eq!(i32::try_from(value.as_bigint()).unwrap(), expected);
+            }
+            obj.as_object()
+                .set_attr("writable", vm.ctx.new_int(255), vm)
+                .unwrap();
+            assert_eq!(obj.writable.load(Ordering::Relaxed), 255);
+            assert_eq!((obj.prefix, obj.readonly, obj.suffix), (17, 255, 29));
+
+            let err = obj
+                .as_object()
+                .set_attr("readonly", vm.ctx.new_int(0), vm)
+                .unwrap_err();
+            assert!(err.fast_isinstance(vm.ctx.exceptions.attribute_error));
+            let err = obj.as_object().del_attr("writable", vm).unwrap_err();
+            assert!(err.fast_isinstance(vm.ctx.exceptions.type_error));
+            assert_eq!(obj.writable.load(Ordering::Relaxed), 255);
+
+            let err = obj
+                .as_object()
+                .set_attr("writable", vm.ctx.new_int(i128::MAX), vm)
+                .unwrap_err();
+            assert!(err.fast_isinstance(vm.ctx.exceptions.overflow_error));
+            assert_eq!(obj.writable.load(Ordering::Relaxed), 255);
+
+            obj.as_object()
+                .set_attr("writable", obj.to_owned(), vm)
+                .unwrap();
+            assert_eq!(obj.writable.load(Ordering::Relaxed), 42);
+
+            let filters = vm.state.warnings.filters.to_owned();
+            filters.borrow_vec_mut().insert(
+                0,
+                vm.ctx
+                    .new_tuple(vec![
+                        vm.ctx.new_str("error").into(),
+                        vm.ctx.none(),
+                        vm.ctx.exceptions.runtime_warning.to_owned().into(),
+                        vm.ctx.none(),
+                        vm.ctx.new_int(0).into(),
+                    ])
+                    .into(),
+            );
+            vm.state.warnings.filters_mutated();
+            for (input, expected) in [(256, 0), (-1, 255)] {
+                let err = obj
+                    .as_object()
+                    .set_attr("writable", vm.ctx.new_int(input), vm)
+                    .unwrap_err();
+                assert!(err.fast_isinstance(vm.ctx.exceptions.runtime_warning));
+                // As in CPython, truncation is stored before the warning is raised.
+                assert_eq!(obj.writable.load(Ordering::Relaxed), expected);
+                assert_eq!((obj.prefix, obj.readonly, obj.suffix), (17, 255, 29));
+            }
+        });
     }
 }

@@ -3979,3 +3979,55 @@ if sys.implementation.name == "rustpython":
     assert_raises(TypeError, value.utctimetuple)
     assert_raises(TypeError, zone.fromutc, value)
     assert_raises(TypeError, value.astimezone, timezone.utc)
+
+
+def test_readonly_datetime_descriptors():
+    cases = (
+        (timedelta, (-2, 12345, 654321), {}, ("days", "seconds", "microseconds")),
+        (date, (2024, 2, 29), {}, ("year", "month", "day")),
+        (
+            time,
+            (12, 34, 56, 123456),
+            {"fold": 1, "tzinfo": timezone.utc},
+            ("hour", "minute", "second", "microsecond", "fold", "tzinfo"),
+        ),
+        (
+            datetime,
+            (2024, 2, 29, 12, 34, 56, 123456),
+            {"fold": 1, "tzinfo": timezone.utc},
+            (
+                "year",
+                "month",
+                "day",
+                "hour",
+                "minute",
+                "second",
+                "microsecond",
+                "fold",
+                "tzinfo",
+            ),
+        ),
+    )
+    for base, args, kwargs, names in cases:
+
+        class Subclass(base):
+            pass
+
+        reference = base(*args, **kwargs)
+        value = Subclass(*args, **kwargs)
+        for name in names:
+            descriptor = getattr(base, name)
+            expected = getattr(reference, name)
+            # Instance dictionaries must not shadow inherited readonly fields.
+            value.__dict__[name] = object()
+            assert getattr(value, name) == expected
+            assert descriptor.__get__(value) == expected
+            assert_raises(AttributeError, setattr, value, name, expected)
+            assert_raises(AttributeError, delattr, value, name)
+            assert_raises(TypeError, descriptor.__get__, object())
+        if "tzinfo" in names:
+            assert base.tzinfo.__get__(value) is timezone.utc
+            assert base.tzinfo.__get__(base(*args)) is None
+
+
+test_readonly_datetime_descriptors()
