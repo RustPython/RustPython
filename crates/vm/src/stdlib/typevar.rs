@@ -2,7 +2,7 @@
 
 pub use typevar::*;
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "_typing")]
 pub(crate) mod typevar {
     use crate::{
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,

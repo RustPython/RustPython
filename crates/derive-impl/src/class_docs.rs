@@ -9,9 +9,15 @@ use rustpython_doc::DocRef;
 /// Modules `get_qualified` consults for `module`.
 fn module_aliases(module: &str) -> Vec<String> {
     let mut aliases = vec![module.to_owned()];
-    if module == "os" || module == "_os" {
+    // Same module order as `get_qualified`: `os` then posix then nt, and
+    // posix/nt each fall back to the other.
+    if module == "os" {
         aliases.push("posix".to_owned());
         aliases.push("nt".to_owned());
+    } else if module == "posix" {
+        aliases.push("nt".to_owned());
+    } else if module == "nt" {
+        aliases.push("posix".to_owned());
     }
     if let Some(rest) = module.strip_prefix('_')
         && !rest.is_empty()

@@ -197,7 +197,7 @@ impl ToPyObject for crt_fd::Borrowed<'_> {
     }
 }
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "posix")]
 pub(super) mod _os {
     use super::{DirFd, DstDirFd, FollowSymlinks, RawMode, SrcDirFd, SupportFunc};
     #[cfg(not(windows))]

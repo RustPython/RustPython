@@ -2848,7 +2848,7 @@ pub mod module {
     target_os = "freebsd",
     target_os = "android"
 ))]
-#[pymodule(sub)]
+#[pymodule(sub, name = "posix")]
 mod posix_sched {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,

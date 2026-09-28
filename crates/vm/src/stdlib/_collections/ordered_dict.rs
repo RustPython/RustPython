@@ -1,7 +1,7 @@
 // OrderedDict implementation
 // cspell:ignore odict
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "_collections")]
 pub(crate) mod ordered_dict {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -793,7 +793,7 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(name = "odict_iterator", traverse = "manual")]
+    #[pyclass(name = "odict_iterator", module = "builtins", traverse = "manual")]
     #[derive(Debug, PyPayload)]
     struct PyODictIter {
         od: Option<PyRef<PyOrderedDict>>,
@@ -978,7 +978,7 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(name = "odict_keys", unhashable = true, traverse)]
+    #[pyclass(name = "odict_keys", module = "builtins", unhashable = true, traverse)]
     #[derive(Debug, PyPayload)]
     struct PyODictKeys {
         od: PyRef<PyOrderedDict>,
@@ -1071,7 +1071,7 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(name = "odict_values", traverse)]
+    #[pyclass(name = "odict_values", module = "builtins", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyODictValues {
         od: PyRef<PyOrderedDict>,
@@ -1122,7 +1122,7 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(name = "odict_items", unhashable = true, traverse)]
+    #[pyclass(name = "odict_items", module = "builtins", unhashable = true, traverse)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct PyOrderedDictItems {
         od: PyRef<PyOrderedDict>,
