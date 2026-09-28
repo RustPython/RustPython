@@ -6150,14 +6150,19 @@ impl ExecutingFrame<'_> {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
-
                 let owner = self.top_value();
-                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let type_version = self.code.instructions.read_cache_ptr(cache_base + 6);
+                let keys_version = self.code.instructions.read_cache_ptr(cache_base + 7);
+                let index = self.code.instructions.read_cache_ptr(cache_base + 8);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag().load(Acquire) == type_version
+                    && keys_version != 0
+                    && owner.class().tp_version_tag().load(Acquire) as usize == type_version
                     && let Some(module) = owner.downcast_ref_if_exact::<PyModule>(vm)
-                    && let Ok(value) = module.get_attr(attr_name, vm)
+                    && let Some(value) =
+                        module
+                            .dict()
+                            .get_cached_module_attr(attr_name, keys_version, index, vm)
                 {
                     self.pop_stackref();
                     if oparg.is_method() {
@@ -10098,6 +10103,38 @@ impl ExecutingFrame<'_> {
             return;
         }
 
+        let attr_name = self.code.names[oparg.name_idx() as usize];
+
+        // Match CPython: only specialize module attribute loads when the
+        // current module dict has no __getattr__ override and the attribute is
+        // already present. Modules have their own getattro, so this comes first.
+        // The module type must not define the name either, so reading the dict
+        // entry directly gives what the generic lookup would.
+        if let Some(module) = obj.downcast_ref_if_exact::<PyModule>(_vm) {
+            let module_dict = module.dict();
+            if cls.get_attr(attr_name).is_none()
+                && let Some((keys_version, index)) = module_dict.module_attr_cache(attr_name, _vm)
+            {
+                // Keep module guards atomic and separate from every other LOAD_ATTR
+                // payload: a concurrent reader may already be executing another kind.
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_ptr(cache_base + 6, type_version as usize);
+                    self.code
+                        .instructions
+                        .write_cache_ptr(cache_base + 7, keys_version as usize);
+                    self.code
+                        .instructions
+                        .write_cache_ptr(cache_base + 8, usize::from(index));
+                }
+                self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrModule);
+            } else {
+                self.cooldown_adaptive_at(cache_base);
+            }
+            return;
+        }
+
         // Only specialize if getattro is the default (PyBaseObject::getattro)
         let is_default_getattro = cls.slots().getattro.load().is_some_and(|f| {
             crate::types::fn_addr(f)
@@ -10136,38 +10173,6 @@ impl ExecutingFrame<'_> {
                         self.code.instructions.read_adaptive_counter(cache_base),
                     ),
                 );
-            }
-            return;
-        }
-
-        let attr_name = self.code.names[oparg.name_idx() as usize];
-
-        // Match CPython: only specialize module attribute loads when the
-        // current module dict has no __getattr__ override and the attribute is
-        // already present.
-        if let Some(module) = obj.downcast_ref_if_exact::<PyModule>(_vm) {
-            let module_dict = module.dict();
-            match (
-                module_dict.get_item_opt(identifier!(_vm, __getattr__), _vm),
-                module_dict.get_item_opt(attr_name, _vm),
-            ) {
-                (Ok(None), Ok(Some(_))) => {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u32(cache_base + 1, type_version);
-                    }
-                    self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrModule);
-                }
-                (Ok(_), Ok(_)) => self.cooldown_adaptive_at(cache_base),
-                _ => unsafe {
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                },
             }
             return;
         }

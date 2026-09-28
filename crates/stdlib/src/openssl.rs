@@ -3298,7 +3298,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(module = "ssl", name = "SSLSession")]
+    #[pyclass(module = "ssl", name = "SSLSession", unhashable = true)]
     #[derive(PyPayload)]
     struct PySslSession {
         session: *mut sys::SSL_SESSION,

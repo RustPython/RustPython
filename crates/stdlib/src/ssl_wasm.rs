@@ -737,7 +737,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(name = "SSLSession", module = "ssl")]
+    #[pyclass(name = "SSLSession", module = "ssl", unhashable = true)]
     #[derive(Debug, PyPayload)]
     struct PySSLSession {
         session_id: Vec<u8>,

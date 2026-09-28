@@ -110,6 +110,24 @@ s = "^*RustPython*^"
 assert s.strip("^*") == "RustPython"
 assert s.lstrip("^*") == "RustPython*^"
 assert s.rstrip("^*") == "^*RustPython"
+assert " abc ".strip(" é") == "abc"
+assert "éabcé".strip("é\ud800") == "abc"
+
+
+def test_strip_unchanged():
+    class StrSubclass(str):
+        pass
+
+    for text in ("already clean", "déjà propre", "a\ud800b"):
+        for method in (str.strip, str.lstrip, str.rstrip):
+            for chars in (None, "#"):
+                assert method(text, chars) is text
+                result = method(StrSubclass(text), chars)
+                assert result == text
+                assert type(result) is str
+
+
+test_strip_unchanged()
 
 s = "RustPython"
 assert s.ljust(8) == "RustPython"
@@ -276,6 +294,17 @@ assert type("-".join([JoinStr("a")])) is str
 assert type("-".join((JoinStr("a"), "b"))) is str
 single = "single"
 assert "-".join([single]) is single
+
+
+def join_broken_iterable():
+    yield 42
+    yield "a"
+    raise RuntimeError("producer failed")
+
+
+with assert_raises(RuntimeError):
+    "-".join(join_broken_iterable())
+
 assert "HALLO".isupper()
 assert not "123".isupper()
 assert not "123".islower()
@@ -338,6 +367,66 @@ assert (
 # Printf-style String formatting
 assert "%d %d" % (1, 2) == "1 2"
 assert "%*c  " % (3, "❤") == "  ❤  "
+for precision in (-1, -3, -(2**31)):
+    assert "%.*s" % (precision, "🐍hello") == ""
+assert "%*.*d" % (-6, -3, 12) == "12    "
+assert "%.*f" % (-3, 1.25) == "1"
+assert "%.*g" % (-3, 12.5) == "1e+01"
+assert_raises(OverflowError, "%.*s".__mod__, (-(2**31) - 1, "abc"))
+assert_raises(TypeError, "%.*s".__mod__, (1.0, "abc"))
+
+
+class PercentIndex:
+    def __index__(self):
+        return 7
+
+
+class PercentInt(PercentIndex):
+    def __init__(self, value):
+        self.value = value
+
+    def __int__(self):
+        if isinstance(self.value, Exception):
+            raise self.value
+        return self.value
+
+
+class PercentFloat(float):
+    __int__ = PercentInt.__int__
+    __index__ = PercentIndex.__index__
+
+
+class PercentFloatIndex(float):
+    __index__ = PercentIndex.__index__
+
+
+class PercentIntSubclass(int):
+    def __int__(self):
+        raise AssertionError("int subclasses must use their stored value")
+
+
+for template in ("%d", "%i", "%u", b"%d", b"%i", b"%u"):
+    assert template % PercentInt(3) == template % 3
+    assert template % PercentIndex() == template % 7
+    for value in (None, TypeError("conversion failed")):
+        with assert_raises(TypeError) as cm:
+            template % PercentInt(value)
+        assert str(cm.exception).endswith("a real number is required, not PercentInt")
+    assert_raises(
+        RuntimeError, template.__mod__, PercentInt(RuntimeError("conversion failed"))
+    )
+    number = PercentFloat(1.25)
+    number.value = 3
+    assert template % number == template % 3
+    number.value = None
+    assert_raises(TypeError, template.__mod__, number)
+    number.value = RuntimeError("conversion failed")
+    assert_raises(RuntimeError, template.__mod__, number)
+    assert template % PercentFloatIndex(1.25) == template % 1
+    assert template % PercentIntSubclass(1) == template % 1
+assert "%x" % PercentInt(3) == "7"
+assert b"%o" % PercentInt(3) == b"7"
+
 assert (
     "%(first)s %(second)s" % {"second": "World!", "first": "Hello,"} == "Hello, World!"
 )
@@ -986,6 +1075,27 @@ def test_replace_empty_pattern():
 
 
 test_replace_empty_pattern()
+
+
+def test_replace_unchanged():
+    for text in ("already clean", "déjà propre", "a\ud800b"):
+        for old, new, count in (
+            (text[:1], "#", 0),
+            (text[:1], text[:1], -1),
+            (text + " more", "replacement", -1),
+        ):
+            assert text.replace(old, new, count) is text
+            result = MyString(text).replace(old, new, count)
+            assert result == text
+            assert type(result) is str
+
+    # Returning the original string must not bypass argument conversion.
+    assert_raises(TypeError, lambda: "abc".replace(1, "x", 0))
+    assert_raises(TypeError, lambda: "abc".replace("a", 1, 0))
+    assert_raises(TypeError, lambda: "abc".replace("a", "a", None))
+
+
+test_replace_unchanged()
 
 
 def test_expandtabs_zero_tabsize():

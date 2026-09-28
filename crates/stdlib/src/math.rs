@@ -368,6 +368,11 @@ mod math {
 
     #[pyfunction]
     fn ceil(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // `math_ceil`: an exact float skips the `__ceil__` lookup.
+        if let Some(f) = x.downcast_ref_if_exact::<PyFloat>(vm) {
+            let v = try_f64_to_bigint(f.to_f64().ceil(), vm)?;
+            return Ok(vm.ctx.new_int(v).into());
+        }
         // Only call __ceil__ if the class defines it - if it exists but is not callable,
         // the error should be propagated (not fall back to float conversion)
         if x.class().has_attr(identifier!(vm, __ceil__)) {
@@ -378,14 +383,16 @@ mod math {
             let v = try_f64_to_bigint(v?.to_f64().ceil(), vm)?;
             return Ok(vm.ctx.new_int(v).into());
         }
-        Err(vm.new_type_error(format!(
-            "type '{}' doesn't define '__ceil__' method",
-            x.class().name(),
-        )))
+        Err(vm.new_type_error(format!("must be real number, not {}", x.class().name())))
     }
 
     #[pyfunction]
     fn floor(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // `math_floor`: an exact float skips the `__floor__` lookup.
+        if let Some(f) = x.downcast_ref_if_exact::<PyFloat>(vm) {
+            let v = try_f64_to_bigint(f.to_f64().floor(), vm)?;
+            return Ok(vm.ctx.new_int(v).into());
+        }
         // Only call __floor__ if the class defines it - if it exists but is not callable,
         // the error should be propagated (not fall back to float conversion)
         if x.class().has_attr(identifier!(vm, __floor__)) {
@@ -396,10 +403,7 @@ mod math {
             let v = try_f64_to_bigint(v?.to_f64().floor(), vm)?;
             return Ok(vm.ctx.new_int(v).into());
         }
-        Err(vm.new_type_error(format!(
-            "type '{}' doesn't define '__floor__' method",
-            x.class().name(),
-        )))
+        Err(vm.new_type_error(format!("must be real number, not {}", x.class().name())))
     }
 
     #[pyfunction]
