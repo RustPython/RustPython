@@ -6,7 +6,7 @@ use crate::{
     function::{ItemDoc, PyMethodDef, plain_doc},
     object::Py,
     types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, fn_addr, hash_not_implemented},
-    vm::Context,
+    vm::{Context, VirtualMachine},
 };
 use rustpython_common::static_cell;
 
@@ -225,6 +225,21 @@ pub const fn attr_name_present(table: &[&str], name: &str) -> bool {
         }
     }
     false
+}
+
+/// Set `doc` as `__doc__` of a native type that has none.
+pub fn assign_missing_doc(vm: &VirtualMachine, class: &Py<PyType>, doc: ItemDoc) {
+    let Some(text) = plain_doc(doc) else {
+        return;
+    };
+    let doc_name = identifier!(vm, __doc__);
+    let missing = class
+        .attributes()
+        .get(doc_name)
+        .is_none_or(|value| value.is(&vm.ctx.none));
+    if missing {
+        class.set_attr(doc_name, vm.ctx.new_str(text).into());
+    }
 }
 
 /// Doc for `name` in a sorted attribute-doc table.

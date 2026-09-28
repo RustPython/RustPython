@@ -19,7 +19,7 @@ use crate::{
     exceptions,
     function::{
         HeapMethodDef, IntoPyGetterFunc, IntoPyNativeFn, IntoPySetterFunc, ItemDoc, PyMethodDef,
-        PyMethodFlags,
+        PyMethodFlags, plain_doc,
     },
     intern::{InternableString, MaybeInternedString, StringPool},
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
@@ -614,9 +614,23 @@ impl Context {
         name: &str,
         bases: Option<Vec<PyTypeRef>>,
     ) -> PyTypeRef {
+        self.new_exception_type_with_doc(module, name, bases, ItemDoc::NONE)
+    }
+
+    /// Like `new_exception_type`, with `doc` as the new type's `__doc__`.
+    pub fn new_exception_type_with_doc(
+        &self,
+        module: &str,
+        name: &str,
+        bases: Option<Vec<PyTypeRef>>,
+        doc: ItemDoc,
+    ) -> PyTypeRef {
         let bases = bases.unwrap_or_else(|| vec![self.exceptions.exception_type.to_owned()]);
         let mut attrs = PyAttributes::default();
         attrs.insert(identifier!(self, __module__), self.new_str(module).into());
+        if let Some(text) = plain_doc(doc) {
+            attrs.insert(identifier!(self, __doc__), self.new_str(text).into());
+        }
 
         let interned_name = self.intern_str(name);
         let slots = PyTypeSlots {

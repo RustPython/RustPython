@@ -226,9 +226,23 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                     quote!(#holder::__OWN_METHOD_DEFS)
                 } else {
                     quote!(
-                        rustpython_vm::function::PyMethodDef::__const_concat_arrays::<
-                            { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
-                        >(&[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
+                        {
+                            #[cfg(feature = "doc")]
+                            {
+                                ::rustpython_vm::function::PyMethodDef::concat_with_attr_docs::<
+                                    { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
+                                >(
+                                    &[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*],
+                                    <#payload_ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
+                                )
+                            }
+                            #[cfg(not(feature = "doc"))]
+                            {
+                                ::rustpython_vm::function::PyMethodDef::__const_concat_arrays::<
+                                    { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
+                                >(&[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
+                            }
+                        }
                     )
                 };
                 let internal_doc = class_internal_doc(

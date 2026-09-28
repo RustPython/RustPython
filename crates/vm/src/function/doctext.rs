@@ -36,6 +36,23 @@ impl ItemDoc {
     pub const fn is_db(self) -> bool {
         self.len != 0
     }
+
+    /// Database entry `key`. Evaluate it in a `const` so the lookup table is
+    /// not linked into the binary.
+    #[must_use]
+    pub const fn db(key: &str) -> Self {
+        #[cfg(feature = "doc")]
+        if let Some(doc) = rustpython_doc::get(key) {
+            return Self {
+                text: None,
+                offset: doc.offset,
+                len: doc.len,
+            };
+        }
+        #[cfg(not(feature = "doc"))]
+        let _ = key;
+        Self::NONE
+    }
 }
 
 impl Default for ItemDoc {

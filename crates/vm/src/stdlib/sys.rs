@@ -9,22 +9,22 @@ pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, modul
 
 #[pymodule(name = "_jit")]
 mod sys_jit {
-    /// Return True if the current Python executable supports JIT compilation,
-    /// and False otherwise.
+    // Return True if the current Python executable supports JIT compilation,
+    // and False otherwise.
     #[pyfunction]
     const fn is_available() -> bool {
         false // RustPython has no JIT
     }
 
-    /// Return True if JIT compilation is enabled for the current Python process,
-    /// and False otherwise.
+    // Return True if JIT compilation is enabled for the current Python process,
+    // and False otherwise.
     #[pyfunction]
     const fn is_enabled() -> bool {
         false // RustPython has no JIT
     }
 
-    /// Return True if the topmost Python frame is currently executing JIT code,
-    /// and False otherwise.
+    // Return True if the topmost Python frame is currently executing JIT code,
+    // and False otherwise.
     #[pyfunction]
     const fn is_active() -> bool {
         false // RustPython has no JIT
@@ -90,8 +90,8 @@ pub mod sys {
         }
     }
 
-    /// Lightweight stdio wrapper for sandbox mode (no host_env).
-    /// Directly uses Rust's std::io for stdin/stdout/stderr without FileIO.
+    // Lightweight stdio wrapper for sandbox mode (no host_env).
+    // Directly uses Rust's std::io for stdin/stdout/stderr without FileIO.
     #[pyclass(no_attr, name = "_SandboxStdio")]
     #[derive(Debug, PyPayload)]
     pub struct SandboxStdio {
@@ -1922,6 +1922,29 @@ pub mod sys {
     }
 }
 
+fn sys_module_doc() -> Option<&'static str> {
+    let raw = crate::function::plain_doc(sys::DOC)?;
+    #[cfg(windows)]
+    {
+        Some(raw)
+    }
+    #[cfg(not(windows))]
+    {
+        use std::sync::OnceLock;
+        static FILTERED: OnceLock<String> = OnceLock::new();
+        let filtered = FILTERED.get_or_init(|| {
+            let mut out = String::new();
+            for line in raw.split_inclusive('\n') {
+                if !line.contains("[Windows only]") {
+                    out.push_str(line);
+                }
+            }
+            out
+        });
+        Some(filtered.as_str())
+    }
+}
+
 pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: &Py<PyModule>) {
     module.__init_methods(vm).unwrap();
     sys::module_exec(vm, module).unwrap();
@@ -1939,7 +1962,7 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
     let jit_module = jit_def.create_module(vm).unwrap();
 
     extend_module!(vm, module, {
-        "__doc__" => crate::function::plain_doc(sys::DOC).to_pyobject(vm),
+        "__doc__" => sys_module_doc().to_pyobject(vm),
         "modules" => modules,
         "_jit" => jit_module,
     });

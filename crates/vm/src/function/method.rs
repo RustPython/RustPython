@@ -261,6 +261,31 @@ impl PyMethodDef {
         PyNativeMethod { func, class }.into_ref(ctx)
     }
 
+    /// Concatenate method groups and fill an empty database span from `docs`.
+    /// A Rust docstring that is more than a signature prefix is kept.
+    #[cfg(feature = "doc")]
+    #[must_use]
+    pub const fn concat_with_attr_docs<const N: usize>(
+        method_groups: &[&[Self]],
+        docs: &[(&str, u32, u32)],
+    ) -> [Self; N] {
+        let combined = Self::__const_concat_arrays::<N>(method_groups);
+        let mut i = 0;
+        let mut out = combined;
+        while i < N {
+            if out[i].doc_len == 0
+                && signature_only(out[i].doc)
+                && let Some((offset, len)) = crate::class::attr_doc(docs, out[i].name)
+                && len != 0
+            {
+                out[i].doc_off = offset;
+                out[i].doc_len = len;
+            }
+            i += 1;
+        }
+        out
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub const fn __const_concat_arrays<const SUM_LEN: usize>(
@@ -305,6 +330,37 @@ impl PyMethodDef {
             doc: self.doc,
         }
     }
+}
+
+/// True when `text` carries no prose: missing, empty, or only a signature prefix.
+#[cfg(feature = "doc")]
+const fn signature_only(text: Option<&str>) -> bool {
+    let Some(text) = text else {
+        return true;
+    };
+    if text.is_empty() {
+        return true;
+    }
+    ends_with(text.as_bytes(), b")\n--\n\n")
+}
+
+#[cfg(feature = "doc")]
+const fn ends_with(hay: &[u8], needle: &[u8]) -> bool {
+    if hay.len() < needle.len() {
+        return false;
+    }
+    let start = hay.len() - needle.len();
+    let mut i = 0;
+    while i < needle.len() {
+        // Slice indexing is not a const trait on this toolchain.
+        let left = unsafe { *hay.as_ptr().add(start + i) };
+        let right = unsafe { *needle.as_ptr().add(i) };
+        if left != right {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 impl core::fmt::Debug for PyMethodDef {

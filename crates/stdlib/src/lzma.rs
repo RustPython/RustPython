@@ -9,7 +9,7 @@ mod _lzma {
     use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use rustpython_common::{compression::lzma as backend, lock::PyMutex};
     use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytes, PyDict, PyType, PyTypeRef};
-    use rustpython_vm::function::ArgBytesLike;
+    use rustpython_vm::function::{ArgBytesLike, ItemDoc};
     use rustpython_vm::object::PyAtomicRef;
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
@@ -78,10 +78,11 @@ mod _lzma {
 
     #[pyattr(once, name = "LZMAError")]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_exception_type(
+        vm.ctx.new_exception_type_with_doc(
             "lzma",
             "LZMAError",
             Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
+            const { ItemDoc::db("_lzma.LZMAError") },
         )
     }
 

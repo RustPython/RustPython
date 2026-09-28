@@ -652,9 +652,17 @@ trait ModuleItem: ContentItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()>;
 }
 
-/// Doc for `module.func` when this body is a `#[pymodule(sub)]` and the Rust
-/// module name is not the Python module. Used only when exactly one module
-/// owns that function name.
+/// Doc for a `#[pymodule(sub)]` function, whose Rust module name is not the
+/// Python module. A name owned by both `posix` and `nt` shares one text.
+fn submodule_func_doc(name: &str) -> Option<rustpython_doc::DocRef> {
+    unique_submodule_func_doc(name).or_else(|| {
+        ["posix", "nt"].into_iter().find_map(|module| {
+            rustpython_doc::get(&format!("{module}.{name}")).filter(|doc| doc.len != 0)
+        })
+    })
+}
+
+/// Doc for `module.func` when exactly one module owns that function name.
 fn unique_submodule_func_doc(name: &str) -> Option<rustpython_doc::DocRef> {
     let suffix = format!(".{name}");
     let mut found = None;
@@ -715,7 +723,7 @@ impl ModuleItem for FunctionItem {
                 } else {
                     rustpython_doc::get_qualified(module, py_name, None, false).or_else(|| {
                         if args.context.is_sub {
-                            unique_submodule_func_doc(py_name)
+                            submodule_func_doc(py_name)
                         } else {
                             None
                         }
@@ -773,6 +781,17 @@ impl ModuleItem for ClassItem {
             } else {
                 class_meta.class_name()?
             };
+            // The class's own module first, then the module it is published on.
+            let class_doc = [module_name.as_str(), args.context.name.as_str()]
+                .into_iter()
+                .find_map(|module| {
+                    rustpython_doc::get_qualified(module, &class_name, None, true)
+                        .filter(|doc| doc.len != 0)
+                })
+                .map(|doc| {
+                    let doc = crate::class_docs::item_doc_tokens(Some(doc), None);
+                    quote!(::rustpython_vm::class::assign_missing_doc(vm, &new_class, #doc);)
+                });
             let class_new = quote_spanned!(ident.span() =>
                 let new_class = <#ident as ::rustpython_vm::class::PyClassImpl>::make_static_type();
                 // Only set __module__ string if the class doesn't already have a
@@ -787,6 +806,7 @@ impl ModuleItem for ClassItem {
                         new_class.set_attr(module_key, vm.new_pyobj(#module_name));
                     }
                 }
+                #class_doc
             );
             (class_name, class_new)
         };

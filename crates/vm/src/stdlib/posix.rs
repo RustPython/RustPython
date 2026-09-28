@@ -1722,23 +1722,23 @@ pub mod module {
     pub(super) struct PosixSpawnArgs {
         #[pyarg(positional)]
         path: OsPath,
-        #[pyarg(positional)]
+        #[pyarg(positional, name = "argv")]
         args: PyObjectRef,
         #[pyarg(positional)]
         env: Option<crate::function::ArgMapping>,
-        #[pyarg(named, default)]
+        #[pyarg(named, default, py_default = "()")]
         file_actions: Option<crate::function::ArgIterable<PyTupleRef>>,
-        #[pyarg(named, default)]
-        setsigdef: Option<crate::function::ArgIterable<i32>>,
-        #[pyarg(named, default)]
+        #[pyarg(named, optional)]
         setpgroup: Option<libc::pid_t>,
         #[pyarg(named, default)]
         resetids: bool,
         #[pyarg(named, default)]
         setsid: bool,
-        #[pyarg(named, default)]
+        #[pyarg(named, default, py_default = "()")]
         setsigmask: Option<crate::function::ArgIterable<i32>>,
-        #[pyarg(named, default)]
+        #[pyarg(named, default, py_default = "()")]
+        setsigdef: Option<crate::function::ArgIterable<i32>>,
+        #[pyarg(named, optional)]
         scheduler: Option<PyObjectRef>,
     }
 
