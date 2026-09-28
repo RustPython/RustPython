@@ -651,3 +651,58 @@ assert_raises(RuntimeError, source.difference_update, iter(source))
 assert len(source) == 1
 source.difference_update(source)
 assert source == set()
+
+
+# Difference chooses comparison direction by size, retaining left-side keys.
+for left_type in (set, frozenset):
+    left_key = DirectionalKey(False)
+    right_key = DirectionalKey(True)
+    left = left_type([left_key])
+    for right_type in (set, frozenset, NativeSetSource, NativeFrozenSetSource, dict):
+        right = (
+            dict.fromkeys([right_key, *range(32)])
+            if right_type is dict
+            else right_type([right_key, *range(32)])
+        )
+        assert left.difference(right) == set()
+        assert list(left) == [left_key]
+        if right_type is not dict:
+            assert left - right == set()
+            updated = set(left)
+            updated.difference_update(right)
+            assert updated == set()
+    # Later arguments use in-place difference's comparison direction.
+    assert list(left.difference(set(), {right_key})) == [left_key]
+    large_left = left_type([left_key, *range(32)])
+    assert left_key in large_left.difference({right_key})
+
+
+key = StoredHashKey(100)
+source = {key}
+excluded = {key, *range(32)}
+dictionary = dict.fromkeys(excluded)
+key.hash_enabled = False
+assert not source.difference(excluded)
+assert not source.difference(dictionary)
+source.difference_update(excluded)
+assert not source
+
+
+# Removed objects observe the completed intersection, including their mutations.
+intersection_events = []
+
+
+class RemovedFromIntersection:
+    def __del__(self):
+        intersection_events.append(1 in intersection_target)
+        intersection_target.discard(1)
+
+
+for use_operator in (False, True):
+    intersection_target = {1, RemovedFromIntersection()}
+    if use_operator:
+        intersection_target &= {1}
+    else:
+        intersection_target.intersection_update({1})
+    assert not intersection_target
+assert intersection_events == [True, True]

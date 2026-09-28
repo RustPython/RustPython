@@ -778,6 +778,16 @@ impl<T: Clone> Dict<T> {
         };
     }
 
+    /// Install an owned table, releasing the old entries after unlocking.
+    pub(crate) fn replace_contents(&self, other: Self) {
+        let replacement = other.inner.into_inner();
+        let _removed = {
+            let mut inner = self.write();
+            self.invalidate_keys_version();
+            core::mem::replace(&mut *inner, replacement)
+        };
+    }
+
     /// Delete a key
     pub(crate) fn delete<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<()>
     where
@@ -1783,5 +1793,25 @@ mod tests {
             let hash2 = value2.key_hash(vm).expect("Hash should not fail.");
             assert_eq!(hash1, hash2);
         })
+    }
+
+    #[test]
+    fn replace_contents_invalidates_cached_indices() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            dict.insert(vm, &1usize, ()).unwrap();
+            let old_version = dict.assign_keys_version();
+            assert_ne!(old_version, 0);
+
+            let replacement = Dict::default();
+            replacement.insert(vm, &2usize, ()).unwrap();
+            assert_ne!(replacement.assign_keys_version(), 0);
+            dict.replace_contents(replacement);
+
+            assert_eq!(dict.keys_version(), 0);
+            assert_eq!(dict.get_index_if_keys_version(old_version, 0), None);
+            assert!(!dict.contains(vm, &1usize).unwrap());
+            assert!(dict.contains(vm, &2usize).unwrap());
+        });
     }
 }

@@ -247,6 +247,19 @@ impl PySetInner {
         Ok(result)
     }
 
+    fn difference_multi(
+        &self,
+        mut others: impl core::iter::Iterator<Item = ArgIterable>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        let Some(other) = others.next() else {
+            return Ok(self.copy());
+        };
+        let result = self.difference_new(other, vm)?;
+        result.difference_update(others, vm)?;
+        Ok(result)
+    }
+
     fn len(&self) -> usize {
         self.content.len()
     }
@@ -315,28 +328,10 @@ impl PySetInner {
     }
 
     pub(super) fn intersection(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        let (target, elements) = if let Some(other_set) = extract_set(other.as_object()) {
-            if core::ptr::eq(self, other_set) {
-                return Ok(self.copy());
-            }
-            let (target, source) = if self.len() < other_set.len() {
-                (other_set, self)
-            } else {
-                (self, other_set)
-            };
-            (target, Some(source.content.keys_with_hashes()))
-        } else {
-            (self, None)
-        };
-        let set = Self::default();
-        if let Some(elements) = elements {
-            for (obj, hash) in elements {
-                if target.contains_known_hash(&obj, hash, vm)? {
-                    set.add_known_hash(&obj, hash, vm)?;
-                }
-            }
-            return Ok(set);
+        if let Some(other_set) = extract_set(other.as_object()) {
+            return self.intersection_set(other_set, vm);
         }
+        let set = Self::default();
         for item in other.iter(vm)? {
             let obj = item?;
             let hash = obj.hash(vm)?;
@@ -350,18 +345,61 @@ impl PySetInner {
         Ok(set)
     }
 
-    pub(super) fn difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        let set = self.clone();
-        if let Some(elements) = Self::cached_hashes(other.as_object(), vm) {
-            for (item, hash) in elements {
-                set.content.delete_if_exists_known_hash(vm, &*item, hash)?;
-            }
-            return Ok(set);
+    fn intersection_set(&self, other: &Self, vm: &VirtualMachine) -> PyResult<Self> {
+        if PyRc::ptr_eq(&self.content, &other.content) {
+            return Ok(self.copy());
         }
-        for item in other.iter(vm)? {
-            set.content.delete_if_exists(vm, &*item?)?;
+        let (target, source) = if self.len() < other.len() {
+            (other, self)
+        } else {
+            (self, other)
+        };
+        let set = Self::default();
+        for (obj, hash) in source.content.keys_with_hashes() {
+            if target.contains_known_hash(&obj, hash, vm)? {
+                set.add_known_hash(&obj, hash, vm)?;
+            }
         }
         Ok(set)
+    }
+
+    fn difference_new(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        // Scanning the left side avoids visiting and retaining a much larger
+        // exclusion collection. Match CPython's comparison direction as well.
+        if let Some(other_set) = extract_set(other.as_object()) {
+            if self.len() >> 2 <= other_set.len() {
+                return self
+                    .difference_by(|key, hash| other_set.contains_known_hash(key, hash, vm), vm);
+            }
+        } else if let Some(dict) = other.as_object().downcast_ref_if_exact::<PyDict>(vm)
+            && self.len() >> 2 <= dict._as_dict_inner().len()
+        {
+            return self.difference_by(
+                |key, hash| dict._as_dict_inner().contains_known_hash(vm, key, hash),
+                vm,
+            );
+        }
+        self.copy().difference(other, vm)
+    }
+
+    // The dict-view caller supplies a private working table.
+    pub(super) fn difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.difference_update(core::iter::once(other), vm)?;
+        Ok(self.clone())
+    }
+
+    fn difference_by(
+        &self,
+        contains: impl Fn(&PyObject, PyHash) -> PyResult<bool>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
+        let result = Self::default();
+        for (key, hash) in self.content.keys_with_hashes() {
+            if !contains(&key, hash)? {
+                result.add_known_hash(&key, hash, vm)?;
+            }
+        }
+        Ok(result)
     }
 
     pub(super) fn symmetric_difference(
@@ -530,10 +568,8 @@ impl PySetInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let temp_inner = self.intersection_multi(others, vm)?;
-        self.clear();
-        for (obj, hash) in temp_inner.content.keys_with_hashes() {
-            self.add_known_hash(&obj, hash, vm)?;
-        }
+        let content = PyRc::try_unwrap(temp_inner.content).unwrap_or_else(|table| (*table).clone());
+        self.content.replace_contents(content);
         Ok(())
     }
 
@@ -543,7 +579,24 @@ impl PySetInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
-            if let Some(elements) = Self::cached_hashes(iterable.as_object(), vm) {
+            let elements = if let Some(other_set) = extract_set(iterable.as_object()) {
+                if PyRc::ptr_eq(&self.content, &other_set.content) {
+                    self.clear();
+                    continue;
+                }
+                // Build the intersection first: besides bounding the work by
+                // our size, this preserves CPython's equality/error ordering.
+                Some(if other_set.len() >> 3 > self.len() {
+                    self.intersection_set(other_set, vm)?
+                        .content
+                        .keys_with_hashes()
+                } else {
+                    other_set.content.keys_with_hashes()
+                })
+            } else {
+                Self::cached_hashes(iterable.as_object(), vm)
+            };
+            if let Some(elements) = elements {
                 for (item, hash) in elements {
                     self.content.delete_if_exists_known_hash(vm, &*item, hash)?;
                 }
@@ -748,7 +801,9 @@ impl PySet {
         others: PosArgs<ArgIterable, NameOthers>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        self.fold_op(others.into_iter(), PySetInner::difference, vm)
+        Ok(Self {
+            inner: self.inner.difference_multi(others.into_iter(), vm)?,
+        })
     }
 
     #[pymethod]
@@ -807,11 +862,9 @@ impl PySet {
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = AnySet::try_from_object(vm, other) {
-            Ok(PyArithmeticValue::Implemented(self.op(
-                other,
-                PySetInner::difference,
-                vm,
-            )?))
+            Ok(PyArithmeticValue::Implemented(Self {
+                inner: self.inner.difference_new(other.into_iterable(vm)?, vm)?,
+            }))
         } else {
             Ok(PyArithmeticValue::NotImplemented)
         }
@@ -826,8 +879,7 @@ impl PySet {
             Ok(PyArithmeticValue::Implemented(Self {
                 inner: other
                     .as_inner()
-                    .copy()
-                    .difference(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
+                    .difference_new(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
             }))
         } else {
             Ok(PyArithmeticValue::NotImplemented)
@@ -1277,7 +1329,10 @@ impl PyFrozenSet {
         others: PosArgs<ArgIterable, NameOthers>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        self.fold_op(others.into_iter(), PySetInner::difference, vm)
+        Ok(Self {
+            inner: self.inner.difference_multi(others.into_iter(), vm)?,
+            ..Default::default()
+        })
     }
 
     #[pymethod]
@@ -1337,11 +1392,10 @@ impl PyFrozenSet {
         vm: &VirtualMachine,
     ) -> PyResult<PyArithmeticValue<Self>> {
         if let Ok(other) = AnySet::try_from_object(vm, other) {
-            Ok(PyArithmeticValue::Implemented(self.op(
-                other,
-                PySetInner::difference,
-                vm,
-            )?))
+            Ok(PyArithmeticValue::Implemented(Self {
+                inner: self.inner.difference_new(other.into_iterable(vm)?, vm)?,
+                ..Default::default()
+            }))
         } else {
             Ok(PyArithmeticValue::NotImplemented)
         }
@@ -1356,8 +1410,7 @@ impl PyFrozenSet {
             Ok(PyArithmeticValue::Implemented(Self {
                 inner: other
                     .as_inner()
-                    .copy()
-                    .difference(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
+                    .difference_new(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
                 ..Default::default()
             }))
         } else {
