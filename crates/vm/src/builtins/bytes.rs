@@ -12,7 +12,7 @@ use crate::{
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerReplaceOptions, ByteInnerSplitOptions, ByteInnerStripOptions, ByteInnerSub,
-        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerTranslateOptions, BytesJoin, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::{PyClassDef, PyClassImpl},
     common::{hash::PyHash, lock::PyMutex},
@@ -350,8 +350,14 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn join(&self, iterable_of_bytes: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(self.inner.join(iterable_of_bytes, vm)?.into())
+    fn join(&self, iterable_of_bytes: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        let items = BytesJoin::new(iterable_of_bytes, vm)?;
+        if let Some(only) = items.single_bytes(vm) {
+            return Ok(only);
+        }
+        Ok(vm
+            .ctx
+            .new_bytes(items.join(self.as_bytes().len(), || self.as_bytes().into(), vm)?))
     }
 
     #[pymethod]

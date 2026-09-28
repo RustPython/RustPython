@@ -294,6 +294,17 @@ assert type("-".join([JoinStr("a")])) is str
 assert type("-".join((JoinStr("a"), "b"))) is str
 single = "single"
 assert "-".join([single]) is single
+
+
+def join_broken_iterable():
+    yield 42
+    yield "a"
+    raise RuntimeError("producer failed")
+
+
+with assert_raises(RuntimeError):
+    "-".join(join_broken_iterable())
+
 assert "HALLO".isupper()
 assert not "123".isupper()
 assert not "123".islower()
