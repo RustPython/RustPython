@@ -670,6 +670,8 @@ impl Context {
             doc_off: doc.offset,
             #[cfg(feature = "doc")]
             doc_len: doc.len,
+            #[cfg(feature = "doc")]
+            doc_body_pending: false,
             doc: doc.text,
         };
         let payload = HeapMethodDef::new(def);

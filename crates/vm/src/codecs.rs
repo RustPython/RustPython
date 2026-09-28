@@ -181,6 +181,8 @@ impl CodecsRegistry {
                         doc_off: DOC.offset,
                         #[cfg(feature = "doc")]
                         doc_len: DOC.len,
+                        #[cfg(feature = "doc")]
+                        doc_body_pending: false,
                         doc: Some(concat!($name, "($self, object, /)\n--\n\n")),
                     }
                 }};

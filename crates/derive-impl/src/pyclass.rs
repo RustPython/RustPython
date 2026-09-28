@@ -475,6 +475,34 @@ fn attr_doc_expr(self_ty: Option<&syn::Type>, attr: &str, rust_doc: Option<Strin
     }
 }
 
+/// True when the method body is still taken from the owning class's table.
+/// A non-empty Rust doc is the body. Otherwise the span is resolved here when
+/// the impl can name its class; a missing class or a missing span stays pending.
+fn doc_body_pending_expr(
+    self_ty: Option<&syn::Type>,
+    attr: &str,
+    rust_doc: Option<String>,
+) -> TokenStream {
+    if rust_doc.as_ref().is_some_and(|doc| !doc.is_empty()) {
+        return quote!(false);
+    }
+    let Some(ty) = class_def_ty(self_ty) else {
+        return quote!(true);
+    };
+    quote! {
+        {
+            const FOUND: Option<(u32, u32)> = ::rustpython_vm::class::attr_doc(
+                <#ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
+                #attr,
+            );
+            match FOUND {
+                Some((_, len)) if len != 0 => false,
+                _ => true,
+            }
+        }
+    }
+}
+
 fn type_matches_path(ty: &syn::Type, path: &syn::Path) -> bool {
     // Compare by converting both to string representation for macro hygiene
     let ty_str = quote!(#ty).to_string().replace(' ', "");
@@ -1238,6 +1266,7 @@ where
             args.attrs.push(allow_attr);
         }
 
+        let rust_doc = args.attrs.doc();
         let doc = internal_doc_tokens(
             func.sig(),
             &py_name,
@@ -1245,16 +1274,19 @@ where
             attr_doc_expr(
                 args.context.self_ty_subst.as_ref(),
                 &py_name,
-                args.attrs.doc(),
+                rust_doc.clone(),
             ),
             args.context.self_ty_subst.as_ref(),
             None,
         );
+        let doc_body_pending =
+            doc_body_pending_expr(args.context.self_ty_subst.as_ref(), &py_name, rust_doc);
         args.context.method_items.add_item(MethodNurseryItem {
             py_name,
             cfgs: args.cfgs.to_vec(),
             ident: ident.to_owned(),
             doc,
+            doc_body_pending,
             raw,
             coexist,
             attr_name: self.inner.attr_name,
@@ -1452,6 +1484,7 @@ struct MethodNurseryItem {
     raw: bool,
     coexist: bool,
     doc: TokenStream,
+    doc_body_pending: TokenStream,
     attr_name: AttrName,
     call_flags: TokenStream,
 }
@@ -1480,6 +1513,7 @@ impl ToTokens for MethodNursery {
             let ident = &item.ident;
             let cfgs = &item.cfgs;
             let doc = &item.doc;
+            let doc_body_pending = &item.doc_body_pending;
             let binding_flags = match &item.attr_name {
                 AttrName::Method => {
                     quote! { rustpython_vm::function::PyMethodFlags::METHOD }
@@ -1517,12 +1551,19 @@ impl ToTokens for MethodNursery {
             };
             inner_tokens.extend(quote! [
                 #(#cfgs)*
-                rustpython_vm::function::PyMethodDef::#method_new(
-                    #py_name,
-                    Self::#ident,
-                    #flags,
-                    #doc,
-                ),
+                {
+                    let mut def = rustpython_vm::function::PyMethodDef::#method_new(
+                        #py_name,
+                        Self::#ident,
+                        #flags,
+                        #doc,
+                    );
+                    #[cfg(feature = "doc")]
+                    {
+                        def.doc_body_pending = #doc_body_pending;
+                    }
+                    def
+                },
             ]);
         }
         let array: TokenTree = Group::new(Delimiter::Bracket, inner_tokens).into();
