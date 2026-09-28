@@ -2320,9 +2320,9 @@ dependencies = [
 
 [[package]]
 name = "libz-rs-sys"
-version = "0.6.7"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03dcace986b149f29509af6ca70e6182bccce916b644424ecf484faa8ddc899a"
+checksum = "434324ee61a8e4a05dd3fdf03d51c073ea7fdaf5a35b2ca33c4ca9f3f37def4a"
 dependencies = [
  "zlib-rs",
 ]
