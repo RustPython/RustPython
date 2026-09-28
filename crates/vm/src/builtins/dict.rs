@@ -411,6 +411,9 @@ impl PyDict {
         match d.downcast_exact::<Self>(vm) {
             Ok(pydict) => {
                 if let Some(keys) = Self::fromkeys_known_hashes(iterable.as_object(), vm) {
+                    if class.is(vm.ctx.types.dict_type) {
+                        pydict.entries.reserve_for_empty(keys.len());
+                    }
                     for (key, hash) in keys {
                         pydict
                             .entries

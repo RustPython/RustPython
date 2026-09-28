@@ -527,6 +527,35 @@ impl<T: Clone> Dict<T> {
         self.inner.write()
     }
 
+    /// Reserve space for known keys without changing an existing key layout.
+    /// Only use on an unpublished dictionary: resizing must not race with a
+    /// lookup that has already probed the old index table.
+    pub(crate) fn reserve_for_empty(&self, capacity: usize) {
+        if capacity == 0 {
+            return;
+        }
+        let Some(index_capacity) = capacity
+            .checked_add(capacity.div_ceil(2))
+            .and_then(usize::checked_next_power_of_two)
+        else {
+            return;
+        };
+        let mut inner = self.write();
+        if inner.filled != 0 || !inner.entries.is_empty() {
+            return;
+        }
+        // Keep the usual incremental growth path if preallocation fails.
+        if inner.entries.try_reserve_exact(capacity).is_err() {
+            return;
+        }
+        let additional = index_capacity.saturating_sub(inner.indices.len());
+        if additional != 0 && inner.indices.try_reserve_exact(additional).is_ok() {
+            // Every existing index is FREE, so extending needs no rehash and
+            // leaves the empty key layout and its version unchanged.
+            inner.indices.resize(index_capacity, IndexEntry::FREE);
+        }
+    }
+
     /// Store a key
     pub(crate) fn insert<K>(&self, vm: &VirtualMachine, key: &K, value: T) -> PyResult<()>
     where
@@ -1867,6 +1896,45 @@ mod tests {
             let val = dict.get(vm, "x").unwrap().unwrap();
             vm.bool_eq(&val, &value2)
                 .expect("retrieved value must be equal to inserted value.");
+        })
+    }
+
+    #[test]
+    fn reserve_empty_avoids_growth() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            dict.reserve_for_empty(usize::MAX);
+            assert_eq!(dict.read().indices.len(), 8);
+            assert_eq!(dict.read().entries.capacity(), 0);
+
+            let version = dict.assign_keys_version();
+            let count = 1000;
+            dict.reserve_for_empty(count);
+            assert_eq!(dict.keys_version(), version);
+            let capacity = {
+                let inner = dict.read();
+                (inner.indices.len(), inner.entries.capacity())
+            };
+            for key in 0..count {
+                dict.insert(vm, &key, vm.ctx.none()).unwrap();
+                let inner = dict.read();
+                assert_eq!((inner.indices.len(), inner.entries.capacity()), capacity);
+            }
+            assert_eq!(dict.len(), count);
+            assert!(dict.contains(vm, &(count - 1)).unwrap());
+
+            // Existing and tombstoned layouts are left intact.
+            dict.reserve_for_empty(count * 4);
+            {
+                let inner = dict.read();
+                assert_eq!((inner.indices.len(), inner.entries.capacity()), capacity);
+            }
+            for key in 0..count {
+                dict.delete(vm, &key).unwrap();
+            }
+            let old_size = dict.read().size();
+            dict.reserve_for_empty(count * 4);
+            assert_eq!(dict.read().size(), old_size);
         })
     }
 
