@@ -1137,3 +1137,176 @@ empty = []
 empty *= sys.maxsize
 assert empty == []
 assert [] * sys.maxsize == []
+
+
+def test_incremental_list_updates():
+    def iadd(target, source):
+        target += source
+
+    for update in (list.extend, iadd, list.__init__):
+        target = [0]
+        initial = [] if update is list.__init__ else [0]
+
+        def source():
+            assert target == initial
+            yield 7
+            assert target == initial + [7]
+            yield 8
+            raise RuntimeError("source failed")
+
+        with assert_raises(RuntimeError):
+            update(target, source())
+        assert target == initial + [7, 8]
+
+    class ListSubclass(list):
+        def __iter__(self):
+            raise AssertionError("self-extension must use stored elements")
+
+        def __len__(self):
+            raise AssertionError("self-extension must use stored length")
+
+    for update in (list.extend, iadd):
+        target = ListSubclass([1, 2])
+        update(target, target)
+        assert target == [1, 2, 1, 2]
+    target[::-1] = target
+    assert target == [2, 1, 2, 1]
+    target.__init__(target)
+    assert target == []
+
+
+test_incremental_list_updates()
+
+
+def test_slice_assignment_iterator_hint():
+    class Rows:
+        def __iter__(self):
+            return iter([7, 8])
+
+        def __len__(self):
+            raise AssertionError("slice assignment must ask the iterator")
+
+    target = [0]
+    target[:] = Rows()
+    assert target == [7, 8]
+
+
+test_slice_assignment_iterator_hint()
+
+
+# A failing iterator hint aborts slice assignment without changing the list.
+target = [0]
+with assert_raises(NotImplementedError):
+    target[:] = LoudIterator()
+assert target == [0]
+
+
+def test_list_mutation_finalizers():
+    cases = (
+        (lambda a: a.__setitem__(0, 99), [99, 1, 2, 3], [0]),
+        (lambda a: a.__delitem__(0), [1, 2, 3], [0]),
+        (lambda a: a.__imul__(0), [], [3, 2, 1, 0]),
+        (list.clear, [], [3, 2, 1, 0]),
+        (lambda a: a.__setitem__(slice(1, 3), [10, 11]), [0, 10, 11, 3], [2, 1]),
+        (lambda a: a.__delitem__(slice(1, 3)), [0, 3], [2, 1]),
+        (
+            lambda a: a.__setitem__(slice(None, None, 2), [10, 11]),
+            [10, 1, 11, 3],
+            [0, 2],
+        ),
+        (
+            lambda a: a.__setitem__(slice(None, None, -2), [10, 11]),
+            [0, 11, 2, 10],
+            [3, 1],
+        ),
+        (lambda a: a.__delitem__(slice(None, None, -2)), [0, 2], [1, 3]),
+        (lambda a: a.__delitem__(slice(None, None, -1)), [], [0, 1, 2, 3]),
+    )
+    for mutate, expected, order in cases:
+        target = []
+        seen = []
+
+        class Item:
+            def __init__(self, value):
+                self.value = value
+
+            def __del__(self):
+                snapshot = [x.value if isinstance(x, Item) else x for x in target]
+                seen.append((self.value, snapshot))
+                target.append("released")
+
+        target.extend(Item(i) for i in range(4))
+        mutate(target)
+        assert seen == [
+            (value, expected + ["released"] * i) for i, value in enumerate(order)
+        ]
+        target.clear()
+
+    target = []
+
+    class Rejected:
+        def __del__(self):
+            target.append("released")
+
+    with assert_raises(IndexError):
+        target[0] = Rejected()
+    assert target == ["released"]
+
+
+test_list_mutation_finalizers()
+
+
+def test_slice_replacement_lifetime():
+    events = []
+    target = []
+
+    class Old:
+        def __init__(self, value):
+            self.value = value
+
+        def __del__(self):
+            events.append(("old start", self.value))
+            target.clear()
+            events.append(("old end", self.value))
+
+    class New:
+        def __init__(self, value):
+            self.value = value
+
+        def __del__(self):
+            events.append(("new", self.value))
+
+    for selection in (slice(None), slice(None, None, -1)):
+        events.clear()
+        target.extend(Old(i) for i in range(2))
+        target[selection] = (New(i) for i in range(2))
+        assert events == [
+            ("old start", 1),
+            ("old end", 1),
+            ("old start", 0),
+            ("old end", 0),
+            ("new", 1),
+            ("new", 0),
+        ]
+        assert target == []
+
+    events.clear()
+    target.append(0)
+    with assert_raises(ValueError):
+        target[::2] = (New(i) for i in range(3))
+    assert events == [("new", 2), ("new", 1), ("new", 0)]
+    assert target == [0]
+
+    def failing_source():
+        yield New(0)
+        yield New(1)
+        raise RuntimeError("source failed")
+
+    events.clear()
+    with assert_raises(RuntimeError):
+        target[:] = failing_source()
+    assert events == [("new", 1), ("new", 0)]
+    assert target == [0]
+
+
+test_slice_replacement_lifetime()

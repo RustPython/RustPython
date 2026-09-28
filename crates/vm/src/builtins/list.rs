@@ -17,7 +17,7 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
-    sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
+    sliceable::{SaturatedSlice, SequenceIndex, SliceableSequenceOp},
     sorting::timsort,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
@@ -168,7 +168,11 @@ impl PyList {
     }
 
     fn irepeat(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.borrow_vec_mut().imul(vm, n)?;
+        if n <= 0 {
+            Self::clear(&zelf);
+        } else {
+            zelf.borrow_vec_mut().imul(vm, n)?;
+        }
         Ok(zelf)
     }
 }
@@ -210,13 +214,58 @@ impl PyList {
 
     #[pymethod]
     pub(crate) fn extend(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // What is already here decides whether the iterable's length hint is
-        // believable, so it goes along with the request for the elements. It is
-        // counted where `list_extend()` reads `Py_SIZE(self)`, after the
-        // iterable has answered, because answering runs code that can change it.
-        let mut new_elements =
-            vm.extract_elements_sized(&iterable, &|| self.borrow_vec().len(), Ok)?;
-        self.borrow_vec_mut().append(&mut new_elements);
+        if let Some(list) = iterable.downcast_ref::<Self>()
+            && core::ptr::eq(self, list.payload())
+        {
+            return self.borrow_vec_mut().imul(vm, 2);
+        }
+        if let Some(tuple) = iterable.downcast_ref_if_exact::<PyTuple>(vm) {
+            let mut elements = self.borrow_vec_mut();
+            elements
+                .try_reserve(tuple.len())
+                .map_err(|_| vm.no_memory_error())?;
+            elements.extend_from_slice(tuple.as_slice());
+            return Ok(());
+        }
+        let cls = iterable.class();
+        if cls.is(vm.ctx.types.list_type)
+            || cls.is(vm.ctx.types.set_type)
+            || cls.is(vm.ctx.types.frozenset_type)
+            || cls.is(vm.ctx.types.dict_type)
+            || cls.is(vm.ctx.types.dict_keys_type)
+            || cls.is(vm.ctx.types.dict_values_type)
+            || cls.is(vm.ctx.types.dict_items_type)
+        {
+            // Snapshot mutable native sources before locking the destination.
+            let mut new_elements =
+                vm.extract_elements_sized(&iterable, &|| self.borrow_vec().len(), Ok)?;
+            let mut elements = self.borrow_vec_mut();
+            elements
+                .try_reserve(new_elements.len())
+                .map_err(|_| vm.no_memory_error())?;
+            elements.append(&mut new_elements);
+            return Ok(());
+        }
+
+        let iter = iterable.clone().get_iter(vm)?;
+        // Count the destination after the hint: both calls can mutate it.
+        let hint = vm.length_hint_opt(iterable.clone())?.unwrap_or(8);
+        {
+            let mut elements = self.borrow_vec_mut();
+            if elements.len() <= (isize::MAX as usize) - hint {
+                elements
+                    .try_reserve_exact(hint)
+                    .map_err(|_| vm.no_memory_error())?;
+            }
+        }
+        for item in iter.into_iter::<PyObjectRef>(vm) {
+            let item = item?;
+            let mut elements = self.borrow_vec_mut();
+            if elements.len() == elements.capacity() {
+                elements.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+            }
+            elements.push(item);
+        }
         Ok(())
     }
 
@@ -264,7 +313,8 @@ impl PyList {
 
     #[pymethod]
     fn clear(&self) {
-        let _removed = core::mem::take(self.borrow_vec_mut().deref_mut());
+        let removed = core::mem::take(self.borrow_vec_mut().deref_mut());
+        removed.into_iter().rev().for_each(drop);
     }
 
     #[pymethod]
@@ -316,21 +366,97 @@ impl PyList {
         self._getitem(&index, vm)
     }
 
+    fn assign_item(
+        &self,
+        index: isize,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let removed = {
+            let mut elements = self.borrow_vec_mut();
+            let index = elements
+                .wrap_index(index)
+                .ok_or_else(|| vm.new_index_error("list assignment index out of range"))?;
+            if let Some(value) = value {
+                core::mem::replace(&mut elements[index], value)
+            } else {
+                elements.remove(index)
+            }
+        };
+        drop(removed);
+        Ok(())
+    }
+
+    fn assign_slice(
+        &self,
+        slice: SaturatedSlice,
+        items: Option<&[PyObjectRef]>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let removed = {
+            let mut elements = self.borrow_vec_mut();
+            let (range, step, slice_len) = slice.adjust_indices(elements.len());
+            if step != 1
+                && let Some(items) = &items
+                && items.len() != slice_len
+            {
+                return Err(vm.new_value_error(format!(
+                    "attempt to assign sequence of size {} to extended slice of size {}",
+                    items.len(),
+                    slice_len
+                )));
+            }
+            let new_len = items.map_or(0, <[PyObjectRef]>::len);
+            if step == 1 && slice_len == elements.len() && new_len == 0 {
+                core::mem::take(&mut *elements)
+            } else {
+                // Keep removed references alive until the complete result is visible
+                // and the write guard is released. Reserve before changing the list.
+                let mut removed = Vec::new();
+                removed
+                    .try_reserve_exact(slice_len)
+                    .map_err(|_| vm.no_memory_error())?;
+                if step == 1 {
+                    elements
+                        .try_reserve(new_len.saturating_sub(slice_len))
+                        .map_err(|_| vm.no_memory_error())?;
+                    removed
+                        .extend(elements.splice(range, items.unwrap_or_default().iter().cloned()));
+                } else if let Some(items) = items {
+                    for (index, item) in slice.iter(elements.len()).zip(items) {
+                        removed.push(core::mem::replace(&mut elements[index], item.clone()));
+                    }
+                } else {
+                    let mut indexes = slice.iter(elements.len()).positive_order().peekable();
+                    let mut index = range.start;
+                    removed.extend(elements.extract_if(range, |_| {
+                        let remove = indexes.peek() == Some(&index);
+                        if remove {
+                            indexes.next();
+                        }
+                        index += 1;
+                        remove
+                    }));
+                }
+                removed
+            }
+        };
+        if slice.step() == 1 {
+            removed.into_iter().rev().for_each(drop);
+        } else {
+            drop(removed);
+        }
+        Ok(())
+    }
+
     fn _setitem(&self, needle: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
-            SequenceIndex::Int(index) => self
-                .borrow_vec_mut()
-                .setitem_by_index(vm, index, value)
-                .map_err(|e| {
-                    if e.class().is(vm.ctx.exceptions.index_error) {
-                        vm.new_index_error("list assignment index out of range")
-                    } else {
-                        e
-                    }
-                }),
+            SequenceIndex::Int(index) => self.assign_item(index, Some(value), vm),
             SequenceIndex::Slice(slice) => {
-                let sec = extract_cloned(&value, Ok, vm)?;
-                self.borrow_vec_mut().setitem_by_slice(vm, slice, &sec)
+                let items = extract_cloned(&value, self, vm)?;
+                let result = self.assign_slice(slice, Some(&items), vm);
+                items.into_iter().rev().for_each(drop);
+                result
             }
         }
     }
@@ -412,8 +538,8 @@ impl PyList {
 
     fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
-            SequenceIndex::Int(i) => self.borrow_vec_mut().delitem_by_index(vm, i),
-            SequenceIndex::Slice(slice) => self.borrow_vec_mut().delitem_by_slice(vm, slice),
+            SequenceIndex::Int(i) => self.assign_item(i, None, vm),
+            SequenceIndex::Slice(slice) => self.assign_slice(slice, None, vm),
         }
     }
 
@@ -457,40 +583,44 @@ impl PyList {
     }
 }
 
-fn extract_cloned<F, R>(obj: &PyObject, mut f: F, vm: &VirtualMachine) -> PyResult<Vec<R>>
-where
-    F: FnMut(PyObjectRef) -> PyResult<R>,
-{
+fn extract_cloned(
+    obj: &PyObject,
+    zelf: &PyList,
+    vm: &VirtualMachine,
+) -> PyResult<Vec<PyObjectRef>> {
     use crate::builtins::PyTuple;
     let mut v = Vec::new();
     if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
         v.try_reserve_exact(tuple.len())
             .map_err(|_| vm.no_memory_error())?;
-        for x in tuple.as_slice() {
-            v.push(f(x.clone())?);
-        }
-    } else if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
+        v.extend_from_slice(tuple.as_slice());
+    } else if let Some(list) = obj.downcast_ref::<PyList>()
+        && (obj.class().is(vm.ctx.types.list_type) || core::ptr::eq(zelf, list.payload()))
+    {
         let elements = list.borrow_vec();
         v.try_reserve_exact(elements.len())
             .map_err(|_| vm.no_memory_error())?;
-        for x in elements.iter() {
-            v.push(f(x.clone())?);
-        }
+        v.extend_from_slice(&elements);
     } else {
-        let iter = obj.to_owned().get_iter(vm)?;
-        let iter = iter.iter::<PyObjectRef>(vm)?;
-        let len = obj
-            .sequence_unchecked()
-            .length_opt(vm)
-            .transpose()?
-            .unwrap_or(0);
+        let iter = obj
+            .to_owned()
+            .get_iter(vm)?
+            .into_iter_sized::<PyObjectRef>(vm)?;
+        let len = iter.size_hint().0;
         v.try_reserve_exact(len).map_err(|_| vm.no_memory_error())?;
-        for x in iter {
-            let item = f(x?)?;
-            if v.len() == v.capacity() {
-                v.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+        let result = (|| {
+            for x in iter {
+                let item = x?;
+                if v.len() == v.capacity() {
+                    v.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+                }
+                v.push(item);
             }
-            v.push(item);
+            Ok(())
+        })();
+        if let Err(error) = result {
+            v.into_iter().rev().for_each(drop);
+            return Err(error);
         }
     }
     Ok(v)
@@ -546,12 +676,10 @@ impl Initializer for PyList {
     }
 
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        let mut elements = if let OptionalArg::Present(iterable) = args.iterable {
-            vm.extract_elements_sized(&iterable, &|| 0, Ok)?
-        } else {
-            vec![]
-        };
-        core::mem::swap(zelf.borrow_vec_mut().deref_mut(), &mut elements);
+        Self::clear(zelf);
+        if let OptionalArg::Present(iterable) = args.iterable {
+            zelf.extend(iterable, vm)?;
+        }
         Ok(())
     }
 }
@@ -599,19 +727,7 @@ impl AsSequence for PyList {
                 Ok(vec.do_get(pos))
             }),
             ass_item: atomic_func!(|seq, i, value, vm| {
-                let zelf = PyList::sequence_downcast(seq);
-                if let Some(value) = value {
-                    zelf.borrow_vec_mut().setitem_by_index(vm, i, value)
-                } else {
-                    zelf.borrow_vec_mut().delitem_by_index(vm, i)
-                }
-                .map_err(|e| {
-                    if e.class().is(vm.ctx.exceptions.index_error) {
-                        vm.new_index_error("list assignment index out of range")
-                    } else {
-                        e
-                    }
-                })
+                PyList::sequence_downcast(seq).assign_item(i, value, vm)
             }),
             contains: atomic_func!(|seq, target, vm| {
                 let zelf = PyList::sequence_downcast(seq);
