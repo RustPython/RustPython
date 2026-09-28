@@ -100,8 +100,8 @@ pub(crate) mod union_;
 pub use union_::{PyUnion, make_union};
 pub mod descriptor;
 pub use descriptor::{
-    MemberAccess, MemberKind, PY_ATOMIC, PY_READONLY, PY_RELATIVE_OFFSET, PyDescriptorOwned,
-    PyMemberDef as DescriptorMemberDef, PyMemberDescriptor,
+    MemberAccess, MemberKind, PyDescriptorOwned, PyMemberDef as DescriptorMemberDef,
+    PyMemberDescriptor, PyMemberFlags,
 };
 
 pub use float::float_from_string as parse_float_from_string;

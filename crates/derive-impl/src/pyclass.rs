@@ -2122,17 +2122,20 @@ fn member_layout_tokens(readonly: bool) -> TokenStream {
 }
 
 fn member_flag_tokens(readonly: bool, audit_read: bool) -> TokenStream {
-    let mut flag_parts = Vec::new();
-    if readonly {
-        flag_parts.push(quote!(::rustpython_vm::builtins::descriptor::PY_READONLY));
-    }
-    if audit_read {
-        flag_parts.push(quote!(::rustpython_vm::builtins::descriptor::PY_AUDIT_READ));
-    }
-    if flag_parts.is_empty() {
-        quote!(0)
-    } else {
-        quote!(#(#flag_parts)|*)
+    match (readonly, audit_read) {
+        (false, false) => {
+            quote!(::rustpython_vm::builtins::descriptor::PyMemberFlags::empty())
+        }
+        (true, false) => {
+            quote!(::rustpython_vm::builtins::descriptor::PyMemberFlags::READONLY)
+        }
+        (false, true) => {
+            quote!(::rustpython_vm::builtins::descriptor::PyMemberFlags::AUDIT_READ)
+        }
+        (true, true) => quote!(
+            ::rustpython_vm::builtins::descriptor::PyMemberFlags::READONLY
+                .union(::rustpython_vm::builtins::descriptor::PyMemberFlags::AUDIT_READ)
+        ),
     }
 }
 
@@ -2141,9 +2144,9 @@ fn member_atomic_flag(field_tokens: &TokenStream) -> TokenStream {
         if ::rustpython_vm::builtins::descriptor::member_atomic_of(
             |payload: &Self| &payload.#field_tokens,
         ) {
-            ::rustpython_vm::builtins::descriptor::PY_ATOMIC
+            ::rustpython_vm::builtins::descriptor::PyMemberFlags::ATOMIC
         } else {
-            0
+            ::rustpython_vm::builtins::descriptor::PyMemberFlags::empty()
         }
     }
 }
@@ -2245,7 +2248,12 @@ fn build_member(
             ));
         };
         let kind_tokens = member_kind_tokens(kind.as_deref(), None, attr.span())?;
-        (offset_expr, quote!(), kind_tokens, quote!(0))
+        (
+            offset_expr,
+            quote!(),
+            kind_tokens,
+            quote!(::rustpython_vm::builtins::descriptor::PyMemberFlags::empty()),
+        )
     };
     let doc = if meta.suppress_doc()? {
         quote!(::rustpython_vm::function::ItemDoc::NONE)
@@ -2258,7 +2266,7 @@ fn build_member(
         cfgs: cfgs.to_vec(),
         kind: kind_tokens,
         offset,
-        flags: quote!(#base_flags | #atomic_flag),
+        flags: quote!(#base_flags.union(#atomic_flag)),
         doc,
         check,
         span: attr.span(),

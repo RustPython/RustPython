@@ -7,8 +7,8 @@ use crate::{
         bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
-            MemberAccess, MemberKind, PY_READONLY, PyDescriptorOwned, PyMemberDef,
-            PyMemberDescriptor,
+            MemberAccess, MemberKind, PyDescriptorOwned, PyMemberDef, PyMemberDescriptor,
+            PyMemberFlags,
         },
         getset::PyGetSet,
         object, pystr,
@@ -668,7 +668,7 @@ impl Context {
         name: &str,
         kind: MemberKind,
         offset: isize,
-        flags: i32,
+        flags: PyMemberFlags,
         class: &'static Py<PyType>,
         doc: ItemDoc,
     ) -> PyRef<PyMemberDescriptor> {
@@ -706,7 +706,7 @@ impl Context {
                 name: name.to_owned(),
                 kind: MemberKind::Object,
                 offset: index as isize,
-                flags: PY_READONLY,
+                flags: PyMemberFlags::READONLY,
                 doc: ItemDoc::NONE,
             },
             access: MemberAccess::TupleItem,
