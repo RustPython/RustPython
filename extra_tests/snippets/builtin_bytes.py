@@ -644,6 +644,14 @@ assert b"-\xff".decode(sys.getfilesystemencoding(), "surrogateescape") == "-\udc
 # mod
 assert b"rust%bpython%b" % (b" ", b"!") == b"rust python!"
 assert b"x=%i y=%f" % (1, 2.5) == b"x=1 y=2.500000"
+for precision in (-1, -3, -(2**31)):
+    assert b"%.*b" % (precision, b"hello") == b""
+assert b"%.*s" % (-3, bytearray(b"hello")) == b""
+assert b"%.*a" % (-3, "hello") == b""
+assert b"%*.*d" % (-6, -3, 12) == b"12    "
+assert b"%.*f" % (-3, 1.25) == b"1"
+assert_raises(OverflowError, b"%.*b".__mod__, (-(2**31) - 1, b"abc"))
+assert_raises(TypeError, b"%.*b".__mod__, (1.0, b"abc"))
 
 
 # __bytes__
