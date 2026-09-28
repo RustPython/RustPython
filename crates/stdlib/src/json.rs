@@ -754,12 +754,12 @@ mod _json {
         Ok(result)
     }
 
-    /// `_json.make_encoder`, mirroring CPython's `Modules/_json.c` `PyEncoderObject`.
-    ///
-    /// Encodes directly into a single growable buffer instead of building a
-    /// generator of chunks, then returns that buffer as a one-element tuple
-    /// (matching what `json/encoder.py`'s `encode()` does with the result:
-    /// `''.join(chunks)`).
+    // `_json.make_encoder` (`PyEncoderObject`).
+    //
+    // Encodes directly into a single growable buffer instead of building a
+    // generator of chunks, then returns that buffer as a one-element tuple
+    // (matching what `json/encoder.py`'s `encode()` does with the result:
+    // `''.join(chunks)`).
     #[pyattr(name = "make_encoder")]
     #[pyclass(name = "Encoder", traverse)]
     #[derive(Debug, PyPayload)]

@@ -23,10 +23,10 @@ mod _pickle {
     use num_traits::{ToPrimitive, Zero};
     use std::collections::HashMap;
 
-    /// The highest protocol number `_pickle` knows how to read.
+    // The highest protocol number `_pickle` knows how to read.
     #[pyattr]
     const HIGHEST_PROTOCOL: u8 = 5;
-    /// The protocol `dumps`/`dump` use when no protocol is given.
+    // The protocol `dumps`/`dump` use when no protocol is given.
     #[pyattr]
     const DEFAULT_PROTOCOL: u8 = 5;
 
@@ -565,7 +565,7 @@ mod _pickle {
             load_impl(zelf, vm)
         }
 
-        /// The default hook: no persistent ids are supported.
+        // The default hook: no persistent ids are supported.
         #[pymethod]
         fn persistent_load(&self, _pid: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             Err(new_unpickling_error(
@@ -2049,7 +2049,7 @@ mod _pickle {
             self.memo.write().clear();
         }
 
-        /// The default hook: nothing has a persistent id.
+        // The default hook: nothing has a persistent id.
         #[pymethod]
         fn persistent_id(&self, _obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
             vm.ctx.none()

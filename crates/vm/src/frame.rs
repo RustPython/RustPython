@@ -1523,8 +1523,7 @@ impl InterpreterFrame {
     }
 }
 
-/// Python-visible frame object. Currently always wraps an `InterpreterFrame`.
-/// Analogous to CPython's `PyFrameObject`.
+// Python-visible frame object (`PyFrameObject`). Currently always wraps an `InterpreterFrame`.
 #[pyclass(module = false, name = "frame", traverse = "manual")]
 pub struct FrameObject {
     // The executing iframe reads this when it points at the frame object.

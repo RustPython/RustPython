@@ -172,7 +172,7 @@ impl Representable for PyMethodDescriptor {
     }
 }
 
-/// METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
+// METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
 #[pyclass(name = "classmethod_descriptor", module = false)]
 pub struct PyClassMethodDescriptor {
     #[pymember(name = "__objclass__", path = "typ")]
@@ -1858,7 +1858,7 @@ fn parse_buffer_flags(
     Ok(crate::protocol::BufferFlags::from_bits_retain(flags as u32))
 }
 
-/// wrapper_descriptor: wraps a slot function as a Python method
+// wrapper_descriptor: wraps a slot function as a Python method
 // = PyWrapperDescrObject
 #[pyclass(name = "wrapper_descriptor", module = false)]
 #[derive(Debug)]
@@ -1963,8 +1963,8 @@ impl Representable for PyWrapper {
 
 // PyMethodWrapper - method-wrapper
 
-/// method-wrapper: a slot wrapper bound to an instance
-/// Returned when accessing l.__init__ on an instance
+// method-wrapper: a slot wrapper bound to an instance
+// Returned when accessing l.__init__ on an instance
 #[pyclass(name = "method-wrapper", module = false, traverse)]
 #[derive(Debug)]
 pub(crate) struct PyMethodWrapper {

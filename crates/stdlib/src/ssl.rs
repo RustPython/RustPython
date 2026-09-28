@@ -201,17 +201,17 @@ mod _ssl {
     const VERIFY_CRL_CHECK_LEAF: i32 = rustpython_host_env::ssl::VERIFY_CRL_CHECK_LEAF;
     #[pyattr]
     const VERIFY_CRL_CHECK_CHAIN: i32 = rustpython_host_env::ssl::VERIFY_CRL_CHECK_CHAIN;
-    /// VERIFY_X509_STRICT flag for RFC 5280 strict compliance
-    /// When set, performs additional validation including AKI extension checks
+    // VERIFY_X509_STRICT flag for RFC 5280 strict compliance
+    // When set, performs additional validation including AKI extension checks
     #[pyattr]
     pub(crate) const VERIFY_X509_STRICT: i32 = rustpython_host_env::ssl::VERIFY_X509_STRICT;
     #[pyattr]
     const VERIFY_ALLOW_PROXY_CERTS: i32 = rustpython_host_env::ssl::VERIFY_ALLOW_PROXY_CERTS;
     #[pyattr]
     const VERIFY_X509_TRUSTED_FIRST: i32 = rustpython_host_env::ssl::VERIFY_X509_TRUSTED_FIRST;
-    /// VERIFY_X509_PARTIAL_CHAIN flag for partial chain validation
-    /// When set, accept certificates if any certificate in the chain is in the trust store
-    /// (not just root CAs). This matches OpenSSL's X509_V_FLAG_PARTIAL_CHAIN behavior.
+    // VERIFY_X509_PARTIAL_CHAIN flag for partial chain validation
+    // When set, accept certificates if any certificate in the chain is in the trust store
+    // (not just root CAs). This matches OpenSSL's X509_V_FLAG_PARTIAL_CHAIN behavior.
     #[pyattr]
     pub(crate) const VERIFY_X509_PARTIAL_CHAIN: i32 =
         rustpython_host_env::ssl::VERIFY_X509_PARTIAL_CHAIN;
@@ -4182,10 +4182,10 @@ mod _ssl {
         Ok((bytes, true))
     }
 
-    /// Test helper to decode a certificate from a file path
-    ///
-    /// This is a simplified wrapper around cert_der_to_dict_helper that handles
-    /// file reading and PEM/DER auto-detection. Used by test suite.
+    // Test helper to decode a certificate from a file path
+    //
+    // This is a simplified wrapper around cert_der_to_dict_helper that handles
+    // file reading and PEM/DER auto-detection. Used by test suite.
     #[pyfunction]
     fn _test_decode_cert(path: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         // Read certificate file
