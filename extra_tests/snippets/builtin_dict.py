@@ -687,3 +687,28 @@ class MergeMapping(dict):
 # Generic mappings retain their lookup hooks instead of exposing dict storage.
 for merge in (dict, merge_with_update, merge_with_ior):
     assert merge(MergeMapping(stored=0)) == {"virtual": 42}
+
+# Test hashability of dict and OrderedDict views
+import collections.abc
+
+d = {"a": 1, "b": 2}
+assert type(d.keys()).__hash__ is None
+assert type(d.items()).__hash__ is None
+assert type(d.values()).__hash__ is not None
+assert not isinstance(d.keys(), collections.abc.Hashable)
+assert not isinstance(d.items(), collections.abc.Hashable)
+with assert_raises(TypeError):
+    hash(d.keys())
+with assert_raises(TypeError):
+    hash(d.items())
+
+od = collections.OrderedDict([("a", 1)])
+assert type(od.keys()).__hash__ is None
+assert type(od.items()).__hash__ is None
+assert type(od.values()).__hash__ is not None
+assert not isinstance(od.keys(), collections.abc.Hashable)
+assert not isinstance(od.items(), collections.abc.Hashable)
+with assert_raises(TypeError):
+    hash(od.keys())
+with assert_raises(TypeError):
+    hash(od.items())
