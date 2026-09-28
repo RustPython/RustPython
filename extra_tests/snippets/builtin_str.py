@@ -110,6 +110,24 @@ s = "^*RustPython*^"
 assert s.strip("^*") == "RustPython"
 assert s.lstrip("^*") == "RustPython*^"
 assert s.rstrip("^*") == "^*RustPython"
+assert " abc ".strip(" é") == "abc"
+assert "éabcé".strip("é\ud800") == "abc"
+
+
+def test_strip_unchanged():
+    class StrSubclass(str):
+        pass
+
+    for text in ("already clean", "déjà propre", "a\ud800b"):
+        for method in (str.strip, str.lstrip, str.rstrip):
+            for chars in (None, "#"):
+                assert method(text, chars) is text
+                result = method(StrSubclass(text), chars)
+                assert result == text
+                assert type(result) is str
+
+
+test_strip_unchanged()
 
 s = "RustPython"
 assert s.ljust(8) == "RustPython"
@@ -986,6 +1004,27 @@ def test_replace_empty_pattern():
 
 
 test_replace_empty_pattern()
+
+
+def test_replace_unchanged():
+    for text in ("already clean", "déjà propre", "a\ud800b"):
+        for old, new, count in (
+            (text[:1], "#", 0),
+            (text[:1], text[:1], -1),
+            (text + " more", "replacement", -1),
+        ):
+            assert text.replace(old, new, count) is text
+            result = MyString(text).replace(old, new, count)
+            assert result == text
+            assert type(result) is str
+
+    # Returning the original string must not bypass argument conversion.
+    assert_raises(TypeError, lambda: "abc".replace(1, "x", 0))
+    assert_raises(TypeError, lambda: "abc".replace("a", 1, 0))
+    assert_raises(TypeError, lambda: "abc".replace("a", "a", None))
+
+
+test_replace_unchanged()
 
 
 def test_expandtabs_zero_tabsize():
