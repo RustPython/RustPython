@@ -147,7 +147,7 @@ pub(crate) mod module {
         mode: u32,
         #[pyarg(flatten)]
         dir_fd: DirFd<'static, 0>,
-        #[pyarg(named, name = "follow_symlinks", optional)]
+        #[pyarg(named, optional)]
         follow_symlinks: OptionalArg<bool>,
     }
 

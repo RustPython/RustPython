@@ -1722,8 +1722,8 @@ pub mod module {
     pub(super) struct PosixSpawnArgs {
         #[pyarg(positional)]
         path: OsPath,
-        #[pyarg(positional, name = "argv")]
-        args: PyObjectRef,
+        #[pyarg(positional)]
+        argv: PyObjectRef,
         #[pyarg(positional)]
         env: Option<crate::function::ArgMapping>,
         #[pyarg(named, default, py_default = "()")]
@@ -1819,8 +1819,8 @@ pub mod module {
             } else {
                 "posix_spawn"
             };
-            if !self.args.fast_isinstance(vm.ctx.types.list_type)
-                && !self.args.fast_isinstance(vm.ctx.types.tuple_type)
+            if !self.argv.fast_isinstance(vm.ctx.types.list_type)
+                && !self.argv.fast_isinstance(vm.ctx.types.tuple_type)
             {
                 return Err(
                     vm.new_type_error(format!("{function_name}: argv must be a tuple or list"))
@@ -1898,7 +1898,7 @@ pub mod module {
 
             let setsigmask = self.setsigmask.map(collect_signals).transpose()?;
 
-            let args = vm.extract_elements_with(&self.args, |arg| {
+            let args = vm.extract_elements_with(&self.argv, |arg| {
                 CString::new(OsPath::try_from_object(vm, arg)?.into_bytes())
                     .map_err(|_| vm.new_value_error("path should not have nul bytes"))
             })?;
