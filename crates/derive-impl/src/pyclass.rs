@@ -2122,17 +2122,32 @@ fn member_layout_tokens(readonly: bool) -> TokenStream {
 }
 
 fn member_flag_tokens(readonly: bool, audit_read: bool) -> TokenStream {
-    let mut flag_parts = Vec::new();
-    if readonly {
-        flag_parts.push(quote!(::rustpython_vm::builtins::descriptor::PY_READONLY));
+    match (readonly, audit_read) {
+        (false, false) => {
+            quote!(::rustpython_vm::builtins::descriptor::PyMemberFlags::empty())
+        }
+        (true, false) => {
+            quote!(::rustpython_vm::builtins::descriptor::PyMemberFlags::READONLY)
+        }
+        (false, true) => {
+            quote!(::rustpython_vm::builtins::descriptor::PyMemberFlags::AUDIT_READ)
+        }
+        (true, true) => quote!(
+            ::rustpython_vm::builtins::descriptor::PyMemberFlags::READONLY
+                .union(::rustpython_vm::builtins::descriptor::PyMemberFlags::AUDIT_READ)
+        ),
     }
-    if audit_read {
-        flag_parts.push(quote!(::rustpython_vm::builtins::descriptor::PY_AUDIT_READ));
-    }
-    if flag_parts.is_empty() {
-        quote!(0)
-    } else {
-        quote!(#(#flag_parts)|*)
+}
+
+fn member_atomic_flag(field_tokens: &TokenStream) -> TokenStream {
+    quote! {
+        if ::rustpython_vm::builtins::descriptor::member_atomic_of(
+            |payload: &Self| &payload.#field_tokens,
+        ) {
+            ::rustpython_vm::builtins::descriptor::PyMemberFlags::ATOMIC
+        } else {
+            ::rustpython_vm::builtins::descriptor::PyMemberFlags::empty()
+        }
     }
 }
 
@@ -2196,7 +2211,7 @@ fn build_member(
             "#[pymember(path = ...)] is only valid on a field",
         ));
     }
-    let (offset, check, kind_tokens) = if let Some((field, index)) = field {
+    let (offset, check, kind_tokens, atomic_flag) = if let Some((field, index)) = field {
         let index_tokens = match &field.ident {
             Some(ident) => ident.to_token_stream(),
             None => syn::Index::from(index).into_token_stream(),
@@ -2211,6 +2226,9 @@ fn build_member(
                 + ::core::mem::offset_of!(Self, #field_tokens) as isize
         };
         let layout = member_layout_tokens(readonly);
+        let atomic_flag = member_atomic_flag(&field_tokens);
+        // Writable fields must implement `MemberCell`, which only atomic
+        // storage does. That bound is the check.
         let check = quote_spanned! { attr.span() =>
             let _ = |payload: *const Self| {
                 fn assert_member_field<T: #layout>(_: *const T) {}
@@ -2221,7 +2239,7 @@ fn build_member(
             };
         };
         let kind_tokens = member_kind_tokens(kind.as_deref(), Some(&field_tokens), attr.span())?;
-        (offset, check, kind_tokens)
+        (offset, check, kind_tokens, atomic_flag)
     } else {
         let Some(offset_expr) = offset_expr else {
             return Err(syn::Error::new(
@@ -2230,19 +2248,25 @@ fn build_member(
             ));
         };
         let kind_tokens = member_kind_tokens(kind.as_deref(), None, attr.span())?;
-        (offset_expr, quote!(), kind_tokens)
+        (
+            offset_expr,
+            quote!(),
+            kind_tokens,
+            quote!(::rustpython_vm::builtins::descriptor::PyMemberFlags::empty()),
+        )
     };
     let doc = if meta.suppress_doc()? {
         quote!(::rustpython_vm::function::ItemDoc::NONE)
     } else {
         attr_doc_expr(Some(class_ty), &name, rust_doc)
     };
+    let base_flags = member_flag_tokens(readonly, audit_read);
     Ok(BuiltMember {
         name,
         cfgs: cfgs.to_vec(),
         kind: kind_tokens,
         offset,
-        flags: member_flag_tokens(readonly, audit_read),
+        flags: quote!(#base_flags.union(#atomic_flag)),
         doc,
         check,
         span: attr.span(),

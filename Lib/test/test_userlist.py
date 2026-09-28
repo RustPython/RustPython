@@ -167,10 +167,7 @@ class UserListTest(list_tests.CommonTest):
         self.assertEqual(u, v)
         self.assertEqual(type(u), type(v))
 
-    # Decorate existing test with recursion limit, because
-    # the test is for C structure, but `UserList` is a Python structure.
-    # test_repr_deep = list_tests.CommonTest.test_repr_deep
-    test_repr_deep = unittest.skip(list_tests.CommonTest.test_repr_deep) # TODO: RUSTPYTHON; Segfault
+    test_repr_deep = list_tests.CommonTest.test_repr_deep
 
 if __name__ == "__main__":
     unittest.main()

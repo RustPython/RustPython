@@ -668,8 +668,8 @@ impl Destructor for PyAsyncGenAThrow {
     }
 }
 
-/// Awaitable wrapper for anext() builtin with default value.
-/// When StopAsyncIteration is raised, it converts it to StopIteration(default).
+// Awaitable wrapper for anext() builtin with default value.
+// When StopAsyncIteration is raised, it converts it to StopIteration(default).
 #[pyclass(module = false, name = "anext_awaitable", traverse = "manual")]
 #[derive(Debug)]
 pub(crate) struct PyAnextAwaitable {

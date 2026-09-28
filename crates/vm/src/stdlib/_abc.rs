@@ -28,7 +28,7 @@ mod _abc {
         ABC_INVALIDATION_COUNTER.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// Internal state held by ABC machinery.
+    // Internal state held by ABC machinery.
     #[pyattr]
     #[pyclass(name = "_abc_data", module = "_abc")]
     #[derive(Debug, PyPayload)]

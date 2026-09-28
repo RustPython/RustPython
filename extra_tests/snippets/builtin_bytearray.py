@@ -318,6 +318,29 @@ assert bytearray(b"abc").join((bytearray(b"123"), bytearray(b"xyz"))) == bytearr
     b"123abcxyz"
 )
 
+join_separator = bytearray(b",")
+
+
+def join_mutate_separator():
+    yield b"a"
+    join_separator[0] = ord(":")
+    yield b"b"
+
+
+assert join_separator.join(join_mutate_separator()) == b"a:b"
+
+
+def join_resize_separator():
+    yield b"a"
+    join_separator.extend(b"!")
+    yield b"b"
+
+
+with assert_raises(BufferError):
+    join_separator.join(join_resize_separator())
+join_separator.extend(b"!")
+assert join_separator == b":!"
+
 
 # endswith startswith
 assert bytearray(b"abcde").endswith(b"de")

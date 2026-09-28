@@ -12,6 +12,13 @@ assert ns.b == "Rust"
 with assert_raises(AttributeError):
     _ = ns.c
 
+import collections.abc
+
+assert types.SimpleNamespace.__hash__ is None
+assert not isinstance(ns, collections.abc.Hashable)
+with assert_raises(TypeError):
+    hash(ns)
+
 
 def _run_missing_type_params_regression():
     args = _ast.arguments(

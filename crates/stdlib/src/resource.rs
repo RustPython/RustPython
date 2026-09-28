@@ -116,8 +116,8 @@ mod resource {
         }
     }
 
-    /// The exception the module reports its failures through, which is the one
-    /// every other call raises.
+    // The exception the module reports its failures through, which is the one
+    // every other call raises.
     #[pyattr(name = "error", once)]
     fn error(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.exceptions.os_error.to_owned().into()

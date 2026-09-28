@@ -4,12 +4,12 @@ use crate::{
     VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
-        PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef,
-        pystr, pystr::PyUtf8StrRef,
+        PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyList, PyListRef,
+        PyStr, PyStrRef, PyTuple, PyTupleRef, pystr, pystr::PyUtf8StrRef,
     },
     cformat::cformat_bytes,
-    common::hash,
     common::wtf8::is_py_ascii_whitespace,
+    common::{borrow::BorrowedValue, hash},
     function::{ArgIterable, Either, OptionalArg, PyComparisonValue},
     literal::escape::Escape,
     protocol::{BufferFlags, PyBuffer},
@@ -37,6 +37,122 @@ pub struct PyBytesInner {
 impl From<Vec<u8>> for PyBytesInner {
     fn from(elements: Vec<u8>) -> Self {
         Self { elements }
+    }
+}
+
+// Keep exact lists live while acquiring buffers: an exporter can replace items
+// or resize the list. No list lock may span a call to the buffer protocol.
+pub(crate) struct BytesJoin {
+    items: Either<PyListRef, PyTupleRef>,
+}
+
+impl BytesJoin {
+    pub(crate) fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        let items = if let Some(list) = iterable.downcast_ref_if_exact::<PyList>(vm) {
+            Either::A(list.to_owned())
+        } else if let Some(tuple) = iterable.downcast_ref_if_exact::<PyTuple>(vm) {
+            Either::B(tuple.to_owned())
+        } else {
+            // PySequence_Fast exhausts the iterator before inspecting its items.
+            let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)
+                .map_err(|_| vm.new_type_error("can only join an iterable"))?;
+            let items = iterable.iter_sized(vm)?.collect::<PyResult<Vec<_>>>()?;
+            Either::B(vm.ctx.new_tuple(items))
+        };
+        Ok(Self { items })
+    }
+
+    fn len(&self) -> usize {
+        match &self.items {
+            Either::A(list) => list.borrow_vec().len(),
+            Either::B(tuple) => tuple.as_slice().len(),
+        }
+    }
+
+    fn item(&self, i: usize) -> Option<PyObjectRef> {
+        match &self.items {
+            Either::A(list) => list.borrow_vec().get(i).cloned(),
+            Either::B(tuple) => tuple.as_slice().get(i).cloned(),
+        }
+    }
+
+    pub(crate) fn single_bytes(&self, vm: &VirtualMachine) -> Option<PyBytesRef> {
+        if self.len() != 1 {
+            return None;
+        }
+        self.item(0)?
+            .downcast_ref_if_exact::<PyBytes>(vm)
+            .map(ToOwned::to_owned)
+    }
+
+    // stringlib_bytes_join
+    pub(crate) fn join<'a>(
+        &self,
+        separator_len: usize,
+        mut separator: impl FnMut() -> BorrowedValue<'a, [u8]>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let count = self.len();
+        let mut objects = Vec::with_capacity(count);
+        let mut buffers = Vec::new();
+        let mut len = 0usize;
+        let overflow = || vm.new_overflow_error("join() result is too long");
+        let changed = || vm.new_runtime_error("sequence changed size during iteration");
+        for i in 0..count {
+            let obj = self.item(i).ok_or_else(changed)?;
+            let item_len = if let Some(bytes) = obj.downcast_ref_if_exact::<PyBytes>(vm) {
+                bytes.as_bytes().len()
+            } else {
+                // Whatever the buffer lookup ran into, the item is only ever
+                // reported as the wrong kind of thing.
+                let type_error = || {
+                    vm.new_type_error(format!(
+                        "sequence item {i}: expected a bytes-like object, {} found",
+                        obj.class().slot_name()
+                    ))
+                };
+                let buffer = PyBuffer::from_object(vm, &obj, BufferFlags::SIMPLE)
+                    .map_err(|_| type_error())?;
+                if !buffer.desc.is_contiguous() {
+                    return Err(type_error());
+                }
+                let item_len = buffer.desc.len;
+                buffers.push((i, buffer));
+                item_len
+            };
+            objects.push(obj);
+            len = len.checked_add(item_len).ok_or_else(overflow)?;
+            if i != 0 {
+                len = len.checked_add(separator_len).ok_or_else(overflow)?;
+            }
+            if len > isize::MAX as usize {
+                return Err(overflow());
+            }
+            if self.len() != count {
+                return Err(changed());
+            }
+        }
+        let mut joined = Vec::new();
+        joined
+            .try_reserve_exact(len)
+            .map_err(|_| vm.new_memory_error(""))?;
+        // All Python callbacks have finished. Read the separator only now,
+        // so same-size mutations made by the iterator or exporters are visible.
+        let mut buffers_iter = buffers.iter().peekable();
+        for (i, obj) in objects.iter().enumerate() {
+            if i != 0 {
+                // Drop this borrow before acquiring an input buffer: it may
+                // refer to the same bytearray, with a writer waiting on it.
+                joined.extend_from_slice(&separator());
+            }
+            if buffers_iter.peek().is_some_and(|(index, _)| *index == i) {
+                let (_, buffer) = buffers_iter.next().unwrap();
+                joined.extend_from_slice(&buffer.as_contiguous().unwrap());
+            } else {
+                joined.extend_from_slice(obj.downcast_ref::<PyBytes>().unwrap().as_bytes());
+            }
+        }
+        Ok(joined)
     }
 }
 
@@ -622,25 +738,6 @@ impl PyBytesInner {
         Ok(self
             .elements
             .py_count(needle.as_slice(), range, |h, n| h.find_iter(n).count()))
-    }
-
-    // stringlib_bytes_join
-    pub fn join(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        // `PySequence_Fast()`, as in `PyUnicode_Join()`.
-        let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)
-            .map_err(|_| vm.new_type_error("can only join an iterable"))?;
-        let iter = iterable.iter_sized(vm)?.enumerate().map(|(i, obj)| {
-            let obj = obj?;
-            // Whatever the buffer lookup ran into, the item is only ever
-            // reported as the wrong kind of thing.
-            Self::try_from_object(vm, obj.clone()).map_err(|_| {
-                vm.new_type_error(format!(
-                    "sequence item {i}: expected a bytes-like object, {} found",
-                    obj.class().slot_name()
-                ))
-            })
-        });
-        self.elements.py_join(iter)
     }
 
     #[inline]

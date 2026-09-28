@@ -1012,8 +1012,8 @@ unsafe impl Link for WeakLink {
     }
 }
 
-/// PyWeakReference: each weakref holds a direct pointer to its referent.
-#[pyclass(name = "weakref", module = false)]
+// PyWeakReference: each weakref holds a direct pointer to its referent.
+#[pyclass(name = "ReferenceType", module = "weakref")]
 #[derive(Debug)]
 pub struct PyWeak {
     pointers: Pointers<Py<Self>>,

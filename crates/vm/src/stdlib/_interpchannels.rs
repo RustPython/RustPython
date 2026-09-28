@@ -671,7 +671,7 @@ pub(crate) mod _interpchannels {
         flags(BASETYPE, IMMUTABLETYPE, DISALLOW_INSTANTIATION)
     )]
     impl ChannelID {
-        /// `channelid_richcompare`.
+        // `channelid_richcompare`.
         #[pyslot]
         fn slot_richcompare(
             zelf: &PyObject,

@@ -7,11 +7,11 @@ mod _queue {
     use std::time::Instant;
 
     use crate::vm::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
-        function::{PyComparisonValue, TimeoutSeconds},
+        function::TimeoutSeconds,
         protocol::PyNumberMethods,
-        types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
+        types::{AsNumber, Constructor, Representable},
     };
 
     type BufInner = VecDeque<PyObjectRef>;
@@ -143,7 +143,7 @@ mod _queue {
     }
 
     #[pyattr]
-    #[pyclass(module = "_queue", name = "SimpleQueue", unhashable = true)]
+    #[pyclass(module = "_queue", name = "SimpleQueue")]
     #[derive(Debug, PyPayload)]
     struct PySimpleQueue {
         buf: Buf,
@@ -227,7 +227,7 @@ mod _queue {
     }
 
     #[pyclass(
-        with(Constructor, Comparable, Representable),
+        with(Constructor, Representable),
         flags(BASETYPE, HAS_WEAKREF, IMMUTABLETYPE)
     )]
     impl PySimpleQueue {
@@ -326,21 +326,6 @@ mod _queue {
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER
-        }
-    }
-
-    impl Comparable for PySimpleQueue {
-        fn cmp(
-            zelf: &Py<Self>,
-            other: &PyObject,
-            op: PyComparisonOp,
-            _vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            Ok(if let Some(res) = op.identical_optimization(zelf, other) {
-                res.into()
-            } else {
-                PyComparisonValue::NotImplemented
-            })
         }
     }
 

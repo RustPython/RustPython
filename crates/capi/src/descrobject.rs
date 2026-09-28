@@ -5,8 +5,8 @@ use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int, c_void};
 use rustpython_vm::builtins::{
-    DescriptorMemberDef, MemberAccess, MemberKind, PY_RELATIVE_OFFSET, PyDescriptorOwned, PyGetSet,
-    PyMappingProxy, PyMemberDescriptor, PyType,
+    DescriptorMemberDef, MemberAccess, MemberKind, PyDescriptorOwned, PyGetSet, PyMappingProxy,
+    PyMemberDescriptor, PyMemberFlags, PyType,
 };
 use rustpython_vm::common::lock::PyRwLock;
 use rustpython_vm::function::{ItemDoc, PySetterValue};
@@ -127,12 +127,15 @@ impl PyMemberDef {
             )));
         };
         let mut offset = self.offset;
-        let mut flags = self.flags;
-        if flags & PY_RELATIVE_OFFSET != 0 {
+        // Unknown bits belong to the extension and are kept.
+        let mut flags = PyMemberFlags::from_bits_retain(self.flags);
+        // Extension members never carry the internal atomic-storage bit.
+        flags.remove(PyMemberFlags::ATOMIC);
+        if flags.contains(PyMemberFlags::RELATIVE_OFFSET) {
             // type creation adds tp_basicsize and clears the flag before GetOne.
             // `slots.basicsize` is already the full tp_basicsize.
             offset += ty.slots.basicsize as isize;
-            flags &= !PY_RELATIVE_OFFSET;
+            flags.remove(PyMemberFlags::RELATIVE_OFFSET);
         }
 
         let doc = unsafe { self.doc.try_as_str_opt(vm) }?.map_or(ItemDoc::NONE, |doc| {

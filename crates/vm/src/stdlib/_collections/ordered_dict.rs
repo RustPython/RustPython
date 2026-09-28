@@ -978,7 +978,7 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(name = "odict_keys", traverse)]
+    #[pyclass(name = "odict_keys", unhashable = true, traverse)]
     #[derive(Debug, PyPayload)]
     struct PyODictKeys {
         od: PyRef<PyOrderedDict>,
@@ -1122,7 +1122,7 @@ pub(crate) mod ordered_dict {
     }
 
     #[pyattr]
-    #[pyclass(name = "odict_items", traverse)]
+    #[pyclass(name = "odict_items", unhashable = true, traverse)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct PyOrderedDictItems {
         od: PyRef<PyOrderedDict>,

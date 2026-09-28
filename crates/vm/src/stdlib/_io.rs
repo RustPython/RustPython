@@ -6376,7 +6376,7 @@ mod fileio {
             Err(vm.new_type_error(format!("cannot pickle '{}' instances", zelf.class().name())))
         }
 
-        /// fileio_dealloc_warn in Modules/_io/fileio.c
+        // fileio_dealloc_warn in Modules/_io/fileio.c
         #[pymethod(name = "_dealloc_warn")]
         fn _dealloc_warn_method(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) {
             Self::dealloc_warn(zelf, &object, vm);

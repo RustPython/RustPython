@@ -102,6 +102,30 @@ with assert_raises(TypeError):
     math.ceil(object())
 with assert_raises(TypeError):
     math.floor(object())
+with assert_raises(TypeError) as cm:
+    math.floor("1.5")
+assert str(cm.exception) == "must be real number, not str"
+with assert_raises(TypeError) as cm:
+    math.ceil(None)
+assert str(cm.exception) == "must be real number, not NoneType"
+
+assert math.floor(-0.5) == -1 and math.ceil(-0.5) == 0
+with assert_raises(OverflowError):
+    math.floor(INF)
+with assert_raises(ValueError):
+    math.ceil(NAN)
+
+
+class FloatFloor(float):
+    def __floor__(self):
+        return "sub floor"
+
+    def __ceil__(self):
+        return "sub ceil"
+
+
+assert math.floor(FloatFloor(1.5)) == "sub floor"
+assert math.ceil(FloatFloor(1.5)) == "sub ceil"
 
 isclose = math.isclose
 

@@ -411,6 +411,9 @@ impl PyDict {
         match d.downcast_exact::<Self>(vm) {
             Ok(pydict) => {
                 if let Some(keys) = Self::fromkeys_known_hashes(iterable.as_object(), vm) {
+                    if class.is(vm.ctx.types.dict_type) {
+                        pydict.entries.reserve_for_empty(keys.len());
+                    }
                     for (key, hash) in keys {
                         pydict
                             .entries
@@ -952,6 +955,32 @@ impl Py<PyDict> {
         self.entries.keys_version()
     }
 
+    pub(crate) fn module_attr_cache(
+        &self,
+        name: &super::PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> Option<(u32, u16)> {
+        self.exact_dict(vm)
+            .then(|| self.entries.module_attr_cache(name, vm))
+            .flatten()
+    }
+
+    #[inline]
+    pub(crate) fn get_cached_module_attr(
+        &self,
+        name: &super::PyStrInterned,
+        version: usize,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> Option<PyObjectRef> {
+        self.exact_dict(vm)
+            .then(|| {
+                self.entries
+                    .get_cached_module_attr(name, version, index, vm)
+            })
+            .flatten()
+    }
+
     /// Current keys-version stamp, assigning one if none is set.
     ///
     /// Returns 0 for dict subclasses: their lookup can be overridden, so a
@@ -1165,10 +1194,11 @@ macro_rules! dict_view {
         $class_name: literal,
         $iter_class_name: literal,
         $reverse_iter_class_name: literal,
+        $unhashable: literal,
         $project_fn: expr,
         $result_fn: expr
     ) => {
-        #[pyclass(module = false, name = $class_name)]
+        #[pyclass(module = false, name = $class_name, unhashable = $unhashable)]
         #[derive(Debug)]
         pub(crate) struct $name {
             pub(crate) dict: PyDictRef,
@@ -1456,6 +1486,7 @@ dict_view! {
     "dict_keys",
     "dict_keyiterator",
     "dict_reversekeyiterator",
+    true,
     |key: &PyObject, _value| key.to_owned(),
     |_vm: &VirtualMachine, key: PyObjectRef| key
 }
@@ -1470,6 +1501,7 @@ dict_view! {
     "dict_values",
     "dict_valueiterator",
     "dict_reversevalueiterator",
+    false,
     |_key: &PyObject, value: &PyObjectRef| value.clone(),
     |_vm: &VirtualMachine, value: PyObjectRef| value
 }
@@ -1484,6 +1516,7 @@ dict_view! {
     "dict_items",
     "dict_itemiterator",
     "dict_reverseitemiterator",
+    true,
     |key: &PyObject, value: &PyObjectRef| (key.to_owned(), value.clone()),
     // Builds a tuple, so it runs after the dict's read guard is released.
     |vm: &VirtualMachine, (key, value): (PyObjectRef, PyObjectRef)|

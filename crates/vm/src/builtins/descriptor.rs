@@ -172,7 +172,7 @@ impl Representable for PyMethodDescriptor {
     }
 }
 
-/// METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
+// METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
 #[pyclass(name = "classmethod_descriptor", module = false)]
 pub struct PyClassMethodDescriptor {
     #[pymember(name = "__objclass__", path = "typ")]
@@ -381,15 +381,31 @@ impl MemberKind {
     }
 }
 
-pub const PY_READONLY: i32 = 1;
-#[doc(hidden)]
-pub const PY_AUDIT_READ: i32 = 2;
-pub const PY_RELATIVE_OFFSET: i32 = 8;
+bitflags::bitflags! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(transparent)]
+    pub struct PyMemberFlags: i32 {
+        const READONLY = 1;
+        const AUDIT_READ = 2;
+        // `_Py_WRITE_RESTRICTED` (4) is deprecated. The bit is reserved and must not be reused.
+        const RELATIVE_OFFSET = 8;
+        /// The field is atomic storage (`Atomic*` or `PyAtomicTypeFlags`).
+        ///
+        /// Not a public member flag. The defined flags are `Py_READONLY` (1),
+        /// `Py_AUDIT_READ` (2), `_Py_WRITE_RESTRICTED` (4, deprecated, do not reuse),
+        /// and `Py_RELATIVE_OFFSET` (8). This bit is set only by `#[pymember]`.
+        /// Extension members leave it clear: a readonly extension member is a plain
+        /// load, and a writable one keeps an atomic access.
+        const ATOMIC = 0x10;
+    }
+}
 
 /// Kind of a `#[pymember]` field. The macro reads [`MemberLayout::KIND`].
 #[doc(hidden)]
 pub trait MemberLayout {
     const KIND: MemberKind;
+    /// `true` when the field is an atomic cell, not a plain integer or pointer.
+    const ATOMIC: bool = false;
 }
 
 /// Writable `#[pymember]` field. Only an atomic cell may change after publication.
@@ -405,11 +421,19 @@ pub const fn member_kind_of<T: MemberLayout, Owner>(
     <T as MemberLayout>::KIND
 }
 
+/// [`MemberLayout::ATOMIC`] of the field named by `probe`. `probe` is not called.
+#[doc(hidden)]
+#[must_use]
+pub const fn member_atomic_of<T: MemberLayout, Owner>(_: for<'a> fn(&'a Owner) -> &'a T) -> bool {
+    <T as MemberLayout>::ATOMIC
+}
+
 impl MemberLayout for i16 {
     const KIND: MemberKind = MemberKind::Short;
 }
 impl MemberLayout for core::sync::atomic::AtomicI16 {
     const KIND: MemberKind = MemberKind::Short;
+    const ATOMIC: bool = true;
 }
 impl MemberCell for core::sync::atomic::AtomicI16 {}
 
@@ -418,6 +442,7 @@ impl MemberLayout for u16 {
 }
 impl MemberLayout for core::sync::atomic::AtomicU16 {
     const KIND: MemberKind = MemberKind::UShort;
+    const ATOMIC: bool = true;
 }
 impl MemberCell for core::sync::atomic::AtomicU16 {}
 
@@ -426,6 +451,7 @@ impl MemberLayout for u8 {
 }
 impl MemberLayout for core::sync::atomic::AtomicU8 {
     const KIND: MemberKind = MemberKind::UByte;
+    const ATOMIC: bool = true;
 }
 impl MemberCell for core::sync::atomic::AtomicU8 {}
 
@@ -435,6 +461,7 @@ impl MemberLayout for i64 {
 }
 impl MemberLayout for core::sync::atomic::AtomicI64 {
     const KIND: MemberKind = MemberKind::from_i64();
+    const ATOMIC: bool = true;
 }
 impl MemberCell for core::sync::atomic::AtomicI64 {}
 
@@ -443,6 +470,7 @@ impl MemberLayout for u64 {
 }
 impl MemberLayout for core::sync::atomic::AtomicU64 {
     const KIND: MemberKind = MemberKind::from_u64();
+    const ATOMIC: bool = true;
 }
 impl MemberCell for core::sync::atomic::AtomicU64 {}
 
@@ -487,6 +515,7 @@ impl MemberLayout for bool {
 }
 impl MemberLayout for core::sync::atomic::AtomicBool {
     const KIND: MemberKind = MemberKind::Bool;
+    const ATOMIC: bool = true;
 }
 impl MemberCell for core::sync::atomic::AtomicBool {}
 
@@ -495,6 +524,7 @@ impl MemberLayout for i32 {
 }
 impl MemberLayout for core::sync::atomic::AtomicI32 {
     const KIND: MemberKind = MemberKind::Int;
+    const ATOMIC: bool = true;
 }
 impl MemberCell for core::sync::atomic::AtomicI32 {}
 
@@ -503,6 +533,7 @@ impl MemberLayout for u32 {
 }
 impl MemberLayout for core::sync::atomic::AtomicU32 {
     const KIND: MemberKind = MemberKind::Uint;
+    const ATOMIC: bool = true;
 }
 impl MemberCell for core::sync::atomic::AtomicU32 {}
 
@@ -517,6 +548,7 @@ impl MemberLayout for Option<PyObjectRef> {
 }
 impl MemberLayout for crate::object::PyObjectCell {
     const KIND: MemberKind = MemberKind::Object;
+    const ATOMIC: bool = true;
 }
 impl<T> MemberLayout for PyRef<T> {
     const KIND: MemberKind = MemberKind::Object;
@@ -526,6 +558,7 @@ impl<T> MemberLayout for Option<PyRef<T>> {
 }
 impl MemberLayout for crate::object::PyAtomicRef<PyObject> {
     const KIND: MemberKind = MemberKind::Object;
+    const ATOMIC: bool = true;
 }
 // `PyAtomicRef<T>` is the same pointer-sized cell as `PyAtomicRef<PyObject>`
 // (`PhantomData<T>` is zero-sized). Readonly object members may use it. The
@@ -533,12 +566,15 @@ impl MemberLayout for crate::object::PyAtomicRef<PyObject> {
 // `PyAtomicRef<PyObject>` or `PyAtomicRef<Option<PyObject>>` (`MemberCell`).
 impl<T: PyPayload> MemberLayout for crate::object::PyAtomicRef<T> {
     const KIND: MemberKind = MemberKind::Object;
+    const ATOMIC: bool = true;
 }
 impl MemberLayout for crate::object::PyAtomicRef<Option<PyObject>> {
     const KIND: MemberKind = MemberKind::Object;
+    const ATOMIC: bool = true;
 }
 impl<T: PyPayload> MemberLayout for crate::object::PyAtomicRef<Option<T>> {
     const KIND: MemberKind = MemberKind::Object;
+    const ATOMIC: bool = true;
 }
 impl MemberLayout for &'static crate::builtins::PyStrInterned {
     const KIND: MemberKind = MemberKind::Object;
@@ -554,6 +590,7 @@ impl MemberLayout for f64 {
 }
 impl MemberLayout for crate::common::atomic::AtomicF64 {
     const KIND: MemberKind = MemberKind::Double;
+    const ATOMIC: bool = true;
 }
 impl MemberCell for crate::common::atomic::AtomicF64 {}
 
@@ -562,6 +599,7 @@ impl MemberLayout for isize {
 }
 impl MemberLayout for core::sync::atomic::AtomicIsize {
     const KIND: MemberKind = MemberKind::PySsizeT;
+    const ATOMIC: bool = true;
 }
 impl MemberCell for core::sync::atomic::AtomicIsize {}
 
@@ -591,6 +629,7 @@ const _: () = assert!(
 );
 impl MemberLayout for core::sync::atomic::AtomicPtr<PyStrInterned> {
     const KIND: MemberKind = MemberKind::Object;
+    const ATOMIC: bool = true;
 }
 
 /// Where `PyMemberDef.offset` points.
@@ -612,26 +651,37 @@ pub struct PyMemberDefLayout {
     _name: *const core::ffi::c_char,
     _type: core::ffi::c_int,
     _offset: isize,
-    _flags: core::ffi::c_int,
+    _flags: PyMemberFlags,
     _doc: *const core::ffi::c_char,
 }
+
+const _: () = assert!(
+    size_of::<PyMemberFlags>() == size_of::<core::ffi::c_int>()
+        && align_of::<PyMemberFlags>() == align_of::<core::ffi::c_int>()
+);
 
 /// Same fields as `PyMemberDef`: name, type, offset, flags, doc.
 pub struct PyMemberDef {
     pub name: String,
     pub kind: MemberKind,
     pub offset: isize,
-    pub flags: i32,
+    pub flags: PyMemberFlags,
     pub doc: ItemDoc,
 }
 
 impl PyMemberDef {
     pub(crate) fn readonly(&self) -> bool {
-        self.flags & PY_READONLY != 0
+        self.flags.contains(PyMemberFlags::READONLY)
+    }
+
+    /// Atomic load when the field is atomic storage. Writable members are
+    /// stored as cells even when an extension did not set [`PyMemberFlags::ATOMIC`].
+    pub(crate) fn atomic_storage(&self) -> bool {
+        self.flags.contains(PyMemberFlags::ATOMIC) || !self.readonly()
     }
 
     pub(crate) fn audit_read(&self) -> bool {
-        self.flags & PY_AUDIT_READ != 0
+        self.flags.contains(PyMemberFlags::AUDIT_READ)
     }
 }
 
@@ -653,7 +703,7 @@ pub struct PyMemberSpec {
     pub name: &'static str,
     pub kind: MemberKind,
     pub offset: isize,
-    pub flags: i32,
+    pub flags: PyMemberFlags,
     pub doc: ItemDoc,
 }
 
@@ -665,7 +715,7 @@ impl PyMemberSpec {
             name: "",
             kind: MemberKind::Object,
             offset: 0,
-            flags: 0,
+            flags: PyMemberFlags::empty(),
             doc: ItemDoc::NONE,
         };
         let mut out = [EMPTY; N];
@@ -722,7 +772,7 @@ impl PyMemberDescriptor {
     }
 
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if self.member.flags & PY_AUDIT_READ != 0 {
+        if self.member.audit_read() {
             vm.audit("object.__getattr__", || {
                 (obj.clone(), vm.ctx.new_str(self.member.name.as_str()))
             })?;
@@ -851,106 +901,102 @@ fn warn_member(vm: &VirtualMachine, message: &str) -> PyResult<()> {
     )
 }
 
-fn load_i32(obj: &PyObject, offset: isize, readonly: bool) -> i32 {
+fn load_i32(obj: &PyObject, offset: isize, atomic: bool) -> i32 {
     let addr = member_addr(obj, offset);
-    if readonly {
-        // SAFETY: a readonly int member addresses an `i32` that is not written
-        // after publication.
-        unsafe { addr.cast::<i32>().read() }
-    } else {
-        // SAFETY: a writable int member addresses an aligned `AtomicI32`.
+    if atomic {
+        // SAFETY: `PyMemberFlags::ATOMIC` or a writable member addresses an aligned `AtomicI32`.
         unsafe {
             (*addr.cast::<core::sync::atomic::AtomicI32>())
                 .load(core::sync::atomic::Ordering::Relaxed)
         }
+    } else {
+        // SAFETY: a plain int member addresses an `i32` that is not written
+        // after publication. The field may be only 4-byte aligned.
+        unsafe { addr.cast::<i32>().read() }
     }
 }
 
-fn load_i16(obj: &PyObject, offset: isize, readonly: bool) -> i16 {
+fn load_i16(obj: &PyObject, offset: isize, atomic: bool) -> i16 {
     let addr = member_addr(obj, offset);
-    if readonly {
-        // SAFETY: a readonly short member addresses an `i16` that is not written
-        // after publication.
-        unsafe { addr.cast::<i16>().read() }
-    } else {
-        // SAFETY: a writable short member addresses an aligned `AtomicI16`.
+    if atomic {
+        // SAFETY: `PyMemberFlags::ATOMIC` or a writable member addresses an aligned `AtomicI16`.
         unsafe {
             (*addr.cast::<core::sync::atomic::AtomicI16>())
                 .load(core::sync::atomic::Ordering::Relaxed)
         }
+    } else {
+        // SAFETY: a plain short member addresses an `i16` that is not written
+        // after publication.
+        unsafe { addr.cast::<i16>().read() }
     }
 }
 
-fn load_u16(obj: &PyObject, offset: isize, readonly: bool) -> u16 {
+fn load_u16(obj: &PyObject, offset: isize, atomic: bool) -> u16 {
     let addr = member_addr(obj, offset);
-    if readonly {
-        // SAFETY: a readonly unsigned short member addresses a `u16` that is not
-        // written after publication.
-        unsafe { addr.cast::<u16>().read() }
-    } else {
-        // SAFETY: a writable unsigned short member addresses an aligned `AtomicU16`.
+    if atomic {
+        // SAFETY: `PyMemberFlags::ATOMIC` or a writable member addresses an aligned `AtomicU16`.
         unsafe {
             (*addr.cast::<core::sync::atomic::AtomicU16>())
                 .load(core::sync::atomic::Ordering::Relaxed)
         }
+    } else {
+        // SAFETY: a plain unsigned short member addresses a `u16` that is not
+        // written after publication.
+        unsafe { addr.cast::<u16>().read() }
     }
 }
 
-fn load_u8(obj: &PyObject, offset: isize, readonly: bool) -> u8 {
+fn load_u8(obj: &PyObject, offset: isize, atomic: bool) -> u8 {
     let addr = member_addr(obj, offset);
-    if readonly {
-        // SAFETY: a readonly unsigned char member addresses a `u8` that is not
-        // written after publication.
-        unsafe { addr.cast::<u8>().read() }
-    } else {
-        // SAFETY: a writable unsigned char member addresses an `AtomicU8`.
+    if atomic {
+        // SAFETY: `PyMemberFlags::ATOMIC` or a writable member addresses an `AtomicU8`.
         unsafe {
             (*addr.cast::<core::sync::atomic::AtomicU8>())
                 .load(core::sync::atomic::Ordering::Relaxed)
         }
+    } else {
+        // SAFETY: a readonly unsigned char member addresses a `u8` that is not
+        // written after publication.
+        unsafe { addr.cast::<u8>().read() }
     }
 }
 
-fn load_i64(obj: &PyObject, offset: isize, readonly: bool) -> i64 {
+fn load_i64(obj: &PyObject, offset: isize, atomic: bool) -> i64 {
     let addr = member_addr(obj, offset);
-    if readonly {
-        // SAFETY: a readonly `long long` member addresses an `i64` that is not
-        // written after publication.
-        unsafe { addr.cast::<i64>().read() }
-    } else {
-        // SAFETY: a writable `long long` member addresses an aligned `AtomicI64`.
+    if atomic {
+        // SAFETY: `PyMemberFlags::ATOMIC` or a writable member addresses an aligned `AtomicI64`.
         unsafe {
             (*addr.cast::<core::sync::atomic::AtomicI64>())
                 .load(core::sync::atomic::Ordering::Relaxed)
         }
+    } else {
+        // SAFETY: a plain `long long` member addresses an `i64` that is not
+        // written after publication. The field may be only 4-byte aligned.
+        unsafe { addr.cast::<i64>().read() }
     }
 }
 
-fn load_u64(obj: &PyObject, offset: isize, readonly: bool) -> u64 {
+fn load_u64(obj: &PyObject, offset: isize, atomic: bool) -> u64 {
     let addr = member_addr(obj, offset);
-    if readonly {
-        // SAFETY: a readonly `unsigned long long` member is a `u64` or an
-        // `AtomicU64` of the same size and alignment. A relaxed atomic load
-        // reads either; a plain integer is not written after publication, and
-        // an atomic word (type flags) is updated in place.
+    if atomic {
+        // SAFETY: `PyMemberFlags::ATOMIC` or a writable member addresses an aligned `AtomicU64`.
         unsafe {
             (*addr.cast::<core::sync::atomic::AtomicU64>())
                 .load(core::sync::atomic::Ordering::Relaxed)
         }
     } else {
-        // SAFETY: a writable `unsigned long long` member addresses an aligned `AtomicU64`.
-        unsafe {
-            (*addr.cast::<core::sync::atomic::AtomicU64>())
-                .load(core::sync::atomic::Ordering::Relaxed)
-        }
+        // SAFETY: a plain `unsigned long long` member addresses a `u64` that is
+        // not written after publication. The field may be only 4-byte aligned,
+        // so this is a plain read and not an `AtomicU64` access.
+        unsafe { addr.cast::<u64>().read() }
     }
 }
 
 #[allow(clippy::unnecessary_cast)] // `c_long` is `i32` or `i64`
-fn load_c_long(obj: &PyObject, offset: isize, readonly: bool) -> core::ffi::c_long {
+fn load_c_long(obj: &PyObject, offset: isize, atomic: bool) -> core::ffi::c_long {
     let addr = member_addr(obj, offset);
-    if readonly {
-        // SAFETY: a readonly `long` member addresses a `c_long` that is not
+    if !atomic {
+        // SAFETY: a plain `long` member addresses a `c_long` that is not
         // written after publication.
         unsafe { addr.cast::<core::ffi::c_long>().read() }
     } else if size_of::<core::ffi::c_long>() == 8 {
@@ -991,20 +1037,12 @@ fn store_c_long(obj: &PyObject, offset: isize, value: core::ffi::c_long) {
 }
 
 #[allow(clippy::unnecessary_cast)] // `c_ulong` is `u32` or `u64`
-fn load_c_ulong(obj: &PyObject, offset: isize, readonly: bool) -> core::ffi::c_ulong {
+fn load_c_ulong(obj: &PyObject, offset: isize, atomic: bool) -> core::ffi::c_ulong {
     let addr = member_addr(obj, offset);
-    if readonly && size_of::<core::ffi::c_ulong>() == 8 {
-        // SAFETY: a readonly `unsigned long` member is a `c_ulong` or an
-        // `AtomicU64` of the same size and alignment. A relaxed atomic load
-        // reads either; a plain integer is not written after publication, and
-        // an atomic word (type flags) is updated in place.
-        unsafe {
-            (*addr.cast::<core::sync::atomic::AtomicU64>())
-                .load(core::sync::atomic::Ordering::Relaxed) as core::ffi::c_ulong
-        }
-    } else if readonly {
-        // SAFETY: a readonly `unsigned long` member addresses a `c_ulong` that
-        // is not written after publication. `c_ulong` is 4 bytes on this target.
+    if !atomic {
+        // SAFETY: a plain `unsigned long` member addresses a `c_ulong` that is
+        // not written after publication. A plain integer may be only 4-byte
+        // aligned, so this is not an atomic access.
         unsafe { addr.cast::<core::ffi::c_ulong>().read() }
     } else if size_of::<core::ffi::c_ulong>() == 8 {
         // SAFETY: a writable `unsigned long` member addresses an aligned `AtomicU64`.
@@ -1043,18 +1081,18 @@ fn store_c_ulong(obj: &PyObject, offset: isize, value: core::ffi::c_ulong) {
     }
 }
 
-fn load_u32(obj: &PyObject, offset: isize, readonly: bool) -> u32 {
+fn load_u32(obj: &PyObject, offset: isize, atomic: bool) -> u32 {
     let addr = member_addr(obj, offset);
-    if readonly {
-        // SAFETY: a readonly uint member addresses a `u32` that is not written
-        // after publication.
-        unsafe { addr.cast::<u32>().read() }
-    } else {
-        // SAFETY: a writable uint member addresses an aligned `AtomicU32`.
+    if atomic {
+        // SAFETY: `PyMemberFlags::ATOMIC` or a writable member addresses an aligned `AtomicU32`.
         unsafe {
             (*addr.cast::<core::sync::atomic::AtomicU32>())
                 .load(core::sync::atomic::Ordering::Relaxed)
         }
+    } else {
+        // SAFETY: a plain uint member addresses a `u32` that is not written
+        // after publication.
+        unsafe { addr.cast::<u32>().read() }
     }
 }
 
@@ -1105,82 +1143,86 @@ fn member_get_one(
             }
         },
         MemberKind::Bool => {
-            // SAFETY: a bool member addresses an `AtomicBool` or a `bool`
-            // (one byte, naturally aligned). The macro rejects any other field
-            // type. A plain `bool` is not written after the object is published.
-            let raw = unsafe {
-                (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicBool>())
-                    .load(core::sync::atomic::Ordering::Relaxed)
+            let raw = if member.atomic_storage() {
+                // SAFETY: `PyMemberFlags::ATOMIC` or a writable member addresses an aligned
+                // `AtomicBool`.
+                unsafe {
+                    (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicBool>())
+                        .load(core::sync::atomic::Ordering::Relaxed)
+                }
+            } else {
+                // SAFETY: a plain bool member is one byte and is not written
+                // after publication.
+                unsafe { member_addr(obj, offset).cast::<bool>().read() }
             };
             vm.ctx.new_bool(raw).into()
         }
         MemberKind::Int => vm
             .ctx
-            .new_int(load_i32(obj, offset, member.readonly()))
+            .new_int(load_i32(obj, offset, member.atomic_storage()))
             .into(),
         MemberKind::Uint => vm
             .ctx
-            .new_int(load_u32(obj, offset, member.readonly()))
+            .new_int(load_u32(obj, offset, member.atomic_storage()))
             .into(),
         MemberKind::Double => {
-            let raw = if member.readonly() {
-                // SAFETY: a readonly double member addresses an `f64` that is
-                // not written after publication. A plain `f64` may be only
-                // 4-byte aligned, so this is a plain read and not an atomic
-                // access.
-                unsafe { member_addr(obj, offset).cast::<f64>().read() }
-            } else {
-                // SAFETY: a writable double member addresses an aligned
-                // `AtomicF64`. The macro accepts only `MemberCell`.
+            let raw = if member.atomic_storage() {
+                // SAFETY: `PyMemberFlags::ATOMIC` or a writable member addresses an aligned
+                // `AtomicF64`.
                 unsafe {
                     (*member_addr(obj, offset).cast::<crate::common::atomic::AtomicF64>())
                         .load(core::sync::atomic::Ordering::Relaxed)
                 }
+            } else {
+                // SAFETY: a plain double member addresses an `f64` that is not
+                // written after publication. A plain `f64` may be only 4-byte
+                // aligned, so this is a plain read and not an atomic access.
+                unsafe { member_addr(obj, offset).cast::<f64>().read() }
             };
             vm.ctx.new_float(raw).into()
         }
         MemberKind::PySsizeT => {
-            let raw = if member.readonly() {
-                // SAFETY: a readonly `Py_ssize_t` member addresses an `isize`
-                // that is not written after publication.
-                unsafe { member_addr(obj, offset).cast::<isize>().read() }
-            } else {
-                // SAFETY: a writable `Py_ssize_t` member addresses an aligned
-                // `AtomicIsize`. The macro accepts only `MemberCell`.
+            let raw = if member.atomic_storage() {
+                // SAFETY: `PyMemberFlags::ATOMIC` or a writable member addresses an aligned
+                // `AtomicIsize`.
                 unsafe {
                     (*member_addr(obj, offset).cast::<core::sync::atomic::AtomicIsize>())
                         .load(core::sync::atomic::Ordering::Relaxed)
                 }
+            } else {
+                // SAFETY: a plain `Py_ssize_t` member addresses an `isize` that
+                // is not written after publication.
+                unsafe { member_addr(obj, offset).cast::<isize>().read() }
             };
             vm.ctx.new_int(raw).into()
         }
         MemberKind::Short => vm
             .ctx
-            .new_int(load_i16(obj, offset, member.readonly()))
+            .new_int(load_i16(obj, offset, member.atomic_storage()))
             .into(),
         MemberKind::UShort => vm
             .ctx
-            .new_int(load_u16(obj, offset, member.readonly()))
+            .new_int(load_u16(obj, offset, member.atomic_storage()))
             .into(),
         MemberKind::UByte => vm
             .ctx
-            .new_int(load_u8(obj, offset, member.readonly()))
+            .new_int(load_u8(obj, offset, member.atomic_storage()))
             .into(),
         MemberKind::Long => vm
             .ctx
-            .new_int(load_c_long(obj, offset, member.readonly()))
+            .new_int(load_c_long(obj, offset, member.atomic_storage()))
             .into(),
         MemberKind::LongLong => vm
             .ctx
-            .new_int(load_i64(obj, offset, member.readonly()))
+            .new_int(load_i64(obj, offset, member.atomic_storage()))
             .into(),
         MemberKind::ULong => vm
             .ctx
-            .new_int(load_c_ulong(obj, offset, member.readonly()))
+            .new_int(load_c_ulong(obj, offset, member.atomic_storage()))
             .into(),
         MemberKind::ULongLong => vm
             .ctx
-            .new_int(load_u64(obj, offset, member.readonly()))
+            .new_int(load_u64(obj, offset, member.atomic_storage()))
             .into(),
         MemberKind::String => {
             // SAFETY: a string member addresses a `*const c_char` that is not
@@ -1907,7 +1949,7 @@ fn parse_buffer_flags(
     Ok(crate::protocol::BufferFlags::from_bits_retain(flags as u32))
 }
 
-/// wrapper_descriptor: wraps a slot function as a Python method
+// wrapper_descriptor: wraps a slot function as a Python method
 // = PyWrapperDescrObject
 #[pyclass(name = "wrapper_descriptor", module = false)]
 #[derive(Debug)]
@@ -2012,8 +2054,8 @@ impl Representable for PyWrapper {
 
 // PyMethodWrapper - method-wrapper
 
-/// method-wrapper: a slot wrapper bound to an instance
-/// Returned when accessing l.__init__ on an instance
+// method-wrapper: a slot wrapper bound to an instance
+// Returned when accessing l.__init__ on an instance
 #[pyclass(name = "method-wrapper", module = false, traverse)]
 #[derive(Debug)]
 pub(crate) struct PyMethodWrapper {
@@ -2169,6 +2211,60 @@ mod tests {
             };
             &METHODS
         }
+    }
+
+    #[pyclass(name = "ReadonlyAtomicMembers", module = false)]
+    #[derive(Debug, PyPayload)]
+    struct ReadonlyAtomicMembers {
+        #[pymember]
+        byte: AtomicU8,
+        #[pymember]
+        object: crate::object::PyObjectCell,
+    }
+
+    #[pyclass]
+    impl ReadonlyAtomicMembers {}
+
+    #[test]
+    fn readonly_atomic_members_use_atomic_storage() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let _class = ReadonlyAtomicMembers::make_static_type();
+            let obj = ReadonlyAtomicMembers {
+                byte: AtomicU8::new(128),
+                object: None.into(),
+            }
+            .into_ref(&vm.ctx);
+
+            for name in ["byte", "object"] {
+                let descriptor = obj.class().as_object().get_attr(name, vm).unwrap();
+                let descriptor = descriptor.downcast_ref::<PyMemberDescriptor>().unwrap();
+                assert!(descriptor.member.readonly());
+                assert!(descriptor.member.atomic_storage());
+                let err = obj
+                    .as_object()
+                    .set_attr(name, vm.ctx.none(), vm)
+                    .unwrap_err();
+                assert!(err.fast_isinstance(vm.ctx.exceptions.attribute_error));
+            }
+
+            assert!(vm.is_none(&obj.as_object().get_attr("object", vm).unwrap()));
+            obj.byte.store(255, Ordering::Relaxed);
+            let value: PyObjectRef = vm.ctx.new_int(42).into();
+            obj.object.store(Some(value.clone()));
+            assert!(obj.as_object().get_attr("object", vm).unwrap().is(&value));
+            let byte = obj.as_object().get_attr("byte", vm).unwrap();
+            assert_eq!(
+                u8::try_from(
+                    byte.downcast_ref::<crate::builtins::PyInt>()
+                        .unwrap()
+                        .as_bigint()
+                )
+                .unwrap(),
+                255
+            );
+            obj.object.store(None);
+            assert!(vm.is_none(&obj.as_object().get_attr("object", vm).unwrap()));
+        });
     }
 
     #[test]

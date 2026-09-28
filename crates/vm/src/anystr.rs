@@ -321,23 +321,6 @@ pub(crate) trait AnyStr {
         self.py_pad(width - len, 0, fillchar)
     }
 
-    fn py_join(
-        &self,
-        mut iter: impl core::iter::Iterator<Item = PyResult<impl AnyStrWrapper<Self> + TryFromObject>>,
-    ) -> PyResult<Self::Container> {
-        let mut joined = if let Some(elem) = iter.next() {
-            elem?.as_ref().unwrap().to_container()
-        } else {
-            return Ok(Self::Container::new());
-        };
-        for elem in iter {
-            let elem = elem?;
-            joined.push_str(self);
-            joined.push_str(elem.as_ref().unwrap());
-        }
-        Ok(joined)
-    }
-
     fn py_partition<'a, F, S>(
         &'a self,
         sub: &Self,

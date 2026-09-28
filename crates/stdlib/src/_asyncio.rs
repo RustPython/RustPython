@@ -2815,7 +2815,7 @@ pub(crate) mod _asyncio {
         prev
     }
 
-    /// Reset task state after fork in child process.
+    // Reset task state after fork in child process.
     #[pyfunction]
     #[allow(clippy::unnecessary_wraps)] // keep PyResult for consistency with sibling module functions
     fn _on_fork(vm: &VirtualMachine) -> PyResult<()> {
@@ -2916,7 +2916,7 @@ pub(crate) mod _asyncio {
         }
     }
 
-    /// TaskWakeupMethWrapper - wrapper for task wakeup callback with proper repr
+    // TaskWakeupMethWrapper - wrapper for task wakeup callback with proper repr
     #[pyattr]
     #[pyclass(name, traverse)]
     #[derive(Debug, PyPayload)]

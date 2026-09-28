@@ -845,7 +845,7 @@ pub(crate) mod typevar {
     }
 
     #[pyattr]
-    #[pyclass(name = "ParamSpecArgs", module = "typing")]
+    #[pyclass(name = "ParamSpecArgs", module = "typing", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub struct ParamSpecArgs {
         #[pymember]
@@ -905,7 +905,7 @@ pub(crate) mod typevar {
     }
 
     #[pyattr]
-    #[pyclass(name = "ParamSpecKwargs", module = "typing")]
+    #[pyclass(name = "ParamSpecKwargs", module = "typing", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub struct ParamSpecKwargs {
         #[pymember]

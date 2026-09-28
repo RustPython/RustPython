@@ -29,7 +29,7 @@ pub(super) fn calculate_union_size(cls: &Py<PyType>, vm: &VirtualMachine) -> PyR
     Ok(0)
 }
 
-/// PyCUnionType - metaclass for Union
+// PyCUnionType - metaclass for Union
 #[pyclass(name = "UnionType", base = PyType, module = "_ctypes")]
 #[derive(Debug)]
 #[repr(transparent)]
@@ -466,7 +466,7 @@ impl PyCUnionType {
         PyCData::in_dll(cls, dll, name, vm)
     }
 
-    /// Called when a new Union subclass is created
+    // Called when a new Union subclass is created
     #[pyclassmethod]
     fn __init_subclass__(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
         cls.mark_bases_final();

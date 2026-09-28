@@ -12,7 +12,7 @@ use crate::{
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerReplaceOptions, ByteInnerSplitOptions, ByteInnerStripOptions, ByteInnerSub,
-        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerTranslateOptions, BytesJoin, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::PyClassImpl,
     common::{
@@ -354,10 +354,15 @@ impl PyByteArray {
 
     #[pymethod]
     fn join(&self, iterable_of_bytes: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        // Driving the iterable runs Python, which can reach this bytearray,
-        // so the separator is taken by value rather than left borrowed.
-        let separator = self.inner().clone();
-        Ok(separator.join(iterable_of_bytes, vm)?.into())
+        // Export before driving the iterable: resizing is forbidden, but
+        // same-size mutations must be reflected in the joined result.
+        self.exports.fetch_add(1, Ordering::Release);
+        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
+        let separator_len = self.__len__();
+        let items = BytesJoin::new(iterable_of_bytes, vm)?;
+        Ok(items
+            .join(separator_len, || self.borrow_buf().into(), vm)?
+            .into())
     }
 
     #[pymethod]

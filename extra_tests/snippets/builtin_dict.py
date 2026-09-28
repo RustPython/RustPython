@@ -291,6 +291,25 @@ assert x["c"] is None
 assert {1: None, "b": None} == dict.fromkeys([1, "b"])
 assert {1: 0, "b": 0} == dict.fromkeys([1, "b"], 0)
 
+for source in ({i: -1 for i in range(128)}, set(range(128)), frozenset(range(128))):
+    shared_value = []
+    result = dict.fromkeys(source, shared_value)
+    assert list(result) == list(source)
+    assert all(value is shared_value for value in result.values())
+
+
+class UnsizedFromKeys:
+    def __iter__(self):
+        return iter((1, 1, 2))
+
+    def __len__(self):
+        raise AssertionError("fromkeys must not request a length hint")
+
+    __length_hint__ = __len__
+
+
+assert dict.fromkeys(UnsizedFromKeys()) == {1: None, 2: None}
+
 x = {"a": 1, "b": 1, "c": 1}
 y = {"b": 2, "c": 2, "d": 2}
 z = {"c": 3, "d": 3, "e": 3}
@@ -672,6 +691,20 @@ assert list(merge_source.values()) == ["first", "last"]
 MergeHashKey.hash_disabled = False
 
 
+# Compact copies preserve order, key identity and stored hashes after deletions.
+copy_keys = [MergeHashKey(i) for i in range(32)]
+copy_source = {key: key.value for key in copy_keys}
+for key in copy_keys[:-3]:
+    del copy_source[key]
+MergeHashKey.hash_disabled = True
+copy_result = copy_source.copy()
+assert list(copy_result.values()) == [29, 30, 31]
+assert all(actual is expected for actual, expected in zip(copy_result, copy_keys[-3:]))
+copy_result.clear()
+assert len(copy_source) == 3
+MergeHashKey.hash_disabled = False
+
+
 class MergeMapping(dict):
     def __iter__(self):
         return iter(("virtual",))
@@ -687,3 +720,28 @@ class MergeMapping(dict):
 # Generic mappings retain their lookup hooks instead of exposing dict storage.
 for merge in (dict, merge_with_update, merge_with_ior):
     assert merge(MergeMapping(stored=0)) == {"virtual": 42}
+
+# Test hashability of dict and OrderedDict views
+import collections.abc
+
+d = {"a": 1, "b": 2}
+assert type(d.keys()).__hash__ is None
+assert type(d.items()).__hash__ is None
+assert type(d.values()).__hash__ is not None
+assert not isinstance(d.keys(), collections.abc.Hashable)
+assert not isinstance(d.items(), collections.abc.Hashable)
+with assert_raises(TypeError):
+    hash(d.keys())
+with assert_raises(TypeError):
+    hash(d.items())
+
+od = collections.OrderedDict([("a", 1)])
+assert type(od.keys()).__hash__ is None
+assert type(od.items()).__hash__ is None
+assert type(od.values()).__hash__ is not None
+assert not isinstance(od.keys(), collections.abc.Hashable)
+assert not isinstance(od.items(), collections.abc.Hashable)
+with assert_raises(TypeError):
+    hash(od.keys())
+with assert_raises(TypeError):
+    hash(od.items())
