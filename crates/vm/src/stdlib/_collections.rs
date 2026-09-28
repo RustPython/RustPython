@@ -155,8 +155,16 @@ mod _collections {
 
         #[pymethod]
         fn clear(&self) {
-            self.state.fetch_add(1);
-            self.borrow_deque_mut().clear()
+            let removed = {
+                let mut deque = self.borrow_deque_mut();
+                if deque.is_empty() {
+                    return;
+                }
+                self.state.fetch_add(1);
+                core::mem::take(&mut *deque)
+            };
+            // Finalizers may read or repopulate the now-empty deque.
+            drop(removed);
         }
 
         #[pymethod(name = "__copy__")]
@@ -387,11 +395,16 @@ mod _collections {
         }
 
         fn __setitem__(&self, idx: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let mut deque = self.borrow_deque_mut();
-            idx.wrapped_at(deque.len())
-                .and_then(|i| deque.get_mut(i))
-                .map(|x| *x = value)
-                .ok_or_else(|| vm.new_index_error("deque index out of range"))
+            let removed = {
+                let mut deque = self.borrow_deque_mut();
+                let item = idx
+                    .wrapped_at(deque.len())
+                    .and_then(|i| deque.get_mut(i))
+                    .ok_or_else(|| vm.new_index_error("deque index out of range"))?;
+                core::mem::replace(item, value)
+            };
+            drop(removed);
+            Ok(())
         }
 
         fn __delitem__(&self, idx: isize, vm: &VirtualMachine) -> PyResult<()> {

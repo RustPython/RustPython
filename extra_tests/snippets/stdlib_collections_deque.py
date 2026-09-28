@@ -358,6 +358,10 @@ def test_deque_bulk_noops_preserve_iterators():
         iterator = factory(d)
         d.__init__([])
         assert list(iterator) == []
+        d = deque()
+        iterator = factory(d)
+        d.clear()
+        assert list(iterator) == []
 
 
 def test_deque_bulk_mutation_releases_lock_before_finalizing():
@@ -365,6 +369,8 @@ def test_deque_bulk_mutation_releases_lock_before_finalizing():
         (lambda d: d.extendleft([9]), [9], ["finalized"]),
         (lambda d: d.__imul__(0), [], ["finalized"]),
         (lambda d: d.__init__([9]), [], ["finalized", 9]),
+        (lambda d: d.clear(), [], ["finalized"]),
+        (lambda d: d.__setitem__(0, 9), [9], ["finalized"]),
     )
     for operation, observed, expected in operations:
         d = deque(maxlen=1)
@@ -379,6 +385,25 @@ def test_deque_bulk_mutation_releases_lock_before_finalizing():
         operation(d)
         assert snapshots == [observed], snapshots
         assert list(d) == expected, d
+
+
+def test_deque_failed_assignment_releases_lock_before_finalizing():
+    d = deque()
+    snapshots = []
+
+    class Item:
+        def __del__(self):
+            snapshots.append(list(d))
+            d.append("finalized")
+
+    try:
+        d[0] = Item()
+    except IndexError:
+        pass
+    else:
+        raise AssertionError("assignment to an empty deque must fail")
+    assert snapshots == [[]], snapshots
+    assert list(d) == ["finalized"], d
 
 
 def test_deque_reinitialization_order_and_limit():
@@ -413,6 +438,7 @@ test_deque_remove_detects_bulk_mutation()
 test_deque_bulk_mutation_invalidates_iterators()
 test_deque_bulk_noops_preserve_iterators()
 test_deque_bulk_mutation_releases_lock_before_finalizing()
+test_deque_failed_assignment_releases_lock_before_finalizing()
 test_deque_reinitialization_order_and_limit()
 
 
