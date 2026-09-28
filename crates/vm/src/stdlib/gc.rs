@@ -258,13 +258,13 @@ mod gc {
         gc_state::gc_state().get_freeze_count()
     }
 
-    /// gc.garbage - list of uncollectable objects
+    // gc.garbage - list of uncollectable objects
     #[pyattr]
     fn garbage(vm: &VirtualMachine) -> PyListRef {
         vm.state.gc.py_garbage.clone()
     }
 
-    /// gc.callbacks - list of callbacks to be invoked
+    // gc.callbacks - list of callbacks to be invoked
     #[pyattr]
     fn callbacks(vm: &VirtualMachine) -> PyListRef {
         vm.state.gc.py_callbacks.clone()

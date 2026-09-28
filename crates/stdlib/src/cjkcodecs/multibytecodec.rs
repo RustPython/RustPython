@@ -614,9 +614,9 @@ mod _multibytecodec {
         Ok(PyRef::new_ref(payload, class, None).into())
     }
 
-    /// `__create_codec`, which turns the capsule `getcodec` hands it into a
-    /// codec object. Nothing here carries a codec in a capsule, so the argument
-    /// check rejects everything a caller can pass.
+    // `__create_codec`, which turns the capsule `getcodec` hands it into a
+    // codec object. Nothing here carries a codec in a capsule, so the argument
+    // check rejects everything a caller can pass.
     #[pyfunction(name = "__create_codec")]
     fn create_codec(_arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_value_error("argument type invalid"))

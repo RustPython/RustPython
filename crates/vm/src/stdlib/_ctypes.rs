@@ -102,8 +102,8 @@ pub(crate) mod _ctypes {
     use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
     use num_traits::ToPrimitive;
 
-    /// CArgObject - returned by byref() and paramfunc
-    /// tagPyCArgObject
+    // CArgObject - returned by byref() and paramfunc
+    // tagPyCArgObject
     #[pyclass(name = "CArgObject", module = "_ctypes", no_attr)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct CArgObject {
@@ -840,7 +840,7 @@ pub(crate) mod _ctypes {
         super::function::cast_impl(&obj, src, &ctype, vm)
     }
 
-    /// Python-level cast function (PYFUNCTYPE wrapper)
+    // Python-level cast function (PYFUNCTYPE wrapper)
     #[pyfunction]
     fn cast(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         super::function::cast_impl(&obj, obj.clone(), &typ, vm)
@@ -883,7 +883,7 @@ pub(crate) mod _ctypes {
             .into())
     }
 
-    /// Unpickle a ctypes object.
+    // Unpickle a ctypes object.
     #[pyfunction]
     fn _unpickle(typ: PyObjectRef, state: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if !state.class().is(vm.ctx.types.tuple_type.as_ref()) {
@@ -894,7 +894,7 @@ pub(crate) mod _ctypes {
         Ok(obj)
     }
 
-    /// Call a function at the given address with the given arguments.
+    // Call a function at the given address with the given arguments.
     #[pyfunction]
     fn call_function(
         func_addr: ArgStrictInt<usize>,
@@ -905,7 +905,7 @@ pub(crate) mod _ctypes {
         call_function_internal(func_addr, args, 0, vm)
     }
 
-    /// Call a cdecl function at the given address with the given arguments.
+    // Call a cdecl function at the given address with the given arguments.
     #[pyfunction]
     fn call_cdeclfunction(
         func_addr: ArgStrictInt<usize>,
@@ -952,7 +952,7 @@ pub(crate) mod _ctypes {
         Ok(vm.ctx.new_int(result).into())
     }
 
-    /// Convert a pointer (as integer) to a Python object.
+    // Convert a pointer (as integer) to a Python object.
     #[pyfunction(name = "PyObj_FromPtr")]
     fn py_obj_from_ptr(ptr: ArgStrictInt<usize>, vm: &VirtualMachine) -> PyResult {
         let ptr = ptr.value;

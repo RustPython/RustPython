@@ -3495,7 +3495,7 @@ pub(super) mod types {
         }
     }
 
-    /// JIT error.
+    // JIT error.
     #[cfg(feature = "jit")]
     #[pyexception(name, base = PyException, ctx = "jit_error", impl)]
     #[derive(Debug)]

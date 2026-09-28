@@ -37,10 +37,10 @@ pub(crate) mod _elementtree {
     };
     use rustpython_common::lock::PyRwLock;
 
-    /// The per-module bookkeeping `_elementtree.c` keeps in its
-    /// `elementtreestate`: the `Comment`/`ProcessingInstruction` factories
-    /// installed by `_set_factories`, and two helpers imported from Python
-    /// the first time they are needed.
+    // The per-module bookkeeping `_elementtree.c` keeps in its
+    // `elementtreestate`: the `Comment`/`ProcessingInstruction` factories
+    // installed by `_set_factories`, and two helpers imported from Python
+    // the first time they are needed.
     #[pyclass(no_attr, module = "_elementtree", name = "_elementtree_state")]
     #[derive(Debug, Default, PyPayload)]
     pub(crate) struct ElementTreeState {
@@ -2365,9 +2365,9 @@ pub(crate) mod _elementtree {
         child_index: usize,
     }
 
-    /// Pre-order traversal shared by `Element.iter()` and
-    /// `Element.itertext()`, kept as an explicit parent stack so a deep tree
-    /// costs no Rust recursion.
+    // Pre-order traversal shared by `Element.iter()` and
+    // `Element.itertext()`, kept as an explicit parent stack so a deep tree
+    // costs no Rust recursion.
     #[pyclass(no_attr, module = "_elementtree", name = "_element_iterator")]
     #[derive(Debug, PyPayload)]
     pub(crate) struct PyElementIter {

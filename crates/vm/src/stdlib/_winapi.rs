@@ -480,8 +480,8 @@ mod _winapi {
         vm.ctx.none()
     }
 
-    /// LCMapStringEx - Map a string to another string using locale-specific rules
-    /// This is used by ntpath.normcase() for proper Windows case conversion
+    // LCMapStringEx - Map a string to another string using locale-specific rules
+    // This is used by ntpath.normcase() for proper Windows case conversion
     #[pyfunction]
     fn LCMapStringEx(
         locale: PyStrRef,
@@ -541,7 +541,7 @@ mod _winapi {
         _security_attributes: PyObjectRef, // Ignored, can be None
     }
 
-    /// CreateNamedPipe - Create a named pipe
+    // CreateNamedPipe - Create a named pipe
     #[pyfunction]
     fn CreateNamedPipe(args: CreateNamedPipeArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
         let name = args
@@ -694,7 +694,7 @@ mod _winapi {
         Ok(path_name_result_to_pystr(wide, vm))
     }
 
-    /// WaitNamedPipe - Wait for an instance of a named pipe to become available.
+    // WaitNamedPipe - Wait for an instance of a named pipe to become available.
     #[pyfunction]
     fn WaitNamedPipe(name: PyStrRef, timeout: u32, vm: &VirtualMachine) -> PyResult<()> {
         let name = name
@@ -704,7 +704,7 @@ mod _winapi {
         host_winapi::wait_named_pipe_w(&name, timeout).map_err(|e| e.to_pyexception(vm))
     }
 
-    /// PeekNamedPipe - Peek at data in a named pipe without removing it.
+    // PeekNamedPipe - Peek at data in a named pipe without removing it.
     #[pyfunction]
     fn PeekNamedPipe(
         handle: WinHandle,
@@ -743,7 +743,7 @@ mod _winapi {
         }
     }
 
-    /// CreateEventW - Create or open a named or unnamed event object.
+    // CreateEventW - Create or open a named or unnamed event object.
     #[pyfunction]
     fn CreateEventW(
         security_attributes: isize, // Always NULL (0)
@@ -763,7 +763,7 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// SetEvent - Set the specified event object to the signaled state.
+    // SetEvent - Set the specified event object to the signaled state.
     #[pyfunction]
     fn SetEvent(event: WinHandle, vm: &VirtualMachine) -> PyResult<()> {
         host_winapi::set_event(event.0).map_err(|e| e.to_pyexception(vm))
@@ -779,7 +779,7 @@ mod _winapi {
         overlapped: bool,
     }
 
-    /// WriteFile - Write data to a file or I/O device.
+    // WriteFile - Write data to a file or I/O device.
     #[pyfunction]
     fn WriteFile(args: WriteFileArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let handle = args.handle;
@@ -819,7 +819,7 @@ mod _winapi {
         overlapped: bool,
     }
 
-    /// ReadFile - Read data from a file or I/O device.
+    // ReadFile - Read data from a file or I/O device.
     #[pyfunction]
     fn ReadFile(args: ReadFileArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let handle = args.handle;
@@ -850,7 +850,7 @@ mod _winapi {
             .into())
     }
 
-    /// SetNamedPipeHandleState - Set the read mode and other options of a named pipe.
+    // SetNamedPipeHandleState - Set the read mode and other options of a named pipe.
     #[pyfunction]
     fn SetNamedPipeHandleState(
         named_pipe: WinHandle,
@@ -870,13 +870,13 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// ResetEvent - Reset the specified event object to the nonsignaled state.
+    // ResetEvent - Reset the specified event object to the nonsignaled state.
     #[pyfunction]
     fn ResetEvent(event: WinHandle, vm: &VirtualMachine) -> PyResult<()> {
         host_winapi::reset_event(event.0).map_err(|e| e.to_pyexception(vm))
     }
 
-    /// CreateMutexW - Create or open a named or unnamed mutex object.
+    // CreateMutexW - Create or open a named or unnamed mutex object.
     #[pyfunction]
     fn CreateMutexW(
         security_attributes: isize,
@@ -894,7 +894,7 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// OpenEventW - Open an existing named event object.
+    // OpenEventW - Open an existing named event object.
     #[pyfunction]
     fn OpenEventW(
         desired_access: u32,
@@ -992,7 +992,7 @@ mod _winapi {
         }
     }
 
-    /// CreateFileMapping - Create or open a named or unnamed file mapping object.
+    // CreateFileMapping - Create or open a named or unnamed file mapping object.
     #[pyfunction]
     fn CreateFileMapping(
         file_handle: WinHandle,
@@ -1018,7 +1018,7 @@ mod _winapi {
         .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// OpenFileMapping - Open a named file mapping object.
+    // OpenFileMapping - Open a named file mapping object.
     #[pyfunction]
     fn OpenFileMapping(
         desired_access: u32,
@@ -1035,7 +1035,7 @@ mod _winapi {
             .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// MapViewOfFile - Map a view of a file mapping into the address space.
+    // MapViewOfFile - Map a view of a file mapping into the address space.
     #[pyfunction]
     fn MapViewOfFile(
         file_map: WinHandle,
@@ -1055,13 +1055,13 @@ mod _winapi {
         .map_err(|e| e.to_pyexception(vm))
     }
 
-    /// UnmapViewOfFile - Unmap a mapped view of a file.
+    // UnmapViewOfFile - Unmap a mapped view of a file.
     #[pyfunction]
     fn UnmapViewOfFile(address: isize, vm: &VirtualMachine) -> PyResult<()> {
         host_winapi::unmap_view_of_file(address).map_err(|e| e.to_pyexception(vm))
     }
 
-    /// VirtualQuerySize - Return the size of a memory region.
+    // VirtualQuerySize - Return the size of a memory region.
     #[pyfunction]
     fn VirtualQuerySize(address: isize, vm: &VirtualMachine) -> PyResult<usize> {
         host_winapi::virtual_query_size(address).map_err(|e| e.to_pyexception(vm))

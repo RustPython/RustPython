@@ -165,7 +165,7 @@ fn create_array_type_with_name(
     Ok(new_type)
 }
 
-/// PyCArrayType - metatype for Array types
+// PyCArrayType - metatype for Array types
 #[pyclass(name = "PyCArrayType", base = PyType, module = "_ctypes")]
 #[derive(Debug)]
 #[repr(transparent)]

@@ -1238,9 +1238,9 @@ impl PyCSimple {
         array_type_from_ctype(cls.into(), n as usize, vm)
     }
 
-    /// Simple_from_outparm - convert output parameter back to Python value
-    /// For direct subclasses of _SimpleCData (e.g., c_int), returns the value.
-    /// For subclasses of those (e.g., class MyInt(c_int)), returns self.
+    // Simple_from_outparm - convert output parameter back to Python value
+    // For direct subclasses of _SimpleCData (e.g., c_int), returns the value.
+    // For subclasses of those (e.g., class MyInt(c_int)), returns self.
     #[pymethod]
     fn __ctypes_from_outparam__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         // _ctypes_simple_instance: returns true if NOT a direct subclass of Simple_Type

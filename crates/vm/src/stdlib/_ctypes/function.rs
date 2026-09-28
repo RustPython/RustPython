@@ -452,7 +452,7 @@ fn wstring_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-/// A buffer wrapping raw memory at a given pointer, for zero-copy memoryview.
+// A buffer wrapping raw memory at a given pointer, for zero-copy memoryview.
 #[pyclass(name = "_RawMemoryBuffer", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
 pub(super) struct RawMemoryBuffer {
@@ -1921,7 +1921,7 @@ unsafe extern "C" fn thunk_callback(
     });
 }
 
-/// CThunkObject wraps a Python callable to make it callable from C code.
+// CThunkObject wraps a Python callable to make it callable from C code.
 #[pyclass(name = "CThunkObject", module = "_ctypes")]
 #[derive(PyPayload)]
 pub(super) struct PyCThunk {

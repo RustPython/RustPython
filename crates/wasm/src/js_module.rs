@@ -259,8 +259,8 @@ mod _js {
             type_of(&self.value)
         }
 
-        /// Checks that `typeof self == "object" && self !== null`. Use instead
-        /// of `value.typeof() == "object"`
+        // Checks that `typeof self == "object" && self !== null`. Use instead
+        // of `value.typeof() == "object"`
         #[pymethod]
         fn is_object(&self) -> bool {
             self.value.is_object()

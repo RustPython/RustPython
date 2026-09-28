@@ -333,7 +333,7 @@ impl PyBaseObject {
         obj.generic_setattr(attr_name, value, vm)
     }
 
-    /// Return str(self).
+    // Return str(self).
     #[pyslot]
     fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         // FIXME: try tp_repr first and fallback to object.__repr__
@@ -472,9 +472,9 @@ impl PyBaseObject {
         }
     }
 
-    /// Return getattr(self, name).
-    ///
-    /// __getattribute__ is added as a slot wrapper by add_operators.
+    // Return getattr(self, name).
+    //
+    // __getattribute__ is added as a slot wrapper by add_operators.
     #[pyslot]
     pub(crate) fn getattro(obj: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);

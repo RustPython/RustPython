@@ -736,7 +736,7 @@ mod _multiprocessing {
             self.release(vm)
         }
 
-        /// Rebuild a SemLock from pickled state.
+        // Rebuild a SemLock from pickled state.
         // _multiprocessing_SemLock__rebuild_impl
         #[pyclassmethod(name = "_rebuild")]
         fn rebuild(
@@ -895,7 +895,7 @@ mod _multiprocessing {
         }
     }
 
-    /// Function to unlink semaphore names.
+    // Function to unlink semaphore names.
     // _PyMp_sem_unlink.
     #[pyfunction]
     fn sem_unlink(name: String, vm: &VirtualMachine) -> PyResult<()> {
@@ -908,7 +908,7 @@ mod _multiprocessing {
         })
     }
 
-    /// Module-level flags dict.
+    // Module-level flags dict.
     #[pyattr]
     fn flags(vm: &VirtualMachine) -> PyRef<PyDict> {
         let flags = vm.ctx.new_dict();

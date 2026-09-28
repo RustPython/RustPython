@@ -319,7 +319,7 @@ impl PyCPointer {
         );
     }
 
-    /// contents getter - reads address from b_ptr and creates an instance of the pointed-to type
+    // contents getter - reads address from b_ptr and creates an instance of the pointed-to type
     #[pygetset]
     fn contents(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         // Pointer_get_contents
@@ -343,8 +343,8 @@ impl PyCPointer {
             .map(Into::into)
     }
 
-    /// contents setter - stores address in b_ptr and keeps reference
-    /// Pointer_set_contents
+    // contents setter - stores address in b_ptr and keeps reference
+    // Pointer_set_contents
     #[pygetset(setter)]
     fn set_contents(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Get stginfo and proto for type validation

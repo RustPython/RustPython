@@ -28,7 +28,7 @@ pub(super) fn calculate_struct_size(cls: &Py<PyType>, vm: &VirtualMachine) -> Py
     Ok(0)
 }
 
-/// PyCStructType - metaclass for Structure
+// PyCStructType - metaclass for Structure
 #[pyclass(name = "PyCStructType", base = PyType, module = "_ctypes")]
 #[derive(Debug)]
 #[repr(transparent)]
@@ -218,7 +218,7 @@ impl PyCStructType {
         PyCData::in_dll(cls, dll, name, vm)
     }
 
-    /// Called when a new Structure subclass is created
+    // Called when a new Structure subclass is created
     #[pyclassmethod]
     fn __init_subclass__(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
         cls.mark_bases_final();
