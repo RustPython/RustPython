@@ -378,12 +378,9 @@ fn decompress_chunks(
             match res {
                 Ok(status) => {
                     let stream_end = status == Status::StreamEnd;
-                    if produced == additional && !stream_end {
-                        // A full output buffer can leave output pending in
-                        // inflate, even with no input left.
-                        continue 'outer;
-                    }
-                    if stream_end || data.is_empty() {
+                    // A full output buffer can leave output pending in inflate,
+                    // even with no input left: only a partial buffer ends it.
+                    if stream_end || (data.is_empty() && produced < additional) {
                         buf.shrink_to_fit();
                         return Ok((buf, stream_end));
                     } else if !chunk.is_empty() && consumed == 0 {
