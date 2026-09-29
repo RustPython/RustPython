@@ -23,6 +23,14 @@ impl ItemDoc {
         len: 0,
     };
 
+    /// An explicit empty docstring. `offset == u32::MAX` distinguishes it from
+    /// [`NONE`](Self::NONE), which means the item has no docstring at all.
+    pub const EMPTY: Self = Self {
+        text: None,
+        offset: u32::MAX,
+        len: 0,
+    };
+
     #[must_use]
     pub const fn static_text(text: &'static str) -> Self {
         Self {
@@ -73,6 +81,9 @@ pub fn db_doc(offset: u32, len: u32) -> Option<&'static str> {
 #[inline(never)]
 #[must_use]
 pub fn plain_doc(doc: ItemDoc) -> Option<&'static str> {
+    if doc.offset == u32::MAX && doc.len == 0 {
+        return Some("");
+    }
     if doc.len != 0 {
         return db_doc(doc.offset, doc.len);
     }
@@ -108,4 +119,17 @@ fn docs() -> &'static str {
         }
     })
     .as_ref()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ItemDoc, plain_doc};
+
+    #[test]
+    fn explicit_empty_doc_is_empty_string() {
+        assert_eq!(plain_doc(ItemDoc::EMPTY), Some(""));
+        assert_eq!(plain_doc(ItemDoc::NONE), None);
+        assert_eq!(plain_doc(ItemDoc::static_text("")), None);
+        assert_eq!(plain_doc(ItemDoc::static_text("a")), Some("a"));
+    }
 }

@@ -1507,7 +1507,7 @@ impl Representable for PyMemberDescriptor {
         Ok(format!(
             "<member '{}' of '{}' objects>",
             zelf.common.name,
-            zelf.common.typ.name(),
+            zelf.common.typ.slot_name(),
         ))
     }
 }

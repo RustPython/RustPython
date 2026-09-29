@@ -74,7 +74,7 @@ mod _csv {
     }
 
     #[pyattr]
-    #[pyclass(module = "csv", name = "Dialect")]
+    #[pyclass(module = "_csv", name = "Dialect")]
     #[derive(Debug, PyPayload, Clone)]
     struct PyDialect {
         delimiter: u8,

@@ -2822,9 +2822,11 @@ impl Constructor for PyType {
                 .iter()
                 .any(|base| base.attributes.contains(__dict__));
             if !typ.attributes.contains(__dict__) && !has_inherited_dict {
-                let descriptor =
-                    vm.ctx
-                        .new_getset("__dict__", &typ, subtype_get_dict, subtype_set_dict);
+                let getset = super::PyGetSet::new("__dict__", &typ, &vm.ctx)
+                    .with_get(subtype_get_dict)
+                    .with_set(subtype_set_dict)
+                    .with_doc(ItemDoc::static_text("dictionary for instance variables"));
+                let descriptor = PyRef::new_ref(getset, vm.ctx.types.getset_type.to_owned(), None);
                 typ.attributes.set(__dict__, descriptor.into());
             }
         }
@@ -2838,12 +2840,13 @@ impl Constructor for PyType {
                 .iter()
                 .any(|base| base.attributes.contains(__weakref__));
             if !typ.attributes.contains(__weakref__) && !has_inherited_weakref {
-                let descriptor = vm.ctx.new_getset(
-                    "__weakref__",
-                    &typ,
-                    subtype_get_weakref,
-                    subtype_set_weakref,
-                );
+                let getset = super::PyGetSet::new("__weakref__", &typ, &vm.ctx)
+                    .with_get(subtype_get_weakref)
+                    .with_set(subtype_set_weakref)
+                    .with_doc(ItemDoc::static_text(
+                        "list of weak references to the object",
+                    ));
+                let descriptor = PyRef::new_ref(getset, vm.ctx.types.getset_type.to_owned(), None);
                 typ.attributes.set(__weakref__, descriptor.into());
             }
         }

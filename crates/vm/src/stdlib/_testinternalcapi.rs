@@ -291,6 +291,7 @@ mod _testinternalcapi {
         }
     }
 
+    /// C implementation of inspect.cleandoc().
     #[pyfunction]
     fn compiler_cleandoc(doc: PyStrRef) -> String {
         clean_doc(doc.to_str().unwrap_or(""))
@@ -342,6 +343,7 @@ mod _testinternalcapi {
         dict_inner::peek_next_keys_version()
     }
 
+    /// forcefully assign type->tp_version_tag
     #[pyfunction]
     fn type_assign_specific_version_unsafe(ty: PyTypeRef, version: u32) {
         ty.assign_specific_version(version);
@@ -800,12 +802,18 @@ mod _testinternalcapi {
         }
     }
 
+    /// Return a new, empty InstructionSequence.
     #[cfg(feature = "codegen")]
     #[pyfunction]
     fn new_instruction_sequence(vm: &VirtualMachine) -> PyRef<PyInstructionSequence> {
         PyInstructionSequence::empty().into_ref(&vm.ctx)
     }
 
+    /// Apply compiler code generation to an AST.
+    ///
+    /// Return (instruction_sequence, metadata).  metadata maps "argcount",
+    /// "posonlyargcount", "kwonlyargcount" to ints and "consts" to the list of
+    /// constants in LOAD_CONST index order (for use with optimize_cfg).
     #[cfg(feature = "codegen")]
     #[pyfunction]
     fn compiler_codegen(
@@ -856,6 +864,10 @@ mod _testinternalcapi {
         Ok(vm.ctx.new_tuple(vec![seq.into(), metadata.into()]).into())
     }
 
+    /// Apply compiler optimizations to an instruction list.
+    ///
+    /// consts must be a list aligned with LOAD_CONST opargs (the "consts" entry
+    /// from the metadata dict returned by compiler_codegen for the same unit).
     #[cfg(feature = "codegen")]
     #[pyfunction]
     fn optimize_cfg(
@@ -893,6 +905,7 @@ mod _testinternalcapi {
         Ok(PyInstructionSequence::from_rust(optimized, vm))
     }
 
+    /// Create a code object for the given instructions.
     #[cfg(feature = "codegen")]
     #[pyfunction]
     fn assemble_code_object(

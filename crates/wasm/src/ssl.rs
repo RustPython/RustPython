@@ -243,7 +243,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(name = "MemoryBIO", module = "ssl")]
+    #[pyclass(name = "MemoryBIO", module = "_ssl")]
     #[derive(Debug, PyPayload)]
     struct PyMemoryBIO {
         inner: PyMutex<MemoryBio>,
@@ -299,7 +299,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(name = "SSLSession", module = "ssl")]
+    #[pyclass(name = "SSLSession", module = "_ssl")]
     #[derive(Debug, PyPayload)]
     struct PySSLSession {}
 
@@ -332,7 +332,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(name = "_SSLContext", module = "ssl")]
+    #[pyclass(name = "_SSLContext", module = "_ssl")]
     #[derive(Debug, PyPayload)]
     struct PySSLContext {
         protocol: i32,
@@ -640,7 +640,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(name = "_SSLSocket", module = "ssl")]
+    #[pyclass(name = "_SSLSocket", module = "_ssl")]
     #[derive(Debug, PyPayload)]
     struct PySSLSocket {
         incoming: PyRef<PyMemoryBIO>,
