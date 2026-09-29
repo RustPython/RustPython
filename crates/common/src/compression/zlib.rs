@@ -350,9 +350,9 @@ fn decompress_chunks(
     max_length: Option<usize>,
     calc_flush: impl Fn(bool) -> InflateFlush,
 ) -> Result<(Vec<u8>, bool), String> {
-    if data.is_empty() {
-        return Ok((Vec::new(), false));
-    }
+    // Empty input still reaches inflate, like CPython: inflate can hold output
+    // after it consumed the last input byte. A stream with no pending output
+    // answers `BufError`, not `StreamEnd`, so `eof` stays false.
     let max_length = max_length.unwrap_or(usize::MAX);
     let mut buf = Vec::new();
 
@@ -378,6 +378,11 @@ fn decompress_chunks(
             match res {
                 Ok(status) => {
                     let stream_end = status == Status::StreamEnd;
+                    if produced == additional && !stream_end {
+                        // A full output buffer can leave output pending in
+                        // inflate, even with no input left.
+                        continue 'outer;
+                    }
                     if stream_end || data.is_empty() {
                         buf.shrink_to_fit();
                         return Ok((buf, stream_end));
@@ -1001,6 +1006,58 @@ mod tests {
         let encoded = compress(b"later input", -1, MAX_WBITS).unwrap();
         let mut d = Decompressor::new(MAX_WBITS, None).unwrap();
         assert_eq!(d.decompress(b"", None).unwrap(), b"");
+        assert!(!d.eof());
+        assert_eq!(d.decompress(&encoded, None).unwrap(), b"later input");
+        assert!(d.eof());
+    }
+
+    /// Decode raw deflate of `b"x" * 1168` in 100-byte steps until all
+    /// input is consumed. Inflate then still holds the last 68 bytes.
+    fn drained_raw_deflate() -> (Decompressor, Vec<u8>) {
+        let mut co = Compressor::new(6, 8, -MAX_WBITS, 8, 0, None).unwrap();
+        let mut raw = co.compress(&[b'x'; 1168]).unwrap();
+        raw.extend(co.flush(Z_FINISH).unwrap());
+        let mut d = Decompressor::new(-MAX_WBITS, None).unwrap();
+        let mut out = d.decompress(&raw, Some(100)).unwrap();
+        while !d.unconsumed_tail().is_empty() {
+            let tail = d.unconsumed_tail().to_vec();
+            out.extend(d.decompress(&tail, Some(100)).unwrap());
+        }
+        assert_eq!(out.len(), 1100);
+        assert!(!d.eof());
+        (d, out)
+    }
+
+    #[test]
+    fn empty_input_returns_pending_output() {
+        let (mut d, mut out) = drained_raw_deflate();
+        out.extend(d.decompress(b"", Some(100)).unwrap());
+        assert_eq!(out, [b'x'; 1168]);
+        assert!(d.eof());
+    }
+
+    #[test]
+    fn flush_returns_pending_output() {
+        let (mut d, mut out) = drained_raw_deflate();
+        out.extend(d.flush(DEF_BUF_SIZE).unwrap());
+        assert_eq!(out, [b'x'; 1168]);
+        assert!(d.eof());
+    }
+
+    #[test]
+    fn small_bufsize_returns_pending_output() {
+        let data = [b'x'; 1168];
+        let raw = compress(&data, 6, -MAX_WBITS).unwrap();
+        for bufsize in [1, 100] {
+            assert_eq!(decompress(&raw, -MAX_WBITS, bufsize).unwrap(), data);
+        }
+    }
+
+    #[test]
+    fn empty_flush_does_not_finish_a_stream() {
+        let encoded = compress(b"later input", -1, MAX_WBITS).unwrap();
+        let mut d = Decompressor::new(MAX_WBITS, None).unwrap();
+        assert_eq!(d.flush(DEF_BUF_SIZE).unwrap(), b"");
         assert!(!d.eof());
         assert_eq!(d.decompress(&encoded, None).unwrap(), b"later input");
         assert!(d.eof());
