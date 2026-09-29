@@ -272,10 +272,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
             }
         }
         Item::Trait(mut trai) => {
-            let mut context = ImplContext {
-                is_trait: true,
-                ..Default::default()
-            };
+            context.is_trait = true;
             let mut has_extend_slots = false;
             for item in &trai.items {
                 let has = match item {
