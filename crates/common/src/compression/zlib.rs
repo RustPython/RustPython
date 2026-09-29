@@ -350,9 +350,6 @@ fn decompress_chunks(
     max_length: Option<usize>,
     calc_flush: impl Fn(bool) -> InflateFlush,
 ) -> Result<(Vec<u8>, bool), String> {
-    // Empty input still reaches inflate, like CPython: inflate can hold output
-    // after it consumed the last input byte. A stream with no pending output
-    // answers `BufError`, not `StreamEnd`, so `eof` stays false.
     let max_length = max_length.unwrap_or(usize::MAX);
     let mut buf = Vec::new();
 
