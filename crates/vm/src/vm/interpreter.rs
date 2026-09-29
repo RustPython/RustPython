@@ -161,6 +161,7 @@ where
         atexit_funcs: PyMutex::default(),
         audit_hooks: PyMutex::default(),
         codec_registry,
+        struct_format_cache: crate::buffer::FormatSpecCache::default(),
         finalizing: AtomicBool::new(false),
         warnings,
         override_frozen_modules: AtomicCell::new(0),
