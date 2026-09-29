@@ -48,7 +48,7 @@ pub(crate) mod ordered_dict {
         last: Option<usize>,
         nodes: Vec<Option<ODictNode>>,
         free: Vec<usize>,
-        by_hash: HashMap<PyHash, Vec<usize>>,
+        by_hash: Box<HashMap<PyHash, Vec<usize>>>,
         state: usize,
     }
 
@@ -573,6 +573,7 @@ pub(crate) mod ordered_dict {
         fn __sizeof__(&self) -> usize {
             self.dict.__sizeof__()
                 + core::mem::size_of::<ODictLinks>()
+                + core::mem::size_of::<HashMap<PyHash, Vec<usize>>>()
                 + self.links.lock().nodes.capacity() * core::mem::size_of::<Option<ODictNode>>()
         }
 
