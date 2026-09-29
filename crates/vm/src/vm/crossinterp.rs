@@ -2,6 +2,7 @@
 //!
 //! Interpreters do not share `PyObject` graphs. Shareable values are converted
 //! to an interpreter-neutral payload and rebuilt in the destination.
+// cspell:ignore unpickler
 
 #[cfg(not(feature = "threading"))]
 use crate::protocol::BufferDescriptor;
@@ -140,7 +141,14 @@ pub enum SharedValue {
     /// Marshalled code of a stateless function; rebuilt against `__main__`.
     Function(Vec<u8>),
     /// `pickle.dumps` output, used by [`Fallback::Full`].
-    Pickled(Vec<u8>),
+    Pickled(PickledData),
+}
+
+/// Pickled bytes and the originating script, without interpreter-owned references.
+#[derive(Debug, Clone)]
+pub struct PickledData {
+    bytes: Vec<u8>,
+    mainfile: Option<String>,
 }
 
 impl SharedValue {
@@ -360,20 +368,144 @@ fn memoryview_from_buffer(buffer: PyBuffer, vm: &VirtualMachine) -> PyResult {
     Ok(mv.into_pyobject(vm))
 }
 
-fn pickle_dumps(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+fn pickle_dumps(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PickledData> {
     let dumps = vm.import("pickle", 0)?.get_attr("dumps", vm)?;
     let bytes = dumps.call((obj.to_owned(),), vm)?;
     let bytes = bytes
         .downcast::<PyBytes>()
         .map_err(|_| vm.new_type_error("pickle.dumps() did not return bytes"))?;
-    Ok(bytes.as_bytes().to_vec())
+    // Missing or non-string __file__ does not prevent ordinary pickling.
+    let mainfile = vm
+        .main_namespace()
+        .ok()
+        .and_then(|ns| ns.get_item_opt("__file__", vm).ok().flatten())
+        .and_then(|file| {
+            file.downcast_ref::<PyStr>()
+                .and_then(|s| s.to_str().map(str::to_owned))
+        });
+    Ok(PickledData {
+        bytes: bytes.as_bytes().to_vec(),
+        mainfile,
+    })
 }
 
-fn pickle_loads(data: &[u8], vm: &VirtualMachine) -> PyResult {
+fn pickle_loads(data: &PickledData, vm: &VirtualMachine) -> PyResult {
     let loads = vm.import("pickle", 0)?.get_attr("loads", vm)?;
-    loads
-        .call((vm.ctx.new_bytes(data.to_vec()),), vm)
-        .map_err(|cause| not_shareable_error_from(vm, "object could not be unpickled", cause))
+    let bytes = vm.ctx.new_bytes(data.bytes.clone());
+    let cause = match loads.call((bytes.clone(),), vm) {
+        Ok(obj) => return Ok(obj),
+        Err(cause) => cause,
+    };
+    let missing_main_attr = cause.fast_isinstance(vm.ctx.exceptions.attribute_error)
+        && cause
+            .args()
+            .as_slice()
+            .first()
+            .and_then(|arg| arg.downcast_ref::<PyStr>())
+            .is_some_and(|msg| {
+                msg.as_bytes()
+                    .starts_with(b"module '__main__' has no attribute '")
+            });
+    if missing_main_attr && let Some(mainfile) = &data.mainfile {
+        let retry = || -> PyResult {
+            let isolated = isolated_main(mainfile, vm)?;
+            let file = vm
+                .import("io", 0)?
+                .get_attr("BytesIO", vm)?
+                .call((bytes,), vm)?;
+            let unpickler = vm
+                .import("pickle", 0)?
+                .get_attr("Unpickler", vm)?
+                .call((file,), vm)?;
+            let original = unpickler.get_attr("find_class", vm)?;
+            let state = vm.ctx.new_tuple(vec![isolated, original]);
+            const FIND_CLASS: crate::function::PyMethodDef =
+                crate::function::PyMethodDef::new_const(
+                    "find_class",
+                    find_main_class,
+                    crate::function::PyMethodFlags::empty(),
+                    crate::function::ItemDoc::NONE,
+                );
+            unpickler.set_attr(
+                "find_class",
+                FIND_CLASS.build_bound_function(&vm.ctx, state.into()),
+                vm,
+            )?;
+            // Resolve globals on this unpickler only: replacing sys.modules
+            // would let concurrent consumers observe or restore the wrong module.
+            let _clear = scopeguard::guard((), |()| {
+                let _ = unpickler.del_attr("find_class", vm);
+            });
+            vm.call_method(&unpickler, "load", ())
+        };
+        if let Ok(obj) = retry() {
+            return Ok(obj);
+        }
+    }
+    // Like CPython, retain the original unpickling error if the retry fails.
+    Err(not_shareable_error_from(
+        vm,
+        "object could not be unpickled",
+        cause,
+    ))
+}
+
+fn find_main_class(
+    state: PyRef<PyTuple>,
+    module: PyRef<PyStr>,
+    name: PyRef<PyStr>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let [isolated, original] = state.as_slice() else {
+        unreachable!()
+    };
+    if module.as_bytes() != b"__main__" {
+        return original.call((module, name), vm);
+    }
+    vm.audit("pickle.find_class", || (module, name.clone()))?;
+    let mut value = isolated.clone();
+    if let Some(name) = name.to_str() {
+        for part in name.split('.') {
+            value = value.get_attr(&vm.ctx.new_str(part), vm)?;
+        }
+        Ok(value)
+    } else {
+        value.get_attr(&name, vm)
+    }
+}
+
+fn isolated_main(mainfile: &str, vm: &VirtualMachine) -> PyResult {
+    let module = vm.import("_interpreters", 0)?;
+    let state = module
+        .dict()
+        .ok_or_else(|| vm.new_runtime_error("missing _interpreters namespace"))?;
+    if let Some(loaded) = state.get_item_opt("_cached_main", vm)? {
+        return Ok(loaded);
+    }
+    // Use the import machinery's reentrant, deadlock-aware per-module lock
+    // while executing the script, including detaching threads that wait for it.
+    let manager = vm
+        .import("_frozen_importlib", 0)?
+        .get_attr("_ModuleLockManager", vm)?
+        .call(("<RustPython isolated __main__>",), vm)?;
+    vm.call_method(&manager, "__enter__", ())?;
+    let _unlock = scopeguard::guard((), |()| {
+        let _ = vm.call_method(
+            &manager,
+            "__exit__",
+            (vm.ctx.none(), vm.ctx.none(), vm.ctx.none()),
+        );
+    });
+    if let Some(loaded) = state.get_item_opt("_cached_main", vm)? {
+        return Ok(loaded);
+    }
+    let loaded = vm.new_module("__main__", vm.ctx.new_dict(), None);
+    let run_path = vm.import("runpy", 0)?.get_attr("run_path", vm)?;
+    // Avoid executing the script's `if __name__ == '__main__'` entry point.
+    let namespace = run_path.call((mainfile, vm.ctx.none(), "<fake __main__>"), vm)?;
+    loaded.dict().merge_object(namespace, vm)?;
+    // The native module owns this cache so normal module teardown releases it.
+    state.setdefault(vm.ctx.new_str("_cached_main").into(), loaded.into(), vm)
 }
 
 fn not_shareable_error(vm: &VirtualMachine, msg: impl Into<String>) -> PyBaseExceptionRef {

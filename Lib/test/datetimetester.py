@@ -7326,7 +7326,6 @@ class ExtensionModuleTests(unittest.TestCase):
             """)
         script_helper.assert_python_ok('-c', script)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; no concurrent.futures.InterpreterPoolExecutor
     def test_concurrent_initialization_subinterpreter(self):
         # gh-136421: Concurrent initialization of _datetime across multiple
         # interpreters wasn't thread-safe due to its static types.

@@ -826,6 +826,9 @@ pub struct PyGlobalState {
     pub codec_registry: CodecsRegistry,
     pub struct_format_cache: crate::buffer::FormatSpecCache,
     pub finalizing: AtomicBool,
+    /// The thread performing finalization, which need not be the process main thread.
+    #[cfg(feature = "threading")]
+    pub(crate) finalizing_thread_ident: AtomicCell<u64>,
     pub warnings: WarningsState,
     pub override_frozen_modules: AtomicCell<isize>,
     pub before_forkers: PyMutex<Vec<PyObjectRef>>,
@@ -3564,7 +3567,9 @@ impl VirtualMachine {
     /// platforms where signals are not supported.
     pub fn check_signals(&self) -> PyResult<()> {
         #[cfg(feature = "threading")]
-        if self.state.finalizing.load(Ordering::Acquire) && !self.is_main_thread() {
+        if self.state.finalizing.load(Ordering::Acquire)
+            && stdlib::_thread::get_ident() != self.state.finalizing_thread_ident.load()
+        {
             // `_PyThreadState_MustExit` → `_PyThreadState_HangThread`.
             // Do not return SystemExit: that would mark the handle done and
             // make `Thread.is_alive()` false for a daemon still forced off
