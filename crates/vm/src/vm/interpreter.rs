@@ -162,6 +162,8 @@ where
         audit_hooks: PyMutex::default(),
         codec_registry,
         finalizing: AtomicBool::new(false),
+        #[cfg(feature = "threading")]
+        finalizing_thread_ident: AtomicCell::new(0),
         warnings,
         override_frozen_modules: AtomicCell::new(0),
         before_forkers: PyMutex::default(),
@@ -683,7 +685,12 @@ impl Interpreter {
             // running). Their `_ThreadHandle` stays not-done so `is_alive()`
             // is still true for `join()` during the GC that follows.
             #[cfg(feature = "threading")]
-            vm.state.stop_the_world.stop_the_world(&vm.state);
+            {
+                vm.state.stop_the_world.stop_the_world(&vm.state);
+                vm.state
+                    .finalizing_thread_ident
+                    .store(crate::stdlib::_thread::get_ident());
+            }
             vm.state.finalizing.store(true, Ordering::Release);
             #[cfg(feature = "threading")]
             {

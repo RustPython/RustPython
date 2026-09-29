@@ -83,6 +83,14 @@ class ThreadPoolMixin(ExecutorMixin):
         return threading.Event()
 
 
+@support.skip_if_sanitizer("gh-129824: data races in InterpreterPool tests", thread=True)
+class InterpreterPoolMixin(ExecutorMixin):
+    executor_type = futures.InterpreterPoolExecutor
+
+    def create_event(self):
+        self.skipTest("InterpreterPoolExecutor doesn't support events")
+
+
 class ProcessPoolForkMixin(ExecutorMixin):
     executor_type = futures.ProcessPoolExecutor
     ctx = "fork"
