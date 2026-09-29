@@ -164,21 +164,23 @@ impl Initializer for PyBaseObject {
     }
 }
 
-// TODO: implement _PyType_GetSlotNames properly
+// _PyType_GetSlotNames
 fn type_slot_names(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Option<super::PyListRef>> {
-    // let attributes = typ.attributes.read();
-    // if let Some(slot_names) = attributes.get(identifier!(vm.ctx, __slotnames__)) {
-    //     return match_class!(match slot_names.clone() {
-    //         l @ super::PyList => Ok(Some(l)),
-    //         _n @ super::PyNone => Ok(None),
-    //         _ => Err(vm.new_type_error(format!(
-    //             "{:.200}.__slotnames__ should be a list or None, not {:.200}",
-    //             typ.name(),
-    //             slot_names.class().name()
-    //         ))),
-    //     });
-    // }
+    // The class caches its slot names in `__slotnames__`.
+    if let Some(slot_names) = typ.get_direct_attr(identifier!(vm.ctx, __slotnames__)) {
+        return match_class!(match slot_names {
+            l @ super::PyList => Ok(Some(l)),
+            _n @ super::PyNone => Ok(None),
+            other => Err(vm.new_type_error(format!(
+                "{:.200}.__slotnames__ should be a list or None, not {:.200}",
+                typ.name(),
+                other.class().name()
+            ))),
+        });
+    }
 
+    // copyreg._slotnames collects the slots of the class and its bases and
+    // caches them in `__slotnames__`.
     let copyreg = vm.import("copyreg", 0)?;
     let copyreg_slotnames = copyreg.get_attr("_slotnames", vm)?;
     let slot_names = copyreg_slotnames.call((typ.to_owned(),), vm)?;
@@ -207,8 +209,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         state.into()
     };
 
-    let slot_names =
-        type_slot_names(obj.class(), vm).map_err(|_| vm.new_type_error("cannot pickle object"))?;
+    let slot_names = type_slot_names(obj.class(), vm)?;
 
     if required {
         // Dict, weakref list, and slot cells sit in the prefix in front of
