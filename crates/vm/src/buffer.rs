@@ -494,6 +494,9 @@ impl FormatSpecCache {
         // Parsing can raise; neither errors nor Python conversions run under the cache lock.
         let spec = PyRc::new(FormatSpec::parse(format, vm)?);
         let mut entries = self.entries.write();
+        if let Some(spec) = entries.get(format) {
+            return Ok(spec.clone());
+        }
         if entries.len() >= 100 {
             entries.clear();
         }
