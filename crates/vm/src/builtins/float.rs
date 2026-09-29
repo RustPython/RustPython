@@ -276,18 +276,14 @@ struct RoundArgs {
     ndigits: Option<PyIntRef>,
 }
 
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "Needs to comply with a signature"
-)]
 #[pyclass(
     flags(BASETYPE, _MATCH_SELF),
     with(Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
-impl PyFloat {
+impl Py<PyFloat> {
     #[pymethod]
     fn __format__(
-        zelf: &Py<Self>,
+        zelf: &Self,
         format_spec: PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> PyResult<Wtf8Buf> {
@@ -372,7 +368,7 @@ impl PyFloat {
     }
 
     #[pygetset]
-    const fn real(zelf: PyRef<Self>) -> PyRef<Self> {
+    const fn real(zelf: PyRef<PyFloat>) -> PyRef<PyFloat> {
         zelf
     }
 
@@ -382,7 +378,7 @@ impl PyFloat {
     }
 
     #[pymethod]
-    const fn conjugate(zelf: PyRef<Self>) -> PyRef<Self> {
+    const fn conjugate(zelf: PyRef<PyFloat>) -> PyRef<PyFloat> {
         zelf
     }
 

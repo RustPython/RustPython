@@ -95,23 +95,7 @@ impl Constructor for PyTemplate {
     }
 }
 
-#[pyclass(with(Constructor, Comparable, Iterable, Representable, AsSequence))]
 impl PyTemplate {
-    #[pygetset]
-    fn values(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let values: Vec<PyObjectRef> = self
-            .interpolations
-            .as_slice()
-            .iter()
-            .map(|interp| {
-                interp
-                    .downcast_ref::<PyInterpolation>()
-                    .map_or_else(|| interp.clone(), |i| i.value.clone())
-            })
-            .collect();
-        vm.ctx.new_tuple(values)
-    }
-
     fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let other = other.downcast_ref::<Self>().ok_or_else(|| {
             vm.new_type_error(format!(
@@ -176,6 +160,24 @@ impl PyTemplate {
 
     fn __add__(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         self.concat(other, vm)
+    }
+}
+
+#[pyclass(with(Constructor, Comparable, Iterable, Representable, AsSequence))]
+impl Py<PyTemplate> {
+    #[pygetset]
+    fn values(&self, vm: &VirtualMachine) -> PyTupleRef {
+        let values: Vec<PyObjectRef> = self
+            .interpolations
+            .as_slice()
+            .iter()
+            .map(|interp| {
+                interp
+                    .downcast_ref::<PyInterpolation>()
+                    .map_or_else(|| interp.clone(), |i| i.value.clone())
+            })
+            .collect();
+        vm.ctx.new_tuple(values)
     }
 
     #[pyclassmethod]

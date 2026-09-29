@@ -824,7 +824,11 @@ pub struct PyGlobalState {
     /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
     pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
+    pub struct_format_cache: crate::buffer::FormatSpecCache,
     pub finalizing: AtomicBool,
+    /// The thread performing finalization, which need not be the process main thread.
+    #[cfg(feature = "threading")]
+    pub(crate) finalizing_thread_ident: AtomicCell<u64>,
     pub warnings: WarningsState,
     pub override_frozen_modules: AtomicCell<isize>,
     pub before_forkers: PyMutex<Vec<PyObjectRef>>,
@@ -3545,7 +3549,7 @@ impl VirtualMachine {
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
         #[cfg(feature = "threading")]
-        if thread::stop_requested_for_current_thread() {
+        if thread::stop_requested_for_current_thread() || self.state.gc.collection_ready() {
             return true;
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -3563,7 +3567,9 @@ impl VirtualMachine {
     /// platforms where signals are not supported.
     pub fn check_signals(&self) -> PyResult<()> {
         #[cfg(feature = "threading")]
-        if self.state.finalizing.load(Ordering::Acquire) && !self.is_main_thread() {
+        if self.state.finalizing.load(Ordering::Acquire)
+            && stdlib::_thread::get_ident() != self.state.finalizing_thread_ident.load()
+        {
             // `_PyThreadState_MustExit` → `_PyThreadState_HangThread`.
             // Do not return SystemExit: that would mark the handle done and
             // make `Thread.is_alive()` false for a daemon still forced off
@@ -3594,7 +3600,7 @@ impl VirtualMachine {
     /// against a thread blocked on a lock this thread would otherwise hold.
     #[cfg(feature = "threading")]
     pub(crate) fn run_scheduled_gc(&self) {
-        if crate::signal::take_gc_scheduled() {
+        if self.state.gc.collection_ready() {
             self.state.gc.collect(0);
         }
     }

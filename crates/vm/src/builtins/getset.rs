@@ -120,7 +120,7 @@ impl PyGetSet {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(GetDescriptor, Representable))]
-impl PyGetSet {
+impl Py<PyGetSet> {
     // Descriptor methods
 
     #[pyslot]
@@ -130,7 +130,7 @@ impl PyGetSet {
         value: PySetterValue<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let zelf = zelf.try_to_ref::<Self>(vm)?;
+        let zelf = zelf.try_to_ref::<PyGetSet>(vm)?;
         if let Some(ref f) = zelf.setter {
             f(vm, obj, value)
         } else {

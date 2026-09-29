@@ -225,11 +225,18 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 let method_defs = if with_method_defs.is_empty() {
                     quote!(#holder::__OWN_METHOD_DEFS)
                 } else {
-                    quote!(
-                        rustpython_vm::function::PyMethodDef::__const_concat_arrays::<
+                    quote!(::rustpython_vm::__cfg_doc!({
+                        ::rustpython_vm::function::PyMethodDef::concat_with_attr_docs::<
+                            { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
+                        >(
+                            &[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*],
+                            <#payload_ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
+                        )
+                    } else {
+                        ::rustpython_vm::function::PyMethodDef::__const_concat_arrays::<
                             { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
                         >(&[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
-                    )
+                    }))
                 };
                 let internal_doc = class_internal_doc(
                     &payload_ty,
@@ -341,11 +348,10 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
 
 /// Validates that when a base class is specified, the struct has the base type as its first
 /// *declared* field.  Returns a token naming that field (e.g. `_base` or `0` for tuple structs)
-/// so the caller can emit a compile-time `offset_of!` assertion, or `None` for non-structs.
-fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<Option<TokenStream>> {
+/// so the caller can emit compile-time layout assertions.
+fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<TokenStream> {
     let Item::Struct(item_struct) = item else {
-        // Only validate structs - enums with base are already an error elsewhere
-        return Ok(None);
+        bail_span!(item, "#[pyclass] with base requires a struct");
     };
 
     // Get the base type name for error messages
@@ -368,8 +374,11 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<Option<Toke
                     "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
                 );
             }
-            let ident = first_field.ident.as_ref().map(|id| quote! { #id });
-            Ok(ident)
+            let ident = first_field
+                .ident
+                .as_ref()
+                .expect("named fields always have identifiers");
+            Ok(quote! { #ident })
         }
         syn::Fields::Unnamed(fields) => {
             let Some(first_field) = fields.unnamed.first() else {
@@ -384,7 +393,7 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<Option<Toke
                     "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
                 );
             }
-            Ok(Some(quote! { 0 }))
+            Ok(quote! { 0 })
         }
         syn::Fields::Unit => {
             bail_span!(
@@ -437,25 +446,57 @@ fn attr_doc_expr(self_ty: Option<&syn::Type>, attr: &str, rust_doc: Option<Strin
         return quote!(::rustpython_vm::function::ItemDoc::NONE);
     };
     quote! {
-        {
-            #[cfg(feature = "doc")]
+        ::rustpython_vm::__cfg_doc!({
             {
                 const FOUND: Option<(u32, u32)> = ::rustpython_vm::class::attr_doc(
                     <#ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
                     #attr,
                 );
-                match FOUND {
-                    Some((offset, len)) if len != 0 => ::rustpython_vm::function::ItemDoc {
-                        text: None,
-                        offset,
-                        len,
-                    },
-                    _ => ::rustpython_vm::function::ItemDoc::NONE,
+                if let Some((offset, len)) = FOUND {
+                    if len != 0 {
+                        ::rustpython_vm::function::ItemDoc {
+                            text: None,
+                            offset,
+                            len,
+                        }
+                    } else if offset == u32::MAX {
+                        ::rustpython_vm::function::ItemDoc::EMPTY
+                    } else {
+                        ::rustpython_vm::function::ItemDoc::NONE
+                    }
+                } else {
+                    ::rustpython_vm::function::ItemDoc::NONE
                 }
             }
-            #[cfg(not(feature = "doc"))]
-            {
-                ::rustpython_vm::function::ItemDoc::NONE
+        } else {
+            ::rustpython_vm::function::ItemDoc::NONE
+        })
+    }
+}
+
+/// True when the method body is still taken from the owning class's table.
+/// A non-empty Rust doc is the body. Otherwise the span is resolved here when
+/// the impl can name its class; a missing class or a missing span stays pending.
+fn doc_body_pending_expr(
+    self_ty: Option<&syn::Type>,
+    attr: &str,
+    rust_doc: Option<String>,
+) -> TokenStream {
+    if rust_doc.as_ref().is_some_and(|doc| !doc.is_empty()) {
+        return quote!(false);
+    }
+    let Some(ty) = class_def_ty(self_ty) else {
+        return quote!(true);
+    };
+    quote! {
+        {
+            const FOUND: Option<(u32, u32)> = ::rustpython_vm::class::attr_doc(
+                <#ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
+                #attr,
+            );
+            match FOUND {
+                Some((_, len)) if len != 0 => false,
+                _ => true,
             }
         }
     }
@@ -552,12 +593,12 @@ fn generate_class_def(
     });
     // If repr(transparent) with a base, the type has the same memory layout as base,
     // so basicsize stays 0 and type creation copies the base's full tp_basicsize.
-    // Otherwise, basicsize is the object header plus the payload.
+    // Otherwise, include any alignment padding between the header and payload.
     let basicsize = if is_repr_transparent && base.is_some() {
         quote!(0)
     } else {
         quote!(
-            ::rustpython_vm::object::SIZEOF_PYOBJECT_HEAD + ::core::mem::size_of::<#ident>()
+            ::rustpython_vm::object::payload_offset::<#ident>() + ::core::mem::size_of::<#ident>()
         )
     };
     if base.is_some() && is_pystruct {
@@ -626,10 +667,11 @@ fn generate_class_def(
             const MODULE_NAME: Option<&'static str> = #module_name;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: ::rustpython_vm::function::ItemDoc = #doc;
-            #[cfg(feature = "doc")]
-            const ATTR_DOCS: &'static [(&'static str, u32, u32)] = #attr_docs;
-            #[cfg(not(feature = "doc"))]
-            const ATTR_DOCS: &'static [&'static str] = #attr_names;
+            ::rustpython_vm::__cfg_doc! {{
+                const ATTR_DOCS: &'static [(&'static str, u32, u32)] = #attr_docs;
+            } else {
+                const ATTR_DOCS: &'static [&'static str] = #attr_names;
+            }}
             const BASICSIZE: usize = #basicsize;
             const UNHASHABLE: bool = #unhashable;
             const MEMBERS: &'static [::rustpython_vm::builtins::descriptor::PyMemberSpec] = #members;
@@ -691,8 +733,10 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     //      keeping the base field at offset 0 as the inherited getter dispatcher requires.
     //   3. Emit a compile-time offset_of! assertion as a safety net for structs that
     //      already carry an explicit repr that does not guarantee offset 0.
+    //   4. Require the payload to start at the same offset in Py<Base> and Py<Derived>.
+    //   5. Require Py<Derived> to meet Py<Base>'s alignment, including packed payloads.
     let base_field_token = if let Some(ref base_path) = base {
-        validate_base_field(&item, base_path)?
+        Some(validate_base_field(&item, base_path)?)
     } else {
         None
     };
@@ -707,7 +751,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
 
     let offset_assert = match (&base, &base_field_token) {
-        (Some(_), Some(field)) => quote! {
+        (Some(base_type), Some(field)) => quote! {
             const _: () = ::core::assert!(
                 ::core::mem::offset_of!(#ident, #field) == 0,
                 concat!(
@@ -715,6 +759,24 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
                      Add `#[repr(C)]` (or `#[repr(transparent)]`) to the struct so the \
                      compiler preserves declaration order and inherited getter dispatch \
                      reads the correct memory."
+                )
+            );
+            const _: () = ::core::assert!(
+                ::rustpython_vm::object::payload_offset::<#ident>()
+                    == ::rustpython_vm::object::payload_offset::<#base_type>(),
+                concat!(
+                    "The payload offsets of `", stringify!(#ident), "` and its base `",
+                    stringify!(#base_type), "` differ inside `Py<T>`. \
+                     Adjust the payload alignment so inherited methods read the same address. \
+                     A base field at offset 0 alone is not sufficient."
+                )
+            );
+            const _: () = ::core::assert!(
+                ::core::mem::align_of::<::rustpython_vm::Py<#ident>>()
+                    >= ::core::mem::align_of::<::rustpython_vm::Py<#base_type>>(),
+                concat!(
+                    "The object alignment of `", stringify!(#ident), "` is smaller than its base `",
+                    stringify!(#base_type), "`. Packed payloads must not weaken the base object's alignment."
                 )
             );
         },
@@ -1224,6 +1286,7 @@ where
             args.attrs.push(allow_attr);
         }
 
+        let rust_doc = args.attrs.doc();
         let doc = internal_doc_tokens(
             func.sig(),
             &py_name,
@@ -1231,16 +1294,19 @@ where
             attr_doc_expr(
                 args.context.self_ty_subst.as_ref(),
                 &py_name,
-                args.attrs.doc(),
+                rust_doc.clone(),
             ),
             args.context.self_ty_subst.as_ref(),
             None,
         );
+        let doc_body_pending =
+            doc_body_pending_expr(args.context.self_ty_subst.as_ref(), &py_name, rust_doc);
         args.context.method_items.add_item(MethodNurseryItem {
             py_name,
             cfgs: args.cfgs.to_vec(),
             ident: ident.to_owned(),
             doc,
+            doc_body_pending,
             raw,
             coexist,
             attr_name: self.inner.attr_name,
@@ -1438,6 +1504,7 @@ struct MethodNurseryItem {
     raw: bool,
     coexist: bool,
     doc: TokenStream,
+    doc_body_pending: TokenStream,
     attr_name: AttrName,
     call_flags: TokenStream,
 }
@@ -1466,6 +1533,7 @@ impl ToTokens for MethodNursery {
             let ident = &item.ident;
             let cfgs = &item.cfgs;
             let doc = &item.doc;
+            let doc_body_pending = &item.doc_body_pending;
             let binding_flags = match &item.attr_name {
                 AttrName::Method => {
                     quote! { rustpython_vm::function::PyMethodFlags::METHOD }
@@ -1503,12 +1571,18 @@ impl ToTokens for MethodNursery {
             };
             inner_tokens.extend(quote! [
                 #(#cfgs)*
-                rustpython_vm::function::PyMethodDef::#method_new(
-                    #py_name,
-                    Self::#ident,
-                    #flags,
-                    #doc,
-                ),
+                {
+                    let mut def = rustpython_vm::function::PyMethodDef::#method_new(
+                        #py_name,
+                        Self::#ident,
+                        #flags,
+                        #doc,
+                    );
+                    ::rustpython_vm::__cfg_doc!({
+                        def.doc_body_pending = #doc_body_pending;
+                    } else {});
+                    def
+                },
             ]);
         }
         let array: TokenTree = Group::new(Delimiter::Bracket, inner_tokens).into();

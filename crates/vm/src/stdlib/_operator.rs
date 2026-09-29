@@ -351,27 +351,13 @@ mod _operator {
     }
 
     #[pyattr]
-    #[pyclass(name = "attrgetter")]
+    #[pyclass(name = "attrgetter", module = "operator")]
     #[derive(Debug, PyPayload)]
     struct PyAttrGetter {
         attrs: Vec<PyStrRef>,
     }
 
-    #[pyclass(with(Callable, Constructor, Representable))]
     impl PyAttrGetter {
-        #[pygetset]
-        fn __text_signature__(&self) -> &'static str {
-            "(obj, /)"
-        }
-
-        #[pymethod]
-        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
-            let attrs = vm
-                .ctx
-                .new_tuple(zelf.attrs.iter().map(|v| v.clone().into()).collect());
-            (zelf.class().to_owned(), attrs)
-        }
-
         // Go through dotted parts of string and call getattr on whatever is returned.
         fn get_single_attr(
             obj: PyObjectRef,
@@ -389,6 +375,22 @@ mod _operator {
                 obj = obj.get_attr(&vm.ctx.new_str(part), vm)?;
             }
             Ok(obj)
+        }
+    }
+
+    #[pyclass(with(Callable, Constructor, Representable))]
+    impl Py<PyAttrGetter> {
+        #[pygetset]
+        fn __text_signature__(&self) -> &'static str {
+            "(obj, /)"
+        }
+
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<PyAttrGetter>, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
+            let attrs = vm
+                .ctx
+                .new_tuple(zelf.attrs.iter().map(|v| v.clone().into()).collect());
+            (zelf.class().to_owned(), attrs)
         }
     }
 
@@ -468,21 +470,21 @@ mod _operator {
     }
 
     #[pyattr]
-    #[pyclass(name = "itemgetter")]
+    #[pyclass(name = "itemgetter", module = "operator")]
     #[derive(Debug, PyPayload)]
     struct PyItemGetter {
         items: Vec<PyObjectRef>,
     }
 
     #[pyclass(with(Callable, Constructor, Representable))]
-    impl PyItemGetter {
+    impl Py<PyItemGetter> {
         #[pygetset]
         fn __text_signature__(&self) -> &'static str {
             "(obj, /)"
         }
 
         #[pymethod]
-        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+        fn __reduce__(zelf: PyRef<PyItemGetter>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
             vm.new_pyobj((zelf.class().to_owned(), items))
         }
@@ -554,7 +556,7 @@ mod _operator {
     }
 
     #[pyattr]
-    #[pyclass(name = "methodcaller")]
+    #[pyclass(name = "methodcaller", module = "operator")]
     #[derive(Debug, PyPayload)]
     struct PyMethodCaller {
         name: PyUtf8StrRef,
@@ -562,14 +564,14 @@ mod _operator {
     }
 
     #[pyclass(with(Callable, Constructor, Representable))]
-    impl PyMethodCaller {
+    impl Py<PyMethodCaller> {
         #[pygetset]
         fn __text_signature__(&self) -> &'static str {
             "(obj, /)"
         }
 
         #[pymethod]
-        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        fn __reduce__(zelf: PyRef<PyMethodCaller>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             // With no kwargs, return (type(obj), (name, *args)) tuple.
             if zelf.args.kwargs.is_empty() {
                 let mut py_args = vec![zelf.name.as_object().to_owned()];

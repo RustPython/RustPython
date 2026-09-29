@@ -141,9 +141,13 @@ impl FromStr for AttrName {
 #[derive(Default)]
 struct ModuleContext {
     name: String,
-    /// `#[pymodule(sub)]` bodies are merged into the parent module, so the
-    /// Rust module name is not the Python module name.
+    /// `#[pymodule(sub)]` is merged into its parent. Doc lookup uses `name`
+    /// only when the attribute sets `name`. Without `name`, the Rust module
+    /// name is not a Python module, so the doc DB is not consulted. A `///`
+    /// doc on an item still applies.
     is_sub: bool,
+    /// `true` when `#[pymodule(name = "...")]` set the Python module name.
+    explicit_name: bool,
     function_items: FunctionNursery,
     attribute_items: ItemNursery,
     has_module_exec: bool,
@@ -164,6 +168,7 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
     let mut context = ModuleContext {
         name: module_meta.simple_name()?,
         is_sub: module_meta.sub()?,
+        explicit_name: module_meta.optional_name().is_some(),
         ..Default::default()
     };
     let items = module_item.items_mut().ok_or_else(|| {
@@ -256,7 +261,7 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
     let function_items = context.function_items.validate()?;
     let attribute_items = context.attribute_items.validate()?;
     let rust_doc = doc.filter(|doc| !doc.is_empty());
-    let db_doc = if rust_doc.is_some() {
+    let db_doc = if rust_doc.is_some() || (context.is_sub && !context.explicit_name) {
         None
     } else {
         rustpython_doc::get(module_name)
@@ -643,34 +648,19 @@ struct ModuleItemArgs<'a> {
 }
 
 impl<'a> ModuleItemArgs<'a> {
-    fn module_name(&'a self) -> &'a str {
-        self.context.name.as_str()
+    /// Python module consulted in the doc DB. `None` for `#[pymodule(sub)]`
+    /// without `name`.
+    fn doc_module(&'a self) -> Option<&'a str> {
+        if self.context.is_sub && !self.context.explicit_name {
+            None
+        } else {
+            Some(self.context.name.as_str())
+        }
     }
 }
 
 trait ModuleItem: ContentItem {
     fn gen_module_item(&self, args: ModuleItemArgs<'_>) -> Result<()>;
-}
-
-/// Doc for `module.func` when this body is a `#[pymodule(sub)]` and the Rust
-/// module name is not the Python module. Used only when exactly one module
-/// owns that function name.
-fn unique_submodule_func_doc(name: &str) -> Option<rustpython_doc::DocRef> {
-    let suffix = format!(".{name}");
-    let mut found = None;
-    for (key, doc) in rustpython_doc::DB {
-        let Some(module) = key.strip_suffix(&suffix) else {
-            continue;
-        };
-        if module.is_empty() || module.contains('.') {
-            continue;
-        }
-        if found.is_some() {
-            return None;
-        }
-        found = Some(*doc);
-    }
-    found.filter(|doc| doc.len != 0)
 }
 
 impl ModuleItem for FunctionItem {
@@ -705,7 +695,7 @@ impl ModuleItem for FunctionItem {
             args.context.errors.ok_or_push(r);
         }
 
-        let module = args.module_name();
+        let module = args.doc_module();
         let rust_doc = args.attrs.doc().filter(|doc| !doc.is_empty());
         let docs = py_names
             .iter()
@@ -713,12 +703,8 @@ impl ModuleItem for FunctionItem {
                 let db_doc = if rust_doc.is_some() {
                     None
                 } else {
-                    rustpython_doc::get_qualified(module, py_name, None, false).or_else(|| {
-                        if args.context.is_sub {
-                            unique_submodule_func_doc(py_name)
-                        } else {
-                            None
-                        }
+                    module.and_then(|module| {
+                        rustpython_doc::get_qualified(module, py_name, None, false)
                     })
                 };
                 let doc = crate::class_docs::item_doc_tokens(db_doc, rust_doc.clone());
@@ -759,10 +745,11 @@ impl ModuleItem for ClassItem {
             let is_use = matches!(&args.item, syn::Item::Use(_));
 
             let class_meta = ClassItemMeta::from_attr(ident.clone(), class_attr)?;
-            let module_name = args.context.name.clone();
-            let module_name = if let Some(class_module_name) = class_meta.module().ok().flatten() {
+            let explicit_module = class_meta.module().ok().flatten();
+            let module_name = if let Some(class_module_name) = explicit_module.clone() {
                 class_module_name
             } else {
+                let module_name = args.context.name.clone();
                 class_attr.fill_nested_meta("module", || {
                     parse_quote! {module = #module_name}
                 })?;
@@ -773,6 +760,27 @@ impl ModuleItem for ClassItem {
             } else {
                 class_meta.class_name()?
             };
+            // The class's own module first, then the module it is published on.
+            // A `sub` module without `name` has no Python module to consult.
+            let mut doc_modules = Vec::new();
+            if let Some(module) = explicit_module.as_deref() {
+                doc_modules.push(module);
+            }
+            if let Some(module) = args.doc_module()
+                && !doc_modules.contains(&module)
+            {
+                doc_modules.push(module);
+            }
+            let class_doc = doc_modules
+                .into_iter()
+                .find_map(|module| {
+                    rustpython_doc::get_qualified(module, &class_name, None, true)
+                        .filter(|doc| doc.len != 0)
+                })
+                .map(|doc| {
+                    let doc = crate::class_docs::item_doc_tokens(Some(doc), None);
+                    quote!(::rustpython_vm::class::assign_missing_doc(vm, &new_class, #doc);)
+                });
             let class_new = quote_spanned!(ident.span() =>
                 let new_class = <#ident as ::rustpython_vm::class::PyClassImpl>::make_static_type();
                 // Only set __module__ string if the class doesn't already have a
@@ -787,6 +795,7 @@ impl ModuleItem for ClassItem {
                         new_class.set_attr(module_key, vm.new_pyobj(#module_name));
                     }
                 }
+                #class_doc
             );
             (class_name, class_new)
         };

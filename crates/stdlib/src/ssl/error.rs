@@ -2,7 +2,7 @@
 
 pub(crate) use ssl_error::*;
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "_ssl")]
 pub(crate) mod ssl_error {
     use crate::vm::{
         Py, PyPayload, PyRef, PyResult, VirtualMachine,

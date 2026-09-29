@@ -61,7 +61,9 @@ mod unicodedata {
             "normalize",
             "numeric",
         ] {
-            module.set_attr(attr, ucd.get_attr(attr, vm)?, vm)?;
+            let func = ucd.get_attr(attr, vm)?;
+            func.set_attr("__module__", vm.ctx.new_str("unicodedata"), vm)?;
+            module.set_attr(attr, func, vm)?;
         }
 
         Ok(())

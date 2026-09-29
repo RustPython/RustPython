@@ -841,7 +841,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(module = "ssl", name = "_SSLContext")]
+    #[pyclass(module = "_ssl", name = "_SSLContext")]
     #[derive(PyPayload)]
     struct PySslContext {
         ctx: PyRwLock<SslContextBuilder>,
@@ -2482,7 +2482,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(module = "ssl", name = "_SSLSocket", traverse)]
+    #[pyclass(module = "_ssl", name = "_SSLSocket", traverse)]
     #[derive(PyPayload)]
     struct PySslSocket {
         ctx: PyRwLock<PyRef<PySslContext>>,
@@ -3298,7 +3298,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(module = "ssl", name = "SSLSession", unhashable = true)]
+    #[pyclass(module = "_ssl", name = "SSLSession", unhashable = true)]
     #[derive(PyPayload)]
     struct PySslSession {
         session: *mut sys::SSL_SESSION,
@@ -3358,7 +3358,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(module = "ssl", name = "MemoryBIO")]
+    #[pyclass(module = "_ssl", name = "MemoryBIO")]
     #[derive(PyPayload)]
     struct PySslMemoryBio {
         bio: *mut sys::BIO,
@@ -4105,7 +4105,7 @@ mod _ssl {
 
 #[allow(non_upper_case_globals)]
 #[cfg(ossl101)]
-#[pymodule(sub)]
+#[pymodule(sub, name = "_ssl")]
 mod ossl101 {
     #[pyattr]
     use openssl_sys::{
@@ -4116,14 +4116,14 @@ mod ossl101 {
 
 #[allow(non_upper_case_globals)]
 #[cfg(ossl111)]
-#[pymodule(sub)]
+#[pymodule(sub, name = "_ssl")]
 mod ossl111 {
     #[pyattr]
     use openssl_sys::SSL_OP_NO_TLSv1_3 as OP_NO_TLSv1_3;
 }
 
 #[cfg(windows)]
-#[pymodule(sub)]
+#[pymodule(sub, name = "_ssl")]
 mod windows {
     use crate::{
         common::ascii,

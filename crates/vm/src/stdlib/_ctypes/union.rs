@@ -424,7 +424,7 @@ impl PyCUnionType {
         let cls: PyTypeRef = zelf
             .downcast()
             .map_err(|_| vm.new_type_error("expected a type"))?;
-        PyCData::from_address(cls, address, vm)
+        Py::<PyCData>::from_address(cls, address, vm)
     }
 
     #[pymethod]
@@ -437,7 +437,7 @@ impl PyCUnionType {
         let cls: PyTypeRef = zelf
             .downcast()
             .map_err(|_| vm.new_type_error("expected a type"))?;
-        PyCData::from_buffer(cls, source, offset, vm)
+        Py::<PyCData>::from_buffer(cls, source, offset, vm)
     }
 
     #[pymethod]
@@ -450,7 +450,7 @@ impl PyCUnionType {
         let cls: PyTypeRef = zelf
             .downcast()
             .map_err(|_| vm.new_type_error("expected a type"))?;
-        PyCData::from_buffer_copy(cls, source, offset, vm)
+        Py::<PyCData>::from_buffer_copy(cls, source, offset, vm)
     }
 
     #[pymethod]
@@ -463,7 +463,7 @@ impl PyCUnionType {
         let cls: PyTypeRef = zelf
             .downcast()
             .map_err(|_| vm.new_type_error("expected a type"))?;
-        PyCData::in_dll(cls, dll, name, vm)
+        Py::<PyCData>::in_dll(cls, dll, name, vm)
     }
 
     // Called when a new Union subclass is created

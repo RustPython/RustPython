@@ -9,9 +9,15 @@ use rustpython_doc::DocRef;
 /// Modules `get_qualified` consults for `module`.
 fn module_aliases(module: &str) -> Vec<String> {
     let mut aliases = vec![module.to_owned()];
-    if module == "os" || module == "_os" {
+    // Same module order as `get_qualified`: `os` then posix then nt, and
+    // posix/nt each fall back to the other.
+    if module == "os" {
         aliases.push("posix".to_owned());
         aliases.push("nt".to_owned());
+    } else if module == "posix" {
+        aliases.push("nt".to_owned());
+    } else if module == "nt" {
+        aliases.push("posix".to_owned());
     }
     if let Some(rest) = module.strip_prefix('_')
         && !rest.is_empty()
@@ -32,8 +38,7 @@ pub(crate) fn item_doc_tokens(doc: Option<DocRef>, rust_doc: Option<String>) -> 
         let offset = doc.offset;
         let len = doc.len;
         quote! {
-            {
-                #[cfg(feature = "doc")]
+            ::rustpython_vm::__cfg_doc!({
                 {
                     ::rustpython_vm::function::ItemDoc {
                         text: None,
@@ -41,11 +46,11 @@ pub(crate) fn item_doc_tokens(doc: Option<DocRef>, rust_doc: Option<String>) -> 
                         len: #len,
                     }
                 }
-                #[cfg(not(feature = "doc"))]
+            } else {
                 {
                     ::rustpython_vm::function::ItemDoc::NONE
                 }
-            }
+            })
         }
     } else if let Some(rust_doc) = rust_doc {
         quote!(::rustpython_vm::function::ItemDoc::static_text(#rust_doc))

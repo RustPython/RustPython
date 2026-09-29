@@ -354,7 +354,7 @@ mod decl {
     }
 
     #[pyclass(with(IterNext, Iterable, Constructor, Representable), flags(BASETYPE))]
-    impl PyItertoolsRepeat {
+    impl Py<PyItertoolsRepeat> {
         #[pymethod]
         fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
             // Return TypeError, length_hint picks this up and returns the default.
@@ -1100,7 +1100,6 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor), flags(HAS_WEAKREF))]
     impl PyItertoolsTee {
         fn from_iter(iterator: PyIter, vm: &VirtualMachine) -> PyResult {
             let class = Self::class(&vm.ctx);
@@ -1115,10 +1114,13 @@ mod decl {
             .into_ref_with_type(vm, class.to_owned())?
             .into())
         }
+    }
 
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(HAS_WEAKREF))]
+    impl Py<PyItertoolsTee> {
         #[pymethod]
-        fn __copy__(&self) -> Self {
-            Self {
+        fn __copy__(&self) -> PyItertoolsTee {
+            PyItertoolsTee {
                 tee_data: self.tee_data.clone(),
                 index: AtomicCell::new(self.index.load()),
                 advancing: AtomicBool::new(false),

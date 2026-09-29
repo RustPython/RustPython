@@ -1607,7 +1607,7 @@ impl Callable for PyCFuncPtr {
         };
 
         // 7. Errno / last-error swap options from flags
-        let flags = Self::_flags_(zelf, vm);
+        let flags = Py::<Self>::_flags_(zelf, vm);
         let options = CallOptions {
             use_errno: flags & super::base::StgInfoFlags::FUNCFLAG_USE_ERRNO.bits() != 0,
             use_last_error: flags & super::base::StgInfoFlags::FUNCFLAG_USE_LASTERROR.bits() != 0,
@@ -1674,7 +1674,7 @@ impl AsBuffer for PyCFuncPtr {
     flags(BASETYPE),
     with(Callable, Constructor, AsNumber, Representable, AsBuffer)
 )]
-impl PyCFuncPtr {
+impl Py<PyCFuncPtr> {
     // restype getter/setter
     #[pygetset]
     fn restype(&self) -> Option<PyObjectRef> {
@@ -1733,7 +1733,7 @@ impl PyCFuncPtr {
 
     // _flags_ getter (read-only, from type's class attribute or StgInfo)
     #[pygetset]
-    fn _flags_(zelf: &Py<Self>, vm: &VirtualMachine) -> u32 {
+    fn _flags_(zelf: &Self, vm: &VirtualMachine) -> u32 {
         // First try to get _flags_ from type's class attribute (for dynamically created types)
         // This is how CDLL sets use_errno: class _FuncPtr(_CFuncPtr): _flags_ = flags
         if let Ok(flags_attr) = zelf.class().as_object().get_attr("_flags_", vm)
@@ -2015,7 +2015,7 @@ struct FfiTypeLayout {
 }
 
 #[pyclass(itemsize = core::mem::size_of::<FfiTypeLayout>())]
-impl PyCThunk {
+impl Py<PyCThunk> {
     #[pygetset]
     fn callable(&self) -> PyObjectRef {
         self.callable.clone()

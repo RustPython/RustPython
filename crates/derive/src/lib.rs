@@ -116,6 +116,9 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// - `name`: the name of the Python class, by default it is the name of the struct.
 /// - `base`: the base class of the Python class.
 ///   This does not cause inheritance of functions or attributes that must be done by a separate trait.
+///   The native payload must be a struct with the base as its first field.
+///   The macro adds `repr(C)` if no explicit representation is present and
+///   checks the base field offset, the payload offset in `Py<T>`, and object alignment.
 /// # Impl
 /// This part implements `PyClassImpl` for the struct.
 /// This includes methods, getters/setters, etc.; only annotated methods will be included.
@@ -218,9 +221,9 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// Declares an offset member on a payload field. The struct `#[pyclass]` builds
 /// a `PyClassDef::MEMBERS` table and `extend_class` registers one
 /// `member_descriptor` per entry. The member kind is inferred from the field
-/// type: `bool` / `AtomicBool`, `i32` / `AtomicI32`, `u32` / `AtomicU32`,
+/// type: `bool` / `AtomicBool`, `u8` / `AtomicU8`, `i32` / `AtomicI32`, `u32` / `AtomicU32`,
 /// `isize` / `AtomicIsize`, `f64` / `AtomicF64`, or an object pointer
-/// (`PyObjectRef`, `PyRef<T>`, `Option` of those, `PyAtomicRef<PyObject>`,
+/// (`PyObjectRef`, `PyRef<T>`, `Option` of those, `PyObjectCell`, `PyAtomicRef<PyObject>`,
 /// `PyAtomicRef<Option<PyObject>>`, `PyAtomicRef<Option<T>>`,
 /// `&'static Py<T>`, `&'static PyStrInterned`).
 ///
@@ -230,7 +233,8 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// - `writable`: accept stores. Members are readonly without it. A writable
 ///   object member must be `PyAtomicRef<PyObject>` (never null) or
 ///   `PyAtomicRef<Option<PyObject>>` (nullable), a writable bool must be
-///   `AtomicBool`, a writable int must be `AtomicI32`, a writable uint must be
+///   `AtomicBool`, a writable unsigned byte must be `AtomicU8`, a writable int
+///   must be `AtomicI32`, a writable uint must be
 ///   `AtomicU32`, a writable double must be `AtomicF64`, and a writable
 ///   py_ssize_t must be `AtomicIsize`.
 /// - `audit_read`: audit `object.__getattr__` before the load.
@@ -295,9 +299,11 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// mod module {
 /// }
 /// ```
-/// - `sub`: declare the module as a submodule of another module.
+/// - `sub`: declare the module as a submodule merged into another module.
+///   `name` is that Python module. Doc lookup uses it; without `name`, the
+///   doc DB is not consulted.
 /// ```rust, ignore
-/// #[pymodule(sub)]
+/// #[pymodule(sub, name = "my_module")]
 /// mod submodule {
 /// }
 ///

@@ -98,10 +98,6 @@ impl GetDescriptor for PyProperty {
     }
 }
 
-#[pyclass(
-    with(Constructor, Initializer, GetDescriptor),
-    flags(BASETYPE, HAS_WEAKREF)
-)]
 impl PyProperty {
     // Helper method to get property name
     // Returns the name if available, None if not found, or propagates errors
@@ -131,40 +127,6 @@ impl PyProperty {
         }
     }
 
-    // Descriptor methods
-
-    #[pyslot]
-    fn descr_set(
-        zelf: &PyObject,
-        obj: PyObjectRef,
-        value: PySetterValue,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let zelf = zelf.try_to_ref::<Self>(vm)?;
-        match value {
-            PySetterValue::Assign(value) => {
-                // Clone and release lock before calling Python code to prevent deadlock
-                let set = zelf.setter.load_owned();
-                if let Some(setter) = set {
-                    setter.call((obj, value), vm).map(drop)
-                } else {
-                    let error_msg = zelf.format_property_error(&obj, "setter", vm)?;
-                    Err(vm.new_attribute_error(error_msg))
-                }
-            }
-            PySetterValue::Delete => {
-                // Clone and release lock before calling Python code to prevent deadlock
-                let del = zelf.deleter.load_owned();
-                if let Some(deleter) = del {
-                    deleter.call((obj,), vm).map(drop)
-                } else {
-                    let error_msg = zelf.format_property_error(&obj, "deleter", vm)?;
-                    Err(vm.new_attribute_error(error_msg))
-                }
-            }
-        }
-    }
-
     pub(crate) fn get_fget(&self) -> Option<PyObjectRef> {
         self.getter.load_owned()
     }
@@ -177,26 +139,8 @@ impl PyProperty {
         self.deleter.load_owned()
     }
 
-    #[pygetset(name = "__name__")]
-    fn name_getter(&self, vm: &VirtualMachine) -> PyResult {
-        match self.get_property_name(vm)? {
-            Some(name) => Ok(name),
-            None => Err(vm.new_attribute_error("'property' object has no attribute '__name__'")),
-        }
-    }
-
-    #[pygetset(name = "__name__", setter)]
-    fn name_setter(&self, value: PyObjectRef) {
-        *self.name.write() = Some(value);
-    }
-
     fn doc_getter(&self) -> Option<PyObjectRef> {
         self.doc.load_owned()
-    }
-
-    #[pymethod]
-    fn __set_name__(&self, SetNameArgs { name, .. }: SetNameArgs) {
-        *self.name.write() = Some(name);
     }
 
     // Python builder functions
@@ -245,31 +189,116 @@ impl PyProperty {
         Ok(new_prop_ref)
     }
 
+    // Helper method to format property error messages
+    #[cold]
+    fn format_property_error(
+        &self,
+        obj: &PyObject,
+        error_type: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        let prop_name = self.get_property_name(vm)?;
+        let obj_type = obj.class();
+        let qualname = obj_type.__qualname__(vm);
+
+        match prop_name {
+            Some(name) => Ok(format!(
+                "property {} of {} object has no {}",
+                name.repr(vm)?,
+                qualname.repr(vm)?,
+                error_type
+            )),
+            None => Ok(format!(
+                "property of {} object has no {}",
+                qualname.repr(vm)?,
+                error_type
+            )),
+        }
+    }
+}
+
+#[pyclass(
+    with(Constructor, Initializer, GetDescriptor),
+    flags(BASETYPE, HAS_WEAKREF)
+)]
+impl Py<PyProperty> {
+    // Descriptor methods
+
+    #[pyslot]
+    fn descr_set(
+        zelf: &PyObject,
+        obj: PyObjectRef,
+        value: PySetterValue,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let zelf = zelf.try_to_ref::<PyProperty>(vm)?;
+        match value {
+            PySetterValue::Assign(value) => {
+                // Clone and release lock before calling Python code to prevent deadlock
+                let set = zelf.setter.load_owned();
+                if let Some(setter) = set {
+                    setter.call((obj, value), vm).map(drop)
+                } else {
+                    let error_msg = zelf.format_property_error(&obj, "setter", vm)?;
+                    Err(vm.new_attribute_error(error_msg))
+                }
+            }
+            PySetterValue::Delete => {
+                // Clone and release lock before calling Python code to prevent deadlock
+                let del = zelf.deleter.load_owned();
+                if let Some(deleter) = del {
+                    deleter.call((obj,), vm).map(drop)
+                } else {
+                    let error_msg = zelf.format_property_error(&obj, "deleter", vm)?;
+                    Err(vm.new_attribute_error(error_msg))
+                }
+            }
+        }
+    }
+
+    #[pygetset(name = "__name__")]
+    fn name_getter(&self, vm: &VirtualMachine) -> PyResult {
+        match self.get_property_name(vm)? {
+            Some(name) => Ok(name),
+            None => Err(vm.new_attribute_error("'property' object has no attribute '__name__'")),
+        }
+    }
+
+    #[pygetset(name = "__name__", setter)]
+    fn name_setter(&self, value: PyObjectRef) {
+        *self.name.write() = Some(value);
+    }
+
+    #[pymethod]
+    fn __set_name__(&self, SetNameArgs { name, .. }: SetNameArgs) {
+        *self.name.write() = Some(name);
+    }
+
     #[pymethod]
     fn getter(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PyProperty>,
         object: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(&zelf, object, None, None, vm)
+    ) -> PyResult<PyRef<PyProperty>> {
+        PyProperty::clone_property_with(&zelf, object, None, None, vm)
     }
 
     #[pymethod]
     fn setter(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PyProperty>,
         object: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(&zelf, None, object, None, vm)
+    ) -> PyResult<PyRef<PyProperty>> {
+        PyProperty::clone_property_with(&zelf, None, object, None, vm)
     }
 
     #[pymethod]
     fn deleter(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PyProperty>,
         object: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        Self::clone_property_with(&zelf, None, None, object, vm)
+    ) -> PyResult<PyRef<PyProperty>> {
+        PyProperty::clone_property_with(&zelf, None, None, object, vm)
     }
 
     #[pygetset]
@@ -315,33 +344,6 @@ impl PyProperty {
             getter.set_attr("__isabstractmethod__", value, vm)?;
         }
         Ok(())
-    }
-
-    // Helper method to format property error messages
-    #[cold]
-    fn format_property_error(
-        &self,
-        obj: &PyObject,
-        error_type: &str,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
-        let prop_name = self.get_property_name(vm)?;
-        let obj_type = obj.class();
-        let qualname = obj_type.__qualname__(vm);
-
-        match prop_name {
-            Some(name) => Ok(format!(
-                "property {} of {} object has no {}",
-                name.repr(vm)?,
-                qualname.repr(vm)?,
-                error_type
-            )),
-            None => Ok(format!(
-                "property of {} object has no {}",
-                qualname.repr(vm)?,
-                error_type
-            )),
-        }
     }
 }
 

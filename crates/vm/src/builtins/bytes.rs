@@ -199,23 +199,6 @@ impl PyRef<PyBytes> {
     }
 }
 
-#[pyclass(
-    itemsize = 1,
-    flags(BASETYPE, _MATCH_SELF),
-    with(
-        Py,
-        PyRef,
-        AsMapping,
-        AsSequence,
-        Hashable,
-        Comparable,
-        AsBuffer,
-        Iterable,
-        Constructor,
-        AsNumber,
-        Representable,
-    )
-)]
 impl PyBytes {
     #[inline]
     #[must_use]
@@ -235,14 +218,92 @@ impl PyBytes {
         self.inner.as_bytes()
     }
 
+    fn __mul__(zelf: PyRef<Self>, value: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        zelf.repeat(value.into_int_ref().try_to_primitive(vm)?, vm)
+    }
+
+    // TODO: Uncomment when Python adds __class_getitem__ to bytes
+    // #[pyclassmethod]
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
+        PyGenericAlias::from_args(cls, args, vm)
+    }
+}
+
+#[pyclass(
+    itemsize = 1,
+    flags(BASETYPE, _MATCH_SELF),
+    with(
+        Py,
+        PyRef,
+        AsMapping,
+        AsSequence,
+        Hashable,
+        Comparable,
+        AsBuffer,
+        Iterable,
+        Constructor,
+        AsNumber,
+        Representable,
+    )
+)]
+impl PyBytes {}
+
+#[pyclass]
+impl Py<PyBytes> {
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.payload().as_bytes()
+    }
+
+    fn __add__(&self, other: ArgBytesLike) -> Vec<u8> {
+        self.payload.inner.add(&other.borrow_buf())
+    }
+
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let needle = ByteInnerSub::from_contains_arg(needle, vm)?;
+        self.payload.inner.contains(needle, vm)
+    }
+
+    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        self.payload._getitem(needle, vm)
+    }
+
+    fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        let formatted = self.payload.inner.cformat(values, vm)?;
+        Ok(formatted.into())
+    }
+
+    #[pymethod]
+    fn __reduce_ex__(
+        &self,
+        _proto: usize,
+        vm: &VirtualMachine,
+    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+        self.__reduce__(vm)
+    }
+
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+        let bytes = PyBytes::from(self.as_bytes().to_vec()).to_pyobject(vm);
+        (
+            self.class().to_owned(),
+            PyTuple::new_ref(vec![bytes], &vm.ctx),
+            self.as_object().dict(),
+        )
+    }
+
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        size_of::<Self>() + self.len() * size_of::<u8>()
+        size_of::<PyBytes>() + self.len() * size_of::<u8>()
     }
 
     #[pyslot]
     fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let zelf = zelf.downcast_ref::<Self>().expect("expected bytes");
+        let zelf = zelf.downcast_ref::<PyBytes>().expect("expected bytes");
         PyBytesInner::warn_on_str("str() on a bytes instance", vm)?;
         Ok(vm.ctx.new_str(zelf.payload.inner.repr_bytes(vm)?))
     }
@@ -293,22 +354,22 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn lower(&self) -> Self {
+    fn lower(&self) -> PyBytes {
         self.inner.lower().into()
     }
 
     #[pymethod]
-    fn upper(&self) -> Self {
+    fn upper(&self) -> PyBytes {
         self.inner.upper().into()
     }
 
     #[pymethod]
-    fn capitalize(&self) -> Self {
+    fn capitalize(&self) -> PyBytes {
         self.inner.capitalize().into()
     }
 
     #[pymethod]
-    fn swapcase(&self) -> Self {
+    fn swapcase(&self) -> PyBytes {
         self.inner.swapcase().into()
     }
 
@@ -330,17 +391,17 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn center(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    fn center(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
         Ok(self.inner.center(options, vm)?.into())
     }
 
     #[pymethod]
-    fn ljust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    fn ljust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
         Ok(self.inner.ljust(options, vm)?.into())
     }
 
     #[pymethod]
-    fn rjust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    fn rjust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
         Ok(self.inner.rjust(options, vm)?.into())
     }
 
@@ -421,22 +482,26 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn translate(&self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    fn translate(
+        &self,
+        options: ByteInnerTranslateOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytes> {
         Ok(self.inner.translate(options, vm)?.into())
     }
 
     #[pymethod]
-    fn strip(&self, options: ByteInnerStripOptions) -> Self {
+    fn strip(&self, options: ByteInnerStripOptions) -> PyBytes {
         self.inner.strip(options.bytes).into()
     }
 
     #[pymethod]
-    fn removeprefix(&self, prefix: PyBytesInner) -> Self {
+    fn removeprefix(&self, prefix: PyBytesInner) -> PyBytes {
         self.inner.removeprefix(prefix).into()
     }
 
     #[pymethod]
-    fn removesuffix(&self, suffix: PyBytesInner) -> Self {
+    fn removesuffix(&self, suffix: PyBytesInner) -> PyBytes {
         self.inner.removesuffix(suffix).into()
     }
 
@@ -491,7 +556,7 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Self {
+    fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> PyBytes {
         self.inner.expandtabs(options).into()
     }
 
@@ -502,83 +567,24 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Self> {
+    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<PyBytes> {
         Ok(self.inner.zfill(width, vm)?.into())
     }
 
     #[pymethod]
-    fn replace(&self, options: ByteInnerReplaceOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    fn replace(&self, options: ByteInnerReplaceOptions, vm: &VirtualMachine) -> PyResult<PyBytes> {
         Ok(self.inner.replace(options, vm)?.into())
     }
 
     #[pymethod]
-    fn title(&self) -> Self {
+    fn title(&self) -> PyBytes {
         self.inner.title().into()
-    }
-
-    fn __mul__(zelf: PyRef<Self>, value: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.repeat(value.into_int_ref().try_to_primitive(vm)?, vm)
     }
 
     #[pymethod]
     fn __getnewargs__(&self, vm: &VirtualMachine) -> PyTupleRef {
         let param: Vec<PyObjectRef> = self.elements().map(|x| x.to_pyobject(vm)).collect();
         PyTuple::new_ref(param, &vm.ctx)
-    }
-
-    // TODO: Uncomment when Python adds __class_getitem__ to bytes
-    // #[pyclassmethod]
-    fn __class_getitem__(
-        cls: PyTypeRef,
-        args: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
-    }
-}
-
-#[pyclass]
-impl Py<PyBytes> {
-    #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
-        self.payload().as_bytes()
-    }
-
-    fn __add__(&self, other: ArgBytesLike) -> Vec<u8> {
-        self.payload.inner.add(&other.borrow_buf())
-    }
-
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let needle = ByteInnerSub::from_contains_arg(needle, vm)?;
-        self.payload.inner.contains(needle, vm)
-    }
-
-    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        self.payload._getitem(needle, vm)
-    }
-
-    fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytes> {
-        let formatted = self.payload.inner.cformat(values, vm)?;
-        Ok(formatted.into())
-    }
-
-    #[pymethod]
-    fn __reduce_ex__(
-        &self,
-        _proto: usize,
-        vm: &VirtualMachine,
-    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        self.__reduce__(vm)
-    }
-
-    #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        let bytes = PyBytes::from(self.as_bytes().to_vec()).to_pyobject(vm);
-        (
-            self.class().to_owned(),
-            PyTuple::new_ref(vec![bytes], &vm.ctx),
-            self.as_object().dict(),
-        )
     }
 }
 
@@ -775,7 +781,7 @@ impl PyPayload for PyBytesIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PyBytesIterator {
+impl Py<PyBytesIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
         self.internal.lock().length_hint(|obj| obj.as_bytes().len())

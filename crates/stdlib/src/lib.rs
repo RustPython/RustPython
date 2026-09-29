@@ -54,6 +54,7 @@ mod math;
 #[cfg(all(feature = "host_env", any(unix, windows)))]
 mod mmap;
 
+mod _datetime;
 mod _heapq;
 mod _queue;
 mod pickle;
@@ -257,6 +258,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         pickle::module_def(ctx),
         pyexpat::module_def(ctx),
         pystruct::module_def(ctx),
+        _datetime::module_def(ctx),
         _heapq::module_def(ctx),
         _queue::module_def(ctx),
         random::module_def(ctx),

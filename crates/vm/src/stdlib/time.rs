@@ -951,7 +951,7 @@ mod decl {
 }
 
 #[cfg(unix)]
-#[pymodule(sub)]
+#[pymodule(sub, name = "time")]
 mod platform {
     #[allow(unused_imports)]
     use super::decl::{SEC_TO_NS, StructTimeData, US_TO_NS};
@@ -1242,7 +1242,7 @@ mod platform {
 }
 
 #[cfg(windows)]
-#[pymodule(sub)]
+#[pymodule(sub, name = "time")]
 mod platform {
     use super::decl::{MS_TO_NS, SEC_TO_NS, StructTimeData, get_tz_info, time_muldiv};
     use crate::{

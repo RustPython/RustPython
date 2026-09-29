@@ -572,7 +572,6 @@ mod _winapi {
         inner: PyMutex<host_overlapped::Operation>,
     }
 
-    #[pyclass(with(Constructor))]
     impl Overlapped {
         fn new_with_handle(handle: host_winapi::Handle, vm: &VirtualMachine) -> PyResult<Self> {
             host_overlapped::Operation::new(handle)
@@ -590,7 +589,10 @@ mod _winapi {
         fn lock_inner(&self, vm: &VirtualMachine) -> PyMutexGuard<'_, host_overlapped::Operation> {
             vm.allow_threads(|| self.inner.lock())
         }
+    }
 
+    #[pyclass(with(Constructor))]
+    impl Py<Overlapped> {
         #[pymethod]
         fn GetOverlappedResult(&self, wait: bool, vm: &VirtualMachine) -> PyResult<(u32, u32)> {
             let mut inner = self.lock_inner(vm);

@@ -162,7 +162,7 @@ pub(crate) mod _thread {
     }
 
     #[pyclass(with(Constructor, Representable), flags(HAS_WEAKREF))]
-    impl Lock {
+    impl Py<Lock> {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
@@ -238,10 +238,10 @@ pub(crate) mod _thread {
     }
 
     #[pyclass(with(Representable), flags(BASETYPE, HAS_WEAKREF))]
-    impl RLock {
+    impl Py<RLock> {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self {
+            RLock {
                 mu: RawRMutex::INIT,
                 count: core::sync::atomic::AtomicUsize::new(0),
             }
@@ -1036,7 +1036,7 @@ pub(crate) mod _thread {
                         ))
                     },
                     crate::function::PyMethodFlags::METHOD,
-                    crate::function::ItemDoc::NONE,
+                    crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
                 );
             class.set_attr(
                 ctx.intern_str("__reduce__"),
@@ -1614,7 +1614,7 @@ pub(crate) mod _thread {
         }
     }
 
-    /// _ThreadHandle - handle for joinable threads
+    // _ThreadHandle - handle for joinable threads
     #[pyattr]
     #[pyclass(module = "_thread", name = "_ThreadHandle")]
     #[derive(Debug, PyPayload)]
@@ -1624,7 +1624,6 @@ pub(crate) mod _thread {
         done_event: Arc<(parking_lot::Mutex<bool>, parking_lot::Condvar)>,
     }
 
-    #[pyclass(with(Representable))]
     impl ThreadHandle {
         fn new(vm: &VirtualMachine) -> Self {
             let inner = Arc::new(parking_lot::Mutex::new(ThreadHandleInner {
@@ -1830,7 +1829,10 @@ pub(crate) mod _thread {
                 timeout_obj.class().name()
             )))
         }
+    }
 
+    #[pyclass(with(Representable))]
+    impl Py<ThreadHandle> {
         #[pygetset]
         fn ident(&self) -> u64 {
             self.inner.lock().ident
@@ -1847,13 +1849,13 @@ pub(crate) mod _thread {
             if !done {
                 return Ok(false);
             }
-            Self::join_internal(&self.inner, &self.done_event, Some(Duration::ZERO), vm)?;
+            ThreadHandle::join_internal(&self.inner, &self.done_event, Some(Duration::ZERO), vm)?;
             Ok(true)
         }
 
         #[pymethod]
         fn _set_done(&self, vm: &VirtualMachine) -> PyResult<()> {
-            Self::set_done_internal(&self.inner, &self.done_event, vm)
+            ThreadHandle::set_done_internal(&self.inner, &self.done_event, vm)
         }
 
         #[pymethod]
@@ -1868,13 +1870,15 @@ pub(crate) mod _thread {
                 );
             }
             let timeout = f_args.take_positional().filter(|obj| !vm.is_none(obj));
-            let timeout_duration = Self::parse_join_timeout(timeout, vm)?;
-            Self::join_internal(&self.inner, &self.done_event, timeout_duration, vm)
+            let timeout_duration = ThreadHandle::parse_join_timeout(timeout, vm)?;
+            ThreadHandle::join_internal(&self.inner, &self.done_event, timeout_duration, vm)
         }
 
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self::new(vm).into_ref_with_type(vm, cls).map(Into::into)
+            ThreadHandle::new(vm)
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
         }
     }
 

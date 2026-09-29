@@ -1,7 +1,7 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytesRef, PyComplex, PyTuple, PyTupleRef, PyType, PyTypeRef},
-    common::{static_cell, str::wchar_t},
+    common::{lock::PyRwLock, rc::PyRc, static_cell, str::wchar_t},
     convert::ToPyObject,
     exceptions,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoComplex, ArgIntoFloat},
@@ -15,7 +15,7 @@ use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::{PrimInt, ToPrimitive};
-use std::os::raw;
+use std::{collections::HashMap, os::raw};
 
 type PackFunc = fn(&VirtualMachine, FormatType, PyObjectRef, &mut [u8]) -> Result<(), PackError>;
 type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;
@@ -476,6 +476,37 @@ pub struct FormatSpec {
     pub(crate) codes: Vec<FormatCode>,
     pub size: usize,
     pub arg_count: usize,
+}
+
+/// Bounded, interpreter-local cache for the module-level `struct` functions.
+/// Keys and specifications contain no Python objects or user callbacks.
+#[derive(Default)]
+pub struct FormatSpecCache {
+    entries: PyRwLock<HashMap<Box<[u8]>, PyRc<FormatSpec>>>,
+}
+
+impl FormatSpecCache {
+    pub fn get_or_parse(&self, format: &[u8], vm: &VirtualMachine) -> PyResult<PyRc<FormatSpec>> {
+        if let Some(spec) = self.entries.read().get(format) {
+            return Ok(spec.clone());
+        }
+
+        // Parsing can raise; neither errors nor Python conversions run under the cache lock.
+        let spec = PyRc::new(FormatSpec::parse(format, vm)?);
+        let mut entries = self.entries.write();
+        if let Some(spec) = entries.get(format) {
+            return Ok(spec.clone());
+        }
+        if entries.len() >= 100 {
+            entries.clear();
+        }
+        entries.insert(format.into(), spec.clone());
+        Ok(spec)
+    }
+
+    pub fn clear(&self) {
+        *self.entries.write() = HashMap::new();
+    }
 }
 
 impl FormatSpec {
@@ -971,4 +1002,36 @@ pub fn new_struct_error<T: Into<Wtf8Buf>>(vm: &VirtualMachine, msg: T) -> PyBase
     // can't just STRUCT_ERROR.get().unwrap() cause this could be called before from buffer
     // machinery, independent of whether _struct was ever imported
     vm.new_exception_msg(struct_error_type(vm).to_owned(), msg.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Interpreter;
+
+    #[test]
+    fn format_cache_reuses_specs_and_releases_evicted_entries() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let cache = &vm.state.struct_format_cache;
+            let spec = cache.get_or_parse(b"<IH", vm).unwrap();
+            assert!(PyRc::ptr_eq(
+                &spec,
+                &cache.get_or_parse(b"<IH", vm).unwrap()
+            ));
+            let weak = PyRc::downgrade(&spec);
+            drop(spec);
+
+            for padding in 0..100 {
+                let format = format!("{padding}x");
+                cache.get_or_parse(format.as_bytes(), vm).unwrap();
+            }
+            assert!(weak.upgrade().is_none());
+
+            let spec = cache.get_or_parse(b"<IH", vm).unwrap();
+            let weak = PyRc::downgrade(&spec);
+            drop(spec);
+            cache.clear();
+            assert!(weak.upgrade().is_none());
+        });
+    }
 }

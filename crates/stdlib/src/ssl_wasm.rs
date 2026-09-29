@@ -179,7 +179,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(name = "_SSLContext", module = "ssl", traverse)]
+    #[pyclass(name = "_SSLContext", module = "_ssl", traverse)]
     #[derive(Debug, PyPayload)]
     struct PySSLContext {
         #[pytraverse(skip)]
@@ -665,7 +665,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(name = "MemoryBIO", module = "ssl")]
+    #[pyclass(name = "MemoryBIO", module = "_ssl")]
     #[derive(Debug, PyPayload)]
     struct PyMemoryBIO {
         inner: PyMutex<rustpython_host_env::ssl::MemoryBio>,
@@ -737,7 +737,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(name = "SSLSession", module = "ssl", unhashable = true)]
+    #[pyclass(name = "SSLSession", module = "_ssl", unhashable = true)]
     #[derive(Debug, PyPayload)]
     struct PySSLSession {
         session_id: Vec<u8>,

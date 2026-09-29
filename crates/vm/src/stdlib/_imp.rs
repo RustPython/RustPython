@@ -8,7 +8,7 @@ pub(crate) use _imp::module_def;
 pub(super) use crate::vm::resolve_frozen_alias;
 
 #[cfg(feature = "threading")]
-#[pymodule(sub)]
+#[pymodule(sub, name = "_imp")]
 mod lock {
     use crate::{PyResult, VirtualMachine, stdlib::_thread::RawRMutex};
     use core::cell::Cell;
@@ -125,7 +125,7 @@ pub(crate) unsafe fn after_fork_child_imp_lock_release() {
 }
 
 #[cfg(not(feature = "threading"))]
-#[pymodule(sub)]
+#[pymodule(sub, name = "_imp")]
 mod lock {
     use crate::vm::VirtualMachine;
     #[pyfunction]

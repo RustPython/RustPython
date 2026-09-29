@@ -3248,6 +3248,81 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_type_basicsize_includes_payload_padding() {
+        use crate::class::PyClassDef;
+
+        #[pyclass(module = false, name = "PaddedPayload")]
+        #[derive(Debug, PyPayload)]
+        #[repr(align(64))]
+        struct PaddedPayload;
+
+        #[pyclass]
+        impl PaddedPayload {}
+
+        assert_eq!(
+            PaddedPayload::BASICSIZE,
+            core::mem::size_of::<Py<PaddedPayload>>()
+        );
+    }
+
+    #[test]
+    fn native_subclass_inherits_getter_with_mixed_field_sizes() {
+        use crate::class::PyClassImpl;
+
+        #[pyclass(module = false, name = "LayoutBase")]
+        #[derive(Debug, PyPayload)]
+        // Keep the base and derived payload aligned alike on 32-bit targets too.
+        #[repr(align(8))]
+        struct LayoutBase {
+            value: PyObjectRef,
+        }
+
+        #[pyclass(flags(BASETYPE))]
+        impl Py<LayoutBase> {
+            #[pygetset]
+            fn value(&self) -> PyObjectRef {
+                self.value.clone()
+            }
+        }
+
+        #[pyclass(module = false, name = "LayoutDerived", base = LayoutBase)]
+        #[derive(Debug)]
+        struct LayoutDerived {
+            base: LayoutBase,
+            extra: Option<u64>,
+        }
+
+        #[pyclass]
+        impl LayoutDerived {
+            #[pygetset]
+            fn extra(&self) -> Option<u64> {
+                self.extra
+            }
+        }
+
+        assert_eq!(core::mem::offset_of!(LayoutDerived, base), 0);
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let _ = LayoutBase::make_static_type();
+            let _ = LayoutDerived::make_static_type();
+            let value: PyObjectRef = vm.ctx.new_int(42).into();
+            let obj = vm.new_pyobj(LayoutDerived {
+                base: LayoutBase {
+                    value: value.clone(),
+                },
+                extra: Some(99),
+            });
+            assert!(obj.get_attr("value", vm).unwrap().is(&value));
+            assert_eq!(
+                obj.get_attr("extra", vm)
+                    .unwrap()
+                    .try_to_value::<u64>(vm)
+                    .unwrap(),
+                99
+            );
+        });
+    }
+
+    #[test]
     fn clear_reuses_storage_and_preserves_existing_edges() {
         use crate::builtins::PyList;
 

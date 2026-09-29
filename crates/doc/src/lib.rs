@@ -214,13 +214,22 @@ pub const fn get_qualified(
     if let Some(doc) = nonempty(find_named(b"", module, class, attr)) {
         return Some(doc);
     }
-    if eq(module, "os") || eq(module, "_os") {
-        if let Some(doc) = nonempty(find_named(b"", "posix", class, attr)) {
-            return Some(doc);
-        }
-        if let Some(doc) = nonempty(find_named(b"", "nt", class, attr)) {
-            return Some(doc);
-        }
+    // `os` is published from the posix/nt module. posix and nt are one module
+    // under a platform-dependent name, so each falls back to the other.
+    if eq(module, "os")
+        && let Some(doc) = nonempty(find_named(b"", "posix", class, attr))
+    {
+        return Some(doc);
+    }
+    if (eq(module, "os") || eq(module, "posix"))
+        && let Some(doc) = nonempty(find_named(b"", "nt", class, attr))
+    {
+        return Some(doc);
+    }
+    if eq(module, "nt")
+        && let Some(doc) = nonempty(find_named(b"", "posix", class, attr))
+    {
+        return Some(doc);
     }
     if let Some(stripped) = strip_underscore(module)
         && let Some(doc) = nonempty(find_named(b"", stripped, class, attr))
@@ -310,6 +319,46 @@ mod test {
         assert_eq!(
             class_attr_doc(None, "int", "__add__").unwrap().offset,
             get_attr("builtins", "int", "__add__").unwrap().offset
+        );
+    }
+
+    fn nonempty_offset(key: &str) -> Option<u32> {
+        get(key).filter(|doc| doc.len != 0).map(|doc| doc.offset)
+    }
+
+    #[test]
+    fn posix_and_nt_alias_each_other() {
+        let posix = nonempty_offset("posix.fork");
+        let nt = nonempty_offset("nt._getfinalpathname");
+        assert!(posix.is_some());
+        assert!(nt.is_some());
+        assert!(nonempty_offset("nt.fork").is_none());
+        assert!(nonempty_offset("posix._getfinalpathname").is_none());
+        assert_eq!(
+            super::get_qualified("posix", "fork", None, false).map(|doc| doc.offset),
+            posix
+        );
+        assert_eq!(
+            super::get_qualified("nt", "fork", None, false).map(|doc| doc.offset),
+            posix
+        );
+        assert_eq!(
+            super::get_qualified("nt", "_getfinalpathname", None, false).map(|doc| doc.offset),
+            nt
+        );
+        assert_eq!(
+            super::get_qualified("posix", "_getfinalpathname", None, false).map(|doc| doc.offset),
+            nt
+        );
+        assert_eq!(
+            super::get_qualified("os", "fork", None, false).map(|doc| doc.offset),
+            nonempty_offset("os.fork").or(posix)
+        );
+        // `_os` is not a module alias. A missing `os` entry does not continue
+        // into posix/nt.
+        assert_eq!(
+            super::get_qualified("_os", "fork", None, false).map(|doc| doc.offset),
+            nonempty_offset("os.fork")
         );
     }
 }

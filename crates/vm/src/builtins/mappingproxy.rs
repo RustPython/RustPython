@@ -67,16 +67,6 @@ impl Constructor for PyMappingProxy {
     }
 }
 
-#[pyclass(with(
-    AsMapping,
-    Iterable,
-    Constructor,
-    AsSequence,
-    Comparable,
-    Hashable,
-    AsNumber,
-    Representable
-))]
 impl PyMappingProxy {
     pub fn from_object(mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         if mapping.mapping_unchecked().check()
@@ -111,21 +101,6 @@ impl PyMappingProxy {
                 .as_interned_str(vm)
                 .and_then(|key| class.attributes.get(key))),
         }
-    }
-
-    #[pymethod]
-    fn get(
-        &self,
-        key: PyObjectRef,
-        default: OptionalArg,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<PyObjectRef>> {
-        let obj = self.to_object(vm)?;
-        Ok(Some(vm.call_method(
-            &obj,
-            "get",
-            (key, default.unwrap_or_none(vm)),
-        )?))
     }
 
     pub fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -169,6 +144,58 @@ impl PyMappingProxy {
         Ok(PyDict::from_attributes(class.attributes.attributes(&vm.ctx), vm)?.to_pyobject(vm))
     }
 
+    fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        let obj = self.to_object(vm)?;
+        obj.length(vm)
+    }
+
+    fn __ior__(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error(format!(
+            r#""'|=' is not supported by {}; use '|' instead""#,
+            Self::class(&vm.ctx)
+        )))
+    }
+
+    fn __or__(&self, args: &PyObject, vm: &VirtualMachine) -> PyResult {
+        vm._or(self.copy(vm)?.as_ref(), args)
+    }
+
+    pub fn copy(&self, vm: &VirtualMachine) -> PyResult {
+        match &self.mapping {
+            MappingProxyInner::Mapping(d) => {
+                vm.call_method(d.obj(), identifier!(vm, copy).as_str(), ())
+            }
+            MappingProxyInner::Class(c) => Self::class_to_dict(c, vm),
+        }
+    }
+}
+
+#[pyclass(with(
+    AsMapping,
+    Iterable,
+    Constructor,
+    AsSequence,
+    Comparable,
+    Hashable,
+    AsNumber,
+    Representable
+))]
+impl Py<PyMappingProxy> {
+    #[pymethod]
+    fn get(
+        &self,
+        key: PyObjectRef,
+        default: OptionalArg,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let obj = self.to_object(vm)?;
+        Ok(Some(vm.call_method(
+            &obj,
+            "get",
+            (key, default.unwrap_or_none(vm)),
+        )?))
+    }
+
     #[pymethod]
     pub fn items(&self, vm: &VirtualMachine) -> PyResult {
         let obj = self.to_object(vm)?;
@@ -189,12 +216,7 @@ impl PyMappingProxy {
 
     #[pymethod]
     pub fn copy(&self, vm: &VirtualMachine) -> PyResult {
-        match &self.mapping {
-            MappingProxyInner::Mapping(d) => {
-                vm.call_method(d.obj(), identifier!(vm, copy).as_str(), ())
-            }
-            MappingProxyInner::Class(c) => Self::class_to_dict(c, vm),
-        }
+        self.payload.copy(vm)
     }
 
     #[pyclassmethod]
@@ -206,11 +228,6 @@ impl PyMappingProxy {
         PyGenericAlias::from_args(cls, args, vm)
     }
 
-    fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        let obj = self.to_object(vm)?;
-        obj.length(vm)
-    }
-
     #[pymethod]
     fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
         vm.call_method(
@@ -218,17 +235,6 @@ impl PyMappingProxy {
             identifier!(vm, __reversed__).as_str(),
             (),
         )
-    }
-
-    fn __ior__(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error(format!(
-            r#""'|=' is not supported by {}; use '|' instead""#,
-            Self::class(&vm.ctx)
-        )))
-    }
-
-    fn __or__(&self, args: &PyObject, vm: &VirtualMachine) -> PyResult {
-        vm._or(self.copy(vm)?.as_ref(), args)
     }
 }
 

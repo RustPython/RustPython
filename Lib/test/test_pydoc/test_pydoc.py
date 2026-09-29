@@ -419,7 +419,6 @@ class PydocDocTest(unittest.TestCase):
     def tearDown(self):
         self.assertIs(sys.modules['pydoc'], pydoc)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'trace function introduces __locals__ unexpectedly')
     @requires_docstrings
@@ -438,7 +437,6 @@ class PydocDocTest(unittest.TestCase):
         self.assertIn(mod_file, result)
         self.assertIn(doc_loc, result)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'trace function introduces __locals__ unexpectedly')
     @requires_docstrings
@@ -708,7 +706,6 @@ class PydocDocTest(unittest.TestCase):
             expected = missing_pattern % "abd"
             self.assertEqual(expected, buf.getvalue().strip().replace('\n', os.linesep))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(hasattr(sys, 'gettrace') and sys.gettrace(),
                      'trace function introduces __locals__ unexpectedly')
     @unittest.mock.patch('pydoc.pager')
@@ -1073,7 +1070,6 @@ class PydocDocTest(unittest.TestCase):
         methods = pydoc.allmethods(TestClass)
         self.assertDictEqual(methods, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_method_aliases(self):
         class A:
@@ -1164,7 +1160,6 @@ class B(A)
         for expected_line in expected_lines:
             self.assertIn(expected_line, as_text)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_long_signatures(self):
         from collections.abc import Callable
         from typing import Literal, Annotated
@@ -1614,7 +1609,6 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(set().__contains__),
             "__contains__(object, /) method of builtins.set instance")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_classmethod_noargs(self):
         self.assertEqual(self._get_summary_line(datetime.datetime.__dict__['utcnow']),
             "utcnow(type, /) unbound datetime.datetime method")

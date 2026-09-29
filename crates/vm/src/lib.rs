@@ -110,8 +110,8 @@ pub mod windows;
 
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 pub use self::object::{
-    AsObject, Py, PyAtomicRef, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact,
-    PyResult, PyStackRef, PyWeakRef,
+    AsObject, Py, PyAtomicRef, PyExact, PyObject, PyObjectCell, PyObjectRef, PyPayload, PyRef,
+    PyRefExact, PyResult, PyStackRef, PyWeakRef,
 };
 pub use self::vm::runtime;
 pub use self::vm::{

@@ -41,11 +41,6 @@ impl PyPayload for PyCoroutine {
     }
 }
 
-#[pyclass(
-    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
-    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
-    with(Py, Representable, Destructor)
-)]
 impl PyCoroutine {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
@@ -63,9 +58,47 @@ impl PyCoroutine {
             origin,
         }
     }
+}
+
+#[pyclass(
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
+    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
+    with(Py, Representable, Destructor)
+)]
+impl PyCoroutine {}
+
+#[pyclass]
+impl Py<PyCoroutine> {
+    #[pymethod]
+    fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        self.inner.send(self.as_object(), value, vm)
+    }
+
+    #[pymethod]
+    fn throw(
+        &self,
+        exc_type: PyObjectRef,
+        exc_val: OptionalArg,
+        exc_tb: OptionalArg,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyIterReturn> {
+        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
+        self.inner.throw(
+            self.as_object(),
+            exc_type,
+            exc_val.unwrap_or_none(vm),
+            exc_tb.unwrap_or_none(vm),
+            vm,
+        )
+    }
+
+    #[pymethod]
+    fn close(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        self.inner.close(self.as_object(), vm)
+    }
 
     #[pygetset]
-    /// name of the coroutine
+    // name of the coroutine
     fn __name__(&self) -> PyStrRef {
         self.inner.name()
     }
@@ -76,7 +109,7 @@ impl PyCoroutine {
     }
 
     #[pygetset]
-    /// qualified name of the coroutine
+    // qualified name of the coroutine
     fn __qualname__(&self) -> PyStrRef {
         self.inner.qualname()
     }
@@ -87,7 +120,7 @@ impl PyCoroutine {
     }
 
     #[pymethod(name = "__await__")]
-    fn r#await(zelf: PyRef<Self>) -> PyCoroutineWrapper {
+    fn r#await(zelf: PyRef<PyCoroutine>) -> PyCoroutineWrapper {
         PyCoroutineWrapper {
             coro: zelf,
             closed: AtomicCell::new(false),
@@ -126,37 +159,6 @@ impl PyCoroutine {
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
-    }
-}
-
-#[pyclass]
-impl Py<PyCoroutine> {
-    #[pymethod]
-    fn send(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        self.inner.send(self.as_object(), value, vm)
-    }
-
-    #[pymethod]
-    fn throw(
-        &self,
-        exc_type: PyObjectRef,
-        exc_val: OptionalArg,
-        exc_tb: OptionalArg,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyIterReturn> {
-        warn_deprecated_throw_signature(&exc_val, &exc_tb, vm)?;
-        self.inner.throw(
-            self.as_object(),
-            exc_type,
-            exc_val.unwrap_or_none(vm),
-            exc_tb.unwrap_or_none(vm),
-            vm,
-        )
-    }
-
-    #[pymethod]
-    fn close(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        self.inner.close(self.as_object(), vm)
     }
 }
 
@@ -205,7 +207,6 @@ impl PyPayload for PyCoroutineWrapper {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
 impl PyCoroutineWrapper {
     fn check_closed(&self, vm: &VirtualMachine) -> PyResult<()> {
         if self.closed.load() {
@@ -213,7 +214,10 @@ impl PyCoroutineWrapper {
         }
         Ok(())
     }
+}
 
+#[pyclass(with(IterNext, Iterable))]
+impl Py<PyCoroutineWrapper> {
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         self.check_closed(vm)?;
@@ -253,7 +257,7 @@ impl PyCoroutineWrapper {
 impl SelfIter for PyCoroutineWrapper {}
 impl IterNext for PyCoroutineWrapper {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        Self::send(zelf, vm.ctx.none(), vm)
+        zelf.send(vm.ctx.none(), vm)
     }
 }
 

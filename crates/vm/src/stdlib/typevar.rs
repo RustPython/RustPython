@@ -2,7 +2,7 @@
 
 pub use typevar::*;
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "_typing")]
 pub(crate) mod typevar {
     use crate::{
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -99,7 +99,7 @@ pub(crate) mod typevar {
         flags(HAS_DICT, HAS_WEAKREF),
         with(AsNumber, Constructor, Representable)
     )]
-    impl TypeVar {
+    impl Py<TypeVar> {
         #[pymethod]
         fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of TypeVar"))
@@ -198,7 +198,7 @@ pub(crate) mod typevar {
 
         #[pymethod]
         fn __typing_subst__(
-            zelf: crate::PyRef<Self>,
+            zelf: crate::PyRef<TypeVar>,
             arg: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult {
@@ -223,7 +223,7 @@ pub(crate) mod typevar {
 
         #[pymethod]
         fn __typing_prepare_subst__(
-            zelf: crate::PyRef<Self>,
+            zelf: crate::PyRef<TypeVar>,
             alias: PyObjectRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
@@ -457,14 +457,14 @@ pub(crate) mod typevar {
         flags(HAS_DICT, HAS_WEAKREF),
         with(AsNumber, Constructor, Representable)
     )]
-    impl ParamSpec {
+    impl Py<ParamSpec> {
         #[pymethod]
         fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpec"))
         }
 
         #[pygetset]
-        fn args(zelf: crate::PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+        fn args(zelf: crate::PyRef<ParamSpec>, vm: &VirtualMachine) -> PyObjectRef {
             let self_obj: PyObjectRef = zelf.into();
             let psa = ParamSpecArgs {
                 __origin__: self_obj,
@@ -473,7 +473,7 @@ pub(crate) mod typevar {
         }
 
         #[pygetset]
-        fn kwargs(zelf: crate::PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+        fn kwargs(zelf: crate::PyRef<ParamSpec>, vm: &VirtualMachine) -> PyObjectRef {
             let self_obj: PyObjectRef = zelf.into();
             let psk = ParamSpecKwargs {
                 __origin__: self_obj,
@@ -529,7 +529,7 @@ pub(crate) mod typevar {
 
         #[pymethod]
         fn __typing_subst__(
-            zelf: crate::PyRef<Self>,
+            zelf: crate::PyRef<ParamSpec>,
             arg: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult {
@@ -539,7 +539,7 @@ pub(crate) mod typevar {
 
         #[pymethod]
         fn __typing_prepare_subst__(
-            zelf: crate::PyRef<Self>,
+            zelf: crate::PyRef<ParamSpec>,
             alias: PyObjectRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
@@ -686,7 +686,7 @@ pub(crate) mod typevar {
         flags(HAS_DICT, HAS_WEAKREF),
         with(Constructor, Representable, Iterable)
     )]
-    impl TypeVarTuple {
+    impl Py<TypeVarTuple> {
         #[pygetset]
         fn __default__(&self, vm: &VirtualMachine) -> PyResult {
             {
@@ -746,7 +746,7 @@ pub(crate) mod typevar {
 
         #[pymethod]
         fn __typing_prepare_subst__(
-            zelf: crate::PyRef<Self>,
+            zelf: crate::PyRef<TypeVarTuple>,
             alias: PyObjectRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
@@ -853,7 +853,7 @@ pub(crate) mod typevar {
     }
 
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
-    impl ParamSpecArgs {
+    impl Py<ParamSpecArgs> {
         #[pymethod]
         fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecArgs"))
@@ -913,7 +913,7 @@ pub(crate) mod typevar {
     }
 
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
-    impl ParamSpecKwargs {
+    impl Py<ParamSpecKwargs> {
         #[pymethod]
         fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecKwargs"))

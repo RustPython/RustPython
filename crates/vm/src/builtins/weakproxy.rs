@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-#[pyclass(module = false, name = "weakproxy", unhashable = true)]
+#[pyclass(module = "weakref", name = "weakproxy", unhashable = true)]
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct PyWeakProxy(PyWeak);
@@ -78,7 +78,7 @@ impl PyWeakProxy {
 }
 
 #[pyclass(
-    module = false,
+    module = "weakref",
     name = "weakcallableproxy",
     base = PyWeakProxy,
     ctx = "weakcallableproxy_type",
@@ -107,40 +107,13 @@ impl Callable for PyWeakCallableProxy {
     }
 }
 
-#[pyclass(with(
-    GetAttr,
-    SetAttr,
-    Constructor,
-    Comparable,
-    AsNumber,
-    AsSequence,
-    AsMapping,
-    Representable,
-    IterNext
-))]
 impl PyWeakProxy {
     fn try_upgrade(&self, vm: &VirtualMachine) -> PyResult {
         self.0.upgrade().ok_or_else(|| new_reference_error(vm))
     }
 
-    #[pymethod]
-    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        zelf.try_upgrade(vm)?.str(vm)
-    }
-
     fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_upgrade(vm)?.length(vm)
-    }
-
-    #[pymethod]
-    fn __bytes__(&self, vm: &VirtualMachine) -> PyResult {
-        self.try_upgrade(vm)?.bytes(vm)
-    }
-
-    #[pymethod]
-    fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
-        let obj = self.try_upgrade(vm)?;
-        reversed(obj, vm)
     }
     fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_upgrade(vm)?
@@ -161,6 +134,36 @@ impl PyWeakProxy {
     fn delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         let obj = self.try_upgrade(vm)?;
         obj.del_item(needle, vm)
+    }
+}
+
+#[pyclass(with(
+    GetAttr,
+    SetAttr,
+    Constructor,
+    Comparable,
+    AsNumber,
+    AsSequence,
+    AsMapping,
+    Representable,
+    IterNext
+))]
+impl Py<PyWeakProxy> {
+    /// Return str(self).
+    #[pymethod]
+    fn __str__(zelf: &Self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        zelf.try_upgrade(vm)?.str(vm)
+    }
+
+    #[pymethod]
+    fn __bytes__(&self, vm: &VirtualMachine) -> PyResult {
+        self.try_upgrade(vm)?.bytes(vm)
+    }
+
+    #[pymethod]
+    fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
+        let obj = self.try_upgrade(vm)?;
+        reversed(obj, vm)
     }
 }
 

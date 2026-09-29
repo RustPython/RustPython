@@ -753,7 +753,7 @@ jobs:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@8b682e1e7e512151d73a6b9449cbff173846226e # v1.74.0
+        uses: reviewdog/action-actionlint@320fcdd9c860767cf17fab3b20e22e739d5d02b8 # v1.76.0
 
       - name: zizmor
         uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
@@ -807,7 +807,7 @@ jobs:
 
       - name: reviewdog
         if: ${{ !cancelled() }}
-        uses: reviewdog/action-suggester@4553543bea739d9d503379d786148cfd561de5fa # v1.25.0
+        uses: reviewdog/action-suggester@c387862ad6765a9729f2b40ee4d8b5769f2145c7 # v1.26.1
         with:
           level: warning
           fail_level: error

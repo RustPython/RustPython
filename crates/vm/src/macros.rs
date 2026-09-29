@@ -1,3 +1,20 @@
+/// Expands to the first group when this crate is built with its `doc` feature, else to the second.
+/// Derive output uses it so doc-dependent code follows `rustpython-vm`'s features, not the
+/// features of the crate the derive expands in.
+#[cfg(feature = "doc")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __cfg_doc {
+    ({ $($doc:tt)* } else { $($no_doc:tt)* }) => { $($doc)* };
+}
+
+#[cfg(not(feature = "doc"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __cfg_doc {
+    ({ $($doc:tt)* } else { $($no_doc:tt)* }) => { $($no_doc)* };
+}
+
 #[macro_export]
 macro_rules! extend_module {
     ( $vm:expr, $module:expr, { $($name:expr => $value:expr),* $(,)? }) => {{

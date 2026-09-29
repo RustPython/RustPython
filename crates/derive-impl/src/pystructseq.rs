@@ -524,12 +524,11 @@ pub(crate) fn impl_pystruct_sequence(
     } else {
         class_name.clone()
     };
-    let db_doc = rustpython_doc::get(module_class_name.as_str()).or_else(|| {
-        // os re-exports the posix/nt struct sequences.
-        let class_name = module_class_name.strip_prefix("os.")?;
-        rustpython_doc::get(&format!("posix.{class_name}"))
-            .or_else(|| rustpython_doc::get(&format!("nt.{class_name}")))
-    });
+    let db_doc = if let Some(module) = module_name.as_deref() {
+        rustpython_doc::get_qualified(module, &class_name, None, false)
+    } else {
+        rustpython_doc::get(&class_name)
+    };
     let rust_doc = struct_item.attrs.doc().filter(|doc| !doc.is_empty());
     let db = if rust_doc.is_some() { None } else { db_doc };
     let doc = crate::class_docs::item_doc_tokens(db, rust_doc);
@@ -548,10 +547,11 @@ pub(crate) fn impl_pystruct_sequence(
             const MODULE_NAME: Option<&'static str> = #module_name_tokens;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: ::rustpython_vm::function::ItemDoc = #doc;
-            #[cfg(feature = "doc")]
-            const ATTR_DOCS: &'static [(&'static str, u32, u32)] = #attr_docs;
-            #[cfg(not(feature = "doc"))]
-            const ATTR_DOCS: &'static [&'static str] = #attr_names;
+            ::rustpython_vm::__cfg_doc! {{
+                const ATTR_DOCS: &'static [(&'static str, u32, u32)] = #attr_docs;
+            } else {
+                const ATTR_DOCS: &'static [&'static str] = #attr_names;
+            }}
             const BASICSIZE: usize = 0;
             const UNHASHABLE: bool = false;
 
