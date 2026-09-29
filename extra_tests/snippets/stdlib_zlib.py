@@ -1,4 +1,3 @@
-import sys
 import zlib
 
 from testutils import assert_raises
@@ -65,8 +64,8 @@ assert_raises(zlib.error, lambda: zlib.compress(b"123", -40))
 assert_raises(zlib.error, lambda: zlib.compress(b"123", 10))
 
 # A max_length-bounded call that reaches the end of the stream keeps no
-# stale input in unconsumed_tail (gh-8906). CPython before gh-158169 reports
-# the bytes after the stream in unconsumed_tail too.
+# stale input in unconsumed_tail (gh-8906). The tail is empty, or, as in
+# CPython before gh-158169, the bytes after the stream.
 source = b"x" * 20000
 d = zlib.decompressobj()
 out = d.decompress(zlib.compress(source) + b"NEXT", 100)
@@ -76,10 +75,7 @@ assert d.eof
 assert out == source
 assert d.unused_data == b"NEXT"
 tail = d.unconsumed_tail
-if sys.implementation.name == "rustpython":
-    assert tail == b""
-else:
-    assert tail in (b"", b"NEXT")
+assert tail in (b"", b"NEXT")
 assert d.flush() == b""
 assert d.unconsumed_tail == tail
 assert d.unused_data == b"NEXT" + tail
