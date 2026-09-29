@@ -265,7 +265,7 @@ mod _functools {
             self.keywords.traverse(tracer_fn);
         }
 
-        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
             // __setstate__ can make func point directly back to this partial.
             // The args tuple and keywords dict have their own cycle clearing.
             out.push(self.func.store(Context::genesis().none()));

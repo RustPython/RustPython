@@ -595,8 +595,8 @@ pub(crate) fn impl_pystruct_sequence(
                 self.0.try_traverse(traverse_fn)
             }
 
-            fn try_clear(&mut self, out: &mut ::std::vec::Vec<::rustpython_vm::PyObjectRef>) {
-                self.0.try_clear(out)
+            fn try_clear_refs(&mut self, out: &mut ::std::vec::Vec<::rustpython_vm::PyObjectRef>) {
+                self.0.try_clear_refs(out)
             }
         }
 

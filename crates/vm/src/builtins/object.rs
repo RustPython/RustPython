@@ -222,7 +222,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
     }
 
     if let Some(slot_names) = slot_names {
-        let slot_names_len = slot_names.__len__();
+        let slot_names_len = slot_names.borrow_vec().len();
         if slot_names_len > 0 {
             let slots = vm.ctx.new_dict();
             for i in 0..slot_names_len {

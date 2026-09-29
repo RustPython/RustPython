@@ -35,7 +35,7 @@ unsafe impl crate::object::Traverse for PySlice {
         self.step.traverse(traverse_fn);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         if let Some(start) = self.start.take() {
             out.push(start);
         }

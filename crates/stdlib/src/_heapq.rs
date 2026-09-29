@@ -17,7 +17,7 @@ mod _heapq {
         mut pos: usize,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let size = heap.__len__();
+        let size = heap.borrow_vec().len();
 
         let newitem = match heap.borrow_vec().get(pos) {
             Some(v) => v.clone(),
@@ -35,7 +35,7 @@ mod _heapq {
 
             let cmp = newitem.rich_compare_bool(&parent, PyComparisonOp::Lt, vm)?;
 
-            if size != heap.__len__() {
+            if size != heap.borrow_vec().len() {
                 return Err(vm.new_runtime_error("list changed size during iteration"));
             }
 
@@ -56,7 +56,7 @@ mod _heapq {
 
     /// [CPython's siftup](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L70-L118)
     fn siftup(heap: &Py<PyList>, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
-        let endpos = heap.__len__();
+        let endpos = heap.borrow_vec().len();
         let startpos = pos;
 
         if pos >= endpos {
@@ -78,7 +78,7 @@ mod _heapq {
 
                 let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm)?;
 
-                if endpos != heap.__len__() {
+                if endpos != heap.borrow_vec().len() {
                     return Err(vm.new_runtime_error("list changed size during iteration"));
                 }
 
@@ -119,7 +119,7 @@ mod _heapq {
             vec.push(item);
         }
 
-        let size = heap.__len__();
+        let size = heap.borrow_vec().len();
 
         siftdown_func(heap, 0, size - 1, vm)
     }
@@ -251,7 +251,7 @@ mod _heapq {
     where
         F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
-        let m = heap.__len__() >> 1; // index of first childless node
+        let m = heap.borrow_vec().len() >> 1; // index of first childless node
         let leftmost = keep_top_bit(m + 1) - 1; // leftmost node in row of m 
         let mhalf = m >> 1; // parent of first childless node
 
@@ -291,7 +291,7 @@ mod _heapq {
     where
         F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
-        let n = heap.__len__();
+        let n = heap.borrow_vec().len();
 
         if n > 2500 {
             return cache_friendly_heapify(heap, siftup_func, vm);
@@ -316,7 +316,7 @@ mod _heapq {
         mut pos: usize,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let size = heap.__len__();
+        let size = heap.borrow_vec().len();
 
         let newitem = match heap.borrow_vec().get(pos) {
             Some(v) => v.clone(),
@@ -334,7 +334,7 @@ mod _heapq {
 
             let cmp = parent.rich_compare_bool(&newitem, PyComparisonOp::Lt, vm)?;
 
-            if size != heap.__len__() {
+            if size != heap.borrow_vec().len() {
                 return Err(vm.new_runtime_error("list changed size during iteration"));
             }
 
@@ -355,7 +355,7 @@ mod _heapq {
 
     /// [CPython's siftup_max](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L451-L499)
     fn siftup_max(heap: &Py<PyList>, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
-        let endpos = heap.__len__();
+        let endpos = heap.borrow_vec().len();
         let startpos = pos;
 
         if pos >= endpos {
@@ -377,7 +377,7 @@ mod _heapq {
 
                 let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm)?;
 
-                if endpos != heap.__len__() {
+                if endpos != heap.borrow_vec().len() {
                     return Err(vm.new_runtime_error("list changed size during iteration"));
                 }
 

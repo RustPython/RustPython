@@ -2093,7 +2093,7 @@ impl MaybeTraverse for PyUtf8Str {
         self.0.try_traverse(traverse_fn);
     }
 
-    fn try_clear(&mut self, _out: &mut Vec<PyObjectRef>) {
+    fn try_clear_refs(&mut self, _out: &mut Vec<PyObjectRef>) {
         // No clear needed for PyUtf8Str
     }
 }

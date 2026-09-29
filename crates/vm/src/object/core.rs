@@ -284,7 +284,7 @@ pub(super) unsafe fn try_traverse_obj<T: PyPayload>(x: &PyObject, tracer_fn: &mu
 /// Call `try_clear` on payload to extract child references (tp_clear)
 pub(super) unsafe fn try_clear_obj<T: PyPayload>(x: *mut PyObject, out: &mut Vec<PyObjectRef>) {
     let x = unsafe { &mut *(x as *mut Py<T>) };
-    x.payload.try_clear(out);
+    x.payload.try_clear_refs(out);
 }
 
 bitflags::bitflags! {
@@ -3266,7 +3266,7 @@ mod tests {
                     } else {
                         Vec::new()
                     };
-                    sequence.clear(&mut out);
+                    sequence.clear_refs(&mut out);
                     if existing {
                         assert_eq!(out[0].try_to_value::<i32>(vm).unwrap(), 1);
                     } else {

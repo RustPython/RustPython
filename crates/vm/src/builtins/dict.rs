@@ -44,7 +44,7 @@ unsafe impl Traverse for PyDict {
         self.entries.traverse(traverse_fn);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<PyObjectRef>) {
         // Pop all entries and collect both keys and values
         for (key, value) in self.entries.drain_entries() {
             out.push(key);

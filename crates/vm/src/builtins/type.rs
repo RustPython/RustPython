@@ -263,7 +263,7 @@ unsafe impl crate::object::Traverse for PyType {
     }
 
     /// type_clear: break reference cycles in type objects
-    fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+    fn clear_refs(&mut self, out: &mut Vec<crate::PyObjectRef>) {
         // SAFETY: tp_clear runs with exclusive access to the type object.
         if let Some(base) = unsafe { self.base.swap(None) } {
             out.push(base.into());

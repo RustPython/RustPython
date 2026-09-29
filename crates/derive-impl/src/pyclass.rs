@@ -790,7 +790,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     //
     // For clear (tp_clear):
     // 1. no `clear`: HAS_CLEAR = HAS_TRAVERSE (default: same as traverse)
-    // 2. `clear` or `clear = true`: HAS_CLEAR = true, try_clear calls Traverse::clear
+    // 2. `clear` or `clear = true`: HAS_CLEAR = true, try_clear_refs calls Traverse::clear_refs
     // 3. `clear = false`: HAS_CLEAR = false (rare: traverse without clear)
     let has_traverse = class_meta.inner().contains_key("traverse");
     let has_clear = if class_meta.inner().contains_key("clear") {
@@ -834,7 +834,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
 
         let try_clear_body = if has_clear {
             quote! {
-                ::rustpython_vm::object::Traverse::clear(self, out);
+                ::rustpython_vm::object::Traverse::clear_refs(self, out);
             }
         } else {
             quote! {
@@ -851,7 +851,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
                     #try_traverse_body
                 }
 
-                fn try_clear(&mut self, out: &mut ::std::vec::Vec<::rustpython_vm::PyObjectRef>) {
+                fn try_clear_refs(&mut self, out: &mut ::std::vec::Vec<::rustpython_vm::PyObjectRef>) {
                     #try_clear_body
                 }
             }
