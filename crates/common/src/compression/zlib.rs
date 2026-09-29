@@ -670,17 +670,15 @@ impl Decompressor {
         };
         let consumed = (d.total_in() - prev_in) as usize;
 
-        // save unused input
-        let unconsumed = &data[consumed..];
-        if !unconsumed.is_empty() {
-            if stream_end {
-                unused_data.extend_from_slice(unconsumed);
-            } else {
-                *unconsumed_tail = unconsumed.to_vec();
-            }
-        } else if !unconsumed_tail.is_empty() {
-            unconsumed_tail.clear();
+        // save unused input: past the end of the stream it is unused_data and
+        // unconsumed_tail is emptied, otherwise it is the new unconsumed_tail
+        let mut unconsumed = &data[consumed..];
+        if stream_end {
+            unused_data.extend_from_slice(unconsumed);
+            unconsumed = &[];
         }
+        unconsumed_tail.clear();
+        unconsumed_tail.extend_from_slice(unconsumed);
 
         Ok((ret, stream_end))
     }
@@ -1004,5 +1002,23 @@ mod tests {
         assert!(!d.eof());
         assert_eq!(d.decompress(&encoded, None).unwrap(), b"later input");
         assert!(d.eof());
+    }
+
+    #[test]
+    fn stream_end_clears_unconsumed_tail() {
+        let source = b"x".repeat(20000);
+        let data = [compress(&source, -1, MAX_WBITS).unwrap(), b"NEXT".to_vec()].concat();
+        let mut d = Decompressor::new(MAX_WBITS, None).unwrap();
+        let first = d.decompress(&data, Some(100)).unwrap();
+        assert!(!d.eof());
+        let tail = d.unconsumed_tail().to_vec();
+        let rest = d.decompress(&tail, Some(100_000)).unwrap();
+        assert!(d.eof());
+        assert_eq!([first, rest].concat(), source);
+        assert_eq!(d.unconsumed_tail(), b"");
+        assert_eq!(d.unused_data(), b"NEXT");
+        assert_eq!(d.flush(DEF_BUF_SIZE).unwrap(), b"");
+        assert_eq!(d.unconsumed_tail(), b"");
+        assert_eq!(d.unused_data(), b"NEXT");
     }
 }
