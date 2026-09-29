@@ -1178,6 +1178,84 @@ def test_incremental_list_updates():
 test_incremental_list_updates()
 
 
+def test_extend_length_hint_capacity():
+    class Source:
+        def __init__(self, values, hint):
+            self.values = values
+            self.hint = hint
+
+        def __iter__(self):
+            return iter(self.values)
+
+        def __length_hint__(self):
+            return self.hint
+
+    for values in ((), (1, 2, 3)):
+        target = []
+        target.extend(Source(values, 4096))
+        assert target == list(values)
+        if values:
+            assert target.__sizeof__() <= ([None] * 16).__sizeof__()
+        else:
+            assert target.__sizeof__() == [].__sizeof__()
+
+    # Small extensions must retain the spare capacity from ordinary growth.
+    target = list(range(32))
+    target.extend(Source((32,), 0))
+    size = target.__sizeof__()
+    target.extend(Source((33,), 0))
+    assert target.__sizeof__() == size
+    assert target == list(range(34))
+
+    # Iteration errors preserve both the accepted prefix and its reservation.
+    sizes = []
+    target = []
+
+    def failing():
+        yield 1
+        sizes.append(target.__sizeof__())
+        raise RuntimeError("source failed")
+
+    with assert_raises(RuntimeError):
+        target.extend(Source(failing(), 4096))
+    assert target == [1]
+    assert target.__sizeof__() == sizes[0]
+
+
+test_extend_length_hint_capacity()
+
+
+def test_extend_resizes_before_iterator_cleanup():
+    target = []
+    empty_size = target.__sizeof__()
+    sizes = []
+
+    class Iterator:
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            raise StopIteration
+
+        def __del__(self):
+            sizes.append(target.__sizeof__())
+            target.append(1)
+
+    class Source:
+        def __iter__(self):
+            return Iterator()
+
+        def __length_hint__(self):
+            return 4096
+
+    target.extend(Source())
+    assert sizes == [empty_size]
+    assert target == [1]
+
+
+test_extend_resizes_before_iterator_cleanup()
+
+
 def test_slice_assignment_iterator_hint():
     class Rows:
         def __iter__(self):

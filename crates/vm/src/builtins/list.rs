@@ -471,13 +471,21 @@ impl Py<PyList> {
                     .map_err(|_| vm.no_memory_error())?;
             }
         }
-        for item in iter.into_iter::<PyObjectRef>(vm) {
+        for item in iter.iter::<PyObjectRef>(vm)? {
             let item = item?;
             let mut elements = self.borrow_vec_mut();
             if elements.len() == elements.capacity() {
                 elements.try_reserve(1).map_err(|_| vm.no_memory_error())?;
             }
             elements.push(item);
+        }
+        {
+            // Trim an excessive hint, preserving normal growth slack. Keep the
+            // iterator alive until resizing is done and the lock is released.
+            let mut elements = self.elements.write();
+            if elements.len() < elements.capacity().div_ceil(2) {
+                elements.shrink_to_fit();
+            }
         }
         Ok(())
     }
