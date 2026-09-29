@@ -3,6 +3,8 @@
 //! Interpreters do not share `PyObject` graphs. Shareable values are converted
 //! to an interpreter-neutral payload and rebuilt in the destination.
 
+#[cfg(not(feature = "threading"))]
+use crate::protocol::BufferDescriptor;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
@@ -132,7 +134,7 @@ pub enum SharedValue {
     #[cfg(feature = "threading")]
     Buffer(PyBuffer),
     #[cfg(not(feature = "threading"))]
-    Buffer(Vec<u8>),
+    Buffer(Vec<u8>, BufferDescriptor),
     /// Marshalled code object.
     Code(Vec<u8>),
     /// Marshalled code of a stateless function; rebuilt against `__main__`.
@@ -288,8 +290,8 @@ impl SharedValue {
         #[cfg(not(feature = "threading"))]
         {
             let buf = view.clone_buffer();
-            let bytes = buf.as_contiguous().map(|b| b.to_vec()).unwrap_or_default();
-            Ok(Self::Buffer(bytes))
+            let bytes = buf.obj_bytes().to_vec();
+            Ok(Self::Buffer(bytes, buf.desc.clone()))
         }
     }
 
@@ -312,13 +314,15 @@ impl SharedValue {
                 crate::stdlib::_interpchannels::channel_id_from_parts(cid, end, false, false, vm)
             }
             Self::Queue(queue) => crate::stdlib::_interpqueues::queue_from_xid(queue.qid, vm),
-            Self::Buffer(buffer) => {
-                #[cfg(not(feature = "threading"))]
-                let buffer = PyBuffer::from_byte_vector(buffer, vm);
-                // _memoryview_from_xid
-                let view = crate::stdlib::_interpreters::xibufferview_from_buffer(buffer, vm);
-                let mv = PyMemoryView::from_object(&view, vm)?;
-                Ok(mv.into_pyobject(vm))
+            #[cfg(feature = "threading")]
+            Self::Buffer(buffer) => memoryview_from_buffer(buffer, vm),
+            #[cfg(not(feature = "threading"))]
+            Self::Buffer(bytes, desc) => {
+                use crate::protocol::VecBuffer;
+                let buffer = VecBuffer::from(bytes)
+                    .into_ref(&vm.ctx)
+                    .into_pybuffer_with_descriptor(desc);
+                memoryview_from_buffer(buffer, vm)
             }
             Self::Code(data) => marshal_loads(&data, vm),
             Self::Function(data) => {
@@ -347,6 +351,13 @@ fn marshal_dumps(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
 fn marshal_loads(data: &[u8], vm: &VirtualMachine) -> PyResult {
     let loads = vm.import("marshal", 0)?.get_attr("loads", vm)?;
     loads.call((vm.ctx.new_bytes(data.to_vec()),), vm)
+}
+
+/// `_memoryview_from_xid`.
+fn memoryview_from_buffer(buffer: PyBuffer, vm: &VirtualMachine) -> PyResult {
+    let view = crate::stdlib::_interpreters::xibufferview_from_buffer(buffer, vm);
+    let mv = PyMemoryView::from_object(&view, vm)?;
+    Ok(mv.into_pyobject(vm))
 }
 
 fn pickle_dumps(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
