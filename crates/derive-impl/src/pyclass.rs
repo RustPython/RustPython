@@ -348,11 +348,10 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
 
 /// Validates that when a base class is specified, the struct has the base type as its first
 /// *declared* field.  Returns a token naming that field (e.g. `_base` or `0` for tuple structs)
-/// so the caller can emit a compile-time `offset_of!` assertion, or `None` for non-structs.
-fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<Option<TokenStream>> {
+/// so the caller can emit compile-time layout assertions.
+fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<TokenStream> {
     let Item::Struct(item_struct) = item else {
-        // Only validate structs - enums with base are already an error elsewhere
-        return Ok(None);
+        bail_span!(item, "#[pyclass] with base requires a struct");
     };
 
     // Get the base type name for error messages
@@ -375,8 +374,11 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<Option<Toke
                     "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
                 );
             }
-            let ident = first_field.ident.as_ref().map(|id| quote! { #id });
-            Ok(ident)
+            let ident = first_field
+                .ident
+                .as_ref()
+                .expect("named fields always have identifiers");
+            Ok(quote! { #ident })
         }
         syn::Fields::Unnamed(fields) => {
             let Some(first_field) = fields.unnamed.first() else {
@@ -391,7 +393,7 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<Option<Toke
                     "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
                 );
             }
-            Ok(Some(quote! { 0 }))
+            Ok(quote! { 0 })
         }
         syn::Fields::Unit => {
             bail_span!(
@@ -591,12 +593,12 @@ fn generate_class_def(
     });
     // If repr(transparent) with a base, the type has the same memory layout as base,
     // so basicsize stays 0 and type creation copies the base's full tp_basicsize.
-    // Otherwise, basicsize is the object header plus the payload.
+    // Otherwise, include any alignment padding between the header and payload.
     let basicsize = if is_repr_transparent && base.is_some() {
         quote!(0)
     } else {
         quote!(
-            ::rustpython_vm::object::SIZEOF_PYOBJECT_HEAD + ::core::mem::size_of::<#ident>()
+            ::rustpython_vm::object::payload_offset::<#ident>() + ::core::mem::size_of::<#ident>()
         )
     };
     if base.is_some() && is_pystruct {
@@ -731,8 +733,10 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     //      keeping the base field at offset 0 as the inherited getter dispatcher requires.
     //   3. Emit a compile-time offset_of! assertion as a safety net for structs that
     //      already carry an explicit repr that does not guarantee offset 0.
+    //   4. Require the payload to start at the same offset in Py<Base> and Py<Derived>.
+    //   5. Require Py<Derived> to meet Py<Base>'s alignment, including packed payloads.
     let base_field_token = if let Some(ref base_path) = base {
-        validate_base_field(&item, base_path)?
+        Some(validate_base_field(&item, base_path)?)
     } else {
         None
     };
@@ -747,7 +751,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
 
     let offset_assert = match (&base, &base_field_token) {
-        (Some(_), Some(field)) => quote! {
+        (Some(base_type), Some(field)) => quote! {
             const _: () = ::core::assert!(
                 ::core::mem::offset_of!(#ident, #field) == 0,
                 concat!(
@@ -755,6 +759,24 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
                      Add `#[repr(C)]` (or `#[repr(transparent)]`) to the struct so the \
                      compiler preserves declaration order and inherited getter dispatch \
                      reads the correct memory."
+                )
+            );
+            const _: () = ::core::assert!(
+                ::rustpython_vm::object::payload_offset::<#ident>()
+                    == ::rustpython_vm::object::payload_offset::<#base_type>(),
+                concat!(
+                    "The payload offsets of `", stringify!(#ident), "` and its base `",
+                    stringify!(#base_type), "` differ inside `Py<T>`. \
+                     Adjust the payload alignment so inherited methods read the same address. \
+                     A base field at offset 0 alone is not sufficient."
+                )
+            );
+            const _: () = ::core::assert!(
+                ::core::mem::align_of::<::rustpython_vm::Py<#ident>>()
+                    >= ::core::mem::align_of::<::rustpython_vm::Py<#base_type>>(),
+                concat!(
+                    "The object alignment of `", stringify!(#ident), "` is smaller than its base `",
+                    stringify!(#base_type), "`. Packed payloads must not weaken the base object's alignment."
                 )
             );
         },

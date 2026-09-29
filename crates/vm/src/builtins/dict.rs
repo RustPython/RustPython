@@ -33,6 +33,8 @@ pub(crate) type DictContentType = dict_inner::Dict;
 
 #[pyclass(module = false, name = "dict", unhashable = true, traverse = "manual")]
 #[derive(Default)]
+// OrderedDict contains eight-byte-aligned fields on 32-bit targets too.
+#[repr(align(8))]
 pub struct PyDict {
     entries: DictContentType,
 }

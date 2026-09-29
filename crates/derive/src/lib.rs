@@ -116,6 +116,9 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// - `name`: the name of the Python class, by default it is the name of the struct.
 /// - `base`: the base class of the Python class.
 ///   This does not cause inheritance of functions or attributes that must be done by a separate trait.
+///   The native payload must be a struct with the base as its first field.
+///   The macro adds `repr(C)` if no explicit representation is present and
+///   checks the base field offset, the payload offset in `Py<T>`, and object alignment.
 /// # Impl
 /// This part implements `PyClassImpl` for the struct.
 /// This includes methods, getters/setters, etc.; only annotated methods will be included.
