@@ -514,6 +514,8 @@ mod _io {
     #[pyattr]
     #[pyclass(name = "_IOBase")]
     #[derive(Debug, Default, PyPayload)]
+    // Buffered and text subclasses contain eight-byte-aligned fields on 32-bit targets.
+    #[repr(align(8))]
     pub(super) struct _IOBase;
 
     #[pyclass(
