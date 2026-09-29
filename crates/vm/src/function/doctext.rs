@@ -90,19 +90,6 @@ pub fn plain_doc(doc: ItemDoc) -> Option<&'static str> {
     doc.text.filter(|text| !text.is_empty())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{ItemDoc, plain_doc};
-
-    #[test]
-    fn explicit_empty_doc_is_empty_string() {
-        assert_eq!(plain_doc(ItemDoc::EMPTY), Some(""));
-        assert_eq!(plain_doc(ItemDoc::NONE), None);
-        assert_eq!(plain_doc(ItemDoc::static_text("")), None);
-        assert_eq!(plain_doc(ItemDoc::static_text("a")), Some("a"));
-    }
-}
-
 #[cfg(feature = "doc")]
 #[inline(never)]
 fn db_slice(offset: u32, len: u32) -> Option<&'static str> {
@@ -132,4 +119,17 @@ fn docs() -> &'static str {
         }
     })
     .as_ref()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ItemDoc, plain_doc};
+
+    #[test]
+    fn explicit_empty_doc_is_empty_string() {
+        assert_eq!(plain_doc(ItemDoc::EMPTY), Some(""));
+        assert_eq!(plain_doc(ItemDoc::NONE), None);
+        assert_eq!(plain_doc(ItemDoc::static_text("")), None);
+        assert_eq!(plain_doc(ItemDoc::static_text("a")), Some("a"));
+    }
 }
