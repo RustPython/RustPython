@@ -6796,15 +6796,6 @@ pub fn leading_byte_order_mark_error(source_file: &SourceFile) -> Option<Compile
     })
 }
 
-/// Whether `source` nests brackets deeper than a compile of it would accept.
-///
-/// Lets a caller that parses for its own purposes skip source the compile
-/// rejects anyway, rather than build a tree that deep only to drop it.
-#[must_use]
-pub fn exceeds_max_nesting(source: &str) -> bool {
-    too_many_nested_parentheses_error(source).is_some()
-}
-
 /// Source-level errors raised before parsing, as CPython's tokenizer does.
 ///
 /// Checking after the parse would build the tree first, and one nested that
