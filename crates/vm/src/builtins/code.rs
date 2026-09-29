@@ -1040,16 +1040,18 @@ impl Constructor for PyCode {
     }
 }
 
+impl PyCode {
+    pub fn co_filename(&self) -> PyStrRef {
+        self.source_path().to_owned()
+    }
+}
+
 #[pyclass(
     itemsize = core::mem::size_of::<u16>(),
     with(Representable, Constructor, Comparable, Hashable),
     flags(HAS_WEAKREF)
 )]
-impl PyCode {
-    pub fn co_filename(&self) -> PyStrRef {
-        self.source_path().to_owned()
-    }
-
+impl Py<PyCode> {
     #[pygetset]
     pub fn co_cellvars(&self, vm: &VirtualMachine) -> PyTupleRef {
         let cellvars = self
@@ -1406,12 +1408,12 @@ impl PyCode {
     }
 
     #[pymethod]
-    pub fn __replace__(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn __replace__(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
         self.replace(args, vm)
     }
 
     #[pymethod]
-    pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
         let ReplaceArgs {
             co_posonlyargcount,
             co_argcount,
@@ -1597,7 +1599,7 @@ impl PyCode {
             exceptiontable,
         };
 
-        Ok(Self::new(new_code))
+        Ok(PyCode::new(new_code))
     }
 
     #[pymethod]

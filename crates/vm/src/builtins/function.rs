@@ -328,7 +328,7 @@ impl PyFunction {
                 if slot.is_some() {
                     return Err(vm.new_type_error(format!(
                         "{}() got multiple values for argument '{}'",
-                        self.__qualname__(),
+                        self.qualname.lock().clone(),
                         name
                     )));
                 }
@@ -351,13 +351,13 @@ impl PyFunction {
                 if !posonly.is_empty() {
                     return Err(vm.new_type_error(format!(
                         "{}() got some positional-only arguments passed as keyword arguments: '{}'",
-                        self.__qualname__(),
+                        self.qualname.lock().clone(),
                         posonly.into_iter().format(", "),
                     )));
                 }
                 return Err(vm.new_type_error(format!(
                     "{}() got an unexpected keyword argument '{}'",
-                    self.__qualname__(),
+                    self.qualname.lock().clone(),
                     name
                 )));
             }
@@ -392,7 +392,7 @@ impl PyFunction {
 
             return Err(vm.new_type_error(format!(
                 "{}() takes {} positional argument{} but {} given",
-                self.__qualname__(),
+                self.qualname.lock().clone(),
                 takes_msg,
                 if plural { "s" } else { "" },
                 given_msg,
@@ -430,7 +430,7 @@ impl PyFunction {
 
             if !missing.is_empty() {
                 return Err(vm.new_type_error(format_missing_args(
-                    self.__qualname__(),
+                    self.qualname.lock().clone(),
                     "positional",
                     &mut missing,
                 )));
@@ -474,7 +474,7 @@ impl PyFunction {
 
             if !missing.is_empty() {
                 return Err(vm.new_type_error(format_missing_args(
-                    self.__qualname__(),
+                    self.qualname.lock().clone(),
                     "keyword-only",
                     &mut missing,
                 )));
@@ -998,7 +998,7 @@ impl PyPayload for PyFunction {
     with(GetDescriptor, Callable, Representable, Constructor),
     flags(HAS_DICT, HAS_WEAKREF, METHOD_DESCRIPTOR)
 )]
-impl PyFunction {
+impl Py<PyFunction> {
     #[pygetset]
     fn __code__(&self) -> PyRef<PyCode> {
         (*self.code).to_owned()
@@ -1139,12 +1139,12 @@ impl PyFunction {
     }
 
     #[pygetset]
-    fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    fn __dict__(zelf: &Self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
         object::object_get_dict(zelf.as_object().to_owned(), vm)
     }
 
     #[pygetset(setter)]
-    fn set___dict__(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+    fn set___dict__(zelf: &Self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         object::object_generic_set_dict(zelf.as_object().to_owned(), value, vm)
     }
 
@@ -1225,7 +1225,7 @@ impl PyFunction {
 
     #[cfg(feature = "jit")]
     #[pymethod]
-    fn __jit__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+    fn __jit__(zelf: PyRef<PyFunction>, vm: &VirtualMachine) -> PyResult<()> {
         let mut jit_guard = zelf.jitted_code.lock();
         if jit_guard.is_some() {
             return Ok(());
@@ -1466,7 +1466,7 @@ impl PyBoundMethod {
     ),
     flags(IMMUTABLETYPE, HAS_WEAKREF)
 )]
-impl PyBoundMethod {
+impl Py<PyBoundMethod> {
     #[pymethod]
     fn __reduce__(
         &self,
@@ -1577,26 +1577,7 @@ impl Constructor for PyCell {
     }
 }
 
-#[pyclass(with(Constructor, Representable))]
 impl PyCell {
-    #[pyslot]
-    fn slot_richcompare(
-        zelf: &PyObject,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
-        else {
-            return Ok(Either::B(PyComparisonValue::NotImplemented));
-        };
-        // compare cells by contents; empty cells come before anything else
-        match (zelf.get(), other.get()) {
-            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
-            (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
-        }
-    }
-
     pub(crate) const fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
             contents: PyMutex::new(contents),
@@ -1613,6 +1594,29 @@ impl PyCell {
         // that reads this cell wait on a lock this call still holds.
         let replaced = core::mem::replace(&mut *self.contents.lock(), x);
         drop(replaced);
+    }
+}
+
+#[pyclass(with(Constructor, Representable))]
+impl Py<PyCell> {
+    #[pyslot]
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (
+            zelf.downcast_ref::<PyCell>(),
+            other.downcast_ref::<PyCell>(),
+        ) else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        // compare cells by contents; empty cells come before anything else
+        match (zelf.get(), other.get()) {
+            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
+            (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
+        }
     }
 
     #[pygetset]

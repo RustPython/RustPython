@@ -218,7 +218,7 @@ mod _symtable {
     }
 
     #[pyclass(with(Representable))]
-    impl PySymbolTable {
+    impl Py<PySymbolTable> {
         #[pygetset]
         fn name(&self) -> String {
             self.symtable.name.to_string()
@@ -241,7 +241,7 @@ mod _symtable {
         }
 
         #[pygetset]
-        const fn lineno(&self) -> u32 {
+        fn lineno(&self) -> u32 {
             self.symtable.line_number
         }
 
@@ -252,7 +252,7 @@ mod _symtable {
 
         #[pygetset]
         fn id(&self) -> usize {
-            self as *const Self as *const core::ffi::c_void as usize
+            self.payload() as *const PySymbolTable as *const core::ffi::c_void as usize
         }
 
         #[pygetset]
@@ -266,7 +266,7 @@ mod _symtable {
         }
 
         #[pygetset]
-        const fn nested(&self) -> bool {
+        fn nested(&self) -> bool {
             self.symtable.is_nested
         }
     }

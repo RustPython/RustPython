@@ -220,19 +220,6 @@ pub(crate) fn init(context: &'static Context) {
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);
 }
 
-#[pyclass(
-    with(
-        Py,
-        AsMapping,
-        AsNumber,
-        AsSequence,
-        Hashable,
-        Comparable,
-        Iterable,
-        Representable
-    ),
-    flags(SEQUENCE)
-)]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self {
@@ -262,52 +249,8 @@ impl PyRange {
         .into_ref_with_type(vm, cls)
     }
 
-    #[pymethod]
-    fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let start = self.start.as_bigint();
-        let step = self.step.as_bigint();
-
-        // Use CPython calculation for this:
-        let length = self.__len__();
-        let new_stop = start - step;
-        let start = &new_stop + length.clone() * step;
-        let step = -step;
-
-        if let (Some(start), Some(step), Some(_)) =
-            (start.to_isize(), step.to_isize(), new_stop.to_isize())
-        {
-            PyRangeIterator {
-                index: AtomicCell::new(0),
-                start,
-                step,
-                // Cannot fail. If start, stop and step all successfully convert to isize, then result of zelf.len will
-                // always fit in a usize.
-                length: length.to_usize().unwrap_or(0),
-            }
-            .into_pyobject(vm)
-        } else {
-            PyLongRangeIterator {
-                index: AtomicCell::new(0),
-                start,
-                step,
-                length,
-            }
-            .into_pyobject(vm)
-        }
-    }
-
     fn __len__(&self) -> BigInt {
         self.compute_length()
-    }
-
-    #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
-        let range_parameters: Vec<PyObjectRef> = [&self.start, &self.stop, &self.step]
-            .iter()
-            .map(|x| x.as_object().to_owned())
-            .collect();
-        let range_parameters_tuple = vm.ctx.new_tuple(range_parameters);
-        (vm.ctx.types.range_type.to_owned(), range_parameters_tuple)
     }
 
     fn __getitem__(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -337,22 +280,6 @@ impl PyRange {
         }
     }
 
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let range = if args.args.is_empty() {
-            return Err(vm.new_arity_type_error(Self::NAME, 1..=3, 0));
-        } else if args.args.len() == 1 {
-            let stop = args.bind_for(vm, Self::NAME)?;
-            Self::new(cls, stop, vm)
-        } else {
-            let (start, stop, step): (PyObjectRef, PyObjectRef, OptionalArg<ArgIndex>) =
-                args.bind_for(vm, Self::NAME)?;
-            Self::new_from(cls, &start, &stop, step, vm)
-        }?;
-
-        Ok(range.into())
-    }
-
     // TODO: Uncomment when Python adds __class_getitem__ to range
     // #[pyclassmethod]
     fn __class_getitem__(
@@ -363,6 +290,21 @@ impl PyRange {
         PyGenericAlias::from_args(cls, args, vm)
     }
 }
+
+#[pyclass(
+    with(
+        Py,
+        AsMapping,
+        AsNumber,
+        AsSequence,
+        Hashable,
+        Comparable,
+        Iterable,
+        Representable
+    ),
+    flags(SEQUENCE)
+)]
+impl PyRange {}
 
 #[pyclass]
 impl Py<PyRange> {
@@ -407,6 +349,66 @@ impl Py<PyRange> {
             // __eq__, slow search.
             iter_search(self.as_object(), &object, SearchType::Count, vm)
         }
+    }
+
+    #[pymethod]
+    fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
+        let start = self.start.as_bigint();
+        let step = self.step.as_bigint();
+
+        // Use CPython calculation for this:
+        let length = self.__len__();
+        let new_stop = start - step;
+        let start = &new_stop + length.clone() * step;
+        let step = -step;
+
+        if let (Some(start), Some(step), Some(_)) =
+            (start.to_isize(), step.to_isize(), new_stop.to_isize())
+        {
+            PyRangeIterator {
+                index: AtomicCell::new(0),
+                start,
+                step,
+                // Cannot fail. If start, stop and step all successfully convert to isize, then result of zelf.len will
+                // always fit in a usize.
+                length: length.to_usize().unwrap_or(0),
+            }
+            .into_pyobject(vm)
+        } else {
+            PyLongRangeIterator {
+                index: AtomicCell::new(0),
+                start,
+                step,
+                length,
+            }
+            .into_pyobject(vm)
+        }
+    }
+
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
+        let range_parameters: Vec<PyObjectRef> = [&self.start, &self.stop, &self.step]
+            .iter()
+            .map(|x| x.as_object().to_owned())
+            .collect();
+        let range_parameters_tuple = vm.ctx.new_tuple(range_parameters);
+        (vm.ctx.types.range_type.to_owned(), range_parameters_tuple)
+    }
+
+    #[pyslot]
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let range = if args.args.is_empty() {
+            return Err(vm.new_arity_type_error(PyRange::NAME, 1..=3, 0));
+        } else if args.args.len() == 1 {
+            let stop = args.bind_for(vm, PyRange::NAME)?;
+            PyRange::new(cls, stop, vm)
+        } else {
+            let (start, stop, step): (PyObjectRef, PyObjectRef, OptionalArg<ArgIndex>) =
+                args.bind_for(vm, PyRange::NAME)?;
+            PyRange::new_from(cls, &start, &stop, step, vm)
+        }?;
+
+        Ok(range.into())
     }
 }
 
@@ -589,7 +591,7 @@ impl PyPayload for PyLongRangeIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PyLongRangeIterator {
+impl Py<PyLongRangeIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> BigInt {
         let index = BigInt::from(self.index.load());
@@ -654,7 +656,7 @@ impl PyPayload for PyRangeIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PyRangeIterator {
+impl Py<PyRangeIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
         let index = self.index.load();

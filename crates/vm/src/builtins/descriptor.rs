@@ -133,7 +133,7 @@ impl PyMethodDescriptor {
     with(GetDescriptor, Callable, Representable),
     flags(METHOD_DESCRIPTOR, DISALLOW_INSTANTIATION)
 )]
-impl PyMethodDescriptor {
+impl Py<PyMethodDescriptor> {
     #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.common.typ.name(), self.common.name)
@@ -281,7 +281,7 @@ impl Callable for PyClassMethodDescriptor {
     with(GetDescriptor, Callable, Representable),
     flags(DISALLOW_INSTANTIATION)
 )]
-impl PyClassMethodDescriptor {
+impl Py<PyClassMethodDescriptor> {
     #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.common.typ.name(), self.common.name)
@@ -829,7 +829,7 @@ fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResul
 }
 
 #[pyclass(with(GetDescriptor, Representable), flags(DISALLOW_INSTANTIATION))]
-impl PyMemberDescriptor {
+impl Py<PyMemberDescriptor> {
     #[pygetset]
     fn __doc__(&self) -> Option<&'static str> {
         plain_doc(self.member.doc)
@@ -872,7 +872,7 @@ impl PyMemberDescriptor {
         value: PySetterValue<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let zelf = Self::_as_pyref(zelf, vm)?;
+        let zelf = PyMemberDescriptor::_as_pyref(zelf, vm)?;
 
         if !obj.class().fast_issubclass(&zelf.common.typ) {
             return Err(vm.new_type_error(format!(
@@ -2017,7 +2017,7 @@ impl Callable for PyWrapper {
     with(GetDescriptor, Callable, Representable),
     flags(DISALLOW_INSTANTIATION)
 )]
-impl PyWrapper {
+impl Py<PyWrapper> {
     #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.typ.name(), self.name)
@@ -2092,7 +2092,7 @@ impl Callable for PyMethodWrapper {
     with(Callable, Representable, Hashable, Comparable),
     flags(DISALLOW_INSTANTIATION)
 )]
-impl PyMethodWrapper {
+impl Py<PyMethodWrapper> {
     #[pygetset]
     fn __name__(&self) -> &'static PyStrInterned {
         self.wrapper.name
@@ -2126,7 +2126,7 @@ impl PyMethodWrapper {
     }
 
     #[pymethod]
-    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+    fn __reduce__(zelf: PyRef<PyMethodWrapper>, vm: &VirtualMachine) -> PyResult {
         let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
         Ok(vm
             .ctx

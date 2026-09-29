@@ -737,18 +737,6 @@ fn reduce_set(zelf: &PyObject, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, O
     )
 }
 
-#[pyclass(
-    with(
-        Constructor,
-        Initializer,
-        AsSequence,
-        Comparable,
-        Iterable,
-        AsNumber,
-        Representable
-    ),
-    flags(BASETYPE, _MATCH_SELF, HAS_WEAKREF)
-)]
 impl PySet {
     fn __len__(&self) -> usize {
         self.inner.len()
@@ -756,78 +744,6 @@ impl PySet {
 
     pub fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
-    }
-
-    #[pymethod(coexist)]
-    fn __contains__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.contains(&object, vm)
-    }
-
-    #[pymethod]
-    fn __sizeof__(&self) -> usize {
-        core::mem::size_of::<Self>() + self.inner.sizeof()
-    }
-
-    #[pymethod]
-    fn copy(&self) -> Self {
-        Self {
-            inner: self.inner.copy(),
-        }
-    }
-
-    #[pymethod]
-    fn union(
-        &self,
-        others: PosArgs<ArgIterable, NameOthers>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        self.fold_op(others.into_iter(), PySetInner::union, vm)
-    }
-
-    #[pymethod]
-    fn intersection(
-        &self,
-        others: PosArgs<ArgIterable, NameOthers>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        Ok(Self {
-            inner: self.inner.intersection_multi(others.into_iter(), vm)?,
-        })
-    }
-
-    #[pymethod]
-    fn difference(
-        &self,
-        others: PosArgs<ArgIterable, NameOthers>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        Ok(Self {
-            inner: self.inner.difference_multi(others.into_iter(), vm)?,
-        })
-    }
-
-    #[pymethod]
-    fn symmetric_difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.fold_op(
-            core::iter::once(other),
-            PySetInner::symmetric_difference,
-            vm,
-        )
-    }
-
-    #[pymethod]
-    fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issubset(other, vm)
-    }
-
-    #[pymethod]
-    fn issuperset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issuperset(other, vm)
-    }
-
-    #[pymethod]
-    fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.isdisjoint(other, vm)
     }
 
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
@@ -902,9 +818,132 @@ impl PySet {
         }
     }
 
-    #[pymethod]
+    fn __ior__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        zelf.inner.merge_set(set, vm)?;
+        Ok(zelf)
+    }
+
+    fn __iand__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        if !set.is(zelf.as_object()) {
+            zelf.inner
+                .intersection_update(core::iter::once(set.into_iterable(vm)?), vm)?;
+        }
+        Ok(zelf)
+    }
+
+    fn __isub__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        if set.is(zelf.as_object()) {
+            zelf.inner.clear();
+        } else {
+            zelf.inner
+                .difference_update(set.into_iterable_iter(vm)?, vm)?;
+        }
+        Ok(zelf)
+    }
+
+    fn __ixor__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        if set.is(zelf.as_object()) {
+            zelf.inner.clear();
+        } else {
+            zelf.inner
+                .symmetric_difference_update(set.into_iterable_iter(vm)?, vm)?;
+        }
+        Ok(zelf)
+    }
+
     pub fn add(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.add(&object, vm)
+    }
+}
+
+#[pyclass(
+    with(
+        Constructor,
+        Initializer,
+        AsSequence,
+        Comparable,
+        Iterable,
+        AsNumber,
+        Representable
+    ),
+    flags(BASETYPE, _MATCH_SELF, HAS_WEAKREF)
+)]
+impl Py<PySet> {
+    #[pymethod(coexist)]
+    fn __contains__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.contains(&object, vm)
+    }
+
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
+        core::mem::size_of::<PySet>() + self.inner.sizeof()
+    }
+
+    #[pymethod]
+    fn copy(&self) -> PySet {
+        PySet {
+            inner: self.inner.copy(),
+        }
+    }
+
+    #[pymethod]
+    fn union(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PySet> {
+        self.fold_op(others.into_iter(), PySetInner::union, vm)
+    }
+
+    #[pymethod]
+    fn intersection(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PySet> {
+        Ok(PySet {
+            inner: self.inner.intersection_multi(others.into_iter(), vm)?,
+        })
+    }
+
+    #[pymethod]
+    fn difference(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PySet> {
+        Ok(PySet {
+            inner: self.inner.difference_multi(others.into_iter(), vm)?,
+        })
+    }
+
+    #[pymethod]
+    fn symmetric_difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<PySet> {
+        self.fold_op(
+            core::iter::once(other),
+            PySetInner::symmetric_difference,
+            vm,
+        )
+    }
+
+    #[pymethod]
+    fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.issubset(other, vm)
+    }
+
+    #[pymethod]
+    fn issuperset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.issuperset(other, vm)
+    }
+
+    #[pymethod]
+    fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.isdisjoint(other, vm)
+    }
+
+    #[pymethod]
+    pub fn add(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.payload.add(object, vm)
     }
 
     #[pymethod]
@@ -925,11 +964,6 @@ impl PySet {
     #[pymethod]
     pub fn pop(&self, vm: &VirtualMachine) -> PyResult {
         self.inner.pop(vm)
-    }
-
-    fn __ior__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.inner.merge_set(set, vm)?;
-        Ok(zelf)
     }
 
     #[pymethod]
@@ -954,14 +988,6 @@ impl PySet {
         Ok(())
     }
 
-    fn __iand__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if !set.is(zelf.as_object()) {
-            zelf.inner
-                .intersection_update(core::iter::once(set.into_iterable(vm)?), vm)?;
-        }
-        Ok(zelf)
-    }
-
     #[pymethod]
     fn difference_update(
         &self,
@@ -971,35 +997,15 @@ impl PySet {
         self.inner.difference_update(others.into_iter(), vm)
     }
 
-    fn __isub__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if set.is(zelf.as_object()) {
-            zelf.inner.clear();
-        } else {
-            zelf.inner
-                .difference_update(set.into_iterable_iter(vm)?, vm)?;
-        }
-        Ok(zelf)
-    }
-
     #[pymethod]
     fn symmetric_difference_update(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
         self.inner
             .symmetric_difference_update(core::iter::once(other), vm)
     }
 
-    fn __ixor__(zelf: PyRef<Self>, set: AnySet, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if set.is(zelf.as_object()) {
-            zelf.inner.clear();
-        } else {
-            zelf.inner
-                .symmetric_difference_update(set.into_iterable_iter(vm)?, vm)?;
-        }
-        Ok(zelf)
-    }
-
     #[pymethod]
     fn __reduce__(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PySet>,
         vm: &VirtualMachine,
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         reduce_set(zelf.as_ref(), vm)
@@ -1258,18 +1264,6 @@ impl Constructor for PyFrozenSet {
     }
 }
 
-#[pyclass(
-    flags(BASETYPE, _MATCH_SELF, HAS_WEAKREF),
-    with(
-        Constructor,
-        AsSequence,
-        Hashable,
-        Comparable,
-        Iterable,
-        AsNumber,
-        Representable
-    )
-)]
 impl PyFrozenSet {
     fn __len__(&self) -> usize {
         self.inner.len()
@@ -1277,86 +1271,6 @@ impl PyFrozenSet {
 
     pub fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
-    }
-
-    #[pymethod(coexist)]
-    fn __contains__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.contains(&object, vm)
-    }
-
-    #[pymethod]
-    fn __sizeof__(&self) -> usize {
-        core::mem::size_of::<Self>() + self.inner.sizeof()
-    }
-
-    #[pymethod]
-    fn copy(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        if zelf.class().is(vm.ctx.types.frozenset_type) {
-            zelf
-        } else {
-            Self {
-                inner: zelf.inner.copy(),
-                ..Default::default()
-            }
-            .into_ref(&vm.ctx)
-        }
-    }
-
-    #[pymethod]
-    fn union(
-        &self,
-        others: PosArgs<ArgIterable, NameOthers>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        self.fold_op(others.into_iter(), PySetInner::union, vm)
-    }
-
-    #[pymethod]
-    fn intersection(
-        &self,
-        others: PosArgs<ArgIterable, NameOthers>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        Ok(Self {
-            inner: self.inner.intersection_multi(others.into_iter(), vm)?,
-            ..Default::default()
-        })
-    }
-
-    #[pymethod]
-    fn difference(
-        &self,
-        others: PosArgs<ArgIterable, NameOthers>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        Ok(Self {
-            inner: self.inner.difference_multi(others.into_iter(), vm)?,
-            ..Default::default()
-        })
-    }
-
-    #[pymethod]
-    fn symmetric_difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
-        self.fold_op(
-            core::iter::once(other),
-            PySetInner::symmetric_difference,
-            vm,
-        )
-    }
-
-    #[pymethod]
-    fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issubset(other, vm)
-    }
-
-    #[pymethod]
-    fn issuperset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.issuperset(other, vm)
-    }
-
-    #[pymethod]
-    fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.isdisjoint(other, vm)
     }
 
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
@@ -1433,10 +1347,108 @@ impl PyFrozenSet {
             Ok(PyArithmeticValue::NotImplemented)
         }
     }
+}
+
+#[pyclass(
+    flags(BASETYPE, _MATCH_SELF, HAS_WEAKREF),
+    with(
+        Constructor,
+        AsSequence,
+        Hashable,
+        Comparable,
+        Iterable,
+        AsNumber,
+        Representable
+    )
+)]
+impl Py<PyFrozenSet> {
+    #[pymethod(coexist)]
+    fn __contains__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.contains(&object, vm)
+    }
+
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
+        core::mem::size_of::<PyFrozenSet>() + self.inner.sizeof()
+    }
+
+    #[pymethod]
+    fn copy(zelf: PyRef<PyFrozenSet>, vm: &VirtualMachine) -> PyRef<PyFrozenSet> {
+        if zelf.class().is(vm.ctx.types.frozenset_type) {
+            zelf
+        } else {
+            PyFrozenSet {
+                inner: zelf.inner.copy(),
+                ..Default::default()
+            }
+            .into_ref(&vm.ctx)
+        }
+    }
+
+    #[pymethod]
+    fn union(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyFrozenSet> {
+        self.fold_op(others.into_iter(), PySetInner::union, vm)
+    }
+
+    #[pymethod]
+    fn intersection(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyFrozenSet> {
+        Ok(PyFrozenSet {
+            inner: self.inner.intersection_multi(others.into_iter(), vm)?,
+            ..Default::default()
+        })
+    }
+
+    #[pymethod]
+    fn difference(
+        &self,
+        others: PosArgs<ArgIterable, NameOthers>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyFrozenSet> {
+        Ok(PyFrozenSet {
+            inner: self.inner.difference_multi(others.into_iter(), vm)?,
+            ..Default::default()
+        })
+    }
+
+    #[pymethod]
+    fn symmetric_difference(
+        &self,
+        other: ArgIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyFrozenSet> {
+        self.fold_op(
+            core::iter::once(other),
+            PySetInner::symmetric_difference,
+            vm,
+        )
+    }
+
+    #[pymethod]
+    fn issubset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.issubset(other, vm)
+    }
+
+    #[pymethod]
+    fn issuperset(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.issuperset(other, vm)
+    }
+
+    #[pymethod]
+    fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.isdisjoint(other, vm)
+    }
 
     #[pymethod]
     fn __reduce__(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PyFrozenSet>,
         vm: &VirtualMachine,
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         reduce_set(zelf.as_ref(), vm)
@@ -1674,7 +1686,7 @@ impl PySetIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PySetIterator {
+impl Py<PySetIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
         // `setiter_len()` answers for a set it can no longer walk with nothing,
@@ -1694,7 +1706,7 @@ impl PySetIterator {
 
     #[pymethod]
     fn __reduce__(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PySetIterator>,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
         let internal = zelf.internal.lock();

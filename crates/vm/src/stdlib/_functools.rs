@@ -113,7 +113,7 @@ mod _functools {
     }
 
     #[pyclass(with(Callable), flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
-    impl PyKeyWrapper {
+    impl Py<PyKeyWrapper> {
         #[pygetset]
         fn obj(&self, vm: &VirtualMachine) -> PyObjectRef {
             self.object.read().clone().unwrap_or_else(|| vm.ctx.none())
@@ -141,13 +141,13 @@ mod _functools {
             op: PyComparisonOp,
             vm: &VirtualMachine,
         ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-            let Some(zelf) = zelf.downcast_ref::<Self>() else {
+            let Some(zelf) = zelf.downcast_ref::<PyKeyWrapper>() else {
                 return Err(vm.new_type_error(format!(
                     "unexpected payload for {}",
                     op.method_name(&vm.ctx).as_str()
                 )));
             };
-            let Some(other) = other.downcast_ref::<Self>() else {
+            let Some(other) = other.downcast_ref::<PyKeyWrapper>() else {
                 return Err(vm.new_type_error("other argument must be K instance"));
             };
             let x = zelf
@@ -784,10 +784,6 @@ mod _functools {
         }
     }
 
-    #[pyclass(
-        with(Constructor, Callable, GetDescriptor),
-        flags(HAS_DICT, HAS_WEAKREF)
-    )]
     impl PyLruCacheWrapper {
         /// Build the cache key for a call, following `functools._make_key`.
         fn make_key(&self, args: &FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
@@ -842,7 +838,13 @@ mod _functools {
             }
             Ok(())
         }
+    }
 
+    #[pyclass(
+        with(Constructor, Callable, GetDescriptor),
+        flags(HAS_DICT, HAS_WEAKREF)
+    )]
+    impl Py<PyLruCacheWrapper> {
         #[pymethod]
         fn cache_info(&self, vm: &VirtualMachine) -> PyResult {
             let hits = self.hits.load(Ordering::Relaxed);
@@ -870,7 +872,7 @@ mod _functools {
         }
 
         #[pymethod]
-        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        fn __reduce__(zelf: &Self, vm: &VirtualMachine) -> PyResult {
             zelf.as_object().get_attr("__qualname__", vm)
         }
 

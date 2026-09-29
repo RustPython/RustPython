@@ -87,15 +87,6 @@ impl Constructor for FrameLocalsProxy {
     }
 }
 
-#[pyclass(with(
-    Constructor,
-    AsMapping,
-    AsSequence,
-    AsNumber,
-    Iterable,
-    Comparable,
-    Representable
-))]
 impl FrameLocalsProxy {
     fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.frame.framelocalsproxy_getitem(key, vm)
@@ -122,6 +113,68 @@ impl FrameLocalsProxy {
         Ok(self.items_vec(vm)?.len())
     }
 
+    fn update_from(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        if other.downcast_ref::<PyDict>().is_none() && other.downcast_ref::<Self>().is_none() {
+            return Err(
+                vm.new_type_error("update() argument must be dict or another FrameLocalsProxy")
+            );
+        }
+        // CPython deliberately uses the mapping protocol here, including
+        // overridden keys()/__getitem__ on dict subclasses.
+        let keys = other
+            .get_attr(vm.ctx.intern_str("keys"), vm)?
+            .call((), vm)?
+            .get_iter(vm)?;
+        while let PyIterReturn::Return(key) = keys.next(vm)? {
+            let value = other.get_item(&*key, vm)?;
+            self.frame.framelocalsproxy_setitem(&key, value, vm)?;
+        }
+        Ok(())
+    }
+
+    fn __ior__(zelf: PyRef<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult {
+        if other.downcast_ref::<PyDict>().is_none() && other.downcast_ref::<Self>().is_none() {
+            return Ok(vm.ctx.not_implemented());
+        }
+        zelf.update_from(other, vm)?;
+        Ok(zelf.into())
+    }
+
+    fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if other.downcast_ref::<PyDict>().is_none() && other.downcast_ref::<Self>().is_none() {
+            return Ok(vm.ctx.not_implemented());
+        }
+        let result = self.snapshot(vm)?;
+        if other.downcast_ref::<PyDict>().is_some() {
+            // PyDict_Update reads a dict subclass's stored entries directly;
+            // it does not dispatch to overridden mapping methods.
+            result.merge_dict(&other.downcast().unwrap(), true, vm)?;
+        } else {
+            result.merge_object(other, vm)?;
+        }
+        Ok(result.into())
+    }
+
+    fn __ror__(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
+        let Some(other) = other.downcast_ref::<PyDict>() else {
+            return Ok(vm.ctx.not_implemented());
+        };
+        let result = other.copy().into_ref(&vm.ctx);
+        result.merge_object(self.snapshot(vm)?.into(), vm)?;
+        Ok(result.into())
+    }
+}
+
+#[pyclass(with(
+    Constructor,
+    AsMapping,
+    AsSequence,
+    AsNumber,
+    Iterable,
+    Comparable,
+    Representable
+))]
+impl Py<FrameLocalsProxy> {
     #[pymethod]
     fn keys(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         Ok(vm.ctx.new_list(self.keys_vec(vm)?).into())
@@ -189,62 +242,11 @@ impl FrameLocalsProxy {
         self.update_from(&args.args[0], vm)
     }
 
-    fn update_from(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        if other.downcast_ref::<PyDict>().is_none() && other.downcast_ref::<Self>().is_none() {
-            return Err(
-                vm.new_type_error("update() argument must be dict or another FrameLocalsProxy")
-            );
-        }
-        // CPython deliberately uses the mapping protocol here, including
-        // overridden keys()/__getitem__ on dict subclasses.
-        let keys = other
-            .get_attr(vm.ctx.intern_str("keys"), vm)?
-            .call((), vm)?
-            .get_iter(vm)?;
-        while let PyIterReturn::Return(key) = keys.next(vm)? {
-            let value = other.get_item(&*key, vm)?;
-            self.frame.framelocalsproxy_setitem(&key, value, vm)?;
-        }
-        Ok(())
-    }
-
     #[pymethod]
     fn __reversed__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let mut keys = self.keys_vec(vm)?;
         keys.reverse();
         Ok(vm.ctx.new_list(keys).into())
-    }
-
-    fn __ior__(zelf: PyRef<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult {
-        if other.downcast_ref::<PyDict>().is_none() && other.downcast_ref::<Self>().is_none() {
-            return Ok(vm.ctx.not_implemented());
-        }
-        zelf.update_from(other, vm)?;
-        Ok(zelf.into())
-    }
-
-    fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if other.downcast_ref::<PyDict>().is_none() && other.downcast_ref::<Self>().is_none() {
-            return Ok(vm.ctx.not_implemented());
-        }
-        let result = self.snapshot(vm)?;
-        if other.downcast_ref::<PyDict>().is_some() {
-            // PyDict_Update reads a dict subclass's stored entries directly;
-            // it does not dispatch to overridden mapping methods.
-            result.merge_dict(&other.downcast().unwrap(), true, vm)?;
-        } else {
-            result.merge_object(other, vm)?;
-        }
-        Ok(result.into())
-    }
-
-    fn __ror__(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let Some(other) = other.downcast_ref::<PyDict>() else {
-            return Ok(vm.ctx.not_implemented());
-        };
-        let result = other.copy().into_ref(&vm.ctx);
-        result.merge_object(self.snapshot(vm)?.into(), vm)?;
-        Ok(result.into())
     }
 
     #[pymethod]

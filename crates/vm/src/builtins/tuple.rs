@@ -432,11 +432,6 @@ impl<T> PyTuple<PyRef<T>> {
     }
 }
 
-#[pyclass(
-    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
-    flags(BASETYPE, SEQUENCE, _MATCH_SELF),
-    with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
-)]
 impl PyTuple {
     fn __add__(
         zelf: PyRef<Self>,
@@ -462,17 +457,6 @@ impl PyTuple {
             }
         });
         PyArithmeticValue::from_option(added.ok())
-    }
-
-    #[pymethod]
-    fn count(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        let mut count: usize = 0;
-        for element in self {
-            if vm.identical_or_equal(element, &value)? {
-                count += 1;
-            }
-        }
-        Ok(count)
     }
 
     #[inline]
@@ -505,6 +489,37 @@ impl PyTuple {
         self._getitem(needle, vm)
     }
 
+    fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        for element in &self.elements {
+            if vm.identical_or_equal(element, needle)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self._contains(needle, vm)
+    }
+}
+
+#[pyclass(
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
+    flags(BASETYPE, SEQUENCE, _MATCH_SELF),
+    with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
+)]
+impl Py<PyTuple> {
+    #[pymethod]
+    fn count(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let mut count: usize = 0;
+        for element in self {
+            if vm.identical_or_equal(element, &value)? {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
     #[pymethod]
     fn index(
         &self,
@@ -521,28 +536,15 @@ impl PyTuple {
         Err(vm.new_value_error("tuple.index(x): x not in tuple"))
     }
 
-    fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        for element in &self.elements {
-            if vm.identical_or_equal(element, needle)? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        self._contains(needle, vm)
-    }
-
     #[pymethod]
-    fn __getnewargs__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTupleRef,) {
+    fn __getnewargs__(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> (PyTupleRef,) {
         // the arguments to pass to tuple() is just one tuple - so we'll be doing tuple(tup), which
         // should just return tup, or tuple_subclass(tup), which'll copy/validate (e.g. for a
         // structseq)
         let tup_arg = if zelf.class().is(vm.ctx.types.tuple_type) {
             zelf
         } else {
-            Self::new_ref(zelf.as_slice().to_vec(), &vm.ctx)
+            PyTuple::new_ref(zelf.as_slice().to_vec(), &vm.ctx)
         };
         (tup_arg,)
     }
@@ -732,7 +734,7 @@ impl PyPayload for PyTupleIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PyTupleIterator {
+impl Py<PyTupleIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
         self.internal.lock().length_hint(|obj| obj.as_slice().len())

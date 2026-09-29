@@ -644,121 +644,15 @@ impl PyBaseException {
     }
 }
 
-#[pyclass(
-    with(Py, PyRef, Constructor, Initializer, Representable),
-    flags(BASETYPE, HAS_DICT)
-)]
 impl PyBaseException {
-    #[pygetset]
-    fn __dict__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<crate::builtins::PyDictRef> {
-        crate::builtins::object::object_get_dict(zelf, vm)
-    }
-
-    #[pygetset(setter)]
-    fn set___dict__(zelf: PyObjectRef, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        crate::builtins::object::object_generic_set_dict(zelf, value, vm)
-    }
-
-    #[pygetset]
-    pub fn args(&self) -> PyTupleRef {
-        self.args.read().clone()
-    }
-
-    #[pygetset(setter)]
-    fn set_args(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        let PySetterValue::Assign(value) = value else {
-            return Err(vm.new_type_error("args may not be deleted"));
-        };
-        let args: ArgIterable = value.try_into_value(vm)?;
-        let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-        *self.args.write() = PyTuple::new_ref(args, &vm.ctx);
-        Ok(())
-    }
-
-    #[pygetset]
-    pub fn __traceback__(&self) -> Option<PyTracebackRef> {
-        self.traceback.read().clone()
-    }
-
-    #[pygetset(setter)]
-    fn set___traceback__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        let PySetterValue::Assign(value) = value else {
-            return Err(vm.new_type_error("__traceback__ may not be deleted"));
-        };
-        let traceback = if vm.is_none(&value) {
-            None
-        } else {
-            match value.downcast::<PyTraceback>() {
-                Ok(tb) => Some(tb),
-                Err(_) => {
-                    return Err(vm.new_type_error("__traceback__ must be a traceback or None"));
-                }
-            }
-        };
-        self.set_traceback(traceback);
-        Ok(())
-    }
-
     pub fn set_traceback(&self, traceback: Option<PyTracebackRef>) {
         *self.traceback.write() = traceback;
-    }
-
-    #[pygetset]
-    pub fn __cause__(&self) -> Option<PyRef<Self>> {
-        self.cause.read().clone()
-    }
-
-    #[pygetset(setter)]
-    fn set___cause__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        let PySetterValue::Assign(value) = value else {
-            return Err(vm.new_type_error("__cause__ may not be deleted"));
-        };
-        let cause = if vm.is_none(&value) {
-            None
-        } else {
-            match value.downcast::<Self>() {
-                Ok(exc) => Some(exc),
-                Err(_) => {
-                    return Err(vm.new_type_error(
-                        "exception cause must be None or derive from BaseException",
-                    ));
-                }
-            }
-        };
-        self.set_cause(cause);
-        Ok(())
     }
 
     pub fn set_cause(&self, cause: Option<PyRef<Self>>) {
         let mut c = self.cause.write();
         self.set_suppress_context(true);
         *c = cause;
-    }
-
-    #[pygetset]
-    pub fn __context__(&self) -> Option<PyRef<Self>> {
-        self.context.read().clone()
-    }
-
-    #[pygetset(setter)]
-    fn set___context__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        let PySetterValue::Assign(value) = value else {
-            return Err(vm.new_type_error("__context__ may not be deleted"));
-        };
-        let context = if vm.is_none(&value) {
-            None
-        } else {
-            match value.downcast::<Self>() {
-                Ok(exc) => Some(exc),
-                Err(_) => {
-                    return Err(vm.new_type_error(
-                        "exception context must be None or derive from BaseException",
-                    ));
-                }
-            }
-        };
-        self.set_context(context);
-        Ok(())
     }
 
     pub fn set_context(&self, context: Option<PyRef<Self>>) {
@@ -773,13 +667,32 @@ impl PyBaseException {
         self.suppress_context
             .store(suppress_context, Ordering::Relaxed);
     }
+
+    pub fn args(&self) -> PyTupleRef {
+        self.args.read().clone()
+    }
+    pub fn __traceback__(&self) -> Option<PyTracebackRef> {
+        self.traceback.read().clone()
+    }
+    pub fn __cause__(&self) -> Option<PyRef<Self>> {
+        self.cause.read().clone()
+    }
+    pub fn __context__(&self) -> Option<PyRef<Self>> {
+        self.context.read().clone()
+    }
 }
+
+#[pyclass(
+    with(Py, PyRef, Constructor, Initializer, Representable),
+    flags(BASETYPE, HAS_DICT)
+)]
+impl PyBaseException {}
 
 #[pyclass]
 impl Py<PyBaseException> {
     #[inline]
     pub fn traceback(&self) -> Option<PyTracebackRef> {
-        self.payload().__traceback__()
+        self.__traceback__()
     }
 
     #[pymethod]
@@ -838,6 +751,108 @@ impl Py<PyBaseException> {
             }
         }
         Ok(vm.ctx.none())
+    }
+
+    #[pygetset]
+    fn __dict__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<crate::builtins::PyDictRef> {
+        crate::builtins::object::object_get_dict(zelf, vm)
+    }
+
+    #[pygetset(setter)]
+    fn set___dict__(zelf: PyObjectRef, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        crate::builtins::object::object_generic_set_dict(zelf, value, vm)
+    }
+
+    #[pygetset]
+    pub fn args(&self) -> PyTupleRef {
+        self.payload.args()
+    }
+
+    #[pygetset(setter)]
+    fn set_args(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let PySetterValue::Assign(value) = value else {
+            return Err(vm.new_type_error("args may not be deleted"));
+        };
+        let args: ArgIterable = value.try_into_value(vm)?;
+        let args = args.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
+        *self.args.write() = PyTuple::new_ref(args, &vm.ctx);
+        Ok(())
+    }
+
+    #[pygetset]
+    pub fn __traceback__(&self) -> Option<PyTracebackRef> {
+        self.payload.__traceback__()
+    }
+
+    #[pygetset(setter)]
+    fn set___traceback__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let PySetterValue::Assign(value) = value else {
+            return Err(vm.new_type_error("__traceback__ may not be deleted"));
+        };
+        let traceback = if vm.is_none(&value) {
+            None
+        } else {
+            match value.downcast::<PyTraceback>() {
+                Ok(tb) => Some(tb),
+                Err(_) => {
+                    return Err(vm.new_type_error("__traceback__ must be a traceback or None"));
+                }
+            }
+        };
+        self.set_traceback(traceback);
+        Ok(())
+    }
+
+    #[pygetset]
+    pub fn __cause__(&self) -> Option<PyRef<PyBaseException>> {
+        self.payload.__cause__()
+    }
+
+    #[pygetset(setter)]
+    fn set___cause__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let PySetterValue::Assign(value) = value else {
+            return Err(vm.new_type_error("__cause__ may not be deleted"));
+        };
+        let cause = if vm.is_none(&value) {
+            None
+        } else {
+            match value.downcast::<PyBaseException>() {
+                Ok(exc) => Some(exc),
+                Err(_) => {
+                    return Err(vm.new_type_error(
+                        "exception cause must be None or derive from BaseException",
+                    ));
+                }
+            }
+        };
+        self.set_cause(cause);
+        Ok(())
+    }
+
+    #[pygetset]
+    pub fn __context__(&self) -> Option<PyRef<PyBaseException>> {
+        self.payload.__context__()
+    }
+
+    #[pygetset(setter)]
+    fn set___context__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let PySetterValue::Assign(value) = value else {
+            return Err(vm.new_type_error("__context__ may not be deleted"));
+        };
+        let context = if vm.is_none(&value) {
+            None
+        } else {
+            match value.downcast::<PyBaseException>() {
+                Ok(exc) => Some(exc),
+                Err(_) => {
+                    return Err(vm.new_type_error(
+                        "exception context must be None or derive from BaseException",
+                    ));
+                }
+            }
+        };
+        self.set_context(context);
+        Ok(())
     }
 }
 
@@ -2740,8 +2755,8 @@ pub(super) mod types {
         }
 
         #[pygetset]
-        fn characters_written(&self, vm: &VirtualMachine) -> PyResult<isize> {
-            let written = self.written.load();
+        fn characters_written(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<isize> {
+            let written = zelf.written.load();
             if written == -1 {
                 Err(vm.new_attribute_error("characters_written"))
             } else {
@@ -2751,16 +2766,16 @@ pub(super) mod types {
 
         #[pygetset(setter)]
         fn set_characters_written(
-            &self,
+            zelf: &Py<Self>,
             value: PySetterValue,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             match value {
                 PySetterValue::Delete => {
-                    if self.written.load() == -1 {
+                    if zelf.written.load() == -1 {
                         Err(vm.new_attribute_error("characters_written"))
                     } else {
-                        self.written.store(-1);
+                        zelf.written.store(-1);
                         Ok(())
                     }
                 }
@@ -2771,7 +2786,7 @@ pub(super) mod types {
                         .map_err(|_| {
                             vm.new_value_error("cannot convert characters_written value to isize")
                         })?;
-                    self.written.store(n);
+                    zelf.written.store(n);
                     Ok(())
                 }
             }

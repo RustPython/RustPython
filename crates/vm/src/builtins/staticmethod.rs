@@ -102,9 +102,9 @@ impl Initializer for PyStaticMethod {
     with(Callable, GetDescriptor, Constructor, Initializer, Representable),
     flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
 )]
-impl PyStaticMethod {
+impl Py<PyStaticMethod> {
     #[pygetset]
-    fn __annotations__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+    fn __annotations__(zelf: &Self, vm: &VirtualMachine) -> PyResult {
         let callable = zelf.callable.load_owned();
         descriptor_get_wrapped_attribute(
             &callable,
@@ -115,11 +115,7 @@ impl PyStaticMethod {
     }
 
     #[pygetset(setter)]
-    fn set___annotations__(
-        zelf: &Py<Self>,
-        value: PySetterValue,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn set___annotations__(zelf: &Self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         descriptor_set_wrapped_attribute(
             zelf.as_object(),
             identifier!(vm.ctx, __annotations__),
@@ -130,7 +126,7 @@ impl PyStaticMethod {
     }
 
     #[pygetset]
-    fn __annotate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+    fn __annotate__(zelf: &Self, vm: &VirtualMachine) -> PyResult {
         let callable = zelf.callable.load_owned();
         descriptor_get_wrapped_attribute(
             &callable,
@@ -141,11 +137,7 @@ impl PyStaticMethod {
     }
 
     #[pygetset(setter)]
-    fn set___annotate__(
-        zelf: &Py<Self>,
-        value: PySetterValue,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn set___annotate__(zelf: &Self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         descriptor_set_wrapped_attribute(
             zelf.as_object(),
             identifier!(vm.ctx, __annotate__),

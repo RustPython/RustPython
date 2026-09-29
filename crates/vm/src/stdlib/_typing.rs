@@ -203,10 +203,6 @@ pub(crate) mod decl {
         module: Option<PyObjectRef>,
         is_lazy: bool,
     }
-    #[pyclass(
-        with(Constructor, Representable, AsMapping, AsNumber, Iterable),
-        flags(IMMUTABLETYPE)
-    )]
     impl TypeAliasType {
         /// Create from intrinsic: compute_value is a callable that returns the value
         pub(crate) fn new(
@@ -241,41 +237,6 @@ pub(crate) mod decl {
             }
         }
 
-        #[pygetset]
-        fn __value__(&self, vm: &VirtualMachine) -> PyResult {
-            let cached = self.cached_value.lock().clone();
-            if let Some(value) = cached {
-                return Ok(value);
-            }
-            // Call evaluator with format=1 (FORMAT_VALUE)
-            let value = self.compute_value.call((1i32,), vm)?;
-            *self.cached_value.lock() = Some(value.clone());
-            Ok(value)
-        }
-
-        #[pygetset]
-        fn __type_params__(&self) -> PyTupleRef {
-            self.type_params.clone()
-        }
-
-        #[pygetset]
-        fn __parameters__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            // TypeVarTuples must be unpacked in __parameters__
-            unpack_typevartuples(&self.type_params, vm).map(|t| t.into())
-        }
-
-        #[pygetset]
-        fn __module__(&self, vm: &VirtualMachine) -> PyObjectRef {
-            if let Some(ref module) = self.module {
-                return module.clone();
-            }
-            // Fall back to compute_value's __module__ (like PyFunction_GetModule)
-            if let Ok(module) = self.compute_value.get_attr("__module__", vm) {
-                return module;
-            }
-            vm.ctx.none()
-        }
-
         fn __getitem__(zelf: &Py<Self>, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             if zelf.type_params.as_slice().is_empty() {
                 return Err(vm.new_type_error("Only generic type aliases are subscriptable"));
@@ -287,24 +248,6 @@ pub(crate) mod decl {
             };
             let origin: PyObjectRef = zelf.as_object().to_owned();
             Ok(PyGenericAlias::new(origin, args_tuple, false, vm)?.into_pyobject(vm))
-        }
-
-        #[pymethod]
-        fn __reduce__(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyObjectRef {
-            zelf.name.clone().into()
-        }
-
-        #[pymethod]
-        fn __typing_unpacked_tuple_args__(&self, vm: &VirtualMachine) -> PyObjectRef {
-            vm.ctx.none()
-        }
-
-        #[pygetset]
-        fn evaluate_value(&self, vm: &VirtualMachine) -> PyObjectRef {
-            if self.is_lazy {
-                return self.compute_value.clone();
-            }
-            const_evaluator_alloc(self.compute_value.clone(), vm)
         }
 
         /// Check type_params ordering: non-default params must precede default params.
@@ -341,6 +284,65 @@ pub(crate) mod decl {
                 }
             }
             Ok(Some(type_params.to_owned()))
+        }
+    }
+
+    #[pyclass(
+        with(Constructor, Representable, AsMapping, AsNumber, Iterable),
+        flags(IMMUTABLETYPE)
+    )]
+    impl Py<TypeAliasType> {
+        #[pygetset]
+        fn __value__(&self, vm: &VirtualMachine) -> PyResult {
+            let cached = self.cached_value.lock().clone();
+            if let Some(value) = cached {
+                return Ok(value);
+            }
+            // Call evaluator with format=1 (FORMAT_VALUE)
+            let value = self.compute_value.call((1i32,), vm)?;
+            *self.cached_value.lock() = Some(value.clone());
+            Ok(value)
+        }
+
+        #[pygetset]
+        fn __type_params__(&self) -> PyTupleRef {
+            self.type_params.clone()
+        }
+
+        #[pygetset]
+        fn __parameters__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            // TypeVarTuples must be unpacked in __parameters__
+            unpack_typevartuples(&self.type_params, vm).map(|t| t.into())
+        }
+
+        #[pygetset]
+        fn __module__(&self, vm: &VirtualMachine) -> PyObjectRef {
+            if let Some(ref module) = self.module {
+                return module.clone();
+            }
+            // Fall back to compute_value's __module__ (like PyFunction_GetModule)
+            if let Ok(module) = self.compute_value.get_attr("__module__", vm) {
+                return module;
+            }
+            vm.ctx.none()
+        }
+
+        #[pymethod]
+        fn __reduce__(zelf: &Self, _vm: &VirtualMachine) -> PyObjectRef {
+            zelf.name.clone().into()
+        }
+
+        #[pymethod]
+        fn __typing_unpacked_tuple_args__(&self, vm: &VirtualMachine) -> PyObjectRef {
+            vm.ctx.none()
+        }
+
+        #[pygetset]
+        fn evaluate_value(&self, vm: &VirtualMachine) -> PyObjectRef {
+            if self.is_lazy {
+                return self.compute_value.clone();
+            }
+            const_evaluator_alloc(self.compute_value.clone(), vm)
         }
     }
 

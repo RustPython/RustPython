@@ -145,7 +145,6 @@ impl PyPayload for PyReverseSequenceIterator {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
 impl PyReverseSequenceIterator {
     pub(crate) const fn new(obj: PyObjectRef, len: usize) -> Self {
         let position = len.saturating_sub(1);
@@ -153,7 +152,10 @@ impl PyReverseSequenceIterator {
             internal: PyMutex::new(PositionIterInternal::new(obj, position)),
         }
     }
+}
 
+#[pyclass(with(IterNext, Iterable))]
+impl Py<PyReverseSequenceIterator> {
     #[pymethod]
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         let internal = self.internal.lock();

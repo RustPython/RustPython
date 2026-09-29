@@ -59,11 +59,6 @@ impl PyPayload for PyAsyncGen {
     }
 }
 
-#[pyclass(
-    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
-    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
-    with(PyRef, Representable, Destructor)
-)]
 impl PyAsyncGen {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
@@ -122,7 +117,14 @@ impl PyAsyncGen {
             }
         }
     }
+}
 
+#[pyclass(
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
+    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
+    with(PyRef, Representable, Destructor)
+)]
+impl Py<PyAsyncGen> {
     #[pygetset]
     fn __name__(&self) -> PyStrRef {
         self.inner.name()
@@ -330,10 +332,16 @@ impl PyPayload for PyAsyncGenASend {
     }
 }
 
-#[pyclass(with(IterNext, Iterable, Destructor))]
 impl PyAsyncGenASend {
+    fn set_closed(&self) {
+        self.state.store(AwaitableState::Closed);
+    }
+}
+
+#[pyclass(with(IterNext, Iterable, Destructor))]
+impl Py<PyAsyncGenASend> {
     #[pymethod(name = "__await__")]
-    const fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    const fn r#await(zelf: PyRef<PyAsyncGenASend>, _vm: &VirtualMachine) -> PyRef<PyAsyncGenASend> {
         zelf
     }
 
@@ -435,10 +443,6 @@ impl PyAsyncGenASend {
             Err(e) => Err(e),
         }
     }
-
-    fn set_closed(&self) {
-        self.state.store(AwaitableState::Closed);
-    }
 }
 
 impl SelfIter for PyAsyncGenASend {}
@@ -480,10 +484,39 @@ impl PyPayload for PyAsyncGenAThrow {
     }
 }
 
-#[pyclass(with(IterNext, Iterable, Destructor))]
 impl PyAsyncGenAThrow {
+    fn ignored_close(&self, res: &PyResult<PyIterReturn>) -> bool {
+        res.as_ref().is_ok_and(|v| match v {
+            PyIterReturn::Return(obj) => obj.downcastable::<PyAsyncGenWrappedValue>(),
+            PyIterReturn::StopIteration(_) => false,
+        })
+    }
+    fn yield_close(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        self.ag.running_async.store(false, Ordering::Relaxed);
+        self.state.store(AwaitableState::Closed);
+        vm.new_runtime_error("async generator ignored GeneratorExit")
+    }
+    fn check_error(&self, exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        self.ag.running_async.store(false, Ordering::Relaxed);
+        self.state.store(AwaitableState::Closed);
+        if self.aclose
+            && (exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
+                || exc.fast_isinstance(vm.ctx.exceptions.generator_exit))
+        {
+            vm.new_stop_iteration(None)
+        } else {
+            exc
+        }
+    }
+}
+
+#[pyclass(with(IterNext, Iterable, Destructor))]
+impl Py<PyAsyncGenAThrow> {
     #[pymethod(name = "__await__")]
-    const fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+    const fn r#await(
+        zelf: PyRef<PyAsyncGenAThrow>,
+        _vm: &VirtualMachine,
+    ) -> PyRef<PyAsyncGenAThrow> {
         zelf
     }
 
@@ -625,30 +658,6 @@ impl PyAsyncGenAThrow {
             Err(e) => Err(e),
         }
     }
-
-    fn ignored_close(&self, res: &PyResult<PyIterReturn>) -> bool {
-        res.as_ref().is_ok_and(|v| match v {
-            PyIterReturn::Return(obj) => obj.downcastable::<PyAsyncGenWrappedValue>(),
-            PyIterReturn::StopIteration(_) => false,
-        })
-    }
-    fn yield_close(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        self.ag.running_async.store(false, Ordering::Relaxed);
-        self.state.store(AwaitableState::Closed);
-        vm.new_runtime_error("async generator ignored GeneratorExit")
-    }
-    fn check_error(&self, exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        self.ag.running_async.store(false, Ordering::Relaxed);
-        self.state.store(AwaitableState::Closed);
-        if self.aclose
-            && (exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
-                || exc.fast_isinstance(vm.ctx.exceptions.generator_exit))
-        {
-            vm.new_stop_iteration(None)
-        } else {
-            exc
-        }
-    }
 }
 
 impl SelfIter for PyAsyncGenAThrow {}
@@ -692,7 +701,6 @@ impl PyPayload for PyAnextAwaitable {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
 impl PyAnextAwaitable {
     pub(crate) fn new(wrapped: PyObjectRef, default_value: PyObjectRef) -> Self {
         Self {
@@ -700,11 +708,6 @@ impl PyAnextAwaitable {
             default_value,
             state: AtomicCell::new(AwaitableState::Init),
         }
-    }
-
-    #[pymethod(name = "__await__")]
-    fn r#await(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
-        zelf
     }
 
     fn check_closed(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -782,6 +785,25 @@ impl PyAnextAwaitable {
         Ok(awaitable)
     }
 
+    /// Convert StopAsyncIteration to StopIteration(default_value)
+    fn handle_result(&self, result: PyResult, vm: &VirtualMachine) -> PyResult {
+        match result {
+            Ok(value) => Ok(value),
+            Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) => {
+                Err(vm.new_stop_iteration(Some(self.default_value.clone())))
+            }
+            Err(exc) => Err(exc),
+        }
+    }
+}
+
+#[pyclass(with(IterNext, Iterable))]
+impl Py<PyAnextAwaitable> {
+    #[pymethod(name = "__await__")]
+    fn r#await(zelf: PyRef<PyAnextAwaitable>, _vm: &VirtualMachine) -> PyRef<PyAnextAwaitable> {
+        zelf
+    }
+
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.check_closed(vm)?;
@@ -820,17 +842,6 @@ impl PyAnextAwaitable {
         self.state.store(AwaitableState::Closed);
         if let Ok(awaitable) = self.get_awaitable_iter(vm) {
             let _ = vm.call_method(&awaitable, "close", ());
-        }
-    }
-
-    /// Convert StopAsyncIteration to StopIteration(default_value)
-    fn handle_result(&self, result: PyResult, vm: &VirtualMachine) -> PyResult {
-        match result {
-            Ok(value) => Ok(value),
-            Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) => {
-                Err(vm.new_stop_iteration(Some(self.default_value.clone())))
-            }
-            Err(exc) => Err(exc),
         }
     }
 }

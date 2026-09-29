@@ -75,8 +75,11 @@ pub mod sys {
     #[derive(Debug, PyPayload)]
     pub(super) struct BootstrapStderr;
 
+    #[pyclass(with(Py))]
+    impl BootstrapStderr {}
+
     #[pyclass]
-    impl BootstrapStderr {
+    impl Py<BootstrapStderr> {
         #[pymethod]
         fn write(&self, s: PyStrRef) -> usize {
             let bytes = s.as_bytes();
@@ -100,8 +103,11 @@ pub mod sys {
         pub mode: String,
     }
 
+    #[pyclass(with(Py))]
+    impl SandboxStdio {}
+
     #[pyclass]
-    impl SandboxStdio {
+    impl Py<SandboxStdio> {
         #[pymethod]
         fn write(&self, s: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
             if self.fd == 0 {
@@ -1585,7 +1591,7 @@ pub mod sys {
     pub(super) struct PyFlags;
 
     #[pyclass(with(PyStructSequence))]
-    impl PyFlags {
+    impl Py<PyFlags> {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot create 'sys.flags' instances"))

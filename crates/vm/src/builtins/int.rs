@@ -535,9 +535,9 @@ struct RoundArgs {
     flags(BASETYPE, _MATCH_SELF),
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
-impl PyInt {
+impl Py<PyInt> {
     #[pymethod]
-    fn __round__(zelf: PyRef<Self>, args: RoundArgs, vm: &VirtualMachine) -> PyRef<Self> {
+    fn __round__(zelf: PyRef<PyInt>, args: RoundArgs, vm: &VirtualMachine) -> PyRef<PyInt> {
         if let Some(ndigits) = args.ndigits {
             let ndigits = ndigits.as_bigint();
             // round(12345, -2) == 12300
@@ -577,23 +577,23 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn __trunc__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+    fn __trunc__(zelf: PyRef<PyInt>, vm: &VirtualMachine) -> PyRefExact<PyInt> {
         zelf.__int__(vm)
     }
 
     #[pymethod]
-    fn __floor__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+    fn __floor__(zelf: PyRef<PyInt>, vm: &VirtualMachine) -> PyRefExact<PyInt> {
         zelf.__int__(vm)
     }
 
     #[pymethod]
-    fn __ceil__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+    fn __ceil__(zelf: PyRef<PyInt>, vm: &VirtualMachine) -> PyRefExact<PyInt> {
         zelf.__int__(vm)
     }
 
     #[pymethod]
     fn __format__(
-        zelf: &Py<Self>,
+        zelf: &Self,
         format_spec: PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> PyResult<Wtf8Buf> {
@@ -619,11 +619,11 @@ impl PyInt {
 
     #[pymethod]
     fn __sizeof__(&self) -> usize {
-        core::mem::size_of::<Self>() + (((self.value.bits() + 7) & !7) / 8) as usize
+        core::mem::size_of::<PyInt>() + (((self.value.bits() + 7) & !7) / 8) as usize
     }
 
     #[pymethod]
-    fn as_integer_ratio(&self, vm: &VirtualMachine) -> (PyRef<Self>, i32) {
+    fn as_integer_ratio(&self, vm: &VirtualMachine) -> (PyRef<PyInt>, i32) {
         (vm.ctx.new_bigint(&self.value), 1)
     }
 
@@ -633,7 +633,7 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn conjugate(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+    fn conjugate(zelf: PyRef<PyInt>, vm: &VirtualMachine) -> PyRefExact<PyInt> {
         zelf.__int__(vm)
     }
 
@@ -642,7 +642,7 @@ impl PyInt {
         cls: PyTypeRef,
         args: IntFromByteArgs,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
+    ) -> PyResult<PyRef<PyInt>> {
         let signed = args.signed.into();
         // PyObject_Bytes, so an iterable of ints is as good as a buffer
         let bytes = bytes_from_object(vm, &args.bytes)?;
@@ -652,7 +652,7 @@ impl PyInt {
             (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(&bytes),
             (ArgByteOrder::Little, false) => BigInt::from_bytes_le(Sign::Plus, &bytes),
         };
-        Self::with_value(cls, value, vm)
+        PyInt::with_value(cls, value, vm)
     }
 
     #[pymethod]
@@ -706,7 +706,7 @@ impl PyInt {
     }
 
     #[pygetset]
-    fn real(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+    fn real(zelf: PyRef<PyInt>, vm: &VirtualMachine) -> PyRefExact<PyInt> {
         zelf.__int__(vm)
     }
 
@@ -716,7 +716,7 @@ impl PyInt {
     }
 
     #[pygetset]
-    fn numerator(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+    fn numerator(zelf: PyRef<PyInt>, vm: &VirtualMachine) -> PyRefExact<PyInt> {
         zelf.__int__(vm)
     }
 
