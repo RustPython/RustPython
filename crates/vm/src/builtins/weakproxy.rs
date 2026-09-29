@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-#[pyclass(module = false, name = "weakproxy", unhashable = true)]
+#[pyclass(module = "weakref", name = "weakproxy", unhashable = true)]
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct PyWeakProxy(PyWeak);
@@ -78,7 +78,7 @@ impl PyWeakProxy {
 }
 
 #[pyclass(
-    module = false,
+    module = "weakref",
     name = "weakcallableproxy",
     base = PyWeakProxy,
     ctx = "weakcallableproxy_type",
@@ -123,6 +123,7 @@ impl PyWeakProxy {
         self.0.upgrade().ok_or_else(|| new_reference_error(vm))
     }
 
+    /// Return str(self).
     #[pymethod]
     fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         zelf.try_upgrade(vm)?.str(vm)

@@ -841,7 +841,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(module = "ssl", name = "_SSLContext")]
+    #[pyclass(module = "_ssl", name = "_SSLContext")]
     #[derive(PyPayload)]
     struct PySslContext {
         ctx: PyRwLock<SslContextBuilder>,
@@ -2482,7 +2482,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(module = "ssl", name = "_SSLSocket", traverse)]
+    #[pyclass(module = "_ssl", name = "_SSLSocket", traverse)]
     #[derive(PyPayload)]
     struct PySslSocket {
         ctx: PyRwLock<PyRef<PySslContext>>,
@@ -3298,7 +3298,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(module = "ssl", name = "SSLSession", unhashable = true)]
+    #[pyclass(module = "_ssl", name = "SSLSession", unhashable = true)]
     #[derive(PyPayload)]
     struct PySslSession {
         session: *mut sys::SSL_SESSION,
@@ -3358,7 +3358,7 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(module = "ssl", name = "MemoryBIO")]
+    #[pyclass(module = "_ssl", name = "MemoryBIO")]
     #[derive(PyPayload)]
     struct PySslMemoryBio {
         bio: *mut sys::BIO,

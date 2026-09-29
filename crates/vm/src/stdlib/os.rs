@@ -1944,9 +1944,14 @@ pub(super) mod _os {
         pub elapsed: f64,
     }
 
-    #[cfg(all(any(unix, windows), not(target_os = "redox")))]
+    #[cfg(all(windows, not(target_os = "redox")))]
     #[pyattr]
-    #[pystruct_sequence(name = "times_result", module = "os", data = "TimesResultData")]
+    #[pystruct_sequence(name = "times_result", module = "nt", data = "TimesResultData")]
+    struct PyTimesResult;
+
+    #[cfg(all(unix, not(windows), not(target_os = "redox")))]
+    #[pyattr]
+    #[pystruct_sequence(name = "times_result", module = "posix", data = "TimesResultData")]
     struct PyTimesResult;
 
     #[cfg(all(any(unix, windows), not(target_os = "redox")))]
@@ -2171,8 +2176,14 @@ pub(super) mod _os {
         pub machine: String,
     }
 
+    #[cfg(windows)]
     #[pyattr]
-    #[pystruct_sequence(name = "uname_result", module = "os", data = "UnameResultData")]
+    #[pystruct_sequence(name = "uname_result", module = "nt", data = "UnameResultData")]
+    pub(crate) struct PyUnameResult;
+
+    #[cfg(not(windows))]
+    #[pyattr]
+    #[pystruct_sequence(name = "uname_result", module = "posix", data = "UnameResultData")]
     pub(crate) struct PyUnameResult;
 
     #[pyclass(with(PyStructSequence))]

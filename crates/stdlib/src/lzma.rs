@@ -79,7 +79,7 @@ mod _lzma {
     #[pyattr(once, name = "LZMAError")]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type_with_doc(
-            "lzma",
+            "_lzma",
             "LZMAError",
             Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
             const { ItemDoc::db("_lzma.LZMAError") },

@@ -231,14 +231,17 @@ pub const fn attr_name_present(table: &[&str], name: &str) -> bool {
 #[must_use]
 pub fn class_attr_item_doc<T: PyClassDef + ?Sized>(name: &str) -> ItemDoc {
     #[cfg(feature = "doc")]
-    if let Some((offset, len)) = attr_doc(T::ATTR_DOCS, name)
-        && len != 0
-    {
-        return ItemDoc {
-            text: None,
-            offset,
-            len,
-        };
+    if let Some((offset, len)) = attr_doc(T::ATTR_DOCS, name) {
+        if len != 0 {
+            return ItemDoc {
+                text: None,
+                offset,
+                len,
+            };
+        }
+        if offset == u32::MAX {
+            return ItemDoc::EMPTY;
+        }
     }
     #[cfg(not(feature = "doc"))]
     let _ = name;

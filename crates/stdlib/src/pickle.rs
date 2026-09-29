@@ -68,7 +68,7 @@ mod _pickle {
     // PickleBuffer
 
     #[pyattr]
-    #[pyclass(module = "_pickle", name = "PickleBuffer")]
+    #[pyclass(module = "pickle", name = "PickleBuffer")]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyPickleBuffer {
         buffer: PyRwLock<Option<PyBuffer>>,

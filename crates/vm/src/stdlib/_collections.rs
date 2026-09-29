@@ -737,7 +737,7 @@ mod _collections {
     }
 
     #[pyattr]
-    #[pyclass(name = "_deque_iterator", traverse)]
+    #[pyclass(name = "_deque_iterator", module = "collections", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyDequeIterator {
         #[pytraverse(skip)]
@@ -873,7 +873,7 @@ mod _collections {
     }
 
     #[pyattr]
-    #[pyclass(name = "_deque_reverse_iterator", traverse)]
+    #[pyclass(name = "_deque_reverse_iterator", module = "collections", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyReverseDequeIterator {
         #[pytraverse(skip)]

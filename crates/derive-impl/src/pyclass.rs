@@ -458,13 +458,20 @@ fn attr_doc_expr(self_ty: Option<&syn::Type>, attr: &str, rust_doc: Option<Strin
                     <#ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
                     #attr,
                 );
-                match FOUND {
-                    Some((offset, len)) if len != 0 => ::rustpython_vm::function::ItemDoc {
-                        text: None,
-                        offset,
-                        len,
-                    },
-                    _ => ::rustpython_vm::function::ItemDoc::NONE,
+                if let Some((offset, len)) = FOUND {
+                    if len != 0 {
+                        ::rustpython_vm::function::ItemDoc {
+                            text: None,
+                            offset,
+                            len,
+                        }
+                    } else if offset == u32::MAX {
+                        ::rustpython_vm::function::ItemDoc::EMPTY
+                    } else {
+                        ::rustpython_vm::function::ItemDoc::NONE
+                    }
+                } else {
+                    ::rustpython_vm::function::ItemDoc::NONE
                 }
             }
             #[cfg(not(feature = "doc"))]

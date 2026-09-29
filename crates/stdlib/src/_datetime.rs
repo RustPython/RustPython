@@ -18,7 +18,7 @@ mod _datetime {
             hash::PyHash,
             wtf8::{CodePoint, Wtf8Buf},
         },
-        function::{FuncArgs, OptionalArg, PyComparisonValue},
+        function::{ArgumentError, FromArgs, FuncArgs, OptionalArg, Param, PyComparisonValue},
         protocol::{PyNumber, PyNumberMethods},
         types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     };
@@ -1948,7 +1948,8 @@ mod _datetime {
         }
 
         #[pyclassmethod]
-        fn fromisoformat(cls: PyTypeRef, dtstr: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn fromisoformat(cls: PyTypeRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let dtstr = object;
             let Some(s) = dtstr.downcast_ref::<PyStr>() else {
                 return Err(vm.new_type_error("fromisoformat: argument must be str"));
             };
@@ -2069,7 +2070,6 @@ mod _datetime {
         }
 
         #[pymethod]
-        #[pymethod(name = "__replace__")]
         fn replace(zelf: &Py<Self>, args: DateReplaceArgs, vm: &VirtualMachine) -> PyResult {
             new_date_subclass(
                 args.year.unwrap_or_else(|| zelf.y()),
@@ -2078,6 +2078,11 @@ mod _datetime {
                 zelf.class(),
                 vm,
             )
+        }
+
+        #[pymethod]
+        fn __replace__(zelf: &Py<Self>, changes: ReplaceChanges, vm: &VirtualMachine) -> PyResult {
+            Self::replace(zelf, changes.args.bind_for(vm, "replace")?, vm)
         }
 
         #[pymethod]
@@ -2121,13 +2126,29 @@ mod _datetime {
         day: PyObjectRef,
     }
 
+    /// `**changes` in the text signature. Binding still accepts the same
+    /// arguments as `replace`, and a failure names `replace`.
+    struct ReplaceChanges {
+        args: FuncArgs,
+    }
+
+    impl FromArgs for ReplaceChanges {
+        const PARAMS: Option<&'static [Param]> = Some(&[Param::var_keyword("changes")]);
+
+        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            Ok(Self {
+                args: core::mem::take(args),
+            })
+        }
+    }
+
     #[derive(FromArgs)]
     struct DateReplaceArgs {
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         year: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         month: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         day: OptionalArg<i32>,
     }
 
@@ -2327,22 +2348,23 @@ mod _datetime {
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PyTzInfo {
         #[pymethod]
-        fn tzname(&self, _dt: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn tzname(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             tzinfo_nogo("tzname", vm)
         }
 
         #[pymethod]
-        fn utcoffset(&self, _dt: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn utcoffset(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             tzinfo_nogo("utcoffset", vm)
         }
 
         #[pymethod]
-        fn dst(&self, _dt: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn dst(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             tzinfo_nogo("dst", vm)
         }
 
         #[pymethod]
-        fn fromutc(zelf: PyObjectRef, dt: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn fromutc(zelf: PyObjectRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let dt = object;
             let Some(dtobj) = as_datetime(&dt) else {
                 return Err(vm.new_type_error("fromutc: argument must be a datetime"));
             };
@@ -2530,25 +2552,29 @@ mod _datetime {
     #[pyclass(with(Constructor, Comparable, Hashable, Representable))]
     impl PyTimeZone {
         #[pymethod]
-        fn tzname(zelf: &Py<Self>, dt: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn tzname(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let dt = object;
             timezone_check_argument(&dt, "tzname", vm)?;
             Ok(Self::name_str(zelf, vm))
         }
 
         #[pymethod]
-        fn utcoffset(&self, dt: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyDelta>> {
+        fn utcoffset(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyDelta>> {
+            let dt = object;
             timezone_check_argument(&dt, "utcoffset", vm)?;
             Ok(self.offset.clone())
         }
 
         #[pymethod]
-        fn dst(&self, dt: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn dst(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let dt = object;
             timezone_check_argument(&dt, "dst", vm)?;
             Ok(())
         }
 
         #[pymethod]
-        fn fromutc(zelf: &Py<Self>, dt: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn fromutc(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let dt = object;
             let Some(dtobj) = as_datetime(&dt) else {
                 return Err(vm.new_type_error("fromutc: argument must be a datetime"));
             };
@@ -2800,17 +2826,17 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct TimeReplaceArgs {
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         hour: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         minute: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         second: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         microsecond: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         tzinfo: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, optional, py_default = "unchanged")]
         fold: OptionalArg<i32>,
     }
 
@@ -2940,7 +2966,6 @@ mod _datetime {
         }
 
         #[pymethod]
-        #[pymethod(name = "__replace__")]
         fn replace(zelf: &Py<Self>, args: TimeReplaceArgs, vm: &VirtualMachine) -> PyResult {
             let tzinfo = match args.tzinfo {
                 OptionalArg::Present(tz) => tzinfo_arg(tz, vm),
@@ -2958,8 +2983,14 @@ mod _datetime {
             )
         }
 
+        #[pymethod]
+        fn __replace__(zelf: &Py<Self>, changes: ReplaceChanges, vm: &VirtualMachine) -> PyResult {
+            Self::replace(zelf, changes.args.bind_for(vm, "replace")?, vm)
+        }
+
         #[pyclassmethod]
-        fn fromisoformat(cls: PyTypeRef, tstr: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn fromisoformat(cls: PyTypeRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let tstr = object;
             let Some(s) = tstr.downcast_ref::<PyStr>() else {
                 return Err(vm.new_type_error("fromisoformat: argument must be str"));
             };
@@ -3576,7 +3607,7 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct NowArgs {
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "None")]
         tz: OptionalArg<PyObjectRef>,
     }
 
@@ -3608,23 +3639,23 @@ mod _datetime {
 
     #[derive(FromArgs)]
     struct DateTimeReplaceArgs {
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         year: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         month: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         day: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         hour: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         minute: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         second: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         microsecond: OptionalArg<i32>,
-        #[pyarg(any, optional)]
+        #[pyarg(any, optional, py_default = "unchanged")]
         tzinfo: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, optional, py_default = "unchanged")]
         fold: OptionalArg<i32>,
     }
 
@@ -3788,7 +3819,8 @@ mod _datetime {
         }
 
         #[pyclassmethod]
-        fn fromisoformat(cls: PyTypeRef, dtstr: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn fromisoformat(cls: PyTypeRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let dtstr = object;
             let Some(s) = dtstr.downcast_ref::<PyStr>() else {
                 return Err(vm.new_type_error("fromisoformat: argument must be str"));
             };
@@ -4053,7 +4085,6 @@ mod _datetime {
         }
 
         #[pymethod]
-        #[pymethod(name = "__replace__")]
         fn replace(zelf: &Py<Self>, args: DateTimeReplaceArgs, vm: &VirtualMachine) -> PyResult {
             let tzinfo = match args.tzinfo {
                 OptionalArg::Present(tz) => tzinfo_arg(tz, vm),
@@ -4073,6 +4104,11 @@ mod _datetime {
                 zelf.class(),
                 vm,
             )
+        }
+
+        #[pymethod]
+        fn __replace__(zelf: &Py<Self>, changes: ReplaceChanges, vm: &VirtualMachine) -> PyResult {
+            Self::replace(zelf, changes.args.bind_for(vm, "replace")?, vm)
         }
 
         #[pymethod]

@@ -319,7 +319,7 @@ mod _ssl {
 
     // SSLContext - manages TLS configuration
     #[pyattr]
-    #[pyclass(name = "_SSLContext", module = "ssl", traverse)]
+    #[pyclass(name = "_SSLContext", module = "_ssl", traverse)]
     #[derive(Debug, PyPayload)]
     struct PySSLContext {
         #[pytraverse(skip)]
@@ -2058,7 +2058,7 @@ mod _ssl {
 
     // SSLSocket - represents a TLS-wrapped socket
     #[pyattr]
-    #[pyclass(name = "_SSLSocket", module = "ssl", traverse)]
+    #[pyclass(name = "_SSLSocket", module = "_ssl", traverse)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct PySSLSocket {
         io: SocketOrBio,
@@ -3898,7 +3898,7 @@ mod _ssl {
 
     // MemoryBIO - provides in-memory buffer for SSL/TLS I/O
     #[pyattr]
-    #[pyclass(name = "MemoryBIO", module = "ssl")]
+    #[pyclass(name = "MemoryBIO", module = "_ssl")]
     #[derive(Debug, PyPayload)]
     struct PyMemoryBIO {
         inner: PyMutex<rustpython_host_env::ssl::MemoryBio>,
@@ -3979,7 +3979,7 @@ mod _ssl {
     // SSLSession - represents a cached SSL session
     // NOTE: This is an EMULATION - actual session data is managed by Rustls internally
     #[pyattr]
-    #[pyclass(name = "SSLSession", module = "ssl", unhashable = true)]
+    #[pyclass(name = "SSLSession", module = "_ssl", unhashable = true)]
     #[derive(Debug, PyPayload)]
     struct PySSLSession {
         context_identity: Arc<()>,

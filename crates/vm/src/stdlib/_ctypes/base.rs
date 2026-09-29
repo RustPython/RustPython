@@ -1250,7 +1250,7 @@ impl PyCData {
 
 // PyCField - Field descriptor for Structure/Union types
 
-#[pyclass(name = "CField", module = "_ctypes")]
+#[pyclass(name = "CField", module = "ctypes")]
 #[derive(Debug, PyPayload)]
 pub struct PyCField {
     /// Field name
