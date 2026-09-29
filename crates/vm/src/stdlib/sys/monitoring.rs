@@ -1219,7 +1219,7 @@ pub(crate) fn fire_branch_right(
     )
 }
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "sys.monitoring")]
 pub(super) mod sys_monitoring {
     use super::*;
 

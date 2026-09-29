@@ -9,7 +9,7 @@ use crate::function::{ArgBytesLike, ArgStrictInt, OptionalArg, PySetterValue};
 use crate::protocol::{BufferMethods, PyBuffer};
 use crate::types::{Constructor, GetDescriptor, Representable};
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use alloc::borrow::Cow;
 use core::fmt::Debug;
@@ -401,7 +401,7 @@ pub(super) fn str_to_wchar_bytes(s: &Wtf8, vm: &VirtualMachine) -> (PyObjectRef,
     (holder, ptr)
 }
 
-/// PyCData - base type for all ctypes data types
+// PyCData - base type for all ctypes data types
 #[pyclass(name = "_CData", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
 pub struct PyCData {
@@ -1131,6 +1131,11 @@ impl PyCData {
         self.base.read().clone()
     }
 
+    #[pymethod]
+    fn __ctypes_from_outparam__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyObjectRef {
+        zelf.into()
+    }
+
     #[pygetset]
     fn _b_needsfree_(&self) -> i32 {
         // Borrowed (from_address) or has base object → 0 (don't free)
@@ -1709,7 +1714,7 @@ impl PyCField {
         }
     }
 
-    /// PyCField_set
+    // PyCField_set
     #[pyslot]
     fn descr_set(
         zelf: &PyObject,

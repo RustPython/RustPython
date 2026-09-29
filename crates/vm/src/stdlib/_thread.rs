@@ -1036,7 +1036,7 @@ pub(crate) mod _thread {
                         ))
                     },
                     crate::function::PyMethodFlags::METHOD,
-                    crate::function::ItemDoc::NONE,
+                    crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
                 );
             class.set_attr(
                 ctx.intern_str("__reduce__"),
@@ -1614,7 +1614,7 @@ pub(crate) mod _thread {
         }
     }
 
-    /// _ThreadHandle - handle for joinable threads
+    // _ThreadHandle - handle for joinable threads
     #[pyattr]
     #[pyclass(module = "_thread", name = "_ThreadHandle")]
     #[derive(Debug, PyPayload)]

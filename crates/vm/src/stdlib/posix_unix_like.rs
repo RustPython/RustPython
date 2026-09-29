@@ -1,4 +1,4 @@
-#[pymodule(sub)]
+#[pymodule(sub, name = "posix")]
 pub(crate) mod _posix_unix_like {
     use rustpython_host_env::os::ffi::OsStringExt;
 

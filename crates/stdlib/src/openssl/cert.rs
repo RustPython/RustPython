@@ -2,7 +2,7 @@ pub(super) use ssl_cert::{PySSLCertificate, cert_to_certificate, cert_to_py, obj
 
 // Certificate type for SSL module
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "_ssl")]
 pub(crate) mod ssl_cert {
     use crate::{
         common::{ascii, hash::PyHash},

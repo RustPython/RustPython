@@ -295,9 +295,11 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// mod module {
 /// }
 /// ```
-/// - `sub`: declare the module as a submodule of another module.
+/// - `sub`: declare the module as a submodule merged into another module.
+///   `name` is that Python module. Doc lookup uses it; without `name`, the
+///   doc DB is not consulted.
 /// ```rust, ignore
-/// #[pymodule(sub)]
+/// #[pymodule(sub, name = "my_module")]
 /// mod submodule {
 /// }
 ///

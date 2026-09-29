@@ -1723,22 +1723,22 @@ pub mod module {
         #[pyarg(positional)]
         path: OsPath,
         #[pyarg(positional)]
-        args: PyObjectRef,
+        argv: PyObjectRef,
         #[pyarg(positional)]
         env: Option<crate::function::ArgMapping>,
-        #[pyarg(named, default)]
+        #[pyarg(named, default, py_default = "()")]
         file_actions: Option<crate::function::ArgIterable<PyTupleRef>>,
-        #[pyarg(named, default)]
-        setsigdef: Option<crate::function::ArgIterable<i32>>,
-        #[pyarg(named, default)]
+        #[pyarg(named, optional)]
         setpgroup: Option<libc::pid_t>,
         #[pyarg(named, default)]
         resetids: bool,
         #[pyarg(named, default)]
         setsid: bool,
-        #[pyarg(named, default)]
+        #[pyarg(named, default, py_default = "()")]
         setsigmask: Option<crate::function::ArgIterable<i32>>,
-        #[pyarg(named, default)]
+        #[pyarg(named, default, py_default = "()")]
+        setsigdef: Option<crate::function::ArgIterable<i32>>,
+        #[pyarg(named, optional)]
         scheduler: Option<PyObjectRef>,
     }
 
@@ -1819,8 +1819,8 @@ pub mod module {
             } else {
                 "posix_spawn"
             };
-            if !self.args.fast_isinstance(vm.ctx.types.list_type)
-                && !self.args.fast_isinstance(vm.ctx.types.tuple_type)
+            if !self.argv.fast_isinstance(vm.ctx.types.list_type)
+                && !self.argv.fast_isinstance(vm.ctx.types.tuple_type)
             {
                 return Err(
                     vm.new_type_error(format!("{function_name}: argv must be a tuple or list"))
@@ -1898,7 +1898,7 @@ pub mod module {
 
             let setsigmask = self.setsigmask.map(collect_signals).transpose()?;
 
-            let args = vm.extract_elements_with(&self.args, |arg| {
+            let args = vm.extract_elements_with(&self.argv, |arg| {
                 CString::new(OsPath::try_from_object(vm, arg)?.into_bytes())
                     .map_err(|_| vm.new_value_error("path should not have nul bytes"))
             })?;
@@ -2848,7 +2848,7 @@ pub mod module {
     target_os = "freebsd",
     target_os = "android"
 ))]
-#[pymodule(sub)]
+#[pymodule(sub, name = "posix")]
 mod posix_sched {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,

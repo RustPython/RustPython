@@ -169,18 +169,23 @@ impl CodecsRegistry {
 
         let methods = METHODS.get_or_init(|| {
             macro_rules! error_handler {
-                ($name:literal, $func:ident) => {
+                ($name:literal, $func:ident) => {{
+                    #[cfg(feature = "doc")]
+                    const DOC: crate::function::ItemDoc =
+                        crate::function::ItemDoc::db(concat!("codecs.", $name));
                     crate::function::PyMethodDef {
                         name: $name,
                         func: crate::function::static_func($func),
                         flags: crate::function::PyMethodFlags::O,
                         #[cfg(feature = "doc")]
-                        doc_off: 0,
+                        doc_off: DOC.offset,
                         #[cfg(feature = "doc")]
-                        doc_len: 0,
+                        doc_len: DOC.len,
+                        #[cfg(feature = "doc")]
+                        doc_body_pending: false,
                         doc: Some(concat!($name, "($self, object, /)\n--\n\n")),
                     }
-                };
+                }};
             }
             vec![
                 error_handler!("strict_errors", strict_errors),

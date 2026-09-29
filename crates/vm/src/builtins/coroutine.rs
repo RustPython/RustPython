@@ -65,7 +65,7 @@ impl PyCoroutine {
     }
 
     #[pygetset]
-    /// name of the coroutine
+    // name of the coroutine
     fn __name__(&self) -> PyStrRef {
         self.inner.name()
     }
@@ -76,7 +76,7 @@ impl PyCoroutine {
     }
 
     #[pygetset]
-    /// qualified name of the coroutine
+    // qualified name of the coroutine
     fn __qualname__(&self) -> PyStrRef {
         self.inner.qualname()
     }

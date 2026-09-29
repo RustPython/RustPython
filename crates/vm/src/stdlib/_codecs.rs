@@ -713,7 +713,7 @@ fn delegate_pycodecs(
 }
 
 #[cfg(windows)]
-#[pymodule(sub)]
+#[pymodule(sub, name = "_codecs")]
 mod _codecs_windows {
     use crate::{Py, PyResult, VirtualMachine};
     use crate::{
