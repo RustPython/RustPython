@@ -162,3 +162,25 @@ for call in (
 # allocate must raise instead of aborting.
 with assert_raises(MemoryError):
     struct.pack("%dx" % (2**60))
+
+
+# Clearing or evicting cached formats must not invalidate a live iterator.
+iterator = struct.iter_unpack("<H", b"\x01\x00\x02\x00")
+struct._clearcache()
+for padding in range(110):
+    assert struct.calcsize(f"{padding}x") == padding
+assert list(iterator) == [(1,), (2,)]
+
+
+class ClearFormats:
+    def __index__(self):
+        struct._clearcache()
+        assert struct.pack("<H", 7) == b"\x07\x00"
+        return 42
+
+
+# Argument conversion may clear and repopulate the cache during an active pack.
+assert struct.pack("<H", ClearFormats()) == b"\x2a\x00"
+buffer = bytearray(2)
+struct.pack_into("<H", buffer, 0, ClearFormats())
+assert buffer == b"\x2a\x00"

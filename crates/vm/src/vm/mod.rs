@@ -824,6 +824,7 @@ pub struct PyGlobalState {
     /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
     pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
+    pub struct_format_cache: crate::buffer::FormatSpecCache,
     pub finalizing: AtomicBool,
     pub warnings: WarningsState,
     pub override_frozen_modules: AtomicCell<isize>,

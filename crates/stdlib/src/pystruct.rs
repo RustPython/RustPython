@@ -13,7 +13,10 @@ pub(crate) mod _struct {
         AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         buffer::{FormatSpec, new_struct_error, struct_error_type},
         builtins::{PyBytes, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
-        common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard},
+        common::{
+            lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard},
+            rc::PyRc,
+        },
         function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, PosArgs},
         match_class,
         protocol::PyIterReturn,
@@ -69,6 +72,12 @@ pub(crate) mod _struct {
     impl IntoStructFormatBytes {
         fn format_spec(&self, vm: &VirtualMachine) -> PyResult<FormatSpec> {
             FormatSpec::parse(self.0.as_bytes(), vm)
+        }
+
+        fn cached_format_spec(&self, vm: &VirtualMachine) -> PyResult<PyRc<FormatSpec>> {
+            vm.state
+                .struct_format_cache
+                .get_or_parse(self.0.as_bytes(), vm)
         }
     }
 
@@ -126,7 +135,7 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn pack(fmt: IntoStructFormatBytes, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        fmt.format_spec(vm)?.pack(args.into_vec(), vm)
+        fmt.cached_format_spec(vm)?.pack(args.into_vec(), vm)
     }
 
     #[pyfunction]
@@ -137,7 +146,7 @@ pub(crate) mod _struct {
         args: PosArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = fmt.cached_format_spec(vm)?;
         let offset = get_buffer_offset(buffer.len(), offset, format_spec.size, true, vm)?;
         buffer.with_ref(|data| format_spec.pack_into(&mut data[offset..], args.into_vec(), vm))
     }
@@ -148,7 +157,7 @@ pub(crate) mod _struct {
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = format.format_spec(vm)?;
+        let format_spec = format.cached_format_spec(vm)?;
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
@@ -165,7 +174,7 @@ pub(crate) mod _struct {
         args: UpdateFromArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = format.format_spec(vm)?;
+        let format_spec = format.cached_format_spec(vm)?;
         let offset =
             get_buffer_offset(args.buffer.len(), args.offset, format_spec.size, false, vm)?;
         args.buffer
@@ -177,7 +186,7 @@ pub(crate) mod _struct {
     #[derive(Debug, PyPayload)]
     struct UnpackIterator {
         #[pytraverse(skip)]
-        format_spec: FormatSpec,
+        format_spec: PyRc<FormatSpec>,
         buffer: ArgBytesLike,
         #[pytraverse(skip)]
         offset: AtomicCell<usize>,
@@ -186,7 +195,7 @@ pub(crate) mod _struct {
     impl UnpackIterator {
         fn with_buffer(
             vm: &VirtualMachine,
-            format_spec: FormatSpec,
+            format_spec: PyRc<FormatSpec>,
             buffer: ArgBytesLike,
         ) -> PyResult<Self> {
             if format_spec.size == 0 {
@@ -243,13 +252,13 @@ pub(crate) mod _struct {
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
-        let format_spec = format.format_spec(vm)?;
+        let format_spec = format.cached_format_spec(vm)?;
         UnpackIterator::with_buffer(vm, format_spec, buffer)
     }
 
     #[pyfunction]
     fn calcsize(format: IntoStructFormatBytes, vm: &VirtualMachine) -> PyResult<usize> {
-        Ok(format.format_spec(vm)?.size)
+        Ok(format.cached_format_spec(vm)?.size)
     }
 
     /// What a `Struct` is once a format has been read into it. Held apart
@@ -258,7 +267,7 @@ pub(crate) mod _struct {
     /// already holds a format.
     #[derive(Debug)]
     struct StructSpec {
-        spec: FormatSpec,
+        spec: PyRc<FormatSpec>,
         format: PyStrRef,
     }
 
@@ -288,7 +297,7 @@ pub(crate) mod _struct {
             // cannot be read leaves the object as it was.
             let spec = fmt.format_spec(vm)?;
             *zelf.inner.write() = Some(StructSpec {
-                spec,
+                spec: PyRc::new(spec),
                 format: fmt.0,
             });
             Ok(())
@@ -385,9 +394,10 @@ pub(crate) mod _struct {
     }
 
     // seems weird that this is part of the "public" API, but whatever
-    // TODO: implement a format code->spec cache like CPython does?
     #[pyfunction]
-    const fn _clearcache() {}
+    fn _clearcache(vm: &VirtualMachine) {
+        vm.state.struct_format_cache.clear();
+    }
 
     #[pyattr(name = "error")]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
