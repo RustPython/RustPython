@@ -38,8 +38,7 @@ pub(crate) fn item_doc_tokens(doc: Option<DocRef>, rust_doc: Option<String>) -> 
         let offset = doc.offset;
         let len = doc.len;
         quote! {
-            {
-                #[cfg(feature = "doc")]
+            ::rustpython_vm::__cfg_doc!({
                 {
                     ::rustpython_vm::function::ItemDoc {
                         text: None,
@@ -47,11 +46,11 @@ pub(crate) fn item_doc_tokens(doc: Option<DocRef>, rust_doc: Option<String>) -> 
                         len: #len,
                     }
                 }
-                #[cfg(not(feature = "doc"))]
+            } else {
                 {
                     ::rustpython_vm::function::ItemDoc::NONE
                 }
-            }
+            })
         }
     } else if let Some(rust_doc) = rust_doc {
         quote!(::rustpython_vm::function::ItemDoc::static_text(#rust_doc))
