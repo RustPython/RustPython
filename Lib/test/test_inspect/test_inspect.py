@@ -175,7 +175,6 @@ class custom_descriptor:
 
 class TestPredicates(IsTestBase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; datetime.timedelta.days is a property until _datetime members exist
     def test_excluding_predicates(self):
         global tb
         self.istest(inspect.isbuiltin, 'sys.exit')

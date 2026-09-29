@@ -218,9 +218,9 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// Declares an offset member on a payload field. The struct `#[pyclass]` builds
 /// a `PyClassDef::MEMBERS` table and `extend_class` registers one
 /// `member_descriptor` per entry. The member kind is inferred from the field
-/// type: `bool` / `AtomicBool`, `i32` / `AtomicI32`, `u32` / `AtomicU32`,
+/// type: `bool` / `AtomicBool`, `u8` / `AtomicU8`, `i32` / `AtomicI32`, `u32` / `AtomicU32`,
 /// `isize` / `AtomicIsize`, `f64` / `AtomicF64`, or an object pointer
-/// (`PyObjectRef`, `PyRef<T>`, `Option` of those, `PyAtomicRef<PyObject>`,
+/// (`PyObjectRef`, `PyRef<T>`, `Option` of those, `PyObjectCell`, `PyAtomicRef<PyObject>`,
 /// `PyAtomicRef<Option<PyObject>>`, `PyAtomicRef<Option<T>>`,
 /// `&'static Py<T>`, `&'static PyStrInterned`).
 ///
@@ -230,7 +230,8 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// - `writable`: accept stores. Members are readonly without it. A writable
 ///   object member must be `PyAtomicRef<PyObject>` (never null) or
 ///   `PyAtomicRef<Option<PyObject>>` (nullable), a writable bool must be
-///   `AtomicBool`, a writable int must be `AtomicI32`, a writable uint must be
+///   `AtomicBool`, a writable unsigned byte must be `AtomicU8`, a writable int
+///   must be `AtomicI32`, a writable uint must be
 ///   `AtomicU32`, a writable double must be `AtomicF64`, and a writable
 ///   py_ssize_t must be `AtomicIsize`.
 /// - `audit_read`: audit `object.__getattr__` before the load.

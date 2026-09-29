@@ -1614,7 +1614,6 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(set().__contains__),
             "__contains__(object, /) method of builtins.set instance")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unbound_builtin_classmethod_noargs(self):
         self.assertEqual(self._get_summary_line(datetime.datetime.__dict__['utcnow']),
             "utcnow(type, /) unbound datetime.datetime method")
