@@ -549,21 +549,21 @@ impl PyComplex {
     flags(BASETYPE),
     with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
-impl PyComplex {
+impl Py<PyComplex> {
     #[pymethod]
     fn conjugate(&self) -> Complex64 {
         self.value.conj()
     }
 
     #[pymethod]
-    const fn __getnewargs__(&self) -> (f64, f64) {
+    fn __getnewargs__(&self) -> (f64, f64) {
         let Complex64 { re, im } = self.value;
         (re, im)
     }
 
     #[pymethod]
     fn __format__(
-        zelf: &Py<Self>,
+        zelf: &Self,
         format_spec: PyUtf8StrRef,
         vm: &VirtualMachine,
     ) -> PyResult<Wtf8Buf> {

@@ -1120,7 +1120,7 @@ impl PyCData {
 }
 
 #[pyclass(flags(BASETYPE))]
-impl PyCData {
+impl Py<PyCData> {
     #[pygetset]
     fn _objects(&self) -> Option<PyObjectRef> {
         self.objects.read().clone()
@@ -1132,7 +1132,7 @@ impl PyCData {
     }
 
     #[pymethod]
-    fn __ctypes_from_outparam__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyObjectRef {
+    fn __ctypes_from_outparam__(zelf: PyRef<PyCData>, _vm: &VirtualMachine) -> PyObjectRef {
         zelf.into()
     }
 
@@ -1152,7 +1152,7 @@ impl PyCData {
         offset: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let cdata = Self::from_buffer_impl(&cls, source, offset.unwrap_or(0), vm)?;
+        let cdata = PyCData::from_buffer_impl(&cls, source, offset.unwrap_or(0), vm)?;
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 
@@ -1164,7 +1164,7 @@ impl PyCData {
         vm: &VirtualMachine,
     ) -> PyResult {
         let cdata =
-            Self::from_buffer_copy_impl(&cls, &source.borrow_buf(), offset.unwrap_or(0), vm)?;
+            PyCData::from_buffer_copy_impl(&cls, &source.borrow_buf(), offset.unwrap_or(0), vm)?;
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 
@@ -1185,7 +1185,7 @@ impl PyCData {
         }
 
         // PyCData_AtAddress
-        let cdata = unsafe { Self::at_address(address as *const u8, size) };
+        let cdata = unsafe { PyCData::at_address(address as *const u8, size) };
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 
@@ -1243,7 +1243,7 @@ impl PyCData {
         }
 
         // PyCData_AtAddress
-        let cdata = unsafe { Self::at_address(ptr, size) };
+        let cdata = unsafe { PyCData::at_address(ptr, size) };
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 }
@@ -1698,7 +1698,6 @@ impl PyCField {
     }
 }
 
-#[pyclass(flags(IMMUTABLETYPE), with(Representable, GetDescriptor, Constructor))]
 impl PyCField {
     /// Get PyCData from object (works for both Structure and Union)
     fn get_cdata_from_obj<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a PyCData> {
@@ -1713,7 +1712,10 @@ impl PyCField {
             )))
         }
     }
+}
 
+#[pyclass(flags(IMMUTABLETYPE), with(Representable, GetDescriptor, Constructor))]
+impl Py<PyCField> {
     // PyCField_set
     #[pyslot]
     fn descr_set(
@@ -1723,14 +1725,14 @@ impl PyCField {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let zelf = zelf
-            .downcast_ref::<Self>()
+            .downcast_ref::<PyCField>()
             .ok_or_else(|| vm.new_type_error("expected CField"))?;
 
         let offset = zelf.offset as usize;
         let size = zelf.get_byte_size();
 
         // Get PyCData from obj (works for both Structure and Union)
-        let cdata = Self::get_cdata_from_obj(&obj, vm)?;
+        let cdata = PyCField::get_cdata_from_obj(&obj, vm)?;
 
         match value {
             PySetterValue::Assign(value) => {

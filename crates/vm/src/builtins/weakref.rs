@@ -83,7 +83,7 @@ impl Initializer for PyWeak {
     ),
     flags(BASETYPE)
 )]
-impl PyWeak {
+impl Py<PyWeak> {
     #[pygetset]
     fn __callback__(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.unwrap_or_none(self.get_callback())

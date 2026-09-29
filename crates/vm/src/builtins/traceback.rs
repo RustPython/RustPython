@@ -28,7 +28,6 @@ impl PyPayload for PyTraceback {
     }
 }
 
-#[pyclass(with(Constructor))]
 impl PyTraceback {
     #[must_use]
     pub const fn new(
@@ -44,14 +43,17 @@ impl PyTraceback {
             lineno,
         }
     }
+}
 
+#[pyclass(with(Constructor))]
+impl Py<PyTraceback> {
     #[pygetset]
-    const fn tb_lineno(&self) -> usize {
+    fn tb_lineno(&self) -> usize {
         self.lineno.get()
     }
 
     #[pygetset]
-    fn tb_next(&self) -> Option<PyRef<Self>> {
+    fn tb_next(&self) -> Option<PyRef<PyTraceback>> {
         self.next.lock().as_ref().cloned()
     }
 
@@ -67,8 +69,8 @@ impl PyTraceback {
 
     #[pygetset(setter)]
     fn set_tb_next(
-        zelf: &Py<Self>,
-        value: PySetterValue<Option<PyRef<Self>>>,
+        zelf: &Self,
+        value: PySetterValue<Option<PyRef<PyTraceback>>>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let value = match value {

@@ -100,11 +100,17 @@ impl PyUnion {
     }
 }
 
+impl PyUnion {
+    fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        type_::or_(zelf, other, vm)
+    }
+}
+
 #[pyclass(
     flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
     with(Hashable, Comparable, AsMapping, AsNumber, Representable)
 )]
-impl PyUnion {
+impl Py<PyUnion> {
     #[pygetset]
     fn __name__(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str("Union").into()
@@ -127,7 +133,7 @@ impl PyUnion {
 
     #[pymethod]
     fn __instancecheck__(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PyUnion>,
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
@@ -145,7 +151,7 @@ impl PyUnion {
 
     #[pymethod]
     fn __subclasscheck__(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PyUnion>,
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
@@ -161,12 +167,12 @@ impl PyUnion {
         }
     }
 
-    fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        type_::or_(zelf, other, vm)
-    }
-
     #[pymethod]
-    fn __mro_entries__(zelf: PyRef<Self>, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __mro_entries__(
+        zelf: PyRef<PyUnion>,
+        _object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         Err(vm.new_type_error(format!("Cannot subclass {}", zelf.repr(vm)?)))
     }
 

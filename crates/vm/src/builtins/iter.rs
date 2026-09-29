@@ -237,7 +237,6 @@ impl PyPayload for PySequenceIterator {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let _seq = obj.try_sequence(vm)?;
@@ -245,7 +244,10 @@ impl PySequenceIterator {
             internal: PyMutex::new(PositionIterInternal::new(obj, 0)),
         })
     }
+}
 
+#[pyclass(with(IterNext, Iterable))]
+impl Py<PySequenceIterator> {
     #[pymethod]
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         vm.with_recursion("in __length_hint__", || {
@@ -311,7 +313,6 @@ impl PyPayload for PyCallableIterator {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
 impl PyCallableIterator {
     #[must_use]
     pub const fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
@@ -320,7 +321,10 @@ impl PyCallableIterator {
             status: PyRwLock::new(IterStatus::Active(callable)),
         }
     }
+}
 
+#[pyclass(with(IterNext, Iterable))]
+impl Py<PyCallableIterator> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_iter(vm)?;

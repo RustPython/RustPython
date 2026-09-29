@@ -670,7 +670,7 @@ pub(crate) mod _interpchannels {
         with(Representable, Hashable, AsNumber),
         flags(BASETYPE, IMMUTABLETYPE, DISALLOW_INSTANTIATION)
     )]
-    impl ChannelID {
+    impl Py<ChannelID> {
         // `channelid_richcompare`.
         #[pyslot]
         fn slot_richcompare(
@@ -682,10 +682,10 @@ pub(crate) mod _interpchannels {
             if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
                 return Ok(Either::B(PyComparisonValue::NotImplemented));
             }
-            let Some(zelf) = zelf.downcast_ref::<Self>() else {
+            let Some(zelf) = zelf.downcast_ref::<ChannelID>() else {
                 return Ok(Either::B(PyComparisonValue::NotImplemented));
             };
-            let equal = if let Some(o) = other.downcast_ref::<Self>() {
+            let equal = if let Some(o) = other.downcast_ref::<ChannelID>() {
                 zelf.end == o.end && zelf.cid == o.cid
             } else if let Some(n) = other.downcast_ref::<PyInt>() {
                 // Fast path

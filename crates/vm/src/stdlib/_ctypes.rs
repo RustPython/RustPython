@@ -226,7 +226,7 @@ pub(crate) mod _ctypes {
     }
 
     #[pyclass(with(Representable))]
-    impl CArgObject {
+    impl Py<CArgObject> {
         #[pygetset]
         fn _obj(&self) -> PyObjectRef {
             self.obj.clone()

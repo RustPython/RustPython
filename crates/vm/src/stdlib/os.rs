@@ -689,18 +689,7 @@ pub(super) mod _os {
         find: Option<host_nt::ScandirEntry>,
     }
 
-    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Representable))]
     impl DirEntry {
-        #[pygetset]
-        fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.mode.process_path(&self.file_name, vm)
-        }
-
-        #[pygetset]
-        fn path(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.mode.process_path(&self.pathval, vm)
-        }
-
         /// Build the DirFd to use for stat calls.
         /// If this entry was produced by fd-based scandir, use the stored dir_fd
         /// so that fstatat(dir_fd, name, ...) is used instead of stat(full_path).
@@ -740,6 +729,87 @@ pub(super) mod _os {
                     }
                 }
             }
+        }
+
+        fn is_symlink(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            #[cfg(windows)]
+            if let Some(find) = &self.find {
+                return Ok(find.is_symlink());
+            }
+            if let Ok(file_type) = &self.file_type {
+                return Ok(file_type.is_symlink());
+            }
+            #[cfg(unix)]
+            if let Some(dt) = self.d_type
+                && dt != libc::DT_UNKNOWN
+            {
+                return Ok(dt == libc::DT_LNK);
+            }
+            #[cfg(unix)]
+            return self.test_mode_via_stat(false, libc::S_IFLNK as _, vm);
+            #[cfg(not(unix))]
+            match &self.file_type {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+                Err(e) => {
+                    use crate::convert::ToPyException;
+                    Err(e.to_pyexception(vm))
+                }
+                Ok(_) => Ok(false),
+            }
+        }
+
+        fn stat(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
+            let effective_dir_fd = self.stat_dir_fd();
+            let do_stat = |follow_symlinks| {
+                stat_at(
+                    OsPath {
+                        path: self.pathval.as_os_str().to_owned(),
+                        origin: None,
+                    }
+                    .into(),
+                    effective_dir_fd,
+                    FollowSymlinks(follow_symlinks),
+                    vm,
+                )
+            };
+            let lstat = || match self.lstat.get() {
+                Some(val) => Ok(val),
+                None => {
+                    let val = do_stat(false)?;
+                    let _ = self.lstat.set(val);
+                    Ok(self.lstat.get().unwrap())
+                }
+            };
+            let stat = if follow_symlinks.0 {
+                match self.stat.get() {
+                    Some(val) => val,
+                    None => {
+                        let val = if self.is_symlink(vm)? {
+                            do_stat(true)?
+                        } else {
+                            lstat()?.clone()
+                        };
+                        let _ = self.stat.set(val);
+                        self.stat.get().unwrap()
+                    }
+                }
+            } else {
+                lstat()?
+            };
+            Ok(stat.clone())
+        }
+    }
+
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Representable))]
+    impl Py<DirEntry> {
+        #[pygetset]
+        fn name(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.mode.process_path(&self.file_name, vm)
+        }
+
+        #[pygetset]
+        fn path(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.mode.process_path(&self.pathval, vm)
         }
 
         #[pymethod]
@@ -810,72 +880,12 @@ pub(super) mod _os {
 
         #[pymethod]
         fn is_symlink(&self, vm: &VirtualMachine) -> PyResult<bool> {
-            #[cfg(windows)]
-            if let Some(find) = &self.find {
-                return Ok(find.is_symlink());
-            }
-            if let Ok(file_type) = &self.file_type {
-                return Ok(file_type.is_symlink());
-            }
-            #[cfg(unix)]
-            if let Some(dt) = self.d_type
-                && dt != libc::DT_UNKNOWN
-            {
-                return Ok(dt == libc::DT_LNK);
-            }
-            #[cfg(unix)]
-            return self.test_mode_via_stat(false, libc::S_IFLNK as _, vm);
-            #[cfg(not(unix))]
-            match &self.file_type {
-                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
-                Err(e) => {
-                    use crate::convert::ToPyException;
-                    Err(e.to_pyexception(vm))
-                }
-                Ok(_) => Ok(false),
-            }
+            self.payload.is_symlink(vm)
         }
 
         #[pymethod]
         fn stat(&self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
-            let effective_dir_fd = self.stat_dir_fd();
-            let do_stat = |follow_symlinks| {
-                stat_at(
-                    OsPath {
-                        path: self.pathval.as_os_str().to_owned(),
-                        origin: None,
-                    }
-                    .into(),
-                    effective_dir_fd,
-                    FollowSymlinks(follow_symlinks),
-                    vm,
-                )
-            };
-            let lstat = || match self.lstat.get() {
-                Some(val) => Ok(val),
-                None => {
-                    let val = do_stat(false)?;
-                    let _ = self.lstat.set(val);
-                    Ok(self.lstat.get().unwrap())
-                }
-            };
-            let stat = if follow_symlinks.0 {
-                match self.stat.get() {
-                    Some(val) => val,
-                    None => {
-                        let val = if self.is_symlink(vm)? {
-                            do_stat(true)?
-                        } else {
-                            lstat()?.clone()
-                        };
-                        let _ = self.stat.set(val);
-                        self.stat.get().unwrap()
-                    }
-                }
-            } else {
-                lstat()?
-            };
-            Ok(stat.clone())
+            self.payload.stat(follow_symlinks, vm)
         }
 
         #[cfg(windows)]
@@ -992,19 +1002,19 @@ pub(super) mod _os {
     }
 
     #[pyclass(flags(DISALLOW_INSTANTIATION), with(Destructor, IterNext, Iterable))]
-    impl ScandirIterator {
+    impl Py<ScandirIterator> {
         #[pymethod]
         fn close(&self) {
             let _dropped = self.entries.write().take();
         }
 
         #[pymethod]
-        const fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
+        const fn __enter__(zelf: PyRef<ScandirIterator>) -> PyRef<ScandirIterator> {
             zelf
         }
 
         #[pymethod]
-        fn __exit__(zelf: PyRef<Self>, _args: FuncArgs) {
+        fn __exit__(zelf: PyRef<ScandirIterator>, _args: FuncArgs) {
             zelf.close()
         }
 
@@ -1144,19 +1154,19 @@ pub(super) mod _os {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyclass(flags(DISALLOW_INSTANTIATION), with(Destructor, IterNext, Iterable))]
-    impl ScandirIteratorFd {
+    impl Py<ScandirIteratorFd> {
         #[pymethod]
         fn close(&self) {
             let _dropped = self.dir.lock().take();
         }
 
         #[pymethod]
-        const fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
+        const fn __enter__(zelf: PyRef<ScandirIteratorFd>) -> PyRef<ScandirIteratorFd> {
             zelf
         }
 
         #[pymethod]
-        fn __exit__(zelf: PyRef<Self>, _args: FuncArgs) {
+        fn __exit__(zelf: PyRef<ScandirIteratorFd>, _args: FuncArgs) {
             zelf.close()
         }
 

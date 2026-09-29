@@ -496,7 +496,7 @@ impl PyCSimpleType {
     }
 
     fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        PyCSimple::repeat(cls, n, vm)
+        Py::<PyCSimple>::repeat(cls, n, vm)
     }
 }
 
@@ -514,7 +514,7 @@ impl AsNumber for PyCSimpleType {
                     .as_bigint()
                     .to_isize()
                     .ok_or_else(|| vm.new_overflow_error("array size too large"))?;
-                PyCSimple::repeat(cls.to_owned(), n, vm)
+                Py::<PyCSimple>::repeat(cls.to_owned(), n, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -1055,7 +1055,7 @@ impl Initializer for PyCSimple {
     fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // If an argument is provided, update the value
         if let Some(value) = args.0.into_option() {
-            Self::set_value(zelf.to_owned().into(), value, vm)?;
+            Py::<Self>::set_value(zelf.to_owned().into(), value, vm)?;
         }
         Ok(())
     }
@@ -1077,7 +1077,7 @@ impl Representable for PyCSimple {
 
         if is_direct_simple {
             // Direct SimpleCData: "typename(repr(value))"
-            let value = Self::value(zelf.to_owned().into(), vm)?;
+            let value = Py::<Self>::value(zelf.to_owned().into(), vm)?;
             let value_repr = value.repr(vm)?.to_string();
             Ok(format!("{type_name}({value_repr})"))
         } else {
@@ -1092,7 +1092,7 @@ impl Representable for PyCSimple {
     flags(BASETYPE),
     with(Constructor, Initializer, AsBuffer, AsNumber, Representable)
 )]
-impl PyCSimple {
+impl Py<PyCSimple> {
     #[pygetset]
     fn _b0_(&self) -> Option<PyObjectRef> {
         self.0.base.read().clone()
@@ -1100,7 +1100,7 @@ impl PyCSimple {
 
     #[pygetset]
     pub(crate) fn value(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let zelf: &Py<Self> = instance
+        let zelf: &Self = instance
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("cannot get value of instance"))?;
 
@@ -1169,7 +1169,7 @@ impl PyCSimple {
 
     #[pygetset(setter)]
     fn set_value(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let zelf: PyRef<Self> = instance
+        let zelf: PyRef<PyCSimple> = instance
             .clone()
             .downcast()
             .map_err(|_| vm.new_type_error("cannot set value of instance"))?;
@@ -1242,7 +1242,10 @@ impl PyCSimple {
     // For direct subclasses of _SimpleCData (e.g., c_int), returns the value.
     // For subclasses of those (e.g., class MyInt(c_int)), returns self.
     #[pymethod]
-    fn __ctypes_from_outparam__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn __ctypes_from_outparam__(
+        zelf: PyRef<PyCSimple>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         // _ctypes_simple_instance: returns true if NOT a direct subclass of Simple_Type
         // i.e., c_int (direct) -> false, MyInt(c_int) (subclass) -> true
         let is_subclass_of_simple = {

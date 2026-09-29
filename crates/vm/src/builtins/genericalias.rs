@@ -100,20 +100,6 @@ impl Constructor for PyGenericAlias {
     }
 }
 
-#[pyclass(
-    with(
-        AsNumber,
-        AsMapping,
-        Callable,
-        Comparable,
-        Constructor,
-        GetAttr,
-        Hashable,
-        Iterable,
-        Representable
-    ),
-    flags(BASETYPE, HAS_WEAKREF)
-)]
 impl PyGenericAlias {
     pub fn new(
         origin: impl Into<PyObjectRef>,
@@ -219,6 +205,36 @@ impl PyGenericAlias {
         })
     }
 
+    fn __getitem__(zelf: &Py<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let new_args = subs_parameters(zelf.as_object(), &zelf.args, &zelf.parameters, needle, vm)?;
+
+        Ok(Self::new(zelf.origin.clone(), new_args, false, vm)?.into_pyobject(vm))
+    }
+
+    fn __ror__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        type_::or_(other, zelf, vm)
+    }
+
+    fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        type_::or_(zelf, other, vm)
+    }
+}
+
+#[pyclass(
+    with(
+        AsNumber,
+        AsMapping,
+        Callable,
+        Comparable,
+        Constructor,
+        GetAttr,
+        Hashable,
+        Iterable,
+        Representable
+    ),
+    flags(BASETYPE, HAS_WEAKREF)
+)]
+impl Py<PyGenericAlias> {
     #[pygetset]
     fn __parameters__(&self) -> PyObjectRef {
         self.parameters.clone().into()
@@ -231,12 +247,6 @@ impl PyGenericAlias {
         } else {
             vm.ctx.none()
         }
-    }
-
-    fn __getitem__(zelf: &Py<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let new_args = subs_parameters(zelf.as_object(), &zelf.args, &zelf.parameters, needle, vm)?;
-
-        Ok(Self::new(zelf.origin.clone(), new_args, false, vm)?.into_pyobject(vm))
     }
 
     #[pymethod]
@@ -252,11 +262,12 @@ impl PyGenericAlias {
     }
 
     #[pymethod]
-    fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn __reduce__(zelf: &Self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         if zelf.starred {
             // (next, (iter(GenericAlias(origin, args)),))
             let next_fn = vm.builtins.get_attr("next", vm)?;
-            let non_starred = Self::new(zelf.origin.clone(), zelf.args.clone(), false, vm)?;
+            let non_starred =
+                PyGenericAlias::new(zelf.origin.clone(), zelf.args.clone(), false, vm)?;
             let iter_obj = PyGenericAliasIterator {
                 obj: crate::common::lock::PyMutex::new(Some(non_starred.into_pyobject(vm))),
             }
@@ -284,7 +295,7 @@ impl PyGenericAlias {
 
     #[pymethod]
     fn __instancecheck__(
-        _zelf: PyRef<Self>,
+        _zelf: PyRef<PyGenericAlias>,
         _object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -293,19 +304,11 @@ impl PyGenericAlias {
 
     #[pymethod]
     fn __subclasscheck__(
-        _zelf: PyRef<Self>,
+        _zelf: PyRef<PyGenericAlias>,
         _object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
         Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
-    }
-
-    fn __ror__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        type_::or_(other, zelf, vm)
-    }
-
-    fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        type_::or_(zelf, other, vm)
     }
 }
 
@@ -696,7 +699,7 @@ pub(crate) struct PyGenericAliasIterator {
 }
 
 #[pyclass(with(Representable, Iterable, IterNext))]
-impl PyGenericAliasIterator {
+impl Py<PyGenericAliasIterator> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let iter_fn = vm.builtins.get_attr("iter", vm)?;

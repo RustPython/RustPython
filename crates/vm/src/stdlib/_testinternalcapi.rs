@@ -573,7 +573,6 @@ mod _testinternalcapi {
         pos: AtomicUsize,
     }
 
-    #[pyclass(flags(HAS_WEAKREF), with(AsMapping, AsSequence, Comparable, Iterable))]
     impl Hamt {
         fn find(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
             let hash = key.hash(vm)?;
@@ -610,14 +609,17 @@ mod _testinternalcapi {
                 len: self.len,
             }
         }
+    }
 
+    #[pyclass(flags(HAS_WEAKREF), with(AsMapping, AsSequence, Comparable, Iterable))]
+    impl Py<Hamt> {
         #[pymethod]
         fn set(
-            zelf: PyRef<Self>,
+            zelf: PyRef<Hamt>,
             key: PyObjectRef,
             value: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+        ) -> PyResult<PyRef<Hamt>> {
             let hash = key.hash(vm)?;
             if let Some(bucket) = zelf.buckets.get(&hash) {
                 for (k, slot) in bucket {
@@ -658,10 +660,10 @@ mod _testinternalcapi {
 
         #[pymethod]
         fn delete(
-            zelf: PyRef<Self>,
+            zelf: PyRef<Hamt>,
             key: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+        ) -> PyResult<PyRef<Hamt>> {
             let hash = key.hash(vm)?;
             let Some(bucket) = zelf.buckets.get(&hash) else {
                 return Ok(zelf);
@@ -948,8 +950,12 @@ mod _testinternalcapi {
     }
 
     #[cfg(feature = "codegen")]
+    #[pyclass(with(Py))]
+    impl PyInstructionSequence {}
+
+    #[cfg(feature = "codegen")]
     #[pyclass]
-    impl PyInstructionSequence {
+    impl Py<PyInstructionSequence> {
         #[pymethod]
         #[allow(clippy::too_many_arguments)]
         fn addop(
@@ -990,7 +996,7 @@ mod _testinternalcapi {
 
         #[pymethod]
         fn add_nested(&self, nested: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let nested = nested.downcast::<Self>().map_err(|obj| {
+            let nested = nested.downcast::<PyInstructionSequence>().map_err(|obj| {
                 vm.new_type_error(format!(
                     "expected an instruction sequence, not {}",
                     obj.class().name()
