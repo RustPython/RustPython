@@ -3545,7 +3545,7 @@ impl VirtualMachine {
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
         #[cfg(feature = "threading")]
-        if thread::stop_requested_for_current_thread() {
+        if thread::stop_requested_for_current_thread() || self.state.gc.collection_ready() {
             return true;
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -3594,7 +3594,7 @@ impl VirtualMachine {
     /// against a thread blocked on a lock this thread would otherwise hold.
     #[cfg(feature = "threading")]
     pub(crate) fn run_scheduled_gc(&self) {
-        if crate::signal::take_gc_scheduled() {
+        if self.state.gc.collection_ready() {
             self.state.gc.collect(0);
         }
     }
