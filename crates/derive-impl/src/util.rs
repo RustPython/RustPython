@@ -910,18 +910,15 @@ pub(crate) fn internal_doc_tokens(
                     Ok(s) => s,
                     Err(_) => panic!(),
                 };
-                #[cfg(feature = "doc")]
-                {
+                ::rustpython_vm::__cfg_doc!({
                     ::rustpython_vm::function::ItemDoc {
                         text: Some(PREFIX),
                         offset: BASE.offset,
                         len: BASE.len,
                     }
-                }
-                #[cfg(not(feature = "doc"))]
-                {
+                } else {
                     ::rustpython_vm::function::ItemDoc::static_text(PREFIX)
-                }
+                })
             } else {
                 const BODY: &str = match BASE.text {
                     Some(text) => text,

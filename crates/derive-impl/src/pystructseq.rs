@@ -547,10 +547,11 @@ pub(crate) fn impl_pystruct_sequence(
             const MODULE_NAME: Option<&'static str> = #module_name_tokens;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: ::rustpython_vm::function::ItemDoc = #doc;
-            #[cfg(feature = "doc")]
-            const ATTR_DOCS: &'static [(&'static str, u32, u32)] = #attr_docs;
-            #[cfg(not(feature = "doc"))]
-            const ATTR_DOCS: &'static [&'static str] = #attr_names;
+            ::rustpython_vm::__cfg_doc! {{
+                const ATTR_DOCS: &'static [(&'static str, u32, u32)] = #attr_docs;
+            } else {
+                const ATTR_DOCS: &'static [&'static str] = #attr_names;
+            }}
             const BASICSIZE: usize = 0;
             const UNHASHABLE: bool = false;
 

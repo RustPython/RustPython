@@ -225,25 +225,18 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 let method_defs = if with_method_defs.is_empty() {
                     quote!(#holder::__OWN_METHOD_DEFS)
                 } else {
-                    quote!(
-                        {
-                            #[cfg(feature = "doc")]
-                            {
-                                ::rustpython_vm::function::PyMethodDef::concat_with_attr_docs::<
-                                    { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
-                                >(
-                                    &[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*],
-                                    <#payload_ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
-                                )
-                            }
-                            #[cfg(not(feature = "doc"))]
-                            {
-                                ::rustpython_vm::function::PyMethodDef::__const_concat_arrays::<
-                                    { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
-                                >(&[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
-                            }
-                        }
-                    )
+                    quote!(::rustpython_vm::__cfg_doc!({
+                        ::rustpython_vm::function::PyMethodDef::concat_with_attr_docs::<
+                            { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
+                        >(
+                            &[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*],
+                            <#payload_ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
+                        )
+                    } else {
+                        ::rustpython_vm::function::PyMethodDef::__const_concat_arrays::<
+                            { #holder::__OWN_METHOD_DEFS.len() #(+ #with_method_defs.len())* },
+                        >(&[#holder::__OWN_METHOD_DEFS, #(#with_method_defs,)*])
+                    }))
                 };
                 let internal_doc = class_internal_doc(
                     &payload_ty,
@@ -451,8 +444,7 @@ fn attr_doc_expr(self_ty: Option<&syn::Type>, attr: &str, rust_doc: Option<Strin
         return quote!(::rustpython_vm::function::ItemDoc::NONE);
     };
     quote! {
-        {
-            #[cfg(feature = "doc")]
+        ::rustpython_vm::__cfg_doc!({
             {
                 const FOUND: Option<(u32, u32)> = ::rustpython_vm::class::attr_doc(
                     <#ty as ::rustpython_vm::class::PyClassDef>::ATTR_DOCS,
@@ -467,11 +459,9 @@ fn attr_doc_expr(self_ty: Option<&syn::Type>, attr: &str, rust_doc: Option<Strin
                     _ => ::rustpython_vm::function::ItemDoc::NONE,
                 }
             }
-            #[cfg(not(feature = "doc"))]
-            {
-                ::rustpython_vm::function::ItemDoc::NONE
-            }
-        }
+        } else {
+            ::rustpython_vm::function::ItemDoc::NONE
+        })
     }
 }
 
@@ -668,10 +658,11 @@ fn generate_class_def(
             const MODULE_NAME: Option<&'static str> = #module_name;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: ::rustpython_vm::function::ItemDoc = #doc;
-            #[cfg(feature = "doc")]
-            const ATTR_DOCS: &'static [(&'static str, u32, u32)] = #attr_docs;
-            #[cfg(not(feature = "doc"))]
-            const ATTR_DOCS: &'static [&'static str] = #attr_names;
+            ::rustpython_vm::__cfg_doc! {{
+                const ATTR_DOCS: &'static [(&'static str, u32, u32)] = #attr_docs;
+            } else {
+                const ATTR_DOCS: &'static [&'static str] = #attr_names;
+            }}
             const BASICSIZE: usize = #basicsize;
             const UNHASHABLE: bool = #unhashable;
             const MEMBERS: &'static [::rustpython_vm::builtins::descriptor::PyMemberSpec] = #members;
@@ -1558,10 +1549,9 @@ impl ToTokens for MethodNursery {
                         #flags,
                         #doc,
                     );
-                    #[cfg(feature = "doc")]
-                    {
+                    ::rustpython_vm::__cfg_doc!({
                         def.doc_body_pending = #doc_body_pending;
-                    }
+                    } else {});
                     def
                 },
             ]);
