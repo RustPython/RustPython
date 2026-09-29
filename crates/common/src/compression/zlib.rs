@@ -672,11 +672,12 @@ impl Decompressor {
 
         // save unused input: past the end of the stream it is unused_data and
         // unconsumed_tail is emptied, otherwise it is the new unconsumed_tail
-        let mut unconsumed = &data[consumed..];
-        if stream_end {
-            unused_data.extend_from_slice(unconsumed);
-            unconsumed = &[];
-        }
+        let unconsumed: &[u8] = if stream_end {
+            unused_data.extend_from_slice(&data[consumed..]);
+            &[]
+        } else {
+            &data[consumed..]
+        };
         unconsumed_tail.clear();
         unconsumed_tail.extend_from_slice(unconsumed);
 
