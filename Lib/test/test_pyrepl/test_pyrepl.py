@@ -1039,7 +1039,6 @@ class TestPyReplModuleCompleter(TestCase):
                 output = reader.readline()
                 self.assertEqual(output, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_relative_import_completions(self):
         cases = (
             (None, "from .readl\t\n", "from .readl"),
