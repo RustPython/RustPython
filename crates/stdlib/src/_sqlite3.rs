@@ -348,8 +348,14 @@ mod _sqlite3 {
                 return Ok(Self(None));
             }
             obj.downcast::<PyStr>()
-                .map(|s| Self(Some(s)))
                 .map_err(|_| vm.new_type_error("isolation_level must be str or None".to_owned()))
+                .and_then(|s| {
+                    if s.contains_nuls() {
+                        Err(vm.new_value_error("isolation_level contains interior NULs".to_owned()))
+                    } else {
+                        Ok(Self(Some(s)))
+                    }
+                })
         }
     }
 
@@ -497,7 +503,7 @@ mod _sqlite3 {
             };
 
             if let Err(exc) = f() {
-                context.result_exception(vm, exc, "user-defined function raised exception\0")
+                context.result_exception(vm, exc, c"user-defined function raised exception")
             }
         }
 
@@ -517,7 +523,7 @@ mod _sqlite3 {
                         return context.result_exception(
                             vm,
                             exc,
-                            "user-defined aggregate's '__init__' method raised error\0",
+                            c"user-defined aggregate's '__init__' method raised error",
                         );
                     }
                 }
@@ -661,13 +667,21 @@ mod _sqlite3 {
                     context.result_exception(
                         vm,
                         exc,
-                        &format!("user-defined aggregate's '{name}' method not defined\0"),
+                        CStr::from_bytes_until_nul(
+                            format!("user-defined aggregate's '{name}' method not defined\0")
+                                .as_bytes(),
+                        )
+                        .unwrap(),
                     )
                 } else {
                     context.result_exception(
                         vm,
                         exc,
-                        &format!("user-defined aggregate's '{name}' method raised error\0"),
+                        CStr::from_bytes_until_nul(
+                            format!("user-defined aggregate's '{name}' method raised error\0")
+                                .as_bytes(),
+                        )
+                        .unwrap(),
                     )
                 }
             }
@@ -695,13 +709,21 @@ mod _sqlite3 {
                     context.result_exception(
                         vm,
                         exc,
-                        &format!("user-defined aggregate's '{name}' method not defined\0"),
+                        CStr::from_bytes_until_nul(
+                            format!("user-defined aggregate's '{name}' method not defined\0")
+                                .as_bytes(),
+                        )
+                        .unwrap(),
                     )
                 } else {
                     context.result_exception(
                         vm,
                         exc,
-                        &format!("user-defined aggregate's '{name}' method raised error\0"),
+                        CStr::from_bytes_until_nul(
+                            format!("user-defined aggregate's '{name}' method raised error\0")
+                                .as_bytes(),
+                        )
+                        .unwrap(),
                     )
                 }
             }
@@ -1016,7 +1038,7 @@ mod _sqlite3 {
                 && *self.autocommit.lock() == AutocommitMode::Disabled
                 && !db.is_autocommit()
             {
-                db._exec(b"ROLLBACK\0", vm)
+                db._exec(c"ROLLBACK", vm)
             } else {
                 Ok(())
             };
@@ -1041,7 +1063,7 @@ mod _sqlite3 {
                 begin_statement_ptr_from_isolation_level(isolation_level, vm)?;
             }
             if args.autocommit == AutocommitMode::Disabled {
-                db._exec(b"BEGIN\0", vm)?;
+                db._exec(c"BEGIN", vm)?;
             }
             Ok(db)
         }
@@ -1154,8 +1176,8 @@ mod _sqlite3 {
                 AutocommitMode::Legacy => db.implicit_commit(vm),
                 AutocommitMode::Enabled => Ok(()),
                 AutocommitMode::Disabled => {
-                    db._exec(b"COMMIT\0", vm)?;
-                    db._exec(b"BEGIN\0", vm)
+                    db._exec(c"COMMIT", vm)?;
+                    db._exec(c"BEGIN", vm)
                 }
             }
         }
@@ -1169,13 +1191,13 @@ mod _sqlite3 {
                     if db.is_autocommit() {
                         Ok(())
                     } else {
-                        db._exec(b"ROLLBACK\0", vm)
+                        db._exec(c"ROLLBACK", vm)
                     }
                 }
                 AutocommitMode::Enabled => Ok(()),
                 AutocommitMode::Disabled => {
-                    db._exec(b"ROLLBACK\0", vm)?;
-                    db._exec(b"BEGIN\0", vm)
+                    db._exec(c"ROLLBACK", vm)?;
+                    db._exec(c"BEGIN", vm)
                 }
             }
         }
@@ -1218,9 +1240,7 @@ mod _sqlite3 {
             )
         }
 
-        // TODO: Make it build without clippy::manual_c_str_literals
         #[pymethod]
-        #[allow(clippy::manual_c_str_literals)]
         fn backup(zelf: &Py<Self>, args: BackupArgs, vm: &VirtualMachine) -> PyResult<()> {
             let BackupArgs {
                 target,
@@ -1240,7 +1260,7 @@ mod _sqlite3 {
                 name_cstring = name.to_cstring(vm)?;
                 name_cstring.as_ptr()
             } else {
-                b"main\0".as_ptr().cast()
+                c"main".as_ptr()
             };
 
             let sleep_ms = (sleep * 1000.0) as c_int;
@@ -1248,9 +1268,8 @@ mod _sqlite3 {
             let db = zelf.db_lock(vm)?;
             let target_db = target.db_lock(vm)?;
 
-            let handle = unsafe {
-                sqlite3_backup_init(target_db.db, b"main\0".as_ptr().cast(), db.db, name_ptr)
-            };
+            let handle =
+                unsafe { sqlite3_backup_init(target_db.db, c"main".as_ptr(), db.db, name_ptr) };
 
             if handle.is_null() {
                 return Err(target_db.error_extended(vm));
@@ -1302,7 +1321,7 @@ mod _sqlite3 {
             check_num_params(&db, args.narg, "narg", vm)?;
             let Some(data) = CallbackData::new(args.func, vm) else {
                 return db.create_function(
-                    name.as_ptr(),
+                    &name,
                     args.narg,
                     flags,
                     null_mut(),
@@ -1315,7 +1334,7 @@ mod _sqlite3 {
             };
 
             db.create_function(
-                name.as_ptr(),
+                &name,
                 args.narg,
                 flags,
                 Box::into_raw(Box::new(data)).cast(),
@@ -1338,7 +1357,7 @@ mod _sqlite3 {
             check_num_params(&db, args.narg, "n_arg", vm)?;
             let Some(data) = CallbackData::new(args.aggregate_class, vm) else {
                 return db.create_function(
-                    name.as_ptr(),
+                    &name,
                     args.narg,
                     SQLITE_UTF8,
                     null_mut(),
@@ -1351,7 +1370,7 @@ mod _sqlite3 {
             };
 
             db.create_function(
-                name.as_ptr(),
+                &name,
                 args.narg,
                 SQLITE_UTF8,
                 Box::into_raw(Box::new(data)).cast(),
@@ -1663,13 +1682,13 @@ mod _sqlite3 {
                 AutocommitMode::Enabled => {
                     // If there's a pending transaction, commit it
                     if !db.is_autocommit() {
-                        db._exec(b"COMMIT ", vm)?;
+                        db._exec(c"COMMIT", vm)?;
                     }
                 }
                 AutocommitMode::Disabled => {
                     // If not in a transaction, begin one
                     if db.is_autocommit() {
-                        db._exec(b"BEGIN ", vm)?;
+                        db._exec(c"BEGIN", vm)?;
                     }
                 }
                 AutocommitMode::Legacy => {
@@ -2057,10 +2076,14 @@ mod _sqlite3 {
             }
 
             let script = script.to_cstring(vm)?;
-            let mut ptr = script.as_ptr();
+            let mut sql = script.as_c_str();
+            let mut tail = null();
 
-            while let Some(st) = db.prepare(ptr, &mut ptr, vm)? {
+            while let Some(st) = db.prepare(sql, &mut tail, vm)? {
                 while st.step_row_else_done(vm)? {}
+                // SAFETY: SQLite advances the pointer w.r.t. `sql`, and `sql` is a valid CStr
+                // without any interior NULs.
+                sql = unsafe { CStr::from_ptr(tail) };
             }
 
             drop(db);
@@ -2210,8 +2233,8 @@ mod _sqlite3 {
                         .skip(1)
                         .take_while(|&x| x != ']')
                         .flat_map(|x| x.to_uppercase())
-                        .collect::<String>();
-                    if let Some(converter) = converters().get_item_opt(&col_name, vm)? {
+                        .collect::<Box<str>>();
+                    if let Some(converter) = converters().get_item_opt(&*col_name, vm)? {
                         cast_map.push(Some(converter));
                         continue;
                     }
@@ -2946,13 +2969,9 @@ mod _sqlite3 {
             sql: PyUtf8StrRef,
             vm: &VirtualMachine,
         ) -> PyResult<Option<Self>> {
-            if sql.as_str().contains('\0') {
-                return Err(new_programming_error(
-                    vm,
-                    "statement contains a null character.".to_owned(),
-                ));
-            }
-            let sql_cstr = sql.to_cstring(vm)?;
+            let sql_cstr = sql.to_cstring(vm).map_err(|_| {
+                new_programming_error(vm, "statement contains a null character.".to_owned())
+            })?;
 
             let raw = {
                 let db = connection.db_lock(vm)?;
@@ -2961,7 +2980,7 @@ mod _sqlite3 {
             };
 
             let mut tail = null();
-            let st = raw.prepare(sql_cstr.as_ptr(), &mut tail, vm)?;
+            let st = raw.prepare(&sql_cstr, &mut tail, vm)?;
 
             let Some(st) = st else {
                 return Ok(None);
@@ -3091,20 +3110,19 @@ mod _sqlite3 {
             zelf.check(ret, vm).map(|_| zelf)
         }
 
-        fn _exec(self, sql: &[u8], vm: &VirtualMachine) -> PyResult<()> {
-            let ret =
-                unsafe { sqlite3_exec(self.db, sql.as_ptr().cast(), None, null_mut(), null_mut()) };
+        fn _exec(self, sql: &CStr, vm: &VirtualMachine) -> PyResult<()> {
+            let ret = unsafe { sqlite3_exec(self.db, sql.as_ptr(), None, null_mut(), null_mut()) };
             self.check(ret, vm)
         }
 
         fn prepare(
             self,
-            sql: *const libc::c_char,
-            tail: *mut *const libc::c_char,
+            sql: &CStr,
+            tail: &mut *const libc::c_char,
             vm: &VirtualMachine,
         ) -> PyResult<Option<SqliteStatement>> {
             let mut st = null_mut();
-            let ret = unsafe { sqlite3_prepare_v2(self.db, sql, -1, &mut st, tail) };
+            let ret = unsafe { sqlite3_prepare_v2(self.db, sql.as_ptr(), -1, &mut st, tail) };
             self.check(ret, vm)?;
             if st.is_null() {
                 Ok(None)
@@ -3153,7 +3171,7 @@ mod _sqlite3 {
             if self.is_autocommit() {
                 Ok(())
             } else {
-                self._exec(b"COMMIT\0", vm)
+                self._exec(c"COMMIT", vm)
             }
         }
 
@@ -3169,7 +3187,9 @@ mod _sqlite3 {
             s.extend(b"BEGIN ");
             s.extend(isolation_level.expect_str().bytes());
             s.push(b'\0');
-            self._exec(&s, vm)
+            // SAFETY: isolation_level is checked for interior NULs on construction
+            let cs = unsafe { CStr::from_bytes_with_nul_unchecked(&s) };
+            self._exec(cs, vm)
         }
 
         fn interrupt(self) {
@@ -3183,7 +3203,7 @@ mod _sqlite3 {
         #[allow(clippy::too_many_arguments)]
         fn create_function(
             self,
-            name: *const libc::c_char,
+            name: &CStr,
             narg: c_int,
             flags: c_int,
             data: *mut c_void,
@@ -3207,7 +3227,15 @@ mod _sqlite3 {
         ) -> PyResult<()> {
             let ret = unsafe {
                 sqlite3_create_function_v2(
-                    self.db, name, narg, flags, data, func, step, finalize, destroy,
+                    self.db,
+                    name.as_ptr(),
+                    narg,
+                    flags,
+                    data,
+                    func,
+                    step,
+                    finalize,
+                    destroy,
                 )
             };
             self.check(ret, vm)
@@ -3563,13 +3591,13 @@ mod _sqlite3 {
             }
         }
 
-        fn result_exception(self, vm: &VirtualMachine, exc: PyBaseExceptionRef, msg: &str) {
+        fn result_exception(self, vm: &VirtualMachine, exc: PyBaseExceptionRef, msg: &CStr) {
             if exc.fast_isinstance(vm.ctx.exceptions.memory_error) {
                 unsafe { sqlite3_result_error_nomem(self.ctx) }
             } else if exc.fast_isinstance(vm.ctx.exceptions.overflow_error) {
                 unsafe { sqlite3_result_error_toobig(self.ctx) }
             } else {
-                unsafe { sqlite3_result_error(self.ctx, msg.as_ptr().cast(), -1) }
+                unsafe { sqlite3_result_error(self.ctx, msg.as_ptr(), -1) }
             }
             if enable_traceback().load(Ordering::Relaxed) {
                 vm.print_exception(&exc);
@@ -3700,9 +3728,11 @@ mod _sqlite3 {
         nbytes: c_int,
         db: *mut sqlite3,
         vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    ) -> PyResult<Box<str>> {
         let s = ptr_to_vec(p, nbytes, db, vm)?;
-        String::from_utf8(s).map_err(|_| vm.new_value_error("invalid utf-8"))
+        String::from_utf8(s)
+            .map(Into::into)
+            .map_err(|_| vm.new_value_error("invalid utf-8"))
     }
 
     fn ptr_to_vec(
