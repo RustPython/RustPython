@@ -115,13 +115,62 @@ def attr_is_not_inherited(type_, attr):
 
 
 def extra_info(obj):
+    import sys
+
+    class _OrderedSet:
+        """Set repr with sorted elements, so hash order does not change it."""
+
+        def __init__(self, items, braces):
+            self.items = items
+            self.braces = braces
+
+        def __repr__(self):
+            if not self.items:
+                return "set()" if self.braces else "frozenset()"
+            body = ", ".join(sorted(repr(item) for item in self.items))
+            if self.braces:
+                return "{" + body + "}"
+            return "frozenset({" + body + "})"
+
+    def canon_default(param):
+        default = param.default
+        # The interpreter path, version tuple, and install scheme differ per process.
+        if isinstance(default, str) and default == sys.executable:
+            return "<sys.executable>"
+        if default is sys.version_info:
+            return "<sys.version_info>"
+        if param.name == "scheme" and isinstance(default, str):
+            import sysconfig
+
+            if default == sysconfig.get_default_scheme():
+                return "<sysconfig.get_default_scheme()>"
+        if isinstance(default, frozenset):
+            return _OrderedSet(default, False)
+        if isinstance(default, set):
+            return _OrderedSet(default, True)
+        return default
+
+    def stable_signature(target):
+        sig = inspect.signature(target)
+        params = []
+        changed = False
+        for param in sig.parameters.values():
+            if param.default is not inspect.Parameter.empty:
+                default = canon_default(param)
+                if default is not param.default:
+                    param = param.replace(default=default)
+                    changed = True
+            params.append(param)
+        if changed:
+            sig = sig.replace(parameters=params)
+        # remove function memory addresses
+        return re.sub(r" at 0x[0-9A-Fa-f]+", " at 0xdeadbeef", str(sig))
+
     if callable(obj):
         doc = inspect.getdoc(obj)
         try:
-            sig = str(inspect.signature(obj))
-            # remove function memory addresses
             return {
-                "sig": re.sub(" at 0x[0-9A-Fa-f]+", " at 0xdeadbeef", sig),
+                "sig": stable_signature(obj),
                 "doc": doc,
             }
         except Exception as e:
@@ -322,12 +371,80 @@ def dir_of_mod_or_error(module_name, keep_other=True):
     return result
 
 
+def _is_decimal_fallback_item(item):
+    """Items that belong to the pure decimal module, not an imported helper."""
+    if inspect.ismodule(item):
+        return False
+    declared = getattr(item, "__module__", None)
+    if declared in {"decimal", "_pydecimal"}:
+        return True
+    return declared is None and inspect.getmodule(item) is None
+
+
+def _expand_class_members(dir_result, module):
+    for item_name in list(dir_result):
+        if "." in item_name:
+            continue
+        item = getattr(module, item_name)
+        if (
+            isinstance(item, type)
+            and item not in BUILTIN_TYPES
+            and getattr(item, "__name__", None) == item_name
+        ):
+            for attr, info in own_attrs(item):
+                dir_result[f"{item_name}.{attr}"] = info
+
+
+def _pure_decimal_baseline(wrapper):
+    """Signatures and docs from `_pydecimal`, with the wrapper module docstring."""
+    import _pydecimal
+
+    result = {}
+    for item_name in sorted(set(dir(_pydecimal))):
+        if item_name == "__builtins__":
+            continue
+        if item_name == "__doc__":
+            result[item_name] = {"sig": None, "doc": inspect.getdoc(wrapper)}
+            continue
+        item = getattr(_pydecimal, item_name)
+        if not _is_decimal_fallback_item(item):
+            continue
+        result[item_name] = extra_info(item)
+    _expand_class_members(result, _pydecimal)
+    return result
+
+
+def _use_pure_zoneinfo(dir_result):
+    """Replace the accelerated ZoneInfo with the pure-Python class."""
+    import zoneinfo._zoneinfo as pure_zoneinfo
+
+    cls = pure_zoneinfo.ZoneInfo
+    name = cls.__name__
+    for key in list(dir_result):
+        if key == name or key.startswith(f"{name}."):
+            del dir_result[key]
+    dir_result[name] = extra_info(cls)
+    for attr, info in own_attrs(cls):
+        dir_result[f"{name}.{attr}"] = info
+
+
 def gen_modules():
     # check name because modules listed have side effects on import,
     # e.g. printing something or opening a webpage
     modules = {}
     for mod_name in sorted(scan_modules(), key=name_sort_key):
         if mod_name in IGNORED_MODULES:
+            continue
+        # decimal's accelerated types are not the implementation under test.
+        if mod_name == "decimal":
+            module = import_module(mod_name)
+            if isinstance(module, Exception):
+                print(
+                    f"!!! {mod_name} skipped because {type(module).__name__}: {str(module)}",
+                    file=sys.stderr,
+                )
+                continue
+            modules[mod_name] = _pure_decimal_baseline(module)
             continue
         # when generating CPython list, ignore items defined by other modules
         dir_result = dir_of_mod_or_error(mod_name, keep_other=False)
@@ -348,6 +465,8 @@ def gen_modules():
             ):
                 for attr, info in own_attrs(item):
                     dir_result[f"{item_name}.{attr}"] = info
+        if mod_name == "zoneinfo":
+            _use_pure_zoneinfo(dir_result)
         modules[mod_name] = dir_result
     return modules
 
