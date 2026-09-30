@@ -12,7 +12,7 @@ license.workspace = true
 [features]
 default = ["compiler", "wasmbind", "gc", "host_env", "stdio", "doc"]
 doc = ["dep:rustpython-doc", "dep:xz"]
-host_env = []
+host_env = ["rustpython-host_env/ctypes"]
 stdio = []
 importlib = []
 encodings = ["importlib"]

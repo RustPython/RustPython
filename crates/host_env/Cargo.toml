@@ -9,6 +9,8 @@ repository.workspace = true
 license.workspace = true
 
 [features]
+# `ctypes` module: libffi (linked against the system library) and libloading.
+ctypes = ["dep:libffi", "dep:libloading"]
 native-certs = ["dep:rustls-native-certs"]
 # rustls-free `_ssl` surface: MemoryBIO, constants, OID, ALPN, hostname.
 ssl = []
@@ -69,10 +71,10 @@ termios = { workspace = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 memmap2 = { workspace = true }
-libloading = { workspace = true }
+libloading = { workspace = true, optional = true }
 
 [target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
-libffi = { workspace = true, features = ["system"] }
+libffi = { workspace = true, features = ["system"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = { workspace = true }
