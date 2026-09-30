@@ -157,39 +157,39 @@ mod _blake2 {
         }
 
         #[pygetset]
-        fn name(&self) -> &'static str {
-            self.inner.name()
+        fn name(zelf: &Py<Self>) -> &'static str {
+            zelf.inner.name()
         }
 
         #[pygetset]
-        fn digest_size(&self) -> usize {
-            self.inner.digest_size()
+        fn digest_size(zelf: &Py<Self>) -> usize {
+            zelf.inner.digest_size()
         }
 
         #[pygetset]
-        fn block_size(&self) -> usize {
-            self.inner.block_size()
+        fn block_size(zelf: &Py<Self>) -> usize {
+            zelf.inner.block_size()
         }
 
         #[pymethod]
-        fn update(&self, data: ArgBytesLike) {
-            data.with_ref(|bytes| self.inner.update(bytes));
+        fn update(zelf: &Py<Self>, data: ArgBytesLike) {
+            data.with_ref(|bytes| zelf.inner.update(bytes));
         }
 
         #[pymethod]
-        fn digest(&self) -> PyBytes {
-            self.inner.digest().into()
+        fn digest(zelf: &Py<Self>) -> PyBytes {
+            zelf.inner.digest().into()
         }
 
         #[pymethod]
-        fn hexdigest(&self) -> String {
-            self.inner.hexdigest()
+        fn hexdigest(zelf: &Py<Self>) -> String {
+            zelf.inner.hexdigest()
         }
 
         #[pymethod]
-        fn copy(&self) -> Self {
+        fn copy(zelf: &Py<Self>) -> Self {
             Self {
-                inner: self.inner.copy(),
+                inner: zelf.inner.copy(),
             }
         }
     }
@@ -254,39 +254,39 @@ mod _blake2 {
         }
 
         #[pygetset]
-        fn name(&self) -> &'static str {
-            self.inner.name()
+        fn name(zelf: &Py<Self>) -> &'static str {
+            zelf.inner.name()
         }
 
         #[pygetset]
-        fn digest_size(&self) -> usize {
-            self.inner.digest_size()
+        fn digest_size(zelf: &Py<Self>) -> usize {
+            zelf.inner.digest_size()
         }
 
         #[pygetset]
-        fn block_size(&self) -> usize {
-            self.inner.block_size()
+        fn block_size(zelf: &Py<Self>) -> usize {
+            zelf.inner.block_size()
         }
 
         #[pymethod]
-        fn update(&self, data: ArgBytesLike) {
-            data.with_ref(|bytes| self.inner.update(bytes));
+        fn update(zelf: &Py<Self>, data: ArgBytesLike) {
+            data.with_ref(|bytes| zelf.inner.update(bytes));
         }
 
         #[pymethod]
-        fn digest(&self) -> PyBytes {
-            self.inner.digest().into()
+        fn digest(zelf: &Py<Self>) -> PyBytes {
+            zelf.inner.digest().into()
         }
 
         #[pymethod]
-        fn hexdigest(&self) -> String {
-            self.inner.hexdigest()
+        fn hexdigest(zelf: &Py<Self>) -> String {
+            zelf.inner.hexdigest()
         }
 
         #[pymethod]
-        fn copy(&self) -> Self {
+        fn copy(zelf: &Py<Self>) -> Self {
             Self {
-                inner: self.inner.copy(),
+                inner: zelf.inner.copy(),
             }
         }
     }

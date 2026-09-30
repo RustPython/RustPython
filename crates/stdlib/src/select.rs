@@ -310,22 +310,22 @@ mod decl {
         #[pyclass(flags(DISALLOW_INSTANTIATION))]
         impl PyPoll {
             #[pymethod]
-            fn register(&self, Fildes(fd): Fildes, eventmask: OptionalArg<EventMask>) {
+            fn register(zelf: &Py<Self>, Fildes(fd): Fildes, eventmask: OptionalArg<EventMask>) {
                 let mask = match eventmask {
                     OptionalArg::Present(event_mask) => event_mask.0,
                     OptionalArg::Missing => DEFAULT_EVENTS,
                 };
-                host_select::insert_poll_fd(&mut self.fds.lock(), fd, mask);
+                host_select::insert_poll_fd(&mut zelf.fds.lock(), fd, mask);
             }
 
             #[pymethod]
             fn modify(
-                &self,
+                zelf: &Py<Self>,
                 Fildes(fd): Fildes,
                 eventmask: EventMask,
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
-                let mut fds = self.fds.lock();
+                let mut fds = zelf.fds.lock();
                 // CPython raises KeyError if fd is not registered, match that behavior
                 let pfd = host_select::get_poll_fd_mut(&mut fds, fd)
                     .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))?;
@@ -334,8 +334,12 @@ mod decl {
             }
 
             #[pymethod]
-            fn unregister(&self, Fildes(fd): Fildes, vm: &VirtualMachine) -> PyResult<()> {
-                let removed = host_select::remove_poll_fd(&mut self.fds.lock(), fd);
+            fn unregister(
+                zelf: &Py<Self>,
+                Fildes(fd): Fildes,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                let removed = host_select::remove_poll_fd(&mut zelf.fds.lock(), fd);
                 removed
                     .map(drop)
                     .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))
@@ -343,11 +347,11 @@ mod decl {
 
             #[pymethod]
             fn poll(
-                &self,
+                zelf: &Py<Self>,
                 timeout: OptionalArg<TimeoutArg<true>>,
                 vm: &VirtualMachine,
             ) -> PyResult<Vec<PyObjectRef>> {
-                if self.poll_running.swap(true, Ordering::SeqCst) {
+                if zelf.poll_running.swap(true, Ordering::SeqCst) {
                     return Err(vm.new_runtime_error("concurrent poll() invocation"));
                 }
                 struct ClearRunning<'a>(&'a AtomicBool);
@@ -356,12 +360,12 @@ mod decl {
                         self.0.store(false, Ordering::Release);
                     }
                 }
-                let _running = ClearRunning(&self.poll_running);
+                let _running = ClearRunning(&zelf.poll_running);
 
                 // Poll a copy: the wait releases the GIL-equivalent and runs
                 // signal handlers, which can register or unregister on the same
                 // object, and a held lock would deadlock them.
-                let mut fds = self.fds.lock().clone();
+                let mut fds = zelf.fds.lock().clone();
                 let TimeoutArg(timeout) = timeout.unwrap_or_default();
                 let timeout_ms = match timeout {
                     Some(d) => host_select::duration_as_millis_ceiling(d)
@@ -481,8 +485,8 @@ mod decl {
             }
 
             #[pymethod]
-            fn close(&self) -> std::io::Result<()> {
-                let fd = self.epoll_fd.write().take();
+            fn close(zelf: &Py<Self>) -> std::io::Result<()> {
+                let fd = zelf.epoll_fd.write().take();
                 if let Some(fd) = fd {
                     host_select::epoll::close(fd)?;
                 }
@@ -490,8 +494,8 @@ mod decl {
             }
 
             #[pygetset]
-            fn closed(&self) -> bool {
-                self.epoll_fd.read().is_none()
+            fn closed(zelf: &Py<Self>) -> bool {
+                zelf.epoll_fd.read().is_none()
             }
 
             fn get_epoll(
@@ -503,8 +507,8 @@ mod decl {
             }
 
             #[pymethod]
-            fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
-                self.get_epoll(vm).map(|epoll_fd| epoll_fd.as_raw_fd())
+            fn fileno(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<i32> {
+                zelf.get_epoll(vm).map(|epoll_fd| epoll_fd.as_raw_fd())
             }
 
             #[pyclassmethod]
@@ -515,7 +519,7 @@ mod decl {
 
             #[pymethod]
             fn register(
-                &self,
+                zelf: &Py<Self>,
                 fd: Fildes,
                 eventmask: OptionalArg<u32>,
                 vm: &VirtualMachine,
@@ -527,26 +531,35 @@ mod decl {
                         | host_select::epoll::EventFlags::OUT)
                         .bits(),
                 };
-                let epoll_fd = &*self.get_epoll(vm)?;
+                let epoll_fd = &*zelf.get_epoll(vm)?;
                 host_select::epoll::add(epoll_fd, fd, fd.as_raw_fd() as u64, events)
                     .map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
-            fn modify(&self, fd: Fildes, eventmask: u32, vm: &VirtualMachine) -> PyResult<()> {
-                let epoll_fd = &*self.get_epoll(vm)?;
+            fn modify(
+                zelf: &Py<Self>,
+                fd: Fildes,
+                eventmask: u32,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                let epoll_fd = &*zelf.get_epoll(vm)?;
                 host_select::epoll::modify(epoll_fd, fd, fd.as_raw_fd() as u64, eventmask)
                     .map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
-            fn unregister(&self, fd: Fildes, vm: &VirtualMachine) -> PyResult<()> {
-                let epoll_fd = &*self.get_epoll(vm)?;
+            fn unregister(zelf: &Py<Self>, fd: Fildes, vm: &VirtualMachine) -> PyResult<()> {
+                let epoll_fd = &*zelf.get_epoll(vm)?;
                 host_select::epoll::delete(epoll_fd, fd).map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
-            fn poll(&self, args: EpollPollArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
+            fn poll(
+                zelf: &Py<Self>,
+                args: EpollPollArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyListRef> {
                 let poll::TimeoutArg(timeout) = args.timeout;
                 let maxevents = args.maxevents;
 
@@ -574,7 +587,7 @@ mod decl {
 
                 let mut events = Vec::<host_select::epoll::Event>::with_capacity(maxevents);
 
-                let epoll = &*self.get_epoll(vm)?;
+                let epoll = &*zelf.get_epoll(vm)?;
 
                 loop {
                     match vm.allow_threads(|| {
@@ -615,12 +628,12 @@ mod decl {
 
             #[pymethod]
             fn __exit__(
-                &self,
+                zelf: &Py<Self>,
                 _exc_type: OptionalArg,
                 _exc_value: OptionalArg,
                 _exc_tb: OptionalArg,
             ) -> std::io::Result<()> {
-                self.close()
+                Self::close(zelf)
             }
         }
     }
@@ -902,8 +915,8 @@ mod decl {
         #[pyclass(with(Constructor, Destructor))]
         impl PyKqueue {
             #[pymethod]
-            fn close(&self) -> io::Result<()> {
-                let cell = self.kqfd.write().take();
+            fn close(zelf: &Py<Self>) -> io::Result<()> {
+                let cell = zelf.kqfd.write().take();
                 if let Some(cell) = cell {
                     host_select::kqueue::close(&cell)?;
                 }
@@ -911,8 +924,8 @@ mod decl {
             }
 
             #[pygetset]
-            fn closed(&self) -> bool {
-                self.kqfd
+            fn closed(zelf: &Py<Self>) -> bool {
+                zelf.kqfd
                     .read()
                     .as_ref()
                     .is_none_or(|cell| host_select::kqueue::fd(cell) < 0)
@@ -933,8 +946,8 @@ mod decl {
             }
 
             #[pymethod]
-            fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
-                Self::fd_or_closed(self.kqfd.read().as_ref(), vm)
+            fn fileno(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<i32> {
+                Self::fd_or_closed(zelf.kqfd.read().as_ref(), vm)
             }
 
             #[pyclassmethod]
@@ -946,7 +959,11 @@ mod decl {
             }
 
             #[pymethod]
-            fn control(&self, args: KqueueControlArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
+            fn control(
+                zelf: &Py<Self>,
+                args: KqueueControlArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyListRef> {
                 if args.maxevents < 0 {
                     return Err(vm.new_value_error(format!(
                         "Length of eventlist must be 0 or positive, got {}",
@@ -988,7 +1005,7 @@ mod decl {
 
                 let n = loop {
                     let result = {
-                        let guard = self.kqfd.read();
+                        let guard = zelf.kqfd.read();
                         let fd = Self::fd_or_closed(guard.as_ref(), vm)?;
                         vm.allow_threads(|| {
                             host_select::kqueue::kevent(

@@ -1700,7 +1700,7 @@ mod _socket {
         fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             Ok(format!(
                 "<socket object, fd={}, family={}, type={}, proto={}>",
-                zelf.fileno(),
+                Self::fileno(zelf),
                 zelf.family.load(Ordering::Relaxed),
                 zelf.kind.load(Ordering::Relaxed),
                 zelf.proto.load(Ordering::Relaxed),
@@ -1725,7 +1725,7 @@ mod _socket {
                     vm,
                 );
             }
-            let _ = zelf.close();
+            let _ = Self::close(zelf);
             Ok(())
         }
     }
@@ -1853,21 +1853,29 @@ mod _socket {
         }
 
         #[pymethod]
-        fn connect(&self, object: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-            self.connect_inner(object, "connect", vm)
+        fn connect(
+            zelf: &Py<Self>,
+            object: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> Result<(), IoOrPyException> {
+            zelf.connect_inner(object, "connect", vm)
         }
 
         #[pymethod]
-        fn connect_ex(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
-            match self.connect_inner(object, "connect_ex", vm) {
+        fn connect_ex(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
+            match zelf.connect_inner(object, "connect_ex", vm) {
                 Ok(()) => Ok(0),
                 Err(err) => err.errno(),
             }
         }
 
         #[pymethod]
-        fn bind(&self, object: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-            let sock_addr = self.extract_address(object, "bind", vm)?;
+        fn bind(
+            zelf: &Py<Self>,
+            object: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> Result<(), IoOrPyException> {
+            let sock_addr = zelf.extract_address(object, "bind", vm)?;
 
             if let Some(addr) = sock_addr.as_socket() {
                 vm.audit("socket.bind", || {
@@ -1879,36 +1887,36 @@ mod _socket {
                 })?;
             }
 
-            Ok(self.sock()?.bind(&sock_addr)?)
+            Ok(zelf.sock()?.bind(&sock_addr)?)
         }
 
         #[pymethod]
-        fn listen(&self, backlog: OptionalArg<i32>) -> io::Result<()> {
+        fn listen(zelf: &Py<Self>, backlog: OptionalArg<i32>) -> io::Result<()> {
             let backlog = backlog.unwrap_or(128);
             let backlog = if backlog < 0 { 0 } else { backlog };
-            self.sock()?.listen(backlog)
+            zelf.sock()?.listen(backlog)
         }
 
         #[pymethod]
         fn _accept(
-            &self,
+            zelf: &Py<Self>,
             vm: &VirtualMachine,
         ) -> Result<(RawSocket, PyObjectRef), IoOrPyException> {
             // Use accept_raw() instead of accept() to avoid socket2's set_common_flags()
             // which tries to set SO_NOSIGPIPE and fails with EINVAL on Unix domain sockets on macOS
-            let (sock, addr) = self.sock_op(vm, SockWaitKind::Read, || {
-                self.sock_snapshot()?.accept_raw()
+            let (sock, addr) = zelf.sock_op(vm, SockWaitKind::Read, || {
+                zelf.sock_snapshot()?.accept_raw()
             })?;
             let fd = into_sock_fileno(sock);
             Ok((
                 fd,
-                get_addr_tuple(&addr, self.proto.load(Ordering::Relaxed), vm),
+                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm),
             ))
         }
 
         #[pymethod]
         fn recv(
-            &self,
+            zelf: &Py<Self>,
             bufsize: usize,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
@@ -1918,8 +1926,8 @@ mod _socket {
             buffer
                 .try_reserve_exact(bufsize)
                 .map_err(|_| vm.no_memory_error())?;
-            let n = self.sock_op(vm, SockWaitKind::Read, || {
-                self.sock_snapshot()?
+            let n = zelf.sock_op(vm, SockWaitKind::Read, || {
+                zelf.sock_snapshot()?
                     .recv_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
@@ -1928,7 +1936,7 @@ mod _socket {
 
         #[pymethod]
         fn recv_into(
-            &self,
+            zelf: &Py<Self>,
             buf: ArgMemoryBuffer,
             nbytes: OptionalArg<isize>,
             flags: OptionalArg<i32>,
@@ -1947,8 +1955,8 @@ mod _socket {
             };
 
             let mut scratch = alloc_recv_scratch(read_len, vm)?;
-            let n = self.sock_op(vm, SockWaitKind::Read, || {
-                self.sock_snapshot()?
+            let n = zelf.sock_op(vm, SockWaitKind::Read, || {
+                zelf.sock_snapshot()?
                     .recv_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
             })?;
             unsafe { scratch.set_len(n) };
@@ -1958,7 +1966,7 @@ mod _socket {
 
         #[pymethod]
         fn recvfrom(
-            &self,
+            zelf: &Py<Self>,
             bufsize: isize,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
@@ -1971,20 +1979,20 @@ mod _socket {
             buffer
                 .try_reserve_exact(bufsize)
                 .map_err(|_| vm.no_memory_error())?;
-            let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
-                self.sock_snapshot()?
+            let (n, addr) = zelf.sock_op(vm, SockWaitKind::Read, || {
+                zelf.sock_snapshot()?
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
             Ok((
                 buffer,
-                get_addr_tuple(&addr, self.proto.load(Ordering::Relaxed), vm),
+                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm),
             ))
         }
 
         #[pymethod]
         fn recvfrom_into(
-            &self,
+            zelf: &Py<Self>,
             buf: ArgMemoryBuffer,
             nbytes: OptionalArg<isize>,
             flags: OptionalArg<i32>,
@@ -2006,21 +2014,21 @@ mod _socket {
             };
             let flags = flags.unwrap_or(0);
             let mut scratch = alloc_recv_scratch(read_len, vm)?;
-            let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
-                self.sock_snapshot()?
+            let (n, addr) = zelf.sock_op(vm, SockWaitKind::Read, || {
+                zelf.sock_snapshot()?
                     .recv_from_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
             })?;
             unsafe { scratch.set_len(n) };
             buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
             Ok((
                 n,
-                get_addr_tuple(&addr, self.proto.load(Ordering::Relaxed), vm),
+                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm),
             ))
         }
 
         #[pymethod]
         fn send(
-            &self,
+            zelf: &Py<Self>,
             bytes: ArgBytesLike,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
@@ -2028,21 +2036,21 @@ mod _socket {
             let flags = flags.unwrap_or(0);
             let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
-            self.sock_op(vm, SockWaitKind::Write, || {
-                self.sock_snapshot()?.send_with_flags(buf, flags)
+            zelf.sock_op(vm, SockWaitKind::Write, || {
+                zelf.sock_snapshot()?.send_with_flags(buf, flags)
             })
         }
 
         #[pymethod]
         fn sendall(
-            &self,
+            zelf: &Py<Self>,
             bytes: ArgBytesLike,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
             let flags = flags.unwrap_or(0);
 
-            let timeout = self.get_timeout().ok();
+            let timeout = zelf.get_timeout().ok();
             let mut deadline = None;
 
             let buf = bytes.borrow_buf_unlocked(vm)?;
@@ -2050,9 +2058,9 @@ mod _socket {
             let mut buf_offset = 0;
             // now we have like 3 layers of interrupt loop :)
             while buf_offset < buf.len() {
-                self.sock_op_timeout_err(vm, SockWaitKind::Write, &mut deadline, timeout, || {
+                zelf.sock_op_timeout_err(vm, SockWaitKind::Write, &mut deadline, timeout, || {
                     let subbuf = &buf[buf_offset..];
-                    buf_offset += self.sock_snapshot()?.send_with_flags(subbuf, flags)?;
+                    buf_offset += zelf.sock_snapshot()?.send_with_flags(subbuf, flags)?;
                     Ok(())
                 })?;
                 vm.check_signals()?;
@@ -2061,7 +2069,11 @@ mod _socket {
         }
 
         #[pymethod]
-        fn sendto(&self, args: FuncArgs, vm: &VirtualMachine) -> Result<usize, IoOrPyException> {
+        fn sendto(
+            zelf: &Py<Self>,
+            args: FuncArgs,
+            vm: &VirtualMachine,
+        ) -> Result<usize, IoOrPyException> {
             if !args.kwargs.is_empty() {
                 return Err(vm
                     .new_type_error("sendto() takes no keyword arguments")
@@ -2081,18 +2093,18 @@ mod _socket {
                 }
             };
             let bytes = ArgBytesLike::try_from_object(vm, bytes)?;
-            let addr = self.extract_address(address, "sendto", vm)?;
+            let addr = zelf.extract_address(address, "sendto", vm)?;
             let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
-            self.sock_op(vm, SockWaitKind::Write, || {
-                self.sock_snapshot()?.send_to_with_flags(buf, &addr, flags)
+            zelf.sock_op(vm, SockWaitKind::Write, || {
+                zelf.sock_snapshot()?.send_to_with_flags(buf, &addr, flags)
             })
         }
 
         #[cfg(all(unix, not(target_os = "redox")))]
         #[pymethod]
         fn sendmsg(
-            &self,
+            zelf: &Py<Self>,
             buffers: PyObjectRef,
             ancdata: OptionalArg<PyObjectRef>,
             flags: OptionalArg<i32>,
@@ -2104,7 +2116,7 @@ mod _socket {
 
             let sockaddr;
             if let Some(addr) = addr.addr {
-                sockaddr = self
+                sockaddr = zelf
                     .extract_address(addr, "sendmsg", vm)
                     .map_err(|e| e.into_pyexception(vm))?;
                 msg = msg.with_addr(&sockaddr);
@@ -2161,8 +2173,8 @@ mod _socket {
                 }
             }
 
-            self.sock_op(vm, SockWaitKind::Write, || {
-                let sock = self.sock_snapshot()?;
+            zelf.sock_op(vm, SockWaitKind::Write, || {
+                let sock = zelf.sock_snapshot()?;
                 sock.sendmsg(&msg, flags)
             })
             .map_err(|e| e.into_pyexception(vm))
@@ -2170,7 +2182,11 @@ mod _socket {
 
         #[cfg(target_os = "linux")]
         #[pymethod]
-        fn sendmsg_afalg(&self, args: SendmsgAfalgArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        fn sendmsg_afalg(
+            zelf: &Py<Self>,
+            args: SendmsgAfalgArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<usize> {
             use std::os::fd::BorrowedFd;
 
             let msg = args.msg;
@@ -2194,8 +2210,8 @@ mod _socket {
                 .collect::<Vec<_>>();
             let iv = iv.map(|iv| iv.borrow_buf().to_vec());
 
-            self.sock_op(vm, SockWaitKind::Write, || {
-                let sock = self.sock_snapshot()?;
+            zelf.sock_op(vm, SockWaitKind::Write, || {
+                let sock = zelf.sock_snapshot()?;
                 let fd = unsafe { BorrowedFd::borrow_raw(sock_fileno(&sock)) };
                 host_socket::sendmsg_afalg(fd, &buffers, op, iv.as_deref(), assoclen, flags)
             })
@@ -2205,7 +2221,7 @@ mod _socket {
         #[cfg(all(unix, not(target_os = "redox")))]
         #[pymethod]
         fn recvmsg(
-            &self,
+            zelf: &Py<Self>,
             bufsize: isize,
             ancbufsize: OptionalArg<isize>,
             flags: OptionalArg<i32>,
@@ -2223,9 +2239,9 @@ mod _socket {
             let ancbufsize = ancbufsize as usize;
             let flags = flags.unwrap_or(0);
 
-            let msg = self
+            let msg = zelf
                 .sock_op(vm, SockWaitKind::Read, || {
-                    let sock = self.sock_snapshot()?;
+                    let sock = zelf.sock_snapshot()?;
                     let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock_fileno(&sock)) };
                     host_socket::recvmsg(fd, bufsize, ancbufsize, flags)
                 })
@@ -2239,7 +2255,7 @@ mod _socket {
                 let storage: host_socket::raw::SockAddrStorage =
                     unsafe { core::mem::transmute(address.storage) };
                 let addr = unsafe { host_socket::raw::SockAddr::new(storage, address.len as _) };
-                get_addr_tuple(&addr, self.proto.load(Ordering::Relaxed), vm)
+                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm)
             } else {
                 vm.ctx.none()
             };
@@ -2296,8 +2312,8 @@ mod _socket {
         }
 
         #[pymethod]
-        fn close(&self) -> io::Result<()> {
-            let sock = self.sock.write().take();
+        fn close(zelf: &Py<Self>) -> io::Result<()> {
+            let sock = zelf.sock.write().take();
             if let Some(sock) = sock {
                 close_inner(into_sock_fileno(sock))?;
             }
@@ -2306,60 +2322,64 @@ mod _socket {
 
         #[pymethod]
         #[inline]
-        fn detach(&self) -> i64 {
-            let sock = self.sock.write().take();
+        fn detach(zelf: &Py<Self>) -> i64 {
+            let sock = zelf.sock.write().take();
             sock.map_or(INVALID_SOCKET as i64, |s| into_sock_fileno(s) as i64)
         }
 
         #[pymethod]
-        fn fileno(&self) -> i64 {
-            self.sock
+        fn fileno(zelf: &Py<Self>) -> i64 {
+            zelf.sock
                 .read()
                 .as_ref()
                 .map_or(INVALID_SOCKET as i64, |s| sock_fileno(s) as i64)
         }
 
         #[pymethod]
-        fn getsockname(&self, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
-            let addr = self.sock()?.local_addr()?;
+        fn getsockname(zelf: &Py<Self>, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
+            let addr = zelf.sock()?.local_addr()?;
 
             Ok(get_addr_tuple(
                 &addr,
-                self.proto.load(Ordering::Relaxed),
+                zelf.proto.load(Ordering::Relaxed),
                 vm,
             ))
         }
 
         #[pymethod]
-        fn getpeername(&self, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
-            let addr = self.sock()?.peer_addr()?;
+        fn getpeername(zelf: &Py<Self>, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
+            let addr = zelf.sock()?.peer_addr()?;
 
             Ok(get_addr_tuple(
                 &addr,
-                self.proto.load(Ordering::Relaxed),
+                zelf.proto.load(Ordering::Relaxed),
                 vm,
             ))
         }
 
         #[pymethod]
-        fn gettimeout(&self) -> Option<f64> {
-            let timeout = self.timeout.load();
+        fn gettimeout(zelf: &Py<Self>) -> Option<f64> {
+            let timeout = zelf.timeout.load();
             if timeout >= 0.0 { Some(timeout) } else { None }
         }
 
         #[pymethod]
-        fn setblocking(&self, object: bool) -> io::Result<()> {
-            self.timeout.store(if object { -1.0 } else { 0.0 });
-            self.sock()?.set_nonblocking(!object)
+        fn setblocking(zelf: &Py<Self>, object: bool) -> io::Result<()> {
+            zelf.timeout.store(if object { -1.0 } else { 0.0 });
+            zelf.sock()?.set_nonblocking(!object)
         }
 
         #[pymethod]
-        fn getblocking(&self) -> bool {
-            self.timeout.load() != 0.0
+        fn getblocking(zelf: &Py<Self>) -> bool {
+            zelf.timeout.load() != 0.0
         }
 
         #[pymethod]
-        fn settimeout(&self, object: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+        fn settimeout(
+            zelf: &Py<Self>,
+            object: Option<ArgIntoFloat>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let timeout = match object {
                 Some(t) => {
                     let f = t.into_float();
@@ -2373,10 +2393,10 @@ mod _socket {
                 }
                 None => None,
             };
-            self.timeout.store(timeout.unwrap_or(-1.0));
+            zelf.timeout.store(timeout.unwrap_or(-1.0));
             // even if timeout is > 0 the socket needs to be nonblocking in order for us to select() on
             // it
-            self.sock()
+            zelf.sock()
                 .map_err(|e| e.into_pyexception(vm))?
                 .set_nonblocking(timeout.is_some())
                 .map_err(|e| e.into_pyexception(vm))
@@ -2384,13 +2404,13 @@ mod _socket {
 
         #[pymethod]
         fn getsockopt(
-            &self,
+            zelf: &Py<Self>,
             level: i32,
             name: i32,
             buflen: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<PyObjectRef, IoOrPyException> {
-            let sock = self.sock()?;
+            let sock = zelf.sock()?;
             let fd = sock_fileno(&sock);
             let buflen = buflen.unwrap_or(0);
             if buflen == 0 {
@@ -2407,14 +2427,14 @@ mod _socket {
 
         #[pymethod]
         fn setsockopt(
-            &self,
+            zelf: &Py<Self>,
             level: i32,
             name: i32,
             value: Option<Either<ArgBytesLike, i32>>,
             optlen: OptionalArg<u32>,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
-            let sock = self.sock()?;
+            let sock = zelf.sock()?;
             let fd = sock_fileno(&sock);
             match (value, optlen) {
                 (Some(Either::A(b)), OptionalArg::Missing) => {
@@ -2436,7 +2456,11 @@ mod _socket {
         }
 
         #[pymethod]
-        fn shutdown(&self, object: i32, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
+        fn shutdown(
+            zelf: &Py<Self>,
+            object: i32,
+            vm: &VirtualMachine,
+        ) -> Result<(), IoOrPyException> {
             let how = match object {
                 c::SHUT_RD => Shutdown::Read,
                 c::SHUT_WR => Shutdown::Write,
@@ -2447,13 +2471,13 @@ mod _socket {
                         .into());
                 }
             };
-            Ok(self.sock()?.shutdown(how)?)
+            Ok(zelf.sock()?.shutdown(how)?)
         }
 
         #[cfg(windows)]
         #[pymethod]
         fn ioctl(
-            &self,
+            zelf: &Py<Self>,
             cmd: PyObjectRef,
             option: PyObjectRef,
             vm: &VirtualMachine,
@@ -2461,7 +2485,7 @@ mod _socket {
             use crate::vm::builtins::PyInt;
             use crate::vm::convert::TryFromObject;
 
-            let sock = self.sock()?;
+            let sock = zelf.sock()?;
             let fd = sock_fileno(&sock);
 
             // Convert cmd to u32, returning ValueError for invalid/negative values
@@ -2523,8 +2547,12 @@ mod _socket {
 
         #[cfg(windows)]
         #[pymethod]
-        fn share(&self, process_id: u32, _vm: &VirtualMachine) -> Result<Vec<u8>, IoOrPyException> {
-            let sock = self.sock()?;
+        fn share(
+            zelf: &Py<Self>,
+            process_id: u32,
+            _vm: &VirtualMachine,
+        ) -> Result<Vec<u8>, IoOrPyException> {
+            let sock = zelf.sock()?;
             let fd = sock_fileno(&sock);
             host_socket::share_socket(fd as _, process_id).map_err(Into::into)
         }

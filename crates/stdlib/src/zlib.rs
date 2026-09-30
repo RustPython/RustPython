@@ -204,22 +204,26 @@ mod zlib {
         }
 
         #[pygetset]
-        fn eof(&self) -> bool {
-            self.inner.lock().decompress.eof()
+        fn eof(zelf: &Py<Self>) -> bool {
+            zelf.inner.lock().decompress.eof()
         }
 
         #[pygetset]
-        fn unused_data(&self) -> PyBytesRef {
-            self.inner.lock().unused_data.clone()
+        fn unused_data(zelf: &Py<Self>) -> PyBytesRef {
+            zelf.inner.lock().unused_data.clone()
         }
 
         #[pygetset]
-        fn unconsumed_tail(&self) -> PyBytesRef {
-            self.inner.lock().unconsumed_tail.clone()
+        fn unconsumed_tail(zelf: &Py<Self>) -> PyBytesRef {
+            zelf.inner.lock().unconsumed_tail.clone()
         }
 
         #[pymethod]
-        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn decompress(
+            zelf: &Py<Self>,
+            args: DecompressArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
             let max_length: usize = args
                 .raw_max_length()
                 .unwrap_or(0)
@@ -228,14 +232,18 @@ mod zlib {
             let max_length = (max_length != 0).then_some(max_length);
             let data = &*args.data();
 
-            let mut inner = self.inner.lock();
+            let mut inner = zelf.inner.lock();
             let result = inner.decompress.decompress(data, max_length);
             inner.sync_visible_state(vm);
             result.map_err(|err| new_zlib_error(err, vm))
         }
 
         #[pymethod]
-        fn flush(&self, length: OptionalArg<PySsize>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn flush(
+            zelf: &Py<Self>,
+            length: OptionalArg<PySsize>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
             let length = match length {
                 OptionalArg::Present(value) if value <= 0 => {
                     return Err(vm.new_value_error("length must be greater than zero"));
@@ -244,25 +252,25 @@ mod zlib {
                 OptionalArg::Missing => DEF_BUF_SIZE,
             };
 
-            let mut inner = self.inner.lock();
+            let mut inner = zelf.inner.lock();
             let result = inner.decompress.flush(length);
             inner.sync_visible_state(vm);
             result.map_err(|err| new_zlib_error(err, vm))
         }
 
         #[pymethod]
-        fn copy(&self, vm: &VirtualMachine) -> PyResult<Self> {
-            self.copy_inner(vm)
+        fn copy(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Self> {
+            zelf.copy_inner(vm)
         }
 
         #[pymethod(name = "__copy__")]
-        fn copy_dunder(&self, vm: &VirtualMachine) -> PyResult<Self> {
-            self.copy_inner(vm)
+        fn copy_dunder(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Self> {
+            zelf.copy_inner(vm)
         }
 
         #[pymethod(name = "__deepcopy__")]
-        fn deepcopy(&self, _memo: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-            self.copy_inner(vm)
+        fn deepcopy(zelf: &Py<Self>, _memo: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+            zelf.copy_inner(vm)
         }
     }
 
@@ -339,32 +347,36 @@ mod zlib {
         }
 
         #[pymethod]
-        fn compress(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            data.with_ref(|data| self.inner.lock().compress(data))
+        fn compress(zelf: &Py<Self>, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            data.with_ref(|data| zelf.inner.lock().compress(data))
                 .map_err(|err| new_zlib_error(err, vm))
         }
 
         #[pymethod]
-        fn flush(&self, mode: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            self.inner
+        fn flush(
+            zelf: &Py<Self>,
+            mode: OptionalArg<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
+            zelf.inner
                 .lock()
                 .flush(mode.unwrap_or(Z_FINISH))
                 .map_err(|err| new_zlib_error(err, vm))
         }
 
         #[pymethod]
-        fn copy(&self, vm: &VirtualMachine) -> PyResult<Self> {
-            self.copy_inner(vm)
+        fn copy(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Self> {
+            zelf.copy_inner(vm)
         }
 
         #[pymethod(name = "__copy__")]
-        fn copy_dunder(&self, vm: &VirtualMachine) -> PyResult<Self> {
-            self.copy_inner(vm)
+        fn copy_dunder(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Self> {
+            zelf.copy_inner(vm)
         }
 
         #[pymethod(name = "__deepcopy__")]
-        fn deepcopy(&self, _memo: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-            self.copy_inner(vm)
+        fn deepcopy(zelf: &Py<Self>, _memo: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+            zelf.copy_inner(vm)
         }
     }
 
@@ -470,22 +482,26 @@ mod zlib {
     #[pyclass(with(Constructor))]
     impl ZlibDecompressor {
         #[pymethod]
-        fn decompress(&self, args: DecompressorArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn decompress(
+            zelf: &Py<Self>,
+            args: DecompressorArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
             let max_length = args.max_length();
             let data = &*args.data();
 
-            let mut inner = self.inner.lock();
+            let mut inner = zelf.inner.lock();
             let result = inner.decompress.decompress(data, max_length);
-            self.eof.store(inner.decompress.eof(), Ordering::Relaxed);
-            self.needs_input
+            zelf.eof.store(inner.decompress.eof(), Ordering::Relaxed);
+            zelf.needs_input
                 .store(inner.decompress.needs_input(), Ordering::Relaxed);
-            let stale = self.unused_data.deref().is_none_or(|obj| {
+            let stale = zelf.unused_data.deref().is_none_or(|obj| {
                 obj.downcast_ref::<PyBytes>()
                     .is_none_or(|bytes| bytes.as_bytes() != inner.decompress.unused_data())
             });
             if stale {
                 let bytes = vm.ctx.new_bytes(inner.decompress.unused_data().to_vec());
-                let _previous = unsafe { self.unused_data.swap(Some(bytes.into())) };
+                let _previous = unsafe { zelf.unused_data.swap(Some(bytes.into())) };
             }
             result.map_err(|err| match err {
                 backend::DecompressError::Zlib(err) => new_zlib_error(err, vm),

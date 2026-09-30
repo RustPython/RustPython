@@ -224,8 +224,8 @@ pub(crate) mod _struct {
     #[pyclass(with(IterNext, Iterable), flags(DISALLOW_INSTANTIATION))]
     impl UnpackIterator {
         #[pymethod]
-        fn __length_hint__(&self) -> usize {
-            self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size
+        fn __length_hint__(zelf: &Py<Self>) -> usize {
+            zelf.buffer.len().saturating_sub(zelf.offset.load()) / zelf.format_spec.size
         }
     }
     impl SelfIter for UnpackIterator {}
@@ -314,34 +314,34 @@ pub(crate) mod _struct {
         }
 
         #[pygetset]
-        fn format(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            Ok(self.ready(vm)?.format.clone())
+        fn format(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            Ok(zelf.ready(vm)?.format.clone())
         }
 
         // The size an uninitialized `Struct` reports, which no format has
         // yet given a value.
         #[pygetset]
-        fn size(&self) -> isize {
-            self.inner
+        fn size(zelf: &Py<Self>) -> isize {
+            zelf.inner
                 .read()
                 .as_ref()
                 .map_or(-1, |inner| inner.spec.size as isize)
         }
 
         #[pymethod]
-        fn pack(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            self.ready(vm)?.spec.pack(args.into_vec(), vm)
+        fn pack(zelf: &Py<Self>, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            zelf.ready(vm)?.spec.pack(args.into_vec(), vm)
         }
 
         #[pymethod]
         fn pack_into(
-            &self,
+            zelf: &Py<Self>,
             buffer: ArgMemoryBuffer,
             offset: isize,
             args: PosArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let inner = self.ready(vm)?;
+            let inner = zelf.ready(vm)?;
             let offset = get_buffer_offset(buffer.len(), offset, inner.spec.size, true, vm)?;
             buffer.with_ref(|data| {
                 inner
@@ -351,14 +351,22 @@ pub(crate) mod _struct {
         }
 
         #[pymethod]
-        fn unpack(&self, buffer: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            let inner = self.ready(vm)?;
+        fn unpack(
+            zelf: &Py<Self>,
+            buffer: ArgBytesLike,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyTupleRef> {
+            let inner = zelf.ready(vm)?;
             buffer.with_ref(|buf| inner.spec.unpack(buf, vm))
         }
 
         #[pymethod]
-        fn unpack_from(&self, args: UpdateFromArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            let inner = self.ready(vm)?;
+        fn unpack_from(
+            zelf: &Py<Self>,
+            args: UpdateFromArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyTupleRef> {
+            let inner = zelf.ready(vm)?;
             let size = inner.spec.size;
             let offset = get_buffer_offset(args.buffer.len(), args.offset, size, false, vm)?;
             args.buffer
@@ -367,17 +375,17 @@ pub(crate) mod _struct {
 
         #[pymethod]
         fn iter_unpack(
-            &self,
+            zelf: &Py<Self>,
             buffer: ArgBytesLike,
             vm: &VirtualMachine,
         ) -> PyResult<UnpackIterator> {
-            let spec = self.ready(vm)?.spec.clone();
+            let spec = zelf.ready(vm)?.spec.clone();
             UnpackIterator::with_buffer(vm, spec, buffer)
         }
 
         #[pymethod]
-        fn __sizeof__(&self, vm: &VirtualMachine) -> PyResult<usize> {
-            let inner = self.ready(vm)?;
+        fn __sizeof__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<usize> {
+            let inner = zelf.ready(vm)?;
             Ok(core::mem::size_of::<Self>() + inner.spec.codes_sizeof())
         }
     }

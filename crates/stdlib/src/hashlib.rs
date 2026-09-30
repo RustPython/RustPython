@@ -478,42 +478,42 @@ pub(crate) mod _hashlib {
         }
 
         #[pygetset]
-        fn name(&self) -> String {
-            format!("hmac-{}", self.algo_name)
+        fn name(zelf: &Py<Self>) -> String {
+            format!("hmac-{}", zelf.algo_name)
         }
 
         #[pygetset]
-        fn digest_size(&self) -> usize {
-            self.digest_size
+        fn digest_size(zelf: &Py<Self>) -> usize {
+            zelf.digest_size
         }
 
         #[pygetset]
-        fn block_size(&self) -> usize {
-            self.block_size
+        fn block_size(zelf: &Py<Self>) -> usize {
+            zelf.block_size
         }
 
         #[pymethod]
-        fn update(&self, args: HmacUpdateArgs) {
-            args.msg.with_ref(|bytes| self.ctx.update(bytes));
+        fn update(zelf: &Py<Self>, args: HmacUpdateArgs) {
+            args.msg.with_ref(|bytes| zelf.ctx.update(bytes));
         }
 
         #[pymethod]
-        fn digest(&self) -> PyBytes {
-            self.ctx.digest().into()
+        fn digest(zelf: &Py<Self>) -> PyBytes {
+            zelf.ctx.digest().into()
         }
 
         #[pymethod]
-        fn hexdigest(&self) -> String {
-            hex::encode(self.ctx.digest())
+        fn hexdigest(zelf: &Py<Self>) -> String {
+            hex::encode(zelf.ctx.digest())
         }
 
         #[pymethod]
-        fn copy(&self) -> Self {
+        fn copy(zelf: &Py<Self>) -> Self {
             Self {
-                algo_name: self.algo_name.clone(),
-                digest_size: self.digest_size,
-                block_size: self.block_size,
-                ctx: self.ctx.copy(),
+                algo_name: zelf.algo_name.clone(),
+                digest_size: zelf.digest_size,
+                block_size: zelf.block_size,
+                ctx: zelf.ctx.copy(),
             }
         }
     }
@@ -594,64 +594,64 @@ pub(crate) mod _hashlib {
         }
 
         #[pygetset]
-        fn name(&self) -> String {
-            self.name.clone()
+        fn name(zelf: &Py<Self>) -> String {
+            zelf.name.clone()
         }
 
         #[pygetset]
-        fn digest_size(&self) -> usize {
-            self.digest_size
+        fn digest_size(zelf: &Py<Self>) -> usize {
+            zelf.digest_size
         }
 
         #[pygetset]
-        fn block_size(&self) -> usize {
-            hasher_block_size(&self.name)
+        fn block_size(zelf: &Py<Self>) -> usize {
+            hasher_block_size(&zelf.name)
         }
 
         #[pygetset]
-        fn _capacity_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
-            let block_size = hasher_block_size(&self.name);
-            match keccak_capacity_bits(&self.name, block_size) {
+        fn _capacity_bits(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<usize> {
+            let block_size = hasher_block_size(&zelf.name);
+            match keccak_capacity_bits(&zelf.name, block_size) {
                 Some(capacity) => Ok(capacity),
                 None => missing_hash_attribute(vm, "HASH", "_capacity_bits"),
             }
         }
 
         #[pygetset]
-        fn _rate_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
-            let block_size = hasher_block_size(&self.name);
-            match keccak_rate_bits(&self.name, block_size) {
+        fn _rate_bits(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<usize> {
+            let block_size = hasher_block_size(&zelf.name);
+            match keccak_rate_bits(&zelf.name, block_size) {
                 Some(rate) => Ok(rate),
                 None => missing_hash_attribute(vm, "HASH", "_rate_bits"),
             }
         }
 
         #[pygetset]
-        fn _suffix(&self, vm: &VirtualMachine) -> PyResult<PyBytes> {
-            match keccak_suffix(&self.name) {
+        fn _suffix(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBytes> {
+            match keccak_suffix(&zelf.name) {
                 Some(suffix) => Ok(vec![suffix].into()),
                 None => missing_hash_attribute(vm, "HASH", "_suffix"),
             }
         }
 
         #[pymethod]
-        fn update(&self, obj: ArgBytesLike) {
-            obj.with_ref(|bytes| self.ctx.update(bytes));
+        fn update(zelf: &Py<Self>, obj: ArgBytesLike) {
+            obj.with_ref(|bytes| zelf.ctx.update(bytes));
         }
 
         #[pymethod]
-        fn digest(&self) -> PyBytes {
-            self.ctx.digest(self.digest_size).into()
+        fn digest(zelf: &Py<Self>) -> PyBytes {
+            zelf.ctx.digest(zelf.digest_size).into()
         }
 
         #[pymethod]
-        fn hexdigest(&self) -> String {
-            hex::encode(self.ctx.digest(self.digest_size))
+        fn hexdigest(zelf: &Py<Self>) -> String {
+            hex::encode(zelf.ctx.digest(zelf.digest_size))
         }
 
         #[pymethod]
-        fn copy(&self) -> Self {
-            Self::new(&self.name, self.ctx.copy(), self.digest_size)
+        fn copy(zelf: &Py<Self>) -> Self {
+            Self::new(&zelf.name, zelf.ctx.copy(), zelf.digest_size)
         }
     }
 
@@ -693,64 +693,68 @@ pub(crate) mod _hashlib {
         }
 
         #[pygetset]
-        fn name(&self) -> String {
-            self.name.clone()
+        fn name(zelf: &Py<Self>) -> String {
+            zelf.name.clone()
         }
 
         #[pygetset]
-        const fn digest_size(&self) -> usize {
+        fn digest_size(_zelf: &Py<Self>) -> usize {
             0
         }
 
         #[pygetset]
-        fn block_size(&self) -> usize {
-            hasher_block_size(&self.name)
+        fn block_size(zelf: &Py<Self>) -> usize {
+            hasher_block_size(&zelf.name)
         }
 
         #[pygetset]
-        fn _capacity_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
-            let block_size = hasher_block_size(&self.name);
-            match keccak_capacity_bits(&self.name, block_size) {
+        fn _capacity_bits(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<usize> {
+            let block_size = hasher_block_size(&zelf.name);
+            match keccak_capacity_bits(&zelf.name, block_size) {
                 Some(capacity) => Ok(capacity),
                 None => missing_hash_attribute(vm, "HASHXOF", "_capacity_bits"),
             }
         }
 
         #[pygetset]
-        fn _rate_bits(&self, vm: &VirtualMachine) -> PyResult<usize> {
-            let block_size = hasher_block_size(&self.name);
-            match keccak_rate_bits(&self.name, block_size) {
+        fn _rate_bits(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<usize> {
+            let block_size = hasher_block_size(&zelf.name);
+            match keccak_rate_bits(&zelf.name, block_size) {
                 Some(rate) => Ok(rate),
                 None => missing_hash_attribute(vm, "HASHXOF", "_rate_bits"),
             }
         }
 
         #[pygetset]
-        fn _suffix(&self, vm: &VirtualMachine) -> PyResult<PyBytes> {
-            match keccak_suffix(&self.name) {
+        fn _suffix(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBytes> {
+            match keccak_suffix(&zelf.name) {
                 Some(suffix) => Ok(vec![suffix].into()),
                 None => missing_hash_attribute(vm, "HASHXOF", "_suffix"),
             }
         }
 
         #[pymethod]
-        fn update(&self, data: ArgBytesLike) {
-            data.with_ref(|bytes| self.ctx.update(bytes));
+        fn update(zelf: &Py<Self>, data: ArgBytesLike) {
+            data.with_ref(|bytes| zelf.ctx.update(bytes));
         }
 
         #[pymethod]
-        fn digest(&self, args: XofDigestArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
-            Ok(self.ctx.digest(args.length(vm)?).into())
+        fn digest(zelf: &Py<Self>, args: XofDigestArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
+            Ok(zelf.ctx.digest(args.length(vm)?).into())
         }
 
         #[pymethod]
-        fn hexdigest(&self, args: XofDigestArgs, vm: &VirtualMachine) -> PyResult<String> {
-            Ok(hex::encode(self.ctx.digest(args.length(vm)?)))
+        fn hexdigest(
+            zelf: &Py<Self>,
+            args: XofDigestArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<String> {
+            Ok(hex::encode(zelf.ctx.digest(args.length(vm)?)))
         }
 
         #[pymethod]
-        fn copy(&self) -> Self {
-            Self::new(&self.name, self.ctx.copy())
+        fn copy(zelf: &Py<Self>) -> Self {
+            Self::new(&zelf.name, zelf.ctx.copy())
         }
     }
 

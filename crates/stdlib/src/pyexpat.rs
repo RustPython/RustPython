@@ -1014,14 +1014,14 @@ mod _pyexpat {
         }
 
         #[pymethod(name = "SetParamEntityParsing")]
-        fn set_param_entity_parsing(&self, _flag: i32) -> i32 {
+        fn set_param_entity_parsing(_zelf: &Py<Self>, _flag: i32) -> i32 {
             // Compatibility shim: xml.sax requires this setup API, but xml-rs
             // does not expose Expat parameter entity parsing configuration.
             1
         }
 
         #[pymethod(name = "UseForeignDTD")]
-        fn use_foreign_dtd(&self, _flag: OptionalArg<bool>) {
+        fn use_foreign_dtd(_zelf: &Py<Self>, _flag: OptionalArg<bool>) {
             // Compatibility shim: CPython's implementation forwards the flag to
             // libexpat's XML_UseForeignDTD, which lets a DTD handler splice in an
             // external subset for documents that only declare one (e.g. via
@@ -1032,16 +1032,16 @@ mod _pyexpat {
         }
 
         #[pymethod(name = "SetBase")]
-        fn set_base(&self, base: PyStrRef) {
+        fn set_base(zelf: &Py<Self>, base: PyStrRef) {
             // Store-only compatibility state for xml.sax locator APIs. The
             // xml-rs backend still does not perform Expat-style base URI
             // resolution for external entities.
-            *self.base.write() = Some(AsRef::<str>::as_ref(&base).to_owned());
+            *zelf.base.write() = Some(AsRef::<str>::as_ref(&base).to_owned());
         }
 
         #[pymethod(name = "GetBase")]
-        fn get_base(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.base.read().as_ref().map_or_else(
+        fn get_base(zelf: &Py<Self>, vm: &VirtualMachine) -> PyObjectRef {
+            zelf.base.read().as_ref().map_or_else(
                 || vm.ctx.none(),
                 |base| vm.ctx.new_str(base.as_str()).into(),
             )
@@ -1398,7 +1398,7 @@ mod _pyexpat {
 
         #[pymethod(name = "Parse")]
         fn parse(
-            &self,
+            zelf: &Py<Self>,
             data: Either<PyStrRef, PyBytesRef>,
             isfinal: OptionalArg<bool>,
             vm: &VirtualMachine,
@@ -1407,18 +1407,18 @@ mod _pyexpat {
                 Either::A(s) => s.as_bytes().to_vec(),
                 Either::B(b) => b.as_bytes().to_vec(),
             };
-            self.feed(vm, &bytes, isfinal.unwrap_or(false))?;
+            zelf.feed(vm, &bytes, isfinal.unwrap_or(false))?;
             Ok(1)
         }
 
         #[pymethod(name = "ParseFile")]
-        fn parse_file(&self, file: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
+        fn parse_file(zelf: &Py<Self>, file: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
             let read_res = vm.call_method(&file, "read", ())?;
             let bytes_like = ArgBytesLike::try_from_object(vm, read_res)?;
             let buf = bytes_like.borrow_buf().to_vec();
             // `file.read()` with no argument reads to EOF, so this chunk is
             // always the last one.
-            self.feed(vm, &buf, true)?;
+            zelf.feed(vm, &buf, true)?;
             Ok(1)
         }
     }

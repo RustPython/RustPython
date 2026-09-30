@@ -98,8 +98,11 @@ mod _pickle {
         }
 
         #[pymethod]
-        fn raw(&self, vm: &VirtualMachine) -> PyResult<PyRef<crate::vm::builtins::PyMemoryView>> {
-            let buffer = self.get(vm)?;
+        fn raw(
+            zelf: &Py<Self>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<crate::vm::builtins::PyMemoryView>> {
+            let buffer = zelf.get(vm)?;
             if !buffer.desc.is_contiguous() {
                 return Err(vm.new_buffer_error(
                     "cannot pickle a non-contiguous buffer: PickleBuffer is not contiguous",
@@ -109,8 +112,8 @@ mod _pickle {
         }
 
         #[pymethod]
-        fn release(&self) {
-            *self.buffer.write() = None;
+        fn release(zelf: &Py<Self>) {
+            *zelf.buffer.write() = None;
         }
     }
 
@@ -403,14 +406,14 @@ mod _pickle {
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl UnpicklerMemoProxy {
         #[pymethod]
-        fn clear(&self) {
-            self.unpickler.memo.write().clear();
+        fn clear(zelf: &Py<Self>) {
+            zelf.unpickler.memo.write().clear();
         }
 
         #[pymethod]
-        fn copy(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn copy(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let dict = vm.ctx.new_dict();
-            for (i, entry) in self.unpickler.memo.read().iter().enumerate() {
+            for (i, entry) in zelf.unpickler.memo.read().iter().enumerate() {
                 if let Some(obj) = entry {
                     let key: PyObjectRef = vm.ctx.new_int(i).into();
                     dict.set_item(&*key, obj.clone(), vm)?;
@@ -420,8 +423,8 @@ mod _pickle {
         }
 
         #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            let contents = self.copy(vm)?;
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let contents = Self::copy(zelf, vm)?;
             Ok(vm
                 .ctx
                 .new_tuple(vec![
@@ -567,7 +570,11 @@ mod _pickle {
 
         // The default hook: no persistent ids are supported.
         #[pymethod]
-        fn persistent_load(&self, _pid: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn persistent_load(
+            _zelf: &Py<Self>,
+            _pid: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             Err(new_unpickling_error(
                 vm,
                 "A load persistent id instruction was encountered, but no persistent_load function was specified.",
@@ -1898,15 +1905,15 @@ mod _pickle {
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PicklerMemoProxy {
         #[pymethod]
-        fn clear(&self) {
-            self.pickler.memo.write().clear();
+        fn clear(zelf: &Py<Self>) {
+            zelf.pickler.memo.write().clear();
         }
 
         #[pymethod]
-        fn copy(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn copy(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let dict = vm.ctx.new_dict();
             #[allow(clippy::iter_over_hash_type)] // insertion order does not matter here
-            for (id, (idx, obj)) in self.pickler.memo.read().iter() {
+            for (id, (idx, obj)) in zelf.pickler.memo.read().iter() {
                 let key: PyObjectRef = vm.ctx.new_int(*id).into();
                 let value: PyObjectRef = vm
                     .ctx
@@ -1918,8 +1925,8 @@ mod _pickle {
         }
 
         #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            let contents = self.copy(vm)?;
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let contents = Self::copy(zelf, vm)?;
             Ok(vm
                 .ctx
                 .new_tuple(vec![
@@ -2045,13 +2052,13 @@ mod _pickle {
         }
 
         #[pymethod]
-        fn clear_memo(&self) {
-            self.memo.write().clear();
+        fn clear_memo(zelf: &Py<Self>) {
+            zelf.memo.write().clear();
         }
 
         // The default hook: nothing has a persistent id.
         #[pymethod]
-        fn persistent_id(&self, _obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        fn persistent_id(_zelf: &Py<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
             vm.ctx.none()
         }
 

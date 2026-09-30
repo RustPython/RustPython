@@ -74,7 +74,7 @@ pub(crate) mod ssl_cert {
     impl PySSLCertificate {
         #[pymethod]
         fn public_bytes(
-            &self,
+            zelf: &Py<Self>,
             format: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
@@ -83,7 +83,7 @@ pub(crate) mod ssl_cert {
             match format {
                 ENCODING_DER => {
                     // DER encoding
-                    let der = self
+                    let der = zelf
                         .cert
                         .to_der()
                         .map_err(|e| convert_openssl_error(vm, e))?;
@@ -91,7 +91,7 @@ pub(crate) mod ssl_cert {
                 }
                 ENCODING_PEM => {
                     // PEM encoding - returns string
-                    let pem = self
+                    let pem = zelf
                         .cert
                         .to_pem()
                         .map_err(|e| convert_openssl_error(vm, e))?;
@@ -104,8 +104,8 @@ pub(crate) mod ssl_cert {
         }
 
         #[pymethod]
-        fn get_info(&self, vm: &VirtualMachine) -> PyResult {
-            cert_to_dict(vm, &self.cert)
+        fn get_info(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            cert_to_dict(vm, &zelf.cert)
         }
     }
 

@@ -212,98 +212,98 @@ mod _ssl {
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl PySSLContext {
         #[pygetset]
-        fn check_hostname(&self) -> bool {
-            *self.check_hostname.read()
+        fn check_hostname(zelf: &Py<Self>) -> bool {
+            *zelf.check_hostname.read()
         }
 
         #[pygetset(setter)]
-        fn set_check_hostname(&self, value: bool) {
-            *self.check_hostname.write() = value;
-            if value && *self.verify_mode.read() == CERT_NONE {
-                *self.verify_mode.write() = CERT_REQUIRED;
+        fn set_check_hostname(zelf: &Py<Self>, value: bool) {
+            *zelf.check_hostname.write() = value;
+            if value && *zelf.verify_mode.read() == CERT_NONE {
+                *zelf.verify_mode.write() = CERT_REQUIRED;
             }
         }
 
         #[pygetset]
-        fn _host_flags(&self) -> i32 {
-            *self.host_flags.read()
+        fn _host_flags(zelf: &Py<Self>) -> i32 {
+            *zelf.host_flags.read()
         }
 
         #[pygetset(setter)]
-        fn set__host_flags(&self, value: i32) {
-            *self.host_flags.write() = value;
+        fn set__host_flags(zelf: &Py<Self>, value: i32) {
+            *zelf.host_flags.write() = value;
         }
 
         #[pygetset]
-        fn verify_mode(&self) -> i32 {
-            *self.verify_mode.read()
+        fn verify_mode(zelf: &Py<Self>) -> i32 {
+            *zelf.verify_mode.read()
         }
 
         #[pygetset(setter)]
-        fn set_verify_mode(&self, mode: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_verify_mode(zelf: &Py<Self>, mode: i32, vm: &VirtualMachine) -> PyResult<()> {
             if !(CERT_NONE..=CERT_REQUIRED).contains(&mode) {
                 return Err(vm.new_value_error("invalid verify mode"));
             }
-            if mode == CERT_NONE && *self.check_hostname.read() {
+            if mode == CERT_NONE && *zelf.check_hostname.read() {
                 return Err(vm.new_value_error(
                     "Cannot set verify_mode to CERT_NONE when check_hostname is enabled",
                 ));
             }
-            *self.verify_mode.write() = mode;
+            *zelf.verify_mode.write() = mode;
             Ok(())
         }
 
         #[pygetset]
-        fn protocol(&self) -> i32 {
-            self.protocol
+        fn protocol(zelf: &Py<Self>) -> i32 {
+            zelf.protocol
         }
 
         #[pygetset]
-        fn verify_flags(&self) -> i32 {
-            *self.verify_flags.read()
+        fn verify_flags(zelf: &Py<Self>) -> i32 {
+            *zelf.verify_flags.read()
         }
 
         #[pygetset(setter)]
-        fn set_verify_flags(&self, value: i32) {
-            *self.verify_flags.write() = value;
+        fn set_verify_flags(zelf: &Py<Self>, value: i32) {
+            *zelf.verify_flags.write() = value;
         }
 
         #[pygetset]
-        fn post_handshake_auth(&self) -> bool {
-            *self.post_handshake_auth.read()
+        fn post_handshake_auth(zelf: &Py<Self>) -> bool {
+            *zelf.post_handshake_auth.read()
         }
 
         #[pygetset(setter)]
-        fn set_post_handshake_auth(&self, value: bool) {
-            *self.post_handshake_auth.write() = value;
+        fn set_post_handshake_auth(zelf: &Py<Self>, value: bool) {
+            *zelf.post_handshake_auth.write() = value;
         }
 
         #[pygetset]
-        fn num_tickets(&self) -> i32 {
-            *self.num_tickets.read()
+        fn num_tickets(zelf: &Py<Self>) -> i32 {
+            *zelf.num_tickets.read()
         }
 
         #[pygetset(setter)]
-        fn set_num_tickets(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_num_tickets(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             if value < 0 {
                 return Err(vm.new_value_error("num_tickets must be a non-negative integer"));
             }
-            if self.protocol != PROTOCOL_TLS_SERVER {
+            if zelf.protocol != PROTOCOL_TLS_SERVER {
                 return Err(
                     vm.new_value_error("num_tickets can only be set on server-side contexts")
                 );
             }
-            *self.num_tickets.write() = value;
+            *zelf.num_tickets.write() = value;
             Ok(())
         }
 
         #[pygetset]
-        fn options(&self) -> i32 {
-            *self.options.read()
+        fn options(zelf: &Py<Self>) -> i32 {
+            *zelf.options.read()
         }
 
         #[pygetset(setter)]
-        fn set_options(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_options(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             if value < 0 {
                 return Err(vm.new_value_error("options must be non-negative"));
             }
@@ -313,7 +313,7 @@ mod _ssl {
                 | OP_NO_TLSv1_1
                 | OP_NO_TLSv1_2
                 | OP_NO_TLSv1_3;
-            let old_opts = *self.options.read();
+            let old_opts = *zelf.options.read();
             let set = !old_opts & value;
             if (set & opt_no) != 0 {
                 _warnings::warn(
@@ -323,18 +323,18 @@ mod _ssl {
                     vm,
                 )?;
             }
-            *self.options.write() = value;
+            *zelf.options.write() = value;
             Ok(())
         }
 
         #[pygetset]
-        fn minimum_version(&self) -> i32 {
-            let v = *self.minimum_version.read();
+        fn minimum_version(zelf: &Py<Self>) -> i32 {
+            let v = *zelf.minimum_version.read();
             if v == 0 { PROTO_MINIMUM_SUPPORTED } else { v }
         }
 
         #[pygetset(setter)]
-        fn set_minimum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_minimum_version(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             if value != 0
                 && value != -2
                 && value != -1
@@ -342,18 +342,18 @@ mod _ssl {
             {
                 return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
             }
-            *self.minimum_version.write() = value;
+            *zelf.minimum_version.write() = value;
             Ok(())
         }
 
         #[pygetset]
-        fn maximum_version(&self) -> i32 {
-            let v = *self.maximum_version.read();
+        fn maximum_version(zelf: &Py<Self>) -> i32 {
+            let v = *zelf.maximum_version.read();
             if v == 0 { PROTO_MAXIMUM_SUPPORTED } else { v }
         }
 
         #[pygetset(setter)]
-        fn set_maximum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_maximum_version(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             if value != 0
                 && value != -2
                 && value != -1
@@ -361,18 +361,18 @@ mod _ssl {
             {
                 return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
             }
-            *self.maximum_version.write() = value;
+            *zelf.maximum_version.write() = value;
             Ok(())
         }
 
         #[pygetset]
-        fn sni_callback(&self) -> Option<PyObjectRef> {
-            self.sni_callback.read().clone()
+        fn sni_callback(zelf: &Py<Self>) -> Option<PyObjectRef> {
+            zelf.sni_callback.read().clone()
         }
 
         #[pygetset(setter)]
         fn set_sni_callback(
-            &self,
+            zelf: &Py<Self>,
             callback: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -382,32 +382,32 @@ mod _ssl {
             {
                 return Err(vm.new_type_error("sni_callback must be callable or None"));
             }
-            *self.sni_callback.write() = callback;
+            *zelf.sni_callback.write() = callback;
             Ok(())
         }
 
         #[pymethod]
         fn set_servername_callback(
-            &self,
+            zelf: &Py<Self>,
             callback: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            self.set_sni_callback(callback, vm)
+            Self::set_sni_callback(zelf, callback, vm)
         }
 
         #[pygetset]
-        fn security_level(&self) -> i32 {
+        fn security_level(_zelf: &Py<Self>) -> i32 {
             2
         }
 
         #[pygetset]
-        fn _msg_callback(&self) -> Option<PyObjectRef> {
-            self.msg_callback.read().clone()
+        fn _msg_callback(zelf: &Py<Self>) -> Option<PyObjectRef> {
+            zelf.msg_callback.read().clone()
         }
 
         #[pygetset(setter)]
         fn set__msg_callback(
-            &self,
+            zelf: &Py<Self>,
             callback: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -417,49 +417,57 @@ mod _ssl {
             {
                 return Err(vm.new_type_error("msg_callback must be callable or None"));
             }
-            *self.msg_callback.write() = callback;
+            *zelf.msg_callback.write() = callback;
             Ok(())
         }
 
         #[pygetset]
-        fn keylog_filename(&self) -> Option<PyObjectRef> {
-            self.keylog_filename.read().clone()
+        fn keylog_filename(zelf: &Py<Self>) -> Option<PyObjectRef> {
+            zelf.keylog_filename.read().clone()
         }
 
         #[pygetset(setter)]
-        fn set_keylog_filename(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_keylog_filename(
+            zelf: &Py<Self>,
+            value: PySetterValue,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let PySetterValue::Assign(value) = value else {
                 return Err(vm.new_attribute_error("attribute 'keylog_filename' cannot be deleted"));
             };
             if vm.is_none(&value) {
-                *self.keylog_filename.write() = None;
+                *zelf.keylog_filename.write() = None;
                 return Ok(());
             }
-            *self.keylog_filename.write() = Some(value);
+            *zelf.keylog_filename.write() = Some(value);
             Ok(())
         }
 
         #[pymethod]
-        fn _set_alpn_protocols(&self, protos: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+        fn _set_alpn_protocols(
+            zelf: &Py<Self>,
+            protos: ArgBytesLike,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let bytes = protos.borrow_buf();
             let alpn_list = parse_length_prefixed_alpn(&bytes, vm)?;
-            *self.alpn_protocols.write() = alpn_list;
+            *zelf.alpn_protocols.write() = alpn_list;
             Ok(())
         }
 
         #[pymethod]
-        fn set_default_verify_paths(&self, _vm: &VirtualMachine) -> PyResult<()> {
+        fn set_default_verify_paths(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
 
         #[pymethod]
-        fn load_default_certs(&self, _vm: &VirtualMachine) -> PyResult<()> {
+        fn load_default_certs(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
 
         #[pymethod]
         fn load_verify_locations(
-            &self,
+            _zelf: &Py<Self>,
             args: LoadVerifyLocationsArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -473,38 +481,54 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn load_cert_chain(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn load_cert_chain(_zelf: &Py<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             ssl_error(vm, UNAVAILABLE)
         }
 
         #[pymethod]
-        fn set_ciphers(&self, _ciphers: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_ciphers(
+            _zelf: &Py<Self>,
+            _ciphers: PyUtf8StrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             ssl_error(vm, UNAVAILABLE)
         }
 
         #[pymethod]
-        fn set_ecdh_curve(&self, _name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_ecdh_curve(
+            _zelf: &Py<Self>,
+            _name: PyUtf8StrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             ssl_error(vm, UNAVAILABLE)
         }
 
         #[pymethod]
-        fn load_dh_params(&self, _filepath: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn load_dh_params(
+            _zelf: &Py<Self>,
+            _filepath: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             ssl_error(vm, UNAVAILABLE)
         }
 
         #[pymethod]
-        fn get_ciphers(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn get_ciphers(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             Ok(vm.ctx.new_list(Vec::new()).into())
         }
 
         #[pymethod]
-        fn get_ca_certs(&self, args: GetCertArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn get_ca_certs(
+            _zelf: &Py<Self>,
+            args: GetCertArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
             let _ = args.binary_form;
             Ok(vm.ctx.new_list(Vec::new()).into())
         }
 
         #[pymethod]
-        fn cert_store_stats(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn cert_store_stats(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let dict = vm.ctx.new_dict();
             dict.set_item("x509", vm.ctx.new_int(0).into(), vm)?;
             dict.set_item("crl", vm.ctx.new_int(0).into(), vm)?;
@@ -513,7 +537,7 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn session_stats(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn session_stats(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let dict = vm.ctx.new_dict();
             dict.set_item("number", vm.ctx.new_int(0).into(), vm)?;
             dict.set_item("connect", vm.ctx.new_int(0).into(), vm)?;
@@ -530,22 +554,30 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn _wrap_socket(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn _wrap_socket(
+            _zelf: &Py<Self>,
+            _args: FuncArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
             ssl_error(vm, UNAVAILABLE)
         }
 
         #[pymethod]
-        fn _wrap_bio(&self, args: WrapBioArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn _wrap_bio(
+            zelf: &Py<Self>,
+            args: WrapBioArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
             if let Some(hostname) = args.server_hostname {
                 validate_hostname(hostname.as_str(), vm)?;
             }
-            if args.server_side.unwrap_or(false) && self.protocol == PROTOCOL_TLS_CLIENT {
+            if args.server_side.unwrap_or(false) && zelf.protocol == PROTOCOL_TLS_CLIENT {
                 return ssl_error(
                     vm,
                     "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context",
                 );
             }
-            if !args.server_side.unwrap_or(false) && self.protocol == PROTOCOL_TLS_SERVER {
+            if !args.server_side.unwrap_or(false) && zelf.protocol == PROTOCOL_TLS_SERVER {
                 return ssl_error(
                     vm,
                     "Cannot create a client socket with a PROTOCOL_TLS_SERVER context",
@@ -674,8 +706,12 @@ mod _ssl {
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl PyMemoryBIO {
         #[pymethod]
-        fn read(&self, len: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            let mut bio = self.inner.lock();
+        fn read(
+            zelf: &Py<Self>,
+            len: OptionalArg<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyBytesRef> {
+            let mut bio = zelf.inner.lock();
             let read_len = match len {
                 OptionalArg::Present(n) if n >= 0 => n as usize,
                 OptionalArg::Present(_) | OptionalArg::Missing => bio.pending(),
@@ -684,7 +720,7 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn write(&self, buf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(zelf: &Py<Self>, buf: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
             if let Ok(mem_view) = buf.get_attr("c_contiguous", vm) {
                 let is_contiguous: bool = mem_view.try_to_bool(vm)?;
                 if !is_contiguous {
@@ -693,7 +729,7 @@ mod _ssl {
             }
             let bytes_like = ArgBytesLike::try_from_object(vm, buf)?;
             let data = bytes_like.borrow_buf();
-            self.inner.lock().write(&data).map_err(|err| {
+            zelf.inner.lock().write(&data).map_err(|err| {
                 vm.new_os_subtype_error(
                     PySSLError::class(&vm.ctx).to_owned(),
                     None,
@@ -704,18 +740,18 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn write_eof(&self, _vm: &VirtualMachine) {
-            self.inner.lock().write_eof();
+        fn write_eof(zelf: &Py<Self>, _vm: &VirtualMachine) {
+            zelf.inner.lock().write_eof();
         }
 
         #[pygetset]
-        fn pending(&self) -> i32 {
-            self.inner.lock().pending() as i32
+        fn pending(zelf: &Py<Self>) -> i32 {
+            zelf.inner.lock().pending() as i32
         }
 
         #[pygetset]
-        fn eof(&self) -> bool {
-            self.inner.lock().eof()
+        fn eof(zelf: &Py<Self>) -> bool {
+            zelf.inner.lock().eof()
         }
     }
 
@@ -748,28 +784,28 @@ mod _ssl {
     #[pyclass(flags(BASETYPE), with(Comparable, Representable))]
     impl PySSLSession {
         #[pygetset]
-        fn time(&self) -> i64 {
+        fn time(_zelf: &Py<Self>) -> i64 {
             0
         }
 
         #[pygetset]
-        fn timeout(&self) -> i64 {
-            self.lifetime as i64
+        fn timeout(zelf: &Py<Self>) -> i64 {
+            zelf.lifetime as i64
         }
 
         #[pygetset]
-        fn ticket_lifetime_hint(&self) -> i64 {
-            self.lifetime as i64
+        fn ticket_lifetime_hint(zelf: &Py<Self>) -> i64 {
+            zelf.lifetime as i64
         }
 
         #[pygetset]
-        fn id(&self, vm: &VirtualMachine) -> PyBytesRef {
-            vm.ctx.new_bytes(self.session_id.clone())
+        fn id(zelf: &Py<Self>, vm: &VirtualMachine) -> PyBytesRef {
+            vm.ctx.new_bytes(zelf.session_id.clone())
         }
 
         #[pygetset]
-        fn has_ticket(&self) -> bool {
-            self.has_ticket
+        fn has_ticket(zelf: &Py<Self>) -> bool {
+            zelf.has_ticket
         }
     }
 

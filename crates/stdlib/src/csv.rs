@@ -100,43 +100,43 @@ mod _csv {
     #[pyclass(with(Constructor))]
     impl PyDialect {
         #[pygetset]
-        fn delimiter(&self, vm: &VirtualMachine) -> PyRef<PyStr> {
-            vm.ctx.new_str(format!("{}", self.delimiter as char))
+        fn delimiter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyStr> {
+            vm.ctx.new_str(format!("{}", zelf.delimiter as char))
         }
 
         #[pygetset]
-        fn quotechar(&self, vm: &VirtualMachine) -> Option<PyRef<PyStr>> {
-            Some(vm.ctx.new_str(format!("{}", self.quotechar? as char)))
+        fn quotechar(zelf: &Py<Self>, vm: &VirtualMachine) -> Option<PyRef<PyStr>> {
+            Some(vm.ctx.new_str(format!("{}", zelf.quotechar? as char)))
         }
 
         #[pygetset]
-        const fn doublequote(&self) -> bool {
-            self.doublequote
+        fn doublequote(zelf: &Py<Self>) -> bool {
+            zelf.doublequote
         }
 
         #[pygetset]
-        const fn skipinitialspace(&self) -> bool {
-            self.skipinitialspace
+        fn skipinitialspace(zelf: &Py<Self>) -> bool {
+            zelf.skipinitialspace
         }
 
         #[pygetset]
-        fn lineterminator(&self, vm: &VirtualMachine) -> PyRef<PyStr> {
-            vm.ctx.new_str(self.lineterminator.clone())
+        fn lineterminator(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyStr> {
+            vm.ctx.new_str(zelf.lineterminator.clone())
         }
 
         #[pygetset]
-        fn quoting(&self) -> isize {
-            self.quoting.into()
+        fn quoting(zelf: &Py<Self>) -> isize {
+            zelf.quoting.into()
         }
 
         #[pygetset]
-        fn escapechar(&self, vm: &VirtualMachine) -> Option<PyRef<PyStr>> {
-            Some(vm.ctx.new_str(format!("{}", self.escapechar? as char)))
+        fn escapechar(zelf: &Py<Self>, vm: &VirtualMachine) -> Option<PyRef<PyStr>> {
+            Some(vm.ctx.new_str(format!("{}", zelf.escapechar? as char)))
         }
 
         #[pygetset(name = "strict")]
-        const fn get_strict(&self) -> bool {
-            self.strict
+        fn get_strict(zelf: &Py<Self>) -> bool {
+            zelf.strict
         }
     }
 
@@ -831,13 +831,13 @@ mod _csv {
     #[pyclass(with(IterNext, Iterable), flags(DISALLOW_INSTANTIATION))]
     impl Reader {
         #[pygetset]
-        fn line_num(&self) -> u64 {
-            self.state.lock().line_num
+        fn line_num(zelf: &Py<Self>) -> u64 {
+            zelf.state.lock().line_num
         }
 
         #[pygetset]
-        fn dialect(&self, _vm: &VirtualMachine) -> PyDialect {
-            self.dialect.clone()
+        fn dialect(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyDialect {
+            zelf.dialect.clone()
         }
     }
 
@@ -1267,13 +1267,13 @@ mod _csv {
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl Writer {
         #[pygetset(name = "dialect")]
-        fn get_dialect(&self, _vm: &VirtualMachine) -> PyDialect {
-            self.dialect.clone()
+        fn get_dialect(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyDialect {
+            zelf.dialect.clone()
         }
 
         #[pymethod]
-        fn writerow(&self, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let _state = self.state.lock();
+        fn writerow(zelf: &Py<Self>, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let _state = zelf.state.lock();
             let row: ArgIterable =
                 ArgIterable::try_from_object(vm, row.to_owned()).map_err(|_e| {
                     new_csv_error(
@@ -1287,7 +1287,7 @@ mod _csv {
 
             for (index, field) in fields.into_iter().enumerate() {
                 if index > 0 {
-                    output.push(self.dialect.delimiter);
+                    output.push(zelf.dialect.delimiter);
                 }
 
                 let stringified;
@@ -1302,10 +1302,10 @@ mod _csv {
 
                 if single_field
                     && data.is_empty()
-                    && (self.dialect.quoting == QuoteStyle::None
+                    && (zelf.dialect.quoting == QuoteStyle::None
                         || (is_none
                             && matches!(
-                                self.dialect.quoting,
+                                zelf.dialect.quoting,
                                 QuoteStyle::Strings | QuoteStyle::Notnull
                             )))
                 {
@@ -1316,12 +1316,12 @@ mod _csv {
                 }
 
                 if data.is_empty()
-                    && self.dialect.delimiter == b' '
-                    && self.dialect.skipinitialspace
-                    && (self.dialect.quoting == QuoteStyle::None
+                    && zelf.dialect.delimiter == b' '
+                    && zelf.dialect.skipinitialspace
+                    && (zelf.dialect.quoting == QuoteStyle::None
                         || (is_none
                             && matches!(
-                                self.dialect.quoting,
+                                zelf.dialect.quoting,
                                 QuoteStyle::Strings | QuoteStyle::Notnull
                             )))
                 {
@@ -1331,7 +1331,7 @@ mod _csv {
                     ));
                 }
 
-                let mut should_quote = match self.dialect.quoting {
+                let mut should_quote = match zelf.dialect.quoting {
                     QuoteStyle::All => true,
                     QuoteStyle::Nonnumeric => !PyNumber::check(&field),
                     QuoteStyle::Strings => is_str,
@@ -1339,33 +1339,33 @@ mod _csv {
                     QuoteStyle::Minimal | QuoteStyle::None => false,
                 };
 
-                if self.dialect.quoting != QuoteStyle::None
+                if zelf.dialect.quoting != QuoteStyle::None
                     && ((data.is_empty()
-                        && self.dialect.delimiter == b' '
-                        && self.dialect.skipinitialspace)
+                        && zelf.dialect.delimiter == b' '
+                        && zelf.dialect.skipinitialspace)
                         || (single_field && data.is_empty())
-                        || (!should_quote && field_needs_quotes(data, &self.dialect)))
+                        || (!should_quote && field_needs_quotes(data, &zelf.dialect)))
                 {
                     should_quote = true;
                 }
 
                 if should_quote {
-                    write_quoted_field(&mut output, data, &self.dialect, vm)?;
+                    write_quoted_field(&mut output, data, &zelf.dialect, vm)?;
                 } else {
-                    write_unquoted_field(&mut output, data, &self.dialect, vm)?;
+                    write_unquoted_field(&mut output, data, &zelf.dialect, vm)?;
                 }
             }
 
-            write_lineterminator(&mut output, &self.dialect.lineterminator);
+            write_lineterminator(&mut output, &zelf.dialect.lineterminator);
             let s =
                 core::str::from_utf8(&output).map_err(|e| new_not_utf8_error(vm, &output, e))?;
-            self.write.call((s,), vm)
+            zelf.write.call((s,), vm)
         }
 
         #[pymethod]
-        fn writerows(&self, rows: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
+        fn writerows(zelf: &Py<Self>, rows: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
             for row in rows.iter(vm)? {
-                self.writerow(row?, vm)?;
+                Self::writerow(zelf, row?, vm)?;
             }
             Ok(())
         }
